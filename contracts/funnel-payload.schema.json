@@ -1,0 +1,126 @@
+{
+  "$defs": {
+    "ExtractKind": {
+      "description": "What a manifest extract block is allowed to produce.",
+      "enum": [
+        "product_prices",
+        "commodity_price",
+        "enrichment"
+      ],
+      "title": "ExtractKind",
+      "type": "string"
+    },
+    "FunnelChunk": {
+      "additionalProperties": false,
+      "description": "Position of one chunk inside a chunked batch (1-based).",
+      "properties": {
+        "index": {
+          "minimum": 1,
+          "title": "Index",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 1,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "total"
+      ],
+      "title": "FunnelChunk",
+      "type": "object"
+    },
+    "PayloadClient": {
+      "description": "Which producer emitted a funnel payload (T8: both speak ONE contract).",
+      "enum": [
+        "cli",
+        "extension"
+      ],
+      "title": "PayloadClient",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Version 1. One contract for CLI + extension producers and the Apps Script consumer. See scraper/ENGINEERING.md T8.",
+  "properties": {
+    "payload_version": {
+      "title": "Payload Version",
+      "type": "integer"
+    },
+    "source_key": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Source Key",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/ExtractKind"
+    },
+    "client": {
+      "$ref": "#/$defs/PayloadClient"
+    },
+    "scraped_at": {
+      "title": "Scraped At",
+      "type": "string"
+    },
+    "source_url": {
+      "minLength": 1,
+      "title": "Source Url",
+      "type": "string"
+    },
+    "header": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Header",
+      "type": "array"
+    },
+    "rows": {
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Rows",
+      "type": "array"
+    },
+    "chunk": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FunnelChunk"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Ref"
+    }
+  },
+  "required": [
+    "payload_version",
+    "source_key",
+    "kind",
+    "client",
+    "scraped_at",
+    "source_url",
+    "header",
+    "rows"
+  ],
+  "title": "ScrapeX funnel payload",
+  "type": "object"
+}

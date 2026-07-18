@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ source_key }} — ScrapeX{% endblock %}
+{% block content %}
+<p class="muted" style="margin:0 0 .4rem"><a href="/">← كل المصادر</a></p>
+
+{% if summary is none %}
+  <div class="empty">لا توجد بيانات للمصدر <code>{{ source_key }}</code> بعد.</div>
+{% else %}
+  <h1>{{ summary.source_name }} <span class="key" style="font-size:.8rem">{{ summary.source_key }}</span></h1>
+  <div class="metrics">
+    <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">منتج</div></div>
+    <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">حالة</div></div>
+    <div class="metric"><div class="n">{{ "{:,}".format(summary.observations) }}</div><div class="l">مشاهدة سعر</div></div>
+    <div class="metric"><div class="n">{{ summary.matched_variants }}</div><div class="l">مطابَق (موحّد)</div></div>
+  </div>
+
+  <form class="filters" method="get" action="/source/{{ source_key }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="ابحث في اسم المنتج…">
+    <select name="availability">
+      <option value="">كل التوفّر</option>
+      {% for opt in availability_options %}
+        <option value="{{ opt }}" {% if opt==availability %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">تصفية</button>
+  </form>
+
+  {% if page_data.total == 0 %}
+    <div class="empty">لا نتائج مطابقة.</div>
+  {% else %}
+    <p class="muted" style="font-size:.85rem">
+      {{ "{:,}".format(page_data.total) }} نتيجة — أحدث سعر لكل حالة.
+    </p>
+    <table>
+      <thead><tr>
+        <th>المنتج</th><th>الحالة</th><th>SKU</th><th>السعر</th>
+        <th>التوفّر</th><th>الضريبة</th><th>التاريخ</th><th>الانتقاء</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in page_data.rows %}
+        <tr>
+          <td>{{ r.name or "—" }}</td>
+          <td class="muted">{{ r.option_label or "—" }}</td>
+          <td class="num muted">{{ r.sku or "—" }}</td>
+          <td>
+            <span class="price">{{ "%g"|format(r.effective_price) }} {{ r.currency }}</span>
+            {% if r.sale_price is not none and r.regular_price and r.regular_price != r.effective_price %}
+              <span class="strike">{{ "%g"|format(r.regular_price) }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.availability == "in_stock" %}<span class="badge ok">متوفر</span>
+            {% elif r.availability == "out_of_stock" %}<span class="badge off">نفد</span>
+            {% else %}<span class="badge">?</span>{% endif %}
+          </td>
+          <td class="muted">{{ "شامل" if r.vat_included else "غير شامل" }}</td>
+          <td class="num muted">{{ r.business_date }}</td>
+          <td><span class="chip">{{ r.curation_status }}</span></td>
+          <td>{% if r.product_url %}<a href="{{ r.product_url }}" target="_blank" rel="noopener">↗</a>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% set base = "/source/" ~ source_key ~ "?q=" ~ q ~ "&availability=" ~ availability %}
+    <div class="pager">
+      {% if page_data.has_prev %}<a href="{{ base }}&page={{ page-1 }}">← السابق</a>
+      {% else %}<span class="disabled">← السابق</span>{% endif %}
+      <span class="muted">صفحة {{ page }}</span>
+      {% if page_data.has_next %}<a href="{{ base }}&page={{ page+1 }}">التالي →</a>
+      {% else %}<span class="disabled">التالي →</span>{% endif %}
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "ScrapeX Harvester",
+  "version": "0.1.0",
+  "description": "Capture prices from the page you're on into your local ScrapeX warehouse, and browse it.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ScrapeX Harvester"
+  },
+  "permissions": ["activeTab", "tabs", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"]
+}

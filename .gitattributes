@@ -1,0 +1,7 @@
+# Normalize line endings in the repo (LF), check out native. Keeps diffs clean
+# across Windows/Linux (CI runs on Linux, you develop on Windows).
+* text=auto
+
+*.xlsx binary
+*.png binary
+*.pfx binary

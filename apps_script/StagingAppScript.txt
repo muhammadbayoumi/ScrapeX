@@ -1,0 +1,104 @@
+/* ============================================================================
+ * ScrapeX — Staging Funnel (Apps Script, bound to the "ScrapeX Staging" sheet)
+ * ----------------------------------------------------------------------------
+ * ENGINEERING.md S1: "GAS stays dumb."
+ *   - doPost = token check + append ONE chunk row + ack. Zero parsing, zero
+ *     reassembly (reassembly happens in Python at ingest, where it's testable).
+ *   - LockService around every append (30 concurrent-execution safety).
+ *   - Chunks arrive <= 40,000 chars (client-enforced), safely under the 50,000
+ *     char per-cell limit.
+ *   - Total logic deliberately tiny; its test suite is the shared payload
+ *     contract fixtures (T8) — see scraper/contracts/.
+ *
+ * COMPLETELY SEPARATE from the license/telemetry script: different script,
+ * different spreadsheet, different token — zero LockService contention with
+ * the engineers' license checks.
+ *
+ * ONE-TIME SETUP (owner):
+ *   1. Create the "ScrapeX Staging" spreadsheet.
+ *   2. Extensions -> Apps Script -> paste this file.
+ *   3. Project Settings -> Script Properties -> add FUNNEL_TOKEN = <long random>.
+ *      Generate one, e.g. in PowerShell:
+ *      -join ((48..57)+(97..122) | Get-Random -Count 48 | % {[char]$_})
+ *   4. Deploy -> New deployment -> Web app -> Execute as: Me,
+ *      Who has access: Anyone. Copy the /exec URL.
+ *   5. Locally: set SCRAPEX_FUNNEL_URL + SCRAPEX_FUNNEL_TOKEN, run: scrapex funnel-test
+ * ========================================================================== */
+
+const INBOX_SHEET = "_INBOX";
+const RUNS_SHEET = "_RUNS";
+
+const INBOX_HEADER = [
+  "received_at", "source_key", "payload_version", "chunk_index", "chunk_total",
+  "client", "scraped_at", "run_ref", "payload_json",
+];
+const RUNS_HEADER = [
+  "received_at", "source_key", "client", "level", "message",
+];
+
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return jsonReply({ ok: false, error: "busy" });
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return jsonReply({ ok: false, error: "empty request" });
+    }
+    const request = JSON.parse(e.postData.contents);
+    const expected = PropertiesService.getScriptProperties().getProperty("FUNNEL_TOKEN");
+    if (!expected || request.token !== expected) {
+      return jsonReply({ ok: false, error: "unauthorized" });
+    }
+
+    if (request.action === "staging_chunk") return handleChunk(request.payload);
+    if (request.action === "run_log") return handleRunLog(request);
+    return jsonReply({ ok: false, error: "unknown action: " + request.action });
+  } catch (error) {
+    return jsonReply({ ok: false, error: String(error && error.message || error) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* Append one chunk row to _INBOX. Dumb by design: the payload cell is stored
+ * verbatim; Python validates and reassembles at ingest. */
+function handleChunk(payload) {
+  if (!payload || !payload.source_key) return jsonReply({ ok: false, error: "missing payload" });
+  const sheet = ensureSheet(INBOX_SHEET, INBOX_HEADER);
+  const chunk = payload.chunk || { index: 1, total: 1 };
+  sheet.appendRow([
+    new Date(), payload.source_key, payload.payload_version, chunk.index, chunk.total,
+    payload.client, payload.scraped_at, payload.run_ref || "", JSON.stringify(payload),
+  ]);
+  return jsonReply({ ok: true });
+}
+
+/* Append one log/alert row to _RUNS (producers report run outcomes here). */
+function handleRunLog(request) {
+  const sheet = ensureSheet(RUNS_SHEET, RUNS_HEADER);
+  sheet.appendRow([
+    new Date(), request.source_key || "", request.client || "",
+    request.level || "info", request.message || "",
+  ]);
+  return jsonReply({ ok: true });
+}
+
+function ensureSheet(name, header) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(header);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function jsonReply(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/* Health check: open the /exec URL in a browser. */
+function doGet() {
+  return ContentService.createTextOutput("ScrapeX staging funnel operational");
+}

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scrapex"
+version = "0.1.0"
+description = "ScrapeX ecosystem: contract-driven web data collection into a SQLite price-tracking warehouse"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+    "tenacity>=8.3",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.2",
+]
+
+[project.optional-dependencies]
+# Owner decision: Playwright is day-one infrastructure (ENGINEERING.md A3 carve-out).
+# Installed on demand: pip install -e .[browser] && playwright install chromium
+browser = ["playwright>=1.44"]
+# Local browse/curation UI (runs only on the owner's machine, A10). On demand:
+# pip install -e .[ui]  ->  scrapex ui
+ui = ["fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3.1"]
+# Google Drive + Sheets integration (Sign in with Google / OAuth). Owner machine only.
+google = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.2", "google-auth>=2.30"]
+# Fully-local export to an .xlsx workbook (no Google needed).
+local = ["openpyxl>=3.1"]
+dev = ["pytest>=8.2", "fastapi>=0.110", "jinja2>=3.1", "httpx>=0.27", "openpyxl>=3.1"]
+
+[project.scripts]
+scrapex = "scrapex.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["scrapex*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

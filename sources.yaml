@@ -1,0 +1,196 @@
+# ============================================================================
+# ScrapeX Manifest — the extraction CONTRACT for every source.
+# Owner principle: "له أساس ليس جمعاً عشوائياً" — nothing is collected that is
+# not declared here; the ingest scope guard rejects out-of-contract rows.
+#
+# All sources start active: false. Each is activated ONLY when its connector
+# lands with tests (ENGINEERING.md T1/T2) and the owner flips the flag.
+# Validation: scrapex validate-manifest (same check runs in CI — S5).
+# ============================================================================
+
+sources:
+  # ---- probed 2026-07-16: Magento 2 + Hyvä; GraphQL open; SSR fallback ----
+  - source_key: MADAR
+    source_name: المدار
+    base_url: https://www.madar.com
+    family: magento-graphql
+    cadence: daily
+    authority: shop
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census          # first crawl is a full census; owner will replace
+                               # with targeted categories after apply-decisions
+    min_expected_rows: 50
+    max_drop_pct: 50
+    notes: >
+      Stores en_SA + ar_SA (ar gives Arabic names free). GraphQL prices are
+      VAT-EXCLUSIVE; display multiplies by 1.15. Business-segment prices and
+      per-branch availability need a session (extension capture, Phase 4).
+
+  # ---- probed: Salla; SSR + JSON-LD; numeric /p{ID} ids. This is "السويد" ----
+  - source_key: ALSWEED
+    source_name: السويد
+    base_url: https://alsweed.sa
+    family: salla-html
+    cadence: daily
+    authority: shop
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census
+    min_expected_rows: 50
+    max_drop_pct: 50
+    notes: >
+      Variant-priced products expose offers.price=0 in JSON-LD — variant prices
+      need the Salla options XHR or an extension capture. Crawl canonical slug
+      URLs from the ar sitemap (short /-/p{id} URLs redirect-loop).
+
+  - source_key: ELBUROJ
+    source_name: البروج
+    base_url: https://elburoj.com
+    family: salla-html
+    cadence: daily
+    authority: shop
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census
+    min_expected_rows: 20
+    max_drop_pct: 50
+    notes: robots crawl-delay 10s — honored by the politeness budget (F5).
+
+  # ---- probed: Zid platform; SSR + JSON-LD; UUID ids; needs browser UA ----
+  - source_key: ADVANCEDCASTLE
+    source_name: القلعة المتقدمة
+    base_url: https://advancedcastle.com
+    family: zid-html
+    cadence: daily
+    authority: shop
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census
+    min_expected_rows: 20
+    max_drop_pct: 50
+    notes: 403 for non-browser user agents — connector sends a Chrome UA.
+
+  # ---- probed: Shopify; products.json OPEN ----
+  - source_key: ELSEWEDYSHOP
+    source_name: السويدي شوب
+    base_url: https://elsewedyshop.com
+    family: shopify-json
+    cadence: daily
+    authority: shop
+    active: false
+    currency: EGP
+    default_region: EG
+    vat_mode: incl
+    extract:
+      - kind: product_prices
+        scope: census
+    min_expected_rows: 50
+    max_drop_pct: 50
+    notes: products.json + collections.json open; updated_at drives change detection.
+
+  # ---- probed: SAP Hybris OCC v2 REST open; real EAN/GTIN ----
+  - source_key: MASDAR
+    source_name: مصدر
+    base_url: https://www.masdaronline.com
+    family: hybris-occ
+    cadence: daily
+    authority: shop
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census
+    min_expected_rows: 200
+    max_drop_pct: 50
+    notes: >
+      ~1310 SKUs via api.masdaronline.com/rest/v2. VAT trap: JSON-LD price is
+      VAT-exclusive while priceWithTax is inclusive — record both explicitly.
+
+  # ---- probed: custom Next.js shop with open unauthenticated JSON API ----
+  - source_key: SIKAEGSHOP
+    source_name: سيكا مصر شوب
+    base_url: https://www.sikaegshop.com
+    family: custom-json-api
+    cadence: daily
+    authority: shop
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census
+    min_expected_rows: 30
+    max_drop_pct: 50
+    notes: >
+      /api/products (87 products, ar/en names). price vs specail_price vs
+      flash_sale semantics need ONE manual owner verification before activation.
+
+  # ---- probed: WooCommerce Store API open, variations included ----
+  - source_key: SAMEHGABRIEL
+    source_name: سامح جبرائيل
+    base_url: https://samehgabriel.com
+    family: woocommerce-storeapi
+    cadence: daily
+    authority: shop
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census
+    # Split-brain domain (homepage serves advancedcastle content) — the volume
+    # canary IS the migration watch: any big drop fails the run loudly.
+    min_expected_rows: 10
+    max_drop_pct: 30
+    notes: possible mid-migration to Zid; canary thresholds deliberately tight.
+
+  # ---- probed: data publisher; LATEST PRICE ONLY (owner license decision) ----
+  - source_key: GPP_ENERGY
+    source_name: أسعار الطاقة العالمية
+    base_url: https://www.globalpetrolprices.com
+    family: static-html-table
+    cadence: weekly
+    authority: aggregator
+    active: false
+    extract:
+      - kind: commodity_price
+        scope: latest_only     # owner decision: latest published price only,
+                               # never the paid historical series (tested, T6)
+        materials: [DIESEL, GASOLINE, LPG, ELECTRICITY, NATURAL_GAS]
+        regions: ["*"]
+    min_expected_rows: 150     # ~180 countries per fuel page; a big drop = layout change
+    max_drop_pct: 20
+    notes: >
+      5 weekly list pages cover ~180 countries x 5 energy types. Positional
+      parsing MUST assert len(labels)==len(values) (Q4). History accumulates
+      from OUR weekly observations, never from their paid feed.
+
+  # ---- probed: Sika Egypt corporate (AEM) — enrichment only, no prices ----
+  - source_key: SIKA_EGYPT_DATASHEETS
+    source_name: سيكا مصر (نشرات فنية)
+    base_url: https://egy.sika.com
+    family: datasheet-enrichment
+    cadence: monthly
+    authority: official
+    active: false
+    extract:
+      - kind: enrichment
+        scope: targeted
+    notes: >
+      310 products + ~1050 TDS PDFs with stable DMS GUIDs; sitemap lastmod
+      drives incremental re-scrape. Feeds material_attribute_value only
+      (consumption rates for pricing breakdowns) — never price_observation.
+
+  # ---- NOT yet probed — placeholder; cannot be activated until probed (A3) ----
+  - source_key: ARAMCO_FUEL_SA
+    source_name: أرامكو السعودية
+    base_url: https://www.aramco.com
+    family: TBD-probe
+    cadence: monthly
+    authority: official
+    active: false
+    extract:
+      - kind: commodity_price
+        materials: [GASOLINE_91, GASOLINE_95, DIESEL, LPG]
+        regions: [SA]          # updates ONLY the Saudi fuel row — nothing else
+    notes: run `scrapex probe` first; official monthly fuel-price announcements.

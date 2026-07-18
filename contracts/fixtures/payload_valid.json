@@ -1,0 +1,15 @@
+{
+  "payload_version": 1,
+  "source_key": "MADAR",
+  "kind": "product_prices",
+  "client": "cli",
+  "scraped_at": "2026-07-16T10:00:00Z",
+  "source_url": "https://www.madar.com/graphql",
+  "header": ["external_product_id", "external_variant_id", "sku", "name", "price"],
+  "rows": [
+    ["4672", "4670", "120151248", "Fire Retardant Plywood - 12mm", "112.50"],
+    ["4672", "4671", "120151848", "Fire Retardant Plywood - 18mm", "168.78"]
+  ],
+  "chunk": null,
+  "run_ref": null
+}

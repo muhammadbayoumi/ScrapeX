@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ScrapeX{% endblock %}</title>
+  <style>
+    :root{
+      --bg:#f6f7f9; --surface:#fff; --line:#e4e7eb; --text:#1a1d21; --muted:#6b7280;
+      --accent:#1d9e75; --accent-weak:#e1f5ee; --amber:#b7791f; --amber-weak:#fdf6e3;
+      --red:#c0392b; --chip:#eef1f4; --shadow:0 1px 3px rgba(0,0,0,.06);
+    }
+    @media (prefers-color-scheme:dark){
+      :root{
+        --bg:#0f1216; --surface:#171b21; --line:#2a2f37; --text:#e6e9ee; --muted:#9aa4b2;
+        --accent:#3fcaa0; --accent-weak:#0f2b23; --amber:#e0b25a; --amber-weak:#2a2312;
+        --red:#e07a6f; --chip:#222831; --shadow:none;
+      }
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);
+      font-family:"Segoe UI",system-ui,-apple-system,"Noto Sans Arabic",sans-serif;line-height:1.5}
+    a{color:inherit;text-decoration:none}
+    .topbar{display:flex;align-items:baseline;gap:.6rem;padding:.85rem 1.2rem;
+      background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+    .brand{font-weight:600;font-size:1.15rem;color:var(--accent)}
+    .brand::before{content:"◆ "}
+    .topbar .sub{color:var(--muted);font-size:.85rem}
+    .wrap{max-width:1200px;margin:0 auto;padding:1.4rem 1.2rem}
+    h1{font-size:1.3rem;font-weight:600;margin:.2rem 0 1rem}
+    h2{font-size:1.05rem;font-weight:600;margin:1.4rem 0 .6rem}
+    .muted{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+      padding:1rem 1.1rem;box-shadow:var(--shadow);display:block;transition:border-color .15s}
+    a.card:hover{border-color:var(--accent)}
+    .card .name{font-weight:600;font-size:1.05rem}
+    .card .key{color:var(--muted);font-size:.78rem;direction:ltr;text-align:right}
+    .metrics{display:flex;gap:1.1rem;margin:.7rem 0 .5rem;flex-wrap:wrap}
+    .metric .n{font-size:1.35rem;font-weight:600;font-variant-numeric:tabular-nums}
+    .metric .l{font-size:.72rem;color:var(--muted)}
+    .chip{display:inline-block;background:var(--chip);border-radius:999px;
+      padding:.12rem .6rem;font-size:.74rem;color:var(--muted);direction:ltr}
+    .chip.accent{background:var(--accent-weak);color:var(--accent)}
+    .chip.amber{background:var(--amber-weak);color:var(--amber)}
+    .banner{background:var(--amber-weak);border:1px solid var(--line);border-radius:10px;
+      padding:.7rem .9rem;font-size:.86rem;color:var(--text);margin:.4rem 0 1.1rem}
+    table{width:100%;border-collapse:collapse;background:var(--surface);
+      border:1px solid var(--line);border-radius:12px;overflow:hidden}
+    th,td{padding:.6rem .7rem;border-bottom:1px solid var(--line);text-align:right;font-size:.9rem}
+    th{position:sticky;top:52px;background:var(--surface);color:var(--muted);
+      font-weight:500;font-size:.78rem;white-space:nowrap}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+    .price{font-variant-numeric:tabular-nums;font-weight:600;direction:ltr;display:inline-block}
+    .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
+    .num{direction:ltr;text-align:right;font-variant-numeric:tabular-nums}
+    .badge{font-size:.72rem;padding:.1rem .5rem;border-radius:6px}
+    .ok{background:var(--accent-weak);color:var(--accent)}
+    .off{background:var(--amber-weak);color:var(--amber)}
+    .filters{display:flex;gap:.6rem;flex-wrap:wrap;margin:.4rem 0 1rem}
+    input,select{font:inherit;padding:.45rem .7rem;border:1px solid var(--line);
+      border-radius:8px;background:var(--surface);color:var(--text)}
+    input[type=search]{min-width:240px}
+    button{font:inherit;padding:.45rem 1rem;border:1px solid var(--accent);background:var(--accent);
+      color:#fff;border-radius:8px;cursor:pointer}
+    .pager{display:flex;gap:.5rem;align-items:center;justify-content:center;margin:1.1rem 0}
+    .pager a,.pager span{padding:.4rem .8rem;border:1px solid var(--line);border-radius:8px}
+    .pager a:hover{border-color:var(--accent)}
+    .pager .disabled{opacity:.4}
+    .empty{text-align:center;color:var(--muted);padding:3rem 1rem}
+    code{direction:ltr;font-family:ui-monospace,monospace;background:var(--chip);
+      padding:.1rem .35rem;border-radius:5px;font-size:.85em}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand">ScrapeX</a>
+    <span class="sub">مستودع تتبّع الأسعار — تصفّح محلي</span>
+  </header>
+  <main class="wrap">{% block content %}{% endblock %}</main>
+</body>
+</html>

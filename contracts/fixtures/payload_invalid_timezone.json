@@ -1,0 +1,10 @@
+{
+  "payload_version": 1,
+  "source_key": "MADAR",
+  "kind": "product_prices",
+  "client": "cli",
+  "scraped_at": "2026-07-16T13:00:00+03:00",
+  "source_url": "https://www.madar.com/graphql",
+  "header": ["id"],
+  "rows": [["1"]]
+}

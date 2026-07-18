@@ -1,0 +1,51 @@
+{
+  "products": [
+    {
+      "id": 10157311557932,
+      "title": "LED Floodlight 400W IP65",
+      "handle": "led-floodlight-400w-ip65",
+      "vendor": "Elsewedy",
+      "product_type": "Lighting",
+      "options": [{ "name": "Color Temp", "position": 1 }],
+      "variants": [
+        {
+          "id": 52388706844972,
+          "title": "6500K",
+          "sku": "105003",
+          "price": "1200.00",
+          "compare_at_price": "1450.00",
+          "available": true,
+          "option1": "6500K"
+        },
+        {
+          "id": 52388706877740,
+          "title": "3000K",
+          "sku": "105004",
+          "price": "1180.00",
+          "compare_at_price": null,
+          "available": false,
+          "option1": "3000K"
+        }
+      ]
+    },
+    {
+      "id": 10157311600000,
+      "title": "Copper Wire 2.5mm",
+      "handle": "copper-wire-2-5mm",
+      "vendor": "Elsewedy",
+      "product_type": "Cable",
+      "options": [{ "name": "Title", "position": 1 }],
+      "variants": [
+        {
+          "id": 52388706900000,
+          "title": "Default Title",
+          "sku": "312890",
+          "price": "890.50",
+          "compare_at_price": null,
+          "available": true,
+          "option1": "Default Title"
+        }
+      ]
+    }
+  ]
+}

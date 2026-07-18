@@ -1,0 +1,42 @@
+name: Scrape (scheduled)
+
+# Cloud scraping with no machine on. Runs crawl -> ingest -> export and uploads
+# the .xlsx as a downloadable artifact — works with ZERO secrets.
+#
+# To also push into your Google Drive from CI (optional): store a Drive
+# credential in repo Secrets and add a `scrapex push` step (see README →
+# "GitHub Actions + Drive"). Headless Drive auth for CI is the next feature.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: source_key to scrape
+        default: ELSEWEDYSHOP
+        required: false
+  schedule:
+    - cron: "0 6 * * *"   # daily 06:00 UTC
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .[local]
+      - name: Crawl + ingest + export
+        run: |
+          SRC="${{ github.event.inputs.source || 'ELSEWEDYSHOP' }}"
+          python -m scrapex.cli init-db
+          python -m scrapex.cli crawl "$SRC"
+          python -m scrapex.cli ingest "$SRC"
+          python -m scrapex.cli export "$SRC" --folder out --workbook "ScrapeX Data"
+      - name: Upload the export
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrapex-export
+          path: out/*.xlsx
+          if-no-files-found: error

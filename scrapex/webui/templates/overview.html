@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}ScrapeX — المصادر{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem">
+  <h1 style="margin:0">المصادر</h1>
+  <a href="/manage"><button>+ إضافة / إدارة المصادر</button></a>
+</div>
+
+{% if not sources %}
+  <div class="empty">
+    لا توجد بيانات بعد.<br>
+    شغّل: <code>scrapex crawl ELSEWEDYSHOP</code> ثم <code>scrapex ingest ELSEWEDYSHOP</code>
+  </div>
+{% else %}
+  <div class="banner">
+    المستودع طبقتان: <b>مصدرية</b> (الخام كما سُحب) و<b>موحّدة</b> (تمتلئ بعد الانتقاء والمطابقة).
+    الأرقام أدناه تخص الطبقة المصدرية — الأسعار الموجودة فعلاً.
+  </div>
+  <div class="grid">
+    {% for s in sources %}
+    <a class="card" href="/source/{{ s.source_key }}">
+      <div class="name">{{ s.source_name }}</div>
+      <div class="key">{{ s.source_key }}</div>
+      <div class="metrics">
+        <div class="metric"><div class="n">{{ "{:,}".format(s.products) }}</div><div class="l">منتج</div></div>
+        <div class="metric"><div class="n">{{ "{:,}".format(s.variants) }}</div><div class="l">حالة</div></div>
+        <div class="metric"><div class="n">{{ "{:,}".format(s.observations) }}</div><div class="l">سعر</div></div>
+      </div>
+      {% if s.curation %}
+        {% for status, n in s.curation.items() %}<span class="chip">{{ n }} {{ status }}</span> {% endfor %}
+      {% endif %}
+      <div style="margin-top:.6rem">
+        <span class="chip accent">مطابَق: {{ s.matched_variants }}</span>
+        <span class="chip amber">منشور: {{ s.published_rows }}</span>
+      </div>
+      <div class="muted" style="font-size:.76rem;margin-top:.6rem">
+        آخر تشغيل: {{ s.last_run or "—" }}{% if s.last_status %} ({{ s.last_status }}){% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

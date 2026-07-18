@@ -1,0 +1,37 @@
+# ── Secrets & credentials — NEVER commit ───────────────────────────────
+client_secret.json
+token.json
+*.secret
+.env
+.env.*
+credentials/
+google/
+
+# ── Local data (the warehouse, exports, inbox live in ~/.scrapex) ──────
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.xlsx
+harvest.db*
+/out/
+
+# ── Python ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# ── OS / editors ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
