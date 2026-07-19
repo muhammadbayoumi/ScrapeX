@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import secrets
 import sqlite3
-from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from .ingest import _canon_amount
 from .payload import PAYLOAD_VERSION, FunnelPayload, utc_now_iso
 from .publish import publish_source
 from .reports import export_source_table
+from .settings import RunResult          # the one shape every run reports in
 from .vocab import ExtractKind, PayloadClient
 
 EXCEL = "excel"
@@ -46,19 +46,6 @@ class NotConfiguredError(RuntimeError):
     Carries the same sentence the UI shows, so the reason never has to be
     guessed at or reworded in two places.
     """
-
-
-@dataclass
-class RunResult:
-    ok: bool
-    rows: int = 0
-    location: str = ""
-    detail: str = ""
-    at: str = ""
-
-    def as_state(self) -> dict:
-        return {"ok": self.ok, "rows": self.rows, "location": self.location,
-                "detail": self.detail, "at": self.at or utc_now_iso()}
 
 
 def _record(conn: sqlite3.Connection, state_key: str, result: RunResult) -> RunResult:

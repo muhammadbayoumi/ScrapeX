@@ -24,6 +24,7 @@ import json
 import os
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 PREFIX = "setting:"
 
@@ -55,11 +56,46 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # --- Google Drive and Sheets (spec 23) ---
     Setting("google_folder", "ScrapeX", label="Drive folder"),
     Setting("google_workbook", "ScrapeX Data", label="Spreadsheet name"),
+    # --- Crawling (spec 33) ---
+    # Real knobs on the shared HttpFetcher, not decoration: politeness and
+    # timeout were fixed constants until the owner could see and change them.
+    Setting("crawl_min_interval_s", "1.0", label="Minimum seconds between requests"),
+    Setting("crawl_timeout_s", "30", label="Request timeout in seconds"),
+    Setting("crawl_user_agent", "", label="User agent"),
+    # --- Storage (spec 17) ---
+    Setting("backup_folder", "", label="Folder for backups"),
+    # --- Logs and diagnostics (spec 33) ---
+    Setting("log_retention_days", "30", label="Keep job logs for"),
 ]}
 
-# Status records written by outputs.py after a run. They are not owner-editable,
-# so they are kept out of SETTINGS and read/written through get_state/set_state.
-STATE_KEYS = ("excel_last", "apps_script_last", "google_last")
+# Status records written after a run. They are not owner-editable, so they are
+# kept out of SETTINGS and read/written through get_state/set_state.
+STATE_KEYS = ("excel_last", "apps_script_last", "google_last",
+              "storage_last", "retention_last", "storage_migration")
+
+
+@dataclass
+class RunResult:
+    """What one owner-initiated operation actually did.
+
+    Every long or destructive action in the product reports through this shape,
+    so a screen never has to invent its own vocabulary for "it worked" and a
+    failure always carries the sentence explaining why.
+    """
+
+    ok: bool
+    rows: int = 0
+    location: str = ""
+    detail: str = ""
+    at: str = ""
+
+    def as_state(self) -> dict:
+        return {"ok": self.ok, "rows": self.rows, "location": self.location,
+                "detail": self.detail, "at": self.at or utc_now()}
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class UnknownSettingError(KeyError):

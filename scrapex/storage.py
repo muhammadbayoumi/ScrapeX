@@ -1,0 +1,558 @@
+"""Where the warehouse lives, and how it is kept healthy (spec section 17).
+
+Two ideas carry this module.
+
+**The pointer is the commit point.** The database's location is recorded in one
+small JSON file. Moving the warehouse never renames the live file first: the copy
+is made and verified while the original stays live, and the move commits by
+atomically rewriting the pointer. Before that write the old path is authoritative;
+after it the new one is. There is no instant where neither is.
+
+**A missing database is an error, not an invitation.** `db.connect` creates what
+it does not find, which is right for a first run and catastrophic for a fifth
+year: a pointer aimed at an unplugged drive would silently mint an empty
+warehouse and the next crawl would fork into it. `resolve_db_path` therefore
+refuses when a *recorded* location has gone missing, and says which path and why.
+
+Nothing here deletes a database. Backups, the moved-aside original and sealed
+archives are all left on disk for the owner to remove themselves.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
+
+from . import db as dbmod
+from . import settings
+from .archive import backup_database
+from .settings import RunResult
+
+# The pointer lives next to the default database, never inside it: it must be
+# readable when the database itself is unreachable.
+POINTER_FILE = Path(
+    os.environ.get("SCRAPEX_LOCATION_FILE", str(Path.home() / ".scrapex" / "location.json"))
+)
+
+# A move needs room for the copy plus headroom for the WAL and normal growth.
+FREE_SPACE_MARGIN = 1.2
+
+# Windows drive types (winbase.h). Used only to warn, never to refuse.
+_DRIVE_REMOVABLE, _DRIVE_REMOTE = 2, 4
+
+
+class StorageUnavailableError(RuntimeError):
+    """The recorded database location cannot be reached right now.
+
+    Deliberately distinct from "no database yet": the caller must not treat this
+    as a first run and create a new one.
+    """
+
+
+class StorageRefused(RuntimeError):
+    """A pre-flight check refused the operation. Carries the owner-facing reason."""
+
+
+# ---- where the database is ---------------------------------------------------
+
+def read_pointer() -> Path | None:
+    try:
+        data = json.loads(POINTER_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    recorded = str(data.get("db_path") or "").strip()
+    return Path(recorded) if recorded else None
+
+
+def write_pointer(db_path: Path | str) -> None:
+    """Point at a database. Written atomically — a torn pointer is a lost warehouse."""
+    POINTER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = POINTER_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"db_path": str(Path(db_path)), "at": settings.utc_now()},
+                              indent=2), encoding="utf-8")
+    os.replace(tmp, POINTER_FILE)
+
+
+def clear_pointer() -> None:
+    POINTER_FILE.unlink(missing_ok=True)
+
+
+def current_location() -> Path:
+    """The database path in force: pointer, then SCRAPEX_DB_PATH, then default."""
+    return read_pointer() or dbmod.DEFAULT_DB_PATH
+
+
+def resolve_db_path() -> Path:
+    """The path to open, refusing to invent a warehouse that should already exist.
+
+    Only a pointer makes a location "recorded". A default path that does not
+    exist yet is a normal first run and passes straight through.
+    """
+    pointed = read_pointer()
+    if pointed is None:
+        return dbmod.DEFAULT_DB_PATH
+    if pointed.exists():
+        return pointed
+    raise StorageUnavailableError(
+        f"The database recorded at {pointed} is not there. If it is on a drive "
+        "that is unplugged, reconnect it; ScrapeX will not start an empty "
+        "warehouse in its place. To start fresh instead, clear the location in "
+        "Settings - Storage."
+    )
+
+
+# ---- measuring and checking --------------------------------------------------
+
+def _size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def measure(db_path: Path | str) -> dict:
+    """Sizes that add up to what the warehouse really occupies."""
+    path = Path(db_path)
+    wal, shm = path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")
+    backups = list_backups(path)
+    return {
+        "db_bytes": _size(path),
+        "wal_bytes": _size(wal),
+        "shm_bytes": _size(shm),
+        "backup_bytes": sum(b["bytes"] for b in backups),
+        "backup_count": len(backups),
+        "free_bytes": free_space(path.parent),
+        "total_bytes": _size(path) + _size(wal) + _size(shm),
+    }
+
+
+def free_space(folder: Path | str) -> int:
+    try:
+        return shutil.disk_usage(str(folder)).free
+    except OSError:
+        return 0
+
+
+def _same_volume(left: Path | str, right: Path | str) -> bool:
+    """Do these two folders share a disk?
+
+    The anchor ('C:\\', '/') is the honest answer on Windows. On POSIX every
+    path shares '/', so st_dev decides — a mounted external disk has its own.
+    """
+    left_path, right_path = Path(left), Path(right)
+    if os.name == "nt":
+        return left_path.anchor.upper() == right_path.anchor.upper()
+    try:
+        return left_path.stat().st_dev == right_path.stat().st_dev
+    except OSError:
+        return left_path.anchor == right_path.anchor
+
+
+def drive_kind(folder: Path | str) -> str:
+    """'removable', 'network', 'fixed' or 'unknown'.
+
+    Used to WARN, never to refuse: an external drive is a legitimate place to
+    keep a warehouse, as long as the owner is told what happens if it vanishes.
+    """
+    if os.name != "nt":
+        return "unknown"
+    try:
+        import ctypes
+
+        root = str(Path(folder).resolve().anchor)
+        kind = ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(root))
+    except Exception:                      # a warning is never worth a crash
+        return "unknown"
+    return {_DRIVE_REMOVABLE: "removable", _DRIVE_REMOTE: "network"}.get(kind, "fixed")
+
+
+def health(db_path: Path | str) -> dict:
+    """SQLite's own verdict, reported as a word plus the raw findings.
+
+    `quick_check` rather than `integrity_check`: it catches the corruption that
+    matters at a fraction of the cost, which means the Storage page can run it
+    on every visit instead of hiding it behind a button nobody presses.
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return {"status": "missing", "ok": False,
+                "detail": "There is no database at this location yet.",
+                "problems": [], "foreign_key_problems": 0}
+    conn = sqlite3.connect(str(path))
+    try:
+        problems = [r[0] for r in conn.execute("PRAGMA quick_check")]
+        problems = [p for p in problems if p != "ok"]
+        fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+        freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
+        page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+    except sqlite3.DatabaseError as exc:
+        return {"status": "unreadable", "ok": False,
+                "detail": f"SQLite could not read this file: {exc}",
+                "problems": [str(exc)], "foreign_key_problems": 0}
+    finally:
+        conn.close()
+
+    reclaimable = freelist * page_size
+    if problems or fk:
+        return {"status": "damaged", "ok": False, "problems": problems,
+                "foreign_key_problems": len(fk),
+                "detail": "SQLite reported problems. Back up first, then run Repair."}
+    return {
+        "status": "healthy", "ok": True, "problems": [], "foreign_key_problems": 0,
+        "reclaimable_bytes": reclaimable,
+        "detail": ("No problems found." + (
+            f" Compacting would return about {reclaimable:,} bytes of free pages."
+            if reclaimable else "")),
+    }
+
+
+# ---- backups -----------------------------------------------------------------
+
+def backup_folder(conn: sqlite3.Connection, db_path: Path | str) -> Path:
+    saved = settings.get(conn, "backup_folder")
+    return Path(saved).expanduser() if saved else Path(db_path).parent
+
+
+def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
+    """Backups produced by this product, newest first."""
+    path = Path(db_path)
+    where = Path(folder) if folder else path.parent
+    if not where.is_dir():
+        return []
+    found = [{"path": str(p), "name": p.name, "bytes": _size(p),
+              "modified_at": _mtime_iso(p)}
+             for p in where.glob(f"{path.stem}.*backup*")]
+    return sorted(found, key=lambda b: b["modified_at"], reverse=True)
+
+
+def _mtime_iso(path: Path) -> str:
+    from datetime import datetime, timezone
+
+    try:
+        stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return ""
+    return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def backup_now(conn: sqlite3.Connection, db_path: Path | str, tag: str = "manual") -> RunResult:
+    """A consistent copy, taken through SQLite's online backup API."""
+    path = Path(db_path)
+    if not path.exists():
+        raise StorageRefused("There is no database to back up yet.")
+    destination = backup_folder(conn, path)
+    destination.mkdir(parents=True, exist_ok=True)
+    if free_space(destination) < _size(path) * FREE_SPACE_MARGIN:
+        raise StorageRefused(
+            f"Not enough free space in {destination} for a backup of "
+            f"{_size(path):,} bytes. Free some space or choose another folder.")
+
+    made = backup_database(path, tag=tag)
+    if destination != path.parent:
+        moved = destination / made.name
+        os.replace(made, moved)
+        made = moved
+    result = RunResult(ok=True, rows=0, location=str(made),
+                       detail=f"Backed up {_size(made):,} bytes to {made}.")
+    if _same_volume(destination, path.parent):
+        # Saying "backed up" while both copies share one failing disk is the
+        # kind of half-truth that is only discovered when it is too late.
+        result.detail += (" This backup is on the same disk as the database, so it "
+                          "does not survive that drive failing. Set a backup folder "
+                          "on another disk to protect against that.")
+    settings.set_state(conn, "storage_last", result.as_state())
+    return result
+
+
+def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
+    """Make a backup live again WITHOUT overwriting the current database.
+
+    The current file is moved aside under a name that says what it is; only then
+    does the backup take its place. Nothing is destroyed, so a restore chosen by
+    mistake is undone by moving one file back.
+    """
+    path, source = Path(db_path), Path(backup_path)
+    if not source.exists():
+        raise StorageRefused(f"That backup is no longer at {source}.")
+    verdict = health(source)
+    if not verdict["ok"]:
+        raise StorageRefused(
+            f"That backup does not pass a health check ({verdict['status']}), so "
+            "ScrapeX will not put it in place. Try an older backup.")
+    if free_space(path.parent) < _size(source) * FREE_SPACE_MARGIN:
+        raise StorageRefused(f"Not enough free space in {path.parent} to restore.")
+
+    displaced = ""
+    if path.exists():
+        displaced = str(path.with_name(
+            f"{path.stem}.replaced-{settings.utc_now().replace(':', '')}{path.suffix}"))
+        os.replace(path, displaced)
+    try:
+        shutil.copy2(source, path)
+    except OSError:
+        if displaced:                      # put the original back, then re-raise
+            os.replace(displaced, path)
+        raise
+    # The WAL of the replaced database describes a file that is no longer there.
+    for suffix in ("-wal", "-shm"):
+        path.with_name(path.name + suffix).unlink(missing_ok=True)
+    detail = f"Restored from {source.name}."
+    if displaced:
+        detail += (f" The database that was here is still on disk as "
+                   f"{Path(displaced).name} — delete it yourself once you have "
+                   "confirmed the restore.")
+    return RunResult(ok=True, location=str(path), detail=detail)
+
+
+# ---- maintenance -------------------------------------------------------------
+
+def repair(db_path: Path | str) -> RunResult:
+    """Rebuild indexes and refresh planner statistics.
+
+    Repair here never rewrites rows. If SQLite reports structural damage the
+    honest answer is a restore from backup, and this says so rather than
+    pretending an index rebuild fixed a corrupt page.
+    """
+    path = Path(db_path)
+    verdict = health(path)
+    conn = dbmod.connect(path)
+    try:
+        conn.execute("REINDEX")
+        conn.execute("PRAGMA optimize")
+        conn.commit()
+    finally:
+        conn.close()
+    if verdict["ok"]:
+        return RunResult(ok=True, location=str(path),
+                         detail="Indexes rebuilt and statistics refreshed. "
+                                "The database was already healthy.")
+    return RunResult(
+        ok=False, location=str(path),
+        detail="Indexes were rebuilt, but SQLite still reports damage: "
+               f"{'; '.join(verdict['problems'][:3])}. Restore from a backup — "
+               "an index rebuild cannot recover damaged pages.")
+
+
+def compact(conn: sqlite3.Connection, db_path: Path | str) -> RunResult:
+    """VACUUM: reclaim free pages in place.
+
+    Safe and non-destructive — SQLite rewrites the file with the same rows. It
+    needs room for a second copy while it runs, so the space is checked first.
+    """
+    path = Path(db_path)
+    before = _size(path)
+    if free_space(path.parent) < before * FREE_SPACE_MARGIN:
+        raise StorageRefused(
+            f"Compacting rewrites the database, so it needs about {before:,} bytes "
+            f"free in {path.parent} while it runs. Free some space first.")
+    conn.execute("VACUUM")
+    conn.commit()
+    after = _size(path)
+    result = RunResult(
+        ok=True, location=str(path),
+        detail=(f"Compacted: {before:,} -> {after:,} bytes "
+                f"({max(0, before - after):,} returned to the disk)."
+                if after < before else
+                f"Compacted. The file was already tightly packed ({after:,} bytes)."))
+    settings.set_state(conn, "storage_last", result.as_state())
+    return result
+
+
+def export_database(conn: sqlite3.Connection, db_path: Path | str,
+                    dest_dir: Path | str) -> RunResult:
+    """A consistent copy in a folder of the owner's choosing."""
+    path, destination = Path(db_path), Path(dest_dir).expanduser()
+    if not path.exists():
+        raise StorageRefused("There is no database to export yet.")
+    try:
+        destination.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise StorageRefused(f"ScrapeX cannot create {destination}: {exc}")
+    if free_space(destination) < _size(path) * FREE_SPACE_MARGIN:
+        raise StorageRefused(f"Not enough free space in {destination}.")
+
+    made = backup_database(path, tag="export")
+    target = destination / made.name
+    os.replace(made, target)
+    return RunResult(ok=True, location=str(target),
+                     detail=f"Exported {_size(target):,} bytes to {target}.")
+
+
+# ---- moving the warehouse ----------------------------------------------------
+
+@dataclass
+class MoveCheck:
+    ok: bool
+    reason: str = ""
+    warning: str = ""
+
+
+def check_move(db_path: Path | str, new_dir: Path | str) -> MoveCheck:
+    """Everything that can refuse a move, decided before anything is written."""
+    path, target = Path(db_path), Path(new_dir).expanduser()
+    destination = target / path.name
+
+    if target == path.parent:
+        return MoveCheck(False, "The database is already in that folder.")
+    try:
+        if path.parent.resolve() in target.resolve().parents or \
+           target.resolve() in path.parent.resolve().parents:
+            return MoveCheck(False, "Choose a folder that is not inside the current "
+                                    "database folder, and does not contain it.")
+    except OSError:
+        pass
+
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".scrapex-write-probe"
+        probe.write_bytes(b"scrapex")
+        if probe.read_bytes() != b"scrapex":
+            raise OSError("readback mismatch")
+        probe.unlink()
+    except OSError as exc:
+        return MoveCheck(False, f"ScrapeX cannot write to {target} ({exc}). Choose a "
+                                "folder you own, or fix its permissions.")
+
+    if destination.exists():
+        return MoveCheck(False, f"A database already exists at {destination}. ScrapeX "
+                                "will not overwrite it. Move or rename it first, or "
+                                "pick another folder.")
+
+    needed = int(_size(path) * FREE_SPACE_MARGIN)
+    available = free_space(target)
+    if available < needed:
+        return MoveCheck(False, f"{target} has {available:,} bytes free but the move "
+                                f"needs about {needed:,}.")
+
+    verdict = health(path)
+    if not verdict["ok"] and verdict["status"] != "missing":
+        return MoveCheck(False, "The database does not pass a health check "
+                                f"({verdict['status']}). Run Repair or restore a "
+                                "backup before moving it.")
+
+    kind = drive_kind(target)
+    warning = ""
+    if kind in {"removable", "network"}:
+        warning = (f"{target} looks like a {kind} drive. If it is disconnected while "
+                   "ScrapeX is running, the database becomes unreadable and a crawl "
+                   "in progress will fail.")
+    return MoveCheck(True, warning=warning)
+
+
+def migrate_location(db_path: Path | str, new_dir: Path | str, *,
+                     progress=None) -> RunResult:
+    """Move the warehouse, committing on the pointer write and never before.
+
+    Ordering: copy, verify, commit, tidy. Steps before the commit are undone by
+    deleting a file this function created; the commit is a single atomic write;
+    the step after it is cosmetic. The original is renamed aside, never deleted.
+    """
+    path, target = Path(db_path), Path(new_dir).expanduser()
+    check = check_move(path, target)
+    if not check.ok:
+        raise StorageRefused(check.reason)
+    destination = target / path.name
+    incoming = target / (path.name + ".incoming")
+
+    def step(name: str, done: int = 0, total: int = 0) -> None:
+        if progress is not None:
+            progress({"step": name, "done": done, "total": total})
+
+    step("backing up")
+    rollback_copy = backup_database(path, tag="move")
+
+    step("copying")
+    incoming.unlink(missing_ok=True)
+    source_conn = sqlite3.connect(str(path))
+    try:
+        target_conn = sqlite3.connect(str(incoming))
+        try:
+            def on_progress(status, remaining, total):
+                step("copying", done=total - remaining, total=total)
+
+            with target_conn:
+                source_conn.backup(target_conn, pages=2048, progress=on_progress)
+        finally:
+            target_conn.close()
+    except Exception:
+        incoming.unlink(missing_ok=True)   # ours, never live, safe to remove
+        raise
+    finally:
+        source_conn.close()
+
+    step("verifying")
+    verdict = health(incoming)
+    if not verdict["ok"] or not _same_contents(path, incoming):
+        incoming.unlink(missing_ok=True)
+        raise StorageRefused(
+            "The copy did not match the original, so nothing was moved. The "
+            f"database is still at {path}. A rollback copy is at {rollback_copy}.")
+
+    os.replace(incoming, destination)      # atomic within the volume
+    step("switching")
+    write_pointer(destination)             # ---- the commit point ----
+
+    step("tidying")
+    moved_aside = path.with_name(
+        f"{path.stem}.moved-{settings.utc_now().replace(':', '')}{path.suffix}")
+    detail = f"Moved to {destination}."
+    try:
+        os.replace(path, moved_aside)
+        for suffix in ("-wal", "-shm"):
+            path.with_name(path.name + suffix).unlink(missing_ok=True)
+        detail += (f" The old database is still on disk as {moved_aside.name}. "
+                   "Delete it yourself once you have confirmed everything works.")
+    except OSError as exc:
+        detail += (f" The move succeeded, but the old file could not be renamed "
+                   f"({exc}) — it may be open in another program. It is safe to "
+                   f"delete: {path}")
+    return RunResult(ok=True, location=str(destination), detail=detail)
+
+
+def _same_contents(src: Path, dst: Path) -> bool:
+    """Row counts agree on the tables that matter. Cheap, and catches a truncated
+    copy — which is the failure a byte-size check misses on a WAL database."""
+    tables = ("price_observation", "source_offer", "source_product", "source_site")
+    try:
+        a, b = sqlite3.connect(str(src)), sqlite3.connect(str(dst))
+    except sqlite3.DatabaseError:
+        return False
+    try:
+        for table in tables:
+            if a.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] != \
+               b.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:
+                return False
+        return a.execute("PRAGMA user_version").fetchone()[0] == \
+            b.execute("PRAGMA user_version").fetchone()[0]
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        a.close()
+        b.close()
+
+
+# ---- the status the interface renders ----------------------------------------
+
+def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
+    path = Path(db_path)
+    sizes = measure(path)
+    verdict = health(path)
+    return {
+        "key": "local_storage",
+        "label": "Local storage",
+        "ready": verdict["ok"],
+        "blocker": "" if verdict["ok"] else verdict["detail"],
+        "path": str(path),
+        "folder": str(path.parent),
+        "pointer": str(read_pointer()) if read_pointer() else "",
+        "drive_kind": drive_kind(path.parent),
+        "sizes": sizes,
+        "health": verdict,
+        "backups": list_backups(path, backup_folder(conn, path)),
+        "backup_folder": str(backup_folder(conn, path)),
+        "last": settings.get_state(conn, "storage_last"),
+        "migration": settings.get_state(conn, "storage_migration"),
+    }

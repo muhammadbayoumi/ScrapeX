@@ -27,7 +27,7 @@ def test_migrate_is_idempotent(tmp_path: Path):
         second = dbmod.migrate(conn)
     finally:
         conn.close()
-    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  # +0010 view region
+    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]  # +0011 retention
     assert second == []  # T4: running again applies nothing
 
 
