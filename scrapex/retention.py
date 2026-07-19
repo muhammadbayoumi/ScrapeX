@@ -70,7 +70,11 @@ def policy_for(conn: sqlite3.Connection, source_key: str) -> Policy:
     default = policies.get(DEFAULT_KEY, Policy(DEFAULT_KEY, 3650, KEEP_ALL))
     own = policies.get(source_key)
     if own is None:
-        return Policy(source_key, default.detail_days, default.older_than_action)
+        # `excluded` is inherited too. Dropping it meant a global "never apply
+        # retention" was silently ignored for every dataset without its own row —
+        # which is every dataset, until the owner edits one.
+        return Policy(source_key, default.detail_days, default.older_than_action,
+                      default.excluded)
     return own
 
 
@@ -189,7 +193,14 @@ def protected_keys_independently(conn: sqlite3.Connection) -> set[Key]:
                     or (row["effective_price"] is not None
                         and row["effective_price"] in (cheapest, dearest))):
                 keys.add((offer_id, row["business_date"], row["record_hash"]))
-    for row in conn.execute("SELECT offer_id, business_date, record_hash FROM retention_pin"):
+    # Only pins that point at an observation which is actually here. A stale
+    # pin is a bookmark to something that is not in this database; treating it
+    # as a row to preserve made verification demand a row nobody could supply,
+    # and every future compaction was refused.
+    for row in conn.execute(
+            "SELECT p.offer_id, p.business_date, p.record_hash FROM retention_pin p "
+            "JOIN price_observation po ON po.offer_id = p.offer_id "
+            " AND po.business_date = p.business_date AND po.record_hash = p.record_hash"):
         keys.add((row[0], row[1], row[2]))
     return keys
 
@@ -260,8 +271,16 @@ def _summary_rows_for_source(action: str) -> str:
     """
     bucket = "po.business_date" if action == DAILY_SUMMARY else \
         "strftime('%Y-%W', po.business_date)"
-    return (f"SELECT MAX(po.price_observation_id) {_source_join()} "
+    # Ordered by observed_at, not by id. MAX(price_observation_id) picks whatever
+    # was INSERTED last, which is not the same thing: a backfill or a re-ingest
+    # of an older payload would make yesterday's late-arriving row win and the
+    # summary would show a price that was never the day's closing one.
+    return (f"SELECT po.price_observation_id {_source_join()} "
             "WHERE ss.source_key = ? AND po.business_date < ? "
+            "AND po.observed_at = (SELECT MAX(inner.observed_at) "
+            "                      FROM price_observation inner "
+            f"                     WHERE inner.offer_id = po.offer_id "
+            f"                       AND {bucket.replace('po.', 'inner.')} = {bucket}) "
             f"GROUP BY po.offer_id, {bucket}")
 
 

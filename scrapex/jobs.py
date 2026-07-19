@@ -357,8 +357,14 @@ class JobRunner:
     """
 
     def __init__(self, db_path, manifest_provider: Callable[[], object],
-                 poll_interval_s: float = 0.5, capture: Callable | None = None) -> None:
+                 poll_interval_s: float = 0.5, capture: Callable | None = None,
+                 path_provider: Callable[[], str] | None = None) -> None:
         self._db_path = db_path
+        # Where the warehouse is NOW. The worker used to open one connection at
+        # start and hold it forever, so after a move or a compaction it kept
+        # crawling into the superseded file and everything it gathered landed
+        # where nothing else in the product would ever read it.
+        self._path_provider = path_provider or (lambda: db_path)
         self._manifest_provider = manifest_provider
         self._poll_interval_s = poll_interval_s
         self._capture = capture          # injectable so the thread itself is testable
@@ -388,6 +394,24 @@ class JobRunner:
         return capture_source(conn, entry, job_id,
                               lock=lambda: dbmod.write_lock(self._db_path))
 
+    def _follow_the_warehouse(self, conn: sqlite3.Connection) -> sqlite3.Connection:
+        """Reopen if the database moved under us; otherwise return `conn` as is.
+
+        Checked between jobs, never during one: a crawl that started against one
+        file must finish against it, and the switch is only safe at the same
+        boundary the pause and cancel controls already use.
+        """
+        current = str(self._path_provider())
+        if current == str(self._db_path):
+            return conn
+        conn.commit()
+        conn.close()
+        self._db_path = current
+        fresh = dbmod.connect(current)
+        reclaim_orphaned_jobs(fresh)     # anything left running belongs to the old file
+        fresh.commit()
+        return fresh
+
     def _loop(self) -> None:
         # Imported lazily: scheduler imports this module, so a top-level import
         # here would be circular.
@@ -399,6 +423,7 @@ class JobRunner:
             while not self._stop.wait(self._poll_interval_s):
                 job_ref = None
                 try:
+                    conn = self._follow_the_warehouse(conn)
                     touch_runtime_heartbeat(conn)   # proof of life for enqueue-only clients
                     conn.commit()
                     # The local runtime IS the scheduler (spec 26) — browser

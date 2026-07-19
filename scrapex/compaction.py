@@ -84,8 +84,16 @@ class CompactionResult:
 # ---- building ----------------------------------------------------------------
 
 def _existing_tables(conn: sqlite3.Connection) -> set[str]:
+    """Tables this product owns.
+
+    `sqlite_%` is excluded because SQLite creates its own: PRAGMA optimize (which
+    Repair runs) creates `sqlite_stat1`. Counting that as a table meant one press
+    of Repair made the source and a fresh successor differ forever, and every
+    later compaction and preview was refused for a table nobody wrote.
+    """
     return {r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%'")}
 
 
 def _copy_table(src: sqlite3.Connection, dst: sqlite3.Connection, table: str) -> int:
@@ -258,7 +266,11 @@ def preview(conn: sqlite3.Connection, db_path: Path | str, *, today: str,
             f"A preview builds a full trial copy, so it needs about {needed:,} bytes "
             f"free in {source.parent}. Free some space, or move the database first.")
 
-    trial = source.with_name(f"{source.stem}.preview{source.suffix or '.db'}")
+    # A fixed trial name let two previews collide, each deleting the other's
+    # file mid-build. The stamp plus the process id makes the name unique.
+    trial = source.with_name(
+        f"{source.stem}.preview-{settings.utc_now().replace(':', '')}-{os.getpid()}"
+        f"{source.suffix or '.db'}")
     try:
         result = build_successor(source, trial, policies=policies, cutoffs=cutoffs,
                                  progress=progress)
@@ -266,9 +278,7 @@ def preview(conn: sqlite3.Connection, db_path: Path | str, *, today: str,
         result.ok = not result.problems
         result.detail = _preview_sentence(result)
     finally:
-        trial.unlink(missing_ok=True)
-        for suffix in ("-wal", "-shm"):
-            trial.with_name(trial.name + suffix).unlink(missing_ok=True)
+        _discard(trial)
     result.built_path = ""              # it is gone; do not offer a path to nothing
     return result
 
@@ -305,47 +315,68 @@ def compact_warehouse(conn: sqlite3.Connection, db_path: Path | str, *, today: s
             "The retention policy changed since the preview you approved. Run the "
             "preview again so the numbers you confirm are the numbers you get.")
 
+    needed = int(storage._size(source) * storage.FREE_SPACE_MARGIN)
+    if storage.free_space(source.parent) < needed:
+        raise CompactionAborted(
+            f"A compaction builds a full second copy before switching, so it needs "
+            f"about {needed:,} bytes free in {source.parent}. Free some space first — "
+            "nothing has been changed.")
+
     cutoffs = retention.cutoff_dates(conn, today)
     stamp = settings.utc_now().replace(":", "").replace("-", "")
+    # Built under a name the fallback can never resolve to and the pointer never
+    # names, then renamed once verified. A half-built file left by a crash is
+    # therefore always distinguishable from a promoted successor.
+    building = source.with_name(f"{source.stem}.building-{stamp}{source.suffix or '.db'}")
     built = source.with_name(f"{source.stem}.compact-{stamp}{source.suffix or '.db'}")
 
-    result = build_successor(source, built, policies=policies, cutoffs=cutoffs,
-                             progress=progress)
-    result.problems = verify_successor(source, built)
+    try:
+        result = build_successor(source, building, policies=policies, cutoffs=cutoffs,
+                                 progress=progress)
+        result.problems = verify_successor(source, building)
+    except Exception:
+        _discard(building)
+        raise
     if result.problems:
-        built.unlink(missing_ok=True)
+        _discard(building)
         raise CompactionAborted(
             "The rebuilt database did not pass verification, so nothing was "
             "switched and your warehouse is untouched: " + "; ".join(result.problems))
+    os.replace(building, built)
+    result.built_path = str(built)
 
     storage.write_pointer(built)                 # ---- the commit point ----
 
-    # Renaming the predecessor is cosmetic and best-effort. On Windows an open
-    # handle — which the caller legitimately holds — blocks a rename outright,
-    # so this must never change what the owner is told: the predecessor is the
-    # sealed archive wherever it sits, and the reassurance cannot depend on
-    # whether a cosmetic rename happened to succeed.
-    sealed = source.with_name(f"{source.stem}.sealed-{stamp}{source.suffix or '.db'}")
-    renamed = True
-    try:
-        os.replace(source, sealed)
-        for suffix in ("-wal", "-shm"):
-            source.with_name(source.name + suffix).unlink(missing_ok=True)
-    except OSError:
-        sealed, renamed = source, False
-    result.sealed_path = str(sealed)
+    # Sealing marks the predecessor from the INSIDE and then tries to rename it.
+    # The mark is the load-bearing half: on Windows the caller's open handle
+    # blocks the rename, which used to leave the superseded database sitting at
+    # the default path — ready to be opened as live the moment the pointer was
+    # lost, hiding everything gathered since.
+    result.sealed_path = storage._retire(source, "sealed", built)
     result.ok = True
     result.detail = (
         f"Now using a database with {result.observations_after:,} observations. "
         f"The previous file — all {result.observations_before:,} of them — is sealed "
         f"at {result.sealed_path}. ScrapeX will never delete it; removing it "
         f"yourself returns about {result.bytes_the_archive_would_free:,} bytes.")
-    if not renamed:
+    if Path(result.sealed_path) == source:
         result.detail += (" It kept its original name because another program still "
-                          "has it open; that changes nothing about what it holds.")
+                          "has it open, but it is marked inside as superseded, so it "
+                          "can never be opened as the live warehouse by accident.")
 
     _record_run_in_successor(built, result)
     return result
+
+
+def _discard(path: Path) -> None:
+    """Remove a file this module built, and its write-ahead siblings.
+
+    Leaving the -wal behind would let a later database of the same name inherit
+    a journal that describes different content.
+    """
+    path.unlink(missing_ok=True)
+    for suffix in ("-wal", "-shm"):
+        path.with_name(path.name + suffix).unlink(missing_ok=True)
 
 
 def _record_run_in_successor(new_live: Path, result: CompactionResult) -> None:
@@ -387,6 +418,7 @@ def undo_compaction(sealed_path: Path | str) -> settings.RunResult:
             f"That archive does not pass a health check ({verdict['status']}), so "
             "ScrapeX will not switch to it.")
     storage.write_pointer(sealed)
+    storage.unseal(sealed)              # it is the live warehouse again
     return settings.RunResult(
         ok=True, location=str(sealed),
         detail=(f"Now using {sealed.name} again. Anything crawled since the "

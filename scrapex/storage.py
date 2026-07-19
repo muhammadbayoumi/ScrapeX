@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 from dataclasses import dataclass
@@ -85,23 +86,143 @@ def current_location() -> Path:
     return read_pointer() or dbmod.DEFAULT_DB_PATH
 
 
-def resolve_db_path() -> Path:
-    """The path to open, refusing to invent a warehouse that should already exist.
+# ---- sealing: a superseded database says so from the inside ------------------
 
-    Only a pointer makes a location "recorded". A default path that does not
-    exist yet is a normal first run and passes straight through.
+SEALED_KEY = "sealed_at"
+SEALED_REASON_KEY = "sealed_reason"
+
+
+def mark_sealed(db_path: Path | str, reason: str, successor: Path | str = "") -> bool:
+    """Record inside a database that it has been superseded.
+
+    Renaming the predecessor is not enough, and on Windows usually does not even
+    happen: an open handle blocks the rename, so a compacted-away database keeps
+    the name `harvest.db` — which is the DEFAULT path. Lose the pointer and the
+    fallback would then open the pre-compaction archive as live, and the next
+    crawl would append into it. The mark travels inside the file, so the guard
+    works no matter what the file ends up being called.
+    """
+    try:
+        conn = sqlite3.connect(str(db_path))
+    except sqlite3.DatabaseError:
+        return False
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (SEALED_KEY, settings.utc_now()))
+            conn.execute(
+                "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (SEALED_REASON_KEY, f"{reason} -> {successor}" if successor else reason))
+        return True
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        conn.close()
+
+
+def unseal(db_path: Path | str) -> None:
+    """Make a sealed database live again (the undo path)."""
+    try:
+        conn = sqlite3.connect(str(db_path))
+    except sqlite3.DatabaseError:
+        return
+    try:
+        with conn:
+            conn.execute("DELETE FROM scrapex_meta WHERE key IN (?,?)",
+                         (SEALED_KEY, SEALED_REASON_KEY))
+    except sqlite3.DatabaseError:
+        pass
+    finally:
+        conn.close()
+
+
+def sealed_at(db_path: Path | str) -> str:
+    if not Path(db_path).exists():
+        return ""
+    try:
+        conn = sqlite3.connect(str(db_path))
+    except sqlite3.DatabaseError:
+        return ""
+    try:
+        row = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                           (SEALED_KEY,)).fetchone()
+        return row[0] if row else ""
+    except sqlite3.DatabaseError:
+        return ""
+    finally:
+        conn.close()
+
+
+def resolve_db_path() -> Path:
+    """The path to open, refusing to invent or resurrect the wrong warehouse.
+
+    Two distinct hazards, two guards:
+    - A RECORDED location that vanished is an error, not a first run.
+    - The fallback path may hold a database that a move or compaction superseded.
+      Opening it silently would hide every observation gathered since, and the
+      next crawl would fork into the archive.
+
+    A default path that simply does not exist yet is a normal first run.
     """
     pointed = read_pointer()
-    if pointed is None:
-        return dbmod.DEFAULT_DB_PATH
-    if pointed.exists():
-        return pointed
-    raise StorageUnavailableError(
-        f"The database recorded at {pointed} is not there. If it is on a drive "
-        "that is unplugged, reconnect it; ScrapeX will not start an empty "
-        "warehouse in its place. To start fresh instead, clear the location in "
-        "Settings - Storage."
-    )
+    if pointed is not None:
+        if pointed.exists():
+            return pointed
+        raise StorageUnavailableError(
+            f"The database recorded at {pointed} is not there. If it is on a drive "
+            "that is unplugged, reconnect it; ScrapeX will not start an empty "
+            "warehouse in its place."
+        )
+    fallback = dbmod.DEFAULT_DB_PATH
+    when = sealed_at(fallback)
+    if when:
+        raise StorageUnavailableError(
+            f"The database at {fallback} was superseded on {when} and is kept only "
+            "as an archive. ScrapeX will not open it as the live warehouse, because "
+            "everything gathered since would be invisible and the next crawl would "
+            "write into the archive. Point ScrapeX at the current database, or "
+            "restore this one deliberately from Settings - Storage."
+        )
+    if not fallback.exists():
+        # Nothing at the default path, but a sealed sibling means this machine
+        # HAS a warehouse — it moved. Starting an empty one here would leave the
+        # real history sitting somewhere the owner is never told about.
+        moved_to = _successor_recorded_nearby(fallback)
+        if moved_to:
+            raise StorageUnavailableError(
+                f"There is no database at {fallback}, but this machine's warehouse "
+                f"was moved to {moved_to}. ScrapeX will not start an empty one in "
+                "its place. Reconnect that location, or point ScrapeX at it."
+            )
+    return fallback
+
+
+def _successor_recorded_nearby(fallback: Path) -> str:
+    """Where a retired sibling says the warehouse went, if one is there."""
+    folder = fallback.parent
+    if not folder.is_dir():
+        return ""
+    for candidate in sorted(folder.glob(f"{base_stem(fallback)}.*-*{fallback.suffix}"),
+                            reverse=True):
+        if not sealed_at(candidate):
+            continue
+        try:
+            conn = sqlite3.connect(str(candidate))
+        except sqlite3.DatabaseError:
+            continue
+        try:
+            row = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                               (SEALED_REASON_KEY,)).fetchone()
+        except sqlite3.DatabaseError:
+            row = None
+        finally:
+            conn.close()
+        if row and " -> " in row[0]:
+            return row[0].split(" -> ", 1)[1]
+    return ""
 
 
 # ---- measuring and checking --------------------------------------------------
@@ -181,6 +302,13 @@ def health(db_path: Path | str) -> dict:
         return {"status": "missing", "ok": False,
                 "detail": "There is no database at this location yet.",
                 "problems": [], "foreign_key_problems": 0}
+    if _size(path) == 0:
+        # SQLite opens a zero-byte file as a valid EMPTY database and every
+        # check passes, so "healthy" was technically true and completely
+        # misleading — there is nothing in it.
+        return {"status": "empty", "ok": False, "problems": [],
+                "foreign_key_problems": 0,
+                "detail": "This file is empty. It holds no data at all."}
     conn = sqlite3.connect(str(path))
     try:
         problems = [r[0] for r in conn.execute("PRAGMA quick_check")]
@@ -211,9 +339,61 @@ def health(db_path: Path | str) -> dict:
 
 # ---- backups -----------------------------------------------------------------
 
+REQUIRED_TRIGGERS = ("trg_price_obs_no_update", "trg_price_obs_no_delete")
+REQUIRED_TABLES = ("price_observation", "source_offer", "source_site", "scrapex_meta")
+
+
+def not_a_warehouse(db_path: Path | str) -> str:
+    """Why this file is not a ScrapeX warehouse, or "" if it is one.
+
+    `health` only proves SQLite can read the file. Any readable database passed
+    that check, so a stray .db chosen in the Restore list would have been
+    installed as the live warehouse — including one with no append-only triggers,
+    which would end the guarantee the whole product rests on.
+    """
+    try:
+        conn = sqlite3.connect(str(db_path))
+    except sqlite3.DatabaseError as exc:
+        return str(exc)
+    try:
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        missing = [t for t in REQUIRED_TABLES if t not in tables]
+        if missing:
+            return f"it has no {', '.join(missing)} table"
+        triggers = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+        absent = [t for t in REQUIRED_TRIGGERS if t not in triggers]
+        if absent:
+            return "its price history is not append-only"
+        if int(conn.execute("PRAGMA user_version").fetchone()[0]) <= 0:
+            return "it carries no ScrapeX schema version"
+    except sqlite3.DatabaseError as exc:
+        return str(exc)
+    finally:
+        conn.close()
+    return ""
+
+
 def backup_folder(conn: sqlite3.Connection, db_path: Path | str) -> Path:
     saved = settings.get(conn, "backup_folder")
     return Path(saved).expanduser() if saved else Path(db_path).parent
+
+
+# Suffixes this product appends when it supersedes a database. Stripping them
+# recovers the ORIGINAL warehouse name, which is what backups are named after.
+_LINEAGE_SUFFIX = re.compile(r"\.(compact|sealed|moved|replaced)-\d{8}T\d{6}Z$")
+
+
+def base_stem(db_path: Path | str) -> str:
+    """The warehouse's original name, whatever the live file is called now.
+
+    After a compaction the live file is `harvest.compact-<stamp>.db`. Globbing on
+    THAT stem found nothing, so every backup the owner had silently vanished from
+    the Storage page and from Restore — at exactly the moment they most needed
+    one.
+    """
+    return _LINEAGE_SUFFIX.sub("", Path(db_path).stem)
 
 
 def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
@@ -224,7 +404,7 @@ def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
         return []
     found = [{"path": str(p), "name": p.name, "bytes": _size(p),
               "modified_at": _mtime_iso(p)}
-             for p in where.glob(f"{path.stem}.*backup*")]
+             for p in where.glob(f"{base_stem(path)}.*backup*")]
     return sorted(found, key=lambda b: b["modified_at"], reverse=True)
 
 
@@ -282,6 +462,12 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
         raise StorageRefused(
             f"That backup does not pass a health check ({verdict['status']}), so "
             "ScrapeX will not put it in place. Try an older backup.")
+    wrong = not_a_warehouse(source)
+    if wrong:
+        raise StorageRefused(
+            f"That file is a readable database, but it is not a ScrapeX warehouse "
+            f"({wrong}). Installing it would replace your history with something "
+            "this product cannot use.")
     if free_space(path.parent) < _size(source) * FREE_SPACE_MARGIN:
         raise StorageRefused(f"Not enough free space in {path.parent} to restore.")
 
@@ -343,6 +529,11 @@ def compact(conn: sqlite3.Connection, db_path: Path | str) -> RunResult:
     needs room for a second copy while it runs, so the space is checked first.
     """
     path = Path(db_path)
+    # Measure AFTER a checkpoint. This product runs in WAL mode, where recent
+    # writes sit in the -wal file: reading the main file first reports a size
+    # that has not caught up yet, so a real reduction could be reported as
+    # growth — or a no-op as a saving.
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     before = _size(path)
     if free_space(path.parent) < before * FREE_SPACE_MARGIN:
         raise StorageRefused(
@@ -350,6 +541,7 @@ def compact(conn: sqlite3.Connection, db_path: Path | str) -> RunResult:
             f"free in {path.parent} while it runs. Free some space first.")
     conn.execute("VACUUM")
     conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     after = _size(path)
     result = RunResult(
         ok=True, location=str(path),
@@ -388,6 +580,14 @@ class MoveCheck:
     ok: bool
     reason: str = ""
     warning: str = ""
+    resumable: bool = False          # a verified copy from an interrupted move
+
+
+def _is_stranded_copy(source: Path, candidate: Path) -> bool:
+    """Is this the copy an interrupted move already made, rather than someone
+    else's database? Judged on content, never on the filename."""
+    return not not_a_warehouse(candidate) and health(candidate)["ok"] \
+        and _same_contents(source, candidate)
 
 
 def check_move(db_path: Path | str, new_dir: Path | str) -> MoveCheck:
@@ -417,6 +617,15 @@ def check_move(db_path: Path | str, new_dir: Path | str) -> MoveCheck:
                                 "folder you own, or fix its permissions.")
 
     if destination.exists():
+        # A previous move that died between the file landing and the pointer
+        # write leaves a complete, verified copy here. Refusing outright would
+        # permanently block the retry and leave the owner staring at a folder
+        # they were told not to touch — so offer to finish instead.
+        if _is_stranded_copy(path, destination):
+            return MoveCheck(True, resumable=True,
+                             warning="A complete copy from an interrupted move is "
+                                     f"already at {destination}. Moving again will "
+                                     "finish that switch rather than copy it twice.")
         return MoveCheck(False, f"A database already exists at {destination}. ScrapeX "
                                 "will not overwrite it. Move or rename it first, or "
                                 "pick another folder.")
@@ -461,6 +670,16 @@ def migrate_location(db_path: Path | str, new_dir: Path | str, *,
         if progress is not None:
             progress({"step": name, "done": done, "total": total})
 
+    if check.resumable:
+        # The copy already exists and already matched. Finishing is just the
+        # commit, and repeating the copy would only risk a fresh failure.
+        step("switching")
+        write_pointer(destination)
+        _retire(path, "moved", destination)
+        return RunResult(ok=True, location=str(destination),
+                         detail=f"Finished an interrupted move to {destination}. The "
+                                "copy that was already there is now the live database.")
+
     step("backing up")
     rollback_copy = backup_database(path, tag="move")
 
@@ -496,20 +715,33 @@ def migrate_location(db_path: Path | str, new_dir: Path | str, *,
     write_pointer(destination)             # ---- the commit point ----
 
     step("tidying")
-    moved_aside = path.with_name(
-        f"{path.stem}.moved-{settings.utc_now().replace(':', '')}{path.suffix}")
-    detail = f"Moved to {destination}."
+    left_behind = _retire(path, "moved", destination)
+    return RunResult(
+        ok=True, location=str(destination),
+        detail=(f"Moved to {destination}. The old database is still on disk as "
+                f"{Path(left_behind).name} and is marked inside as superseded, so "
+                "it can never be opened as the live warehouse by accident. Delete "
+                "it yourself once you have confirmed everything works."))
+
+
+def _retire(path: Path, reason: str, successor: Path) -> str:
+    """Mark a superseded database, then TRY to rename it. Returns where it is.
+
+    The mark is what matters and always happens; the rename is cosmetic and
+    fails routinely on Windows, where the caller's own open handle blocks it.
+    Relying on the rename alone left a superseded database sitting at the
+    default path, ready to be opened as live if the pointer were ever lost.
+    """
+    mark_sealed(path, reason, successor)
+    retired = path.with_name(
+        f"{path.stem}.{reason}-{settings.utc_now().replace(':', '')}{path.suffix}")
     try:
-        os.replace(path, moved_aside)
+        os.replace(path, retired)
         for suffix in ("-wal", "-shm"):
             path.with_name(path.name + suffix).unlink(missing_ok=True)
-        detail += (f" The old database is still on disk as {moved_aside.name}. "
-                   "Delete it yourself once you have confirmed everything works.")
-    except OSError as exc:
-        detail += (f" The move succeeded, but the old file could not be renamed "
-                   f"({exc}) — it may be open in another program. It is safe to "
-                   f"delete: {path}")
-    return RunResult(ok=True, location=str(destination), detail=detail)
+        return str(retired)
+    except OSError:
+        return str(path)
 
 
 def _same_contents(src: Path, dst: Path) -> bool:

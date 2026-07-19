@@ -72,7 +72,12 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
     app.state.manifest = load_manifest(manifest_path)
     # The job worker owns ALL long-running crawls (spec 4). Tests drive the
     # synchronous seam instead, so the thread is opt-in.
-    app.state.runner = JobRunner(str(db_path), lambda: app.state.manifest) if start_worker else None
+    # The worker follows the warehouse: a move or a compaction changes
+    # app.state.db_path, and a worker still holding the old file would crawl
+    # into a database nothing else reads.
+    app.state.runner = JobRunner(
+        str(db_path), lambda: app.state.manifest,
+        path_provider=lambda: app.state.db_path) if start_worker else None
     if app.state.runner is not None:
         app.state.runner.start()
 
@@ -769,10 +774,21 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
 
     @app.post("/api/storage/restore")
     def api_storage_restore(body: dict):
+        """Put a backup in place.
+
+        Deliberately NOT run through _storage_action: that holds a connection to
+        the very file restore has to move aside, and on Windows an open handle
+        makes the rename fail outright — so every restore returned a 500.
+        """
         backup_path = (body or {}).get("backup_path", "")
         if not backup_path:
             raise HTTPException(status_code=400, detail="backup_path is required")
-        return _storage_action(lambda conn: restore(app.state.db_path, backup_path))
+        with dbmod.write_lock(app.state.db_path):
+            try:
+                result = restore(app.state.db_path, backup_path)
+            except StorageRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        return result.as_state()
 
     @app.post("/api/storage/repair")
     def api_storage_repair():

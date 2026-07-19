@@ -181,8 +181,12 @@ def resolve_fetcher(source: SourceEntry,
     if source.fetcher == Fetcher.BROWSER:
         return BrowserFetcher()
     chosen = crawl_settings or {}
+    # `or` would treat a deliberate 0 as "unset" and silently restore the 1-second
+    # default, so a setting the owner changed would appear not to work at all.
+    interval = chosen.get("min_interval_s")
+    timeout = chosen.get("timeout_s")
     return HttpFetcher(
         user_agent=source.user_agent or chosen.get("user_agent") or DEFAULT_USER_AGENT,
-        min_interval_s=float(chosen.get("min_interval_s") or 1.0),
-        timeout_s=float(chosen.get("timeout_s") or 30.0),
+        min_interval_s=1.0 if interval is None else float(interval),
+        timeout_s=30.0 if timeout is None else float(timeout),
     )
