@@ -10,16 +10,21 @@ body {
 }
 .muted { color: var(--muted); }
 .err   { color: var(--red); }
-.ok    { color: var(--accent); }
-a, .link { color: var(--accent); cursor: pointer; text-decoration: none; }
+.ok    { color: var(--accent-ink); }
+a, .link { color: var(--accent-ink); cursor: pointer; text-decoration: none; }
 
 /* header */
 .sx-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--sp-3) var(--sp-4); background: var(--surface); border-bottom: 1px solid var(--line);
 }
-.brand { font-weight: var(--fw-bold); color: var(--accent); }
-.brand::before { content: "◆ "; }
+.brand { display: inline-flex; align-items: center; gap: var(--sp-2);
+         font-weight: var(--fw-bold); color: var(--accent-ink); }
+.brand-logo { display: inline-block; flex: none; width: 20px; height: 20px;
+              background: var(--accent);
+              -webkit-mask: url("icons/x-mark.png") center / contain no-repeat;
+              mask: url("icons/x-mark.png") center / contain no-repeat; }
+.brand-logo.lg { width: 28px; height: 28px; }
 
 /* status dot */
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
@@ -36,21 +41,21 @@ a, .link { color: var(--accent); cursor: pointer; text-decoration: none; }
 
 /* button — variants: primary (default), ghost; states: hover, disabled */
 button {
-  font: inherit; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--accent);
-  background: var(--accent); color: #fff; border-radius: var(--radius);
+  font: inherit; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--button-bg);
+  background: var(--button-bg); color: var(--button-text); border-radius: var(--radius);
   cursor: pointer; white-space: nowrap; transition: filter var(--dur), opacity var(--dur);
 }
 /* Never let a flex parent shrink a button below its own label. The panel sets a
    global `min-width:0` so long content can wrap at 320px, and that also lets a
    button collapse and clip its text. */
 button { flex: none; }
-button:hover:not(:disabled) { filter: brightness(1.06); }
+button:hover:not(:disabled) { filter: brightness(.96); }
 button:disabled { opacity: .5; cursor: default; }
-button.ghost { background: transparent; color: var(--accent); }
-button.ghost:hover:not(:disabled) { background: var(--accent-weak); filter: none; }
+button.ghost { background: var(--button-bg); color: var(--button-text); border-color: var(--button-bg); }
+button.ghost:hover:not(:disabled) { background: var(--button-bg); filter: brightness(.96); }
 /* A <button> that must READ as a link. `.link` alone only recolours the text —
-   the button's own accent BACKGROUND stays, giving accent-on-accent text that is
-   effectively invisible. Clearing the background is the missing half. */
+   the button's own filled BACKGROUND stays, so clearing the background is the
+   missing half. */
 button.link { background: transparent; padding: 0; border: 0; width: auto;
               font: inherit; text-align: left; }
 /* Settings section header: a full-width disclosure row, so it must read as a
@@ -58,7 +63,7 @@ button.link { background: transparent; padding: 0; border: 0; width: auto;
 button.sect { display: flex; width: 100%; justify-content: space-between; align-items: center;
               background: transparent; color: var(--text); font-weight: var(--fw-bold);
               padding: 0; border: 0; text-align: left; }
-button.sect:hover:not(:disabled) { color: var(--accent); filter: none; }
+button.sect:hover:not(:disabled) { color: var(--accent-ink); filter: none; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* input / select — same shape so a dropdown never looks like a raw native control */

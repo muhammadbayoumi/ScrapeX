@@ -4,16 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ScrapeX{% endblock %}</title>
+  <link rel="icon" href="/static/x-mark.png">
   <style>
     :root{
       --bg:#f6f7f9; --surface:#fff; --line:#e4e7eb; --text:#1a1d21; --muted:#6b7280;
-      --accent:#1d9e75; --accent-weak:#e1f5ee; --amber:#b7791f; --amber-weak:#fdf6e3;
+      --accent:#00adb5; --accent-ink:#007a80; --accent-weak:#d9f6f7;
+      --button-bg:#eeeeee; --button-text:#0f1216;
+      --amber:#b7791f; --amber-weak:#fdf6e3;
       --red:#c0392b; --chip:#eef1f4; --shadow:0 1px 3px rgba(0,0,0,.06);
     }
     @media (prefers-color-scheme:dark){
       :root{
         --bg:#0f1216; --surface:#171b21; --line:#2a2f37; --text:#e6e9ee; --muted:#9aa4b2;
-        --accent:#3fcaa0; --accent-weak:#0f2b23; --amber:#e0b25a; --amber-weak:#2a2312;
+        --accent:#00adb5; --accent-ink:#50d5da; --accent-weak:#063b3f;
+        --amber:#e0b25a; --amber-weak:#2a2312;
         --red:#e07a6f; --chip:#222831; --shadow:none;
       }
     }
@@ -23,8 +27,10 @@
     a{color:inherit;text-decoration:none}
     .topbar{display:flex;align-items:baseline;gap:.6rem;padding:.85rem 1.2rem;
       background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
-    .brand{font-weight:600;font-size:1.15rem;color:var(--accent)}
-    .brand::before{content:"◆ "}
+    .brand{display:inline-flex;align-items:center;gap:.5rem;font-weight:600;font-size:1.15rem;color:var(--accent-ink)}
+    .brand-logo{display:inline-block;width:22px;height:22px;background:var(--accent);
+      -webkit-mask:url("/static/x-mark.png") center/contain no-repeat;
+      mask:url("/static/x-mark.png") center/contain no-repeat}
     .topbar .sub{color:var(--muted);font-size:.85rem}
     .wrap{max-width:1200px;margin:0 auto;padding:1.4rem 1.2rem}
     h1{font-size:1.3rem;font-weight:600;margin:.2rem 0 1rem}
@@ -41,7 +47,7 @@
     .metric .l{font-size:.72rem;color:var(--muted)}
     .chip{display:inline-block;background:var(--chip);border-radius:999px;
       padding:.12rem .6rem;font-size:.74rem;color:var(--muted);direction:ltr}
-    .chip.accent{background:var(--accent-weak);color:var(--accent)}
+    .chip.accent{background:var(--accent-weak);color:var(--accent-ink)}
     .chip.amber{background:var(--amber-weak);color:var(--amber)}
     .banner{background:var(--amber-weak);border:1px solid var(--line);border-radius:10px;
       padding:.7rem .9rem;font-size:.86rem;color:var(--text);margin:.4rem 0 1.1rem}
@@ -52,7 +58,7 @@
     th{position:sticky;top:52px;background:var(--surface);color:var(--muted);
       font-weight:500;font-size:.78rem;white-space:nowrap}
     th a{color:inherit}
-    th a:hover{color:var(--accent)}
+    th a:hover{color:var(--accent-ink)}
     /* A wide dataset scrolls INSIDE the workspace, never the whole page. */
     .tablewrap{overflow-x:auto;border-radius:12px}
     tr:last-child td{border-bottom:none}
@@ -69,14 +75,14 @@
     .wstabs a:hover{color:var(--text)}
     .wstabs a[aria-current=page]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
     .badge{font-size:.72rem;padding:.1rem .5rem;border-radius:6px}
-    .ok{background:var(--accent-weak);color:var(--accent)}
+    .ok{background:var(--accent-weak);color:var(--accent-ink)}
     .off{background:var(--amber-weak);color:var(--amber)}
     .filters{display:flex;gap:.6rem;flex-wrap:wrap;margin:.4rem 0 1rem}
     input,select{font:inherit;padding:.45rem .7rem;border:1px solid var(--line);
       border-radius:8px;background:var(--surface);color:var(--text)}
     input[type=search]{min-width:240px}
-    button{font:inherit;padding:.45rem 1rem;border:1px solid var(--accent);background:var(--accent);
-      color:#fff;border-radius:8px;cursor:pointer}
+    button{font:inherit;padding:.45rem 1rem;border:1px solid var(--button-bg);background:var(--button-bg);
+      color:var(--button-text);border-radius:8px;cursor:pointer}
     .pager{display:flex;gap:.5rem;align-items:center;justify-content:center;margin:1.1rem 0}
     .pager a,.pager span{padding:.4rem .8rem;border:1px solid var(--line);border-radius:8px}
     .pager a:hover{border-color:var(--accent)}
@@ -88,7 +94,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a href="/" class="brand">ScrapeX</a>
+    <a href="/" class="brand"><span class="brand-logo" aria-hidden="true"></span>ScrapeX</a>
     <span class="sub">Price-tracking warehouse — local workspace</span>
   </header>
   {# The dataset in view is carried across every tab (spec 21) so switching tabs

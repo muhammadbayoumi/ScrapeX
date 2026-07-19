@@ -17,7 +17,8 @@ hardcoded colors/spacing anywhere (DRY).
 | Group | Tokens | Notes |
 |---|---|---|
 | Surfaces | `--bg` `--surface` `--line` `--text` `--muted` `--chip` | neutral ramp |
-| Accent (brand/success) | `--accent` `--accent-weak` | primary actions, "ready", links |
+| Accent (brand/success) | `--accent` `--accent-ink` `--accent-weak` | brand, accessible accent text, subtle backgrounds |
+| Buttons | `--button-bg` `--button-text` | filled-action background and label |
 | Amber (warning/soon) | `--amber` `--amber-weak` | "coming soon", cautions |
 | Red (error/danger) | `--red` `--red-weak` | errors, engine-down |
 | Spacing (4px base) | `--sp-1`…`--sp-5` | .25 → 1.5rem |
@@ -33,12 +34,12 @@ Every token ships a dark-mode value; nothing else is themed.
 | Variant | Use when |
 |---|---|
 | primary (`button`) | the main action in a context |
-| ghost (`button.ghost`) | secondary/inline actions |
+| ghost (`button.ghost`) | secondary/inline actions using the same neutral control palette |
 
 | State | Visual | Behavior |
 |---|---|---|
-| default | accent fill / ghost outline | — |
-| hover | `brightness(1.06)` / ghost gets `--accent-weak` | — |
+| default | `--button-bg` fill with `--button-text` label | — |
+| hover | `brightness(.96)` | — |
 | disabled | `opacity:.5` | non-interactive (`:disabled`) |
 | focus | 2px accent outline, 2px offset | keyboard-visible (`:focus-visible`) |
 | loading | caller sets text `…` + `disabled` | (capture buttons) |

@@ -40,15 +40,12 @@ const state = {
 };
 
 // ---- views ----------------------------------------------------------------
-// "addsite" is a SCREEN, not a tab: it replaces the Run view and returns to it,
-// while the bottom nav keeps showing Run as the active tab.
-const VIEWS = ["run", "data", "settings", "addsite"];
+const VIEWS = ["source", "run", "data", "settings"];
 
 function showView(name) {
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
-  const tab = name === "addsite" ? "run" : name;
   document.querySelectorAll("nav.tabs button").forEach((b) => {
-    if (b.dataset.view === tab) b.setAttribute("aria-current", "page");
+    if (b.dataset.view === name) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   });
   if (name === "data") loadDatasets();
@@ -92,7 +89,7 @@ function renderSites() {
     (s.base_url || "").toLowerCase().includes(term));
 
   if (!state.sources.length) {
-    box.innerHTML = `<div class="srow"><span class="muted">No sites yet. Use “+ Add site” to register your first one.</span></div>`;
+    box.innerHTML = `<div class="srow"><span class="muted">No sites yet. Open Source to register your first one.</span></div>`;
   } else if (!shown.length) {
     box.innerHTML = `<div class="srow"><span class="muted">No site matches “${esc(state.filter)}”.</span></div>`;
   } else {
@@ -438,7 +435,7 @@ async function loadOutputs() {
   }
 }
 
-// ---- add site (a screen, spec 11) -------------------------------------------
+// ---- source / add site (first tab, spec 11) ---------------------------------
 let lastProbe = null;
 
 const FAMILY_LABELS = {
@@ -566,7 +563,7 @@ async function loadCurrentSite() {
       box.innerHTML = `<div class="row"><span class="muted">This tab isn't one of your sites.</span>
         <button id="add-cur" class="ghost">Add it</button></div>`;
       $("add-cur").addEventListener("click", () => {
-        showView("addsite"); $("url").value = url; probe();
+        showView("source"); $("url").value = url; probe();
       });
     }
   } catch (_) { box.classList.add("hidden"); }
@@ -626,8 +623,6 @@ async function init() {
   });
   $("clear-sel").addEventListener("click", () => { state.selected.clear(); renderSites(); });
 
-  $("open-add").addEventListener("click", () => showView("addsite"));
-  $("add-back").addEventListener("click", () => showView("run"));
   $("adv-toggle").addEventListener("click", (e) => {
     const open = $("adv").classList.toggle("hidden");
     e.target.setAttribute("aria-expanded", String(!open));

@@ -180,8 +180,12 @@ def main() -> int:
     parser.add_argument("--backend", default="http://127.0.0.1:8000")
     args = parser.parse_args()
 
+    TAB_RUN = 'nav.tabs button[data-view="run"]'
     TAB_DATA = 'nav.tabs button[data-view="data"]'
     TAB_SETTINGS = 'nav.tabs button[data-view="settings"]'
+    TAB_SOURCE = 'nav.tabs button[data-view="source"]'
+    SOURCE_URLS = 'label[for="source-urls"]'
+    SOURCE_FILE = 'label[for="source-file"]'
     running_job = [{
         "job_ref": "job_demo", "status": "running", "run_mode": "update",
         "source_keys": ["LONG_AR", "SHORT"], "current_source_key": "LONG_AR",
@@ -201,25 +205,22 @@ def main() -> int:
 
     # (stub, optional selector to click before capturing)
     scenarios = {
-        "01-run-sites-populated": (_stub(args.backend), None),
-        "02-run-empty-no-sites": (_stub(args.backend, sources=[]), None),
-        "03-runtime-down": (_stub(args.backend, engine_up=False), None),
-        "04-loading": (_stub(args.backend, slow=True), None),
-        "05-job-running": (_stub(args.backend, jobs=running_job), None),
+        "01-run-sites-populated": (_stub(args.backend), TAB_RUN),
+        "02-run-empty-no-sites": (_stub(args.backend, sources=[]), TAB_RUN),
+        "03-runtime-down": (_stub(args.backend, engine_up=False), TAB_RUN),
+        "04-loading": (_stub(args.backend, slow=True), TAB_RUN),
+        "05-job-running": (_stub(args.backend, jobs=running_job), TAB_RUN),
         "06-data-datasets": (_stub(args.backend, records=arabic_records), TAB_DATA),
         "07-data-records-arabic": (
             _stub(args.backend, records=arabic_records), TAB_DATA + " >> nth=0"),
         "08-settings": (_stub(args.backend), TAB_SETTINGS),
         "09-job-running-on-data-tab": (
             _stub(args.backend, jobs=running_job, records=arabic_records), TAB_DATA),
-        "10-addsite-empty": (_stub(args.backend), "#open-add"),
-        "11-addsite-tested": (_stub(args.backend),
-                              ["#open-add", ("#url", "https://shop.example.com"), "#check"]),
-        "12-addsite-advanced": (_stub(args.backend),
-                                ["#open-add", ("#url", "https://shop.example.com"),
-                                 "#check", "#adv-toggle"]),
+        "10-source-current-page": (_stub(args.backend), TAB_SOURCE),
+        "11-source-urls": (_stub(args.backend), [TAB_SOURCE, SOURCE_URLS]),
+        "12-source-file-image": (_stub(args.backend), [TAB_SOURCE, SOURCE_FILE]),
         "13-selected-cards": (_stub(args.backend),
-                              ['input[data-key="LONG_AR"]', 'input[data-key="SHORT"]']),
+                              [TAB_RUN, 'input[data-key="LONG_AR"]', 'input[data-key="SHORT"]']),
     }
 
     try:

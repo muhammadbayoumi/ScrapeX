@@ -8,7 +8,8 @@
   /* neutral surfaces */
   --bg:#f6f7f9; --surface:#fff; --line:#e4e7eb; --text:#1a1d21; --muted:#6b7280; --chip:#eef1f4;
   /* semantic — accent (brand/success), amber (warning/soon), red (error/danger) */
-  --accent:#1d9e75; --accent-weak:#e1f5ee;
+  --accent:#00adb5; --accent-ink:#007a80; --accent-weak:#d9f6f7;
+  --button-bg:#eeeeee; --button-text:#0f1216;
   --amber:#b7791f;  --amber-weak:#fdf6e3;
   --red:#c0392b;    --red-weak:#fdecea;
 
@@ -27,7 +28,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg:#0f1216; --surface:#171b21; --line:#2a2f37; --text:#e6e9ee; --muted:#9aa4b2; --chip:#222831;
-    --accent:#3fcaa0; --accent-weak:#0f2b23;
+    --accent:#00adb5; --accent-ink:#50d5da; --accent-weak:#063b3f;
     --amber:#e0b25a;  --amber-weak:#2a2312;
     --red:#e07a6f;    --red-weak:#2a1512;
   }

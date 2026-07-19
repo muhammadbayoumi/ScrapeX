@@ -4,25 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ScrapeX — Set up</title>
+<link rel="icon" href="icons/x-mark.png">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <style>
   body { line-height: 1.6; }
   .wrap { max-width: 680px; margin: 0 auto; padding: 2.5rem 1.3rem 4rem; }
-  h1 { font-size: 1.6rem; font-weight: var(--fw-bold); margin: .2rem 0; }
-  h1 .mark { color: var(--accent); }
+  h1 { display: flex; align-items: center; gap: var(--sp-2); font-size: 1.6rem;
+    font-weight: var(--fw-bold); margin: .2rem 0; }
   .lead { color: var(--muted); margin: .3rem 0 1.6rem; }
   .status { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);
     border-radius: var(--radius-lg); border: 1px solid var(--line); margin-bottom: 1.6rem; font-weight: 500; }
   .status .dot { width: 12px; height: 12px; flex: none; }
   .status.checking { background: var(--chip); } .status.checking .dot { background: var(--muted); }
   .status.down { background: var(--red-weak); } .status.down .dot { background: var(--red); }
-  .status.up { background: var(--accent-weak); color: var(--accent); } .status.up .dot { background: var(--accent); }
+  .status.up { background: var(--accent-weak); color: var(--accent-ink); } .status.up .dot { background: var(--accent); }
   .status .sub { font-weight: 400; color: var(--muted); font-size: var(--fs-sm); margin-inline-start: auto; }
   .card { margin-bottom: var(--sp-4); padding: 1.2rem 1.3rem; }
   .step { display: flex; gap: .9rem; padding: var(--sp-2) 0; }
   .step .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-weak);
-    color: var(--accent); display: grid; place-items: center; font-weight: var(--fw-bold); font-size: var(--fs-sm); }
+    color: var(--accent-ink); display: grid; place-items: center; font-weight: var(--fw-bold); font-size: var(--fs-sm); }
   .step h3 { margin: .1rem 0 .2rem; font-size: 1rem; font-weight: var(--fw-bold); }
   .step p { margin: .1rem 0; color: var(--muted); font-size: .9rem; }
   .cmd-row { display: flex; gap: var(--sp-2); align-items: center; margin: var(--sp-1) 0; }
@@ -37,7 +38,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1><span class="mark">◆</span> Welcome to ScrapeX</h1>
+  <h1><span class="brand-logo lg" aria-hidden="true"></span>Welcome to ScrapeX</h1>
   <p class="lead">A scraping tool that runs entirely on your machine. The extension is the
     interface — the <b>engine</b> is a small local app you install once.</p>
 

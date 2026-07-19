@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ScrapeX</title>
+<link rel="icon" href="icons/x-mark.png">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <style>
@@ -68,6 +69,104 @@
          align-items: baseline; padding: var(--sp-1) 0; }
   .out + .out { border-top: 1px solid var(--line); }
 
+  /* Source picker — UI prototype only. Backend/browser bindings are intentionally
+     deferred; see the TODO beside the markup. */
+  .source-picker { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .source-picker-title { margin: var(--sp-1) 0; color: var(--muted);
+                         font-size: var(--fs-xs); font-weight: var(--fw-bold);
+                         letter-spacing: .04em; text-transform: uppercase; }
+  .source-choice { position: relative; border: 1px solid var(--line);
+                   border-radius: var(--radius-lg); background: var(--surface);
+                   overflow: hidden;
+                   transition: border-color var(--dur), background-color var(--dur); }
+  .source-choice:has(.source-radio:checked) { border-color: var(--accent); }
+  .source-radio { position: absolute; opacity: 0; pointer-events: none; }
+  .source-choice-label { display: grid; grid-template-columns: 17px minmax(0, 1fr);
+                         align-items: center; column-gap: var(--sp-3); min-height: 64px;
+                         padding: var(--sp-3) var(--sp-4); cursor: pointer;
+                         transition: min-height .26s cubic-bezier(.2,.8,.2,1),
+                                     padding .26s cubic-bezier(.2,.8,.2,1); }
+  .source-choice:has(.source-radio:checked) .source-choice-label {
+    min-height: 46px; padding-block: var(--sp-2);
+  }
+  .source-choice:hover { border-color: var(--accent); }
+  .source-choice:has(.source-radio:focus-visible) { outline: 2px solid var(--accent);
+                                                    outline-offset: 2px; }
+  .source-choice-icon, .source-choice-check { width: 17px; height: 17px; flex: none;
+                                              grid-column: 1; grid-row: 1;
+                                              display: grid; place-items: center;
+                                              transition: opacity var(--dur), transform var(--dur); }
+  .source-choice-icon, .source-preview-icon {
+    background: currentColor; -webkit-mask-position: center; mask-position: center;
+    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+    -webkit-mask-size: contain; mask-size: contain;
+  }
+  .source-icon-browser { -webkit-mask-image: url("icons/browser.png");
+                         mask-image: url("icons/browser.png"); }
+  .source-icon-link { -webkit-mask-image: url("icons/link.png");
+                      mask-image: url("icons/link.png"); }
+  .source-icon-file { -webkit-mask-image: url("icons/file.png");
+                      mask-image: url("icons/file.png"); }
+  .source-choice-check { border-radius: 50%; background: var(--accent);
+                         color: var(--button-text); font-size: 11px; font-weight: var(--fw-bold);
+                         opacity: 0; transform: scale(.65); }
+  .source-choice:has(.source-radio:checked) .source-choice-icon {
+    opacity: 0; transform: scale(.65);
+  }
+  .source-choice:has(.source-radio:checked) .source-choice-check {
+    opacity: 1; transform: scale(1);
+  }
+  .source-choice-copy { grid-column: 2; display: flex; flex-direction: column; gap: 2px; }
+  .source-choice-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .source-choice-description { color: var(--muted); font-size: var(--fs-xs); }
+  .source-choice:has(.source-radio:checked) .source-choice-description { display: none; }
+  .source-choice-panel { display: grid; grid-template-rows: 0fr; opacity: 0;
+                         visibility: hidden; margin: 0 var(--sp-4); padding-bottom: 0;
+                         transition: grid-template-rows .28s cubic-bezier(.2,.8,.2,1),
+                                     opacity .18s ease, padding-bottom .28s cubic-bezier(.2,.8,.2,1),
+                                     visibility 0s linear .28s; }
+  .source-choice-panel-inner { min-height: 0; overflow: hidden; padding-top: 0;
+                               border-top: 1px solid transparent;
+                               transition: padding-top .28s cubic-bezier(.2,.8,.2,1),
+                                           border-color .18s ease; }
+  .source-choice:has(.source-radio:checked) .source-choice-panel {
+    grid-template-rows: 1fr; opacity: 1; visibility: visible;
+    padding-bottom: var(--sp-3); transition-delay: 0s;
+  }
+  .source-choice:has(.source-radio:checked) .source-choice-panel-inner {
+    padding-top: var(--sp-3); border-top-color: var(--line);
+  }
+  .source-current-preview { display: flex; align-items: flex-start; gap: var(--sp-3); }
+  .source-preview-icon { width: 17px; height: 17px; flex: none; margin-top: 2px; }
+  .source-preview-copy { display: flex; flex-direction: column; gap: 2px; }
+  .source-preview-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .source-preview-url { color: var(--muted); font-size: var(--fs-xs); }
+  .source-url-box { display: block; width: 100%; min-height: 225px; resize: vertical;
+                    border: 1px solid var(--line); border-radius: var(--radius);
+                    background: var(--bg);
+                    padding: var(--sp-3); color: var(--text); line-height: 1.7; }
+  .source-or { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-3) 0;
+               color: var(--muted); font-size: var(--fs-xs); text-transform: uppercase; }
+  .source-or::before, .source-or::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+  .source-import { width: 100%; display: inline-flex; align-items: center; justify-content: center;
+                   gap: var(--sp-2); }
+  .source-import svg { width: 16px; height: 16px; }
+  .source-limit { display: flex; align-items: center; gap: var(--sp-1);
+                  margin-top: var(--sp-3); color: var(--muted); font-size: var(--fs-xs); }
+  .source-info { width: 13px; height: 13px; border-radius: 50%; background: var(--muted);
+                 color: var(--bg); display: inline-grid; place-items: center;
+                 font-size: 9px; font-weight: var(--fw-bold); }
+  .source-dropzone { min-height: 140px; padding: var(--sp-3); border: 1px dashed var(--muted);
+                     border-radius: var(--radius); display: flex; flex-direction: column;
+                     justify-content: space-between; gap: var(--sp-3); }
+  .source-drop-copy { flex: 1; display: flex; align-items: center; justify-content: center;
+                      gap: var(--sp-1); color: var(--muted); font-size: var(--fs-sm);
+                      text-align: center; }
+  .source-file-actions { display: flex; gap: var(--sp-2); }
+  .source-file-actions button { flex: 1; display: inline-flex; align-items: center;
+                                justify-content: center; gap: var(--sp-2); }
+  .source-file-actions svg { width: 16px; height: 16px; flex: none; }
+
   /* Technical values stay LTR even inside an RTL-ish neighbourhood. */
   .tech { direction: ltr; unicode-bidi: isolate; font-family: var(--mono, monospace);
           font-size: var(--fs-xs); }
@@ -97,20 +196,25 @@
      alone, and carries aria-current for assistive tech. */
   nav.tabs { display: flex; border-top: 1px solid var(--line); background: var(--bg); }
   nav.tabs button { flex: 1; border: 0; border-top: 2px solid transparent; border-radius: 0;
-                    background: none; padding: var(--sp-3) var(--sp-2);
-                    font-size: var(--fs-sm); color: var(--muted); }
-  nav.tabs button[aria-current="page"] { color: var(--fg); font-weight: var(--fw-bold);
+                    background: none; padding: var(--sp-3) var(--sp-1);
+                    font-size: var(--fs-xs); color: var(--muted); }
+  @media (min-width: 360px) { nav.tabs button { font-size: var(--fs-sm); } }
+  nav.tabs button[aria-current="page"] { color: var(--text); font-weight: var(--fw-bold);
                                          border-top-color: currentColor; }
 
   .skeleton { height: 12px; border-radius: 4px; background: var(--chip);
               animation: pulse 1.4s ease-in-out infinite; margin: var(--sp-2) 0; }
   @keyframes pulse { 0%,100% { opacity: .45 } 50% { opacity: .9 } }
-  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none } }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
+    .source-choice, .source-choice-label, .source-choice-icon, .source-choice-check,
+    .source-choice-panel, .source-choice-panel-inner { transition: none; }
+  }
 </style>
 </head>
 <body>
   <header class="sx-header">
-    <span class="brand">ScrapeX</span>
+    <span class="brand"><span class="brand-logo" aria-hidden="true"></span>ScrapeX</span>
     <button id="estat" class="estat" aria-expanded="false" aria-controls="runtime-details"
             title="Local runtime status">
       <span id="dot" class="dot"></span><span id="estat-text">Checking…</span>
@@ -131,7 +235,7 @@
     </section>
 
     <!-- ============================ RUN ============================ -->
-    <section id="view-run">
+    <section id="view-run" class="hidden">
       <div id="setup" class="card warn hidden">
         <div style="font-weight:var(--fw-bold);margin-bottom:var(--sp-1)">Setup required</div>
         <div class="muted steps" style="margin-bottom:var(--sp-2)">
@@ -144,7 +248,7 @@
       <div id="current" class="card hi hidden"></div>
 
       <div>
-        <div class="row"><h2>Sites</h2><button id="open-add" class="ghost">+ Add site</button></div>
+        <h2>Sites</h2>
         <input id="site-search" type="search" placeholder="Search by name or URL..."
                aria-label="Search sites">
         <div class="toolbar" style="margin:var(--sp-2) 0">
@@ -204,12 +308,108 @@
       </section>
     </section>
 
-    <!-- ========================== ADD SITE ==========================
-         A screen INSIDE the panel (spec 11), not a popup. Everything it
-         collects is persisted to the manifest — no field is decorative. -->
-    <section id="view-addsite" class="hidden">
-      <div class="row"><h2 class="flush">Add site</h2>
-        <button id="add-back" class="ghost">← Back</button></div>
+    <!-- =========================== SOURCE =========================== -->
+    <section id="view-source">
+      <!-- TODO(integration): UI ONLY. Connect these source choices to:
+           1) chrome.tabs/activeTab for Current Page title, URL and access state;
+           2) the extraction API for pasted URL batches;
+           3) CSV/Excel parsing and File & Image uploads.
+           The hidden legacy form below remains temporarily so existing app.js
+           bindings do not break before this source picker is wired end-to-end. -->
+      <div class="source-picker">
+        <h2 class="source-picker-title">Choose a Data Source</h2>
+
+        <article class="source-choice">
+          <input class="source-radio" type="radio" name="data-source" id="source-current" checked>
+          <label class="source-choice-label" for="source-current">
+            <span class="source-choice-check" aria-hidden="true">✓</span>
+            <span class="source-choice-icon source-icon-browser" aria-hidden="true"></span>
+            <span class="source-choice-copy">
+              <span class="source-choice-title">Current Page</span>
+              <span class="source-choice-description">Extract data from the active tab</span>
+            </span>
+          </label>
+          <div class="source-choice-panel">
+            <div class="source-choice-panel-inner">
+              <div class="source-current-preview">
+                <span class="source-preview-icon source-icon-browser" aria-hidden="true"></span>
+                <span class="source-preview-copy">
+                  <span class="source-preview-title">Current page preview</span>
+                  <span class="source-preview-url">Title and URL will appear after active-tab integration.</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="source-choice">
+          <input class="source-radio" type="radio" name="data-source" id="source-urls">
+          <label class="source-choice-label" for="source-urls">
+            <span class="source-choice-check" aria-hidden="true">✓</span>
+            <span class="source-choice-icon source-icon-link" aria-hidden="true"></span>
+            <span class="source-choice-copy">
+              <span class="source-choice-title">URLs</span>
+              <span class="source-choice-description">Paste a list of URLs to extract in batch.</span>
+            </span>
+          </label>
+          <div class="source-choice-panel">
+            <div class="source-choice-panel-inner">
+              <textarea class="source-url-box" aria-label="URLs to extract"
+                placeholder="Paste URLs here (one per row).&#10;https://www.example.com/page-1&#10;https://www.example.com/page-2&#10;Max: 2,000 URLs"></textarea>
+              <div class="source-or">or</div>
+              <button type="button" class="source-import" data-integration="url-file-import">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"></path>
+                  <path d="m10 17 5-5-5-5M15 12H3"></path>
+                </svg>
+                Import CSV / Excel
+              </button>
+              <div class="source-limit">Max: 5,000 URLs <span class="source-info" title="Import limit">i</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="source-choice source-choice-file">
+          <input class="source-radio" type="radio" name="data-source" id="source-file">
+          <label class="source-choice-label" for="source-file">
+            <span class="source-choice-check" aria-hidden="true">✓</span>
+            <span class="source-choice-icon source-icon-file" aria-hidden="true"></span>
+            <span class="source-choice-copy">
+              <span class="source-choice-title">File &amp; Image</span>
+              <span class="source-choice-description">Extract data from documents and images.</span>
+            </span>
+          </label>
+          <div class="source-choice-panel">
+            <div class="source-choice-panel-inner">
+              <div class="source-dropzone">
+                <div class="source-drop-copy">
+                  <span>Drag &amp; Drop Files Here</span>
+                  <span class="source-info" title="Supported file types">i</span>
+                </div>
+                <div class="source-file-actions">
+                  <button type="button" data-integration="file-upload">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                      <path d="M12 16V4M7 9l5-5 5 5"></path>
+                      <path d="M5 15v4h14v-4"></path>
+                    </svg>
+                    Upload
+                  </button>
+                  <button type="button" data-integration="screenshot-capture">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                      <circle cx="12" cy="12" r="3"></circle>
+                      <path d="M4 7h3l2-2h6l2 2h3v11H4z"></path>
+                    </svg>
+                    Screenshot
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div id="source-legacy-integration" class="hidden" aria-hidden="true">
+      <h2 class="flush">Add site</h2>
 
       <div class="card stack">
         <div class="fieldset">
@@ -333,6 +533,7 @@
         <button id="add-btn" class="block">Add site</button>
         <div id="add-out" class="hint"></div>
       </div>
+      </div>
     </section>
 
     <!-- ============================ DATA ============================ -->
@@ -415,9 +616,10 @@
   </div>
 
   <nav class="tabs" role="tablist">
-    <button data-view="run" aria-current="page">Run</button>
-    <button data-view="data">Browse data</button>
-    <button data-view="settings">Settings</button>
+    <button data-view="source" aria-controls="view-source" aria-current="page">Source</button>
+    <button data-view="run" aria-controls="view-run">Run</button>
+    <button data-view="data" aria-controls="view-data">Browse data</button>
+    <button data-view="settings" aria-controls="view-settings">Settings</button>
   </nav>
 
   <script type="module" src="app.js"></script>

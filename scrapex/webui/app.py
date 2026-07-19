@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db as dbmod
@@ -44,6 +45,7 @@ from ..vocab import (
 )
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
 
@@ -59,6 +61,8 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
     app.state.runner = JobRunner(str(db_path), lambda: app.state.manifest) if start_worker else None
     if app.state.runner is not None:
         app.state.runner.start()
+
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # The extension calls from a chrome-extension:// origin. Local-only server,
     # no credentials — permissive CORS is acceptable here (A9: still 127.0.0.1).
