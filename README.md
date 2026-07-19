@@ -6,6 +6,7 @@ publishing curated data to the Google Sheet the mbiX Excel add-in reads.
 
 Rules: [ENGINEERING.md](ENGINEERING.md) ·
 Compatibility contract: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) ·
+Generic catalogue: [docs/GENERIC_CATALOG.md](docs/GENERIC_CATALOG.md) ·
 Architecture plan: owner's plan doc.
 
 ```

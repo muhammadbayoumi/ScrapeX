@@ -58,6 +58,7 @@ from ..vocab import (
     Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher,
     JobControl, MissedRunPolicy, OverlapPolicy, RunMode, ScheduleFrequency, VatMode,
 )
+from .catalog_api import create_catalog_router
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 STATIC_DIR = Path(__file__).parent / "static"
@@ -386,6 +387,10 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             raise HTTPException(
                 status_code=409,
                 detail="a crawl is currently writing to the database — try again shortly")
+
+    # G1 foundation: typed persistence and API only. The feature stays disabled
+    # until a later slice adds a complete user-facing catalogue workflow.
+    app.include_router(create_catalog_router(read_conn, _write))
 
     @app.get("/api/fields/{source_key}")
     def api_fields(source_key: str):

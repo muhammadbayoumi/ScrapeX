@@ -12,6 +12,14 @@ def test_price_tracking_is_the_enabled_compatibility_baseline():
     assert price["stage"] == DeliveryStage.PRODUCTION_READY.value
 
 
+def test_generic_catalogue_foundation_is_visible_but_not_enabled():
+    feature = next(
+        f for f in manifest()["features"] if f["key"] == "generic_dataset_catalog"
+    )
+    assert feature["stage"] == DeliveryStage.FOUNDATION.value
+    assert feature["enabled"] is False
+
+
 @pytest.mark.parametrize("feature", [
     FeatureKey.GENERIC_DATASET_CATALOG,
     FeatureKey.GENERIC_EXTRACTION,

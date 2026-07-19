@@ -50,8 +50,8 @@ _FEATURES = (
     FeatureState(
         FeatureKey.GENERIC_DATASET_CATALOG,
         False,
-        DeliveryStage.NOT_STARTED,
-        "Enabled only after G1 stores and displays an arbitrary dataset end to end.",
+        DeliveryStage.FOUNDATION,
+        "Definitions and API exist; enable only after generic rows and the catalogue UI ship.",
     ),
     FeatureState(
         FeatureKey.GENERIC_EXTRACTION,

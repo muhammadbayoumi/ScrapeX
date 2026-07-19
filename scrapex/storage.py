@@ -628,17 +628,29 @@ def migrate_location(db_path: Path | str, new_dir: Path | str, *,
 
 
 def _same_contents(src: Path, dst: Path) -> bool:
-    """Row counts agree on the tables that matter. Cheap, and catches a truncated
-    copy — which is the failure a byte-size check misses on a WAL database."""
-    tables = ("price_observation", "source_offer", "source_product", "source_site")
+    """Every user table and row count agrees, including future generic data.
+
+    A fixed table allowlist silently stopped protecting data as soon as a new
+    migration added a first-class dataset. Schema names come from SQLite itself;
+    values remain parameterized and identifiers are quoted before use.
+    """
     try:
         a, b = sqlite3.connect(str(src)), sqlite3.connect(str(dst))
     except sqlite3.DatabaseError:
         return False
     try:
-        for table in tables:
-            if a.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] != \
-               b.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:
+        table_sql = (
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )
+        tables_a = [row[0] for row in a.execute(table_sql)]
+        tables_b = [row[0] for row in b.execute(table_sql)]
+        if tables_a != tables_b:
+            return False
+        for table in tables_a:
+            quoted = table.replace('"', '""')
+            count_sql = f'SELECT COUNT(*) FROM "{quoted}"'
+            if a.execute(count_sql).fetchone()[0] != b.execute(count_sql).fetchone()[0]:
                 return False
         return a.execute("PRAGMA user_version").fetchone()[0] == \
             b.execute("PRAGMA user_version").fetchone()[0]
