@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% block title %}Sync — ScrapeX{% endblock %}
+{% block content %}
+<h1>Sync to Google Sheets</h1>
+<p class="muted small">Two independent routes to the same place. Apps Script pushes
+  batches into a sheet you deploy yourself; Drive signs in with Google and writes
+  the spreadsheet directly. Setting up one does not affect the other.</p>
+
+<!-- ==================== Apps Script funnel (spec 22) ==================== -->
+<h2>Apps Script funnel</h2>
+{% with label=funnel.label, ready=funnel.ready, blocker=funnel.blocker %}
+  {% include "_destination.html" %}
+{% endwith %}
+
+<div class="steps">
+  <div class="step">
+    <span class="step-n" aria-hidden="true">1</span>
+    <div class="step-body">
+      <h3>Copy the script into your spreadsheet</h3>
+      <p class="hint">In the sheet: Extensions → Apps Script, replace the file contents,
+        then Deploy → New deployment → Web app, executing as you, accessible to you only.</p>
+      <div class="row">
+        <button id="copy-script">Copy script</button>
+        <button id="show-script" class="ghost" aria-expanded="false"
+                aria-controls="script-box">Show script</button>
+        <span id="copy-out" class="hint" role="status" aria-live="polite"></span>
+      </div>
+      <pre id="script-box" class="script" hidden></pre>
+    </div>
+  </div>
+  <div class="step">
+    <span class="step-n" aria-hidden="true">2</span>
+    <div class="step-body">
+      <h3>Save the deployment URL and a shared token</h3>
+      <form id="funnel-form" class="stack" onsubmit="return false">
+        <div class="field">
+          <label for="funnel_url">Deployment URL</label>
+          <input id="funnel_url" name="funnel_url" dir="ltr" spellcheck="false"
+                 value="{{ settings.funnel_url.value }}"
+                 placeholder="https://script.google.com/macros/s/.../exec">
+          {% if funnel.url_source == "environment" %}
+            <span class="hint">Currently coming from the environment variable
+              <code>{{ settings.funnel_url.env }}</code>. Saving a value here overrides it.</span>
+          {% endif %}
+        </div>
+        <div class="field">
+          <label for="funnel_token">Shared token</label>
+          <input id="funnel_token" name="funnel_token" type="password" dir="ltr"
+                 autocomplete="off" spellcheck="false"
+                 placeholder="{{ 'Saved (' ~ funnel.token_hint ~ ') — type to replace' if funnel.token_is_set else 'Paste or generate a token' }}">
+          <span class="hint">The token is stored on this machine and never shown again —
+            only its last four characters.
+            {% if funnel.token_source == "environment" %}
+              It currently comes from <code>{{ settings.funnel_token.env }}</code>.
+            {% endif %}</span>
+        </div>
+        <div class="row">
+          <button id="save-funnel">Save</button>
+          <button id="gen-token" class="ghost">Generate a new token</button>
+          <button id="revoke-token" class="ghost">Revoke</button>
+          <span id="funnel-out" class="hint" role="status" aria-live="polite"></span>
+        </div>
+        <p id="token-reveal" class="hint" hidden></p>
+      </form>
+    </div>
+  </div>
+  <div class="step">
+    <span class="step-n" aria-hidden="true">3</span>
+    <div class="step-body">
+      <h3>Test the connection</h3>
+      <p class="hint">Sends a single <code>FUNNEL_SELFTEST</code> row so you can confirm
+        the sheet receives it before pushing real data.</p>
+      <div class="row">
+        <button id="test-funnel" {{ "disabled" if not funnel.ready }}>Send a test row</button>
+        <span id="test-out" class="hint" role="status" aria-live="polite"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Send a source through the funnel</h2>
+{% if not sources %}
+  <div class="empty">No source has data yet.</div>
+{% else %}
+  <form id="funnel-pick" class="stack" onsubmit="return false">
+    <div class="field">
+      <label for="funnel-src">Source</label>
+      <select id="funnel-src">
+        {% for s in sources %}
+          {# A native <option> cannot be styled, so bidi is controlled with
+             isolate characters instead: without them an Arabic name reorders the
+             English count around it and the line reads "2 — <name> observations". #}
+          <option value="{{ s.source_key }}" {{ "selected" if s.source_key == source_key }}>
+            &#x2068;{{ s.source_name }}&#x2069; — {{ "{:,}".format(s.observations) }} observations</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="row">
+      <button id="send-funnel" {{ "disabled" if not funnel.ready }}>Send now</button>
+      <span id="send-out" class="hint" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+{% endif %}
+
+<table>
+  <tr><th>Batch limit</th><td>{{ "{:,}".format(funnel.max_rows) }} rows per send.
+      A larger source is refused before sending rather than timing out inside Apps Script.</td></tr>
+  <tr><th>Undelivered batches</th>
+      <td class="num">{{ funnel.outbox_pending }}
+        <span class="muted">of {{ funnel.outbox_threshold }} before an alarm</span>
+        {% if funnel.outbox_pending %}
+          <div class="muted small">Kept in <code>{{ funnel.outbox_dir }}</code> and retried on
+            the next send — nothing is lost when a delivery fails.</div>
+        {% endif %}</td></tr>
+  <tr><th>Not implemented</th><td>{{ funnel.limits }}</td></tr>
+</table>
+
+{% if funnel.last %}
+  <h3>Last funnel activity</h3>
+  <table>
+    <tr><th>Result</th><td><span class="badge {{ 'ok' if funnel.last.ok else 'off' }}">
+      {{ "Succeeded" if funnel.last.ok else "Failed" }}</span></td></tr>
+    <tr><th>When</th><td class="num">{{ funnel.last.at }}</td></tr>
+    <tr><th>Details</th><td>{{ funnel.last.detail }}</td></tr>
+  </table>
+{% endif %}
+
+<!-- ==================== Google Drive and Sheets (spec 23) ==================== -->
+<h2>Google Drive and Sheets</h2>
+{% with label=google.label, ready=google.ready, blocker=google.blocker %}
+  {% include "_destination.html" %}
+{% endwith %}
+
+<table>
+  <tr><th>Access requested</th>
+      <td>{% for scope in google.scopes %}<div>{{ scope }}</div>{% endfor %}</td></tr>
+  <tr><th>Signed-in account</th><td>{{ google.account or "—" }}
+      <div class="muted small">{{ google.account_note }}</div></td></tr>
+  <tr><th>Sign-in stored at</th><td><code>{{ google.token_path }}</code></td></tr>
+</table>
+
+<form id="google-form" class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="google_folder">Drive folder</label>
+    <input id="google_folder" value="{{ settings.google_folder.value }}" dir="auto">
+    <span class="hint">Created if it does not exist. ScrapeX can only see folders and
+      files it created itself.</span>
+  </div>
+  <div class="field">
+    <label for="google_workbook">Spreadsheet name</label>
+    <input id="google_workbook" value="{{ settings.google_workbook.value }}" dir="auto">
+    <span class="hint">One spreadsheet, one tab per source — the same arrangement as
+      the Excel workbook.</span>
+  </div>
+  <div class="row">
+    <button id="save-google">Save</button>
+    {% if google.connected %}
+      <button id="disconnect" class="ghost">Disconnect</button>
+    {% else %}
+      <button id="connect">Continue with Google</button>
+    {% endif %}
+    <span id="google-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+  {% if google.connected %}
+    <p class="hint">Disconnecting removes only ScrapeX's saved sign-in from this machine.
+      Your Drive files, folders and spreadsheets are left exactly as they are.</p>
+  {% endif %}
+</form>
+
+<h3>Push a source to Drive</h3>
+{% if not sources %}
+  <div class="empty">No source has data yet.</div>
+{% else %}
+  <form id="google-pick" class="stack" onsubmit="return false">
+    <fieldset class="picklist">
+      <legend class="hint">Each source becomes one tab</legend>
+      {% for s in sources %}
+        <label class="pickrow">
+          <input type="checkbox" name="gsrc" value="{{ s.source_key }}"
+                 {{ "checked" if source_key and s.source_key == source_key }}>
+          <span class="pickname">{{ s.source_name }}</span>
+          <span class="num muted">{{ "{:,}".format(s.observations) }} observations</span>
+        </label>
+      {% endfor %}
+    </fieldset>
+    <div class="row">
+      <button id="push" {{ "disabled" if not google.ready }}>Push to Drive</button>
+      <span id="push-out" class="hint" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+{% endif %}
+
+{% if google.last %}
+  <h3>Last Drive activity</h3>
+  <table>
+    <tr><th>Result</th><td><span class="badge {{ 'ok' if google.last.ok else 'off' }}">
+      {{ "Succeeded" if google.last.ok else "Failed" }}</span></td></tr>
+    <tr><th>When</th><td class="num">{{ google.last.at }}</td></tr>
+    <tr><th>Details</th><td>{{ google.last.detail }}</td></tr>
+    {% if google.last.location %}
+      <tr><th>Spreadsheet</th>
+          <td><a href="{{ google.last.location }}" rel="noopener noreferrer" target="_blank"
+                 dir="ltr">{{ google.last.location }}</a></td></tr>
+    {% endif %}
+  </table>
+{% endif %}
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function call(url, body, method) {
+  const res = await fetch(url, {method: method || "POST",
+                                headers: {"Content-Type": "application/json"},
+                                body: method === "GET" ? undefined : JSON.stringify(body || {})});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+
+// Working -> result, and a failure prints the reason rather than leaving the
+// button looking as though nothing happened.
+async function act(button, out, fn) {
+  const original = button.textContent;
+  button.disabled = true; button.textContent = "Working…";
+  out.textContent = ""; out.className = "hint";
+  try {
+    out.textContent = await fn();
+  } catch (err) {
+    out.textContent = err.message; out.className = "hint err";
+  } finally {
+    button.disabled = false; button.textContent = original;
+  }
+}
+
+const on = (id, fn) => { const el = $(id); if (el) el.addEventListener("click", fn); };
+const reload = (ms) => setTimeout(() => location.reload(), ms || 700);
+
+// ---- Apps Script -----------------------------------------------------------
+let scriptText = null;
+async function loadScript() {
+  if (scriptText === null) scriptText = (await (await fetch("/api/outputs/apps-script/script")).json()).script;
+  return scriptText;
+}
+
+on("copy-script", () => act($("copy-script"), $("copy-out"), async () => {
+  await navigator.clipboard.writeText(await loadScript());
+  return "Copied. Paste it into Apps Script, then deploy.";
+}));
+
+on("show-script", async () => {
+  const box = $("script-box"), btn = $("show-script");
+  const opening = box.hidden;
+  if (opening) box.textContent = await loadScript();
+  box.hidden = !opening;
+  btn.setAttribute("aria-expanded", String(opening));
+  btn.textContent = opening ? "Hide script" : "Show script";
+});
+
+on("save-funnel", () => act($("save-funnel"), $("funnel-out"), async () => {
+  const body = {funnel_url: $("funnel_url").value};
+  // An untouched password field must not wipe the saved token.
+  if ($("funnel_token").value) body.funnel_token = $("funnel_token").value;
+  await call("/api/settings", body);
+  reload(400);
+  return "Saved.";
+}));
+
+on("gen-token", () => act($("gen-token"), $("funnel-out"), async () => {
+  const r = await call("/api/outputs/apps-script/token");
+  const reveal = $("token-reveal");
+  reveal.hidden = false;
+  reveal.textContent = `New token (shown once): ${r.token} — ${r.next_step}`;
+  return "Generated.";
+}));
+
+on("revoke-token", () => act($("revoke-token"), $("funnel-out"), async () => {
+  await call("/api/settings", {funnel_token: ""});
+  reload(400);
+  return "Token removed. Sending is disabled until a new one is saved.";
+}));
+
+on("test-funnel", () => act($("test-funnel"), $("test-out"), async () =>
+  (await call("/api/outputs/apps-script/test")).detail));
+
+on("send-funnel", () => act($("send-funnel"), $("send-out"), async () => {
+  const r = await call("/api/outputs/apps-script/send", {source_key: $("funnel-src").value});
+  reload(900);
+  return r.detail;
+}));
+
+// ---- Google ----------------------------------------------------------------
+on("save-google", () => act($("save-google"), $("google-out"), async () => {
+  await call("/api/settings", {google_folder: $("google_folder").value,
+                               google_workbook: $("google_workbook").value});
+  reload(400);
+  return "Saved.";
+}));
+
+on("connect", () => act($("connect"), $("google-out"), async () => {
+  await call("/api/outputs/google/connect");
+  // Sign-in happens in a browser window, so the page polls for the outcome
+  // instead of pretending it finished the moment the request returned.
+  for (let i = 0; i < 120; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const s = await call("/api/outputs/google/connect", null, "GET");
+    if (s.status === "connected") { reload(300); return "Signed in."; }
+    if (s.status === "error") throw new Error(s.error);
+  }
+  throw new Error("Sign-in did not finish. Close the Google window and try again.");
+}));
+
+on("disconnect", () => act($("disconnect"), $("google-out"), async () => {
+  const r = await call("/api/outputs/google/disconnect");
+  reload(500);
+  return r.detail;
+}));
+
+on("push", () => act($("push"), $("push-out"), async () => {
+  const keys = [...document.querySelectorAll('input[name="gsrc"]:checked')].map(c => c.value);
+  if (!keys.length) throw new Error("Pick at least one source first.");
+  const r = await call("/api/outputs/google/push", {source_keys: keys});
+  reload(900);
+  return r.detail;
+}));
+</script>
+{% endblock %}

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Excel export — ScrapeX{% endblock %}
+{% block content %}
+<h1>Excel export</h1>
+
+{% with label=status.label, ready=status.ready, blocker=status.blocker %}
+  {% include "_destination.html" %}
+{% endwith %}
+
+<h2>What the workbook looks like</h2>
+{# Spec 21 asks the interface to state the structure and the update behaviour
+   before anything is written, because both are surprising if assumed. #}
+<table>
+  <tr><th>Structure</th><td>{{ status.structure }}</td></tr>
+  <tr><th>When you export again</th><td>{{ status.update_behaviour }}</td></tr>
+  <tr><th>Columns</th>
+      <td>{{ "Original schema — every column, raw names" if status.schema == "original"
+             else "Current view — your visible columns, in your order" }}</td></tr>
+</table>
+
+<h2>Where it is saved</h2>
+<form id="loc" class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="excel_folder">Folder</label>
+    <input id="excel_folder" name="excel_folder" value="{{ settings.excel_folder.value }}"
+           placeholder="{{ status.folder }}" dir="ltr" spellcheck="false">
+    <span class="hint">Leave empty to use the default: <code>{{ status.folder }}</code></span>
+  </div>
+  <div class="field">
+    <label for="excel_workbook">Workbook name</label>
+    <input id="excel_workbook" name="excel_workbook" value="{{ settings.excel_workbook.value }}"
+           dir="auto">
+    <span class="hint"><code>.xlsx</code> is added for you.</span>
+  </div>
+  <div class="field">
+    <label for="excel_schema">Columns to write</label>
+    <select id="excel_schema" name="excel_schema">
+      <option value="original" {{ "selected" if status.schema == "original" }}>
+        Original schema — every column, raw names</option>
+      <option value="current" {{ "selected" if status.schema == "current" }}>
+        Current view — only the columns you kept visible</option>
+    </select>
+  </div>
+  <div class="row">
+    <button id="save-loc">Save location</button>
+    <span id="save-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+</form>
+
+<p class="muted small">Current file: <code>{{ status.path }}</code>
+  {% if status.exists %}— exists, {{ "{:,}".format(status.size_bytes) }} bytes
+  {% else %}— not created yet; it appears after the first export{% endif %}</p>
+
+<h2>Export now</h2>
+{% if not sources %}
+  <div class="empty">No source has data yet. Crawl one first, then export it.</div>
+{% else %}
+  <form id="pick" class="stack" onsubmit="return false">
+    <fieldset class="picklist">
+      <legend class="hint">Each source becomes one tab</legend>
+      {% for s in sources %}
+        <label class="pickrow">
+          <input type="checkbox" name="src" value="{{ s.source_key }}"
+                 {{ "checked" if source_key and s.source_key == source_key }}>
+          <span class="pickname">{{ s.source_name }}</span>
+          <span class="num muted">{{ "{:,}".format(s.observations) }} observations</span>
+        </label>
+      {% endfor %}
+    </fieldset>
+    <div class="row">
+      <button id="run" {{ "disabled" if not status.ready }}>Export to Excel</button>
+      <span id="run-out" class="hint" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+{% endif %}
+
+<h2>Last export</h2>
+{% if not status.last %}
+  <div class="empty">Nothing exported yet from this workspace.</div>
+{% else %}
+  <table>
+    <tr><th>Result</th>
+        <td><span class="badge {{ 'ok' if status.last.ok else 'off' }}">
+          {{ "Succeeded" if status.last.ok else "Did not write" }}</span></td></tr>
+    <tr><th>When</th><td class="num">{{ status.last.at }}</td></tr>
+    <tr><th>Rows</th><td class="num">{{ "{:,}".format(status.last.rows) }}</td></tr>
+    <tr><th>Details</th><td>{{ status.last.detail }}</td></tr>
+    {% if status.last.location %}
+      <tr><th>File</th><td><code>{{ status.last.location }}</code></td></tr>
+    {% endif %}
+  </table>
+{% endif %}
+
+<h2>From the command line</h2>
+<table>
+  <tr><td>Export one source</td><td><code>scrapex export &lt;SOURCE&gt;</code></td></tr>
+  <tr><td>Use your saved column view</td><td><code>scrapex export &lt;SOURCE&gt; --schema current</code></td></tr>
+</table>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function post(url, body) {
+  const res = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"},
+                               body: JSON.stringify(body || {})});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+
+// Every action follows the same three-state contract: working -> result, and a
+// failure prints the reason instead of leaving the button looking untouched.
+async function act(button, out, label, fn) {
+  const original = button.textContent;
+  button.disabled = true; button.textContent = "Working…";
+  out.textContent = ""; out.className = "hint";
+  try {
+    out.textContent = await fn();
+  } catch (err) {
+    out.textContent = err.message; out.className = "hint err";
+  } finally {
+    button.disabled = false; button.textContent = original;
+  }
+}
+
+$("save-loc").addEventListener("click", () => act($("save-loc"), $("save-out"), "", async () => {
+  await post("/api/settings", {
+    excel_folder: $("excel_folder").value,
+    excel_workbook: $("excel_workbook").value,
+    excel_schema: $("excel_schema").value,
+  });
+  setTimeout(() => location.reload(), 400);
+  return "Saved.";
+}));
+
+if ($("run")) $("run").addEventListener("click", () => act($("run"), $("run-out"), "", async () => {
+  const keys = [...document.querySelectorAll('input[name="src"]:checked')].map(c => c.value);
+  if (!keys.length) throw new Error("Pick at least one source first.");
+  const r = await post("/api/outputs/excel/export", {source_keys: keys});
+  setTimeout(() => location.reload(), 900);
+  return r.detail;
+}));
+</script>
+{% endblock %}

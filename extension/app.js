@@ -424,12 +424,22 @@ async function loadOutputs() {
     $("outputs").innerHTML = outputs.map((o) => {
       // State is a WORD, never a colour: "Enabled" / "Needs setup".
       const state_ = o.ready ? (o.required ? "Always on" : "Enabled") : "Needs setup";
+      // A destination that needs setup must offer the way to do it. The panel
+      // deliberately does not host the setup form: the workspace page owns it,
+      // so there is one place where a destination is configured, not two.
+      const setup = o.settings_url
+        ? `<button class="link" data-setup="${esc(o.settings_url)}">${
+             o.ready ? "Settings" : "Set it up"}</button>`
+        : "";
       return `<div class="out">
         <span>${esc(o.label)}${o.ready ? "" :
-          `<span class="hint muted" style="display:block">${esc(o.detail)}</span>`}</span>
+          `<span class="hint muted" style="display:block">${esc(o.blocker || o.detail)}</span>`}
+          ${setup}</span>
         <span class="chip ${o.ready ? "" : "off"}">${esc(state_)}</span>
       </div>`;
     }).join("");
+    $("outputs").querySelectorAll("[data-setup]").forEach((b) =>
+      b.addEventListener("click", () => openTab(b.dataset.setup)));
   } catch (_) {
     $("outputs").innerHTML = `<span class="err hint">Couldn't read output status.</span>`;
   }

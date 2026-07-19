@@ -1,0 +1,12 @@
+{# One destination's readiness, stated the same way everywhere (spec 9).
+
+   Readiness is never colour alone: the badge carries the word, and when a
+   destination is not ready the exact blocker is printed underneath so the
+   owner never has to guess what is missing. #}
+<div class="dest">
+  <div class="dest-head">
+    <span class="dest-name">{{ label }}</span>
+    <span class="badge {{ 'ok' if ready else 'off' }}">{{ "Ready" if ready else "Needs setup" }}</span>
+  </div>
+  {% if blocker %}<p class="blocker">{{ blocker }}</p>{% endif %}
+</div>

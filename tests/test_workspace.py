@@ -130,10 +130,17 @@ def test_review_tab_says_nothing_auto_approves(client):
     assert "No confidence level ever approves" in body
 
 
-def test_export_and_sync_tabs_admit_what_is_not_built(client):
-    """Honesty beats a button that quietly does nothing."""
-    assert "not built yet" in client.get("/exports").text
-    assert "not implemented yet" in client.get("/sync").text
+def test_export_and_sync_tabs_are_real_controls_now(client):
+    """Spec 21-23: both tabs run their destination instead of documenting a command."""
+    assert "Export to Excel" in client.get("/exports").text
+    sync = client.get("/sync").text
+    assert "Send a test row" in sync and "Push to Drive" in sync
+
+
+def test_the_sync_tab_still_admits_what_the_transport_does_not_do(client):
+    """Having built the screen does not license implying more than it does:
+    request signing and adaptive batching remain unbuilt and are named as such."""
+    assert "NOT implemented" in client.get("/sync").text
 
 
 def test_empty_states_are_designed_not_blank(client, tmp_path):

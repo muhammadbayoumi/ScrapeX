@@ -33,6 +33,13 @@ from ..manifest_io import DuplicateSourceError, add_source
 from ..matching import (
     ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
 )
+from ..outputs import (
+    NotConfiguredError, all_destinations, apps_script_script_text, apps_script_send,
+    apps_script_status, apps_script_test, excel_export, excel_status, google_connect,
+    google_disconnect, google_push, google_status, rotate_funnel_token,
+)
+from ..settings import UnknownSettingError, public_settings
+from ..settings import save as save_settings
 from ..probe import probe as probe_url
 from ..reports import (
     SORTABLE, browse_observations, crawl_history, export_source_table, list_sources,
@@ -187,12 +194,24 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             conn.close()
 
     @app.get("/exports", response_class=HTMLResponse)
-    def page_exports(request: Request):
-        return _page(request, "outputs.html", "exports", None, mode="exports")
+    def page_exports(request: Request, source_key: str = ""):
+        conn = read_conn()
+        try:
+            return _page(request, "excel.html", "exports", source_key or None,
+                         status=excel_status(conn), settings=public_settings(conn),
+                         sources=list_sources(conn))
+        finally:
+            conn.close()
 
     @app.get("/sync", response_class=HTMLResponse)
-    def page_sync(request: Request):
-        return _page(request, "outputs.html", "sync", None, mode="sync")
+    def page_sync(request: Request, source_key: str = ""):
+        conn = read_conn()
+        try:
+            return _page(request, "sync.html", "sync", source_key or None,
+                         funnel=apps_script_status(conn), google=google_status(conn),
+                         settings=public_settings(conn), sources=list_sources(conn))
+        finally:
+            conn.close()
 
     # ---- JSON API (the Chrome extension) -----------------------------------
 
@@ -443,33 +462,175 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             raise HTTPException(status_code=409, detail=f"match {match_id} has no active link to undo")
         return {"match_id": match_id, "undone": True}
 
+    # ---- output destinations (spec 9/21/22/23) ------------------------------
+    # Every route below reports the destination's REAL state, and every action
+    # returns what actually happened rather than an optimistic acknowledgement.
+
     @app.get("/api/outputs")
     def api_outputs():
-        """Real status of every output destination (spec 16/9).
+        """Real status of every output destination.
 
         Each entry reports whether it is usable RIGHT NOW and, when it is not,
         exactly what is missing — so the panel can say "needs setup" with a
         reason instead of offering a destination that will fail at write time.
         """
-        import importlib.util as findlib
-        from pathlib import Path as _Path
+        conn = read_conn()
+        try:
+            destinations = all_destinations(conn)
+        finally:
+            conn.close()
+        # `detail` stays populated for older panel builds that render it.
+        return {"outputs": [{**d, "detail": d.get("detail") or d.get("blocker", "")}
+                            for d in destinations]}
 
-        google_token = _Path.home() / ".scrapex" / "google" / "token.json"
-        funnel_configured = bool(os.environ.get("SCRAPEX_FUNNEL_URL"))
-        return {"outputs": [
-            {"key": "local_db", "label": "Local database", "ready": True, "required": True,
-             "detail": "Always on — the source of truth. It cannot be disabled."},
-            {"key": "excel", "label": "Excel files",
-             "ready": findlib.find_spec("openpyxl") is not None,
-             "required": False,
-             "detail": "Needs the local extra: pip install -e \".[local]\""},
-            {"key": "apps_script", "label": "Google Sheets via Apps Script",
-             "ready": funnel_configured, "required": False,
-             "detail": "Set SCRAPEX_FUNNEL_URL and SCRAPEX_FUNNEL_TOKEN to enable."},
-            {"key": "google_drive", "label": "Google Drive and Sheets",
-             "ready": google_token.exists(), "required": False,
-             "detail": "Run: scrapex google-connect (one-time browser sign-in)."},
-        ]}
+    def _write_conn():
+        """A connection for routes that persist settings or run status."""
+        return dbmod.connect(app.state.db_path)
+
+    def _integration(fn, *args, state_after=None, **kwargs):
+        """Run one integration action under the write lock, mapping the
+        destination's own refusal sentence onto a 400 instead of a traceback."""
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                result = fn(conn, *args, **kwargs)
+                conn.commit()
+                extra = state_after(conn) if state_after else {}
+            except NotConfiguredError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            finally:
+                conn.close()
+        body = result.as_state() if hasattr(result, "as_state") else result
+        return {**body, **extra} if isinstance(body, dict) else body
+
+    @app.get("/api/settings")
+    def api_settings():
+        conn = read_conn()
+        try:
+            return {"settings": public_settings(conn)}
+        finally:
+            conn.close()
+
+    @app.post("/api/settings")
+    def api_save_settings(body: dict):
+        try:
+            with dbmod.write_lock(app.state.db_path):
+                conn = _write_conn()
+                try:
+                    changed = save_settings(conn, body or {})
+                    conn.commit()
+                    current = public_settings(conn)
+                finally:
+                    conn.close()
+        except UnknownSettingError as exc:
+            raise HTTPException(status_code=400, detail=f"unknown setting {exc}")
+        return {"changed": changed, "settings": current}
+
+    @app.get("/api/outputs/excel")
+    def api_excel_status():
+        conn = read_conn()
+        try:
+            return excel_status(conn)
+        finally:
+            conn.close()
+
+    @app.post("/api/outputs/excel/export")
+    def api_excel_export(body: dict):
+        keys = _source_keys(body)
+        return _integration(excel_export, keys, state_after=excel_status)
+
+    @app.get("/api/outputs/apps-script")
+    def api_apps_script_status():
+        conn = read_conn()
+        try:
+            return apps_script_status(conn)
+        finally:
+            conn.close()
+
+    @app.get("/api/outputs/apps-script/script")
+    def api_apps_script_source():
+        """The script to paste into the sheet (spec 22: Copy Script)."""
+        text = apps_script_script_text()
+        if not text:
+            raise HTTPException(status_code=404, detail="the Apps Script source is not bundled")
+        return {"script": text}
+
+    @app.post("/api/outputs/apps-script/test")
+    def api_apps_script_test():
+        return _integration(apps_script_test, state_after=apps_script_status)
+
+    @app.post("/api/outputs/apps-script/send")
+    def api_apps_script_send(body: dict):
+        keys = _source_keys(body)
+        return _integration(apps_script_send, keys[0], state_after=apps_script_status)
+
+    @app.post("/api/outputs/apps-script/token")
+    def api_apps_script_token():
+        """Mint a new shared token and show it ONCE, for pasting into the script."""
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                token = rotate_funnel_token(conn)
+                conn.commit()
+            finally:
+                conn.close()
+        return {"token": token, "shown_once": True,
+                "next_step": "Paste this into the Apps Script property SCRAPEX_TOKEN, "
+                             "then redeploy. The old token stops working immediately."}
+
+    @app.get("/api/outputs/google")
+    def api_google_status():
+        conn = read_conn()
+        try:
+            return google_status(conn)
+        finally:
+            conn.close()
+
+    @app.post("/api/outputs/google/connect")
+    def api_google_connect():
+        """Start the one-time browser sign-in.
+
+        It runs on a worker thread because the OAuth flow blocks on a local
+        callback server: holding the request open would make the page look hung
+        for as long as the owner spends in Google's consent screen.
+        """
+        import threading
+
+        state = app.state.google_connect = {"status": "connecting", "error": ""}
+
+        def run():
+            try:
+                google_connect()
+                state.update(status="connected")
+            except Exception as exc:                       # surfaced verbatim below
+                state.update(status="error", error=str(exc))
+
+        threading.Thread(target=run, daemon=True).start()
+        return {"status": "connecting",
+                "note": "A browser window is opening for Google sign-in. "
+                        "This page reflects the result once you finish there."}
+
+    @app.get("/api/outputs/google/connect")
+    def api_google_connect_state():
+        return getattr(app.state, "google_connect", {"status": "idle", "error": ""})
+
+    @app.post("/api/outputs/google/push")
+    def api_google_push(body: dict):
+        keys = _source_keys(body)
+        return _integration(google_push, keys, state_after=google_status)
+
+    @app.post("/api/outputs/google/disconnect")
+    def api_google_disconnect():
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                existed = google_disconnect(conn)
+                conn.commit()
+            finally:
+                conn.close()
+        app.state.google_connect = {"status": "idle", "error": ""}
+        return {"disconnected": existed,
+                "detail": "Signed out. Nothing in Drive was changed or removed."}
 
     @app.get("/api/records")
     def api_records(source_key: str, q: str = "", availability: str = "",
@@ -641,6 +802,20 @@ def _job_view(job: dict) -> dict:
         "last_heartbeat_at": job["last_heartbeat_at"],
         "error_summary": job["error_summary"],
     }
+
+
+def _source_keys(body: dict) -> list[str]:
+    """Read source_keys/source_key off a request body, refusing an empty pick.
+
+    Refusing here means a destination action can never be dispatched with an
+    empty selection and then report a cheerful "0 rows written".
+    """
+    body = body or {}
+    keys = body.get("source_keys") or body.get("source_key") or []
+    keys = _csv(keys) if not isinstance(keys, list) else [str(k) for k in keys if str(k).strip()]
+    if not keys:
+        raise HTTPException(status_code=400, detail="source_keys is required")
+    return keys
 
 
 def _csv(value) -> list[str]:
