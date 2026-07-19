@@ -181,6 +181,29 @@ def _cmd_google_connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_native_host(args: argparse.Namespace) -> int:
+    """Chrome launches this; it speaks framed JSON on stdio, not to a human."""
+    from .native import serve
+
+    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    return serve(db_path)
+
+
+def _cmd_install_native_host(args: argparse.Namespace) -> int:
+    from .nativehost import install, install_instructions
+
+    try:
+        written = install(args.extension_id, executable=args.executable)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"native host manifest written to {written}")
+    if sys.platform == "win32":
+        print("registry key registered under HKCU (per-user, no admin rights needed)")
+    print("\nNext:\n" + install_instructions())
+    return 0
+
+
 def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
     """Shared body for `push` (Google) and `export` (local): same data, same
     arrangement, different sink."""
@@ -192,7 +215,9 @@ def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
         return 1
     conn = dbmod.connect(db_path)
     try:
-        n, location = publish_source(conn, args.source, sink, args.folder, args.workbook)
+        n, location = publish_source(conn, args.source, sink, args.folder, args.workbook,
+                                     schema=getattr(args, "schema", "original"))
+        conn.commit()   # apply_schema registers any newly-seen columns
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -239,7 +264,9 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     if not Path(db_path).exists():
         print("harvest.db not initialized — run: scrapex init-db, then crawl + ingest", file=sys.stderr)
         return 1
-    app = create_app(db_path)
+    # start_worker: the local runtime owns job execution, so a queued job runs
+    # (and keeps running) whether or not the side panel is open (spec 4/23).
+    app = create_app(db_path, start_worker=True)
     url = f"http://{args.host}:{args.port}"
     print(f"ScrapeX UI → {url}   (Ctrl+C to stop)")
     if not args.no_open:
@@ -319,6 +346,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("source", help="source_key from sources.yaml")
     p.add_argument("--folder", default="ScrapeX", help="Drive folder name (created if absent)")
     p.add_argument("--workbook", default="ScrapeX Data", help="spreadsheet name (created if absent)")
+    p.add_argument("--schema", choices=("original", "current"), default="original",
+                   help="original = every column with raw names; current = your saved view")
     p.add_argument("--db", help="database path")
     p.set_defaults(func=_cmd_push)
 
@@ -327,6 +356,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("source", help="source_key from sources.yaml")
     p.add_argument("--folder", default=home_scrapex, help=f"local folder (default: {home_scrapex})")
     p.add_argument("--workbook", default="ScrapeX Data", help="workbook file name (without .xlsx)")
+    p.add_argument("--schema", choices=("original", "current"), default="original",
+                   help="original = every column with raw names; current = your saved view")
     p.add_argument("--db", help="database path")
     p.set_defaults(func=_cmd_export)
 
@@ -336,6 +367,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", help="database path")
     p.add_argument("--no-open", action="store_true", help="do not auto-open the browser")
     p.set_defaults(func=_cmd_ui)
+
+    p = sub.add_parser("native-host",
+                       help="serve the Chrome Native Messaging bridge on stdio (Chrome starts this)")
+    p.add_argument("--db", help="harvest.db path")
+    p.set_defaults(func=_cmd_native_host)
+
+    p = sub.add_parser("install-native-host",
+                       help="register this engine as a Chrome native messaging host")
+    p.add_argument("--extension-id", action="append", required=True,
+                   help="an extension id allowed to call the engine (repeatable)")
+    p.add_argument("--executable", help="launcher path (default: this Python)")
+    p.set_defaults(func=_cmd_install_native_host)
 
     p = sub.add_parser("status", help="per-source last-run age (S8 watchdog)")
     p.add_argument("--db", help="database path")

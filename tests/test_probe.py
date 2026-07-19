@@ -58,7 +58,7 @@ def test_detects_magento_with_currency_and_region():
 def test_detects_salla_by_homepage_marker():
     f = _StubFetcher({"://": _Resp(text="<html>powered by salla cdn.salla.sa</html>")})
     r = probe("https://alsweed.sa", fetcher=f)
-    assert r.family == ConnectorFamily.SALLA_HTML and r.implemented is False
+    assert r.family == ConnectorFamily.SALLA_HTML and r.implemented is True  # connector now built
 
 
 def test_unknown_platform_is_tbd_probe():

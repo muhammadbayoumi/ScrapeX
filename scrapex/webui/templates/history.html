@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Crawl history — ScrapeX{% endblock %}
+{% block content %}
+<h1>Crawl history</h1>
+{% include "_picker.html" %}
+{% if not runs %}
+  <div class="empty">No crawls recorded yet.</div>
+{% else %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Run</th><th>Source</th><th>Started</th><th>Finished</th>
+      <th>Status</th><th>Rows seen</th><th>New products</th><th>New variants</th><th>Errors</th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+      <tr>
+        <td class="num muted">#{{ r.run_id }}{% if r.job_id %} <span class="muted">/ job {{ r.job_id }}</span>{% endif %}</td>
+        <td dir="auto">{{ r.source_name }}</td>
+        <td class="num muted">{{ r.started_at }}</td>
+        <td class="num muted">{{ r.finished_at or "—" }}</td>
+        <td><span class="badge {% if r.status == 'success' %}ok{% elif r.status != 'running' %}off{% endif %}">
+          {{ r.status }}</span></td>
+        <td class="num">{{ "{:,}".format(r.rows_seen or 0) }}</td>
+        <td class="num">{{ r.products_discovered }}</td>
+        <td class="num">{{ r.variants_discovered }}</td>
+        <td class="num">{{ r.errors_count }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endif %}
+{% endblock %}

@@ -35,3 +35,6 @@ env/
 Thumbs.db
 .vscode/
 .idea/
+
+# screenshot harness scratch
+docs/screenshots/_tmp/

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -47,14 +47,27 @@
       padding:.7rem .9rem;font-size:.86rem;color:var(--text);margin:.4rem 0 1.1rem}
     table{width:100%;border-collapse:collapse;background:var(--surface);
       border:1px solid var(--line);border-radius:12px;overflow:hidden}
-    th,td{padding:.6rem .7rem;border-bottom:1px solid var(--line);text-align:right;font-size:.9rem}
+    /* The interface is LTR English; only scraped VALUES flip (dir="auto"). */
+    th,td{padding:.6rem .7rem;border-bottom:1px solid var(--line);text-align:left;font-size:.9rem}
     th{position:sticky;top:52px;background:var(--surface);color:var(--muted);
       font-weight:500;font-size:.78rem;white-space:nowrap}
+    th a{color:inherit}
+    th a:hover{color:var(--accent)}
+    /* A wide dataset scrolls INSIDE the workspace, never the whole page. */
+    .tablewrap{overflow-x:auto;border-radius:12px}
     tr:last-child td{border-bottom:none}
     tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
     .price{font-variant-numeric:tabular-nums;font-weight:600;direction:ltr;display:inline-block}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
-    .num{direction:ltr;text-align:right;font-variant-numeric:tabular-nums}
+    .num{direction:ltr;font-variant-numeric:tabular-nums}
+    /* Workspace tabs (spec 21). Active is marked by weight + underline, never
+       colour alone, and carries aria-current for assistive tech. */
+    .wstabs{display:flex;gap:.15rem;flex-wrap:wrap;background:var(--surface);
+      border-bottom:1px solid var(--line);padding:0 1.2rem;position:sticky;top:52px;z-index:4}
+    .wstabs a{padding:.6rem .8rem;font-size:.86rem;color:var(--muted);
+      border-bottom:2px solid transparent}
+    .wstabs a:hover{color:var(--text)}
+    .wstabs a[aria-current=page]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
     .badge{font-size:.72rem;padding:.1rem .5rem;border-radius:6px}
     .ok{background:var(--accent-weak);color:var(--accent)}
     .off{background:var(--amber-weak);color:var(--amber)}
@@ -76,8 +89,26 @@
 <body>
   <header class="topbar">
     <a href="/" class="brand">ScrapeX</a>
-    <span class="sub">مستودع تتبّع الأسعار — تصفّح محلي</span>
+    <span class="sub">Price-tracking warehouse — local workspace</span>
   </header>
+  {# The dataset in view is carried across every tab (spec 21) so switching tabs
+     never loses which source you were looking at. #}
+  {% set ctx = ("?source_key=" ~ source_key) if source_key else "" %}
+  <nav class="wstabs" aria-label="Workspace">
+    {% for href, label, key in [
+        ("/", "Overview", "overview"),
+        ("/source/" ~ source_key if source_key else "/", "Data", "data"),
+        ("/changes" ~ ctx, "Changes", "changes"),
+        ("/history" ~ ctx, "Crawl history", "history"),
+        ("/review" ~ ctx, "Review queue", "review"),
+        ("/jobs", "Jobs", "jobs"),
+        ("/schedules", "Schedules", "schedules"),
+        ("/sync", "Sync", "sync"),
+        ("/exports", "Exports", "exports"),
+        ("/logs", "Logs", "logs")] %}
+      <a href="{{ href }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
   <main class="wrap">{% block content %}{% endblock %}</main>
 </body>
 </html>

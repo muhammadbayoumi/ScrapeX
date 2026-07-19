@@ -61,8 +61,8 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
     )
 
 
-def test_migration_reaches_version_1(conn):
-    assert dbmod.schema_version(conn) == 1
+def test_migration_reaches_latest_version(conn):
+    assert dbmod.schema_version(conn) == 10  # +0010 view region
 
 
 def test_all_owner_tables_exist(conn):
@@ -77,6 +77,7 @@ def test_all_owner_tables_exist(conn):
         "classification_scheme", "classification_node", "material_classification",
         "classification_mapping", "source_product_match", "source_variant_match",
         "crawl_run", "raw_snapshot", "feed_assignment", "brand", "selling_unit",
+        "crawl_job", "job_log_entry", "change_event",
     }
     missing = expected - tables
     assert not missing, f"schema.sql is missing tables: {missing}"

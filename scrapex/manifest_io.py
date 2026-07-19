@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from .config import MANIFEST_FILE, SourceEntry, load_manifest
+from .config import MANIFEST_FILE, IdentityRules, SourceEntry, load_manifest
 
 # Field order in the written block — matches the hand-authored entries (readability).
 _FIELD_ORDER = ("source_key", "source_name", "base_url", "family", "cadence",
@@ -34,6 +34,15 @@ def entry_to_block(entry: SourceEntry) -> str:
             continue
         body[key] = value
     body["extract"] = [_extract_block(spec) for spec in dumped["extract"]]
+    # Only write the advanced blocks when they carry a non-default choice, so a
+    # simple source's YAML stays as short as a hand-written one.
+    if dumped.get("fallback_families"):
+        body["fallback_families"] = dumped["fallback_families"]
+    if dumped.get("auth_required"):
+        body["auth_required"] = True
+    identity = dumped.get("identity") or {}
+    if identity != IdentityRules().model_dump(mode="json"):
+        body["identity"] = identity
     for opt in ("min_expected_rows", "max_drop_pct", "notes"):
         if dumped.get(opt) is not None:
             body[opt] = dumped[opt]

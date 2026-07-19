@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Schedules — ScrapeX{% endblock %}
+{% block content %}
+<h1>Schedules</h1>
+<div class="banner">Schedules only fire while the ScrapeX engine is running. Nothing —
+  not this app and not a browser alarm — can wake a sleeping or powered-off machine.
+  A slot missed while it was off follows the source's missed-run policy.</div>
+{% if not schedules %}
+  <div class="empty">No schedules yet. Set one per source from the side panel.</div>
+{% else %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Source</th><th>Frequency</th><th>Runs at</th><th>Time zone</th>
+      <th>Run mode</th><th>If missed</th><th>If overlapping</th>
+      <th>Next run (UTC)</th><th>Last run</th><th>Enabled</th></tr></thead>
+    <tbody>
+    {% for s in schedules %}
+      <tr>
+        <td><code>{{ s.source_key }}</code></td>
+        <td>{{ s.frequency }}</td>
+        <td class="num">{{ s.run_at }}{% if s.weekday is not none %}
+          <span class="muted">(weekday {{ s.weekday }})</span>{% endif %}</td>
+        <td class="muted">{{ s.timezone }}</td>
+        <td>{{ s.run_mode.replace("_", " ") }}</td>
+        <td class="muted">{{ s.missed_run_policy.replace("_", " ") }}</td>
+        <td class="muted">{{ s.overlap_policy }}</td>
+        <td class="num">{{ s.next_run_at or "—" }}</td>
+        <td class="num muted">{{ s.last_run_at or "never" }}</td>
+        <td><span class="badge {% if s.enabled %}ok{% else %}off{% endif %}">
+          {{ "Enabled" if s.enabled else "Disabled" }}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endif %}
+{% endblock %}

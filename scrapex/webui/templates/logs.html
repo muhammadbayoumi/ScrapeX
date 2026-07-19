@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Logs — ScrapeX{% endblock %}
+{% block content %}
+<h1>Logs</h1>
+<p class="muted" style="font-size:.85rem">The engine keeps the full technical log; this is the
+  most recent 200 entries for one job (spec 25).</p>
+
+<form class="filters" method="get">
+  <select name="job_ref" onchange="this.form.submit()">
+    {% for j in jobs %}
+      <option value="{{ j.job_ref }}" {% if j.job_ref == job_ref %}selected{% endif %}>
+        {{ j.job_ref }} — {{ j.source_keys|join(", ") }} ({{ j.status }})</option>
+    {% endfor %}
+  </select>
+  <noscript><button type="submit">Show</button></noscript>
+</form>
+
+{% if not entries %}
+  <div class="empty">No log entries{% if job_ref %} for this job{% endif %}.</div>
+{% else %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td class="num muted">{{ e.logged_at }}</td>
+        <td><span class="badge {% if e.level == 'error' %}off{% elif e.level == 'warning' %}off{% endif %}">
+          {{ e.level }}</span></td>
+        <td class="muted">{{ e.source_key or "—" }}</td>
+        <td dir="auto">{{ e.message }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endif %}
+{% endblock %}

@@ -173,4 +173,4 @@ class BrowserFetcher:
 def resolve_fetcher(source: SourceEntry) -> HttpFetcher | BrowserFetcher:
     if source.fetcher == Fetcher.BROWSER:
         return BrowserFetcher()
-    return HttpFetcher()
+    return HttpFetcher(user_agent=source.user_agent or DEFAULT_USER_AGENT)

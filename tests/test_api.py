@@ -55,7 +55,7 @@ def test_sources_lists_manifest_with_counts(client):
     els = next(s for s in data if s["source_key"] == "ELSEWEDYSHOP")
     assert els["implemented"] is True and els["observations"] == 1
     madar = next(s for s in data if s["source_key"] == "MADAR")
-    assert madar["implemented"] is False  # magento-graphql connector not built yet
+    assert madar["implemented"] is True  # magento-graphql connector now built
 
 
 def test_resolve_known_and_unknown(client):
@@ -156,4 +156,5 @@ def test_add_source_invalid_400(client):
 
 def test_manage_page_renders(client):
     r = client.get("/manage")
-    assert r.status_code == 200 and "إضافة مصدر" in r.text
+    # The served UI is English only (spec 1); Arabic appears solely as DATA.
+    assert r.status_code == 200 and "Add a source" in r.text

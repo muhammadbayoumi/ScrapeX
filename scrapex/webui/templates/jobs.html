@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Jobs — ScrapeX{% endblock %}
+{% block content %}
+<h1>Jobs</h1>
+{% if not jobs %}
+  <div class="empty">No jobs yet. Start one from the side panel.</div>
+{% else %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Job</th><th>Mode</th><th>Sources</th><th>Status</th>
+      <th>Progress</th><th>New prices</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr>
+        <td class="num muted"><code>{{ j.job_ref }}</code></td>
+        <td>{{ j.run_mode.replace("_", " ") }}</td>
+        <td class="muted">{{ j.source_keys|join(", ") }}</td>
+        <td><span class="badge {% if j.status == 'completed' %}ok
+          {% elif j.status in ('failed', 'cancelled') %}off{% endif %}">
+          {{ j.status.replace("_", " ") }}</span></td>
+        <td class="num">{{ j.progress.done }}/{{ j.progress.total }} ({{ j.progress.percent }}%)</td>
+        <td class="num">{{ "{:,}".format(j.counters.get("observations", 0)) }}</td>
+        <td class="num muted">{{ j.started_at or "—" }}</td>
+        <td class="num muted">{{ j.finished_at or "—" }}</td>
+        <td><a href="/logs?job_ref={{ j.job_ref }}">Logs →</a></td>
+      </tr>
+      {% if j.error_summary %}
+        <tr><td colspan="9" class="muted" style="font-size:.82rem">{{ j.error_summary }}</td></tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endif %}
+{% endblock %}

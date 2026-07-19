@@ -86,15 +86,73 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
             if schema_version(conn) != number:
                 conn.execute(f"PRAGMA user_version = {number}")
         applied.append(number)
+    # Stamp the contract version (two-engine guardrail) once the meta table exists.
+    from .contract import stamp_contract
+    with conn:
+        stamp_contract(conn)
     return applied
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Is this process still running? Biased toward "yes" when unsure — we must
+    never steal a lock that is genuinely held."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        # NOT os.kill(pid, 0): on Windows that calls TerminateProcess and would
+        # KILL the very process we are asking about.
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION, STILL_ACTIVE = 0x1000, 259
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False                       # no such process
+        try:
+            code = ctypes.c_ulong()
+            if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return code.value == STILL_ACTIVE
+            return True                        # couldn't tell -> assume alive
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True                            # exists, just not ours
+    return True
+
+
+def _reclaim_if_stale(lock_path: Path) -> bool:
+    """Remove a lock whose owning process is gone. Returns True if reclaimed.
+
+    Without this a hard-killed runtime bricks every future crawl until someone
+    deletes a file by hand — a permanent outage caused by a crash we already
+    recovered from everywhere else.
+    """
+    try:
+        owner = int(lock_path.read_text(encoding="ascii").strip() or 0)
+    except (OSError, ValueError):
+        return False                           # unreadable: leave it alone
+    if _pid_is_alive(owner):
+        return False
+    try:
+        lock_path.unlink()
+        return True
+    except FileNotFoundError:
+        return True                            # someone else reclaimed it first
+    except OSError:
+        return False
 
 
 @contextmanager
 def write_lock(db_path: Path | str = DEFAULT_DB_PATH, timeout_s: float = 10.0):
     """CLI-level lock file: two `scrapex` write commands never interleave (A10).
 
-    O_CREAT|O_EXCL is atomic on Windows and POSIX. Stale locks (crashed process)
-    are the owner's call to delete — the error message says exactly which file.
+    O_CREAT|O_EXCL is atomic on Windows and POSIX. A lock left behind by a
+    CRASHED process is reclaimed automatically once its pid is confirmed gone;
+    only a genuinely live holder makes us wait.
     """
     lock_path = Path(str(db_path) + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,10 +162,13 @@ def write_lock(db_path: Path | str = DEFAULT_DB_PATH, timeout_s: float = 10.0):
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
         except FileExistsError:
+            if _reclaim_if_stale(lock_path):
+                continue                       # dead owner: retry immediately
             if time.monotonic() >= deadline:
+                owner = lock_path.read_text(encoding="ascii", errors="replace").strip()
                 raise DbLockedError(
-                    f"another scrapex command holds {lock_path}; "
-                    "if no scrapex process is running, delete the file and retry"
+                    f"another scrapex process (pid {owner}) is writing to the database; "
+                    "wait for its crawl to finish and retry"
                 ) from None
             time.sleep(0.2)
     try:

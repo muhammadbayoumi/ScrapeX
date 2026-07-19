@@ -17,6 +17,9 @@ sources:
     cadence: daily
     authority: shop
     active: false
+    currency: SAR
+    default_region: SA
+    vat_mode: excl
     extract:
       - kind: product_prices
         scope: census          # first crawl is a full census; owner will replace
@@ -36,6 +39,9 @@ sources:
     cadence: daily
     authority: shop
     active: false
+    currency: SAR
+    default_region: SA
+    vat_mode: incl
     extract:
       - kind: product_prices
         scope: census
@@ -53,6 +59,9 @@ sources:
     cadence: daily
     authority: shop
     active: false
+    currency: SAR
+    default_region: SA
+    vat_mode: incl
     extract:
       - kind: product_prices
         scope: census
@@ -68,12 +77,21 @@ sources:
     cadence: daily
     authority: shop
     active: false
+    currency: SAR
+    default_region: SA
+    vat_mode: incl
+    user_agent: >-
+      Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+      (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36
     extract:
       - kind: product_prices
         scope: census
     min_expected_rows: 20
     max_drop_pct: 50
-    notes: 403 for non-browser user agents — connector sends a Chrome UA.
+    notes: >
+      403 for non-browser user agents — the source declares a Chrome user_agent
+      the fetcher sends. Variant prices are in the page HTML, not JSON-LD (v1
+      records the product-level JSON-LD price only).
 
   # ---- probed: Shopify; products.json OPEN ----
   - source_key: ELSEWEDYSHOP
@@ -101,14 +119,22 @@ sources:
     cadence: daily
     authority: shop
     active: false
+    currency: SAR
+    default_region: SA
+    vat_mode: excl          # OCC search price is VAT-exclusive on this platform
+    api:
+      base_url: https://api.masdaronline.com   # data host != storefront base_url
+      base_site: masdar                        # OCC baseSite id — verify on first live crawl
     extract:
       - kind: product_prices
         scope: census
     min_expected_rows: 200
     max_drop_pct: 50
     notes: >
-      ~1310 SKUs via api.masdaronline.com/rest/v2. VAT trap: JSON-LD price is
-      VAT-exclusive while priceWithTax is inclusive — record both explicitly.
+      ~1310 SKUs via api.masdaronline.com/rest/v2/{base_site}/products/search.
+      VAT trap: the search price is VAT-exclusive (vat_mode=excl); the inclusive
+      priceWithTax needs the per-product detail call (deferred). base_site is a
+      best guess until confirmed on the first live run (source stays inactive).
 
   # ---- probed: custom Next.js shop with open unauthenticated JSON API ----
   - source_key: SIKAEGSHOP
@@ -118,14 +144,18 @@ sources:
     cadence: daily
     authority: shop
     active: false
+    currency: EGP
+    default_region: EG
+    vat_mode: incl
     extract:
       - kind: product_prices
         scope: census
     min_expected_rows: 30
     max_drop_pct: 50
     notes: >
-      /api/products (87 products, ar/en names). price vs specail_price vs
-      flash_sale semantics need ONE manual owner verification before activation.
+      /api/products (87 products, ar/en names). Connector reads price as list,
+      specail_price as the discount when positive, flash_sale as a boolean flag —
+      these semantics need ONE manual owner verification before activation.
 
   # ---- probed: WooCommerce Store API open, variations included ----
   - source_key: SAMEHGABRIEL
@@ -135,6 +165,9 @@ sources:
     cadence: daily
     authority: shop
     active: false
+    currency: EGP
+    default_region: EG
+    vat_mode: incl
     extract:
       - kind: product_prices
         scope: census
@@ -152,6 +185,7 @@ sources:
     cadence: weekly
     authority: aggregator
     active: false
+    currency: USD           # published in USD; each commodity row also carries it
     extract:
       - kind: commodity_price
         scope: latest_only     # owner decision: latest published price only,

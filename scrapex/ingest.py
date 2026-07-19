@@ -11,11 +11,15 @@ import sqlite3
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from .changes import (
+    ALIAS_FIELDS, classify_availability, classify_price, product_field_diffs,
+    record_alias, record_change,
+)
 from .config import SourceEntry
 from .normalize import parse_money, record_hash
 from .payload import FunnelPayload
 from .rowspec import RowView, spec_for
-from .vocab import Availability, CurationStatus, ExtractKind, RunStatus
+from .vocab import Availability, ChangeType, CurationStatus, ExtractKind, RunStatus
 
 
 @dataclass
@@ -57,6 +61,39 @@ def scope_reason(entry: SourceEntry, kind: ExtractKind, region: str,
             f"{entry.source_key}'s contract")
 
 
+# ---- F6 volume canary: did this crawl silently break? ------------------------
+
+def canary_breach(entry: SourceEntry, rows: int, previous_rows: int | None = None) -> str | None:
+    """Return a breach message, or None when the volume looks healthy.
+
+    A connector whose selectors rot usually fails QUIETLY — it returns zero (or a
+    handful of) rows and every downstream step reports success. The manifest
+    declares the expected floor per source; this is where that declaration is
+    finally enforced.
+    """
+    if rows == 0:
+        return f"{entry.source_key}: zero rows returned (volume canary)"
+    if entry.min_expected_rows is not None and rows < entry.min_expected_rows:
+        return (f"{entry.source_key}: {rows} rows is below the declared minimum "
+                f"{entry.min_expected_rows} (volume canary)")
+    if entry.max_drop_pct is not None and previous_rows:
+        drop_pct = (previous_rows - rows) / previous_rows * 100
+        if drop_pct > entry.max_drop_pct:
+            return (f"{entry.source_key}: {rows} rows is a {drop_pct:.0f}% drop from "
+                    f"{previous_rows} (max {entry.max_drop_pct}%) (volume canary)")
+    return None
+
+
+def previous_rows_seen(conn: sqlite3.Connection, source_key: str) -> int | None:
+    """rows_seen of the last run for this source that actually saw rows."""
+    row = conn.execute(
+        "SELECT r.rows_seen FROM crawl_run r JOIN source_site s ON s.source_id = r.source_id "
+        "WHERE s.source_key = ? AND r.rows_seen > 0 ORDER BY r.run_id DESC LIMIT 1",
+        (source_key,),
+    ).fetchone()
+    return int(row[0]) if row is not None else None
+
+
 # ---- tiny DRY upsert helpers -------------------------------------------------
 
 def _find_id(conn: sqlite3.Connection, sql: str, params: tuple) -> int | None:
@@ -94,17 +131,40 @@ def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
     })
 
 
-def _get_product(conn, source_id: int, r: dict) -> tuple[int, str, bool]:
+def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
+                 job_id: int | None = None) -> tuple[int, str, bool]:
     """(source_product_id, curation_status, created). Upserts by the owner's
-    UNIQUE(source_id, external_product_id)."""
+    UNIQUE(source_id, external_product_id).
+
+    Also RECORDS and APPLIES changes to the tracked descriptive fields: before
+    this, a product renamed at the source kept its first-seen name forever —
+    the change was neither stored as history nor reflected in current state.
+    """
     row = conn.execute(
-        "SELECT source_product_id, curation_status FROM source_product "
-        "WHERE source_id = ? AND external_product_id = ?",
+        "SELECT source_product_id, curation_status, source_name, product_url, brand_raw, "
+        "       external_sku, status "
+        "FROM source_product WHERE source_id = ? AND external_product_id = ?",
         (source_id, r["external_product_id"]),
     ).fetchone()
     if row is not None:
-        _touch_last_seen(conn, "source_product", "source_product_id", int(row[0]))
-        return int(row[0]), row[1], False
+        pid = int(row["source_product_id"])
+        _touch_last_seen(conn, "source_product", "source_product_id", pid)
+        if row["status"] != "active":
+            # Seen again after vanishing (or after a rebuild archived it).
+            conn.execute("UPDATE source_product SET status = 'active' WHERE source_product_id = ?",
+                         (pid,))
+            record_change(conn, ChangeType.RETURNED, "status", previous_value=row["status"],
+                          new_value="active", source_product_id=pid, run_id=run_id, job_id=job_id)
+        for column, old, new in product_field_diffs(dict(row), r):
+            record_change(conn, ChangeType.FIELD_UPDATED, column, previous_value=old,
+                          new_value=new, source_product_id=pid, run_id=run_id, job_id=job_id)
+            if column in ALIAS_FIELDS and old:
+                # Keep the superseded identity findable (spec 14).
+                record_alias(conn, pid, ALIAS_FIELDS[column], old)
+            # `column` comes from the fixed TRACKED_PRODUCT_FIELDS tuple, never input.
+            conn.execute(f"UPDATE source_product SET {column} = ? WHERE source_product_id = ?",
+                         (new, pid))
+        return pid, row["curation_status"], False
     pid = _insert(conn, "source_product", {
         "source_id": source_id,
         "external_product_id": r["external_product_id"],
@@ -115,6 +175,9 @@ def _get_product(conn, source_id: int, r: dict) -> tuple[int, str, bool]:
         "has_variants": 1 if r["external_variant_id"] or r["option_fingerprint"] else 0,
         "curation_status": CurationStatus.INVENTORIED.value,
     })
+    record_change(conn, ChangeType.NEW, "source_product", source_product_id=pid,
+                  new_value=r["product_name"] or r["external_product_id"],
+                  run_id=run_id, job_id=job_id)
     return pid, CurationStatus.INVENTORIED.value, True
 
 
@@ -173,6 +236,23 @@ def _to_float(value: Decimal | None) -> float | None:
     return float(value) if value is not None else None
 
 
+def _canon_amount(value: Decimal | None) -> str:
+    """Scale-invariant canonical string for hashing.
+
+    A source that renders '0.620' one week and '0.62' the next is quoting the SAME
+    price; str(Decimal) preserves the scale, so hashing it would mint a second
+    record_hash and defeat ux_price_obs_dedupe — appending a phantom 'price change'
+    to an append-only table. normalize() strips the trailing zeros first.
+
+    Deliberately returns a STRING: the cross-engine contract rule is that
+    record_hash only ever receives canonical strings, never language-native floats
+    (Python repr 15.0 vs JS 15 was the original parity landmine).
+    """
+    if value is None:
+        return ""
+    return format(value.normalize(), "f")
+
+
 def _observation_values(r: dict, observed_at: str) -> dict:
     effective = parse_money(r["effective_price"])
     if effective is None:
@@ -184,10 +264,12 @@ def _observation_values(r: dict, observed_at: str) -> dict:
     if availability not in {a.value for a in Availability}:
         availability = Availability.UNKNOWN.value
     stock_raw = r["stock_quantity"]
-    stock = _to_float(parse_money(stock_raw)) if stock_raw else None
+    stock_dec = parse_money(stock_raw) if stock_raw else None
+    stock = _to_float(stock_dec)
     content_hash = record_hash({
-        "effective": str(effective), "regular": str(regular), "sale": str(sale),
-        "currency": r["currency"], "vat": vat, "availability": availability, "stock": stock,
+        "effective": _canon_amount(effective), "regular": _canon_amount(regular),
+        "sale": _canon_amount(sale), "currency": r["currency"], "vat": vat,
+        "availability": availability, "stock": _canon_amount(stock_dec),
     })
     return {
         "observed_at": observed_at,
@@ -206,17 +288,20 @@ def _observation_values(r: dict, observed_at: str) -> dict:
 # ---- the pipeline ------------------------------------------------------------
 
 def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
-                    payloads: list[FunnelPayload]) -> IngestResult:
+                    payloads: list[FunnelPayload], job_id: int | None = None) -> IngestResult:
     """Ingest one source's payloads into harvest.db in a single transaction.
 
     All-or-nothing at the DB level (F1): the crawl_run and every row commit
     together, or nothing does. Per-row *data* problems are isolated into
     result.errors and do not abort the batch (Q3)."""
+    from .contract import assert_writable
+    assert_writable(conn)  # two-engine guardrail: never write across contract versions
     source_id = _get_source_id(conn, entry, _first_currency(payloads))
     run_id = _insert(conn, "crawl_run", {
         "source_id": source_id,
         "status": RunStatus.RUNNING.value,
         "extractor_version": "phase1",
+        "job_id": job_id,
     })
     result = IngestResult(source_key=entry.source_key, run_id=run_id)
 
@@ -224,8 +309,8 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
         if payload.source_key != entry.source_key:
             result.errors.append(f"payload source_key {payload.source_key} != {entry.source_key}")
             continue
-        if payload.kind != ExtractKind.PRODUCT_PRICES:
-            # Phase 1 ingests product_prices only; commodity/enrichment land later.
+        if payload.kind not in (ExtractKind.PRODUCT_PRICES, ExtractKind.COMMODITY_PRICE):
+            # Phase 1 ingests product + commodity prices; enrichment lands later.
             result.errors.append(f"kind {payload.kind} not yet ingestable (Phase 1)")
             continue
         try:
@@ -233,30 +318,84 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
         except ValueError as exc:  # header drift — whole payload unusable (Q4)
             result.errors.append(f"header drift: {exc}")
             continue
+        row_fn = (_ingest_commodity_row if payload.kind == ExtractKind.COMMODITY_PRICE
+                  else _ingest_product_row)
         for i, raw in enumerate(payload.rows):
             try:
-                _ingest_product_row(conn, entry, source_id, run_id,
-                                    view.as_dict(raw), payload.scraped_at, result)
+                row_fn(conn, entry, source_id, run_id,
+                       view.as_dict(raw), payload.scraped_at, result, job_id)
             except Exception as exc:  # noqa: BLE001 — isolate one bad row (Q3)
                 result.errors.append(f"row {i}: {exc}")
 
     conn.execute(
         "UPDATE crawl_run SET finished_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-        "status = ?, products_discovered = ?, variants_discovered = ?, errors_count = ? "
-        "WHERE run_id = ?",
-        (result.status.value, result.products, result.variants, len(result.errors), run_id),
+        "status = ?, products_discovered = ?, variants_discovered = ?, errors_count = ?, "
+        "rows_seen = ? WHERE run_id = ?",
+        (result.status.value, result.products, result.variants, len(result.errors),
+         sum(len(p.rows) for p in payloads), run_id),
     )
     return result
 
 
-def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at, result: IngestResult) -> None:
+def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at,
+                        result: IngestResult, job_id: int | None = None) -> None:
     reason = scope_reason(entry, ExtractKind.PRODUCT_PRICES, r["region"])
     if reason is not None:
         result.rejected_out_of_scope += 1
         result.errors.append(f"out of scope: {reason}")
         return
+    _persist_row(conn, source_id, run_id, r, observed_at, result, job_id)
 
-    product_id, curation, product_created = _get_product(conn, source_id, r)
+
+def _ingest_commodity_row(conn, entry, source_id, run_id, c, observed_at,
+                          result: IngestResult, job_id: int | None = None) -> None:
+    """A commodity is a degenerate product (the material is the product, one
+    implicit NULL/NULL variant, region on the offer): scope-check on material+region,
+    then reuse the exact same persistence chain via the row-shape adapter."""
+    reason = scope_reason(entry, ExtractKind.COMMODITY_PRICE, c["region"], c["material_key"])
+    if reason is not None:
+        result.rejected_out_of_scope += 1
+        result.errors.append(f"out of scope: {reason}")
+        return
+    _persist_row(conn, source_id, run_id, _commodity_to_product_row(c), observed_at,
+                 result, job_id)
+
+
+def _commodity_to_product_row(c: dict) -> dict:
+    """Adapt a COMMODITY_PRICE row into the product-row shape _persist_row expects.
+
+    `unit` ('USD/liter') is kept verbatim in option_label — a lossless home that
+    leaves selling_unit_id NULL so the shared offer identity still matches.
+    `observed_label` is deliberately DROPPED: it has no schema column and must
+    never drive business_date/record_hash (owner rule: the history is OUR own
+    weekly observations, stamped with our crawl date, not the publisher's dating).
+    """
+    return {
+        "external_product_id": c["material_key"],
+        "external_variant_id": "",
+        "external_sku": "",
+        "product_name": c["material_key"],
+        "brand_raw": "",
+        "option_label": c.get("unit", ""),
+        "option_fingerprint": "",
+        "product_url": "",
+        "region": c["region"],
+        "currency": c["currency"],
+        "vat_included": c.get("vat_included", ""),
+        "regular_price": "",
+        "sale_price": "",
+        "effective_price": c["effective_price"],
+        "availability": "",
+        "stock_quantity": "",
+    }
+
+
+def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
+                 job_id: int | None = None) -> None:
+    """Get-or-create the source_product -> variant -> offer chain and append one
+    price_observation (idempotent). Shared by product + commodity ingest — the
+    caller has already applied the kind-specific scope check."""
+    product_id, curation, product_created = _get_product(conn, source_id, r, run_id, job_id)
     if curation == CurationStatus.IGNORED.value:
         result.skipped_ignored += 1
         return
@@ -266,9 +405,17 @@ def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at, result: 
     variant_id, variant_created = _get_variant(conn, product_id, r)
     if variant_created:
         result.variants += 1
+        record_change(conn, ChangeType.NEW, "source_variant", source_product_id=product_id,
+                      source_variant_id=variant_id, new_value=r["option_label"] or None,
+                      run_id=run_id, job_id=job_id)
 
     offer_id = _get_offer_id(conn, variant_id, r)
     v = _observation_values(r, observed_at)
+    # Read the prior state BEFORE appending — same tiebreak as the publish path.
+    previous = conn.execute(
+        "SELECT effective_price, availability FROM price_observation WHERE offer_id = ? "
+        "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1", (offer_id,)
+    ).fetchone()
     cur = conn.execute(
         "INSERT OR IGNORE INTO price_observation "
         "(offer_id, observed_at, business_date, regular_price, sale_price, effective_price, "
@@ -280,6 +427,19 @@ def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at, result: 
     )
     if cur.rowcount == 1:
         result.observations += 1
+        if previous is not None:  # no previous state = the 'new' event already said it
+            ids = {"source_product_id": product_id, "source_variant_id": variant_id,
+                   "offer_id": offer_id, "run_id": run_id, "job_id": job_id}
+            moved = classify_price(previous["effective_price"], v["effective_price"])
+            if moved is not None:
+                record_change(conn, moved, "effective_price",
+                              previous_value=previous["effective_price"],
+                              new_value=v["effective_price"], **ids)
+            stock_moved = classify_availability(previous["availability"], v["availability"])
+            if stock_moved is not None:
+                record_change(conn, stock_moved, "availability",
+                              previous_value=previous["availability"],
+                              new_value=v["availability"], **ids)
     else:
         result.duplicates += 1
 

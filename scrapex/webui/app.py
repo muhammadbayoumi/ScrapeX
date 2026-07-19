@@ -9,6 +9,8 @@ Bound to 127.0.0.1 by the CLI — a local, single-machine surface.
 """
 from __future__ import annotations
 
+import os
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,23 +20,45 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db as dbmod
 from ..capture import capture_source
+from ..changes import change_summary, recent_changes
 from ..config import MANIFEST_FILE, SourceEntry, load_manifest
 from ..connectors.factory import _BUILDERS
+from ..jobs import JobRunner, create_job, get_job, job_logs, list_jobs, set_control
+from ..fields import (
+    delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
+    set_display_name, set_visibility,
+)
 from ..manifest_io import DuplicateSourceError, add_source
+from ..matching import (
+    ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
+)
 from ..probe import probe as probe_url
-from ..reports import browse_observations, list_sources, source_summary
-from ..vocab import Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher, VatMode
+from ..reports import (
+    SORTABLE, browse_observations, crawl_history, export_source_table, list_sources,
+    price_extremes, source_summary,
+)
+from ..scheduler import list_schedules, upsert_schedule
+from ..vocab import (
+    Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher,
+    JobControl, MissedRunPolicy, OverlapPolicy, RunMode, ScheduleFrequency, VatMode,
+)
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
 
 
-def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE) -> FastAPI:
+def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
+               start_worker: bool = False) -> FastAPI:
     app = FastAPI(title="ScrapeX", docs_url=None, redoc_url=None)
     app.state.db_path = str(db_path)
     app.state.manifest_path = str(manifest_path)
     app.state.manifest = load_manifest(manifest_path)
+    # The job worker owns ALL long-running crawls (spec 4). Tests drive the
+    # synchronous seam instead, so the thread is opt-in.
+    app.state.runner = JobRunner(str(db_path), lambda: app.state.manifest) if start_worker else None
+    if app.state.runner is not None:
+        app.state.runner.start()
 
     # The extension calls from a chrome-extension:// origin. Local-only server,
     # no credentials — permissive CORS is acceptable here (A9: still 127.0.0.1).
@@ -55,38 +79,128 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE) -
         finally:
             conn.close()
         return TEMPLATES.TemplateResponse(request=request, name="overview.html",
-                                          context={"sources": sources})
+                                          context={"sources": sources, "tab": "overview",
+                                                   "source_key": None})
 
     @app.get("/source/{source_key}", response_class=HTMLResponse)
-    def source(request: Request, source_key: str, q: str = "", availability: str = "", page: int = 1):
+    def source(request: Request, source_key: str, q: str = "", availability: str = "",
+               page: int = 1, sort: str = "", direction: str = "asc"):
         page = max(1, page)
         conn = read_conn()
         try:
             summary = source_summary(conn, source_key)
-            page_data = None
+            page_data, fields, views = None, [], []
             if summary is not None:
                 page_data = browse_observations(
                     conn, source_key, search=q or None, availability=availability or None,
+                    sort=sort or None, direction=direction,
                     offset=(page - 1) * PAGE_SIZE, limit=PAGE_SIZE)
+                # Register the columns on first view so "manage columns" has
+                # something to manage, then read back the owner's arrangement.
+                header, _ = export_source_table(conn, source_key, limit=1)
+                ensure_fields(conn, source_key, header)
+                conn.commit()
+                fields, views = list_fields(conn, source_key), list_views(conn, source_key)
         finally:
             conn.close()
         return TEMPLATES.TemplateResponse(
             request=request, name="source.html",
             context={"summary": summary, "page_data": page_data, "source_key": source_key,
-                     "q": q, "availability": availability, "page": page,
+                     "q": q, "availability": availability, "page": page, "tab": "data",
+                     "sort": sort or "name", "direction": direction,
+                     "sortable": list(SORTABLE), "fields": fields, "views": views,
                      "availability_options": AVAILABILITY_OPTIONS},
             status_code=200 if summary is not None else 404)
+
+    # ---- Workspace tabs (spec 21) ------------------------------------------
+    # Each tab is a thin render over logic that already exists and is tested;
+    # `source_key` rides along so switching tabs keeps the dataset in view.
+
+    def _page(request: Request, name: str, tab: str, source_key: str | None, **ctx):
+        return TEMPLATES.TemplateResponse(request=request, name=name,
+                                          context={"tab": tab, "source_key": source_key, **ctx})
+
+    @app.get("/changes", response_class=HTMLResponse)
+    def page_changes(request: Request, source_key: str | None = None, limit: int = 100):
+        conn = read_conn()
+        try:
+            return _page(request, "changes.html", "changes", source_key,
+                         summary=change_summary(conn, source_key) if source_key else {},
+                         changes=recent_changes(conn, source_key, limit=limit),
+                         extremes=price_extremes(conn, source_key) if source_key else [],
+                         sources=[s.source_key for s in list_sources(conn)])
+        finally:
+            conn.close()
+
+    @app.get("/history", response_class=HTMLResponse)
+    def page_history(request: Request, source_key: str | None = None):
+        conn = read_conn()
+        try:
+            return _page(request, "history.html", "history", source_key,
+                         runs=crawl_history(conn, source_key),
+                         sources=[s.source_key for s in list_sources(conn)])
+        finally:
+            conn.close()
+
+    @app.get("/review", response_class=HTMLResponse)
+    def page_review(request: Request, source_key: str | None = None):
+        conn = read_conn()
+        try:
+            return _page(request, "review.html", "review", source_key,
+                         pending=pending_reviews(conn, source_key, limit=100),
+                         sources=[s.source_key for s in list_sources(conn)])
+        finally:
+            conn.close()
+
+    @app.get("/jobs", response_class=HTMLResponse)
+    def page_jobs(request: Request):
+        conn = read_conn()
+        try:
+            return _page(request, "jobs.html", "jobs", None,
+                         jobs=[_job_view(j) for j in list_jobs(conn, limit=50)])
+        finally:
+            conn.close()
+
+    @app.get("/schedules", response_class=HTMLResponse)
+    def page_schedules(request: Request):
+        conn = read_conn()
+        try:
+            return _page(request, "schedules.html", "schedules", None,
+                         schedules=list_schedules(conn))
+        finally:
+            conn.close()
+
+    @app.get("/logs", response_class=HTMLResponse)
+    def page_logs(request: Request, job_ref: str | None = None):
+        conn = read_conn()
+        try:
+            jobs = list_jobs(conn, limit=50)
+            job_ref = job_ref or (jobs[0]["job_ref"] if jobs else None)
+            return _page(request, "logs.html", "logs", None,
+                         jobs=[_job_view(j) for j in jobs], job_ref=job_ref,
+                         entries=job_logs(conn, job_ref) if job_ref else [])
+        finally:
+            conn.close()
+
+    @app.get("/exports", response_class=HTMLResponse)
+    def page_exports(request: Request):
+        return _page(request, "outputs.html", "exports", None, mode="exports")
+
+    @app.get("/sync", response_class=HTMLResponse)
+    def page_sync(request: Request):
+        return _page(request, "outputs.html", "sync", None, mode="sync")
 
     # ---- JSON API (the Chrome extension) -----------------------------------
 
     @app.get("/api/health")
     def api_health():
+        from .. import __version__
         conn = read_conn()
         try:
             n = len(list_sources(conn))
         finally:
             conn.close()
-        return {"ok": True, "app": "scrapex", "sources_with_data": n}
+        return {"ok": True, "app": "scrapex", "version": __version__, "sources_with_data": n}
 
     @app.get("/api/sources")
     def api_sources():
@@ -128,7 +242,7 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE) -
             rows.append({"entry": entry, "implemented": entry.family in _BUILDERS,
                          "observations": s.observations if s else 0})
         return TEMPLATES.TemplateResponse(request=request, name="manage.html", context={
-            "rows": rows,
+            "rows": rows, "tab": "overview", "source_key": None,
             "families": [f.value for f in ConnectorFamily],
             "cadences": [c.value for c in Cadence],
             "authorities": [a.value for a in Authority],
@@ -158,6 +272,311 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE) -
         return {"ok": True, "source_key": entry.source_key,
                 "implemented": entry.family in _BUILDERS}
 
+    # ---- schedules (spec 26: the LOCAL RUNTIME schedules, not the browser) --
+
+    @app.get("/api/schedules")
+    def api_schedules():
+        conn = read_conn()
+        try:
+            return {
+                "schedules": list_schedules(conn),
+                # Stated plainly in the API itself so no UI can imply otherwise.
+                "note": ("Schedules run only while the ScrapeX engine is running. "
+                         "Nothing can wake a sleeping or powered-off machine; a slot "
+                         "missed while it was off follows the missed-run policy."),
+            }
+        finally:
+            conn.close()
+
+    @app.post("/api/schedules/{source_key}")
+    def api_set_schedule(source_key: str, body: dict):
+        body = body or {}
+        try:
+            app.state.manifest.get(source_key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown source_key {source_key!r}")
+        frequency = body.get("frequency", ScheduleFrequency.MANUAL.value)
+        if frequency not in {f.value for f in ScheduleFrequency}:
+            raise HTTPException(status_code=400, detail="frequency must be "
+                                f"{[f.value for f in ScheduleFrequency]}")
+        try:
+            saved = _write(lambda c: upsert_schedule(
+                c, source_key, frequency=frequency,
+                run_at=body.get("run_at", "09:00"), tz_name=body.get("timezone", "UTC"),
+                weekday=body.get("weekday"), run_mode=body.get("run_mode", RunMode.UPDATE.value),
+                missed_run_policy=body.get("missed_run_policy",
+                                           MissedRunPolicy.RUN_WHEN_AVAILABLE.value),
+                overlap_policy=body.get("overlap_policy", OverlapPolicy.QUEUE.value),
+                enabled=bool(body.get("enabled", True))))
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return saved
+
+    # ---- columns + saved views (spec 22: hiding is never deleting) ----------
+
+    def _write(fn):
+        """Run a short write under the process lock, then commit.
+
+        A crawl in progress holds that lock, which is normal contention rather
+        than a server fault — so it becomes a retryable 409, never an opaque 500.
+        """
+        try:
+            with dbmod.write_lock(app.state.db_path):
+                conn = read_conn()
+                try:
+                    result = fn(conn)
+                    conn.commit()
+                    return result
+                finally:
+                    conn.close()
+        except dbmod.DbLockedError:
+            raise HTTPException(
+                status_code=409,
+                detail="a crawl is currently writing to the database — try again shortly")
+
+    @app.get("/api/fields/{source_key}")
+    def api_fields(source_key: str):
+        conn = read_conn()
+        try:
+            header, _ = export_source_table(conn, source_key, limit=1)
+            ensure_fields(conn, source_key, header)
+            conn.commit()
+            return {"source_key": source_key, "fields": list_fields(conn, source_key),
+                    "views": list_views(conn, source_key)}
+        finally:
+            conn.close()
+
+    @app.post("/api/fields/{source_key}")
+    def api_update_fields(source_key: str, body: dict):
+        """Rename / hide / reorder / reset — all reversible, none destructive."""
+        body = body or {}
+        def apply(conn):
+            if "reset" in body:
+                reset_view(conn, source_key)
+            if "display_name" in body:
+                if not set_display_name(conn, source_key, body.get("field_key", ""),
+                                        body["display_name"]):
+                    raise KeyError(body.get("field_key"))
+            if "hidden" in body:
+                if not set_visibility(conn, source_key, body.get("field_key", ""),
+                                      bool(body["hidden"])):
+                    raise KeyError(body.get("field_key"))
+            if "order" in body:
+                reorder(conn, source_key, list(body["order"]))
+            return list_fields(conn, source_key)
+        try:
+            return {"source_key": source_key, "fields": _write(apply)}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"unknown field {exc.args[0]!r}")
+
+    @app.post("/api/views/{source_key}")
+    def api_save_view(source_key: str, body: dict):
+        name = (body or {}).get("view_name", "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="view_name is required")
+        view_id = _write(lambda c: save_view(c, source_key, name, (body or {}).get("config", {})))
+        return {"saved_view_id": view_id, "view_name": name}
+
+    @app.delete("/api/views/{saved_view_id}")
+    def api_delete_view(saved_view_id: int):
+        if not _write(lambda c: delete_view(c, saved_view_id)):
+            raise HTTPException(status_code=404, detail=f"unknown view {saved_view_id}")
+        return {"saved_view_id": saved_view_id, "deleted": True}
+
+    # ---- review queue (spec 14: the human gate — nothing auto-approves) -----
+
+    @app.get("/api/review")
+    def api_review(source_key: str | None = None, limit: int = 50):
+        conn = read_conn()
+        try:
+            return {"pending": pending_reviews(conn, source_key, limit=limit)}
+        finally:
+            conn.close()
+
+    @app.post("/api/review/suggest")
+    def api_review_suggest(body: dict):
+        source_key = (body or {}).get("source_key")
+        if not source_key:
+            raise HTTPException(status_code=400, detail="source_key is required")
+        with dbmod.write_lock(app.state.db_path):
+            conn = read_conn()
+            try:
+                written = suggest_for_source(conn, source_key)
+                conn.commit()
+            finally:
+                conn.close()
+        return {"source_key": source_key, "suggested": written}
+
+    @app.post("/api/review/{match_id}")
+    def api_review_decide(match_id: int, body: dict):
+        decision = (body or {}).get("decision", "")
+        if decision not in (Decision.APPROVE, Decision.NEW, Decision.SEPARATE, Decision.LATER):
+            raise HTTPException(status_code=400, detail="decision must be "
+                                f"{[Decision.APPROVE, Decision.NEW, Decision.SEPARATE, Decision.LATER]}")
+        with dbmod.write_lock(app.state.db_path):
+            conn = read_conn()
+            try:
+                result = decide(conn, match_id, decision, (body or {}).get("material_id"))
+                conn.commit()
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"unknown match {match_id}")
+            except ConflictError as exc:
+                raise HTTPException(status_code=409, detail=str(exc))
+            finally:
+                conn.close()
+        return result
+
+    @app.post("/api/review/{match_id}/undo")
+    def api_review_undo(match_id: int):
+        with dbmod.write_lock(app.state.db_path):
+            conn = read_conn()
+            try:
+                undone = undo_decision(conn, match_id)
+                conn.commit()
+            finally:
+                conn.close()
+        if not undone:
+            raise HTTPException(status_code=409, detail=f"match {match_id} has no active link to undo")
+        return {"match_id": match_id, "undone": True}
+
+    @app.get("/api/outputs")
+    def api_outputs():
+        """Real status of every output destination (spec 16/9).
+
+        Each entry reports whether it is usable RIGHT NOW and, when it is not,
+        exactly what is missing — so the panel can say "needs setup" with a
+        reason instead of offering a destination that will fail at write time.
+        """
+        import importlib.util as findlib
+        from pathlib import Path as _Path
+
+        google_token = _Path.home() / ".scrapex" / "google" / "token.json"
+        funnel_configured = bool(os.environ.get("SCRAPEX_FUNNEL_URL"))
+        return {"outputs": [
+            {"key": "local_db", "label": "Local database", "ready": True, "required": True,
+             "detail": "Always on — the source of truth. It cannot be disabled."},
+            {"key": "excel", "label": "Excel files",
+             "ready": findlib.find_spec("openpyxl") is not None,
+             "required": False,
+             "detail": "Needs the local extra: pip install -e \".[local]\""},
+            {"key": "apps_script", "label": "Google Sheets via Apps Script",
+             "ready": funnel_configured, "required": False,
+             "detail": "Set SCRAPEX_FUNNEL_URL and SCRAPEX_FUNNEL_TOKEN to enable."},
+            {"key": "google_drive", "label": "Google Drive and Sheets",
+             "ready": google_token.exists(), "required": False,
+             "detail": "Run: scrapex google-connect (one-time browser sign-in)."},
+        ]}
+
+    @app.get("/api/records")
+    def api_records(source_key: str, q: str = "", availability: str = "",
+                    cursor: int = 0, limit: int = 25):
+        """Compact, paginated records for the panel's Browse Data screen.
+
+        Bounded like every other read (A8): the panel shows cards, never a table,
+        so it asks for a page at a time and stops when next_cursor is null.
+        """
+        conn = read_conn()
+        try:
+            page = browse_observations(conn, source_key, search=q or None,
+                                       availability=availability or None,
+                                       offset=max(0, cursor), limit=max(1, min(limit, 100)))
+        finally:
+            conn.close()
+        nxt = max(0, cursor) + len(page.rows)
+        return {"source_key": source_key, "records": page.rows, "total": page.total,
+                "next_cursor": nxt if nxt < page.total else None}
+
+    @app.get("/api/changes")
+    def api_changes(source_key: str | None = None, limit: int = 50):
+        """What changed since last time (spec 15/20) — summary + a bounded feed."""
+        conn = read_conn()
+        try:
+            summary = change_summary(conn, source_key) if source_key else {}
+            feed = recent_changes(conn, source_key, limit=limit)
+        finally:
+            conn.close()
+        return {"source_key": source_key, "summary": summary, "changes": feed}
+
+    # ---- jobs (spec 4/23/24: the panel enqueues and polls, never executes) ---
+
+    @app.post("/api/jobs")
+    def api_create_job(body: dict):
+        body = body or {}
+        source_keys = body.get("source_keys") or []
+        if isinstance(source_keys, str):
+            source_keys = [source_keys]
+        if not source_keys:
+            raise HTTPException(status_code=400, detail="source_keys is required")
+        for key in source_keys:  # fail before queueing, not mid-crawl
+            try:
+                app.state.manifest.get(key)
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"unknown source_key {key!r}")
+        try:
+            run_mode = RunMode(body.get("run_mode", RunMode.UPDATE.value))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="run_mode must be "
+                                f"{[m.value for m in RunMode]}")
+        conn = read_conn()
+        try:
+            dbmod.migrate(conn)
+            job_ref = create_job(conn, source_keys, run_mode)
+        finally:
+            conn.close()
+        return {"job_ref": job_ref, "status": "queued", "source_keys": source_keys,
+                "run_mode": run_mode.value}
+
+    @app.get("/api/jobs")
+    def api_list_jobs(limit: int = 20, active_only: bool = False):
+        conn = read_conn()
+        try:
+            jobs = list_jobs(conn, limit=limit, active_only=active_only)
+        finally:
+            conn.close()
+        return {"jobs": [_job_view(j) for j in jobs]}
+
+    @app.get("/api/jobs/{job_ref}")
+    def api_get_job(job_ref: str):
+        conn = read_conn()
+        try:
+            job = get_job(conn, job_ref)
+        finally:
+            conn.close()
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"unknown job {job_ref!r}")
+        return _job_view(job)
+
+    @app.post("/api/jobs/{job_ref}/control")
+    def api_control_job(job_ref: str, body: dict):
+        try:
+            control = JobControl((body or {}).get("control", ""))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="control must be "
+                                f"{[c.value for c in JobControl]}")
+        conn = read_conn()
+        try:
+            if get_job(conn, job_ref) is None:
+                raise HTTPException(status_code=404, detail=f"unknown job {job_ref!r}")
+            applied = set_control(conn, job_ref, control)
+            job = get_job(conn, job_ref)
+        finally:
+            conn.close()
+        if not applied:  # already finished — a control request is meaningless
+            raise HTTPException(status_code=409,
+                                detail=f"job {job_ref!r} is {job['status']}")
+        return _job_view(job)
+
+    @app.get("/api/jobs/{job_ref}/logs")
+    def api_job_logs(job_ref: str, limit: int = 200):
+        conn = read_conn()
+        try:
+            if get_job(conn, job_ref) is None:
+                raise HTTPException(status_code=404, detail=f"unknown job {job_ref!r}")
+            entries = job_logs(conn, job_ref, limit=min(max(limit, 1), 200))
+        finally:
+            conn.close()
+        return {"job_ref": job_ref, "entries": entries}
+
     @app.post("/api/capture")
     def api_capture(body: dict):
         source_key = (body or {}).get("source_key")
@@ -176,6 +595,9 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE) -
                     conn.commit()
                 finally:
                     conn.close()
+        except dbmod.DbLockedError:
+            raise HTTPException(status_code=409,
+                                detail="a crawl is already running — try again shortly")
         except NotImplementedError as exc:
             raise HTTPException(status_code=501, detail=str(exc))
         r = result.ingest
@@ -191,6 +613,30 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE) -
 
 def _is_implemented(entry) -> bool:
     return entry.family in _BUILDERS
+
+
+def _job_view(job: dict) -> dict:
+    """The shape the side panel polls: aggregated progress only (spec 25) — never
+    raw records, and everything needed to redraw the mini-player from scratch
+    after the panel was closed."""
+    total = job.get("progress_total") or 0
+    done = job.get("progress_done") or 0
+    return {
+        "job_ref": job["job_ref"],
+        "status": job["status"],
+        "run_mode": job["run_mode"],
+        "source_keys": job["source_keys"],
+        "current_source_key": job["current_source_key"],
+        "stage": job["stage"],
+        "progress": {"done": done, "total": total,
+                     "percent": round(done / total * 100) if total else 0},
+        "counters": job["counters"],
+        "created_at": job["created_at"],
+        "started_at": job["started_at"],
+        "finished_at": job["finished_at"],
+        "last_heartbeat_at": job["last_heartbeat_at"],
+        "error_summary": job["error_summary"],
+    }
 
 
 def _csv(value) -> list[str]:
@@ -227,4 +673,14 @@ def _entry_from_form(form: dict) -> SourceEntry:
     currency = (form.get("currency") or "").strip()
     if currency:
         data["currency"] = currency
+    # Advanced blocks (spec 11): persisted rather than silently dropped, so the
+    # form never collects something it then throws away.
+    fallbacks = _csv(form.get("fallback_families"))
+    if fallbacks:
+        data["fallback_families"] = fallbacks
+    if form.get("auth_required"):
+        data["auth_required"] = True
+    identity = {k: v for k, v in (form.get("identity") or {}).items() if v not in (None, "")}
+    if identity:
+        data["identity"] = identity
     return SourceEntry.model_validate(data)

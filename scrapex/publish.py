@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Protocol
 
+from .fields import ORIGINAL_SCHEMA, apply_schema
 from .reports import export_source_table
 
 
@@ -27,11 +28,17 @@ class SheetSink(Protocol):
 
 
 def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
-                   folder: str, workbook: str) -> tuple[int, str]:
-    """Publish one source's current-price table to a sink. Returns (rows, location)."""
+                   folder: str, workbook: str, schema: str = ORIGINAL_SCHEMA) -> tuple[int, str]:
+    """Publish one source's current-price table to a sink. Returns (rows, location).
+
+    `schema` picks the Original Schema (every column, raw names — the default, so
+    a downstream consumer is never surprised by cosmetic choices) or the owner's
+    Current View (spec 22).
+    """
     header, rows = export_source_table(conn, source_key)
     if not rows:
         raise ValueError(f"nothing to publish for {source_key} — crawl + ingest it first")
+    header, rows = apply_schema(conn, source_key, header, rows, schema)
     handle = sink.ensure_workbook(folder, workbook)
     sink.write_tab(handle, source_key, header, rows)
     return len(rows), sink.location(handle)

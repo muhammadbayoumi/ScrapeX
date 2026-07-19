@@ -1,0 +1,13 @@
+{
+  "products": [
+    {
+      "code": "1000400",
+      "name": "رمل ناعم مغسول",
+      "url": "/raml/p/1000400",
+      "price": {"value": 15, "currencyIso": "SAR"},
+      "stock": {"stockLevelStatus": "inStock", "stockLevel": 999},
+      "manufacturer": "مصدر"
+    }
+  ],
+  "pagination": {"currentPage": 1, "totalPages": 2, "pageSize": 100, "totalResults": 4}
+}

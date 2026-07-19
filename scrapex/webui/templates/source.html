@@ -1,46 +1,116 @@
 {% extends "base.html" %}
 {% block title %}{{ source_key }} — ScrapeX{% endblock %}
 {% block content %}
-<p class="muted" style="margin:0 0 .4rem"><a href="/">← كل المصادر</a></p>
+{# Interface language is English only (spec 1). Scraped values are DATA: they
+   carry dir="auto" so Arabic product names render RTL inside an LTR page. #}
+<p class="muted" style="margin:0 0 .4rem"><a href="/">← All sources</a></p>
 
 {% if summary is none %}
-  <div class="empty">لا توجد بيانات للمصدر <code>{{ source_key }}</code> بعد.</div>
+  <div class="empty">No data for <code>{{ source_key }}</code> yet.</div>
 {% else %}
-  <h1>{{ summary.source_name }} <span class="key" style="font-size:.8rem">{{ summary.source_key }}</span></h1>
+  <h1 dir="auto">{{ summary.source_name }}
+    <span class="key" style="font-size:.8rem">{{ summary.source_key }}</span></h1>
   <div class="metrics">
-    <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">منتج</div></div>
-    <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">حالة</div></div>
-    <div class="metric"><div class="n">{{ "{:,}".format(summary.observations) }}</div><div class="l">مشاهدة سعر</div></div>
-    <div class="metric"><div class="n">{{ summary.matched_variants }}</div><div class="l">مطابَق (موحّد)</div></div>
+    <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">Products</div></div>
+    <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">Variants</div></div>
+    <div class="metric"><div class="n">{{ "{:,}".format(summary.observations) }}</div><div class="l">Price observations</div></div>
+    <div class="metric"><div class="n">{{ summary.matched_variants }}</div><div class="l">Matched (unified)</div></div>
   </div>
 
   <form class="filters" method="get" action="/source/{{ source_key }}">
-    <input type="search" name="q" value="{{ q }}" placeholder="ابحث في اسم المنتج…">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search by product or country...">
     <select name="availability">
-      <option value="">كل التوفّر</option>
+      <option value="">Any availability</option>
       {% for opt in availability_options %}
-        <option value="{{ opt }}" {% if opt==availability %}selected{% endif %}>{{ opt }}</option>
+        <option value="{{ opt }}" {% if opt==availability %}selected{% endif %}>
+          {{ opt.replace("_", " ") }}</option>
       {% endfor %}
     </select>
-    <button type="submit">تصفية</button>
+    <button type="submit">Filter</button>
   </form>
 
+  {# ---- Manage columns + saved views (spec 22) --------------------------- #}
+  <details class="card" style="margin-bottom:1rem">
+    <summary style="cursor:pointer;font-weight:600">Manage columns and views</summary>
+    <p class="muted" style="font-size:.85rem">Hiding a column removes it from your view
+      only. The field keeps its data and keeps receiving every future update, and you
+      can show it again at any time. Nothing here deletes anything.</p>
+
+    <table id="fieldtable">
+      <thead><tr><th>Column</th><th>Display name</th><th>Original</th>
+        <th>Shown</th><th>Order</th></tr></thead>
+      <tbody>
+      {% for f in fields %}
+        <tr data-field="{{ f.field_key }}">
+          <td><code>{{ f.field_key }}</code></td>
+          <td><input class="rename" value="{{ f.display_name or '' }}"
+                     placeholder="{{ f.original_name }}" aria-label="Display name for {{ f.field_key }}"></td>
+          <td class="muted">{{ f.original_name }}</td>
+          <td><label><input type="checkbox" class="vis" {% if not f.is_hidden %}checked{% endif %}
+                            style="width:auto" aria-label="Show {{ f.field_key }}">
+            <span class="visword">{{ "Hidden" if f.is_hidden else "Shown" }}</span></label></td>
+          <td><button class="up" title="Move earlier">↑</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="filters" style="margin-top:.8rem">
+      <button id="reset-view" style="background:var(--surface);color:var(--text)">
+        Restore default view</button>
+      <input id="view-name" placeholder="Name this view" aria-label="View name">
+      <button id="save-view">Save view</button>
+      <span id="field-out" class="muted" style="font-size:.85rem"></span>
+    </div>
+
+    {% if views %}
+      <h2 style="font-size:.9rem">Saved views</h2>
+      {% for v in views %}
+        <span class="chip">{{ v.view_name }}
+          <a href="#" data-delview="{{ v.saved_view_id }}" title="Delete this view">×</a></span>
+      {% endfor %}
+    {% endif %}
+
+    <p class="muted" style="font-size:.85rem;margin-top:.8rem">
+      Export uses either schema — <code>scrapex export {{ source_key }} --schema original</code>
+      (every column, raw names) or <code>--schema current</code> (this arrangement).</p>
+  </details>
+
   {% if page_data.total == 0 %}
-    <div class="empty">لا نتائج مطابقة.</div>
+    <div class="empty">No matching records.</div>
   {% else %}
     <p class="muted" style="font-size:.85rem">
-      {{ "{:,}".format(page_data.total) }} نتيجة — أحدث سعر لكل حالة.
+      {{ "{:,}".format(page_data.total) }} records — latest price per offer.
     </p>
-    <table>
+    {# Sorting is a link, so it survives a reload and can be shared or bookmarked.
+       The arrow makes the active column and direction readable without colour. #}
+    {% macro sortlink(key, label) %}
+      {% set nextdir = "desc" if (sort == key and direction == "asc") else "asc" %}
+      <a href="?q={{ q }}&availability={{ availability }}&sort={{ key }}&direction={{ nextdir }}"
+         {% if sort == key %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
+        {{ label }}{% if sort == key %} {{ "▲" if direction == "asc" else "▼" }}{% endif %}</a>
+    {% endmacro %}
+    <div class="tablewrap"><table>
       <thead><tr>
-        <th>المنتج</th><th>الحالة</th><th>SKU</th><th>السعر</th>
-        <th>التوفّر</th><th>الضريبة</th><th>التاريخ</th><th>الانتقاء</th><th></th>
+        <th>{{ sortlink("name", "Product") }}</th>
+        <th>{{ sortlink("region", "Country") }}</th>
+        <th>Variant</th>
+        <th>{{ sortlink("sku", "SKU") }}</th>
+        <th>{{ sortlink("effective_price", "Price") }}</th>
+        <th>{{ sortlink("availability", "Availability") }}</th>
+        <th>VAT</th>
+        <th>{{ sortlink("business_date", "Date") }}</th>
+        <th>Curation</th><th></th>
       </tr></thead>
       <tbody>
       {% for r in page_data.rows %}
         <tr>
-          <td>{{ r.name or "—" }}</td>
-          <td class="muted">{{ r.option_label or "—" }}</td>
+          <td dir="auto">{{ r.name or "—" }}</td>
+          {# For a commodity source the country IS what distinguishes the row. #}
+          <td>{% if r.region %}<span class="num">{{ r.region }}</span>
+                {% if r.region_name %} {{ r.region_name }}{% endif %}
+              {% else %}—{% endif %}</td>
+          <td class="muted" dir="auto">{{ r.option_label or "—" }}</td>
           <td class="num muted">{{ r.sku or "—" }}</td>
           <td>
             <span class="price">{{ "%g"|format(r.effective_price) }} {{ r.currency }}</span>
@@ -49,27 +119,97 @@
             {% endif %}
           </td>
           <td>
-            {% if r.availability == "in_stock" %}<span class="badge ok">متوفر</span>
-            {% elif r.availability == "out_of_stock" %}<span class="badge off">نفد</span>
-            {% else %}<span class="badge">?</span>{% endif %}
+            {# Status is spelled out, never conveyed by colour alone (spec 1.13). #}
+            {% if r.availability == "in_stock" %}<span class="badge ok">In stock</span>
+            {% elif r.availability == "out_of_stock" %}<span class="badge off">Out of stock</span>
+            {% else %}<span class="badge">Unknown</span>{% endif %}
           </td>
-          <td class="muted">{{ "شامل" if r.vat_included else "غير شامل" }}</td>
+          <td class="muted">{{ "Incl." if r.vat_included else "Excl." }}</td>
           <td class="num muted">{{ r.business_date }}</td>
           <td><span class="chip">{{ r.curation_status }}</span></td>
-          <td>{% if r.product_url %}<a href="{{ r.product_url }}" target="_blank" rel="noopener">↗</a>{% endif %}</td>
+          <td>{% if r.product_url %}<a href="{{ r.product_url }}" target="_blank" rel="noopener"
+                 title="Open the product page">↗</a>{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>
-    </table>
+    </table></div>
 
-    {% set base = "/source/" ~ source_key ~ "?q=" ~ q ~ "&availability=" ~ availability %}
+    {% set base = "/source/" ~ source_key ~ "?q=" ~ q ~ "&availability=" ~ availability
+                  ~ "&sort=" ~ sort ~ "&direction=" ~ direction %}
     <div class="pager">
-      {% if page_data.has_prev %}<a href="{{ base }}&page={{ page-1 }}">← السابق</a>
-      {% else %}<span class="disabled">← السابق</span>{% endif %}
-      <span class="muted">صفحة {{ page }}</span>
-      {% if page_data.has_next %}<a href="{{ base }}&page={{ page+1 }}">التالي →</a>
-      {% else %}<span class="disabled">التالي →</span>{% endif %}
+      {% if page_data.has_prev %}<a href="{{ base }}&page={{ page-1 }}">← Previous</a>
+      {% else %}<span class="disabled">← Previous</span>{% endif %}
+      <span class="muted">Page {{ page }}</span>
+      {% if page_data.has_next %}<a href="{{ base }}&page={{ page+1 }}">Next →</a>
+      {% else %}<span class="disabled">Next →</span>{% endif %}
     </div>
   {% endif %}
 {% endif %}
+
+<script>
+// Column management talks to the same /api/fields endpoints the extension uses —
+// one implementation of the rules, two surfaces.
+(() => {
+  const SOURCE = {{ source_key|tojson }};
+  const out = document.getElementById("field-out");
+  const table = document.getElementById("fieldtable");
+  if (!table) return;
+
+  async function send(body) {
+    out.textContent = "Saving...";
+    const res = await fetch(`/api/fields/${SOURCE}`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)});
+    const data = await res.json().catch(() => ({}));
+    out.textContent = res.ok ? "Saved." : "Failed: " + (data.detail || res.statusText);
+    return res.ok;
+  }
+
+  table.querySelectorAll("tr[data-field]").forEach((row) => {
+    const key = row.dataset.field;
+    // Rename on blur, not per keystroke — one write per decision.
+    row.querySelector(".rename").addEventListener("change", (e) =>
+      send({field_key: key, display_name: e.target.value}));
+    row.querySelector(".vis").addEventListener("change", async (e) => {
+      const hidden = !e.target.checked;
+      if (await send({field_key: key, hidden}))
+        row.querySelector(".visword").textContent = hidden ? "Hidden" : "Shown";
+    });
+    row.querySelector(".up").addEventListener("click", async () => {
+      const prev = row.previousElementSibling;
+      if (!prev) return;
+      // Send the full order so the server never has to infer intent.
+      const order = [...table.querySelectorAll("tr[data-field]")].map((r) => r.dataset.field);
+      const i = order.indexOf(key);
+      order.splice(i - 1, 0, order.splice(i, 1)[0]);
+      if (await send({order})) prev.before(row);
+    });
+  });
+
+  document.getElementById("reset-view").addEventListener("click", async () => {
+    if (!confirm("Restore the default view? Names, visibility and order return to " +
+                 "their originals. No data is affected.")) return;
+    if (await send({reset: true})) location.reload();
+  });
+
+  document.getElementById("save-view").addEventListener("click", async () => {
+    const name = document.getElementById("view-name").value.trim();
+    if (!name) { out.textContent = "Name the view first."; return; }
+    const columns = [...table.querySelectorAll("tr[data-field]")]
+      .filter((r) => r.querySelector(".vis").checked).map((r) => r.dataset.field);
+    const res = await fetch(`/api/views/${SOURCE}`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({view_name: name, config: {columns}})});
+    out.textContent = res.ok ? "View saved." : "Couldn't save the view.";
+    if (res.ok) location.reload();
+  });
+
+  document.querySelectorAll("[data-delview]").forEach((a) =>
+    a.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const res = await fetch(`/api/views/${a.dataset.delview}`, {method: "DELETE"});
+      if (res.ok) location.reload();
+    }));
+})();
+</script>
 {% endblock %}

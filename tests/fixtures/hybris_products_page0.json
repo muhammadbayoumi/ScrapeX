@@ -1,0 +1,27 @@
+{
+  "products": [
+    {
+      "code": "1000123",
+      "name": "أسمنت مقاوم 50 كجم",
+      "url": "/asmnt/p/1000123",
+      "price": {"value": 25.5, "currencyIso": "SAR", "priceType": "BUY", "formattedValue": "SAR 25.50"},
+      "stock": {"stockLevelStatus": "inStock", "stockLevel": 120},
+      "ean": "6281100000012",
+      "manufacturer": "مصدر"
+    },
+    {
+      "code": "1000200",
+      "name": "حديد تسليح 12مم",
+      "url": "https://www.masdaronline.com/hadid/p/1000200",
+      "price": {"value": 3100, "currencyIso": "SAR"},
+      "stock": {"stockLevelStatus": "lowStock", "stockLevel": 4}
+    },
+    {
+      "code": "1000300",
+      "name": "منتج بدون سعر (يتطلب تسجيل دخول)",
+      "url": "/x/p/1000300",
+      "stock": {"stockLevelStatus": "outOfStock"}
+    }
+  ],
+  "pagination": {"currentPage": 0, "totalPages": 2, "pageSize": 100, "totalResults": 4}
+}

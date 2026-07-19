@@ -101,6 +101,36 @@ def option_fingerprint(options: dict[str, str]) -> str:
     return "|".join(parts)
 
 
+_NAME_NOISE = re.compile(r"[^\w؀-ۿ]+")  # keep word chars + Arabic letters
+
+
+def normalize_name(text: str | None) -> str:
+    """Canonical form of a product name for comparison (Q2: one implementation).
+
+    Folds Arabic-Indic digits, lowercases, and reduces punctuation to single
+    spaces. Arabic letters are preserved explicitly — a plain \\w class would
+    survive here, but the intent is worth pinning: names are the ONE place where
+    Arabic content drives matching.
+    """
+    if not text:
+        return ""
+    folded = fold_digits(str(text)).lower()
+    return _NAME_NOISE.sub(" ", folded).strip()
+
+
+def name_similarity(left: str | None, right: str | None) -> float:
+    """0..1 similarity of two product names, order-insensitive.
+
+    Token-set based (not raw string distance): sources reorder the same words
+    constantly ('cement 50kg white' vs 'white cement 50kg') and that must not
+    read as a different product.
+    """
+    a, b = set(normalize_name(left).split()), set(normalize_name(right).split())
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
 def record_hash(payload: dict) -> str:
     """Deterministic content hash for idempotent ingest (F4).
 

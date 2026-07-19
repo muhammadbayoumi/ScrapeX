@@ -8,10 +8,24 @@ from __future__ import annotations
 from ..config import SourceEntry
 from ..vocab import ConnectorFamily
 from .base import HttpFetcher, SiteConnector, resolve_fetcher
+from .custom_json import CustomJsonConnector
+from .gpp import GlobalPetrolPricesConnector
+from .hybris import HybrisOccConnector
+from .magento import MagentoGraphqlConnector
+from .salla import SallaConnector
 from .shopify import ShopifyConnector
+from .woocommerce import WooCommerceConnector
+from .zid import ZidConnector
 
 _BUILDERS = {
     ConnectorFamily.SHOPIFY_JSON: lambda fetcher: ShopifyConnector(fetcher),
+    ConnectorFamily.MAGENTO_GRAPHQL: lambda fetcher: MagentoGraphqlConnector(fetcher),
+    ConnectorFamily.WOOCOMMERCE_STOREAPI: lambda fetcher: WooCommerceConnector(fetcher),
+    ConnectorFamily.SALLA_HTML: lambda fetcher: SallaConnector(fetcher),
+    ConnectorFamily.HYBRIS_OCC: lambda fetcher: HybrisOccConnector(fetcher),
+    ConnectorFamily.ZID_HTML: lambda fetcher: ZidConnector(fetcher),
+    ConnectorFamily.CUSTOM_JSON_API: lambda fetcher: CustomJsonConnector(fetcher),
+    ConnectorFamily.STATIC_HTML_TABLE: lambda fetcher: GlobalPetrolPricesConnector(fetcher),
 }
 
 

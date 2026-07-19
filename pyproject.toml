@@ -14,6 +14,7 @@ dependencies = [
     "tenacity>=8.3",
     "beautifulsoup4>=4.12",
     "lxml>=5.2",
+    "tzdata>=2024.1",   # Windows ships no system tz database (scheduler timezones)
 ]
 
 [project.optional-dependencies]
@@ -27,7 +28,9 @@ ui = ["fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3.1"]
 google = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.2", "google-auth>=2.30"]
 # Fully-local export to an .xlsx workbook (no Google needed).
 local = ["openpyxl>=3.1"]
-dev = ["pytest>=8.2", "fastapi>=0.110", "jinja2>=3.1", "httpx>=0.27", "openpyxl>=3.1"]
+# Commodity connectors (globalpetrolprices) — country-name -> ISO alpha-2 region.
+commodity = ["pycountry>=23.12"]
+dev = ["pytest>=8.2", "fastapi>=0.110", "jinja2>=3.1", "httpx>=0.27", "openpyxl>=3.1", "pycountry>=23.12"]
 
 [project.scripts]
 scrapex = "scrapex.cli:main"

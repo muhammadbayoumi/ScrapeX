@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Review queue — ScrapeX{% endblock %}
+{% block content %}
+<h1>Review queue</h1>
+{% include "_picker.html" %}
+<div class="banner">No confidence level ever approves a match on its own. Every link below
+  is a <b>suggestion</b> and stays pending until you decide.</div>
+
+{% if not pending %}
+  <div class="empty">Nothing awaiting review.<br>
+    <span class="muted">Suggestions appear after materials exist and the suggester has run.</span></div>
+{% else %}
+  {% for p in pending %}
+    <div class="card" style="margin-bottom:.8rem" data-match="{{ p.source_product_match_id }}">
+      <div class="metrics" style="margin-top:0">
+        <div class="metric"><div class="n">{{ "%.2f"|format(p.confidence) }}</div>
+          <div class="l">confidence</div></div>
+        <div class="metric"><div class="n">{{ p.match_method }}</div><div class="l">method</div></div>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div>
+          <div class="l muted">Incoming record</div>
+          <div dir="auto"><b>{{ p.incoming_name or "—" }}</b></div>
+          <div class="muted" style="font-size:.82rem">
+            <code>{{ p.source_key }}</code>
+            {% if p.external_sku %} · SKU <code>{{ p.external_sku }}</code>{% endif %}</div>
+        </div>
+        <div>
+          <div class="l muted">Existing material</div>
+          <div dir="auto"><b>{{ p.material_name or "—" }}</b></div>
+          <div class="muted" style="font-size:.82rem">material #{{ p.material_id }}</div>
+        </div>
+      </div>
+      <div style="margin:.6rem 0">
+        {% for f in p.matched_fields %}<span class="chip accent">matches: {{ f }}</span> {% endfor %}
+        {% for f in p.conflicting_fields %}<span class="chip amber">conflicts: {{ f }}</span> {% endfor %}
+      </div>
+      <div class="filters" style="margin:0">
+        <button data-decide="approve">Merge records</button>
+        <button data-decide="new" style="background:var(--surface);color:var(--text)">Keep as new material</button>
+        <button data-decide="separate" style="background:var(--surface);color:var(--text)">Keep separate</button>
+        <button data-decide="later" style="background:var(--surface);color:var(--muted)">Review later</button>
+        <span class="verdict muted" style="font-size:.85rem"></span>
+      </div>
+    </div>
+  {% endfor %}
+{% endif %}
+
+<script>
+document.querySelectorAll("[data-match]").forEach((card) => {
+  const id = card.dataset.match, out = card.querySelector(".verdict");
+  card.querySelectorAll("[data-decide]").forEach((btn) => btn.addEventListener("click", async () => {
+    const decision = btn.dataset.decide;
+    if (decision === "approve" &&
+        !confirm("Merge these records? Price history is preserved and the merge can be undone."))
+      return;
+    out.textContent = "Saving...";
+    try {
+      const res = await fetch(`/api/review/${id}`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({decision})});
+      const body = await res.json();
+      if (!res.ok) { out.textContent = "Failed: " + (body.detail || res.statusText); return; }
+      // Say plainly what happened, and offer the undo the spec requires.
+      out.innerHTML = decision === "later" ? "Left in the queue."
+        : `Saved — ${body.status}` +
+          (body.material_id ? ` (material #${body.material_id}) ` : " ") +
+          (decision === "separate" ? "" :
+           `<button data-undo="1" style="background:var(--surface);color:var(--text)">Undo</button>`);
+      const undo = out.querySelector("[data-undo]");
+      if (undo) undo.addEventListener("click", async () => {
+        const r = await fetch(`/api/review/${id}/undo`, {method: "POST"});
+        out.textContent = r.ok ? "Undone — the link was retired, nothing was deleted."
+                               : "Nothing active to undo.";
+      });
+    } catch (e) { out.textContent = "Couldn't reach the engine."; }
+  }));
+});
+</script>
+{% endblock %}

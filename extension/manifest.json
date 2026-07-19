@@ -1,12 +1,26 @@
 {
   "manifest_version": 3,
-  "name": "ScrapeX Harvester",
+  "name": "ScrapeX",
   "version": "0.1.0",
-  "description": "Capture prices from the page you're on into your local ScrapeX warehouse, and browse it.",
+  "description": "A local scraping tool: capture prices from the sites you browse into a warehouse on your own machine.",
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "ScrapeX Harvester"
+    "default_title": "Open ScrapeX"
   },
-  "permissions": ["activeTab", "tabs", "storage"],
-  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"]
+  "side_panel": {
+    "default_path": "app.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "sidePanel",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ]
 }

@@ -16,5 +16,17 @@ jobs:
         run: pip install -e .[dev]
       - name: Validate the manifest (S5 gate — a broken contract can't merge)
         run: python -m scrapex.cli validate-manifest
-      - name: Tests
+      - name: Tests (Python engine + Python-vs-frozen contract)
         run: python -m pytest -q
+
+  contract-parity:
+    # The two-engine guardrail: the JS engine must reproduce the FROZEN contract
+    # vectors byte-for-byte, or two engines could fork one warehouse's history.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Contract parity gate (JS vs frozen normalize vectors)
+        run: node contract/parity/parity.test.mjs

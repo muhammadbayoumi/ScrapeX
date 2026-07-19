@@ -1,0 +1,112 @@
+{
+ "contract_version": 1,
+ "fold": [
+  {
+   "in": "١٢٣٤٫٥٦",
+   "out": "1234.56"
+  },
+  {
+   "in": "۴۲",
+   "out": "42"
+  },
+  {
+   "in": "1,234.56",
+   "out": "1,234.56"
+  },
+  {
+   "in": "١٬٢٣٤٫٥٦",
+   "out": "1,234.56"
+  },
+  {
+   "in": "abc١٢٣xyz",
+   "out": "abc123xyz"
+  },
+  {
+   "in": "",
+   "out": ""
+  },
+  {
+   "in": "٠.٠٠٤",
+   "out": "0.004"
+  },
+  {
+   "in": "ريال ٥٠٠",
+   "out": "ريال 500"
+  }
+ ],
+ "fingerprint": [
+  {
+   "in": {
+    "Thickness_MM": "١٨",
+    "Width_MM": "1220"
+   },
+   "out": "thickness_mm=18|width_mm=1220"
+  },
+  {
+   "in": {
+    "color": "أحمر",
+    "Size": "L"
+   },
+   "out": "size=l|color=أحمر"
+  },
+  {
+   "in": {
+    "b": "2",
+    "a": "1"
+   },
+   "out": "a=1|b=2"
+  },
+  {
+   "in": {
+    "لون": "أزرق",
+    "نوع": "قطن"
+   },
+   "out": "لون=أزرق|نوع=قطن"
+  },
+  {
+   "in": {
+    "Grade": "  A2 ",
+    "قياس": "٣.٦٦م"
+   },
+   "out": "grade=a2|قياس=3.66م"
+  }
+ ],
+ "record_hash": [
+  {
+   "in": {
+    "effective": "1200.00",
+    "regular": "1450.00",
+    "sale": "None",
+    "currency": "EGP",
+    "vat": "1",
+    "availability": "in_stock",
+    "stock": "None"
+   },
+   "out": "1de051d5d018de3f1b91dcd8eeec0032c62eaa802682a351c8f5936b09b1f7dd"
+  },
+  {
+   "in": {
+    "effective": "168.78",
+    "regular": "168.78",
+    "sale": "None",
+    "currency": "SAR",
+    "vat": "0",
+    "availability": "in_stock",
+    "stock": "15.0",
+    "name": "كابل شحن"
+   },
+   "out": "5897b0bc87ddd18379e1c8a267014ce2efd7742194320314a5589fd25b55c46d"
+  },
+  {
+   "in": {
+    "effective": "٣٥٠",
+    "currency": "EGP",
+    "vat": "1",
+    "availability": "out_of_stock",
+    "stock": "None",
+    "name": "كابل شحن و نقل بيانات"
+   },
+   "out": "b50cdee607a75d852a1ac486d1ca3bfc408a85a6a238d6c83512b6479a74f4ad"
+  }
+ ]
+}

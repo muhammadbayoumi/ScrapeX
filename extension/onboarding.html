@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScrapeX — Set up</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  body { line-height: 1.6; }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 2.5rem 1.3rem 4rem; }
+  h1 { font-size: 1.6rem; font-weight: var(--fw-bold); margin: .2rem 0; }
+  h1 .mark { color: var(--accent); }
+  .lead { color: var(--muted); margin: .3rem 0 1.6rem; }
+  .status { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);
+    border-radius: var(--radius-lg); border: 1px solid var(--line); margin-bottom: 1.6rem; font-weight: 500; }
+  .status .dot { width: 12px; height: 12px; flex: none; }
+  .status.checking { background: var(--chip); } .status.checking .dot { background: var(--muted); }
+  .status.down { background: var(--red-weak); } .status.down .dot { background: var(--red); }
+  .status.up { background: var(--accent-weak); color: var(--accent); } .status.up .dot { background: var(--accent); }
+  .status .sub { font-weight: 400; color: var(--muted); font-size: var(--fs-sm); margin-inline-start: auto; }
+  .card { margin-bottom: var(--sp-4); padding: 1.2rem 1.3rem; }
+  .step { display: flex; gap: .9rem; padding: var(--sp-2) 0; }
+  .step .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-weak);
+    color: var(--accent); display: grid; place-items: center; font-weight: var(--fw-bold); font-size: var(--fs-sm); }
+  .step h3 { margin: .1rem 0 .2rem; font-size: 1rem; font-weight: var(--fw-bold); }
+  .step p { margin: .1rem 0; color: var(--muted); font-size: .9rem; }
+  .cmd-row { display: flex; gap: var(--sp-2); align-items: center; margin: var(--sp-1) 0; }
+  .cmd-row .cmd { flex: 1; padding: var(--sp-2) var(--sp-3); overflow-x: auto; white-space: nowrap;
+    font-family: var(--font-mono); background: var(--chip); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
+  .actions { display: flex; gap: var(--sp-2); align-items: center; margin-top: 1.2rem; }
+  .note { font-size: var(--fs-sm); color: var(--muted); margin-top: 1.4rem; }
+  .ready { display: none; }
+  body.connected .setup { display: none; }
+  body.connected .ready { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="mark">◆</span> Welcome to ScrapeX</h1>
+  <p class="lead">A scraping tool that runs entirely on your machine. The extension is the
+    interface — the <b>engine</b> is a small local app you install once.</p>
+
+  <div id="status" class="status checking">
+    <span class="dot"></span>
+    <span id="status-text">Checking for the ScrapeX engine…</span>
+    <span class="sub" id="status-sub"></span>
+  </div>
+
+  <div class="setup">
+    <div class="card">
+      <div class="step"><div class="n">1</div><div class="body">
+        <h3>Install Python 3.12+</h3>
+        <p>Get it from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org/downloads</a>
+           (on Windows, tick “Add Python to PATH”).</p>
+      </div></div>
+      <div class="step"><div class="n">2</div><div class="body">
+        <h3>Install the ScrapeX engine</h3>
+        <div class="cmd-row"><span class="cmd" id="cmd-install">pip install scrapex</span>
+          <button class="ghost" data-copy="cmd-install">Copy</button></div>
+        <p>A one-click installer is coming; for now this pip command installs the engine.</p>
+      </div></div>
+      <div class="step"><div class="n">3</div><div class="body">
+        <h3>Start the engine</h3>
+        <div class="cmd-row"><span class="cmd" id="cmd-run">scrapex ui</span>
+          <button class="ghost" data-copy="cmd-run">Copy</button></div>
+        <p>Leave it running. This page detects it automatically — no need to refresh.</p>
+      </div></div>
+    </div>
+    <div class="actions">
+      <button id="check">Check again</button>
+      <span class="note" style="margin:0">Engine URL: <code id="backend-url">…</code></span>
+    </div>
+  </div>
+
+  <div class="ready">
+    <div class="card">
+      <h3 style="margin-top:0">✓ Engine connected <span id="ver" class="note"></span></h3>
+      <p style="color:var(--muted)">You're all set. Open ScrapeX to add your first site.</p>
+      <div class="actions"><button id="open-app">Open ScrapeX</button></div>
+    </div>
+  </div>
+
+  <p class="note">ScrapeX is decentralized: your links and data stay on your machine. Nothing is sent to any server.</p>
+</div>
+<script type="module" src="onboarding.js"></script>
+</body>
+</html>

@@ -149,6 +149,40 @@ def test_header_drift_payload_is_rejected_whole(conn):
 
 # ---- append-only guarantee holds through ingest (A7) ------------------------
 
+def test_price_scale_does_not_fork_the_dedupe_hash(conn):
+    """Regression: '0.620' and '0.62' are the SAME price. Hashing str(Decimal)
+    kept the scale, so a source that reformatted its decimals minted a second
+    record_hash and appended a phantom price change to an append-only table."""
+    entry = make_entry()
+    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="0.620")])])
+    second = ingest_payloads(conn, entry, [make_payload([one_row(effective_price="0.62")])])
+    assert second.observations == 0 and second.duplicates == 1
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+
+
+def test_same_day_price_change_publishes_the_newer_price(conn):
+    """Regression (HIGH): the latest-per-offer selector ordered only by observed_at,
+    and ONE crawl stamps every row with the same scraped_at — so a same-day price
+    change resolved the tie to the OLDEST row and published the superseded price
+    all the way into the exported sheet."""
+    from scrapex.reports import export_source_table
+
+    entry = make_entry()
+    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="100.00")])])
+    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="130.00")])])
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 2
+
+    header, rows = export_source_table(conn, "ELSEWEDYSHOP")
+    prices = [r[header.index("effective_price")] for r in rows]
+    assert prices == [130.00]  # the NEWER price, not the superseded one
+
+
+def test_run_records_rows_seen_for_the_volume_canary(conn):
+    ingest_payloads(conn, make_entry(), [make_payload([one_row(), one_row(
+        external_product_id="1002", external_variant_id="5002")])])
+    assert conn.execute("SELECT rows_seen FROM crawl_run").fetchone()[0] == 2
+
+
 def test_ingest_never_updates_price_observation(conn):
     """Even re-ingesting a changed price never UPDATEs — it appends. The A7
     trigger would raise if ingest tried to update; this proves it doesn't."""

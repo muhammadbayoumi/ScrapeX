@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScrapeX</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<style>
+  /* Page layout only — primitives and tokens live in the shared sheets. */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow-x: hidden; }
+
+  /* Nothing may widen the panel: it can be as narrow as 320px. */
+  * { min-width: 0; }
+  .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
+
+  .sx-header { position: sticky; top: 0; z-index: 5; }
+  .estat { font-size: var(--fs-sm); color: var(--muted); display: flex;
+           align-items: center; gap: var(--sp-1); cursor: pointer;
+           background: none; border: 0; padding: var(--sp-1); }
+  .chev { transition: transform .15s ease; }
+  .chev.open { transform: rotate(90deg); }
+
+  main { flex: 1; overflow-y: auto; padding: var(--sp-4);
+         display: flex; flex-direction: column; gap: var(--sp-4); }
+  h2 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
+       color: var(--muted); margin: var(--sp-1) 0; }
+  .field { display: flex; gap: var(--sp-2); }
+  .field input, .field select { flex: 1; }
+  .links { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+  .steps code { background: var(--chip); }
+
+  /* Sites checklist — fixed height so the list can never push the run button off
+     screen, however many sites are registered. Rows reuse the shared `.srow`
+     primitive rather than reinventing one; only the stacking is page-specific. */
+  .checklist { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column;
+               gap: var(--sp-1); padding: var(--sp-1) var(--sp-1) var(--sp-3); }
+  /* A row cut mid-height at the scroll edge reads as a broken layout. Fading the
+     last few pixels makes it read as "there is more below" instead. The extra
+     bottom padding means the fade lands on empty space when nothing overflows. */
+  .checklist { mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent); }
+  .checklist .srow { align-items: flex-start; }
+  .checklist .srow.off { opacity: .6; }
+  .checklist label { display: flex; gap: var(--sp-2); align-items: flex-start; flex: 1;
+                     cursor: pointer; }
+  .checklist .srow.off label { cursor: not-allowed; }
+  .toolbar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+             font-size: var(--fs-xs); }
+  .toolbar .spacer { flex: 1; }
+
+  /* Small layout primitives, declared once instead of repeated as inline styles. */
+  .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .flush { margin-top: 0; }
+  .hint { font-size: var(--fs-xs); margin-top: var(--sp-1); }
+  .hint:empty { display: none; }
+  .block { width: 100%; }
+  .fieldset { display: flex; flex-direction: column; gap: var(--sp-1); }
+  .fieldset > label { font-size: var(--fs-xs); color: var(--muted); }
+  /* Two columns only when there is room; one column at 320px. */
+  .two { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
+  @media (min-width: 360px) { .two { grid-template-columns: 1fr 1fr; } }
+  .check { display: flex; gap: var(--sp-2); align-items: flex-start;
+           font-size: var(--fs-sm); cursor: pointer; }
+  .check .hint { display: block; }
+  /* Output destination row: label + state, state spelled out not colour-coded. */
+  .out { display: flex; justify-content: space-between; gap: var(--sp-2);
+         align-items: baseline; padding: var(--sp-1) 0; }
+  .out + .out { border-top: 1px solid var(--line); }
+
+  /* Technical values stay LTR even inside an RTL-ish neighbourhood. */
+  .tech { direction: ltr; unicode-bidi: isolate; font-family: var(--mono, monospace);
+          font-size: var(--fs-xs); }
+  .content { unicode-bidi: plaintext; }   /* scraped/user text picks its own side */
+
+  .kv { display: flex; justify-content: space-between; gap: var(--sp-2);
+        font-size: var(--fs-sm); padding: 2px 0; }
+  .kv span:last-child { text-align: right; }
+
+  .bar { height: 6px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; background: currentColor; transition: width .3s ease; }
+
+  /* Activity log: a bounded, scrollable tail — never the whole log. */
+  .logbox { max-height: 160px; overflow-y: auto; border: 1px solid var(--line);
+            border-radius: var(--radius); padding: var(--sp-2); }
+  .logline { display: flex; gap: var(--sp-2); padding: 1px 0; }
+  .logline .lvl { flex: none; width: 4.5em; }
+
+  .sx-mini { position: sticky; bottom: 0; z-index: 6; border-top: 1px solid var(--line);
+             background: var(--bg); padding: var(--sp-3) var(--sp-4);
+             display: flex; flex-direction: column; gap: var(--sp-2); }
+  .mini-top { display: flex; justify-content: space-between; align-items: baseline;
+              gap: var(--sp-2); }
+  .mini-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+  /* Bottom navigation. The active tab is marked by weight + a rule, never colour
+     alone, and carries aria-current for assistive tech. */
+  nav.tabs { display: flex; border-top: 1px solid var(--line); background: var(--bg); }
+  nav.tabs button { flex: 1; border: 0; border-top: 2px solid transparent; border-radius: 0;
+                    background: none; padding: var(--sp-3) var(--sp-2);
+                    font-size: var(--fs-sm); color: var(--muted); }
+  nav.tabs button[aria-current="page"] { color: var(--fg); font-weight: var(--fw-bold);
+                                         border-top-color: currentColor; }
+
+  .skeleton { height: 12px; border-radius: 4px; background: var(--chip);
+              animation: pulse 1.4s ease-in-out infinite; margin: var(--sp-2) 0; }
+  @keyframes pulse { 0%,100% { opacity: .45 } 50% { opacity: .9 } }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none } }
+</style>
+</head>
+<body>
+  <header class="sx-header">
+    <span class="brand">ScrapeX</span>
+    <button id="estat" class="estat" aria-expanded="false" aria-controls="runtime-details"
+            title="Local runtime status">
+      <span id="dot" class="dot"></span><span id="estat-text">Checking…</span>
+      <span class="chev" id="chev" aria-hidden="true">›</span>
+    </button>
+  </header>
+
+  <main>
+    <!-- Runtime detail, opened from the status row ------------------------- -->
+    <section id="runtime-details" class="card hidden">
+      <h2 style="margin-top:0">Local runtime</h2>
+      <div id="components"></div>
+      <div class="links" style="margin-top:var(--sp-2)">
+        <button id="recheck" class="ghost">Recheck status</button>
+        <button id="diagnostics" class="ghost">Run diagnostics</button>
+      </div>
+      <div id="diag-out" class="muted" style="font-size:var(--fs-xs)"></div>
+    </section>
+
+    <!-- ============================ RUN ============================ -->
+    <section id="view-run">
+      <div id="setup" class="card warn hidden">
+        <div style="font-weight:var(--fw-bold);margin-bottom:var(--sp-1)">Setup required</div>
+        <div class="muted steps" style="margin-bottom:var(--sp-2)">
+          The ScrapeX engine is not running. Start it with <code class="tech">scrapex ui</code>.
+          First time? <span class="link" id="how">How to install</span>.
+        </div>
+        <button id="setup-recheck" class="ghost">Check again</button>
+      </div>
+
+      <div id="current" class="card hi hidden"></div>
+
+      <div>
+        <div class="row"><h2>Sites</h2><button id="open-add" class="ghost">+ Add site</button></div>
+        <input id="site-search" type="search" placeholder="Search by name or URL..."
+               aria-label="Search sites">
+        <div class="toolbar" style="margin:var(--sp-2) 0">
+          <button id="select-all" class="ghost">Select all</button>
+          <button id="clear-sel" class="ghost">Clear</button>
+          <span class="spacer"></span>
+          <span id="sel-count" class="muted">0 selected</span>
+        </div>
+        <div id="sites" class="checklist" role="group" aria-label="Sites">
+          <div class="skeleton"></div><div class="skeleton"></div>
+        </div>
+      </div>
+
+      <!-- Selected site cards (spec 12) ----------------------------------- -->
+      <div id="selected" class="stack hidden"></div>
+
+      <!-- Data output destinations (spec 16) ------------------------------ -->
+      <div class="card">
+        <h2 class="flush">Data output</h2>
+        <div id="outputs"><div class="skeleton"></div></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0">Run mode</h2>
+        <div class="field">
+          <select id="run-mode" aria-label="Run mode">
+            <option value="update">Update existing data</option>
+            <option value="initial_crawl">Initial crawl</option>
+            <option value="full_rebuild">Full rebuild</option>
+          </select>
+        </div>
+        <div id="mode-help" class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)"></div>
+        <div id="mode-warn" class="hidden" style="margin-top:var(--sp-2)"></div>
+      </div>
+
+      <div>
+        <button id="run" style="width:100%">Start update</button>
+        <div id="run-blocked" class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)"></div>
+      </div>
+
+      <!-- ACTIVITY: why a run is slow, stuck, or failed --------------------- -->
+      <section id="activity" class="card hidden">
+        <div class="row"><h2 style="margin:0">Activity</h2>
+          <span id="act-elapsed" class="muted tech"></span></div>
+        <div id="act-state" class="kv"></div>
+        <div class="bar" style="margin:var(--sp-2) 0"><div id="act-bar" class="bar-fill"></div></div>
+        <div id="act-counters"></div>
+        <div class="row" style="margin-top:var(--sp-2)">
+          <span class="muted" style="font-size:var(--fs-xs)">Last 200 log entries</span>
+          <button id="autoscroll" class="ghost">Pause auto-scroll</button>
+        </div>
+        <div id="logbox" class="logbox tech"></div>
+        <div class="links" style="margin-top:var(--sp-2)">
+          <button id="copy-logs" class="ghost">Copy visible logs</button>
+          <button id="dl-logs" class="ghost">Download full logs</button>
+        </div>
+      </section>
+    </section>
+
+    <!-- ========================== ADD SITE ==========================
+         A screen INSIDE the panel (spec 11), not a popup. Everything it
+         collects is persisted to the manifest — no field is decorative. -->
+    <section id="view-addsite" class="hidden">
+      <div class="row"><h2 class="flush">Add site</h2>
+        <button id="add-back" class="ghost">← Back</button></div>
+
+      <div class="card stack">
+        <div class="fieldset">
+          <label for="url">Site URL</label>
+          <div class="field">
+            <input id="url" type="url" placeholder="https://shop.example.com"
+                   aria-describedby="err-url">
+            <button id="check">Test site</button>
+          </div>
+          <div id="err-url" class="err hint" role="alert"></div>
+        </div>
+        <div id="probe-out" class="hint"></div>
+      </div>
+
+      <!-- Revealed only once a test succeeds: the fields are prefilled from
+           what we actually detected, so nothing is guessed by the user. -->
+      <div id="add-form" class="card stack hidden">
+        <div class="fieldset">
+          <label for="f-name">Display name</label>
+          <input id="f-name" dir="auto" aria-describedby="err-name">
+          <div id="err-name" class="err hint" role="alert"></div>
+        </div>
+        <div class="fieldset">
+          <label for="f-key">Source key</label>
+          <input id="f-key" class="tech" aria-describedby="err-key">
+          <div id="err-key" class="hint muted">UPPER_SNAKE_CASE, 3–64 characters.</div>
+        </div>
+        <div class="two">
+          <div class="fieldset"><label for="f-kind">Extraction type</label>
+            <select id="f-kind">
+              <option value="product_prices">Product prices</option>
+              <option value="commodity_price">Commodity prices</option>
+              <option value="enrichment">Enrichment only</option>
+            </select></div>
+          <div class="fieldset"><label for="f-scope">Scope</label>
+            <select id="f-scope">
+              <option value="census">Census (whole catalogue)</option>
+              <option value="targeted">Targeted</option>
+              <option value="latest_only">Latest published only</option>
+            </select></div>
+        </div>
+        <div class="two">
+          <div class="fieldset"><label for="f-family">Preferred engine</label>
+            <select id="f-family"></select></div>
+          <div class="fieldset"><label for="f-fetcher">Fetcher</label>
+            <select id="f-fetcher">
+              <option value="http">HTTP (fast)</option>
+              <option value="browser">Browser automation</option>
+            </select></div>
+        </div>
+        <div class="fieldset">
+          <label for="f-fallback">Fallback engines</label>
+          <select id="f-fallback" multiple size="3"></select>
+          <div class="hint muted">Tried in order if the preferred engine fails.</div>
+        </div>
+        <div class="two">
+          <div class="fieldset"><label for="f-currency">Currency</label>
+            <input id="f-currency" class="tech" placeholder="SAR / EGP / USD"></div>
+          <div class="fieldset"><label for="f-region">Default region</label>
+            <input id="f-region" class="tech" placeholder="SA / EG / *"></div>
+        </div>
+        <div class="two">
+          <div class="fieldset"><label for="f-vat">VAT</label>
+            <select id="f-vat">
+              <option value="incl">Prices include VAT</option>
+              <option value="excl">Prices exclude VAT</option>
+            </select></div>
+          <div class="fieldset"><label for="f-cadence">Schedule</label>
+            <select id="f-cadence">
+              <option value="manual">Manual only</option>
+              <option value="daily" selected>Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select></div>
+        </div>
+        <label class="check"><input type="checkbox" id="f-auth">
+          <span>This site requires a signed-in session
+            <span class="hint muted">Recorded, never bypassed — the run reports it.</span></span></label>
+
+        <div>
+          <button class="link sect" id="adv-toggle" aria-expanded="false">Advanced settings ›</button>
+          <div id="adv" class="hidden stack" style="margin-top:var(--sp-2)">
+            <div class="hint muted">Identity rules decide how a record is recognised on the
+              next crawl. The defaults are automatic — leave them alone unless a
+              site re-issues its ids.</div>
+            <div class="two">
+              <div class="fieldset"><label for="f-id-primary">Primary match</label>
+                <select id="f-id-primary">
+                  <option value="auto">Automatic</option>
+                  <option value="source_id">Source id</option>
+                  <option value="sku">SKU</option>
+                  <option value="canonical_url">Canonical URL</option>
+                  <option value="composite">Composite key</option>
+                </select></div>
+              <div class="fieldset"><label for="f-id-fallback">Fallback match</label>
+                <select id="f-id-fallback">
+                  <option value="auto">Automatic</option>
+                  <option value="sku">SKU</option>
+                  <option value="canonical_url">Canonical URL</option>
+                  <option value="composite">Composite key</option>
+                </select></div>
+            </div>
+            <div class="fieldset"><label for="f-id-composite">Composite fields</label>
+              <input id="f-id-composite" class="tech" placeholder="sku, option_label">
+            </div>
+            <div class="fieldset"><label for="f-id-ambiguous">If a match is ambiguous</label>
+              <select id="f-id-ambiguous">
+                <option value="review">Send to the review queue</option>
+                <option value="keep_separate">Keep the records separate</option>
+              </select></div>
+            <label class="check"><input type="checkbox" id="f-id-strip" checked>
+              <span>Ignore query strings when comparing URLs</span></label>
+          </div>
+        </div>
+
+        <div id="sample" class="hidden">
+          <h2 class="flush">Discovered sample</h2>
+          <div id="sample-body" class="hint muted"></div>
+        </div>
+
+        <button id="add-btn" class="block">Add site</button>
+        <div id="add-out" class="hint"></div>
+      </div>
+    </section>
+
+    <!-- ============================ DATA ============================ -->
+    <section id="view-data" class="hidden">
+      <h2 style="margin-top:0">Datasets</h2>
+      <div id="datasets"><div class="skeleton"></div><div class="skeleton"></div></div>
+
+      <section id="dataset-detail" class="hidden">
+        <div class="row">
+          <button id="data-back" class="ghost">← All datasets</button>
+          <button id="open-workspace" class="ghost">Open in Workspace ↗</button>
+        </div>
+        <div class="field" style="margin:var(--sp-2) 0">
+          <input id="rec-search" type="search" placeholder="Search records..."
+                 aria-label="Search records">
+          <select id="rec-avail" aria-label="Availability filter">
+            <option value="">Any status</option>
+            <option value="in_stock">In stock</option>
+            <option value="out_of_stock">Out of stock</option>
+            <option value="unknown">Unknown</option>
+          </select>
+        </div>
+        <div id="records"></div>
+        <button id="more-records" class="ghost hidden" style="width:100%">Load more</button>
+      </section>
+    </section>
+
+    <!-- ========================== SETTINGS ========================== -->
+    <section id="view-settings" class="hidden">
+      <div class="card">
+        <button class="link sect" data-sect="s-engine" aria-expanded="false">Local runtime ›</button>
+        <div id="s-engine" class="hidden" style="margin-top:var(--sp-2)">
+          <label class="muted" for="backend" style="font-size:var(--fs-xs)">Engine URL</label>
+          <div class="field"><input id="backend" placeholder="http://127.0.0.1:8000" class="tech">
+            <button id="save" class="ghost">Save</button></div>
+          <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)">
+            Your data stays on this machine. Nothing is sent to any server.</div>
+        </div>
+      </div>
+      <div class="card">
+        <button class="link sect" data-sect="s-sched" aria-expanded="false">Jobs and scheduling ›</button>
+        <div id="s-sched" class="hidden" style="margin-top:var(--sp-2)">
+          <div id="schedules" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
+          <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-2)" id="sched-note"></div>
+        </div>
+      </div>
+      <div class="card">
+        <button class="link sect" data-sect="s-storage" aria-expanded="false">Storage and data ›</button>
+        <div id="s-storage" class="hidden" style="margin-top:var(--sp-2)">
+          <div class="links">
+            <span class="link" id="open-browse">Browse all data ↗</span>
+            <span class="link" id="open-manage">Manage sources ↗</span>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <button class="link sect" data-sect="s-about" aria-expanded="false">About ›</button>
+        <div id="s-about" class="hidden muted" style="margin-top:var(--sp-2);font-size:var(--fs-sm)">
+          ScrapeX — local-first price tracking.
+          Engine <span id="about-version" class="tech">—</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Active job mini-player: visible on every tab; the job lives in the
+       runtime, so this is a remote control, not the job itself. -->
+  <div id="miniplayer" class="sx-mini hidden" role="status" aria-live="polite">
+    <div class="mini-top">
+      <span id="mini-title" class="name content"></span>
+      <span id="mini-pct" class="n tech"></span>
+    </div>
+    <div class="bar"><div id="mini-bar" class="bar-fill"></div></div>
+    <div id="mini-sub" class="muted" style="font-size:var(--fs-xs)"></div>
+    <div class="mini-actions">
+      <button id="mini-view" class="ghost">View job</button>
+      <button id="mini-pause" class="ghost">Pause</button>
+      <button id="mini-cancel" class="ghost">Cancel</button>
+    </div>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button data-view="run" aria-current="page">Run</button>
+    <button data-view="data">Browse data</button>
+    <button data-view="settings">Settings</button>
+  </nav>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

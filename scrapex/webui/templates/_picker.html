@@ -1,0 +1,10 @@
+{# Shared dataset picker: every source-scoped tab keeps the same control. #}
+<form class="filters" method="get">
+  <select name="source_key" onchange="this.form.submit()">
+    <option value="">All sources</option>
+    {% for k in sources %}
+      <option value="{{ k }}" {% if k == source_key %}selected{% endif %}>{{ k }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button type="submit">Apply</button></noscript>
+</form>

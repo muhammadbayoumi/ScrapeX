@@ -52,6 +52,35 @@ class ExtractSpec(BaseModel):
         return v
 
 
+class ApiConfig(BaseModel):
+    """Endpoint facts for connectors whose data API lives on a DIFFERENT host
+    than base_url. Only populated for such sources (Hybris OCC: the storefront is
+    www.<host> but products come from api.<host>/rest/v2/{base_site}); same-host
+    JSON and HTML connectors leave it null. Explicit over a magic URL guess (P5)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str | None = None   # API host root, e.g. https://api.masdaronline.com
+    base_site: str | None = None  # OCC baseSite id (Hybris)
+
+
+class IdentityRules(BaseModel):
+    """How a record is recognised again on the next crawl (spec 14).
+
+    Defaults are deliberately automatic — a new user never has to touch this.
+    They exist so the Add Site form can PERSIST what it collects instead of
+    silently discarding it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    primary: str = "auto"          # auto | source_id | sku | canonical_url | composite
+    fallback: str = "auto"
+    composite_fields: list[str] = Field(default_factory=list)
+    canonical_url_strip_query: bool = True
+    on_ambiguous: str = "review"   # review | keep_separate
+
+
 class SourceEntry(BaseModel):
     """One source's full contract."""
 
@@ -64,6 +93,17 @@ class SourceEntry(BaseModel):
     cadence: Cadence = Cadence.MANUAL
     authority: Authority = Authority.SHOP
     fetcher: Fetcher = Fetcher.HTTP
+    api: ApiConfig | None = None
+    # Some platforms (Zid) 403 non-browser clients; such a source declares the
+    # exact UA the fetcher must send. Explicit per source, never a silent global (F5).
+    user_agent: str | None = None
+    # Ordered families to try if `family` fails (spec 32). Recorded per source so
+    # the choice is visible in the manifest rather than hidden in code.
+    fallback_families: list[ConnectorFamily] = Field(default_factory=list)
+    # True when the site needs a signed-in session. We never bypass access
+    # controls (spec 3) — this flags the source so the run reports it honestly.
+    auth_required: bool = False
+    identity: IdentityRules = Field(default_factory=IdentityRules)
     active: bool = False
     # Per-source facts a product connector needs (offers carry region+currency,
     # but a single-market shop's rows all share these). Commodity sources carry
@@ -90,6 +130,16 @@ class SourceEntry(BaseModel):
         if not _REGION.match(v):
             raise ValueError(f"default_region {v!r} is not ISO 3166-1 alpha-2 or '*'")
         return v
+
+    @model_validator(mode="after")
+    def _fallbacks_exclude_self(self) -> "SourceEntry":
+        # A fallback chain that re-tries the family that just failed would loop
+        # over the same failure instead of escalating.
+        if self.family in self.fallback_families:
+            raise ValueError(
+                f"{self.source_key}: fallback_families must not repeat the primary "
+                f"family {self.family.value!r}")
+        return self
 
     @model_validator(mode="after")
     def _probe_placeholder_is_inactive(self) -> "SourceEntry":

@@ -115,3 +115,125 @@ class PayloadClient(StrEnum):
 
     CLI = "cli"
     EXTENSION = "extension"
+
+
+class RunMode(StrEnum):
+    """How a job treats existing data (spec section 13). FULL_REBUILD always
+    archives first — old data is never destroyed silently."""
+
+    INITIAL_CRAWL = "initial_crawl"
+    UPDATE = "update"
+    FULL_REBUILD = "full_rebuild"
+
+
+class JobStatus(StrEnum):
+    """Persisted job lifecycle (spec section 23). A job outlives the side panel:
+    closing the panel never stops it, reopening re-reads this status."""
+
+    SCHEDULED = "scheduled"
+    QUEUED = "queued"
+    PREPARING = "preparing"
+    RUNNING = "running"
+    PAUSING = "pausing"
+    PAUSED = "paused"
+    RESUMING = "resuming"
+    CANCELLING = "cancelling"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+    PARTIALLY_COMPLETED = "partially_completed"
+    FAILED = "failed"
+    REQUIRES_REVIEW = "requires_review"
+
+
+# Statuses that mean "this job will never run again" — safe to ignore on restart.
+TERMINAL_JOB_STATUSES = frozenset({
+    JobStatus.CANCELLED, JobStatus.COMPLETED,
+    JobStatus.PARTIALLY_COMPLETED, JobStatus.FAILED,
+})
+
+# Statuses where the worker is actively holding the job, so a pause/cancel has to
+# wait for its next safe boundary. Anything else is settled immediately instead —
+# the worker only ever picks up `queued`, so a transitional status on a job it is
+# not holding would never be resolved by anyone.
+WORKER_HELD_STATUSES = frozenset({
+    JobStatus.PREPARING.value, JobStatus.RUNNING.value, JobStatus.RESUMING.value,
+})
+
+# "Occupying the worker, or waiting for it." Deliberately NOT every non-terminal
+# status: `paused` and `requires_review` wait on the OWNER and never advance on
+# their own, so treating them as busy would silently block a source's schedule
+# forever.
+BLOCKING_JOB_STATUSES = frozenset({
+    JobStatus.SCHEDULED.value, JobStatus.QUEUED.value, JobStatus.PREPARING.value,
+    JobStatus.RUNNING.value, JobStatus.RESUMING.value, JobStatus.PAUSING.value,
+    JobStatus.CANCELLING.value,
+})
+
+
+class JobControl(StrEnum):
+    """Owner intent, stored in the DB (not in memory) so pause/cancel survives a
+    runtime restart and is visible to any process reading the job."""
+
+    NONE = "none"
+    PAUSE = "pause"
+    RESUME = "resume"
+    CANCEL = "cancel"
+
+
+class JobStage(StrEnum):
+    """Coarse stage inside a running job — aggregated progress only (spec 25:
+    never one UI event per record)."""
+
+    PREPARING = "preparing"
+    FETCHING = "fetching"
+    INGESTING = "ingesting"
+    FINALIZING = "finalizing"
+
+
+class LogLevel(StrEnum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class ScheduleFrequency(StrEnum):
+    MANUAL = "manual"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
+class MissedRunPolicy(StrEnum):
+    """What to do about a slot that passed while the machine was off.
+
+    Browser alarms cannot wake a sleeping or powered-off device, and neither can
+    we — so a missed slot is a real, expected state, not an error.
+    """
+
+    RUN_WHEN_AVAILABLE = "run_when_available"   # fire ONCE on catch-up
+    SKIP = "skip"                               # let it go, wait for the next slot
+
+
+class OverlapPolicy(StrEnum):
+    """What to do when the previous run for this source is still going."""
+
+    QUEUE = "queue"     # let it line up behind the running one
+    SKIP = "skip"       # drop this occurrence entirely
+
+
+class ChangeType(StrEnum):
+    """Field-level change classification (spec section 15).
+
+    price_increase/decrease are split out because they are what the owner
+    actually watches; field_updated covers everything else (name, url, brand).
+    'removed' is only ever emitted by a sweep after a COMPLETE crawl — a partial
+    crawl must never be allowed to declare a catalogue gone.
+    """
+
+    NEW = "new"
+    FIELD_UPDATED = "field_updated"
+    PRICE_INCREASE = "price_increase"
+    PRICE_DECREASE = "price_decrease"
+    UNAVAILABLE = "unavailable"
+    RETURNED = "returned"
+    REMOVED = "removed"

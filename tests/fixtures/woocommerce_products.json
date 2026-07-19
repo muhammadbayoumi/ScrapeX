@@ -1,0 +1,33 @@
+[
+  {
+    "id": 10150,
+    "name": "سلك نحاس مجدول 3 مم",
+    "permalink": "https://samehgabriel.com/product/copper-wire-3mm",
+    "sku": "CW3",
+    "type": "variable",
+    "is_in_stock": true,
+    "prices": {
+      "price": "45000",
+      "regular_price": "50000",
+      "sale_price": "45000",
+      "currency_code": "EGP",
+      "currency_minor_unit": 2
+    },
+    "variations": [{ "id": 10491, "attributes": [{ "name": "Color", "value": "earth" }] }]
+  },
+  {
+    "id": 10200,
+    "name": "قاطع كهربائي 32 أمبير",
+    "permalink": "https://samehgabriel.com/product/breaker-32a",
+    "sku": "BRK32",
+    "type": "simple",
+    "is_in_stock": false,
+    "prices": {
+      "price": "12550",
+      "regular_price": "12550",
+      "sale_price": "",
+      "currency_code": "EGP",
+      "currency_minor_unit": 2
+    }
+  }
+]

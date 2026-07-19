@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}إدارة المصادر — ScrapeX{% endblock %}
+{% block title %}Manage sources — ScrapeX{% endblock %}
 {% block content %}
-<p class="muted" style="margin:0 0 .4rem"><a href="/">← كل المصادر</a></p>
-<h1>إضافة مصدر</h1>
+<p class="muted" style="margin:0 0 .4rem"><a href="/">← All sources</a></p>
+<h1>Add a source</h1>
 
 <style>
   .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.7rem;margin:.6rem 0}
@@ -17,66 +17,66 @@
 </style>
 
 <div class="card">
-  <b>1. افحص الرابط أولًا (اختياري)</b>
+  <b>1. Test the URL first (optional)</b>
   <div class="probe-row">
     <input type="url" id="probe-url" placeholder="https://example.com">
-    <button id="probe-btn" type="button">فحص</button>
+    <button id="probe-btn" type="button">Test site</button>
   </div>
   <div id="evidence" class="ev"></div>
 </div>
 
 <div class="card" style="margin-top:1rem">
-  <b>2. بيانات المصدر</b>
+  <b>2. Source details</b>
   <form id="add-form" onsubmit="return false">
     <div class="form-grid">
       <div class="field"><label>source_key (UPPER_SNAKE)</label><input name="source_key" required></div>
-      <div class="field"><label>الاسم</label><input name="source_name" required></div>
+      <div class="field"><label>Display name</label><input name="source_name" required></div>
       <div class="field"><label>base_url</label><input name="base_url" type="url" required></div>
-      <div class="field"><label>العائلة (family)</label>
+      <div class="field"><label>Connector family</label>
         <select name="family">{% for f in families %}<option value="{{ f }}">{{ f }}</option>{% endfor %}</select>
       </div>
-      <div class="field"><label>العملة</label><input name="currency" placeholder="EGP / SAR"></div>
-      <div class="field"><label>المنطقة الافتراضية</label><input name="default_region" value="*"><span class="hint">ISO أو *</span></div>
-      <div class="field"><label>الضريبة</label>
+      <div class="field"><label>Currency</label><input name="currency" placeholder="EGP / SAR"></div>
+      <div class="field"><label>Default region</label><input name="default_region" value="*"><span class="hint">ISO alpha-2, or * for none</span></div>
+      <div class="field"><label>VAT mode</label>
         <select name="vat_mode">{% for v in vat_modes %}<option value="{{ v }}">{{ v }}</option>{% endfor %}</select>
       </div>
-      <div class="field"><label>الإيقاع</label>
+      <div class="field"><label>Cadence</label>
         <select name="cadence">{% for c in cadences %}<option value="{{ c }}" {% if c=='daily' %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
       </div>
-      <div class="field"><label>الموثوقية</label>
+      <div class="field"><label>Authority</label>
         <select name="authority">{% for a in authorities %}<option value="{{ a }}">{{ a }}</option>{% endfor %}</select>
       </div>
-      <div class="field"><label>الجالب</label>
+      <div class="field"><label>Fetcher</label>
         <select name="fetcher"><option value="http">http</option><option value="browser">browser (Playwright)</option></select>
       </div>
-      <div class="field"><label>نوع البيانات</label>
+      <div class="field"><label>Extraction kind</label>
         <select name="kind">{% for k in kinds %}<option value="{{ k }}">{{ k }}</option>{% endfor %}</select>
       </div>
-      <div class="field"><label>النطاق (scope)</label>
+      <div class="field"><label>Scope</label>
         <select name="scope">{% for s in scopes %}<option value="{{ s }}" {% if s=='census' %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
       </div>
-      <div class="field"><label>الخامات (اختياري، بفواصل)</label><input name="materials" placeholder="DIESEL, GASOLINE"></div>
-      <div class="field"><label>المناطق (اختياري، بفواصل)</label><input name="regions" placeholder="SA, EG"></div>
+      <div class="field"><label>Materials (optional, comma separated)</label><input name="materials" placeholder="DIESEL, GASOLINE"></div>
+      <div class="field"><label>Regions (optional, comma separated)</label><input name="regions" placeholder="SA, EG"></div>
       <div class="field" style="flex-direction:row;align-items:center;gap:.5rem">
-        <input type="checkbox" name="active" id="active" style="width:auto"><label for="active">مُفعّل الآن</label>
+        <input type="checkbox" name="active" id="active" style="width:auto"><label for="active">Active now</label>
       </div>
     </div>
-    <button id="add-btn" type="submit">أضف المصدر</button>
+    <button id="add-btn" type="submit">Add source</button>
     <span id="add-result" style="margin-inline-start:.8rem"></span>
   </form>
 </div>
 
-<h2>المصادر الحالية ({{ rows|length }})</h2>
+<h2>Registered sources ({{ rows|length }})</h2>
 <table>
-  <thead><tr><th>المصدر</th><th>العائلة</th><th>الأسعار</th><th>connector</th><th>الحالة</th></tr></thead>
+  <thead><tr><th>Source</th><th>Family</th><th>Prices</th><th>Connector</th><th>Status</th></tr></thead>
   <tbody>
   {% for r in rows %}
     <tr>
-      <td>{{ r.entry.source_name }} <span class="key" style="font-size:.75rem">{{ r.entry.source_key }}</span></td>
+      <td dir="auto">{{ r.entry.source_name }} <span class="key" style="font-size:.75rem">{{ r.entry.source_key }}</span></td>
       <td class="muted"><code>{{ r.entry.family.value }}</code></td>
       <td class="num">{{ "{:,}".format(r.observations) }}</td>
-      <td>{% if r.implemented %}<span class="badge ok">جاهز</span>{% else %}<span class="badge off">قريبًا</span>{% endif %}</td>
-      <td><span class="chip">{{ "مُفعّل" if r.entry.active else "متوقف" }}</span></td>
+      <td>{% if r.implemented %}<span class="badge ok">Ready</span>{% else %}<span class="badge off">Not supported yet</span>{% endif %}</td>
+      <td><span class="chip">{{ "Active" if r.entry.active else "Inactive" }}</span></td>
     </tr>
   {% endfor %}
   </tbody>
@@ -89,19 +89,19 @@ function setField(name, value){ const el = $(`[name="${name}"]`); if(el && value
 $("#probe-btn").addEventListener("click", async () => {
   const url = $("#probe-url").value.trim();
   const ev = $("#evidence");
-  if(!url){ ev.innerHTML = '<span class="err">اكتب رابطًا أولًا</span>'; return; }
-  ev.innerHTML = '<span class="ev">جارِ الفحص…</span>';
+  if(!url){ ev.innerHTML = '<span class="err">Enter a URL first</span>'; return; }
+  ev.innerHTML = '<span class="ev">Testing site...</span>';
   try{
     const res = await fetch("/api/probe", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url})});
     const r = await res.json();
-    if(!res.ok){ ev.innerHTML = `<span class="err">${r.detail||"فشل الفحص"}</span>`; return; }
+    if(!res.ok){ ev.innerHTML = `<span class="err">${r.detail||"Test failed"}</span>`; return; }
     const s = r.suggested;
     for(const k of ["source_key","source_name","base_url","family","currency","default_region","vat_mode","cadence","authority","fetcher","kind","scope"]) setField(k, s[k]);
     $("#active").checked = !!s.active;
     const cls = r.implemented ? "ok" : "err";
-    ev.innerHTML = `<div class="${cls}">العائلة: <b>${r.family}</b> — ${r.notes}</div>` +
+    ev.innerHTML = `<div class="${cls}">Family: <b>${r.family}</b> — ${r.notes}</div>` +
       r.evidence.map(e => `<div class="ev">• ${e}</div>`).join("");
-  }catch(e){ ev.innerHTML = `<span class="err">تعذّر الاتصال بالخادم</span>`; }
+  }catch(e){ ev.innerHTML = `<span class="err">Couldn't reach the engine</span>`; }
 });
 
 $("#add-form").addEventListener("submit", async () => {
@@ -113,10 +113,10 @@ $("#add-form").addEventListener("submit", async () => {
   try{
     const res = await fetch("/api/sources", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
     const r = await res.json();
-    if(!res.ok){ out.innerHTML = `<span class="err">✗ ${r.detail||"فشل"}</span>`; return; }
-    out.innerHTML = `<span class="ok">✓ أُضيف ${r.source_key}${r.implemented?" — جاهز للالتقاط":""}</span>`;
+    if(!res.ok){ out.innerHTML = `<span class="err">✗ ${r.detail||"Failed"}</span>`; return; }
+    out.innerHTML = `<span class="ok">✓ Added ${r.source_key}${r.implemented?" — ready to crawl":""}</span>`;
     setTimeout(() => location.reload(), 900);
-  }catch(e){ out.innerHTML = `<span class="err">✗ تعذّر الاتصال</span>`; }
+  }catch(e){ out.innerHTML = `<span class="err">✗ Couldn't reach the engine</span>`; }
 });
 </script>
 {% endblock %}
