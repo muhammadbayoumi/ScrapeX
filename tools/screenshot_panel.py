@@ -61,15 +61,17 @@ def _stub(backend: str, *, engine_up=True, sources=None, jobs=None, records=None
                            "engine is running. Nothing can wake a sleeping or powered-off machine."},
         "/api/outputs": {"outputs": [
             {"key": "local_db", "label": "Local database", "ready": True, "required": True,
-             "detail": "Always on — the source of truth. It cannot be disabled."},
-            {"key": "excel", "label": "Excel files", "ready": True, "required": False,
-             "detail": ""},
+             "detail": "Always on — the source of truth. It cannot be disabled.",
+             "blocker": "", "settings_url": ""},
+            {"key": "excel", "label": "Excel workbook", "ready": True, "required": False,
+             "detail": "", "blocker": "", "settings_url": "/exports"},
             {"key": "apps_script", "label": "Google Sheets via Apps Script", "ready": False,
-             "required": False,
-             "detail": "Set SCRAPEX_FUNNEL_URL and SCRAPEX_FUNNEL_TOKEN to enable."},
+             "required": False, "settings_url": "/sync",
+             "blocker": "Missing: Deployment URL and token. Deploy the script, "
+                        "then save both here."},
             {"key": "google_drive", "label": "Google Drive and Sheets", "ready": False,
-             "required": False,
-             "detail": "Run: scrapex google-connect (one-time browser sign-in)."}]},
+             "required": False, "settings_url": "/sync",
+             "blocker": "Not signed in yet — use Continue with Google."}]},
         "/api/probe": {"url": "https://shop.example.com", "reachable": True,
             "family": "shopify-json", "implemented": True,
             "evidence": ["/products.json returned a Shopify products array (24 products)"],
@@ -102,6 +104,29 @@ window.fetch = async (url) => {{
 """
 
 
+_ICON_URL = re.compile(r'url\(["\']?(?:[^"\')]*/)?icons/([\w.-]+)["\']?\)')
+
+
+def _embed_icons(css: str) -> str:
+    """Replace icon references with data: URIs.
+
+    Chromium will not load a CSS mask image over file://, so every masked icon
+    (the brand mark, the source-picker glyphs) rendered as an empty box and the
+    screenshots understated the UI. Embedding the bytes removes the origin
+    question entirely, and what the harness captures is then what Chrome shows.
+    """
+    import base64
+
+    def sub(match: re.Match) -> str:
+        icon = EXT / "icons" / match.group(1)
+        if not icon.exists():
+            return match.group(0)
+        data = base64.b64encode(icon.read_bytes()).decode("ascii")
+        return f'url("data:image/png;base64,{data}")'
+
+    return _ICON_URL.sub(sub, css)
+
+
 def build_page(tmp: Path, stub_js: str) -> Path:
     """Inline the panel's own HTML/CSS/JS into one file so file:// can load it."""
     html = (EXT / "app.html").read_text(encoding="utf-8")
@@ -109,7 +134,9 @@ def build_page(tmp: Path, stub_js: str) -> Path:
     # Drop the module <script src>: file:// blocks module loads by CORS, and the
     # real app.js is inlined below anyway.
     body = re.sub(r'<script type="module".*?</script>', "", body, flags=re.S)
-    style = html.split("<style>", 1)[1].split("</style>", 1)[0]
+    style = _embed_icons(html.split("<style>", 1)[1].split("</style>", 1)[0])
+    tokens_css = (EXT / "tokens.css").read_text(encoding="utf-8")
+    components_css = _embed_icons((EXT / "components.css").read_text(encoding="utf-8"))
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
 
@@ -121,8 +148,7 @@ def build_page(tmp: Path, stub_js: str) -> Path:
     page.write_text(
         "<!doctype html><meta charset='utf-8'><title>ScrapeX panel</title>"
         "<style>html,body{margin:0}</style>"
-        f"<link rel='stylesheet' href='{(EXT / 'tokens.css').as_uri()}'>"
-        f"<link rel='stylesheet' href='{(EXT / 'components.css').as_uri()}'>"
+        f"<style>{tokens_css}</style><style>{components_css}</style>"
         f"<style>{style}</style>\n{body}\n"
         f"<script>{stub_js}</script>\n"
         # No manual DOMContentLoaded dispatch: this inline script is parsed
