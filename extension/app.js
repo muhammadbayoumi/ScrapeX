@@ -49,7 +49,7 @@ function showView(name) {
     else b.removeAttribute("aria-current");
   });
   if (name === "data") loadDatasets();
-  if (name === "settings") loadSchedules();
+  if (name === "settings") { loadSchedules(); loadStorage(); }
 }
 
 // ---- runtime status --------------------------------------------------------
@@ -445,6 +445,22 @@ async function loadOutputs() {
   }
 }
 
+async function loadStorage() {
+  try {
+    const s = await api("/api/storage");
+    const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`;
+    // Health is a WORD here too, never a colour: the panel has no room for a
+    // legend, so the state has to be readable on its own.
+    $("storage-info").innerHTML = `
+      <div class="kv"><span>Database</span><span class="tech">${esc(s.path)}</span></div>
+      <div class="kv"><span>Size</span><span>${esc(mb(s.sizes.db_bytes))}</span></div>
+      <div class="kv"><span>Health</span><span>${esc(s.health.status)}</span></div>
+      <div class="kv"><span>Backups</span><span>${esc(String(s.sizes.backup_count))}</span></div>`;
+  } catch (_) {
+    $("storage-info").innerHTML = `<span class="err">Couldn't read storage status.</span>`;
+  }
+}
+
 // ---- source / add site (first tab, spec 11) ---------------------------------
 let lastProbe = null;
 
@@ -675,6 +691,9 @@ async function init() {
     chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") }));
   $("open-browse").addEventListener("click", () => openTab("/"));
   $("open-manage").addEventListener("click", () => openTab("/manage"));
+  // The workspace opens with the Storage section already expanded, so the link
+  // lands on what it promised rather than on a wall of closed rows.
+  $("open-storage").addEventListener("click", () => openTab("/settings#s-storage"));
 
   refreshMode();
   await render();

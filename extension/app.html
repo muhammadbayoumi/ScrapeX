@@ -583,7 +583,12 @@
       <div class="card">
         <button class="link sect" data-sect="s-storage" aria-expanded="false">Storage and data ›</button>
         <div id="s-storage" class="hidden" style="margin-top:var(--sp-2)">
+          <!-- Read-only on purpose. Every control that can rewrite the database
+               lives in the workspace, so a destructive action is never one
+               stray tap away in a panel used while browsing. -->
+          <div id="storage-info" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
           <div class="links">
+            <span class="link" id="open-storage">Manage storage ↗</span>
             <span class="link" id="open-browse">Browse all data ↗</span>
             <span class="link" id="open-manage">Manage sources ↗</span>
           </div>

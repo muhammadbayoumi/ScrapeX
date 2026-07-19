@@ -38,8 +38,15 @@ from ..outputs import (
     apps_script_status, apps_script_test, excel_export, excel_status, google_connect,
     google_disconnect, google_push, google_status, rotate_funnel_token,
 )
-from ..settings import UnknownSettingError, public_settings
+from ..settings import UnknownSettingError, get_state, public_settings
+from ..settings import get as settings_get
 from ..settings import save as save_settings
+from .. import compaction, retention
+from ..storage import (
+    StorageRefused, backup_now, check_move, export_database, migrate_location, repair,
+    resolve_db_path, restore, storage_status,
+)
+from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
 from ..reports import (
     SORTABLE, browse_observations, crawl_history, export_source_table, list_sources,
@@ -200,6 +207,23 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             return _page(request, "excel.html", "exports", source_key or None,
                          status=excel_status(conn), settings=public_settings(conn),
                          sources=list_sources(conn))
+        finally:
+            conn.close()
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def page_settings(request: Request):
+        """Spec 33: thirteen sections, every one closed until it is asked for."""
+        conn = read_conn()
+        try:
+            return _page(request, "settings.html", "settings", None,
+                         settings=public_settings(conn),
+                         storage=storage_status(conn, app.state.db_path),
+                         retention=_retention_view(conn),
+                         excel=excel_status(conn), funnel=apps_script_status(conn),
+                         google=google_status(conn),
+                         engines=_engine_rows(),
+                         schedule_count=len(list_schedules(conn)),
+                         about=_about(conn))
         finally:
             conn.close()
 
@@ -632,6 +656,247 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         return {"disconnected": existed,
                 "detail": "Signed out. Nothing in Drive was changed or removed."}
 
+    # ---- storage and retention (spec 17/18/25) -----------------------------
+    # Everything that can rewrite the warehouse lives here and nowhere else, so
+    # a destructive control is never one stray click away inside a data screen.
+
+    def _storage_action(run):
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                result = run(conn)
+                conn.commit()
+            except StorageRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            finally:
+                conn.close()
+        return result.as_state()
+
+    def _log_cutoff(conn) -> str:
+        """The date before which job logs and change events may be removed.
+
+        Driven by the Logs and diagnostics setting, because that is what the
+        owner set it for — and because a diagnostic window has nothing to do
+        with how long price history is kept.
+        """
+        from datetime import date, timedelta
+
+        try:
+            days = max(1, int(settings_get(conn, "log_retention_days")))
+        except (TypeError, ValueError):
+            days = 30
+        return (date.fromisoformat(_today()) - timedelta(days=days)).isoformat()
+
+    def _engine_rows() -> list[dict]:
+        """Every connector family, with whether it is actually built.
+
+        Read from the registry rather than a list in a template, so a family that
+        lands tomorrow appears here without anyone remembering to add it.
+        """
+        used: dict[str, int] = {}
+        for entry in app.state.manifest.sources:
+            used[entry.family.value] = used.get(entry.family.value, 0) + 1
+        return [{"name": family.value, "implemented": family in _BUILDERS,
+                 "sources": used.get(family.value, 0)}
+                for family in ConnectorFamily]
+
+    def _about(conn) -> dict:
+        from .. import __version__
+        from ..connectors.base import DEFAULT_USER_AGENT
+        from ..contract import CONTRACT_VERSION
+        from ..jobs import worker_is_alive
+
+        return {
+            "version": __version__,
+            "contract_version": CONTRACT_VERSION,
+            "schema_version": dbmod.schema_version(conn),
+            "worker_alive": worker_is_alive(conn),
+            "default_user_agent": DEFAULT_USER_AGENT,
+            "db_path": str(app.state.db_path),
+            "log_entries": conn.execute(
+                "SELECT COUNT(*) FROM job_log_entry").fetchone()[0],
+        }
+
+    def _policy_digest() -> str:
+        conn = read_conn()
+        try:
+            return retention.policy_digest(retention.get_policies(conn))
+        finally:
+            conn.close()
+
+    def _retention_view(conn) -> dict:
+        policies = retention.get_policies(conn)
+        # Diagnostics have their OWN window. Inheriting the price-history one
+        # meant the default (ten years) offered to prune logs older than 2016 —
+        # arithmetically right, and read by anyone as a bug.
+        prune_before = _log_cutoff(conn)
+        return {
+            "policies": [
+                {"source_key": p.source_key, "detail_days": p.detail_days,
+                 "older_than_action": p.older_than_action, "excluded": p.excluded,
+                 "action_label": retention.ACTIONS[p.older_than_action]}
+                for p in sorted(policies.values(), key=lambda p: p.source_key)],
+            "actions": retention.ACTIONS,
+            "sources": retention.sources_with_data(conn),
+            "protected": retention.protected_reasons(conn),
+            "prunable": retention.prunable_counts(conn, prune_before),
+            "prune_before": prune_before,
+            "pins": retention.list_pins(conn, limit=50),
+            "digest": retention.policy_digest(policies),
+            "last": get_state(conn, "retention_last"),
+            # Stated in the API itself, so no screen can imply otherwise.
+            "promise": ("ScrapeX never deletes price history. A retention run copies "
+                        "what you are keeping into a new database and seals the current "
+                        "one beside it. Space is only freed once you delete that sealed "
+                        "file yourself."),
+            "prune_caveat": ("Change events are safe to remove while the observations "
+                             "behind them are still here, because they can be "
+                             "recomputed from them. After a summarising compaction they "
+                             "cannot — so prune before you compact, not after."),
+        }
+
+    @app.get("/api/storage")
+    def api_storage():
+        conn = read_conn()
+        try:
+            return storage_status(conn, app.state.db_path)
+        finally:
+            conn.close()
+
+    @app.post("/api/storage/backup")
+    def api_storage_backup():
+        return _storage_action(lambda conn: backup_now(conn, app.state.db_path))
+
+    @app.post("/api/storage/restore")
+    def api_storage_restore(body: dict):
+        backup_path = (body or {}).get("backup_path", "")
+        if not backup_path:
+            raise HTTPException(status_code=400, detail="backup_path is required")
+        return _storage_action(lambda conn: restore(app.state.db_path, backup_path))
+
+    @app.post("/api/storage/repair")
+    def api_storage_repair():
+        return _storage_action(lambda conn: repair(app.state.db_path))
+
+    @app.post("/api/storage/compact")
+    def api_storage_compact():
+        return _storage_action(lambda conn: storage_compact(conn, app.state.db_path))
+
+    @app.post("/api/storage/export")
+    def api_storage_export(body: dict):
+        folder = (body or {}).get("folder", "")
+        if not folder:
+            raise HTTPException(status_code=400, detail="folder is required")
+        return _storage_action(
+            lambda conn: export_database(conn, app.state.db_path, folder))
+
+    @app.post("/api/storage/check-move")
+    def api_storage_check_move(body: dict):
+        """Every refusal and warning, decided before anything is written."""
+        folder = (body or {}).get("folder", "")
+        if not folder:
+            raise HTTPException(status_code=400, detail="folder is required")
+        check = check_move(app.state.db_path, folder)
+        return {"ok": check.ok, "reason": check.reason, "warning": check.warning}
+
+    @app.post("/api/storage/move")
+    def api_storage_move(body: dict):
+        folder = (body or {}).get("folder", "")
+        if not folder:
+            raise HTTPException(status_code=400, detail="folder is required")
+        result = _storage_action(lambda conn: migrate_location(app.state.db_path, folder))
+        # The pointer moved, so this process follows it. Otherwise the server
+        # keeps writing to a file the owner has been told is no longer live.
+        app.state.db_path = str(resolve_db_path())
+        return result
+
+    @app.get("/api/retention")
+    def api_retention():
+        conn = read_conn()
+        try:
+            return _retention_view(conn)
+        finally:
+            conn.close()
+
+    @app.post("/api/retention/policy")
+    def api_retention_policy(body: dict):
+        body = body or {}
+        source_key = body.get("source_key") or retention.DEFAULT_KEY
+        try:
+            with dbmod.write_lock(app.state.db_path):
+                conn = _write_conn()
+                try:
+                    retention.save_policy(
+                        conn, source_key,
+                        detail_days=int(body.get("detail_days", 3650)),
+                        older_than_action=body.get("older_than_action", retention.KEEP_ALL),
+                        excluded=bool(body.get("excluded", False)))
+                    conn.commit()
+                    return _retention_view(conn)
+                finally:
+                    conn.close()
+        except (retention.PolicyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.post("/api/retention/preview")
+    def api_retention_preview():
+        """Measure a real rebuild. Slow on a big warehouse, and true."""
+        conn = read_conn()
+        try:
+            result = compaction.preview(conn, app.state.db_path, today=_today())
+        except compaction.CompactionAborted as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        finally:
+            conn.close()
+        return {**result.as_state(),
+                "observations_before": result.observations_before,
+                "observations_after": result.observations_after,
+                "observations_left_behind": result.observations_left_behind,
+                "protected_count": result.protected_count,
+                "bytes_before": result.bytes_before, "bytes_after": result.bytes_after,
+                "problems": result.problems, "digest": _policy_digest()}
+
+    @app.post("/api/retention/compact")
+    def api_retention_compact(body: dict):
+        digest = (body or {}).get("digest", "")
+        if not digest:
+            raise HTTPException(
+                status_code=400,
+                detail="Run a preview first: a compaction is only authorised by the "
+                       "numbers you were actually shown.")
+        # The lock spans build, verify and switch. An observation committed in
+        # between would land in the file about to be sealed, and be unreachable
+        # from the database that is live a moment later.
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                result = compaction.compact_warehouse(
+                    conn, app.state.db_path, today=_today(), expected_digest=digest)
+            except compaction.CompactionAborted as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            finally:
+                conn.close()
+        app.state.db_path = str(resolve_db_path())
+        return {**result.as_state(), "sealed_path": result.sealed_path,
+                "observations_after": result.observations_after}
+
+    @app.post("/api/retention/prune")
+    def api_retention_prune(body: dict):
+        """Remove old derived rows in place. Never touches an observation."""
+        before_date = (body or {}).get("before_date", "")
+        if not before_date:
+            raise HTTPException(status_code=400, detail="before_date is required")
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                removed = retention.prune_derived(conn, before_date)
+                conn.commit()
+            finally:
+                conn.close()
+        return {"removed": removed, "ok": True,
+                "detail": "Removed " + ", ".join(f"{n:,} {t}" for t, n in removed.items())
+                          + ". No price observation was touched."}
+
     @app.get("/api/records")
     def api_records(source_key: str, q: str = "", availability: str = "",
                     cursor: int = 0, limit: int = 25):
@@ -802,6 +1067,17 @@ def _job_view(job: dict) -> dict:
         "last_heartbeat_at": job["last_heartbeat_at"],
         "error_summary": job["error_summary"],
     }
+
+
+def _today() -> str:
+    """Today's date, as the retention cutoffs measure from.
+
+    A single function so a test can freeze it, rather than each caller reaching
+    for the clock and drifting apart across a midnight boundary.
+    """
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def _source_keys(body: dict) -> list[str]:

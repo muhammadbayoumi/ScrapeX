@@ -1,0 +1,208 @@
+{# Spec 18/25: retention policy, preview, protected set and compaction.
+
+   The promise comes FIRST, before any control, because every button below is
+   read in its light: nothing here deletes price history, and the interface must
+   not let a word like "retention" imply otherwise. #}
+
+<div class="banner">{{ retention.promise }}</div>
+
+<h3>Always kept, whatever the policy says</h3>
+<table>
+  {% for reason, count in retention.protected.items() %}
+    <tr><th>{{ {"first": "First recorded value", "latest": "Latest value",
+                "minimum": "Lowest price", "maximum": "Highest price",
+                "pinned": "Marked by you"}.get(reason, reason) }}</th>
+        <td class="num">{{ "{:,}".format(count) }} observations</td></tr>
+  {% else %}
+    <tr><th>Nothing yet</th><td>There are no observations to protect.</td></tr>
+  {% endfor %}
+</table>
+<p class="hint">These are unioned into every selection by the code that builds it,
+  so no policy setting can drop one — including the most aggressive one.</p>
+
+<h3>Policy</h3>
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="ret-source">Applies to</label>
+    <select id="ret-source">
+      <option value="*">Every dataset (the default)</option>
+      {% for key in retention.sources %}
+        <option value="{{ key }}">{{ key }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="ret-days">Keep detailed history for (days)</label>
+    <input id="ret-days" type="number" min="7" value="90">
+    <span class="hint">Everything newer than this is always kept in full.</span>
+  </div>
+  <div class="field">
+    <label for="ret-action">Older than that</label>
+    <select id="ret-action">
+      {% for key, label in retention.actions.items() %}
+        <option value="{{ key }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <label class="pickrow"><input type="checkbox" id="ret-excluded">
+    <span class="pickname">Never apply retention to this dataset</span></label>
+  <div class="row">
+    <button id="ret-save">Save policy</button>
+    <span id="ret-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+</form>
+
+{% if retention.policies %}
+  <div class="tablewrap"><table>
+    <thead><tr><th>Dataset</th><th>Detailed history</th><th>Older than that</th>
+      <th>Excluded</th></tr></thead>
+    <tbody>
+    {% for p in retention.policies %}
+      <tr><td class="tech">{{ "Every dataset" if p.source_key == "*" else p.source_key }}</td>
+          <td class="num">{{ p.detail_days }} days</td>
+          <td>{{ p.action_label }}</td>
+          <td>{{ "Yes" if p.excluded else "No" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endif %}
+
+<h3>Preview</h3>
+<p class="hint">The preview builds the whole thing into a trial file and measures it,
+  then throws the file away. The numbers are therefore what a run would really
+  produce — not a model of them. On a large warehouse it takes as long as the run.</p>
+<div class="row">
+  <button id="ret-preview" class="ghost">Preview this policy</button>
+  <span id="ret-preview-out" class="hint" role="status" aria-live="polite"></span>
+</div>
+<div id="ret-numbers" hidden>
+  <table>
+    <tr><th>Observations now</th><td class="num" id="n-before">—</td></tr>
+    <tr><th>Carried into the new database</th><td class="num" id="n-after">—</td></tr>
+    <tr><th>Left in the sealed archive</th><td class="num" id="n-left">—</td></tr>
+    <tr><th>Protected regardless</th><td class="num" id="n-protected">—</td></tr>
+    <tr><th>New database measures</th><td class="num" id="n-bytes">—</td></tr>
+    <tr><th>Space the archive would free</th>
+        <td class="num" id="n-free">—</td></tr>
+  </table>
+  <p class="hint">The archive frees that space only when you delete it yourself, in
+    your own file manager. ScrapeX will not, and cannot.</p>
+  <div class="row">
+    <button id="ret-compact">Compact using these numbers</button>
+    <span id="ret-compact-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+</div>
+
+<h3>Old diagnostics</h3>
+<p class="hint">{{ retention.prune_caveat }}</p>
+<table>
+  {% for table, count in retention.prunable.items() %}
+    <tr><th>{{ table }}</th>
+        <td class="num">{{ "{:,}".format(count) }} rows older than
+          {{ retention.prune_before }}</td></tr>
+  {% endfor %}
+</table>
+<div class="row">
+  <button id="ret-prune" class="ghost">Remove those rows</button>
+  <span id="ret-prune-out" class="hint" role="status" aria-live="polite"></span>
+</div>
+
+{% if retention.last %}
+  <h3>Last retention run</h3>
+  <table>
+    <tr><th>Result</th><td><span class="badge {{ 'ok' if retention.last.ok else 'off' }}">
+      {{ "Succeeded" if retention.last.ok else "Failed" }}</span></td></tr>
+    <tr><th>When</th><td class="num">{{ retention.last.at }}</td></tr>
+    <tr><th>Details</th><td>{{ retention.last.detail }}</td></tr>
+    {% if retention.last.location %}
+      <tr><th>Sealed archive</th><td><code>{{ retention.last.location }}</code></td></tr>
+    {% endif %}
+  </table>
+{% endif %}
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let previewDigest = "";
+  let leftBehind = 0;
+
+  async function call(url, body) {
+    const res = await fetch(url, {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    return data;
+  }
+
+  async function act(button, out, fn) {
+    const original = button.textContent;
+    button.disabled = true; button.textContent = "Working…";
+    out.textContent = ""; out.className = "hint";
+    try {
+      out.textContent = await fn();
+    } catch (err) {
+      out.textContent = err.message; out.className = "hint err";
+    } finally {
+      button.disabled = false; button.textContent = original;
+    }
+  }
+
+  const n = (x) => Number(x || 0).toLocaleString();
+
+  $("ret-save").addEventListener("click", () => act($("ret-save"), $("ret-out"), async () => {
+    await call("/api/retention/policy", {
+      source_key: $("ret-source").value,
+      detail_days: Number($("ret-days").value),
+      older_than_action: $("ret-action").value,
+      excluded: $("ret-excluded").checked,
+    });
+    // A saved policy invalidates any preview taken before it.
+    previewDigest = ""; $("ret-numbers").hidden = true;
+    setTimeout(() => location.reload(), 600);
+    return "Saved. Preview it before compacting.";
+  }));
+
+  $("ret-preview").addEventListener("click", () =>
+    act($("ret-preview"), $("ret-preview-out"), async () => {
+      const r = await call("/api/retention/preview");
+      previewDigest = r.digest;
+      leftBehind = r.observations_left_behind;
+      $("n-before").textContent = n(r.observations_before);
+      $("n-after").textContent = n(r.observations_after);
+      $("n-left").textContent = n(r.observations_left_behind);
+      $("n-protected").textContent = n(r.protected_count);
+      $("n-bytes").textContent = n(r.bytes_after) + " bytes";
+      $("n-free").textContent = n(r.bytes_before) + " bytes";
+      $("ret-numbers").hidden = false;
+      $("ret-compact").disabled = r.observations_left_behind === 0;
+      return r.detail;
+    }));
+
+  $("ret-compact").addEventListener("click", () =>
+    act($("ret-compact"), $("ret-compact-out"), async () => {
+      if (!previewDigest) throw new Error("Preview the policy first.");
+      // Typing the count is deliberate friction: it cannot be muscle memory,
+      // and it proves the owner read the number they are agreeing to.
+      const typed = prompt(
+        "This builds a new database and seals the current one beside it.\n\n"
+        + leftBehind.toLocaleString() + " observations will stay in the sealed "
+        + "archive rather than move forward. Nothing is deleted.\n\n"
+        + "Type that number to continue:");
+      if (typed === null) return "Left as it was.";
+      if (typed.replace(/[,\s]/g, "") !== String(leftBehind)) {
+        throw new Error("That number did not match, so nothing was changed.");
+      }
+      const r = await call("/api/retention/compact", {digest: previewDigest});
+      setTimeout(() => location.reload(), 2000);
+      return r.detail;
+    }));
+
+  $("ret-prune").addEventListener("click", () =>
+    act($("ret-prune"), $("ret-prune-out"), async () => {
+      const r = await call("/api/retention/prune",
+                           {before_date: "{{ retention.prune_before }}"});
+      setTimeout(() => location.reload(), 1200);
+      return r.detail;
+    }));
+})();
+</script>

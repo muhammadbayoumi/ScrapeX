@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}Settings — ScrapeX{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+{# Spec 33/24: thirteen sections, every one closed by default. Progressive
+   disclosure here is not decoration — Storage and Data and history hold the
+   only controls in the product that can rewrite the warehouse, and they should
+   take a deliberate act to reach, not scroll past under a thumb. #}
+<p class="muted small">Each section opens on its own. Nothing here changes until
+  you save it, and the two sections that can rewrite the database say exactly what
+  they will do before they do it.</p>
+
+<div class="settings">
+
+<!-- 1 ------------------------------------------------------------------- -->
+<details class="sect" id="s-general">
+  <summary><span class="sect-name">General</span>
+    <span class="sect-sub">Language and what leaves this machine</span></summary>
+  <div class="sect-body">
+    <table>
+      <tr><th>Interface language</th>
+          <td>English. Scraped names and values are shown in whatever language
+            they were written in, right-to-left where that applies.</td></tr>
+      <tr><th>Where your data goes</th>
+          <td>Nowhere, unless you send it. Crawling writes only to the database on
+            this machine; Excel, Apps Script and Drive are opt-in and each is
+            configured on its own page.</td></tr>
+      <tr><th>Telemetry</th><td>None. ScrapeX reports nothing about you anywhere.</td></tr>
+    </table>
+  </div>
+</details>
+
+<!-- 2 ------------------------------------------------------------------- -->
+<details class="sect" id="s-runtime">
+  <summary><span class="sect-name">Local runtime</span>
+    <span class="sect-sub">The engine this page is served by</span></summary>
+  <div class="sect-body">
+    <table>
+      <tr><th>Version</th><td class="tech">{{ about.version }}</td></tr>
+      <tr><th>Contract version</th><td class="tech">{{ about.contract_version }}</td></tr>
+      <tr><th>Database schema</th><td class="tech">{{ about.schema_version }}</td></tr>
+      <tr><th>Job worker</th>
+          <td><span class="badge {{ 'ok' if about.worker_alive else 'off' }}">
+            {{ "Running" if about.worker_alive else "Not running" }}</span>
+            {% if not about.worker_alive %}
+              <div class="muted small">Queued jobs wait until a worker is running.
+                Start one with <code>scrapex ui</code>.</div>
+            {% endif %}</td></tr>
+    </table>
+  </div>
+</details>
+
+<!-- 3 ------------------------------------------------------------------- -->
+<details class="sect" id="s-storage">
+  <summary><span class="sect-name">Storage</span>
+    <span class="sect-sub">Where the database lives, its health, and backups</span></summary>
+  <div class="sect-body">
+    {% include "_storage.html" %}
+  </div>
+</details>
+
+<!-- 4 ------------------------------------------------------------------- -->
+<details class="sect" id="s-crawling">
+  <summary><span class="sect-name">Crawling</span>
+    <span class="sect-sub">Politeness, timeouts and identification</span></summary>
+  <div class="sect-body">
+    <p class="hint">These apply to every source that uses the shared HTTP fetcher.
+      A source that declares its own user agent keeps it.</p>
+    <form class="stack" onsubmit="return false">
+      <div class="field">
+        <label for="crawl_min_interval_s">Minimum seconds between requests</label>
+        <input id="crawl_min_interval_s" type="number" step="0.1" min="0.1"
+               value="{{ settings.crawl_min_interval_s.value }}">
+        <span class="hint">One request per second is the shipped default. Lowering it
+          puts more load on sites you do not own.</span>
+      </div>
+      <div class="field">
+        <label for="crawl_timeout_s">Request timeout in seconds</label>
+        <input id="crawl_timeout_s" type="number" min="1" value="{{ settings.crawl_timeout_s.value }}">
+      </div>
+      <div class="field">
+        <label for="crawl_user_agent">User agent</label>
+        <input id="crawl_user_agent" dir="ltr" spellcheck="false"
+               value="{{ settings.crawl_user_agent.value }}"
+               placeholder="{{ about.default_user_agent }}">
+        <span class="hint">Leave empty to identify as ScrapeX. Pretending to be a
+          browser to get past a block is not what this field is for.</span>
+      </div>
+      <div class="row">
+        <button data-save="crawl_min_interval_s,crawl_timeout_s,crawl_user_agent">Save</button>
+        <span class="hint out" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+  </div>
+</details>
+
+<!-- 5 ------------------------------------------------------------------- -->
+<details class="sect" id="s-engines">
+  <summary><span class="sect-name">Engines</span>
+    <span class="sect-sub">The connector families that are actually built</span></summary>
+  <div class="sect-body">
+    <div class="tablewrap"><table>
+      <thead><tr><th>Family</th><th>Status</th><th>Sources using it</th></tr></thead>
+      <tbody>
+      {% for family in engines %}
+        <tr><td class="tech">{{ family.name }}</td>
+            <td><span class="badge {{ 'ok' if family.implemented else 'off' }}">
+              {{ "Built" if family.implemented else "Not built" }}</span></td>
+            <td class="num">{{ family.sources }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <p class="hint">A source on a family that is not built fails loudly when you run
+      it, rather than quietly returning nothing.</p>
+  </div>
+</details>
+
+<!-- 6 ------------------------------------------------------------------- -->
+<details class="sect" id="s-jobs">
+  <summary><span class="sect-name">Jobs and scheduling</span>
+    <span class="sect-sub">What runs, and when it can run</span></summary>
+  <div class="sect-body">
+    <table>
+      <tr><th>Concurrency</th><td>One job at a time. Sources inside a job run one
+        after another so a single site is never hit by two crawls at once.</td></tr>
+      <tr><th>Schedules</th><td>{{ schedule_count }} configured —
+        <a class="link" href="/schedules">open Schedules</a></td></tr>
+      <tr><th>The limitation</th><td>Schedules only run while the engine is running.
+        Nothing can wake a sleeping or powered-off machine.</td></tr>
+    </table>
+  </div>
+</details>
+
+<!-- 7, 8, 9 -------------------------------------------------------------- -->
+<details class="sect" id="s-excel">
+  <summary><span class="sect-name">Excel</span>
+    <span class="sect-sub">Workbook location and column schema</span></summary>
+  <div class="sect-body">
+    {% with label=excel.label, ready=excel.ready, blocker=excel.blocker %}
+      {% include "_destination.html" %}
+    {% endwith %}
+    <p class="hint">Configured on its own page so there is one place, not two:
+      <a class="link" href="/exports">open Excel export</a>.</p>
+  </div>
+</details>
+
+<details class="sect" id="s-appsscript">
+  <summary><span class="sect-name">Apps Script</span>
+    <span class="sect-sub">Deployment URL, token and batch limits</span></summary>
+  <div class="sect-body">
+    {% with label=funnel.label, ready=funnel.ready, blocker=funnel.blocker %}
+      {% include "_destination.html" %}
+    {% endwith %}
+    <p class="hint"><a class="link" href="/sync">open Sync</a></p>
+  </div>
+</details>
+
+<details class="sect" id="s-google">
+  <summary><span class="sect-name">Google account</span>
+    <span class="sect-sub">Sign-in, folder and what access is asked for</span></summary>
+  <div class="sect-body">
+    {% with label=google.label, ready=google.ready, blocker=google.blocker %}
+      {% include "_destination.html" %}
+    {% endwith %}
+    <p class="hint">{{ google.account_note }}
+      <a class="link" href="/sync">open Sync</a></p>
+  </div>
+</details>
+
+<!-- 10 ------------------------------------------------------------------ -->
+<details class="sect" id="s-data">
+  <summary><span class="sect-name">Data and history</span>
+    <span class="sect-sub">Retention policy, protected observations and compaction</span></summary>
+  <div class="sect-body">
+    {% include "_retention.html" %}
+  </div>
+</details>
+
+<!-- 11 ------------------------------------------------------------------ -->
+<details class="sect" id="s-privacy">
+  <summary><span class="sect-name">Privacy and security</span>
+    <span class="sect-sub">What is stored, where, and what is never done</span></summary>
+  <div class="sect-body">
+    <table>
+      <tr><th>Network exposure</th><td>The engine listens on 127.0.0.1 only. It is not
+        reachable from your network.</td></tr>
+      <tr><th>Secrets</th><td>The Apps Script token is stored in the database on this
+        machine and never shown again — only its last four characters. Google sign-in
+        is a token file under your home folder.</td></tr>
+      <tr><th>Scraped content</th><td>Treated as untrusted. Every value is escaped
+        before it reaches a page, so a product name cannot carry script into this
+        interface.</td></tr>
+      <tr><th>Access controls</th><td>Never bypassed. A source that needs a sign-in is
+        marked as such and reported honestly instead of being worked around.</td></tr>
+      <tr><th>Remote code</th><td>Never executed. The extension runs only the code it
+        ships with.</td></tr>
+    </table>
+  </div>
+</details>
+
+<!-- 12 ------------------------------------------------------------------ -->
+<details class="sect" id="s-logs">
+  <summary><span class="sect-name">Logs and diagnostics</span>
+    <span class="sect-sub">Job logs and how long they are kept</span></summary>
+  <div class="sect-body">
+    <form class="stack" onsubmit="return false">
+      <div class="field">
+        <label for="log_retention_days">Keep job logs for (days)</label>
+        <input id="log_retention_days" type="number" min="1"
+               value="{{ settings.log_retention_days.value }}">
+        <span class="hint">Job logs are diagnostics, not history: removing old ones
+          destroys no price data.</span>
+      </div>
+      <div class="row">
+        <button data-save="log_retention_days">Save</button>
+        <span class="hint out" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+    <p class="hint"><a class="link" href="/logs">open Logs</a> — {{ about.log_entries }}
+      entries recorded.</p>
+  </div>
+</details>
+
+<!-- 13 ------------------------------------------------------------------ -->
+<details class="sect" id="s-about">
+  <summary><span class="sect-name">About</span>
+    <span class="sect-sub">Versions and what this build does not do yet</span></summary>
+  <div class="sect-body">
+    <table>
+      <tr><th>ScrapeX</th><td class="tech">{{ about.version }}</td></tr>
+      <tr><th>Database</th><td class="tech">{{ about.db_path }}</td></tr>
+      <tr><th>Not built yet</th>
+          <td>Apps Script request signing and adaptive batching; two-way Sheet sync;
+            proxy and anti-bot handling; automatic connector-drift repair; an
+            over-the-air updater. Each is named where it would appear rather than
+            hidden behind a control that does nothing.</td></tr>
+    </table>
+  </div>
+</details>
+
+</div>
+
+<script>
+// Saving is uniform across every section: one handler reads the field ids off
+// the button, so a new setting needs no new JavaScript.
+document.querySelectorAll("button[data-save]").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const out = button.parentElement.querySelector(".out");
+    const original = button.textContent;
+    button.disabled = true; button.textContent = "Saving…";
+    out.textContent = ""; out.className = "hint out";
+    try {
+      const body = {};
+      for (const id of button.dataset.save.split(",")) {
+        body[id] = document.getElementById(id).value;
+      }
+      const res = await fetch("/api/settings", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body)});
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      out.textContent = "Saved.";
+    } catch (err) {
+      out.textContent = err.message; out.className = "hint out err";
+    } finally {
+      button.disabled = false; button.textContent = original;
+    }
+  });
+});
+
+// A section named in the address bar opens itself, so a link from the panel
+// lands on the thing it promised rather than on a wall of closed rows.
+if (location.hash) {
+  const target = document.querySelector(location.hash);
+  if (target && target.tagName === "DETAILS") {
+    target.open = true;
+    target.scrollIntoView({block: "start"});
+  }
+}
+</script>
+{% endblock %}

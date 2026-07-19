@@ -69,6 +69,12 @@ def _serve(db_path: Path, manifest: Path, port: int):
 
 
 PAGES = [
+    ("settings", "/settings"),
+    # Progressive disclosure means the interesting content is behind a click, so
+    # the two sections that can rewrite the warehouse are captured OPEN — a
+    # screenshot of thirteen closed rows proves nothing about what is inside.
+    ("settings-storage", "/settings#s-storage"),
+    ("settings-retention", "/settings#s-data"),
     ("overview", "/"),
     ("data", "/source/ELSEWEDYSHOP"),
     ("changes", "/changes?source_key=ELSEWEDYSHOP"),

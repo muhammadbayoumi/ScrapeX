@@ -29,9 +29,15 @@ _BUILDERS = {
 }
 
 
-def build_connector(source: SourceEntry) -> tuple[SiteConnector, HttpFetcher]:
+def build_connector(source: SourceEntry,
+                    crawl_settings: dict | None = None) -> tuple[SiteConnector, HttpFetcher]:
     """Return (connector, fetcher) for a source. The caller owns the fetcher's
-    lifetime (close it after the crawl) so request counts can be recorded."""
+    lifetime (close it after the crawl) so request counts can be recorded.
+
+    `crawl_settings` carries the owner's politeness and timeout choices (spec 33).
+    They are passed in rather than read here, so this module keeps no opinion
+    about where settings live and a test needs no database to build a connector.
+    """
     builder = _BUILDERS.get(source.family)
     if builder is None:
         raise NotImplementedError(
@@ -39,5 +45,5 @@ def build_connector(source: SourceEntry) -> tuple[SiteConnector, HttpFetcher]:
             f"(source {source.source_key}); implemented: "
             f"{[f.value for f in _BUILDERS]}"
         )
-    fetcher = resolve_fetcher(source)
+    fetcher = resolve_fetcher(source, crawl_settings)
     return builder(fetcher), fetcher

@@ -1,0 +1,202 @@
+{# Spec 17/25: location, size, health, backup, restore, repair, compact, export
+   and a move with progress. Every control here can rewrite the database file,
+   so each one states its consequence beside itself rather than in a tooltip. #}
+
+<table>
+  <tr><th>Current location</th>
+      <td><code>{{ storage.path }}</code>
+        {% if storage.drive_kind in ("removable", "network") %}
+          <div class="muted small">This looks like a {{ storage.drive_kind }} drive.
+            If it is disconnected while ScrapeX is running, the database becomes
+            unreadable and a crawl in progress will fail.</div>
+        {% endif %}
+        {% if storage.pointer %}
+          <div class="muted small">Recorded in a location file, so ScrapeX will
+            refuse to start an empty warehouse if this path ever goes missing.</div>
+        {% endif %}</td></tr>
+  <tr><th>Size</th>
+      <td class="num">{{ "{:,}".format(storage.sizes.db_bytes) }} bytes
+        {% if storage.sizes.wal_bytes %}
+          <span class="muted">+ {{ "{:,}".format(storage.sizes.wal_bytes) }} not yet
+            merged</span>
+        {% endif %}
+        <div class="muted small">{{ "{:,}".format(storage.sizes.free_bytes) }} bytes
+          free on this disk.</div></td></tr>
+  <tr><th>Health</th>
+      <td><span class="badge {{ 'ok' if storage.health.ok else 'off' }}">
+        {{ storage.health.status | capitalize }}</span>
+        <div class="muted small">{{ storage.health.detail }}</div></td></tr>
+  <tr><th>Backups</th>
+      <td class="num">{{ storage.sizes.backup_count }}
+        <span class="muted">in {{ storage.backup_folder }}</span></td></tr>
+</table>
+
+<div class="row" style="margin:.8rem 0">
+  <button data-storage="backup">Back up now</button>
+  <button data-storage="compact" class="ghost">Compact database</button>
+  <button data-storage="repair" class="ghost">Repair</button>
+  <span id="storage-out" class="hint" role="status" aria-live="polite"></span>
+</div>
+<p class="hint">Compacting rewrites the file to reclaim free pages and keeps every
+  row. Repair rebuilds indexes; it cannot recover damaged pages, and says so rather
+  than implying otherwise.</p>
+
+<h3>Backup folder</h3>
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="backup_folder">Folder</label>
+    <input id="backup_folder" dir="ltr" spellcheck="false"
+           value="{{ settings.backup_folder.value }}" placeholder="{{ storage.folder }}">
+    <span class="hint">A backup on the same disk as the database does not survive that
+      disk failing. Point this at another drive to protect against that.</span>
+  </div>
+  <div class="row">
+    <button data-save="backup_folder">Save</button>
+    <span class="hint out" role="status" aria-live="polite"></span>
+  </div>
+</form>
+
+<h3>Restore from a backup</h3>
+{# The reassurance belongs in BOTH branches. Showing it only once a backup
+   exists means the owner first reads it at the moment they are about to act,
+   which is the worst time to learn what an action does. #}
+<p class="hint">Restoring never overwrites: the database that is here now is
+  moved aside, not overwritten, so a restore chosen by mistake is undone by
+  moving one file back.</p>
+{% if not storage.backups %}
+  <div class="empty">No backups yet. Take one before you change anything here.</div>
+{% else %}
+  <form class="stack" onsubmit="return false">
+    <div class="field">
+      <label for="restore-pick">Backup</label>
+      <select id="restore-pick">
+        {% for b in storage.backups %}
+          <option value="{{ b.path }}">{{ b.name }} — {{ "{:,}".format(b.bytes) }} bytes,
+            {{ b.modified_at }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="row">
+      <button data-storage="restore" class="ghost">Restore this backup</button>
+      <span class="hint">The database that is here now is moved aside, not overwritten.</span>
+    </div>
+  </form>
+{% endif %}
+
+<h3>Export a copy</h3>
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="export-folder">Folder</label>
+    <input id="export-folder" dir="ltr" spellcheck="false" placeholder="D:\ScrapeX backups">
+    <span class="hint">Writes a consistent copy. The live database is not affected.</span>
+  </div>
+  <div class="row">
+    <button data-storage="export" class="ghost">Export a copy</button>
+  </div>
+</form>
+
+<h3>Move the database</h3>
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="move-folder">New folder</label>
+    <input id="move-folder" dir="ltr" spellcheck="false" placeholder="D:\ScrapeX">
+    <span class="hint">The copy is made and checked while the current database stays
+      live. The switch happens in one step at the end, and the original is renamed
+      aside — never deleted.</span>
+  </div>
+  <div class="row">
+    <button data-storage="check-move" class="ghost">Check this folder</button>
+    <button id="do-move" data-storage="move" disabled>Move</button>
+    <span id="move-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+  <progress id="move-progress" value="0" max="100" hidden></progress>
+</form>
+
+{% if storage.last %}
+  <h3>Last storage action</h3>
+  <table>
+    <tr><th>Result</th><td><span class="badge {{ 'ok' if storage.last.ok else 'off' }}">
+      {{ "Succeeded" if storage.last.ok else "Failed" }}</span></td></tr>
+    <tr><th>When</th><td class="num">{{ storage.last.at }}</td></tr>
+    <tr><th>Details</th><td>{{ storage.last.detail }}</td></tr>
+  </table>
+{% endif %}
+
+<script>
+(() => {
+  const out = document.getElementById("storage-out");
+  const moveOut = document.getElementById("move-out");
+
+  async function call(url, body) {
+    const res = await fetch(url, {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    return data;
+  }
+
+  async function act(button, target, fn) {
+    const original = button.textContent;
+    button.disabled = true; button.textContent = "Working…";
+    target.textContent = ""; target.className = "hint";
+    try {
+      target.textContent = await fn();
+    } catch (err) {
+      target.textContent = err.message; target.className = "hint err";
+    } finally {
+      button.disabled = false; button.textContent = original;
+    }
+  }
+
+  const value = (id) => (document.getElementById(id) || {}).value || "";
+
+  document.querySelectorAll("button[data-storage]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const what = button.dataset.storage;
+      const target = (what === "move" || what === "check-move") ? moveOut : out;
+      act(button, target, async () => {
+        if (what === "backup") return (await call("/api/storage/backup")).detail;
+        if (what === "compact") return (await call("/api/storage/compact")).detail;
+        if (what === "repair") return (await call("/api/storage/repair")).detail;
+        if (what === "export") {
+          const folder = value("export-folder");
+          if (!folder) throw new Error("Type the folder to export into first.");
+          return (await call("/api/storage/export", {folder})).detail;
+        }
+        if (what === "restore") {
+          const path = value("restore-pick");
+          if (!confirm("Restore this backup? The database that is here now will be "
+                       + "moved aside, not deleted.")) return "Left as it was.";
+          const r = await call("/api/storage/restore", {backup_path: path});
+          setTimeout(() => location.reload(), 1200);
+          return r.detail;
+        }
+        if (what === "check-move") {
+          const folder = value("move-folder");
+          if (!folder) throw new Error("Type the folder to move into first.");
+          const r = await call("/api/storage/check-move", {folder});
+          // The Move button unlocks only after a check passed, so a move can
+          // never be the first thing a stray click does.
+          document.getElementById("do-move").disabled = !r.ok;
+          if (!r.ok) return r.reason;
+          return r.warning ? r.warning + " Move is now enabled." : "This folder works. Move is now enabled.";
+        }
+        if (what === "move") {
+          const folder = value("move-folder");
+          if (!confirm("Move the database to " + folder + "? The current file is kept "
+                       + "on disk under a new name; nothing is deleted.")) {
+            return "Left where it was.";
+          }
+          const bar = document.getElementById("move-progress");
+          bar.hidden = false; bar.removeAttribute("value");
+          const r = await call("/api/storage/move", {folder});
+          bar.hidden = true;
+          setTimeout(() => location.reload(), 1500);
+          return r.detail;
+        }
+        return "";
+      });
+    });
+  });
+})();
+</script>

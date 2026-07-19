@@ -151,9 +151,15 @@ def protected_keys(conn: sqlite3.Connection) -> set[Key]:
         "SELECT offer_id, business_date, record_hash FROM v_retention_protected")}
 
 
+# The order the interface lists them in. Fixed here rather than left to however
+# SQLite groups them, so the same screen does not reorder itself between visits.
+REASON_ORDER = ("first", "latest", "minimum", "maximum", "pinned")
+
+
 def protected_reasons(conn: sqlite3.Connection) -> dict[str, int]:
-    return {r[0]: r[1] for r in conn.execute(
+    counts = {r[0]: r[1] for r in conn.execute(
         "SELECT reason, COUNT(*) FROM v_retention_protected GROUP BY reason")}
+    return {reason: counts[reason] for reason in REASON_ORDER if reason in counts}
 
 
 def protected_keys_independently(conn: sqlite3.Connection) -> set[Key]:

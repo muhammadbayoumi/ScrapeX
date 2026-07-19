@@ -170,7 +170,19 @@ class BrowserFetcher:
         raise RuntimeError(f"browser fetch failed after {retries + 1} attempts: {url}") from last_error
 
 
-def resolve_fetcher(source: SourceEntry) -> HttpFetcher | BrowserFetcher:
+def resolve_fetcher(source: SourceEntry,
+                    crawl_settings: dict | None = None) -> HttpFetcher | BrowserFetcher:
+    """Build the transport for a source.
+
+    Precedence for the user agent is deliberate: a source that DECLARES one wins,
+    because it declares it for a reason (Zid 403s anything else, F5). The owner's
+    global setting fills in for every source that does not.
+    """
     if source.fetcher == Fetcher.BROWSER:
         return BrowserFetcher()
-    return HttpFetcher(user_agent=source.user_agent or DEFAULT_USER_AGENT)
+    chosen = crawl_settings or {}
+    return HttpFetcher(
+        user_agent=source.user_agent or chosen.get("user_agent") or DEFAULT_USER_AGENT,
+        min_interval_s=float(chosen.get("min_interval_s") or 1.0),
+        timeout_s=float(chosen.get("timeout_s") or 30.0),
+    )

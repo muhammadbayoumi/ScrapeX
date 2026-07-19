@@ -378,7 +378,8 @@ def test_the_db_lock_wraps_only_the_ingest_not_the_network_fetch(tmp_path):
 
     import scrapex.capture as capmod
     original = capmod.build_connector
-    capmod.build_connector = lambda e: (_Connector(), _Fetcher())
+    # Two arguments now: the owner's crawl settings ride along with the entry.
+    capmod.build_connector = lambda e, crawl=None: (_Connector(), _Fetcher())
     try:
         capture_source(conn, entry, lock=lambda: dbmod.write_lock(db))
     finally:
