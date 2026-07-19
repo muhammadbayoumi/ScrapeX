@@ -240,6 +240,25 @@ def test_a_failed_verification_leaves_the_warehouse_alone(conn, db_path, monkeyp
     assert not list(db_path.parent.glob("*.compact-*")), "the rejected build was kept"
 
 
+def test_a_stale_pin_blocks_compaction_instead_of_silently_losing_the_mark(conn, db_path):
+    """A pin may become stale after manual recovery or imported metadata.
+
+    The safe result is an explicit verification refusal. Treating a missing pin
+    target as irrelevant would let compaction claim every protected observation
+    survived when it did not carry the owner's exact protected set forward.
+    """
+    set_aggressive(conn)
+    offer_id = conn.execute("SELECT offer_id FROM price_observation LIMIT 1").fetchone()[0]
+    retention.pin(conn, offer_id, "2026-01-01", "hash-that-matches-no-row")
+    conn.commit()
+    digest = retention.policy_digest(retention.get_policies(conn))
+
+    assert retention.protected_keys(conn) == retention.protected_keys_independently(conn)
+    with pytest.raises(compaction.CompactionAborted, match="did not pass verification"):
+        compaction.compact_warehouse(conn, db_path, today=TODAY, expected_digest=digest)
+    assert storage.read_pointer() is None
+
+
 def test_the_audit_row_lands_in_the_database_that_is_now_live(conn, db_path):
     """Writing it before the run would leave a row stuck at 'running' inside the
     file being sealed, and the live warehouse would report a run that never ended."""

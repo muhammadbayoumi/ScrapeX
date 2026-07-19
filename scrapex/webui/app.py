@@ -29,6 +29,7 @@ from ..fields import (
     delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
     set_display_name, set_visibility,
 )
+from ..features import manifest as feature_manifest
 from ..manifest_io import DuplicateSourceError, add_source
 from ..matching import (
     ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
@@ -248,6 +249,11 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         finally:
             conn.close()
         return {"ok": True, "app": "scrapex", "version": __version__, "sources_with_data": n}
+
+    @app.get("/api/features")
+    def api_features():
+        """What is genuinely usable, separate from what the roadmap names."""
+        return feature_manifest()
 
     @app.get("/api/sources")
     def api_sources():
@@ -772,7 +778,16 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         backup_path = (body or {}).get("backup_path", "")
         if not backup_path:
             raise HTTPException(status_code=400, detail="backup_path is required")
-        return _storage_action(lambda conn: restore(app.state.db_path, backup_path))
+        # Unlike normal storage actions, restore replaces the database file.
+        # Keeping a SQLite connection open while doing that fails on Windows and
+        # risks letting the old WAL describe the new file. Hold the writer lock,
+        # but deliberately open no database connection during the switch.
+        with dbmod.write_lock(app.state.db_path):
+            try:
+                result = restore(app.state.db_path, backup_path)
+            except StorageRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        return result.as_state()
 
     @app.post("/api/storage/repair")
     def api_storage_repair():

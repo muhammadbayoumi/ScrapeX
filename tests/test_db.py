@@ -31,6 +31,10 @@ def test_migrate_is_idempotent(tmp_path: Path):
     assert second == []  # T4: running again applies nothing
 
 
+def test_latest_schema_version_matches_the_migration_chain():
+    assert dbmod.latest_schema_version() == 11
+
+
 def test_foreign_keys_actually_enforced(tmp_path: Path):
     conn = dbmod.connect(tmp_path / "t.db")
     try:

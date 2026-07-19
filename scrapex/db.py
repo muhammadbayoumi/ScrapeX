@@ -72,6 +72,16 @@ def _migration_files() -> list[tuple[int, Path]]:
     return migrations
 
 
+def latest_schema_version() -> int:
+    """The newest warehouse schema this engine understands.
+
+    Storage restore uses this as a downgrade guard: a database produced by a
+    newer ScrapeX may be perfectly healthy SQLite, but this engine must not make
+    it live and then guess at a schema it does not understand.
+    """
+    return _migration_files()[-1][0]
+
+
 def migrate(conn: sqlite3.Connection) -> list[int]:
     """Apply every migration above the current user_version. Returns applied numbers."""
     applied: list[int] = []

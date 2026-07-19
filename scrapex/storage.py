@@ -43,6 +43,18 @@ FREE_SPACE_MARGIN = 1.2
 # Windows drive types (winbase.h). Used only to warn, never to refuse.
 _DRIVE_REMOVABLE, _DRIVE_REMOTE = 2, 4
 
+# A readable SQLite file is not necessarily a ScrapeX warehouse. These objects
+# are the smallest durable identity shared by the original schema and every
+# migration since: accepting a foreign SQLite file during restore would move the
+# real warehouse aside and put unrelated data in its place.
+_WAREHOUSE_TABLES = frozenset({
+    "source_site", "source_product", "source_variant", "source_offer",
+    "price_observation", "crawl_run", "raw_snapshot",
+})
+_WAREHOUSE_TRIGGERS = frozenset({
+    "trg_price_obs_no_update", "trg_price_obs_no_delete",
+})
+
 
 class StorageUnavailableError(RuntimeError):
     """The recorded database location cannot be reached right now.
@@ -169,6 +181,71 @@ def drive_kind(folder: Path | str) -> str:
     return {_DRIVE_REMOVABLE: "removable", _DRIVE_REMOTE: "network"}.get(kind, "fixed")
 
 
+def _warehouse_identity(conn: sqlite3.Connection) -> tuple[str, str] | None:
+    """Return ``(status, reason)`` when this is not a compatible warehouse.
+
+    Integrity and identity are deliberately separate checks. ``quick_check``
+    answers whether SQLite can read the file; this answers whether ScrapeX may
+    safely interpret and restore it.
+    """
+    version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if version <= 0:
+        return (
+            "not_scrapex",
+            "The file is SQLite, but it is not a ScrapeX warehouse; it has no "
+            "ScrapeX schema version.",
+        )
+    latest = dbmod.latest_schema_version()
+    if version > latest:
+        return (
+            "incompatible",
+            f"The file uses ScrapeX schema v{version}, but this engine only "
+            f"understands through v{latest}. Update ScrapeX before restoring it.",
+        )
+
+    objects = {
+        row[0]: row[1]
+        for row in conn.execute(
+            "SELECT name, type FROM sqlite_master WHERE type IN ('table','trigger')"
+        )
+    }
+    missing_tables = sorted(name for name in _WAREHOUSE_TABLES
+                            if objects.get(name) != "table")
+    missing_triggers = sorted(name for name in _WAREHOUSE_TRIGGERS
+                              if objects.get(name) != "trigger")
+    if missing_tables or missing_triggers:
+        missing = missing_tables + missing_triggers
+        return (
+            "not_scrapex",
+            "The file is SQLite, but it is not a ScrapeX warehouse; required "
+            f"objects are missing: {', '.join(missing)}.",
+        )
+
+    # Migration 0002 introduced the contract marker. A v1 warehouse is a valid
+    # legacy ScrapeX database and can be migrated after restore; v2+ without the
+    # marker is either foreign or incomplete and must be refused.
+    if version >= 2:
+        if objects.get("scrapex_meta") != "table":
+            return "not_scrapex", "The ScrapeX contract marker table is missing."
+        row = conn.execute(
+            "SELECT value FROM scrapex_meta WHERE key = 'contract_version'"
+        ).fetchone()
+        if row is None:
+            return "not_scrapex", "The ScrapeX contract version marker is missing."
+        from .contract import CONTRACT_VERSION
+        try:
+            stored_contract = int(row[0])
+        except (TypeError, ValueError):
+            return "not_scrapex", "The ScrapeX contract version marker is invalid."
+        if stored_contract != CONTRACT_VERSION:
+            return (
+                "incompatible",
+                f"The warehouse uses contract v{stored_contract}, but this engine "
+                f"uses v{CONTRACT_VERSION}. Use a compatible engine or migrate it.",
+            )
+    return None
+
+
 def health(db_path: Path | str) -> dict:
     """SQLite's own verdict, reported as a word plus the raw findings.
 
@@ -181,6 +258,11 @@ def health(db_path: Path | str) -> dict:
         return {"status": "missing", "ok": False,
                 "detail": "There is no database at this location yet.",
                 "problems": [], "foreign_key_problems": 0}
+    if _size(path) == 0:
+        return {"status": "not_scrapex", "ok": False,
+                "detail": "The file is empty and is not a ScrapeX warehouse.",
+                "problems": ["empty file"], "foreign_key_problems": 0,
+                "reclaimable_bytes": 0}
     conn = sqlite3.connect(str(path))
     try:
         problems = [r[0] for r in conn.execute("PRAGMA quick_check")]
@@ -188,6 +270,7 @@ def health(db_path: Path | str) -> dict:
         fk = conn.execute("PRAGMA foreign_key_check").fetchall()
         freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
         page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+        identity_problem = _warehouse_identity(conn)
     except sqlite3.DatabaseError as exc:
         return {"status": "unreadable", "ok": False,
                 "detail": f"SQLite could not read this file: {exc}",
@@ -200,6 +283,11 @@ def health(db_path: Path | str) -> dict:
         return {"status": "damaged", "ok": False, "problems": problems,
                 "foreign_key_problems": len(fk),
                 "detail": "SQLite reported problems. Back up first, then run Repair."}
+    if identity_problem is not None:
+        status, detail = identity_problem
+        return {"status": status, "ok": False, "problems": [detail],
+                "foreign_key_problems": 0, "reclaimable_bytes": reclaimable,
+                "detail": detail}
     return {
         "status": "healthy", "ok": True, "problems": [], "foreign_key_problems": 0,
         "reclaimable_bytes": reclaimable,
@@ -277,6 +365,11 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
     path, source = Path(db_path), Path(backup_path)
     if not source.exists():
         raise StorageRefused(f"That backup is no longer at {source}.")
+    try:
+        if source.resolve() == path.resolve():
+            raise StorageRefused("The selected backup is already the live database.")
+    except OSError:
+        pass
     verdict = health(source)
     if not verdict["ok"]:
         raise StorageRefused(
@@ -285,16 +378,34 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
     if free_space(path.parent) < _size(source) * FREE_SPACE_MARGIN:
         raise StorageRefused(f"Not enough free space in {path.parent} to restore.")
 
+    # Copy and validate while the current warehouse remains authoritative. Only
+    # a fully copied, re-checked file is allowed to reach the switch below.
+    incoming = path.with_name(path.name + ".restore-incoming")
+    incoming.unlink(missing_ok=True)
+    try:
+        shutil.copy2(source, incoming)
+    except OSError:
+        incoming.unlink(missing_ok=True)
+        raise
+    copied_verdict = health(incoming)
+    if not copied_verdict["ok"] or not _same_contents(source, incoming):
+        incoming.unlink(missing_ok=True)
+        raise StorageRefused(
+            "The copied backup did not pass verification, so the live database "
+            "was not changed. Try an older backup or another storage device."
+        )
+
     displaced = ""
     if path.exists():
         displaced = str(path.with_name(
             f"{path.stem}.replaced-{settings.utc_now().replace(':', '')}{path.suffix}"))
         os.replace(path, displaced)
     try:
-        shutil.copy2(source, path)
+        os.replace(incoming, path)
     except OSError:
         if displaced:                      # put the original back, then re-raise
             os.replace(displaced, path)
+        incoming.unlink(missing_ok=True)
         raise
     # The WAL of the replaced database describes a file that is no longer there.
     for suffix in ("-wal", "-shm"):
@@ -318,6 +429,10 @@ def repair(db_path: Path | str) -> RunResult:
     """
     path = Path(db_path)
     verdict = health(path)
+    if verdict["status"] in {"missing", "unreadable", "not_scrapex", "incompatible"}:
+        raise StorageRefused(
+            f"Refusing to repair {path.name}: {verdict['detail']}"
+        )
     conn = dbmod.connect(path)
     try:
         conn.execute("REINDEX")

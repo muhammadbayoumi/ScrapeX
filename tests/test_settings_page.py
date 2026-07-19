@@ -104,6 +104,31 @@ def test_every_storage_control_the_spec_names_is_offered(client):
         assert label in body, f"the {label} control is missing"
 
 
+def test_restore_api_refuses_a_foreign_sqlite_file(client, db_path, tmp_path):
+    import sqlite3
+
+    foreign = tmp_path / "foreign.db"
+    conn = sqlite3.connect(str(foreign))
+    try:
+        conn.execute("CREATE TABLE notes(body TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.post("/api/storage/restore", json={"backup_path": str(foreign)})
+    assert response.status_code == 400
+    assert "health check" in response.json()["detail"]
+    assert storage.health(db_path)["ok"], "the live warehouse must remain untouched"
+
+
+def test_restore_api_can_switch_to_a_verified_backup(client, db_path):
+    backup = client.post("/api/storage/backup").json()["location"]
+    response = client.post("/api/storage/restore", json={"backup_path": backup})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert storage.health(db_path)["ok"] is True
+
+
 def test_moving_is_disabled_until_a_folder_has_been_checked(client):
     """A move must never be the first thing a stray click does."""
     body = client.get("/settings").text
