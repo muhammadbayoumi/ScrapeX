@@ -431,7 +431,10 @@ def backup_folder(conn: sqlite3.Connection, db_path: Path | str) -> Path:
 
 # Suffixes this product appends when it supersedes a database. Stripping them
 # recovers the ORIGINAL warehouse name, which is what backups are named after.
-_LINEAGE_SUFFIX = re.compile(r"\.(compact|sealed|moved|replaced)-\d{8}T\d{6}Z$")
+# Tolerant of both stamp forms: files written before file_stamp() existed carry
+# dashes, and they must keep resolving to the same warehouse name.
+_LINEAGE_SUFFIX = re.compile(
+    r"\.(compact|building|preview|sealed|moved|replaced)-[\d-]{8,10}T[\d:]{6,8}Z(-\d+)?$")
 
 
 def base_stem(db_path: Path | str) -> str:
@@ -442,7 +445,13 @@ def base_stem(db_path: Path | str) -> str:
     the Storage page and from Restore — at exactly the moment they most needed
     one.
     """
-    return _LINEAGE_SUFFIX.sub("", Path(db_path).stem)
+    # Repeated, not single: a second compaction produces
+    # harvest.compact-A.compact-B, and stripping one suffix would still miss
+    # every backup taken before the first one.
+    stem, previous = Path(db_path).stem, None
+    while stem != previous:
+        stem, previous = _LINEAGE_SUFFIX.sub("", stem), stem
+    return stem
 
 
 def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
@@ -540,20 +549,32 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
         )
 
     displaced = ""
-    if path.exists():
-        displaced = str(path.with_name(
-            f"{path.stem}.replaced-{settings.utc_now().replace(':', '')}{path.suffix}"))
-        os.replace(path, displaced)
     try:
+        if path.exists():
+            displaced = str(path.with_name(
+                f"{path.stem}.replaced-{settings.file_stamp()}{path.suffix}"))
+            # On Windows this fails outright if ANY connection still holds the
+            # live database — the job worker keeps one open for its whole life.
+            # Unguarded, it escaped as a bare 500 and stranded a full-size copy
+            # of the warehouse at .restore-incoming that nothing ever counted.
+            os.replace(path, displaced)
         os.replace(incoming, path)
-    except OSError:
-        if displaced:                      # put the original back, then re-raise
+    except OSError as exc:
+        if displaced and not path.exists():   # put the original back
             os.replace(displaced, path)
         incoming.unlink(missing_ok=True)
-        raise
+        raise StorageRefused(
+            f"The database could not be replaced ({exc}). Another part of ScrapeX "
+            "still has it open — stop any running crawl and try again. Nothing "
+            "was changed.") from exc
     # The WAL of the replaced database describes a file that is no longer there.
     for suffix in ("-wal", "-shm"):
-        path.with_name(path.name + suffix).unlink(missing_ok=True)
+        try:
+            path.with_name(path.name + suffix).unlink(missing_ok=True)
+        except OSError:
+            # Cosmetic, and AFTER the commit point: the restore succeeded and
+            # must not be reported as a failure because a stale journal lingered.
+            pass
     detail = f"Restored from {source.name}."
     if displaced:
         detail += (f" The database that was here is still on disk as "
@@ -810,7 +831,7 @@ def _retire(path: Path, reason: str, successor: Path) -> str:
     """
     mark_sealed(path, reason, successor)
     retired = path.with_name(
-        f"{path.stem}.{reason}-{settings.utc_now().replace(':', '')}{path.suffix}")
+        f"{path.stem}.{reason}-{settings.file_stamp()}{path.suffix}")
     try:
         os.replace(path, retired)
         for suffix in ("-wal", "-shm"):

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -268,9 +269,11 @@ def preview(conn: sqlite3.Connection, db_path: Path | str, *, today: str,
             f"free in {source.parent}. Free some space, or move the database first.")
 
     # A fixed trial name let two previews collide, each deleting the other's
-    # file mid-build. The stamp plus the process id makes the name unique.
+    # file mid-build. A timestamp plus the process id is still not enough: the
+    # stamp is second-resolution and the pid is identical for two previews in
+    # the same process. A random suffix is the only part that cannot repeat.
     trial = source.with_name(
-        f"{source.stem}.preview-{settings.utc_now().replace(':', '')}-{os.getpid()}"
+        f"{source.stem}.preview-{settings.file_stamp()}-{uuid.uuid4().hex[:8]}"
         f"{source.suffix or '.db'}")
     try:
         result = build_successor(source, trial, policies=policies, cutoffs=cutoffs,
@@ -335,7 +338,7 @@ def compact_warehouse(conn: sqlite3.Connection, db_path: Path | str, *, today: s
             "nothing has been changed.")
 
     cutoffs = retention.cutoff_dates(conn, today)
-    stamp = settings.utc_now().replace(":", "").replace("-", "")
+    stamp = settings.file_stamp()
     # Built under a name the fallback can never resolve to and the pointer never
     # names, then renamed once verified. A half-built file left by a crash is
     # therefore always distinguishable from a promoted successor.
@@ -372,6 +375,7 @@ def compact_warehouse(conn: sqlite3.Connection, db_path: Path | str, *, today: s
         f"The previous file — all {result.observations_before:,} of them — is sealed "
         f"at {result.sealed_path}. ScrapeX will never delete it; removing it "
         f"yourself returns about {result.bytes_the_archive_would_free:,} bytes.")
+    result.detail += _stale_pin_note(result)
     if Path(result.sealed_path) == source:
         result.detail += (" It kept its original name because another program still "
                           "has it open, but it is marked inside as superseded, so it "

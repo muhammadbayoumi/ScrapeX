@@ -753,9 +753,12 @@ async function init() {
     probe();
   });
   $("urls-check").addEventListener("click", checkPastedUrls);
-  // Re-read the active tab when the owner returns to Current Page: they may
-  // have navigated since the panel was opened.
+  // Re-read the active tab whenever the owner touches Current Page. `change`
+  // alone is unreachable: the radio ships already checked, and a radio only
+  // fires change when it BECOMES checked. `click` on the label fires either way.
   document.getElementById("source-current").addEventListener("change", loadCurrentPage);
+  document.querySelector('label[for="source-current"]')
+    .addEventListener("click", loadCurrentPage);
   $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") probe(); });
 
   $("run-mode").addEventListener("change", refreshMode);
@@ -797,6 +800,12 @@ async function init() {
   $("open-storage").addEventListener("click", () => openTab("/settings#s-storage"));
 
   refreshMode();
+  // The opening view must be ENTERED through showView like every other one.
+  // Relying on the markup's initial visibility skipped its loader entirely, so
+  // the default screen sat at "Reading the active tab…" until the owner
+  // navigated away and back — and the screenshot harness hid it by clicking a
+  // nav button before capturing.
+  showView("source");
   await render();
 }
 

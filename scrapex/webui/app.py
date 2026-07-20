@@ -796,6 +796,11 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         backup_path = (body or {}).get("backup_path", "")
         if not backup_path:
             raise HTTPException(status_code=400, detail="backup_path is required")
+        # The worker holds its own connection for its whole life, and Windows
+        # will not rename a file anyone has open. Giving up only THIS route's
+        # connection was not enough.
+        if app.state.runner is not None:
+            app.state.runner.release_database()
         with dbmod.write_lock(app.state.db_path):
             try:
                 result = restore(app.state.db_path, backup_path)

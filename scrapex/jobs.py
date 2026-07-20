@@ -369,6 +369,7 @@ class JobRunner:
         self._poll_interval_s = poll_interval_s
         self._capture = capture          # injectable so the thread itself is testable
         self._stop = threading.Event()
+        self._reopen = threading.Event()   # a restore needs our file handle gone
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
@@ -394,6 +395,16 @@ class JobRunner:
         return capture_source(conn, entry, job_id,
                               lock=lambda: dbmod.write_lock(self._db_path))
 
+    def release_database(self) -> None:
+        """Ask the worker to drop its connection before the next poll.
+
+        A restore has to RENAME the live database, and on Windows an open handle
+        makes that impossible. The route gave up its own connection; this one is
+        held for the worker's whole life, so it has to be asked. The worker
+        reopens on its next iteration, which is also the only safe moment.
+        """
+        self._reopen.set()
+
     def _follow_the_warehouse(self, conn: sqlite3.Connection) -> sqlite3.Connection:
         """Reopen if the database moved under us; otherwise return `conn` as is.
 
@@ -402,11 +413,16 @@ class JobRunner:
         boundary the pause and cancel controls already use.
         """
         current = str(self._path_provider())
-        if current == str(self._db_path):
+        if current == str(self._db_path) and not self._reopen.is_set():
             return conn
+        self._reopen.clear()
         conn.commit()
         conn.close()
         self._db_path = current
+        # Give the file up for a moment: a restore renames it while we wait, and
+        # reopening immediately would take the handle straight back.
+        if self._stop.wait(self._poll_interval_s):
+            pass
         fresh = dbmod.connect(current)
         reclaim_orphaned_jobs(fresh)     # anything left running belongs to the old file
         fresh.commit()

@@ -100,8 +100,18 @@ def test_the_successor_is_still_append_only(conn, db_path, tmp_path):
 
 def test_every_table_is_carried_not_just_the_ones_someone_remembered(conn, db_path, tmp_path):
     """A hand-written copy list silently drops whatever a later migration adds.
-    The successor must contain every table the original has."""
+
+    The successor is built by running the SAME migrations, so comparing the two
+    schemas proves nothing on its own — both sides would always agree. Proving
+    it needs a table the source has and the migration chain does not create,
+    which is exactly the shape of the defect: something present in the live
+    warehouse that a rebuild would leave behind.
+    """
     set_aggressive(conn)
+    conn.execute("CREATE TABLE a_later_migration_would_add_this (x INTEGER)")
+    conn.execute("INSERT INTO a_later_migration_would_add_this VALUES (1)")
+    conn.commit()
+
     out = tmp_path / "s.db"
     compaction.build_successor(db_path, out, policies=retention.effective_policies(conn),
                                cutoffs=retention.cutoff_dates(conn, TODAY))
@@ -113,7 +123,14 @@ def test_every_table_is_carried_not_just_the_ones_someone_remembered(conn, db_pa
             "SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         check.close()
-    assert original - successor == set()
+
+    assert original - successor == {"a_later_migration_would_add_this"}, (
+        "every table the migrations create must be carried; only one added behind "
+        "their back may be absent")
+    # ...and the gate must REFUSE such a successor rather than promote it.
+    assert any("a_later_migration_would_add_this" in problem
+               for problem in compaction.verify_successor(db_path, out)), \
+        "verification accepted a successor that dropped a table"
 
 
 # ---- verification is a gate --------------------------------------------------
@@ -264,6 +281,10 @@ def test_a_stale_pin_is_reported_rather_than_blocking_or_being_ignored(conn, db_
     result = compaction.compact_warehouse(conn, db_path, today=TODAY,
                                           expected_digest=digest)
     assert result.ok, "one stale bookmark must not block the warehouse forever"
+    assert result.stale_pins == 1
+    assert "protect nothing" in result.detail, (
+        "the RUN must say it too — counting a dead mark and then not reporting it "
+        "is the same silence this test exists to prevent")
 
     # The mark itself survives: ScrapeX does not delete the owner's marks.
     live = dbmod.connect(Path(result.built_path))

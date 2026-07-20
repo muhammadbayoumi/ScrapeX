@@ -17,6 +17,37 @@ from .connectors.factory import build_connector
 from .ingest import IngestResult, ingest_payloads
 
 
+class WarehouseSupersededError(RuntimeError):
+    """The database this crawl opened stopped being the live one mid-flight."""
+
+
+def _refuse_if_superseded(conn: sqlite3.Connection) -> None:
+    """Abort rather than ingest into a database that was sealed while we crawled.
+
+    The write lock serialises a commit DURING a compaction, but not one made
+    immediately AFTER it by a crawl that began before it: `connector.fetch` runs
+    for minutes holding no lock, and the connection it returns to is a handle on
+    a file that may since have been sealed and replaced. Those observations
+    would land in the archive and be invisible to the live warehouse forever.
+
+    Checked HERE, inside the lock and immediately before the insert, because
+    that is the only point where the answer cannot go stale again.
+    """
+    from . import storage
+
+    row = conn.execute("PRAGMA database_list").fetchone()
+    path = row[2] if row is not None else ""
+    if not path:
+        return                              # in-memory database: nothing to seal
+    when = storage.sealed_at(path)
+    if when:
+        raise WarehouseSupersededError(
+            f"The warehouse was replaced at {when} while this crawl was running, "
+            f"so its rows were not written: they would have gone into the sealed "
+            f"archive at {path} rather than the live database. Run the crawl again."
+        )
+
+
 def crawl_settings(conn: sqlite3.Connection) -> dict:
     """The owner's politeness choices (spec 33), read once per capture.
 
@@ -65,6 +96,7 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         fetcher.close()
     payloads = [t.to_payload() for t in tables]
     with (lock() if lock is not None else nullcontext()):
+        _refuse_if_superseded(conn)
         result = ingest_payloads(conn, entry, payloads, job_id=job_id)
     return CaptureResult(ingest=result, requests_count=requests_count,
                          tables=len(tables), rows=sum(len(t.rows) for t in tables))

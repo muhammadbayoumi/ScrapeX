@@ -308,7 +308,15 @@ def test_a_compaction_refuses_when_the_disk_is_too_full(conn, db_path, monkeypat
     assert db_path.exists() and storage.read_pointer() is None
 
 
-def test_two_previews_do_not_share_a_trial_filename(conn, db_path, monkeypatch):
+def test_two_previews_in_the_same_second_do_not_share_a_trial_filename(
+        conn, db_path, monkeypatch):
+    """The collision that actually happens, not a contrived one.
+
+    Freezing the clock is the point: the stamp is second-resolution and the
+    process id is identical for two previews in one process, so a name built
+    only from those two repeats. The earlier version of this test advanced the
+    clock between runs and therefore could never see it.
+    """
     names = []
     real_build = compaction.build_successor
 
@@ -317,11 +325,11 @@ def test_two_previews_do_not_share_a_trial_filename(conn, db_path, monkeypatch):
         return real_build(src, out, **kwargs)
 
     monkeypatch.setattr(compaction, "build_successor", record)
+    monkeypatch.setattr(settings, "file_stamp", lambda: "20300101T000000Z")
     aggressive(conn)
     compaction.preview(conn, db_path, today=TODAY)
-    monkeypatch.setattr(settings, "utc_now", lambda: "2030-01-01T00:00:01Z")
     compaction.preview(conn, db_path, today=TODAY)
-    assert len(set(names)) == 2, "two previews collided on one trial file"
+    assert len(set(names)) == 2, f"two previews collided on one trial file: {names}"
 
 
 def test_a_global_exclusion_is_inherited_by_every_dataset(conn):
@@ -343,10 +351,127 @@ def test_a_zero_request_interval_is_honoured_not_silently_replaced():
 
 
 def test_compacting_reports_the_size_after_the_wal_is_merged(conn, db_path):
-    """Under WAL the main file lags behind, so measuring it first could report
-    a real reduction as growth."""
+    """Under WAL the main file lags behind uncommitted-to-disk pages.
+
+    The previous version of this test asserted a conditional expression that
+    evaluated to True whenever the -wal file happened not to exist, so it passed
+    with the bug it names fully reintroduced. This drives a real WAL first, then
+    asserts the checkpoint actually ran and the numbers describe the file.
+    """
+    wal = db_path.with_name(db_path.name + "-wal")
+
+    # Make the WAL genuinely large relative to the database, so a size read
+    # taken before the checkpoint would be visibly wrong.
+    entry = make_entry()
+    for i in range(40):
+        ingest_payloads(conn, entry, [make_payload(
+            [one_row(external_product_id=f"p{i}", external_variant_id=f"v{i}",
+                     product_name=f"Item {i}", effective_price=f"{100 + i}.00")])])
+    conn.commit()
+    assert wal.exists() and wal.stat().st_size > 0, "the fixture did not build a WAL"
+
     result = storage.compact(conn, db_path)
     assert result.ok
-    assert "-wal" not in result.detail
-    assert db_path.with_name(db_path.name + "-wal").stat().st_size == 0 \
-        if db_path.with_name(db_path.name + "-wal").exists() else True
+    assert wal.stat().st_size == 0, \
+        "compact must checkpoint the WAL, or the size it reports is not the file"
+    # The reported figures must be the ones a person would see on disk.
+    assert f"{db_path.stat().st_size:,}" in result.detail
+
+
+# ---- BLOCKERS found by the second adversarial review -------------------------
+
+def test_a_crawl_in_flight_refuses_to_ingest_into_a_sealed_archive(conn, db_path):
+    """The worst defect found so far, and it defeated the whole design.
+
+    `connector.fetch` runs for minutes holding no lock. If a compaction commits
+    during it, the connection the crawl returns to is a handle on a file that has
+    since been sealed. The lock serialised a commit DURING the compaction but not
+    one immediately AFTER it, so the rows landed in the archive and were
+    invisible to the live warehouse forever.
+    """
+    from scrapex.capture import WarehouseSupersededError, capture_source
+
+    digest = aggressive(conn)
+    compaction.compact_warehouse(conn, db_path, today=TODAY, expected_digest=digest)
+
+    # `conn` is exactly what a crawl that started before the compaction holds.
+    class _Connector:
+        def fetch(self, entry):
+            return []
+
+    class _Fetcher:
+        requests_count = 0
+
+        def close(self):
+            pass
+
+    import scrapex.capture as capmod
+    original = capmod.build_connector
+    capmod.build_connector = lambda e, crawl=None: (_Connector(), _Fetcher())
+    try:
+        with pytest.raises(WarehouseSupersededError, match="was replaced"):
+            capture_source(conn, make_entry())
+    finally:
+        capmod.build_connector = original
+
+
+def test_restore_refuses_clearly_when_the_file_is_held_open(db_path, tmp_path, monkeypatch):
+    """Windows blocks renaming a file anyone has open. Unguarded, that escaped as
+    a bare 500 and stranded a full-size copy of the warehouse on disk."""
+    import os as osmod
+
+    conn = dbmod.connect(db_path)
+    try:
+        backup = Path(storage.backup_now(conn, db_path).location)
+    finally:
+        conn.close()
+
+    real_replace = osmod.replace
+
+    def refuse_first(src, dst, *a, **k):
+        if str(src) == str(db_path):
+            raise PermissionError("the file is in use by another process")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(storage.os, "replace", refuse_first)
+    with pytest.raises(storage.StorageRefused, match="still has it open"):
+        storage.restore(db_path, backup)
+
+    monkeypatch.undo()
+    assert db_path.exists() and storage.health(db_path)["ok"], "the live database must survive"
+    assert not list(db_path.parent.glob("*.restore-incoming")), \
+        "a failed restore left a full copy of the warehouse behind"
+
+
+def test_the_worker_can_be_asked_to_let_go_of_the_database(db_path):
+    """A restore has to rename the live file; the worker holds it for its whole
+    life, so it must be askable rather than merely path-aware."""
+    from scrapex.jobs import JobRunner
+
+    runner = JobRunner(str(db_path), lambda: None)
+    conn = dbmod.connect(db_path)
+    try:
+        assert runner._follow_the_warehouse(conn) is conn, "no reason to reopen yet"
+        runner.release_database()
+        reopened = runner._follow_the_warehouse(conn)
+        assert reopened is not conn, "release_database did not free the handle"
+        reopened.close()
+    finally:
+        try:
+            conn.close()
+        except sqlite3.ProgrammingError:
+            pass
+
+
+def test_backups_survive_every_lineage_suffix_the_product_writes(db_path):
+    """base_stem's pattern matched only the compaction stamp, so after a seal or
+    a restore every backup silently vanished from the Storage page."""
+    stamp = settings.file_stamp()
+    for reason in ("sealed", "moved", "replaced", "compact"):
+        renamed = db_path.with_name(f"{db_path.stem}.{reason}-{stamp}{db_path.suffix}")
+        assert storage.base_stem(renamed) == db_path.stem, \
+            f"a {reason} file resolves to the wrong warehouse name"
+    # ...and a second compaction must not hide what the first one could still see.
+    twice = db_path.with_name(
+        f"{db_path.stem}.compact-{stamp}.compact-{stamp}{db_path.suffix}")
+    assert storage.base_stem(twice) == db_path.stem

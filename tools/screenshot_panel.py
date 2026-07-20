@@ -245,6 +245,10 @@ def main() -> int:
         "08-settings": (_stub(args.backend), TAB_SETTINGS),
         "09-job-running-on-data-tab": (
             _stub(args.backend, jobs=running_job, records=arabic_records), TAB_DATA),
+        # No click: this is what the owner sees the instant the panel opens.
+        # Every other scenario navigates first, which is exactly how a broken
+        # opening screen stayed invisible.
+        "00-first-open": (_stub(args.backend), None),
         "10-source-current-page": (_stub(args.backend), TAB_SOURCE),
         # The whole point of the tab: a real page becomes a reviewable site.
         "10b-source-reviewed": (_stub(args.backend), [TAB_SOURCE, "#cur-use"]),
