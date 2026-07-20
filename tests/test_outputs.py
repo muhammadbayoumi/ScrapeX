@@ -60,9 +60,12 @@ class FakeSink:
 
     def __init__(self):
         self.tabs = {}
+        self.handles = []
 
     def ensure_workbook(self, folder, workbook):
-        return f"{folder}/{workbook}"
+        handle = f"{folder}/{workbook}"
+        self.handles.append(handle)
+        return handle
 
     def write_tab(self, handle, tab, header, rows):
         self.tabs[tab] = (header, rows)
@@ -334,3 +337,40 @@ def test_the_sync_page_states_the_disconnect_consequence(client, monkeypatch, tm
     monkeypatch.setattr("scrapex.gdrive.TOKEN_PATH", tmp_path / "token.json")
     assert "Nothing in Drive was changed" in \
         client.post("/api/outputs/google/disconnect").json()["detail"]
+
+
+# ---- spec 19: the two workbook choices, which were absent entirely ----------
+
+def test_the_default_arrangement_is_one_workbook_with_a_tab_per_source(conn):
+    status = outputs.excel_status(conn)
+    assert status["structure_key"] == "combined" and status["update_key"] == "replace"
+    assert "one tab per source" in status["structure"].lower()
+    assert "REPLACES" in status["update_behaviour"]
+
+
+def test_per_site_writes_one_workbook_per_source(conn):
+    settings.save(conn, {"excel_structure": "per_site"})
+    sink = FakeSink()
+    outputs.excel_export(conn, [SOURCE], sink=sink)
+    assert SOURCE in sink.handles[0], \
+        "a per-site workbook is named after the source, not the shared name"
+
+
+def test_the_snapshot_behaviour_keeps_the_previous_export_instead_of_replacing_it(conn):
+    """Spec 19's second update behaviour. With `replace`, exporting twice writes
+    one tab twice; with `snapshot`, each export keeps its own dated tab."""
+    settings.save(conn, {"excel_update": "snapshot"})
+    sink = FakeSink()
+    outputs.excel_export(conn, [SOURCE], sink=sink)
+    tabs = list(sink.tabs)
+    assert len(tabs) == 1 and tabs[0].startswith(SOURCE) and tabs[0] != SOURCE, \
+        "a snapshot tab carries its date"
+
+
+def test_the_status_describes_the_arrangement_actually_configured(conn):
+    settings.save(conn, {"excel_structure": "per_site", "excel_update": "snapshot"})
+    status = outputs.excel_status(conn)
+    assert "one workbook per source" in status["structure"].lower()
+    assert "NEW dated tab" in status["update_behaviour"]
+    assert "grows with every run" in status["update_behaviour"], \
+        "the cost of keeping every snapshot must be stated, not discovered"

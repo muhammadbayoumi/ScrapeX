@@ -46,8 +46,8 @@ from ..settings import get as settings_get
 from ..settings import save as save_settings
 from .. import compaction, pricehistory, retention
 from ..storage import (
-    StorageRefused, backup_now, check_move, export_database, migrate_location, repair,
-    resolve_db_path, restore, storage_status,
+    StorageRefused, backup_folder, backup_now, check_move, export_database,
+    migrate_location, open_folder, repair, resolve_db_path, restore, storage_status,
 )
 from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
@@ -879,6 +879,28 @@ def create_app(
             except StorageRefused as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
         return result.as_state()
+
+    @app.post("/api/storage/open-folder")
+    def api_storage_open_folder(body: dict):
+        """Show a folder in the file manager. `which` picks WHICH folder, so a
+        caller can never hand this an arbitrary path from the page."""
+        which = (body or {}).get("which", "database")
+        conn = read_conn()
+        try:
+            folders = {
+                "database": Path(app.state.db_path).parent,
+                "backups": backup_folder(conn, app.state.db_path),
+                "exports": excel_status(conn)["folder"],
+            }
+        finally:
+            conn.close()
+        if which not in folders:
+            raise HTTPException(status_code=400,
+                                detail=f"which must be one of {sorted(folders)}")
+        try:
+            return open_folder(folders[which]).as_state()
+        except StorageRefused as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     @app.post("/api/storage/repair")
     def api_storage_repair():

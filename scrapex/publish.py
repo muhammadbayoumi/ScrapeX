@@ -28,19 +28,24 @@ class SheetSink(Protocol):
 
 
 def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
-                   folder: str, workbook: str, schema: str = ORIGINAL_SCHEMA) -> tuple[int, str]:
+                   folder: str, workbook: str, schema: str = ORIGINAL_SCHEMA,
+                   tab: str | None = None) -> tuple[int, str]:
     """Publish one source's current-price table to a sink. Returns (rows, location).
 
     `schema` picks the Original Schema (every column, raw names — the default, so
     a downstream consumer is never surprised by cosmetic choices) or the owner's
     Current View (spec 22).
+
+    `tab` defaults to the source key. Passing a dated one is how the snapshot
+    update behaviour keeps each export beside the last instead of replacing it
+    (spec 19) — the sink itself needs no knowledge of that choice.
     """
     header, rows = export_source_table(conn, source_key)
     if not rows:
         raise ValueError(f"nothing to publish for {source_key} — crawl + ingest it first")
     header, rows = apply_schema(conn, source_key, header, rows, schema)
     handle = sink.ensure_workbook(folder, workbook)
-    sink.write_tab(handle, source_key, header, rows)
+    sink.write_tab(handle, tab or source_key, header, rows)
     return len(rows), sink.location(handle)
 
 

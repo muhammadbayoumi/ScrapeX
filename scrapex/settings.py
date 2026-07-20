@@ -50,6 +50,10 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     Setting("excel_folder", "", label="Folder for exported workbooks"),
     Setting("excel_workbook", "ScrapeX Data", label="Workbook name"),
     Setting("excel_schema", "original", label="Columns to export"),
+    # Spec 19 names both choices explicitly. They were absent, so the product had
+    # exactly one behaviour and no way to say so.
+    Setting("excel_structure", "combined", label="Workbook structure"),
+    Setting("excel_update", "replace", label="When you export again"),
     # --- Apps Script funnel (spec 22) ---
     Setting("funnel_url", "", env="SCRAPEX_FUNNEL_URL", label="Deployment URL"),
     Setting("funnel_token", "", env="SCRAPEX_FUNNEL_TOKEN", secret=True, label="Shared token"),

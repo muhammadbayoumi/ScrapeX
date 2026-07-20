@@ -73,6 +73,8 @@ def excel_folder(conn: sqlite3.Connection) -> Path:
 def excel_status(conn: sqlite3.Connection) -> dict:
     folder = excel_folder(conn)
     workbook = settings.get(conn, "excel_workbook")
+    structure = settings.get(conn, "excel_structure") or "combined"
+    update = settings.get(conn, "excel_update") or "replace"
     path = folder / f"{workbook}.xlsx"
     installed = _module_available("openpyxl")
     return {
@@ -87,12 +89,21 @@ def excel_status(conn: sqlite3.Connection) -> dict:
         "exists": path.exists(),
         "size_bytes": path.stat().st_size if path.exists() else 0,
         "schema": settings.get(conn, "excel_schema"),
-        # Spec 21 asks the interface to state the workbook's structure and its
-        # update behaviour, because both are surprising if you assume otherwise.
-        "structure": "One workbook, one tab per source, named after the source key.",
-        "update_behaviour": ("Re-exporting a source REPLACES that source's tab and "
-                             "leaves every other tab untouched. The workbook is "
-                             "never deleted and no other file is written."),
+        "structure_key": structure,
+        "update_key": update,
+        # Spec 19/21: state the arrangement and the update behaviour BEFORE
+        # anything is written, because both are surprising if assumed.
+        "structure": (
+            "One workbook, one tab per source, named after the source key."
+            if structure == "combined" else
+            "One workbook per source, each named after that source."),
+        "update_behaviour": (
+            "Re-exporting REPLACES that source's tab and leaves every other tab "
+            "untouched. The workbook is never deleted and no other file is written."
+            if update == "replace" else
+            "Re-exporting adds a NEW dated tab and leaves the previous ones in "
+            "place, so the workbook keeps a snapshot per export. Nothing is "
+            "overwritten, and the workbook grows with every run."),
         "last": settings.get_state(conn, "excel_last"),
     }
 
@@ -111,10 +122,18 @@ def excel_export(conn: sqlite3.Connection, source_keys: list[str], *,
     sink = sink if sink is not None else LocalSink()
     schema = schema or settings.get(conn, "excel_schema") or ORIGINAL_SCHEMA
     folder, workbook = status["folder"], status["workbook"]
+    per_site = status["structure_key"] == "per_site"
+    dated = status["update_key"] == "snapshot"
+    stamp = settings.utc_now()[:10]
     total, location, failures = 0, "", []
     for key in source_keys:
         try:
-            rows, location = publish_source(conn, key, sink, folder, workbook, schema=schema)
+            # per_site gives each source its own workbook; snapshot gives each
+            # export its own dated tab instead of replacing the previous one.
+            book = key if per_site else workbook
+            tab = f"{key} {stamp}" if dated else key
+            rows, location = publish_source(conn, key, sink, folder, book,
+                                            schema=schema, tab=tab)
             total += rows
         except ValueError as exc:          # nothing to publish for that source
             failures.append(f"{key}: {exc}")

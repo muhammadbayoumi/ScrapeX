@@ -2,6 +2,12 @@
    and a move with progress. Every control here can rewrite the database file,
    so each one states its consequence beside itself rather than in a tooltip. #}
 
+{% if storage.space_warning %}
+  {# Spec 18 asks for storage warnings. Said here, beside the number it is about,
+     rather than discovered when a compaction refuses to start. #}
+  <div class="banner">{{ storage.space_warning }}</div>
+{% endif %}
+
 <table>
   <tr><th>Current location</th>
       <td><code>{{ storage.path }}</code>
@@ -34,6 +40,12 @@
       <td class="num">{{ storage.sizes.backup_count }}
         <span class="muted">in {{ storage.backup_folder }}</span></td></tr>
 </table>
+
+<div class="row" style="margin:.6rem 0">
+  <button data-open="database" class="ghost">Open storage folder</button>
+  <button data-open="backups" class="ghost">Open backup folder</button>
+  <span id="open-out" class="hint" role="status" aria-live="polite"></span>
+</div>
 
 <div class="row" style="margin:.8rem 0">
   <button data-storage="backup">Back up now</button>
@@ -153,6 +165,12 @@
   }
 
   const value = (id) => (document.getElementById(id) || {}).value || "";
+
+  document.querySelectorAll("button[data-open]").forEach((button) => {
+    button.addEventListener("click", () => act(button, document.getElementById("open-out"),
+      async () => (await call("/api/storage/open-folder",
+                              {which: button.dataset.open})).detail));
+  });
 
   document.querySelectorAll("button[data-storage]").forEach((button) => {
     button.addEventListener("click", () => {

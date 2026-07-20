@@ -41,8 +41,27 @@
         Current view — only the columns you kept visible</option>
     </select>
   </div>
+  <div class="field">
+    <label for="excel_structure">Workbook structure</label>
+    <select id="excel_structure" name="excel_structure">
+      <option value="combined" {{ "selected" if status.structure_key == "combined" }}>
+        One workbook for all sites, one tab each</option>
+      <option value="per_site" {{ "selected" if status.structure_key == "per_site" }}>
+        A separate workbook for each site</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="excel_update">When you export again</label>
+    <select id="excel_update" name="excel_update">
+      <option value="replace" {{ "selected" if status.update_key == "replace" }}>
+        Replace that site's tab</option>
+      <option value="snapshot" {{ "selected" if status.update_key == "snapshot" }}>
+        Add a new dated tab and keep the previous ones</option>
+    </select>
+  </div>
   <div class="row">
     <button id="save-loc">Save location</button>
+    <button id="open-folder" class="ghost">Open output folder</button>
     <span id="save-out" class="hint" role="status" aria-live="polite"></span>
   </div>
 </form>
@@ -128,10 +147,15 @@ $("save-loc").addEventListener("click", () => act($("save-loc"), $("save-out"), 
     excel_folder: $("excel_folder").value,
     excel_workbook: $("excel_workbook").value,
     excel_schema: $("excel_schema").value,
+    excel_structure: $("excel_structure").value,
+    excel_update: $("excel_update").value,
   });
   setTimeout(() => location.reload(), 400);
   return "Saved.";
 }));
+
+$("open-folder").addEventListener("click", () => act($("open-folder"), $("save-out"), "", async () =>
+  (await post("/api/storage/open-folder", {which: "exports"})).detail));
 
 if ($("run")) $("run").addEventListener("click", () => act($("run"), $("run-out"), "", async () => {
   const keys = [...document.querySelectorAll('input[name="src"]:checked')].map(c => c.value);

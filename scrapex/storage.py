@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -370,6 +371,53 @@ def _warehouse_identity(conn: sqlite3.Connection) -> tuple[str, str] | None:
                 f"uses v{CONTRACT_VERSION}. Use a compatible engine or migrate it.",
             )
     return None
+
+
+def open_folder(folder: Path | str) -> RunResult:
+    """Show a folder in the platform's file manager (spec 17/19).
+
+    Deliberately narrow: it opens a DIRECTORY and never a file, so this can
+    never become a way to launch whatever happens to be sitting in it.
+    """
+    import subprocess
+
+    target = Path(folder).expanduser()
+    if not target.is_dir():
+        raise StorageRefused(f"There is no folder at {target} to open.")
+    try:
+        if os.name == "nt":
+            os.startfile(str(target))                     # noqa: S606 - a directory
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(target)], check=True)
+        else:
+            subprocess.run(["xdg-open", str(target)], check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise StorageRefused(
+            f"ScrapeX could not open {target} ({exc}). Open it yourself from your "
+            "file manager.")
+    return RunResult(ok=True, location=str(target), detail=f"Opened {target}.")
+
+
+# Spec 18: warn before the disk becomes the problem. Compaction and a move both
+# need room for a second copy, so "enough space" means more than "not zero".
+LOW_SPACE_FACTOR = 2.0
+
+
+def space_warning(db_path: Path | str) -> str:
+    """A sentence when the disk is tight, or "" when it is not."""
+    path = Path(db_path)
+    size, free = _size(path), free_space(path.parent)
+    if not size or not free:
+        return ""
+    if free < size:
+        return (f"Only {free:,} bytes are free where the database lives, and the "
+                f"database is {size:,}. A backup, a compaction or a move each need "
+                "room for a second copy and will be refused until you free space.")
+    if free < size * LOW_SPACE_FACTOR:
+        return (f"{free:,} bytes free against a {size:,} byte database. That is "
+                "enough to keep crawling, but a compaction or a move needs room "
+                "for a full second copy.")
+    return ""
 
 
 def health(db_path: Path | str) -> dict:
@@ -903,6 +951,7 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         "health": verdict,
         "backups": list_backups(path, folder),
         "backup_folder": str(folder),
+        "space_warning": space_warning(path),
         "last": settings.get_state(conn, "storage_last"),
         "migration": settings.get_state(conn, "storage_migration"),
     }

@@ -412,3 +412,41 @@ def test_status_carries_everything_a_screen_needs(conn, db_path):
                 "drive_kind", "ready", "blocker"):
         assert key in status, f"storage_status is missing {key}"
     assert status["ready"] is True and status["blocker"] == ""
+
+
+# ---- spec 17/18: open a folder, and warn before the disk becomes the problem --
+
+def test_opening_a_folder_refuses_a_path_that_is_not_one(tmp_path):
+    """Narrow on purpose: it opens a DIRECTORY, never a file, so this can never
+    become a way to launch whatever happens to be sitting in it."""
+    with pytest.raises(storage.StorageRefused, match="no folder"):
+        storage.open_folder(tmp_path / "not-there")
+
+
+def test_opening_a_folder_reports_where_it_went(db_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr(storage.os, "startfile", lambda p: opened.append(p),
+                        raising=False)
+    monkeypatch.setattr(storage.sys, "platform", "linux")
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: opened.append(a[0][-1]))
+    result = storage.open_folder(db_path.parent)
+    assert result.ok and str(db_path.parent) in result.detail
+    assert opened, "nothing was actually asked to open"
+
+
+def test_a_disk_with_no_room_for_a_second_copy_is_warned_about(db_path, monkeypatch):
+    """Spec 18. Said beside the number it is about, rather than discovered when a
+    compaction refuses to start."""
+    monkeypatch.setattr(storage, "free_space", lambda folder: 10)
+    warning = storage.space_warning(db_path)
+    assert "free" in warning and "second copy" in warning
+
+
+def test_a_healthy_amount_of_space_says_nothing(db_path, monkeypatch):
+    monkeypatch.setattr(storage, "free_space", lambda folder: 10**12)
+    assert storage.space_warning(db_path) == ""
+
+
+def test_the_warning_reaches_the_status_the_page_renders(conn, db_path, monkeypatch):
+    monkeypatch.setattr(storage, "free_space", lambda folder: 10)
+    assert storage.storage_status(conn, db_path)["space_warning"]
