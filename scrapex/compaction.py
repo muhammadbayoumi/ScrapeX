@@ -63,6 +63,7 @@ class CompactionResult:
     sealed_path: str = ""
     detail: str = ""
     problems: list[str] = field(default_factory=list)
+    stale_pins: int = 0            # marks that name an observation not held here
 
     @property
     def observations_left_behind(self) -> int:
@@ -275,6 +276,7 @@ def preview(conn: sqlite3.Connection, db_path: Path | str, *, today: str,
         result = build_successor(source, trial, policies=policies, cutoffs=cutoffs,
                                  progress=progress)
         result.problems = verify_successor(source, trial)
+        result.stale_pins = len(retention.stale_pins(conn))
         result.ok = not result.problems
         result.detail = _preview_sentence(result)
     finally:
@@ -283,18 +285,28 @@ def preview(conn: sqlite3.Connection, db_path: Path | str, *, today: str,
     return result
 
 
+def _stale_pin_note(result: CompactionResult) -> str:
+    """Never silent about a mark that points at nothing."""
+    if not result.stale_pins:
+        return ""
+    return (f" {result.stale_pins} pinned observation(s) are no longer in this "
+            "database, so those marks protect nothing. They are left exactly as "
+            "they are — review them under Data and history.")
+
+
 def _preview_sentence(result: CompactionResult) -> str:
     if result.problems:
         return ("This policy would not produce an acceptable database: "
                 + "; ".join(result.problems))
     if result.observations_left_behind == 0:
         return ("Nothing would be left behind — every observation is either recent "
-                "enough to keep or protected. There is no space to reclaim.")
+                "enough to keep or protected. There is no space to reclaim."
+                + _stale_pin_note(result))
     return (f"{result.observations_left_behind:,} of {result.observations_before:,} "
             f"observations would stay in the sealed archive rather than move forward. "
             f"The new database measures {result.bytes_after:,} bytes against "
             f"{result.bytes_before:,} today. Nothing is freed until you delete the "
-            "sealed archive yourself.")
+            "sealed archive yourself." + _stale_pin_note(result))
 
 
 # ---- committing --------------------------------------------------------------
@@ -333,6 +345,7 @@ def compact_warehouse(conn: sqlite3.Connection, db_path: Path | str, *, today: s
     try:
         result = build_successor(source, building, policies=policies, cutoffs=cutoffs,
                                  progress=progress)
+        result.stale_pins = len(retention.stale_pins(conn))
         result.problems = verify_successor(source, building)
     except Exception:
         _discard(building)

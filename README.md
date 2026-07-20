@@ -4,7 +4,10 @@ Contract-driven web data collection into a SQLite price-tracking warehouse,
 publishing curated data to the Google Sheet the mbiX Excel add-in reads.
 **The add-in is never touched** — the two systems meet only at the sheets.
 
-Rules: [ENGINEERING.md](ENGINEERING.md) · Architecture plan: owner's plan doc.
+Rules: [ENGINEERING.md](ENGINEERING.md) ·
+Compatibility contract: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) ·
+Generic catalogue: [docs/GENERIC_CATALOG.md](docs/GENERIC_CATALOG.md) ·
+Architecture plan: owner's plan doc.
 
 ```
 {connectors, extension} → funnel (Apps Script) → staging sheet (_INBOX/_RUNS)

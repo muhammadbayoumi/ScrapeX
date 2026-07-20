@@ -48,6 +48,15 @@ def test_health(client):
     assert r.status_code == 200 and r.json()["ok"] is True
 
 
+def test_feature_manifest_is_honest_about_the_generic_roadmap(client):
+    response = client.get("/api/features")
+    assert response.status_code == 200
+    features = {item["key"]: item for item in response.json()["features"]}
+    assert features["price_tracking"]["enabled"] is True
+    assert features["generic_dataset_catalog"]["enabled"] is False
+    assert features["generic_extraction"]["stage"] == "not_started"
+
+
 def test_sources_lists_manifest_with_counts(client):
     data = client.get("/api/sources").json()["sources"]
     keys = {s["source_key"] for s in data}

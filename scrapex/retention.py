@@ -126,6 +126,22 @@ def unpin(conn: sqlite3.Connection, retention_pin_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+def stale_pins(conn: sqlite3.Connection) -> list[dict]:
+    """Pins that name an observation this database does not hold.
+
+    A pin is a bookmark, not an observation, so a stale one must NOT make
+    verification demand a row nobody can supply — that refused every future
+    compaction with a message reading like data loss. But it must not be
+    silent either: an owner who marked something important is owed the fact
+    that the mark now points at nothing. So it is reported, never enforced.
+    """
+    return [dict(r) for r in conn.execute(
+        "SELECT p.retention_pin_id, p.offer_id, p.business_date, p.record_hash, p.note "
+        "FROM retention_pin p WHERE NOT EXISTS ("
+        "  SELECT 1 FROM price_observation po WHERE po.offer_id = p.offer_id "
+        "   AND po.business_date = p.business_date AND po.record_hash = p.record_hash)")]
+
+
 def list_pins(conn: sqlite3.Connection, source_key: str | None = None,
               limit: int = 200) -> list[dict]:
     sql = ("SELECT p.retention_pin_id, p.offer_id, p.business_date, p.record_hash, "

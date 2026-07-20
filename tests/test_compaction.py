@@ -240,6 +240,39 @@ def test_a_failed_verification_leaves_the_warehouse_alone(conn, db_path, monkeyp
     assert not list(db_path.parent.glob("*.compact-*")), "the rejected build was kept"
 
 
+def test_a_stale_pin_is_reported_rather_than_blocking_or_being_ignored(conn, db_path):
+    """A pin may go stale after manual recovery or imported metadata.
+
+    Two branches reviewed this and each got half of it. Blocking the compaction
+    made ONE bad bookmark refuse every future run, reported as "1 protected
+    observation did not survive" — a message that reads like data loss. Ignoring
+    it let the run claim it carried the owner's exact protected set when it had
+    not. A pin is a bookmark, not an observation: it cannot make verification
+    demand a row nobody can supply, and it cannot be passed over in silence.
+    """
+    set_aggressive(conn)
+    offer_id = conn.execute("SELECT offer_id FROM price_observation LIMIT 1").fetchone()[0]
+    retention.pin(conn, offer_id, "2026-01-01", "hash-that-matches-no-row")
+    conn.commit()
+    digest = retention.policy_digest(retention.get_policies(conn))
+
+    assert retention.protected_keys(conn) == retention.protected_keys_independently(conn)
+    previewed = compaction.preview(conn, db_path, today=TODAY)
+    assert previewed.stale_pins == 1
+    assert "protect nothing" in previewed.detail, "a dead mark must not be silent"
+
+    result = compaction.compact_warehouse(conn, db_path, today=TODAY,
+                                          expected_digest=digest)
+    assert result.ok, "one stale bookmark must not block the warehouse forever"
+
+    # The mark itself survives: ScrapeX does not delete the owner's marks.
+    live = dbmod.connect(Path(result.built_path))
+    try:
+        assert live.execute("SELECT COUNT(*) FROM retention_pin").fetchone()[0] == 1
+    finally:
+        live.close()
+
+
 def test_the_audit_row_lands_in_the_database_that_is_now_live(conn, db_path):
     """Writing it before the run would leave a row stuck at 'running' inside the
     file being sealed, and the live warehouse would report a run that never ended."""

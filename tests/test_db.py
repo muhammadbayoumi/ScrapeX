@@ -27,8 +27,12 @@ def test_migrate_is_idempotent(tmp_path: Path):
         second = dbmod.migrate(conn)
     finally:
         conn.close()
-    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]  # +0012 pin join
+    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]  # +0013 generic catalogue
     assert second == []  # T4: running again applies nothing
+
+
+def test_latest_schema_version_matches_the_migration_chain():
+    assert dbmod.latest_schema_version() == 13
 
 
 def test_foreign_keys_actually_enforced(tmp_path: Path):

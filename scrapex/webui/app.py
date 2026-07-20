@@ -29,6 +29,7 @@ from ..fields import (
     delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
     set_display_name, set_visibility,
 )
+from ..features import manifest as feature_manifest
 from ..manifest_io import DuplicateSourceError, add_source
 from ..matching import (
     ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
@@ -57,6 +58,7 @@ from ..vocab import (
     Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher,
     JobControl, MissedRunPolicy, OverlapPolicy, RunMode, ScheduleFrequency, VatMode,
 )
+from .catalog_api import create_catalog_router
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 STATIC_DIR = Path(__file__).parent / "static"
@@ -254,6 +256,11 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             conn.close()
         return {"ok": True, "app": "scrapex", "version": __version__, "sources_with_data": n}
 
+    @app.get("/api/features")
+    def api_features():
+        """What is genuinely usable, separate from what the roadmap names."""
+        return feature_manifest()
+
     @app.get("/api/sources")
     def api_sources():
         conn = read_conn()
@@ -385,6 +392,10 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             raise HTTPException(
                 status_code=409,
                 detail="a crawl is currently writing to the database — try again shortly")
+
+    # G1 foundation: typed persistence and API only. The feature stays disabled
+    # until a later slice adds a complete user-facing catalogue workflow.
+    app.include_router(create_catalog_router(read_conn, _write))
 
     @app.get("/api/fields/{source_key}")
     def api_fields(source_key: str):
@@ -777,8 +788,10 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         """Put a backup in place.
 
         Deliberately NOT run through _storage_action: that holds a connection to
-        the very file restore has to move aside, and on Windows an open handle
-        makes the rename fail outright — so every restore returned a 500.
+        the very file restore has to move aside. On Windows an open handle makes
+        the rename fail outright — so every restore returned a 500 — and it also
+        risks letting the old WAL describe the new file. The writer lock is held,
+        but no database connection is opened during the switch.
         """
         backup_path = (body or {}).get("backup_path", "")
         if not backup_path:

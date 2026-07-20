@@ -97,6 +97,69 @@ def test_health_reports_an_unreadable_file_as_a_word_not_a_crash(tmp_path):
     assert verdict["ok"] is False and verdict["status"] == "unreadable"
 
 
+def test_health_refuses_an_empty_sqlite_file(tmp_path):
+    empty = tmp_path / "empty.db"
+    empty.write_bytes(b"")
+    verdict = storage.health(empty)
+    assert verdict["ok"] is False and verdict["status"] == "not_scrapex"
+    assert "empty" in verdict["detail"].lower()
+
+
+def test_health_distinguishes_foreign_sqlite_from_a_scrapex_warehouse(tmp_path):
+    foreign = tmp_path / "foreign.db"
+    conn = sqlite3.connect(str(foreign))
+    try:
+        conn.execute("CREATE TABLE contacts(name TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+    verdict = storage.health(foreign)
+    assert verdict["ok"] is False and verdict["status"] == "not_scrapex"
+    assert "not a ScrapeX warehouse" in verdict["detail"]
+
+
+def test_repair_refuses_a_foreign_sqlite_database(tmp_path):
+    foreign = tmp_path / "foreign.db"
+    conn = sqlite3.connect(str(foreign))
+    conn.execute("CREATE TABLE contacts(name TEXT)")
+    conn.execute("INSERT INTO contacts VALUES ('Ada')")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(storage.StorageRefused, match="Refusing to repair"):
+        storage.repair(foreign)
+
+    check = sqlite3.connect(str(foreign))
+    try:
+        assert check.execute("SELECT name FROM contacts").fetchall() == [("Ada",)]
+    finally:
+        check.close()
+
+
+def test_health_accepts_a_legacy_v1_scrapex_warehouse_for_migration(tmp_path):
+    legacy = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(legacy))
+    try:
+        conn.executescript(dbmod.SCHEMA_FILE.read_text(encoding="utf-8"))
+        conn.commit()
+    finally:
+        conn.close()
+    verdict = storage.health(legacy)
+    assert verdict["ok"] is True and verdict["status"] == "healthy"
+
+
+def test_health_refuses_a_warehouse_from_a_newer_engine(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA user_version = 999")
+        conn.commit()
+    finally:
+        conn.close()
+    verdict = storage.health(db_path)
+    assert verdict["ok"] is False and verdict["status"] == "incompatible"
+    assert "Update ScrapeX" in verdict["detail"]
+
+
 # ---- backups -----------------------------------------------------------------
 
 def test_a_backup_is_a_usable_database_not_a_torn_copy(conn, db_path):
@@ -139,6 +202,74 @@ def test_an_unhealthy_backup_is_never_put_in_place(db_path, tmp_path):
     with pytest.raises(storage.StorageRefused, match="health check"):
         storage.restore(db_path, junk)
     assert storage.health(db_path)["ok"], "the live database must be untouched"
+
+
+def test_a_foreign_but_healthy_sqlite_file_is_never_restored(db_path, tmp_path):
+    foreign = tmp_path / "someone-elses.db"
+    conn = sqlite3.connect(str(foreign))
+    try:
+        conn.execute("CREATE TABLE contacts(name TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    with pytest.raises(storage.StorageRefused, match="health check"):
+        storage.restore(db_path, foreign)
+
+    assert storage.health(db_path)["ok"], "the live warehouse must remain in place"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        triggers = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+    finally:
+        conn.close()
+    assert "trg_price_obs_no_update" in triggers
+
+
+def test_restore_validates_the_copy_before_moving_the_live_database(conn, db_path,
+                                                                    tmp_path, monkeypatch):
+    backup = Path(storage.backup_now(conn, db_path).location)
+    conn.close()
+    real_copy = storage.shutil.copy2
+
+    def corrupt_copy(source, destination):
+        real_copy(source, destination)
+        Path(destination).write_bytes(b"copy failed partway")
+
+    monkeypatch.setattr(storage.shutil, "copy2", corrupt_copy)
+    with pytest.raises(storage.StorageRefused, match="copied backup"):
+        storage.restore(db_path, backup)
+
+    assert storage.health(db_path)["ok"], "validation happens before the live switch"
+    assert not db_path.with_name(db_path.name + ".restore-incoming").exists()
+
+
+def test_copy_verification_includes_generic_catalogue_tables(db_path, tmp_path):
+    source = db_path
+    copied = tmp_path / "copied.db"
+    source_conn = dbmod.connect(source)
+    try:
+        source_conn.execute(
+            "INSERT INTO site_profile (site_key, display_name, base_url) VALUES (?,?,?)",
+            ("example_site", "Example", "https://example.com/"),
+        )
+        source_conn.commit()
+        destination_conn = sqlite3.connect(str(copied))
+        try:
+            source_conn.backup(destination_conn)
+        finally:
+            destination_conn.close()
+    finally:
+        source_conn.close()
+
+    assert storage._same_contents(source, copied) is True
+    copied_conn = sqlite3.connect(str(copied))
+    try:
+        copied_conn.execute("DELETE FROM site_profile")
+        copied_conn.commit()
+    finally:
+        copied_conn.close()
+    assert storage._same_contents(source, copied) is False
 
 
 # ---- maintenance -------------------------------------------------------------

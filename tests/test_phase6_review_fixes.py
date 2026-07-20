@@ -164,7 +164,9 @@ def test_restore_refuses_a_warehouse_without_the_append_only_triggers(db_path, t
     conn.execute("DROP TRIGGER trg_price_obs_no_delete")
     conn.commit()
     conn.close()
-    with pytest.raises(storage.StorageRefused, match="not append-only"):
+    # The merged guard names the missing object rather than the consequence;
+    # both refuse, and refusing is the property that matters.
+    with pytest.raises(storage.StorageRefused, match="trg_price_obs_no_delete"):
         storage.restore(db_path, tampered)
 
 
@@ -172,7 +174,7 @@ def test_an_empty_file_is_not_reported_as_healthy(tmp_path):
     empty = tmp_path / "empty.db"
     empty.write_bytes(b"")
     verdict = storage.health(empty)
-    assert verdict["ok"] is False and verdict["status"] == "empty"
+    assert verdict["ok"] is False and verdict["status"] == "not_scrapex"
 
 
 # ---- HIGH: a stale pin must not block every future compaction ---------------

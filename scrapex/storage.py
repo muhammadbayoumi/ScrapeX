@@ -44,6 +44,18 @@ FREE_SPACE_MARGIN = 1.2
 # Windows drive types (winbase.h). Used only to warn, never to refuse.
 _DRIVE_REMOVABLE, _DRIVE_REMOTE = 2, 4
 
+# A readable SQLite file is not necessarily a ScrapeX warehouse. These objects
+# are the smallest durable identity shared by the original schema and every
+# migration since: accepting a foreign SQLite file during restore would move the
+# real warehouse aside and put unrelated data in its place.
+_WAREHOUSE_TABLES = frozenset({
+    "source_site", "source_product", "source_variant", "source_offer",
+    "price_observation", "crawl_run", "raw_snapshot",
+})
+_WAREHOUSE_TRIGGERS = frozenset({
+    "trg_price_obs_no_update", "trg_price_obs_no_delete",
+})
+
 
 class StorageUnavailableError(RuntimeError):
     """The recorded database location cannot be reached right now.
@@ -290,6 +302,71 @@ def drive_kind(folder: Path | str) -> str:
     return {_DRIVE_REMOVABLE: "removable", _DRIVE_REMOTE: "network"}.get(kind, "fixed")
 
 
+def _warehouse_identity(conn: sqlite3.Connection) -> tuple[str, str] | None:
+    """Return ``(status, reason)`` when this is not a compatible warehouse.
+
+    Integrity and identity are deliberately separate checks. ``quick_check``
+    answers whether SQLite can read the file; this answers whether ScrapeX may
+    safely interpret and restore it.
+    """
+    version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if version <= 0:
+        return (
+            "not_scrapex",
+            "The file is SQLite, but it is not a ScrapeX warehouse; it has no "
+            "ScrapeX schema version.",
+        )
+    latest = dbmod.latest_schema_version()
+    if version > latest:
+        return (
+            "incompatible",
+            f"The file uses ScrapeX schema v{version}, but this engine only "
+            f"understands through v{latest}. Update ScrapeX before restoring it.",
+        )
+
+    objects = {
+        row[0]: row[1]
+        for row in conn.execute(
+            "SELECT name, type FROM sqlite_master WHERE type IN ('table','trigger')"
+        )
+    }
+    missing_tables = sorted(name for name in _WAREHOUSE_TABLES
+                            if objects.get(name) != "table")
+    missing_triggers = sorted(name for name in _WAREHOUSE_TRIGGERS
+                              if objects.get(name) != "trigger")
+    if missing_tables or missing_triggers:
+        missing = missing_tables + missing_triggers
+        return (
+            "not_scrapex",
+            "The file is SQLite, but it is not a ScrapeX warehouse; required "
+            f"objects are missing: {', '.join(missing)}.",
+        )
+
+    # Migration 0002 introduced the contract marker. A v1 warehouse is a valid
+    # legacy ScrapeX database and can be migrated after restore; v2+ without the
+    # marker is either foreign or incomplete and must be refused.
+    if version >= 2:
+        if objects.get("scrapex_meta") != "table":
+            return "not_scrapex", "The ScrapeX contract marker table is missing."
+        row = conn.execute(
+            "SELECT value FROM scrapex_meta WHERE key = 'contract_version'"
+        ).fetchone()
+        if row is None:
+            return "not_scrapex", "The ScrapeX contract version marker is missing."
+        from .contract import CONTRACT_VERSION
+        try:
+            stored_contract = int(row[0])
+        except (TypeError, ValueError):
+            return "not_scrapex", "The ScrapeX contract version marker is invalid."
+        if stored_contract != CONTRACT_VERSION:
+            return (
+                "incompatible",
+                f"The warehouse uses contract v{stored_contract}, but this engine "
+                f"uses v{CONTRACT_VERSION}. Use a compatible engine or migrate it.",
+            )
+    return None
+
+
 def health(db_path: Path | str) -> dict:
     """SQLite's own verdict, reported as a word plus the raw findings.
 
@@ -305,10 +382,12 @@ def health(db_path: Path | str) -> dict:
     if _size(path) == 0:
         # SQLite opens a zero-byte file as a valid EMPTY database and every
         # check passes, so "healthy" was technically true and completely
-        # misleading — there is nothing in it.
-        return {"status": "empty", "ok": False, "problems": [],
-                "foreign_key_problems": 0,
-                "detail": "This file is empty. It holds no data at all."}
+        # misleading. It is reported as not_scrapex rather than as its own
+        # status, because the remedy is the same one: this is not a warehouse.
+        return {"status": "not_scrapex", "ok": False,
+                "detail": "The file is empty and is not a ScrapeX warehouse.",
+                "problems": ["empty file"], "foreign_key_problems": 0,
+                "reclaimable_bytes": 0}
     conn = sqlite3.connect(str(path))
     try:
         problems = [r[0] for r in conn.execute("PRAGMA quick_check")]
@@ -316,6 +395,7 @@ def health(db_path: Path | str) -> dict:
         fk = conn.execute("PRAGMA foreign_key_check").fetchall()
         freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
         page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+        identity_problem = _warehouse_identity(conn)
     except sqlite3.DatabaseError as exc:
         return {"status": "unreadable", "ok": False,
                 "detail": f"SQLite could not read this file: {exc}",
@@ -328,6 +408,11 @@ def health(db_path: Path | str) -> dict:
         return {"status": "damaged", "ok": False, "problems": problems,
                 "foreign_key_problems": len(fk),
                 "detail": "SQLite reported problems. Back up first, then run Repair."}
+    if identity_problem is not None:
+        status, detail = identity_problem
+        return {"status": status, "ok": False, "problems": [detail],
+                "foreign_key_problems": 0, "reclaimable_bytes": reclaimable,
+                "detail": detail}
     return {
         "status": "healthy", "ok": True, "problems": [], "foreign_key_problems": 0,
         "reclaimable_bytes": reclaimable,
@@ -338,42 +423,6 @@ def health(db_path: Path | str) -> dict:
 
 
 # ---- backups -----------------------------------------------------------------
-
-REQUIRED_TRIGGERS = ("trg_price_obs_no_update", "trg_price_obs_no_delete")
-REQUIRED_TABLES = ("price_observation", "source_offer", "source_site", "scrapex_meta")
-
-
-def not_a_warehouse(db_path: Path | str) -> str:
-    """Why this file is not a ScrapeX warehouse, or "" if it is one.
-
-    `health` only proves SQLite can read the file. Any readable database passed
-    that check, so a stray .db chosen in the Restore list would have been
-    installed as the live warehouse — including one with no append-only triggers,
-    which would end the guarantee the whole product rests on.
-    """
-    try:
-        conn = sqlite3.connect(str(db_path))
-    except sqlite3.DatabaseError as exc:
-        return str(exc)
-    try:
-        tables = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'")}
-        missing = [t for t in REQUIRED_TABLES if t not in tables]
-        if missing:
-            return f"it has no {', '.join(missing)} table"
-        triggers = {r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'trigger'")}
-        absent = [t for t in REQUIRED_TRIGGERS if t not in triggers]
-        if absent:
-            return "its price history is not append-only"
-        if int(conn.execute("PRAGMA user_version").fetchone()[0]) <= 0:
-            return "it carries no ScrapeX schema version"
-    except sqlite3.DatabaseError as exc:
-        return str(exc)
-    finally:
-        conn.close()
-    return ""
-
 
 def backup_folder(conn: sqlite3.Connection, db_path: Path | str) -> Path:
     saved = settings.get(conn, "backup_folder")
@@ -457,19 +506,38 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
     path, source = Path(db_path), Path(backup_path)
     if not source.exists():
         raise StorageRefused(f"That backup is no longer at {source}.")
+    try:
+        if source.resolve() == path.resolve():
+            raise StorageRefused("The selected backup is already the live database.")
+    except OSError:
+        pass
+    # health() now answers BOTH questions — can SQLite read this file, and may
+    # ScrapeX interpret it — so one refusal covers a corrupt backup, a foreign
+    # database, and one written by a newer engine.
     verdict = health(source)
     if not verdict["ok"]:
         raise StorageRefused(
-            f"That backup does not pass a health check ({verdict['status']}), so "
-            "ScrapeX will not put it in place. Try an older backup.")
-    wrong = not_a_warehouse(source)
-    if wrong:
-        raise StorageRefused(
-            f"That file is a readable database, but it is not a ScrapeX warehouse "
-            f"({wrong}). Installing it would replace your history with something "
-            "this product cannot use.")
+            f"That backup does not pass a health check ({verdict['status']}): "
+            f"{verdict['detail']} ScrapeX will not put it in place.")
     if free_space(path.parent) < _size(source) * FREE_SPACE_MARGIN:
         raise StorageRefused(f"Not enough free space in {path.parent} to restore.")
+
+    # Copy and validate while the current warehouse remains authoritative. Only
+    # a fully copied, re-checked file is allowed to reach the switch below.
+    incoming = path.with_name(path.name + ".restore-incoming")
+    incoming.unlink(missing_ok=True)
+    try:
+        shutil.copy2(source, incoming)
+    except OSError:
+        incoming.unlink(missing_ok=True)
+        raise
+    copied_verdict = health(incoming)
+    if not copied_verdict["ok"] or not _same_contents(source, incoming):
+        incoming.unlink(missing_ok=True)
+        raise StorageRefused(
+            "The copied backup did not pass verification, so the live database "
+            "was not changed. Try an older backup or another storage device."
+        )
 
     displaced = ""
     if path.exists():
@@ -477,10 +545,11 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
             f"{path.stem}.replaced-{settings.utc_now().replace(':', '')}{path.suffix}"))
         os.replace(path, displaced)
     try:
-        shutil.copy2(source, path)
+        os.replace(incoming, path)
     except OSError:
         if displaced:                      # put the original back, then re-raise
             os.replace(displaced, path)
+        incoming.unlink(missing_ok=True)
         raise
     # The WAL of the replaced database describes a file that is no longer there.
     for suffix in ("-wal", "-shm"):
@@ -504,6 +573,10 @@ def repair(db_path: Path | str) -> RunResult:
     """
     path = Path(db_path)
     verdict = health(path)
+    if verdict["status"] in {"missing", "unreadable", "not_scrapex", "incompatible"}:
+        raise StorageRefused(
+            f"Refusing to repair {path.name}: {verdict['detail']}"
+        )
     conn = dbmod.connect(path)
     try:
         conn.execute("REINDEX")
@@ -585,9 +658,12 @@ class MoveCheck:
 
 def _is_stranded_copy(source: Path, candidate: Path) -> bool:
     """Is this the copy an interrupted move already made, rather than someone
-    else's database? Judged on content, never on the filename."""
-    return not not_a_warehouse(candidate) and health(candidate)["ok"] \
-        and _same_contents(source, candidate)
+    else's database? Judged on content, never on the filename.
+
+    `health` covers warehouse identity as well as readability, so a foreign
+    database sitting at the destination can never be mistaken for our own.
+    """
+    return health(candidate)["ok"] and _same_contents(source, candidate)
 
 
 def check_move(db_path: Path | str, new_dir: Path | str) -> MoveCheck:
@@ -745,17 +821,29 @@ def _retire(path: Path, reason: str, successor: Path) -> str:
 
 
 def _same_contents(src: Path, dst: Path) -> bool:
-    """Row counts agree on the tables that matter. Cheap, and catches a truncated
-    copy — which is the failure a byte-size check misses on a WAL database."""
-    tables = ("price_observation", "source_offer", "source_product", "source_site")
+    """Every user table and row count agrees, including future generic data.
+
+    A fixed table allowlist silently stopped protecting data as soon as a new
+    migration added a first-class dataset. Schema names come from SQLite itself;
+    values remain parameterized and identifiers are quoted before use.
+    """
     try:
         a, b = sqlite3.connect(str(src)), sqlite3.connect(str(dst))
     except sqlite3.DatabaseError:
         return False
     try:
-        for table in tables:
-            if a.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] != \
-               b.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:
+        table_sql = (
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )
+        tables_a = [row[0] for row in a.execute(table_sql)]
+        tables_b = [row[0] for row in b.execute(table_sql)]
+        if tables_a != tables_b:
+            return False
+        for table in tables_a:
+            quoted = table.replace('"', '""')
+            count_sql = f'SELECT COUNT(*) FROM "{quoted}"'
+            if a.execute(count_sql).fetchone()[0] != b.execute(count_sql).fetchone()[0]:
                 return False
         return a.execute("PRAGMA user_version").fetchone()[0] == \
             b.execute("PRAGMA user_version").fetchone()[0]
