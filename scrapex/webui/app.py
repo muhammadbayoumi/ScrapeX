@@ -170,6 +170,21 @@ def create_app(
             return app.state.databases.marketlens.connect()
         return dbmod.connect(app.state.db_path)
 
+    def ensure_schema(conn) -> None:
+        """Migrate ONLY a legacy single-file warehouse.
+
+        A MarketLens database has its own numbered migration stream and was
+        already migrated when it was created. Running the unified stream over it
+        re-applies migration 1 and dies on "table offer_state already exists" —
+        which is what happened the moment the owner pressed Run, because two
+        request paths called dbmod.migrate() unconditionally.
+
+        One helper rather than a check at each call site: the next route that
+        needs a writable connection should not have to remember this.
+        """
+        if app.state.databases is None:
+            dbmod.migrate(conn)
+
     def general_read_conn():
         if app.state.general_database is None:
             return read_conn()
@@ -1204,7 +1219,7 @@ def create_app(
                                 f"{[m.value for m in RunMode]}")
         conn = read_conn()
         try:
-            dbmod.migrate(conn)
+            ensure_schema(conn)
             job_ref = create_job(conn, source_keys, run_mode)
         finally:
             conn.close()
@@ -1275,7 +1290,7 @@ def create_app(
             with dbmod.write_lock(app.state.db_path):
                 conn = dbmod.connect(app.state.db_path)
                 try:
-                    dbmod.migrate(conn)
+                    ensure_schema(conn)
                     result = capture_source(conn, entry)
                     conn.commit()
                 finally:
