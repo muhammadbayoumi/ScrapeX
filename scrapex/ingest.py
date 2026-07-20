@@ -16,6 +16,7 @@ from .changes import (
     record_alias, record_change,
 )
 from .config import SourceEntry
+from . import pricekey
 from .normalize import parse_money, record_hash
 from .payload import FunnelPayload
 from .rowspec import RowView, spec_for
@@ -266,11 +267,32 @@ def _observation_values(r: dict, observed_at: str) -> dict:
     stock_raw = r["stock_quantity"]
     stock_dec = parse_money(stock_raw) if stock_raw else None
     stock = _to_float(stock_dec)
+    # record_hash keeps its original composition — it is the dedupe key on
+    # ux_price_obs_dedupe and part of the frozen cross-engine contract, so
+    # changing it would silently re-key every existing warehouse.
     content_hash = record_hash({
         "effective": _canon_amount(effective), "regular": _canon_amount(regular),
         "sale": _canon_amount(sale), "currency": r["currency"], "vat": vat,
         "availability": availability, "stock": _canon_amount(stock_dec),
     })
+    # price_hash answers a different question: is this the SAME PRICE? It leaves
+    # availability and stock out — the owner wants the latest stock state, not
+    # its history, and a stock movement must never read as a price change.
+    price_key = pricekey.build(
+        effective=_canon_amount(effective), regular=_canon_amount(regular),
+        sale=_canon_amount(sale), currency=r["currency"], vat=vat,
+        region=r.get("region", ""),
+        # option_label carries the selling unit for commodity rows ('USD/liter')
+        # and the variant option for products — in both cases, what you are
+        # buying one of.
+        unit=r.get("option_label", ""),
+        brand=r.get("brand_raw", ""),
+        # Not collected by any connector yet. Named here so a connector that
+        # starts supplying them needs no schema change, and so their arrival is
+        # a field-set widening rather than a warehouse-wide price change.
+        origin=r.get("country_of_origin", ""),
+        spec=r.get("spec_summary", ""),
+    )
     return {
         "observed_at": observed_at,
         "business_date": observed_at[:10],
@@ -282,6 +304,8 @@ def _observation_values(r: dict, observed_at: str) -> dict:
         "availability": availability,
         "stock_quantity": stock,
         "record_hash": content_hash,
+        "price_hash": price_key.digest,
+        "price_fields": price_key.field_list,
     }
 
 
@@ -419,11 +443,13 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
     cur = conn.execute(
         "INSERT OR IGNORE INTO price_observation "
         "(offer_id, observed_at, business_date, regular_price, sale_price, effective_price, "
-        " currency, vat_included, availability, stock_quantity, run_id, record_hash) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " currency, vat_included, availability, stock_quantity, run_id, record_hash, "
+        "price_hash, price_fields) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (offer_id, v["observed_at"], v["business_date"], v["regular_price"], v["sale_price"],
          v["effective_price"], v["currency"], v["vat_included"], v["availability"],
-         v["stock_quantity"], run_id, v["record_hash"]),
+         v["stock_quantity"], run_id, v["record_hash"],
+         v["price_hash"], v["price_fields"]),
     )
     if cur.rowcount == 1:
         result.observations += 1

@@ -106,15 +106,34 @@ def _general_plan() -> tuple[Migration, ...]:
     return tuple([Migration(1, GENERAL_SCHEMA), *_folder_migrations(GENERAL_MIGRATIONS)])
 
 
+# Legacy migrations belonging to the PRICE domain, in the order MarketLens
+# applies them. Legacy 13 and 14 are deliberately absent — they created the
+# generic catalogue and generic extraction storage, which are General's alone.
+#
+# Listed rather than ranged: the unified chain and this one have diverged, so a
+# new price migration lands at the END of the legacy chain but in the middle of
+# this plan. A range would silently swallow whatever General adds next.
+_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15)
+
+
 def _marketlens_plan() -> tuple[Migration, ...]:
-    immutable_price_history = [Migration(1, legacy_db.SCHEMA_FILE)]
-    immutable_price_history.extend(
-        Migration(number, path)
-        for number, path in legacy_db._migration_files()  # noqa: SLF001 - selected legacy history
-        if 2 <= number <= 12
-    )
-    immutable_price_history.append(Migration(13, MARKETLENS_IDENTITY))
-    return tuple(immutable_price_history)
+    legacy = {number: path
+              for number, path in legacy_db._migration_files()  # noqa: SLF001
+              if number in _MARKETLENS_LEGACY_NUMBERS}
+    missing = sorted(set(_MARKETLENS_LEGACY_NUMBERS) - set(legacy))
+    if missing:
+        raise MigrationStreamError(
+            f"MarketLens expects legacy price migrations {missing}, which are not in "
+            "db/migrations. A price migration was renamed or removed.")
+
+    # This stream's version numbers are its own; they are NOT the legacy file
+    # numbers, and the gap left by 13/14 is closed here rather than carried.
+    plan = [Migration(1, legacy_db.SCHEMA_FILE)]
+    for position, number in enumerate(sorted(n for n in legacy if n <= 12), start=2):
+        plan.append(Migration(position, legacy[number]))
+    plan.append(Migration(13, MARKETLENS_IDENTITY))
+    plan.append(Migration(14, legacy[15]))
+    return tuple(plan)
 
 
 class DomainDatabase(Generic[T]):
@@ -290,11 +309,20 @@ class DomainDatabase(Generic[T]):
                 if conn.in_transaction:
                     conn.rollback()
                 raise
-            if int(conn.execute("PRAGMA user_version").fetchone()[0]) != migration.number:
-                raise DatabaseMigrationError(
-                    f"{self.kind} migration {migration.name} did not set schema "
-                    f"version {migration.number}; fix the migration and retry"
-                )
+            stamped = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            if stamped != migration.number:
+                # A file shared with the unified chain carries THAT chain's
+                # number, and cannot also carry this stream's — the two diverged
+                # the moment General and MarketLens stopped applying the same
+                # list. The stream owns its version, so the runner stamps it.
+                # A file that set nothing at all is still a mistake: it means the
+                # author forgot, and every later run would replay it.
+                if stamped == 0:
+                    raise DatabaseMigrationError(
+                        f"{self.kind} migration {migration.name} set no schema "
+                        "version at all; add a PRAGMA user_version and retry")
+                conn.execute(f"PRAGMA user_version = {migration.number}")
+                conn.commit()
             current = migration.number
             applied.append(current)
         self._stamp_and_verify_checksums(conn)

@@ -13,7 +13,7 @@ from typing import Any, Iterable
 
 from .. import db as legacy_db
 from .. import storage
-from .domain import GeneralDatabase, MarketLensDatabase
+from .domain import MARKETLENS_IDENTITY, GeneralDatabase, MarketLensDatabase
 from .registry import DatabaseRegistry, REGISTRY_FILE
 
 BATCH_SIZE = 500
@@ -209,11 +209,19 @@ def _build_marketlens(
         with target:
             for table in reversed(GENERIC_TABLES):
                 target.execute(f"DROP TABLE IF EXISTS {_quote(table)}")
-            target.executescript(
-                MarketLensDatabase(incoming_path)._migrations[-1].path.read_text(  # noqa: SLF001
-                    encoding="utf-8"
-                )
-            )
+            # The IDENTITY migration by name, not "whichever happens to be last".
+            # Positional access worked only while identity WAS the newest
+            # MarketLens migration. The first price migration added after it made
+            # this line re-run an ALTER TABLE, and the split died on a duplicate
+            # column. What this step needs is the identity stamp, so it names it.
+            target.executescript(MARKETLENS_IDENTITY.read_text(encoding="utf-8"))
+            # ...and that script stamps ITS number, which is no longer the head.
+            # The copy is the legacy warehouse minus the generic tables, and the
+            # split refuses to run unless that warehouse is fully migrated, so
+            # every price migration is already present. Re-applying them would
+            # duplicate columns; the version simply has to say so.
+            target.execute(
+                f"PRAGMA user_version = {MarketLensDatabase(incoming_path).latest_schema_version}")
         marketlens = MarketLensDatabase(incoming_path)
         marketlens._stamp_and_verify_checksums(target)  # noqa: SLF001
         target.execute("PRAGMA foreign_keys = ON")
