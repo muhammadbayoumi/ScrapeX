@@ -97,6 +97,8 @@ _LATEST_PER_OFFER = (
     "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
     "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
     "JOIN source_site ss ON ss.source_id = sp.source_id "
+    # LEFT: an offer whose state has not been derived yet still has a price.
+    "LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id "
     "WHERE ss.source_key = ? "
     "AND po.price_observation_id = ("
     "  SELECT po2.price_observation_id FROM price_observation po2 "
@@ -206,7 +208,8 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
     rows = conn.execute(
         "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, po.vat_included, "
-        "       po.business_date, sp.product_url, sp.curation_status, so.region "
+        "       po.business_date, sp.product_url, sp.curation_status, so.region, "
+        "       ost.last_confirmed_at "
         f"{_LATEST_PER_OFFER}{filt} {_order_by(sort, direction)} LIMIT ? OFFSET ?",
         [*base_params, limit, offset],
     ).fetchall()
@@ -214,7 +217,9 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         {"name": r[0], "option_label": r[1], "sku": r[2], "effective_price": r[3],
          "regular_price": r[4], "sale_price": r[5], "currency": r[6], "availability": r[7],
          "vat_included": bool(r[8]), "business_date": r[9], "product_url": r[10],
-         "curation_status": r[11], "region": r[12] or "", "region_name": region_name(r[12])}
+         "curation_status": r[11], "region": r[12] or "", "region_name": region_name(r[12]),
+         # When the price was last CONFIRMED, which is not when it last changed.
+         "last_confirmed": (r[13] or "")[:10]}
         for r in rows
     ]
     return BrowsePage(rows=shaped, total=total, offset=offset, limit=limit)
@@ -225,7 +230,10 @@ EXPORT_HEADER = [
     # what distinguishes one row from the next.
     "product_name", "region", "country", "option_label", "sku", "effective_price",
     "regular_price", "sale_price", "currency", "availability", "vat_included",
-    "business_date", "product_url",
+    # price_changed_on is when the price last MOVED; last_confirmed_on is when a
+    # completed run last saw it still true. They are different questions, and
+    # publishing only the first made a confirmed price look stale.
+    "price_changed_on", "last_confirmed_on", "product_url",
 ]
 
 
@@ -237,7 +245,8 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     rows = conn.execute(
         "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, "
-        "       po.vat_included, po.business_date, sp.product_url, so.region "
+        "       po.vat_included, po.business_date, sp.product_url, so.region, "
+        "       ost.last_confirmed_at "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit),
     ).fetchall()
@@ -246,7 +255,7 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
          r[1] or "", r[2] or "",
          r[3] if r[3] is not None else "", r[4] if r[4] is not None else "",
          r[5] if r[5] is not None else "", r[6] or "", r[7] or "",
-         "yes" if r[8] else "no", r[9] or "", r[10] or ""]
+         "yes" if r[8] else "no", r[9] or "", (r[12] or "")[:10], r[10] or ""]
         for r in rows
     ]
     return list(EXPORT_HEADER), table

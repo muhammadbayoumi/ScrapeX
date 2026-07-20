@@ -44,7 +44,7 @@ from ..outputs import (
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
-from .. import compaction, retention
+from .. import compaction, pricehistory, retention
 from ..storage import (
     StorageRefused, backup_now, check_move, export_database, migrate_location, repair,
     resolve_db_path, restore, storage_status,
@@ -187,6 +187,7 @@ def create_app(
                          summary=change_summary(conn, source_key) if source_key else {},
                          changes=recent_changes(conn, source_key, limit=limit),
                          extremes=price_extremes(conn, source_key) if source_key else [],
+                         offers=_offers_with_history(conn, source_key) if source_key else [],
                          sources=[s.source_key for s in list_sources(conn)])
         finally:
             conn.close()
@@ -754,6 +755,26 @@ def create_app(
             days = 30
         return (date.fromisoformat(_today()) - timedelta(days=days)).isoformat()
 
+    def _offers_with_history(conn, source_key: str) -> list[dict]:
+        """Offers whose timeline has more than one period — the ones with a story.
+
+        Bounded like every other read. An offer whose price has never moved has
+        nothing to show on a CHANGES page, and listing it would bury the ones
+        that do.
+        """
+        return [dict(r) for r in conn.execute(
+            "SELECT so.offer_id, sp.source_name, so.region, "
+            "       COUNT(pp.price_period_id) AS periods, "
+            "       MAX(pp.last_confirmed_at) AS last_confirmed "
+            "FROM price_period pp "
+            "JOIN source_offer so ON so.offer_id = pp.offer_id "
+            "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+            "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ? GROUP BY so.offer_id "
+            "HAVING COUNT(pp.price_period_id) > 1 "
+            "ORDER BY periods DESC, sp.source_name LIMIT 50", (source_key,))]
+
     def _engine_rows() -> list[dict]:
         """Every connector family, with whether it is actually built.
 
@@ -997,6 +1018,45 @@ def create_app(
         return {"removed": removed, "ok": True,
                 "detail": "Removed " + ", ".join(f"{n:,} {t}" for t, n in removed.items())
                           + ". No price observation was touched."}
+
+    # ---- price history (spec: price-history storage semantics) --------------
+
+    @app.get("/api/prices/timeline")
+    def api_price_timeline(offer_id: int, limit: int = 200):
+        """The first price and each real change. Unchanged confirmations are not
+        history rows and do not appear here."""
+        conn = read_conn()
+        try:
+            return {"offer_id": offer_id,
+                    "periods": pricehistory.timeline(conn, offer_id, limit=limit)}
+        finally:
+            conn.close()
+
+    @app.get("/api/prices/on")
+    def api_price_on(offer_id: int, date: str):
+        """What an offer cost on a date — and, when nothing confirms that date,
+        what is actually known instead."""
+        conn = read_conn()
+        try:
+            return pricehistory.price_on(conn, offer_id, date)
+        finally:
+            conn.close()
+
+    @app.post("/api/prices/rebuild")
+    def api_price_rebuild(body: dict):
+        """Rebuild the derived timeline. Safe by construction: it reads the
+        append-only evidence and cannot alter it."""
+        source_key = (body or {}).get("source_key") or None
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                result = pricehistory.rebuild_all(conn, source_key)
+                conn.commit()
+            finally:
+                conn.close()
+        return {**result, "detail":
+                f"Rebuilt {result['periods']} price periods across "
+                f"{result['offers']} offers from the stored observations."}
 
     @app.get("/api/records")
     def api_records(source_key: str, q: str = "", availability: str = "",

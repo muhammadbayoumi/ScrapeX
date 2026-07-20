@@ -1,5 +1,102 @@
 {% extends "base.html" %}
-{% block title %}Changes — ScrapeX{% endblock %}
+{% block title %}Changes — ScrapeX
+{% if offers %}
+<h2>Price timeline</h2>
+{# The spec's central promise: the first price and each real change, never a
+   daily copy of an unchanged row. An offer whose price never moved has no story
+   to tell here, so only offers with more than one period are listed. #}
+<p class="hint">Only real changes appear. A refresh that finds the same price
+  confirms it — it does not add a history row.</p>
+
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="tl-offer">Offer</label>
+    <select id="tl-offer">
+      {% for o in offers %}
+        <option value="{{ o.offer_id }}">&#x2068;{{ o.source_name }}&#x2069;{% if o.region and o.region != "*" %} — {{ o.region }}{% endif %} · {{ o.periods }} prices</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="row">
+    <button id="tl-show">Show timeline</button>
+    <span id="tl-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+</form>
+
+<div id="tl-body" class="tablewrap" hidden></div>
+
+<h3>Price on a date</h3>
+<p class="hint">A date no completed run confirmed is answered honestly: you get
+  the last known price and the date it was actually observed, not an assumption
+  that it held.</p>
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="tl-date">Date</label>
+    <input id="tl-date" type="date">
+  </div>
+  <div class="row">
+    <button id="tl-ask" class="ghost">Look it up</button>
+    <span id="tl-ask-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+</form>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
+    (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  async function get(url) {
+    const res = await fetch(url);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    return data;
+  }
+
+  async function act(button, out, fn) {
+    const original = button.textContent;
+    button.disabled = true; button.textContent = "Working…";
+    out.textContent = ""; out.className = "hint";
+    try { out.textContent = await fn(); }
+    catch (err) { out.textContent = err.message; out.className = "hint err"; }
+    finally { button.disabled = false; button.textContent = original; }
+  }
+
+  const WHY = {
+    first_seen: "First price recorded",
+    price_change: "Price changed",
+    returned: "Returned after an absence",
+    fields_changed: "The source changed what it publishes",
+  };
+
+  $("tl-show").addEventListener("click", () => act($("tl-show"), $("tl-out"), async () => {
+    const id = $("tl-offer").value;
+    const { periods } = await get(`/api/prices/timeline?offer_id=${encodeURIComponent(id)}`);
+    if (!periods.length) { $("tl-body").hidden = true; return "Nothing recorded yet."; }
+    $("tl-body").innerHTML = `<table>
+      <thead><tr><th>Price</th><th>From</th><th>Confirmed through</th><th>Why it began</th></tr></thead>
+      <tbody>${periods.map((p) => `<tr>
+        <td class="num price">${esc(p.effective_price)} ${esc(p.currency || "")}</td>
+        <td class="num">${esc((p.first_detected_at || "").slice(0, 10))}</td>
+        <td class="num">${esc((p.last_confirmed_at || "").slice(0, 10))}${
+          p.closed_at ? "" : ' <span class="badge ok">current</span>'}</td>
+        <td>${esc(WHY[p.opened_because] || p.opened_because)}</td>
+      </tr>`).join("")}</tbody></table>`;
+    $("tl-body").hidden = false;
+    return `${periods.length} price${periods.length === 1 ? "" : "s"} since tracking began.`;
+  }));
+
+  $("tl-ask").addEventListener("click", () => act($("tl-ask"), $("tl-ask-out"), async () => {
+    const id = $("tl-offer").value, date = $("tl-date").value;
+    if (!date) throw new Error("Pick a date first.");
+    const a = await get(`/api/prices/on?offer_id=${encodeURIComponent(id)}&date=${date}`);
+    if (a.effective_price === null) return a.detail;
+    return `${a.effective_price} ${a.currency || ""} — ${a.detail}`;
+  }));
+})();
+</script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <h1>Changes</h1>
 {% include "_picker.html" %}
@@ -70,5 +167,102 @@
     {% endfor %}
     </tbody>
   </table></div>
+{% endif %}
+
+{% if offers %}
+<h2>Price timeline</h2>
+{# The spec's central promise: the first price and each real change, never a
+   daily copy of an unchanged row. An offer whose price never moved has no story
+   to tell here, so only offers with more than one period are listed. #}
+<p class="hint">Only real changes appear. A refresh that finds the same price
+  confirms it — it does not add a history row.</p>
+
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="tl-offer">Offer</label>
+    <select id="tl-offer">
+      {% for o in offers %}
+        <option value="{{ o.offer_id }}">&#x2068;{{ o.source_name }}&#x2069;{% if o.region and o.region != "*" %} — {{ o.region }}{% endif %} · {{ o.periods }} prices</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="row">
+    <button id="tl-show">Show timeline</button>
+    <span id="tl-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+</form>
+
+<div id="tl-body" class="tablewrap" hidden></div>
+
+<h3>Price on a date</h3>
+<p class="hint">A date no completed run confirmed is answered honestly: you get
+  the last known price and the date it was actually observed, not an assumption
+  that it held.</p>
+<form class="stack" onsubmit="return false">
+  <div class="field">
+    <label for="tl-date">Date</label>
+    <input id="tl-date" type="date">
+  </div>
+  <div class="row">
+    <button id="tl-ask" class="ghost">Look it up</button>
+    <span id="tl-ask-out" class="hint" role="status" aria-live="polite"></span>
+  </div>
+</form>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
+    (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+  async function get(url) {
+    const res = await fetch(url);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    return data;
+  }
+
+  async function act(button, out, fn) {
+    const original = button.textContent;
+    button.disabled = true; button.textContent = "Working…";
+    out.textContent = ""; out.className = "hint";
+    try { out.textContent = await fn(); }
+    catch (err) { out.textContent = err.message; out.className = "hint err"; }
+    finally { button.disabled = false; button.textContent = original; }
+  }
+
+  const WHY = {
+    first_seen: "First price recorded",
+    price_change: "Price changed",
+    returned: "Returned after an absence",
+    fields_changed: "The source changed what it publishes",
+  };
+
+  $("tl-show").addEventListener("click", () => act($("tl-show"), $("tl-out"), async () => {
+    const id = $("tl-offer").value;
+    const { periods } = await get(`/api/prices/timeline?offer_id=${encodeURIComponent(id)}`);
+    if (!periods.length) { $("tl-body").hidden = true; return "Nothing recorded yet."; }
+    $("tl-body").innerHTML = `<table>
+      <thead><tr><th>Price</th><th>From</th><th>Confirmed through</th><th>Why it began</th></tr></thead>
+      <tbody>${periods.map((p) => `<tr>
+        <td class="num price">${esc(p.effective_price)} ${esc(p.currency || "")}</td>
+        <td class="num">${esc((p.first_detected_at || "").slice(0, 10))}</td>
+        <td class="num">${esc((p.last_confirmed_at || "").slice(0, 10))}${
+          p.closed_at ? "" : ' <span class="badge ok">current</span>'}</td>
+        <td>${esc(WHY[p.opened_because] || p.opened_because)}</td>
+      </tr>`).join("")}</tbody></table>`;
+    $("tl-body").hidden = false;
+    return `${periods.length} price${periods.length === 1 ? "" : "s"} since tracking began.`;
+  }));
+
+  $("tl-ask").addEventListener("click", () => act($("tl-ask"), $("tl-ask-out"), async () => {
+    const id = $("tl-offer").value, date = $("tl-date").value;
+    if (!date) throw new Error("Pick a date first.");
+    const a = await get(`/api/prices/on?offer_id=${encodeURIComponent(id)}&date=${date}`);
+    if (a.effective_price === null) return a.detail;
+    return `${a.effective_price} ${a.currency || ""} — ${a.detail}`;
+  }));
+})();
+</script>
 {% endif %}
 {% endblock %}

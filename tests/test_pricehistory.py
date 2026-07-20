@@ -265,3 +265,48 @@ def test_a_rebuild_does_not_roll_a_confirmation_back_to_the_last_price_move(conn
     pricehistory.rebuild_all(conn)
     assert conn.execute(
         "SELECT last_confirmed_at FROM offer_state").fetchone()[0] == "2026-07-20T10:00:00Z"
+
+
+# ---- the read surface (slice D) ----------------------------------------------
+
+def test_the_api_serves_the_change_only_timeline(conn, tmp_path):
+    import shutil
+
+    import pytest as _pytest
+    _pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from scrapex.config import MANIFEST_FILE
+    from scrapex.webui.app import create_app
+
+    for day, price in (("2026-07-01", "100.00"), ("2026-07-02", "100.00"),
+                       ("2026-07-03", "130.00")):
+        crawl(conn, price=price, day=day)
+    offer_id = offer(conn)
+    conn.commit()
+
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    client = TestClient(create_app(tmp_path / "harvest.db", manifest_path=manifest))
+
+    periods = client.get("/api/prices/timeline",
+                         params={"offer_id": offer_id}).json()["periods"]
+    assert [p["effective_price"] for p in periods] == [100.0, 130.0], \
+        "three crawls of two prices are two history rows, not three"
+
+    unconfirmed = client.get("/api/prices/on",
+                             params={"offer_id": offer_id, "date": "2027-01-01"}).json()
+    assert unconfirmed["status"] == "last_known"
+    assert "No reliable observation" in unconfirmed["detail"]
+
+
+def test_browse_reports_when_a_price_was_last_confirmed_not_only_when_it_moved(conn):
+    """A price confirmed yesterday must not read as months old just because that
+    is when it last changed."""
+    from scrapex.reports import browse_observations
+
+    crawl(conn, price="100.00", day="2026-07-01")
+    crawl(conn, price="100.00", day="2026-07-20")
+    row = browse_observations(conn, "ELSEWEDYSHOP").rows[0]
+    assert row["business_date"] == "2026-07-01", "the price last moved then"
+    assert row["last_confirmed"] == "2026-07-20", "...and was still true then"
