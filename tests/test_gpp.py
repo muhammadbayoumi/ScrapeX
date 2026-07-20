@@ -169,3 +169,104 @@ def test_gpp_end_to_end_into_warehouse():
     # one product (DIESEL), one implicit variant, three region offers:
     assert (result.products, result.variants, result.observations) == (1, 1, 3)
     assert offers == 3
+
+
+# ---- the electricity page uses a different layout entirely -------------------
+#
+# Running the parser against the LIVE pages on 2026-07-20 showed diesel, gasoline,
+# LPG and natural gas returning 169/170/56/47 rows — and electricity returning
+# ZERO. It publishes a real table, not the graphic. The crawl still reported
+# success, because a page that fails while others succeed was silently dropped.
+
+class _FiveePageFetcher:
+    """Serves the real captured markup for both layouts."""
+
+    def __init__(self, break_electricity: bool = False):
+        self.requests_count = 0
+        self.urls: list[str] = []
+        self._break = break_electricity
+
+    def get(self, url, **kwargs):
+        self.requests_count += 1
+        self.urls.append(url)
+        if url.endswith("/diesel_prices/"):
+            return _Resp(_read("gpp_diesel.html"))
+        if url.endswith("/electricity_prices/"):
+            return _Resp("<html><body>nothing here</body></html>" if self._break
+                         else _read("gpp_electricity.html"))
+        raise RuntimeError("404 " + url)
+
+    def close(self): pass
+
+
+def test_the_electricity_table_is_parsed_by_row_not_by_position():
+    """Real captured markup. Country and price share a <tr>, so unlike the
+    graphic pages they cannot drift apart — no positional guard is needed."""
+    from scrapex.connectors.gpp import parse_rank_table
+
+    pairs = parse_rank_table(_read("gpp_electricity.html"), 1)
+
+    assert ("Bermuda", "0.465") in pairs
+    assert ("Italy", "0.414") in pairs
+    assert all(country and price for country, price in pairs)
+
+
+def test_residential_and_business_electricity_are_two_series_not_one():
+    """Germany publishes 0.406 residential and 0.283 business. Collapsing them
+    would silently pick one and present it as 'the' electricity price."""
+    from scrapex.connectors.gpp import parse_rank_table
+
+    residential = dict(parse_rank_table(_read("gpp_electricity.html"), 1))
+    business = dict(parse_rank_table(_read("gpp_electricity.html"), 2))
+
+    assert residential["Bermuda"] == "0.465"
+    assert business["Bermuda"] == "0.264"
+    assert residential["Bermuda"] != business["Bermuda"]
+
+
+def test_a_country_publishing_only_one_rate_is_skipped_not_zero_filled():
+    """Ireland has a residential rate and an empty business cell. A zero there
+    would read as 'electricity is free for businesses in Ireland'."""
+    from scrapex.connectors.gpp import parse_rank_table
+
+    business = dict(parse_rank_table(_read("gpp_electricity.html"), 2))
+
+    assert "Ireland" not in business
+    assert "0" not in business.values() and "0.000" not in business.values()
+
+
+def test_electricity_produces_rows_end_to_end():
+    entry = make_entry(materials=("ELECTRICITY", "ELECTRICITY_BUSINESS"))
+    fetcher = _FiveePageFetcher()
+
+    tables = list(GlobalPetrolPricesConnector(fetcher).fetch(entry))
+
+    rows = tables[0].rows
+    assert rows, "electricity produced no rows at all"
+    view = RowView(COMMODITY_PRICE, tables[0].header)
+    materials = {view.get(r, "material_key") for r in rows}
+    assert materials == {"ELECTRICITY", "ELECTRICITY_BUSINESS"}
+    assert tables[0].warnings == []
+
+
+def test_one_page_serving_two_materials_is_fetched_once():
+    entry = make_entry(materials=("ELECTRICITY", "ELECTRICITY_BUSINESS"))
+    fetcher = _FiveePageFetcher()
+
+    list(GlobalPetrolPricesConnector(fetcher).fetch(entry))
+
+    assert fetcher.urls.count("https://www.globalpetrolprices.com/electricity_prices/") == 1, \
+        "the same page was downloaded once per material"
+
+
+def test_a_page_that_yields_nothing_is_reported_even_when_others_succeed():
+    """The exact failure that hid electricity: four pages parsed, one matched
+    nothing, and the run reported a clean row count."""
+    entry = make_entry(materials=("DIESEL", "ELECTRICITY"))
+    fetcher = _FiveePageFetcher(break_electricity=True)
+
+    tables = list(GlobalPetrolPricesConnector(fetcher).fetch(entry))
+
+    assert tables[0].rows, "the healthy page must still be delivered"
+    assert any("ELECTRICITY" in w for w in tables[0].warnings), \
+        "a whole energy type produced nothing and the run said nothing"

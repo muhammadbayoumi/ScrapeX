@@ -36,6 +36,13 @@ class ScrapedTable:
     source_url: str
     header: list[str]
     rows: list[list[str]] = field(default_factory=list)
+    # Parts of a multi-page source that failed while the rest succeeded. Carrying
+    # on when one page breaks is correct (Q3); silently dropping the fact that it
+    # broke is not. GPP hid a whole energy type this way — four pages parsed,
+    # electricity matched nothing, and the run reported plain success.
+    # Deliberately NOT in to_payload: this describes the RUN, not the data, and
+    # the payload contract is frozen across engines.
+    warnings: list[str] = field(default_factory=list)
 
     def to_payload(self, client: PayloadClient = PayloadClient.CLI, run_ref: str | None = None) -> FunnelPayload:
         return FunnelPayload(

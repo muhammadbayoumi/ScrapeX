@@ -31,19 +31,29 @@ from ..rowspec import COMMODITY_PRICE, RowBuilder
 from ..vocab import ExtractKind
 from .base import HttpFetcher, ScrapedTable
 
-# material_key -> (page slug, price unit). Fuels are per-liter; power is per-kWh.
+# material_key -> (page slug, price unit, rank-table column).
+# Fuels are per-liter; power is per-kWh.
+#
+# `column` is None for the graphic layout (the parallel-list pages) and an int
+# for the #RankTable layout. Electricity uses the table and publishes TWO
+# materially different rates per country — residential and business, e.g. Germany
+# 0.406 vs 0.283 — so they are two SERIES, not one price with a lost qualifier.
+# Collapsing them would silently pick one and call it "the" electricity price.
 _PAGES = {
-    "DIESEL":      ("diesel_prices",      "USD/liter"),
-    "GASOLINE":    ("gasoline_prices",    "USD/liter"),
-    "LPG":         ("lpg_prices",         "USD/liter"),
-    "ELECTRICITY": ("electricity_prices", "USD/kWh"),
-    "NATURAL_GAS": ("natural_gas_prices", "USD/kWh"),
+    "DIESEL":                ("diesel_prices",      "USD/liter", None),
+    "GASOLINE":              ("gasoline_prices",    "USD/liter", None),
+    "LPG":                   ("lpg_prices",         "USD/liter", None),
+    "ELECTRICITY":           ("electricity_prices", "USD/kWh",   1),
+    "ELECTRICITY_BUSINESS":  ("electricity_prices", "USD/kWh",   2),
+    "NATURAL_GAS":           ("natural_gas_prices", "USD/kWh",   None),
 }
 
 # Verified against the live page. Country labels live in their own column;
 # the price sits inside each graph bar as its only child div.
 _COUNTRY_SEL = "#outsideLinks a"
 _BAR_SEL = "#graphic div > div"
+# The electricity page carries neither of the above — it publishes a real table.
+_RANK_TABLE_SEL = "#RankTable"
 _PRICE_TEXT = re.compile(r"^\d+(?:[.,]\d+)?$")
 
 # GPP English names that pycountry.lookup doesn't resolve on its own.
@@ -87,6 +97,40 @@ def parse_price_table(html: str, country_sel: str = _COUNTRY_SEL,
             f"GPP layout drift: {len(names)} country labels vs {len(values)} price "
             "values (positional parse would misalign — refusing)")
     return list(zip(names, values))
+
+
+def parse_rank_table(html: str, column: int) -> list[tuple[str, str]]:
+    """(country, price) from the #RankTable layout, joined by ROW, not position.
+
+    The electricity page does not use the graphic at all: it publishes a real
+    table whose header is `Countries | Residential ... | Business ...`. That was
+    invisible until the parser was run against the live page, where it matched
+    nothing and the whole energy type silently produced zero rows.
+
+    A row-wise join needs none of the positional guarding above — the country and
+    its price are in the same <tr>, so they cannot drift apart. Blank cells are
+    real (some countries publish only one of the two rates) and are skipped.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    table = soup.select_one(_RANK_TABLE_SEL)
+    if table is None:
+        raise ValueError(
+            f"GPP layout drift: no {_RANK_TABLE_SEL} on this page — "
+            "the page structure has changed")
+    pairs: list[tuple[str, str]] = []
+    for row in table.find_all("tr"):
+        cells = row.find_all(["td", "th"])
+        if len(cells) <= column:
+            continue
+        country = _clean_country(cells[0].get_text(" ", strip=True))
+        price = cells[column].get_text(" ", strip=True)
+        if country and _PRICE_TEXT.match(price):
+            pairs.append((country, price))
+    if not pairs:
+        raise ValueError(
+            f"GPP layout drift: {_RANK_TABLE_SEL} column {column} yielded no "
+            "priced rows — the page structure has changed")
+    return pairs
 
 
 def _clean_country(label: str) -> str:
@@ -135,14 +179,18 @@ class GlobalPetrolPricesConnector:
         rows: list[list[str]] = []
         page_errors: list[str] = []
 
-        for material_key in _contracted_materials(source):
-            slug, unit = _PAGES[material_key]
+        pages: dict[str, str] = {}   # slug -> html, so two materials on one page
+        for material_key in _contracted_materials(source):            # fetch it once
+            slug, unit, column = _PAGES[material_key]
             url = f"{base}/{slug}/"
             # The PARSE belongs inside the guard too: a layout drift on one fuel
             # page must not discard the four sibling pages already parsed (Q3).
             try:
-                html = self._fetcher.get(url).text
-                pairs = parse_price_table(html)
+                if slug not in pages:
+                    pages[slug] = self._fetcher.get(url).text
+                html = pages[slug]
+                pairs = (parse_rank_table(html, column) if column is not None
+                         else parse_price_table(html))
             except Exception as exc:  # noqa: BLE001 — one page down never kills the crawl
                 page_errors.append(f"{material_key}: {exc}")
                 continue
@@ -159,7 +207,8 @@ class GlobalPetrolPricesConnector:
         if page_errors and not rows:
             raise ValueError("every contracted GPP page failed: " + "; ".join(page_errors))
 
-        yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, base, builder.header, rows)
+        yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, base,
+                           builder.header, rows, warnings=page_errors)
 
 
 def _row(builder: RowBuilder, material_key: str, region: str, price: str,
