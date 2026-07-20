@@ -34,12 +34,13 @@ def conn() -> sqlite3.Connection:
     c.close()
 
 
-def entry() -> SourceEntry:
-    return SourceEntry.model_validate(dict(
+def entry(**over) -> SourceEntry:
+    base = dict(
         source_key="SHOP", source_name="متجر", base_url="https://shop.example",
         family="shopify-json", currency="SAR", default_region="SA", vat_mode="incl",
-        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)],
-    ))
+        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)])
+    base.update(over)
+    return SourceEntry.model_validate(base)
 
 
 def payload(rows) -> FunnelPayload:
@@ -150,3 +151,66 @@ def test_the_change_feed_says_per_what(conn):
 
     assert feed, "no change was recorded for a real price move"
     assert feed[0]["unit"] == "tonne"
+
+
+# ---- per-source columns (the review's headline ask) --------------------------
+#
+# "The schema and data tables must be dynamic because the source websites do not
+#  provide data in a consistent format... Only fields that are available and
+#  relevant to the selected source should be shown."
+#
+# The "Manage columns" panel was fully built and worked — over a CONSTANT 14-key
+# header shared by every site, and hiding a column changed nothing on the screen
+# where it was clicked. The machinery existed, wired to the wrong input on both
+# ends.
+
+def test_a_source_with_no_variants_or_skus_is_not_given_those_columns(conn):
+    """Direct answer to the review's key question — until now, yes, empty
+    columns were still shown, filled with em-dashes."""
+    from scrapex.reports import column_presence
+
+    ingest_payloads(conn, entry(), [payload([row(unit="tonne")])])
+
+    present = column_presence(conn, "SHOP")
+
+    assert "option_label" not in present, "a Variant column of em-dashes"
+    assert "sku" not in present, "an SKU column of em-dashes"
+    assert "unit" in present and "name" in present and "effective_price" in present
+
+
+def test_a_source_that_does_supply_them_keeps_those_columns(conn):
+    from scrapex.reports import column_presence
+
+    ingest_payloads(conn, entry(), [payload([
+        row(external_sku="SKU-1", option_label="Red / Large",
+            option_fingerprint="color=red|size=large")])])
+
+    present = column_presence(conn, "SHOP")
+
+    assert "sku" in present and "option_label" in present
+
+
+def test_presence_is_per_source_not_global(conn):
+    """Two sources in one warehouse must not share a column set."""
+    from scrapex.reports import column_presence
+
+    ingest_payloads(conn, entry(), [payload([row(external_sku="SKU-1")])])
+    other = entry(source_key="COMMODITY")
+    ingest_payloads(conn, other, [FunnelPayload(
+        payload_version=PAYLOAD_VERSION, source_key="COMMODITY",
+        kind=ExtractKind.PRODUCT_PRICES, client="cli",
+        scraped_at="2026-07-20T10:00:00Z", source_url="https://x.example",
+        header=list(PRODUCT_PRICES.columns), rows=[row(unit="liter")])])
+
+    assert "sku" in column_presence(conn, "SHOP")
+    assert "sku" not in column_presence(conn, "COMMODITY")
+
+
+def test_the_identifying_columns_are_never_swept_away(conn):
+    """A table with no name and no price is not a shorter table, it is not a
+    price list."""
+    from scrapex.reports import ESSENTIAL_COLUMNS, column_presence
+
+    ingest_payloads(conn, entry(), [payload([row()])])
+
+    assert ESSENTIAL_COLUMNS <= column_presence(conn, "SHOP")

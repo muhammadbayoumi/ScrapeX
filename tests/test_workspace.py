@@ -232,9 +232,9 @@ def test_both_export_schemas_are_offered(client):
 
 def test_hiding_a_column_through_the_api_is_reflected_on_the_page(client):
     client.get(f"/source/{SOURCE}")                     # registers the fields
-    r = client.post(f"/api/fields/{SOURCE}", json={"field_key": "currency", "hidden": True})
+    r = client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
     assert r.status_code == 200
     body = client.get(f"/source/{SOURCE}").text
     assert "Hidden" in body                              # the word, not a colour
     # ...and the field is still listed, because hiding is a view operation.
-    assert "currency" in body
+    assert "sku" in body

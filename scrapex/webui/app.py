@@ -31,7 +31,7 @@ from ..databases import (
 from ..jobs import JobRunner, create_job, get_job, job_logs, list_jobs, set_control
 from ..fields import (
     delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
-    set_display_name, set_visibility,
+    set_display_name, set_visibility, visible_columns,
 )
 from ..features import manifest as feature_manifest
 from ..extract.api import create_extraction_router
@@ -55,8 +55,8 @@ from ..storage import (
 from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
 from ..reports import (
-    SORTABLE, browse_observations, crawl_history, export_source_table, list_sources,
-    price_extremes, source_summary,
+    BROWSE_COLUMNS, SORTABLE, browse_observations, column_presence, crawl_history,
+    export_source_table, list_sources, price_extremes, source_summary,
 )
 from ..scheduler import list_schedules, upsert_schedule
 from ..vocab import (
@@ -210,18 +210,28 @@ def create_app(
         conn = read_conn()
         try:
             summary = source_summary(conn, source_key)
-            page_data, fields, views = None, [], []
+            page_data, fields, views, columns = None, [], [], []
             if summary is not None:
                 page_data = browse_observations(
                     conn, source_key, search=q or None, availability=availability or None,
                     sort=sort or None, direction=direction,
                     offset=(page - 1) * PAGE_SIZE, limit=PAGE_SIZE)
-                # Register the columns on first view so "manage columns" has
-                # something to manage, then read back the owner's arrangement.
-                header, _ = export_source_table(conn, source_key, limit=1)
-                ensure_fields(conn, source_key, header)
+                # Register THIS SOURCE's columns — not a constant header shared by
+                # every site — so "manage columns" manages what the table shows,
+                # and a source with no variants is never given a Variant column.
+                present = column_presence(conn, source_key)
+                seed = [key for key, _ in BROWSE_COLUMNS if key in present]
+                ensure_fields(conn, source_key, seed)
                 conn.commit()
                 fields, views = list_fields(conn, source_key), list_views(conn, source_key)
+                # The owner's arrangement wins; the per-source seed is the
+                # fallback for a source whose fields have never been registered.
+                shown = visible_columns(conn, source_key, fallback=seed)
+                labels = dict(BROWSE_COLUMNS)
+                renamed = {f["field_key"]: f["display_name"] for f in fields
+                           if f.get("display_name")}
+                columns = [{"key": key, "label": renamed.get(key) or labels.get(key, key)}
+                           for key in shown if key in labels]
         finally:
             conn.close()
         return TEMPLATES.TemplateResponse(
@@ -230,6 +240,10 @@ def create_app(
                      "q": q, "availability": availability, "page": page, "tab": "data",
                      "sort": sort or "name", "direction": direction,
                      "sortable": list(SORTABLE), "fields": fields, "views": views,
+                     "columns": columns,
+                     # When the Unit column is hidden the unit rides on the price
+                     # instead: a price may lose its column, never its unit.
+                     "shows_unit": any(c["key"] == "unit" for c in columns),
                      "availability_options": AVAILABILITY_OPTIONS},
             status_code=200 if summary is not None else 404)
 

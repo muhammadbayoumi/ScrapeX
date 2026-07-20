@@ -91,56 +91,73 @@
         {{ label }}{% if sort == key %} {{ "▲" if direction == "asc" else "▼" }}{% endif %}</a>
     {% endmacro %}
     <div class="tablewrap"><table>
+      {# The header and every row are driven by `columns`, which is this SOURCE's
+         column set in the owner's own order — not a list shared by every site.
+         A commodity source with no variants and no SKUs is not handed two
+         columns of em-dashes to read past, and hiding a column in "Manage
+         columns" now changes the table you are looking at. #}
       <thead><tr>
-        <th>{{ sortlink("name", "Product") }}</th>
-        <th>{{ sortlink("region", "Country") }}</th>
-        <th>Variant</th>
-        <th>{{ sortlink("sku", "SKU") }}</th>
-        <th>{{ sortlink("effective_price", "Price") }}</th>
-        <th>{{ sortlink("availability", "Availability") }}</th>
-        <th>Tax</th>
-        <th>{{ sortlink("business_date", "Date") }}</th>
-        <th>Curation</th><th></th>
+        {% for c in columns %}
+          <th>{% if c.key in sortable %}{{ sortlink(c.key, c.label) }}{% else %}{{ c.label }}{% endif %}</th>
+        {% endfor %}
+        <th></th>
       </tr></thead>
       <tbody>
       {% for r in page_data.rows %}
         <tr>
-          <td dir="auto">{{ r.name or "—" }}</td>
-          {# For a commodity source the country IS what distinguishes the row. #}
-          <td>{% if r.region %}<span class="num">{{ r.region }}</span>
-                {% if r.region_name %} {{ r.region_name }}{% endif %}
-              {% else %}—{% endif %}</td>
-          <td class="muted" dir="auto">{{ r.option_label or "—" }}</td>
-          <td class="num muted">{{ r.sku or "—" }}</td>
-          <td>
-            <span class="price">{{ "%g"|format(r.effective_price) }} {{ r.currency }}</span>
-            {# The unit qualifies the number, so it belongs to it. Without this a
-               column of prices where some are per tonne and some per bag reads
-               as one comparable list. #}
-            {% if r.unit %}<span class="per">/ {{ r.unit }}</span>{% endif %}
-            {% if r.sale_price is not none and r.regular_price and r.regular_price != r.effective_price %}
-              <span class="strike">{{ "%g"|format(r.regular_price) }}</span>
+          {% for c in columns %}
+            {% if c.key == "name" %}
+              <td dir="auto">{{ r.name or "—" }}</td>
+            {% elif c.key == "region" %}
+              {# For a commodity source the country IS what distinguishes the row. #}
+              <td>{% if r.region %}<span class="num">{{ r.region }}</span>
+                    {% if r.region_name %} {{ r.region_name }}{% endif %}
+                  {% else %}—{% endif %}</td>
+            {% elif c.key == "option_label" %}
+              <td class="muted" dir="auto">{{ r.option_label or "—" }}</td>
+            {% elif c.key == "sku" %}
+              <td class="num muted">{{ r.sku or "—" }}</td>
+            {% elif c.key == "effective_price" %}
+              <td>
+                <span class="price">{{ "%g"|format(r.effective_price) }} {{ r.currency }}</span>
+                {# When the Unit column is not shown, the unit rides on the price
+                   instead. A price may lose its column but never its unit. #}
+                {% if r.unit and not shows_unit %}<span class="per">/ {{ r.unit }}</span>{% endif %}
+                {% if r.sale_price is not none and r.regular_price and r.regular_price != r.effective_price %}
+                  <span class="strike">{{ "%g"|format(r.regular_price) }}</span>
+                {% endif %}
+              </td>
+            {% elif c.key == "unit" %}
+              {# The unit qualifies the number. When this column is hidden the
+                 unit rides on the price instead, so it is never lost. #}
+              <td class="muted">{{ r.unit or "—" }}</td>
+            {% elif c.key == "availability" %}
+              <td>
+                {# Status is spelled out, never conveyed by colour alone (spec 1.13). #}
+                {% if r.availability == "in_stock" %}<span class="badge ok">In stock</span>
+                {% elif r.availability == "out_of_stock" %}<span class="badge off">Out of stock</span>
+                {% else %}<span class="badge">Unknown</span>{% endif %}
+              </td>
+            {% elif c.key == "tax_label" %}
+              {# "Incl." on its own was a claim with no source behind it. The
+                 label says how well this is known and links to the sentence it
+                 came from, so you can read the source rather than trust us. #}
+              <td class="muted">
+                {% if r.tax_statement_url %}
+                  <a href="{{ r.tax_statement_url }}" target="_blank" rel="noopener noreferrer"
+                     title="{{ r.tax_statement or 'Read the source statement' }}">{{ r.tax_label }}</a>
+                {% else %}
+                  <span{% if not r.tax_verified %} class="unverified"{% endif %}>{{ r.tax_label }}</span>
+                {% endif %}
+              </td>
+            {% elif c.key == "business_date" %}
+              <td class="num muted">{{ r.business_date }}</td>
+            {% elif c.key == "last_confirmed" %}
+              <td class="num muted">{{ r.last_confirmed or "—" }}</td>
+            {% elif c.key == "curation_status" %}
+              <td><span class="chip">{{ r.curation_status }}</span></td>
             {% endif %}
-          </td>
-          <td>
-            {# Status is spelled out, never conveyed by colour alone (spec 1.13). #}
-            {% if r.availability == "in_stock" %}<span class="badge ok">In stock</span>
-            {% elif r.availability == "out_of_stock" %}<span class="badge off">Out of stock</span>
-            {% else %}<span class="badge">Unknown</span>{% endif %}
-          </td>
-          {# "Incl." on its own was a claim with no source behind it. The label
-             now says how well this is actually known, and links to the sentence
-             it came from so the owner can read it rather than trust us. #}
-          <td class="muted">
-            {% if r.tax_statement_url %}
-              <a href="{{ r.tax_statement_url }}" target="_blank" rel="noopener noreferrer"
-                 title="{{ r.tax_statement or 'Read the source statement' }}">{{ r.tax_label }}</a>
-            {% else %}
-              <span{% if not r.tax_verified %} class="unverified"{% endif %}>{{ r.tax_label }}</span>
-            {% endif %}
-          </td>
-          <td class="num muted">{{ r.business_date }}</td>
-          <td><span class="chip">{{ r.curation_status }}</span></td>
+          {% endfor %}
           <td>{% if r.product_url %}<a href="{{ r.product_url }}" target="_blank" rel="noopener"
                  title="Open the product page">↗</a>{% endif %}</td>
         </tr>

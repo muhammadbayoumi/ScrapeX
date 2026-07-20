@@ -257,6 +257,55 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
     return BrowsePage(rows=shaped, total=total, offset=offset, limit=limit)
 
 
+# The columns the DATA TABLE can show, as (key, label) in default order. One
+# definition, so "manage columns" manages exactly what the table renders — until
+# now the panel managed a constant 14-key export header while the table itself
+# had ten literal <th> cells, and the two had no relationship at all.
+BROWSE_COLUMNS: list[tuple[str, str]] = [
+    ("name", "Record"),
+    ("region", "Country"),
+    ("option_label", "Variant"),
+    ("sku", "SKU"),
+    ("effective_price", "Price"),
+    ("unit", "Unit"),
+    ("availability", "Status"),
+    ("tax_label", "Tax"),
+    ("business_date", "Price changed"),
+    ("last_confirmed", "Last confirmed"),
+    ("curation_status", "Curation"),
+]
+
+# Never hidden by the emptiness sweep: without them a row cannot be identified
+# or is not a price at all.
+ESSENTIAL_COLUMNS = frozenset({"name", "effective_price"})
+
+
+def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
+    """Which browse columns this source actually populates.
+
+    Answers the review's key question — "when a source supplies no brand or SKU,
+    does the table still show those columns?" — with data rather than a guess.
+    ONE aggregate over the latest-per-offer set, not a query per column.
+
+    A source that publishes no variants, no SKU and no unit should not be given
+    three columns of em-dashes to read past.
+    """
+    row = conn.execute(
+        "SELECT COUNT(NULLIF(TRIM(COALESCE(sv.option_label,'')),'')), "
+        "       COUNT(NULLIF(TRIM(COALESCE(sv.external_sku,'')),'')), "
+        "       COUNT(NULLIF(TRIM(COALESCE(so.region,'')),'')), "
+        "       COUNT(so.selling_unit_id), "
+        "       COUNT(NULLIF(TRIM(COALESCE(po.availability,'')),'')) "
+        f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
+    present = {key for key, _ in BROWSE_COLUMNS}
+    for column, count in (("option_label", row[0]), ("sku", row[1]),
+                          ("region", row[2]), ("unit", row[3]),
+                          ("availability", row[4])):
+        if not count:
+            present.discard(column)
+    return present
+
+
 EXPORT_HEADER = [
     # region/country sit right after the name: for a commodity source they are
     # what distinguishes one row from the next.
