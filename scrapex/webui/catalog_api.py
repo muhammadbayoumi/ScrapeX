@@ -19,9 +19,10 @@ PageLimit = Annotated[int, Query(ge=1, le=models.MAX_PAGE_SIZE)]
 
 
 def create_catalog_router(
-    read_connection: ReadConnection, write_action: WriteAction
+    read_connection: ReadConnection, write_action: WriteAction,
+    *, prefix: str = "/api/catalog",
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/catalog", tags=["generic-catalog"])
+    router = APIRouter(prefix=prefix, tags=["generic-catalog"])
 
     def read(run: Callable[[sqlite3.Connection], Any]) -> Any:
         conn = read_connection()

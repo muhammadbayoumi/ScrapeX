@@ -1,0 +1,520 @@
+{% extends "base.html" %}
+{% block title %}Generic datasets · ScrapeX{% endblock %}
+{% block content %}
+<style>
+  .dataset-workflow{display:grid;gap:1rem}
+  .dataset-workflow section{background:var(--surface);border:1px solid var(--line);
+    border-radius:12px;padding:1rem 1.1rem;box-shadow:var(--shadow)}
+  .dataset-workflow h2{margin:.1rem 0 .5rem}
+  .state{border:1px solid var(--line);border-radius:9px;padding:.65rem .75rem;
+    margin:.75rem 0;font-size:.88rem}
+  .state[hidden]{display:none}
+  .state.failure{border-inline-start:4px solid var(--red)}
+  .state.success{border-inline-start:4px solid var(--accent)}
+  .state.loading{border-inline-start:4px solid var(--amber)}
+  .snapshot-form textarea{min-height:12rem;width:100%;direction:ltr;
+    font-family:ui-monospace,monospace;resize:vertical}
+  .candidate-list,.dataset-list{display:grid;gap:.75rem}
+  .candidate{border:1px solid var(--line);border-radius:10px;padding:.85rem}
+  .candidate h3{margin:0;font-size:1rem}
+  .candidate-meta{display:flex;gap:.5rem;flex-wrap:wrap;margin:.4rem 0}
+  .warnings{margin:.5rem 0;padding-inline-start:1.2rem}
+  .warnings li{margin:.2rem 0}
+  .schema-form{display:grid;gap:.75rem;margin-top:.8rem}
+  .schema-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem}
+  .field-editor input,.field-editor select{min-width:9rem;width:100%}
+  .field-editor input[type=checkbox]{width:auto;min-width:0}
+  .candidate-preview,.records-table{max-height:28rem;overflow:auto}
+  .candidate-preview thead th,.records-table thead th{top:0}
+  .dataset-item{display:flex;align-items:center;justify-content:space-between;gap:.8rem;
+    border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem}
+  .dataset-title{font-weight:600;unicode-bidi:plaintext}
+  .dataset-sub{font-size:.8rem;color:var(--muted)}
+  .value{unicode-bidi:plaintext;text-align:left;white-space:pre-wrap}
+  .approval-note{font-size:.82rem;color:var(--muted);margin:.35rem 0}
+  details.approval{border-top:1px solid var(--line);margin-top:.8rem;padding-top:.65rem}
+  details.approval summary{cursor:pointer;font-weight:600}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;
+    flex-wrap:wrap;margin:.6rem 0}
+  @media (max-width:700px){.schema-grid{grid-template-columns:1fr}}
+</style>
+
+<div class="dataset-workflow">
+  <header>
+    <h1>Generic datasets</h1>
+    <p class="muted">Save HTML evidence, review detected tables, and approve only the dataset you want to keep.</p>
+  </header>
+
+  <section aria-labelledby="snapshot-heading">
+    <h2 id="snapshot-heading">1. Save an HTML snapshot</h2>
+    <p class="hint">Paste a previously captured page. Detection reads this saved snapshot and does not create a permanent dataset.</p>
+    <form id="snapshot-form" class="snapshot-form stack">
+      <div class="field">
+        <label for="source-url">Source URL</label>
+        <input id="source-url" name="source_url" type="url" required
+          placeholder="https://example.com/report" dir="ltr" autocomplete="url">
+      </div>
+      <div class="field">
+        <label for="html-content">Saved HTML</label>
+        <textarea id="html-content" name="html_content" required spellcheck="false"
+          placeholder="Paste the complete saved HTML here"></textarea>
+      </div>
+      <div class="row">
+        <button type="submit" id="discover-button">Save and detect tables</button>
+        <span class="hint">Maximum saved HTML size: 2 MB.</span>
+      </div>
+    </form>
+    <div id="discovery-state" class="state" role="status" aria-live="polite">Empty: No snapshot has been analyzed yet. Paste saved HTML above to begin.</div>
+    <div id="candidate-list" class="candidate-list" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="datasets-heading">
+    <div class="toolbar">
+      <div>
+        <h2 id="datasets-heading">2. Approved datasets</h2>
+        <p class="hint">Only owner-approved candidates appear here.</p>
+      </div>
+      <button id="refresh-datasets" class="ghost" type="button">Refresh datasets</button>
+    </div>
+    <div id="datasets-state" class="state loading" role="status" aria-live="polite">Loading: Reading approved datasets from local storage.</div>
+    <div id="dataset-list" class="dataset-list"></div>
+    <button id="more-datasets" class="ghost" type="button" hidden>Load more datasets</button>
+  </section>
+
+  <section id="records-section" aria-labelledby="records-heading">
+    <div class="toolbar">
+      <div>
+        <h2 id="records-heading">3. Dynamic table</h2>
+        <p id="records-context" class="hint">Choose an approved dataset to browse its inferred schema and records.</p>
+      </div>
+      <div class="row">
+        <button id="previous-records" class="ghost" type="button" disabled>Previous page</button>
+        <button id="next-records" class="ghost" type="button" disabled>Next page</button>
+      </div>
+    </div>
+    <div id="records-state" class="state" role="status" aria-live="polite">Empty: No approved dataset is selected.</div>
+    <div id="records-table" class="tablewrap records-table"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const types = ["text", "integer", "decimal", "boolean", "date", "datetime", "url", "json", "unknown"];
+  const snapshotForm = document.querySelector("#snapshot-form");
+  const discoveryState = document.querySelector("#discovery-state");
+  const candidateList = document.querySelector("#candidate-list");
+  const discoverButton = document.querySelector("#discover-button");
+  const datasetsState = document.querySelector("#datasets-state");
+  const datasetList = document.querySelector("#dataset-list");
+  const moreDatasets = document.querySelector("#more-datasets");
+  const recordsState = document.querySelector("#records-state");
+  const recordsTable = document.querySelector("#records-table");
+  const recordsContext = document.querySelector("#records-context");
+  const previousRecords = document.querySelector("#previous-records");
+  const nextRecords = document.querySelector("#next-records");
+  let datasetAfter = 0;
+  let selectedDatasetId = null;
+  let recordCursors = [0];
+  let recordNext = null;
+
+  function setState(element, kind, message) {
+    element.hidden = false;
+    element.className = `state ${kind}`;
+    element.textContent = `${kind.charAt(0).toUpperCase()}${kind.slice(1)}: ${message}`;
+  }
+
+  function hideState(element) {
+    element.hidden = true;
+  }
+
+  function errorDetail(payload, fallback) {
+    if (!payload || !payload.detail) return fallback;
+    if (typeof payload.detail === "string") return payload.detail;
+    if (Array.isArray(payload.detail)) {
+      return payload.detail.map(item => item.msg || "Invalid input").join(" ");
+    }
+    return fallback;
+  }
+
+  async function requestJson(url, options = {}) {
+    let response;
+    try {
+      response = await fetch(url, options);
+    } catch (_error) {
+      throw new Error("The local runtime could not be reached. Confirm it is running, then try again.");
+    }
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      if (!response.ok) {
+        throw new Error("The local runtime returned an unreadable error. Restart it, then try again.");
+      }
+    }
+    if (!response.ok) {
+      throw new Error(errorDetail(payload, "The request failed. Review the input and try again."));
+    }
+    return payload;
+  }
+
+  function keyFrom(value, fallback) {
+    let key = value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!/^[a-z]/.test(key)) key = `${fallback}_${key}`;
+    key = key.slice(0, 64).replace(/_+$/g, "");
+    if (key.length < 2) key = fallback;
+    return key;
+  }
+
+  function valueText(value) {
+    if (value === null || value === undefined || value === "") return "—";
+    if (typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  }
+
+  function textElement(tag, text, className = "") {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text;
+    return element;
+  }
+
+  function previewTable(fields, records) {
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap candidate-preview";
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    fields.forEach(field => {
+      const th = textElement("th", field.source_name);
+      th.dir = "auto";
+      headRow.append(th);
+    });
+    head.append(headRow);
+    table.append(head);
+    const body = document.createElement("tbody");
+    records.forEach(record => {
+      const row = document.createElement("tr");
+      fields.forEach(field => {
+        const cell = textElement("td", valueText(record[field.field_key]), "value");
+        cell.dir = "auto";
+        row.append(cell);
+      });
+      body.append(row);
+    });
+    table.append(body);
+    wrap.append(table);
+    return wrap;
+  }
+
+  function labeledInput(labelText, value, name, required = true) {
+    const field = document.createElement("div");
+    field.className = "field";
+    const label = textElement("label", labelText);
+    const input = document.createElement("input");
+    input.name = name;
+    input.value = value;
+    input.required = required;
+    input.maxLength = labelText.includes("key") ? 64 : 500;
+    input.dir = labelText.includes("key") ? "ltr" : "auto";
+    label.append(input);
+    field.append(label);
+    return field;
+  }
+
+  function approvalEditor(candidate, snapshotId, sourceUrl) {
+    const details = document.createElement("details");
+    details.className = "approval";
+    details.append(textElement("summary", candidate.approvable ? "Review schema and approve" : "Approval unavailable"));
+    if (!candidate.approvable) {
+      details.append(textElement("p", "Correct the reported table issue in a new saved snapshot, then run detection again.", "approval-note"));
+      return details;
+    }
+    const form = document.createElement("form");
+    form.className = "schema-form";
+    const grid = document.createElement("div");
+    grid.className = "schema-grid";
+    const parsedUrl = new URL(sourceUrl);
+    const siteKey = keyFrom(parsedUrl.hostname.replace(/^www\./, ""), "site");
+    const siteName = parsedUrl.hostname.replace(/^www\./, "");
+    grid.append(
+      labeledInput("Site key", siteKey, "site_key"),
+      labeledInput("Site display name", siteName, "site_display_name"),
+      labeledInput("Dataset key", keyFrom(candidate.name, `table_${candidate.table_index + 1}`), "dataset_key"),
+      labeledInput("Dataset name", candidate.name, "dataset_name")
+    );
+    form.append(grid);
+    form.append(textElement("p", "Confirm field names and types, then select at least one identity field. Composite identities are supported.", "approval-note"));
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap field-editor";
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    ["Source field", "Field key", "Display name", "Type", "Identity"].forEach(label => headRow.append(textElement("th", label)));
+    head.append(headRow);
+    table.append(head);
+    const body = document.createElement("tbody");
+    const suggested = new Set(candidate.candidate_identity_fields || []);
+    candidate.fields.forEach(field => {
+      const row = document.createElement("tr");
+      const sourceCell = textElement("td", field.source_name, "value");
+      sourceCell.dir = "auto";
+      row.append(sourceCell);
+      const keyCell = document.createElement("td");
+      const keyInput = document.createElement("input");
+      keyInput.name = "field_key";
+      keyInput.value = field.field_key;
+      keyInput.pattern = "[a-z][a-z0-9_]{1,63}";
+      keyInput.maxLength = 64;
+      keyInput.required = true;
+      keyInput.dir = "ltr";
+      keyCell.append(keyInput);
+      row.append(keyCell);
+      const nameCell = document.createElement("td");
+      const nameInput = document.createElement("input");
+      nameInput.name = "display_name";
+      nameInput.value = field.display_name;
+      nameInput.maxLength = 500;
+      nameInput.required = true;
+      nameInput.dir = "auto";
+      nameCell.append(nameInput);
+      row.append(nameCell);
+      const typeCell = document.createElement("td");
+      const typeSelect = document.createElement("select");
+      typeSelect.name = "data_type";
+      types.forEach(type => {
+        const option = document.createElement("option");
+        option.value = type;
+        option.textContent = type;
+        option.selected = type === field.data_type;
+        typeSelect.append(option);
+      });
+      typeCell.append(typeSelect);
+      row.append(typeCell);
+      const identityCell = document.createElement("td");
+      const identity = document.createElement("input");
+      identity.type = "checkbox";
+      identity.name = "identity";
+      identity.checked = suggested.has(field.field_key);
+      identity.setAttribute("aria-label", `Use ${field.source_name} as identity`);
+      identityCell.append(identity);
+      row.append(identityCell);
+      body.append(row);
+    });
+    table.append(body);
+    wrap.append(table);
+    form.append(wrap);
+    const action = document.createElement("button");
+    action.type = "submit";
+    action.textContent = "Approve and ingest dataset";
+    form.append(action);
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      action.disabled = true;
+      setState(discoveryState, "loading", "Approving the reviewed schema and ingesting generic records.");
+      const rows = [...body.querySelectorAll("tr")];
+      const fields = rows.map(row => ({
+        field_key: row.querySelector('[name="field_key"]').value,
+        display_name: row.querySelector('[name="display_name"]').value,
+        data_type: row.querySelector('[name="data_type"]').value,
+        identity: row.querySelector('[name="identity"]').checked
+      }));
+      const named = new FormData(form);
+      const payload = {
+        table_index: candidate.table_index,
+        site_key: named.get("site_key"),
+        site_display_name: named.get("site_display_name"),
+        dataset_key: named.get("dataset_key"),
+        dataset_name: named.get("dataset_name"),
+        fields
+      };
+      try {
+        const approved = await requestJson(`/api/general/extract/snapshots/${snapshotId}/approve`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        setState(discoveryState, "success", `${approved.label} was approved and ${approved.record_count} records were ingested. Opened the dynamic table below.`);
+        await loadDatasets(0, false);
+        await openDataset(approved.dataset_definition_id);
+        document.querySelector("#records-section").scrollIntoView({behavior: "smooth", block: "start"});
+      } catch (error) {
+        setState(discoveryState, "failure", `${error.message} Your reviewed values are still here; correct them and try approval again.`);
+      } finally {
+        action.disabled = false;
+      }
+    });
+    details.append(form);
+    return details;
+  }
+
+  function renderCandidates(payload) {
+    candidateList.replaceChildren();
+    if (!payload.candidates.length) {
+      setState(discoveryState, "empty", "No semantic HTML tables were detected. Paste a snapshot containing a table with rows and try again.");
+      return;
+    }
+    setState(discoveryState, "success", `${payload.candidates.length} table candidate${payload.candidates.length === 1 ? " was" : "s were"} detected. Review a candidate before permanent ingestion.`);
+    payload.candidates.forEach(candidate => {
+      const card = document.createElement("article");
+      card.className = "candidate";
+      const title = textElement("h3", candidate.name);
+      title.dir = "auto";
+      card.append(title);
+      const meta = document.createElement("div");
+      meta.className = "candidate-meta";
+      meta.append(
+        textElement("span", `${candidate.estimated_row_count} rows`, "chip"),
+        textElement("span", `${candidate.fields.length} fields`, "chip"),
+        textElement("span", `Confidence ${Math.round(candidate.confidence * 100)}%`, "chip"),
+        textElement("span", candidate.approvable ? "Status: Ready for review" : "Status: Needs correction", "chip")
+      );
+      card.append(meta);
+      if (candidate.warnings.length) {
+        const warnings = document.createElement("ul");
+        warnings.className = "warnings";
+        candidate.warnings.forEach(warning => warnings.append(textElement("li", warning)));
+        card.append(warnings);
+      }
+      card.append(previewTable(candidate.fields, candidate.sample_records));
+      card.append(approvalEditor(candidate, payload.snapshot.page_snapshot_id, payload.snapshot.source_url));
+      candidateList.append(card);
+    });
+  }
+
+  snapshotForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    discoverButton.disabled = true;
+    candidateList.replaceChildren();
+    setState(discoveryState, "loading", "Saving immutable HTML evidence and detecting bounded table candidates.");
+    const form = new FormData(snapshotForm);
+    try {
+      const snapshot = await requestJson("/api/general/extract/snapshots", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({source_url: form.get("source_url"), html_content: form.get("html_content")})
+      });
+      const candidates = await requestJson(`/api/general/extract/snapshots/${snapshot.page_snapshot_id}/candidates`);
+      renderCandidates(candidates);
+    } catch (error) {
+      setState(discoveryState, "failure", `${error.message} Correct the snapshot input and try detection again.`);
+    } finally {
+      discoverButton.disabled = false;
+    }
+  });
+
+  function datasetItem(dataset) {
+    const item = document.createElement("article");
+    item.className = "dataset-item";
+    const summary = document.createElement("div");
+    const title = textElement("div", dataset.label, "dataset-title");
+    title.dir = "auto";
+    summary.append(title, textElement("div", `${dataset.site_display_name} · ${dataset.record_count} records · Status: Approved`, "dataset-sub"));
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "ghost";
+    open.textContent = "Open table";
+    open.addEventListener("click", () => openDataset(dataset.dataset_definition_id));
+    item.append(summary, open);
+    return item;
+  }
+
+  async function loadDatasets(after = 0, append = false) {
+    setState(datasetsState, "loading", "Reading approved datasets from local storage.");
+    moreDatasets.hidden = true;
+    try {
+      const payload = await requestJson(`/api/general/extract/datasets?after_id=${after}&limit=50`);
+      if (!append) datasetList.replaceChildren();
+      payload.datasets.forEach(dataset => datasetList.append(datasetItem(dataset)));
+      datasetAfter = payload.next_after_id || 0;
+      moreDatasets.hidden = payload.next_after_id === null;
+      if (!datasetList.children.length) {
+        setState(datasetsState, "empty", "No candidate has been approved. Save HTML and approve one detected table above.");
+      } else {
+        setState(datasetsState, "success", `${datasetList.children.length} approved dataset${datasetList.children.length === 1 ? " is" : "s are"} available in this view.`);
+      }
+    } catch (error) {
+      setState(datasetsState, "failure", `${error.message} Use Refresh datasets to try again.`);
+    }
+  }
+
+  function renderRecords(payload) {
+    recordsTable.replaceChildren();
+    recordsContext.textContent = `${payload.dataset.label} · ${payload.dataset.site_display_name} · ${payload.dataset.record_count} total records`;
+    if (!payload.records.length) {
+      setState(recordsState, "empty", "This approved dataset has no records on this page. Return to the first page or approve a populated table.");
+      return;
+    }
+    hideState(recordsState);
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    payload.fields.forEach(field => {
+      const label = field.identity ? `${field.label} (Identity)` : field.label;
+      const th = textElement("th", label);
+      th.dir = "auto";
+      headRow.append(th);
+    });
+    head.append(headRow);
+    table.append(head);
+    const body = document.createElement("tbody");
+    payload.records.forEach(record => {
+      const row = document.createElement("tr");
+      payload.fields.forEach(field => {
+        const cell = textElement("td", valueText(record.data[field.field_key]), "value");
+        cell.dir = "auto";
+        row.append(cell);
+      });
+      body.append(row);
+    });
+    table.append(body);
+    recordsTable.append(table);
+    setState(recordsState, "success", `${payload.records.length} records are displayed from the approved dynamic schema.`);
+  }
+
+  async function loadRecordPage() {
+    if (!selectedDatasetId) return;
+    const after = recordCursors[recordCursors.length - 1];
+    recordsTable.replaceChildren();
+    setState(recordsState, "loading", "Reading a bounded page of generic records.");
+    previousRecords.disabled = true;
+    nextRecords.disabled = true;
+    try {
+      const payload = await requestJson(`/api/general/extract/datasets/${selectedDatasetId}/records?after_id=${after}&limit=50`);
+      recordNext = payload.next_after_id;
+      renderRecords(payload);
+      previousRecords.disabled = recordCursors.length === 1;
+      nextRecords.disabled = recordNext === null;
+    } catch (error) {
+      setState(recordsState, "failure", `${error.message} Choose the dataset again to retry.`);
+    }
+  }
+
+  async function openDataset(datasetId) {
+    selectedDatasetId = datasetId;
+    recordCursors = [0];
+    recordNext = null;
+    await loadRecordPage();
+  }
+
+  moreDatasets.addEventListener("click", () => loadDatasets(datasetAfter, true));
+  document.querySelector("#refresh-datasets").addEventListener("click", () => loadDatasets(0, false));
+  nextRecords.addEventListener("click", async () => {
+    if (recordNext !== null) {
+      recordCursors.push(recordNext);
+      await loadRecordPage();
+    }
+  });
+  previousRecords.addEventListener("click", async () => {
+    if (recordCursors.length > 1) {
+      recordCursors.pop();
+      await loadRecordPage();
+    }
+  });
+
+  loadDatasets();
+})();
+</script>
+{% endblock %}

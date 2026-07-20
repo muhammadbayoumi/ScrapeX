@@ -74,7 +74,9 @@ def stamp_contract(conn) -> None:
 
 
 def stored_contract_version(conn) -> int | None:
-    row = conn.execute("SELECT value FROM scrapex_meta WHERE key = 'contract_version'").fetchone()
+    row = conn.execute(
+        "SELECT value FROM scrapex_meta WHERE key = 'contract_version' LIMIT 1"
+    ).fetchone()
     return int(row[0]) if row else None
 
 
