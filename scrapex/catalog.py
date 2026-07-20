@@ -49,12 +49,16 @@ def _dataset_row(conn: sqlite3.Connection, dataset_id: int) -> sqlite3.Row:
 
 
 def _site_public(row: sqlite3.Row) -> dict[str, Any]:
+    keys = set(row.keys())
     return {
         "site_profile_id": row["site_profile_id"],
         "site_key": row["site_key"],
         "display_name": row["display_name"],
         "base_url": row["base_url"],
-        "price_source_id": row["price_source_id"],
+        "marketlens_source_key": (
+            row["marketlens_source_key"] if "marketlens_source_key" in keys else None
+        ),
+        "price_source_id": row["price_source_id"] if "price_source_id" in keys else None,
         "lifecycle": row["lifecycle"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -97,6 +101,18 @@ def _field_public(row: sqlite3.Row) -> dict[str, Any]:
 def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, Any]:
     """Register a site idempotently without overwriting its stable identity."""
     base_url = str(request.base_url)
+    try:
+        conn.execute("SELECT marketlens_source_key FROM site_profile LIMIT 0")
+        general_schema = True
+    except sqlite3.OperationalError as exc:
+        if "marketlens_source_key" not in str(exc):
+            raise
+        general_schema = False
+    if general_schema and request.price_source_id is not None:
+        raise CatalogConflict(
+            "General cannot store a MarketLens row id; provide "
+            "marketlens_source_key instead"
+        )
     existing = conn.execute(
         "SELECT * FROM site_profile WHERE site_key = ?", (request.site_key,)
     ).fetchone()
@@ -110,19 +126,54 @@ def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, An
                 f"site_key {request.site_key!r} already belongs to "
                 f"{existing['base_url']!r}"
             )
+        existing_keys = set(existing.keys())
+        if (
+            request.marketlens_source_key is not None
+            and "marketlens_source_key" in existing_keys
+            and existing["marketlens_source_key"] != request.marketlens_source_key
+        ):
+            raise CatalogConflict(
+                f"site_key {request.site_key!r} already links to another "
+                "MarketLens source key"
+            )
         return _site_public(existing)
-    cursor = conn.execute(
-        "INSERT INTO site_profile "
-        "(site_key, display_name, base_url, price_source_id, lifecycle) "
-        "VALUES (?,?,?,?,?)",
-        (
-            request.site_key,
-            request.display_name,
-            base_url,
-            request.price_source_id,
-            request.lifecycle.value,
-        ),
-    )
+    if general_schema:
+        cursor = conn.execute(
+            "INSERT INTO site_profile "
+            "(site_key, display_name, base_url, marketlens_source_key, lifecycle) "
+            "VALUES (?,?,?,?,?)",
+            (
+                request.site_key,
+                request.display_name,
+                base_url,
+                request.marketlens_source_key,
+                request.lifecycle.value,
+            ),
+        )
+    else:
+        legacy_source_id = request.price_source_id
+        if legacy_source_id is None and request.marketlens_source_key is not None:
+            linked = conn.execute(
+                "SELECT source_id FROM source_site WHERE source_key = ? LIMIT 1",
+                (request.marketlens_source_key,),
+            ).fetchone()
+            if linked is None:
+                raise CatalogConflict(
+                    f"unknown legacy price source {request.marketlens_source_key!r}"
+                )
+            legacy_source_id = int(linked[0])
+        cursor = conn.execute(
+            "INSERT INTO site_profile "
+            "(site_key, display_name, base_url, price_source_id, lifecycle) "
+            "VALUES (?,?,?,?,?)",
+            (
+                request.site_key,
+                request.display_name,
+                base_url,
+                legacy_source_id,
+                request.lifecycle.value,
+            ),
+        )
     return _site_public(conn.execute(
         "SELECT * FROM site_profile WHERE site_profile_id = ?", (cursor.lastrowid,)
     ).fetchone())
