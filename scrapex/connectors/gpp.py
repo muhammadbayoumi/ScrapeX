@@ -64,6 +64,15 @@ _REGION_OVERRIDES = {
     "Ivory Coast": "CI", "DR Congo": "CD", "Republic of the Congo": "CG",
     "Czech Republic": "CZ", "Cape Verde": "CV", "Myanmar": "MM",
     "Palestine": "PS", "Taiwan": "TW", "Kosovo": "XK",
+    # Abbreviated and older labels the live pages actually print. Every one of
+    # these was silently dropped: checking all five pages on 2026-07-20 found
+    # 38 rows lost, with Turkey and the UK missing from ALL FIVE energy types.
+    # The table cells are narrow, so the site shortens names — a shape no
+    # hand-written fixture would ever have thought to include.
+    "Turkey": "TR", "UK": "GB", "UAE": "AE", "Burma": "MM",
+    "Curacao": "CW", "Swaziland": "SZ", "Trinidad & Tobago": "TT",
+    "Dom. Rep.": "DO", "Bosnia & Herz.": "BA", "N. Maced.": "MK",
+    "C. Afr. Rep.": "CF",
 }
 
 
@@ -178,6 +187,7 @@ class GlobalPetrolPricesConnector:
         vat = "1" if source.vat_mode.value == "incl" else "0"
         rows: list[list[str]] = []
         page_errors: list[str] = []
+        unmapped: set[str] = set()
 
         pages: dict[str, str] = {}   # slug -> html, so two materials on one page
         for material_key in _contracted_materials(source):            # fetch it once
@@ -197,7 +207,11 @@ class GlobalPetrolPricesConnector:
             for country, price in pairs:
                 region = _region(country)
                 if region is None:
-                    continue  # unmapped country — skipped (broad reference; owner cares SA/EG)
+                    # A country we cannot map is a row we cannot keep, but it is
+                    # not a row we may lose quietly: that is how Turkey and the
+                    # UK went missing from all five energy types unnoticed.
+                    unmapped.add(country)
+                    continue
                 row = _row(builder, material_key, region, price, currency, unit, vat)
                 if row is not None:
                     rows.append(row)
@@ -207,8 +221,13 @@ class GlobalPetrolPricesConnector:
         if page_errors and not rows:
             raise ValueError("every contracted GPP page failed: " + "; ".join(page_errors))
 
+        warnings = list(page_errors)
+        if unmapped:
+            warnings.append(
+                f"{len(unmapped)} country label(s) could not be mapped to an ISO "
+                f"code and their prices were dropped: {', '.join(sorted(unmapped))}")
         yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, base,
-                           builder.header, rows, warnings=page_errors)
+                           builder.header, rows, warnings=warnings)
 
 
 def _row(builder: RowBuilder, material_key: str, region: str, price: str,

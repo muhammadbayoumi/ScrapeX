@@ -270,3 +270,54 @@ def test_a_page_that_yields_nothing_is_reported_even_when_others_succeed():
     assert tables[0].rows, "the healthy page must still be delivered"
     assert any("ELECTRICITY" in w for w in tables[0].warnings), \
         "a whole energy type produced nothing and the run said nothing"
+
+
+# ---- country labels the live pages actually print ----------------------------
+#
+# Checking all five live pages on 2026-07-20 found 38 rows being dropped because
+# the site abbreviates names to fit narrow table cells. Turkey and the UK were
+# missing from ALL FIVE energy types. No hand-written fixture would ever have
+# contained "N. Maced." or "Bosnia & Herz." — which is exactly why a fabricated
+# fixture cannot prove a connector works.
+
+def test_the_abbreviated_labels_the_site_actually_prints_are_mapped():
+    from scrapex.connectors.gpp import _region
+
+    assert _region("Turkey") == "TR"
+    assert _region("UK") == "GB"
+    assert _region("UAE") == "AE"
+    assert _region("Dom. Rep.") == "DO"
+    assert _region("Bosnia & Herz.") == "BA"
+    assert _region("N. Maced.") == "MK"
+    assert _region("C. Afr. Rep.") == "CF"
+    assert _region("Trinidad & Tobago") == "TT"
+    assert _region("Swaziland") == "SZ"
+    assert _region("Curacao") == "CW"
+    assert _region("Burma") == "MM"
+
+
+def test_an_unmappable_country_is_reported_not_silently_dropped():
+    """A country we cannot map is a row we cannot keep — but not one we may
+    lose quietly. That is how Turkey and the UK vanished unnoticed."""
+    entry = make_entry(materials=("DIESEL",))
+
+    class _Fetcher:
+        requests_count = 0
+        def get(self, url, **kwargs):
+            # Same shape as the live page: labels in one column, bars in
+            # another, each bar's single child div holding the number.
+            return _Resp(
+                '<div id="outsideLinks"><div>'
+                '<div><a>Egypt</a></div><div><a>Wakanda</a></div>'
+                '</div></div>'
+                '<div id="graphic"><div>'
+                '<div style="bar"><div>0.404</div></div>'
+                '<div style="bar"><div>0.500</div></div>'
+                '</div></div>')
+        def close(self): pass
+
+    table = next(iter(GlobalPetrolPricesConnector(_Fetcher()).fetch(entry)))
+
+    assert len(table.rows) == 1, "the mappable country must still be kept"
+    assert any("Wakanda" in w for w in table.warnings), \
+        "a dropped country left no trace"

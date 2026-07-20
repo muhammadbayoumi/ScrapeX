@@ -226,7 +226,12 @@ sources:
       - kind: commodity_price
         scope: latest_only     # owner decision: latest published price only,
                                # never the paid historical series (tested, T6)
-        materials: [DIESEL, GASOLINE, LPG, ELECTRICITY, NATURAL_GAS]
+        # ELECTRICITY_BUSINESS is the same page's second column: the site
+        # publishes materially different residential and business rates
+        # (Germany 0.406 vs 0.283). The connector has always defined it and the
+        # manifest never contracted it, so ~125 rows were collected by nobody.
+        # No extra request: one page serves both.
+        materials: [DIESEL, GASOLINE, LPG, ELECTRICITY, ELECTRICITY_BUSINESS, NATURAL_GAS]
         regions: ["*"]
     min_expected_rows: 150     # ~180 countries per fuel page; a big drop = layout change
     max_drop_pct: 20
