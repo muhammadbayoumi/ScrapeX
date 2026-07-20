@@ -30,6 +30,7 @@ from ..fields import (
     set_display_name, set_visibility,
 )
 from ..features import manifest as feature_manifest
+from ..extract.api import create_extraction_router
 from ..manifest_io import DuplicateSourceError, add_source
 from ..matching import (
     ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
@@ -396,6 +397,7 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
     # G1 foundation: typed persistence and API only. The feature stays disabled
     # until a later slice adds a complete user-facing catalogue workflow.
     app.include_router(create_catalog_router(read_conn, _write))
+    app.include_router(create_extraction_router(read_conn, _write))
 
     @app.get("/api/fields/{source_key}")
     def api_fields(source_key: str):
