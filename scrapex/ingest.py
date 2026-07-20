@@ -219,13 +219,99 @@ def _get_variant(conn, product_id: int, r: dict) -> tuple[int, bool]:
     }), True
 
 
+def canonical_unit(raw: str, currency: str = "") -> str:
+    """The unit a price is per, as a stable code — or "" when none was supplied.
+
+    Two jobs, both narrow on purpose:
+
+    1. Drop a currency prefix. globalpetrolprices reports 'USD/liter', but the
+       currency already has its own column, so storing it inside the unit too
+       would make 'USD/liter' and 'EGP/liter' two different units for the same
+       physical litre.
+    2. Fold the obvious spellings of the same unit together, so 'meters', 'Metre'
+       and 'm' do not become three units and split one price series in three.
+
+    Anything unrecognised is kept, lowercased and trimmed. Guessing further
+    would silently merge units that a site means differently, and a wrong merge
+    is far worse than an extra row in a lookup table.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    if "/" in text:
+        head, _, tail = text.partition("/")
+        # Only strip the head when it really is the currency, so a genuine
+        # compound unit like 'kg/m2' survives untouched.
+        if head.strip().upper() == (currency or "").strip().upper() or head.strip().isupper():
+            text = tail
+    key = text.strip().lower().rstrip(".")
+    return _UNIT_ALIASES.get(key, key)
+
+
+_UNIT_ALIASES = {
+    "meter": "m", "meters": "m", "metre": "m", "metres": "m", "mtr": "m",
+    "kilogram": "kg", "kilograms": "kg", "kilo": "kg", "kgs": "kg",
+    "litre": "liter", "litres": "liter", "liters": "liter", "l": "liter",
+    "ton": "tonne", "tons": "tonne", "tonnes": "tonne", "metric ton": "tonne",
+    "square meter": "m2", "square metre": "m2", "sqm": "m2", "m²": "m2",
+    "cubic meter": "m3", "cubic metre": "m3", "cbm": "m3", "m³": "m3",
+    "pieces": "piece", "pcs": "piece", "pc": "piece", "each": "piece",
+    "kwh": "kWh", "kw/h": "kWh",
+}
+
+
+def _get_unit_id(conn: sqlite3.Connection, unit_code: str) -> int | None:
+    """Resolve-or-create. Units arrive from sites, so they cannot all be seeded."""
+    if not unit_code:
+        return None
+    found = _find_id(conn, "SELECT selling_unit_id FROM selling_unit WHERE unit_code = ?",
+                     (unit_code,))
+    if found is not None:
+        return found
+    return _insert(conn, "selling_unit", {"unit_code": unit_code})
+
+
+def _unit_with_basis(r: dict) -> str:
+    """'m' for a per-metre price, '100 m' for a 100-metre roll.
+
+    The quantity belongs with the unit in the price key: a 100 m roll at 500 and
+    a 1 m offcut at 500 are not the same price, and comparing them as if they
+    were is the failure this whole field exists to prevent.
+    """
+    unit = canonical_unit(r.get("unit", ""), r.get("currency", ""))
+    if not unit:
+        return ""
+    basis = _basis_quantity(r.get("basis_quantity", ""))
+    if basis == 1.0:
+        return unit
+    quantity = int(basis) if float(basis).is_integer() else basis
+    return f"{quantity} {unit}"
+
+
+def _basis_quantity(raw: str) -> float:
+    """How many units one offer buys. Anything unusable stays 1 — the default
+    the schema already assumes, never a guess at what the site meant."""
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return 1.0
+    return value if value > 0 else 1.0
+
+
 def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     vat = 1 if r["vat_included"] == "1" else 0
+    unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
+    basis = _basis_quantity(r.get("basis_quantity", ""))
+    # The unit is part of what an offer IS: 15 per litre and 15 per gallon are
+    # different offers, not one offer that changed price. The lookup used to pin
+    # selling_unit_id IS NULL, which made every offer unit-less by construction
+    # and made those two indistinguishable in the warehouse.
     found = _find_id(
         conn,
         "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-        "AND region = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL AND basis_quantity = 1",
-        (variant_id, r["region"]),
+        "AND region = ? AND customer_segment = 'retail' "
+        "AND COALESCE(selling_unit_id,0) = ? AND basis_quantity = ?",
+        (variant_id, r["region"], unit_id or 0, basis),
     )
     if found is not None:
         return found
@@ -234,6 +320,8 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         "region": r["region"],
         "currency": r["currency"],
         "vat_included": vat,
+        "selling_unit_id": unit_id,
+        "basis_quantity": basis,
     })
 
 
@@ -288,10 +376,13 @@ def _observation_values(r: dict, observed_at: str) -> dict:
         effective=_canon_amount(effective), regular=_canon_amount(regular),
         sale=_canon_amount(sale), currency=r["currency"], vat=vat,
         region=r.get("region", ""),
-        # option_label carries the selling unit for commodity rows ('USD/liter')
-        # and the variant option for products — in both cases, what you are
-        # buying one of.
-        unit=r.get("option_label", ""),
+        # The real unit, canonicalised the same way the offer identity does it,
+        # so the two can never disagree about what a price is per. This slot
+        # used to hold option_label, which is the selling unit for commodity
+        # rows but a variant TITLE ("Red / Large") for products — so the
+        # promise that 15/litre and 15/gallon are different series held for
+        # fuel and quietly did not hold for anything else.
+        unit=_unit_with_basis(r),
         brand=r.get("brand_raw", ""),
         # Not collected by any connector yet. Named here so a connector that
         # starts supplying them needs no schema change, and so their arrival is
@@ -398,13 +489,11 @@ def _ingest_commodity_row(conn, entry, source_id, run_id, c, observed_at,
 def _commodity_to_product_row(c: dict) -> dict:
     """Adapt a COMMODITY_PRICE row into the product-row shape _persist_row expects.
 
-    `unit` ('USD/liter') is carried in BOTH the row's own `unit` column, which is
-    its correct home in the widened contract, and — for now — in option_label,
-    which is the only one of the two that anything actually persists. Moving it
-    out of option_label before ingest writes `selling_unit` would not tidy the
-    unit away, it would delete it: the row would carry a unit and the warehouse
-    would store none. option_label stops carrying it in the same change that
-    starts writing selling_unit_id, not before.
+    `unit` ('USD/liter') goes to the row's `unit` column and nowhere else. It
+    used to be stuffed into option_label because that was the only field the
+    warehouse stored; now that ingest resolves selling_unit_id, option_label is
+    free to mean what it says — a variant title — and a unit is no longer
+    indistinguishable from "Red / Large".
 
     `observed_label` is deliberately DROPPED: it has no schema column and must
     never drive business_date/record_hash (owner rule: the history is OUR own
@@ -422,7 +511,6 @@ def _commodity_to_product_row(c: dict) -> dict:
         "vat_included": c.get("vat_included", ""),
         "effective_price": c["effective_price"],
         "unit": c.get("unit", ""),
-        "option_label": c.get("unit", ""),
     })
     return row
 

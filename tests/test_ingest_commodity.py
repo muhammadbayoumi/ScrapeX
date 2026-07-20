@@ -62,12 +62,11 @@ def test_adapter_maps_commodity_row_onto_every_product_column():
     r = _commodity_to_product_row(c)
     assert set(r) == set(PRODUCT_PRICES.columns)          # exactly the product shape
     assert r["external_product_id"] == "DIESEL" and r["product_name"] == "DIESEL"
-    # The unit has its own column in the widened contract. It is ALSO still in
-    # option_label, because that is the only one of the two the warehouse
-    # currently stores — dropping it there before selling_unit_id is written
-    # would delete the unit, not relocate it.
+    # The unit goes to its own column and nowhere else. It used to be stuffed
+    # into option_label, where a unit was indistinguishable from a variant
+    # title like "Red / Large".
     assert r["unit"] == "USD/liter"
-    assert r["option_label"] == "USD/liter"
+    assert r["option_label"] == ""
     assert r["region"] == "EG" and r["currency"] == "USD" and r["effective_price"] == "0.620"
     assert r["external_variant_id"] == "" and r["option_fingerprint"] == ""  # NULL/NULL variant
     assert r["regular_price"] == "" and r["sale_price"] == ""
@@ -84,9 +83,17 @@ def test_commodity_creates_degenerate_chain(conn):
     assert sp[0] == "DIESEL" and sp[1] == 0
     sv = conn.execute("SELECT external_variant_id, option_fingerprint, option_label "
                       "FROM source_variant").fetchone()
-    assert sv[0] is None and sv[1] is None and sv[2] == "USD/liter"
-    so = conn.execute("SELECT region, currency, vat_included, selling_unit_id FROM source_offer").fetchone()
-    assert so[0] == "EG" and so[1] == "USD" and so[2] == 1 and so[3] is None
+    # option_label is empty now: a commodity has no variant title, and the unit
+    # it used to borrow this column for has a real home.
+    assert sv[0] is None and sv[1] is None and sv[2] is None
+    so = conn.execute(
+        "SELECT so.region, so.currency, so.vat_included, su.unit_code, so.basis_quantity "
+        "FROM source_offer so LEFT JOIN selling_unit su USING (selling_unit_id)").fetchone()
+    assert so[0] == "EG" and so[1] == "USD" and so[2] == 1
+    # 'USD/liter' is a currency the offer already records plus a unit. Storing
+    # it whole would make 'USD/liter' and 'EGP/liter' two different litres.
+    assert so[3] == "liter", "the unit was not resolved, or kept its currency"
+    assert so[4] == 1
     po = conn.execute("SELECT business_date, effective_price, regular_price, sale_price "
                       "FROM price_observation").fetchone()
     assert po[0] == "2026-07-16" and po[1] == 0.620 and po[2] is None and po[3] is None
@@ -167,3 +174,81 @@ def test_multi_material_one_variant_each_no_dup_on_recrawl(conn):
     second = ingest_payloads(conn, entry, [commodity_payload(rows)])
     assert second.variants == 0 and second.observations == 0  # idempotent, no new variants
     assert conn.execute("SELECT COUNT(*) FROM source_variant").fetchone()[0] == 2
+
+
+# ---- the unit is part of what an offer IS ------------------------------------
+
+def test_the_same_fuel_in_different_units_is_two_offers(conn):
+    """15 per litre and 15 per gallon are different prices, not one price that
+    stayed the same. The offer lookup used to pin selling_unit_id IS NULL, so
+    every offer was unit-less and these two collapsed into one."""
+    ingest_payloads(conn, commodity_entry(), [commodity_payload([commodity_row()])])
+    gallon = commodity_row()
+    gallon[COMMODITY_PRICE.index("unit")] = "USD/US Gallon"
+    ingest_payloads(conn, commodity_entry(), [commodity_payload([gallon])])
+
+    offers = conn.execute(
+        "SELECT su.unit_code FROM source_offer so "
+        "LEFT JOIN selling_unit su USING (selling_unit_id) ORDER BY 1").fetchall()
+
+    assert [o[0] for o in offers] == ["liter", "us gallon"], \
+        "one fuel priced in two units collapsed into a single offer"
+
+
+def test_the_same_unit_spelled_differently_is_one_offer(conn):
+    """'liter' and 'litres' are the same litre. Two rows would split one price
+    series in two and make every crawl look like the price moved."""
+    ingest_payloads(conn, commodity_entry(), [commodity_payload([commodity_row()])])
+    respelled = commodity_row()
+    respelled[COMMODITY_PRICE.index("unit")] = "USD/Litres"
+    ingest_payloads(conn, commodity_entry(), [commodity_payload([respelled])])
+
+    assert conn.execute("SELECT count(*) FROM source_offer").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM selling_unit").fetchone()[0] == 1
+
+
+def test_a_currency_change_does_not_mint_a_second_unit(conn):
+    """'USD/liter' and 'EGP/liter' are one physical litre. Storing the currency
+    inside the unit would make them two."""
+    from scrapex.ingest import canonical_unit
+
+    assert canonical_unit("USD/liter", "USD") == "liter"
+    assert canonical_unit("EGP/liter", "EGP") == "liter"
+    # A genuine compound unit must survive: this is not a currency prefix.
+    assert canonical_unit("kg/m2", "USD") == "kg/m2"
+
+
+def test_an_unrecognised_unit_is_kept_rather_than_guessed_at():
+    """A wrong merge silently makes two different things one price series.
+    An extra row in a lookup table costs nothing."""
+    from scrapex.ingest import canonical_unit
+
+    assert canonical_unit("bundle of 12", "SAR") == "bundle of 12"
+    assert canonical_unit("", "SAR") == ""
+
+
+def test_a_roll_and_an_offcut_are_not_the_same_price(conn):
+    """Sameh Gabriel sells cable by length: 500 for a 100 m roll and 500 for a
+    1 m piece are not the same price, and comparing them as if they were is
+    exactly what the basis quantity exists to prevent."""
+    from scrapex.ingest import _unit_with_basis
+
+    assert _unit_with_basis({"unit": "m", "basis_quantity": "100"}) == "100 m"
+    assert _unit_with_basis({"unit": "m", "basis_quantity": "1"}) == "m"
+    assert _unit_with_basis({"unit": "m", "basis_quantity": ""}) == "m"
+    assert _unit_with_basis({"unit": "", "basis_quantity": "100"}) == ""
+
+
+def test_a_unit_change_opens_a_new_price_period_not_a_price_change(conn):
+    """The pricekey docstring promised that 15 USD/litre and 15 USD/gallon are
+    different series. That held for fuel and quietly did not hold for products,
+    because the slot carried a variant title instead of the unit."""
+    ingest_payloads(conn, commodity_entry(), [commodity_payload([commodity_row()])])
+    gallon = commodity_row()
+    gallon[COMMODITY_PRICE.index("unit")] = "USD/US Gallon"
+    ingest_payloads(conn, commodity_entry(), [commodity_payload([gallon])])
+
+    keys = {row[0] for row in conn.execute("SELECT price_hash FROM price_observation")}
+    assert len(keys) == 2, "the same number under two units hashed to one price"
+    fields = {row[0] for row in conn.execute("SELECT price_fields FROM price_observation")}
+    assert all("unit" in f for f in fields), "the unit never reached the price key"

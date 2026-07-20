@@ -199,7 +199,14 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     with dbmod.write_lock(db_path):
         conn = dbmod.connect(db_path)
         try:
-            dbmod.migrate(conn)
+            # Only a legacy --db session owns its migrations. A MarketLens
+            # database has its OWN numbered stream (1-15) and was already
+            # migrated when it was created; running the unified stream (1-17)
+            # over it re-applies migration 1 and dies on "table offer_state
+            # already exists". That broke crawl -> ingest, the core workflow,
+            # for every split database — which is now the default.
+            if getattr(args, "db", None):
+                dbmod.migrate(conn)
             result = ingest_payloads(conn, entry, payloads)
             conn.commit()
         finally:
