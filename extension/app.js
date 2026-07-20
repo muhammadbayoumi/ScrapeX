@@ -82,12 +82,16 @@ function setStatus(engine) {
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
-function renderSites() {
-  const box = $("sites");
+function visibleSources() {
   const term = state.filter.trim().toLowerCase();
-  const shown = state.sources.filter((s) =>
+  return state.sources.filter((s) =>
     !term || s.source_name.toLowerCase().includes(term) ||
     (s.base_url || "").toLowerCase().includes(term));
+}
+
+function renderSites() {
+  const box = $("sites");
+  const shown = visibleSources();
 
   if (!state.sources.length) {
     box.innerHTML = `<div class="srow"><span class="muted">No sites yet. Open Source to register your first one.</span></div>`;
@@ -483,18 +487,33 @@ async function loadCurrentPage() {
       out("cur-out", "Open a site in this tab, then come back.", "muted");
       return;
     }
+    // The tab HAS been read by this point. Everything below talks to the
+    // engine, and an engine failure must not be reported as a browser failure —
+    // that sends the owner to fix the wrong thing.
     title.textContent = tab.title || "Untitled page";
     url.textContent = address;
     use.disabled = false;
-    const known = await api(`/api/resolve?url=${encodeURIComponent(address)}`);
-    out("cur-out", known.matched
-      ? `Already registered as ${esc(known.source_name)}.`
-      : "", known.matched ? "muted" : "");
-    use.textContent = known.matched ? "Review its settings" : "Use this page";
+    use.textContent = "Use this page";
+    try {
+      const known = await api(`/api/resolve?url=${encodeURIComponent(address)}`);
+      if (known.matched) {
+        // Do NOT offer to add it again: the only action behind that button is
+        // guaranteed to fail with a duplicate-source error.
+        out("cur-out", `Already registered as ${esc(known.source_name)}.`, "muted");
+        use.textContent = "Open its dataset";
+        use.dataset.registered = known.source_key;
+      } else {
+        out("cur-out", "");
+        delete use.dataset.registered;
+      }
+    } catch (err) {
+      out("cur-out", `The engine did not answer, so ScrapeX cannot tell whether `
+        + `this site is already registered: ${esc(err.message)}`, "err");
+    }
   } catch (_) {
     title.textContent = "Could not read the active tab";
     use.disabled = true;
-    out("cur-out", "The engine or the browser did not answer.", "err");
+    out("cur-out", "The browser did not report an active tab.", "err");
   }
 }
 
@@ -515,6 +534,7 @@ async function checkPastedUrls() {
   button.disabled = true; button.textContent = "Testing…";
   results.classList.remove("hidden");
   results.innerHTML = "";
+  let reviewable = 0;
   try {
     // One at a time, deliberately: these are real requests to sites the owner
     // does not control, and the shared fetcher's politeness applies per call.
@@ -523,19 +543,33 @@ async function checkPastedUrls() {
       let row;
       try {
         const found = await post("/api/probe", { url: address });
-        row = `<div class="srow"><span class="name">${esc(address)}</span>
-          <span class="chip ${found.implemented ? "" : "off"}">${
-            esc(found.implemented ? found.family : `${found.family} — no connector`)}</span>
-          <button class="link" data-pick="${esc(address)}">Review</button></div>`;
+        if (!found.reachable) {
+          // A family guessed from an address nobody answered is not a detection.
+          row = `<div class="srow"><span class="name">${esc(address)}</span>
+            <span class="err hint">Did not respond. Check the address, or the site
+            may block automated requests.</span></div>`;
+        } else {
+          reviewable += 1;
+          row = `<div class="srow"><span class="name">${esc(address)}</span>
+            <span class="chip ${found.implemented ? "" : "off"}">${
+              esc(found.implemented ? found.family : `${found.family} — no connector`)}</span>
+            <button class="link" data-pick="${esc(address)}">Review</button></div>`;
+        }
       } catch (err) {
         row = `<div class="srow"><span class="name">${esc(address)}</span>
           <span class="err hint">${esc(err.message)}</span></div>`;
       }
       results.insertAdjacentHTML("beforeend", row);
+      // Bind as each row lands. Binding after the whole batch meant an early
+      // click on a visible button silently did nothing.
+      results.querySelectorAll("[data-pick]:not([data-bound])").forEach((link) => {
+        link.dataset.bound = "1";
+        link.addEventListener("click", () => { showSourceDetail(link.dataset.pick); probe(); });
+      });
     }
-    out("urls-out", "Pick one to review and add.", "muted");
-    results.querySelectorAll("[data-pick]").forEach((link) =>
-      link.addEventListener("click", () => { showSourceDetail(link.dataset.pick); probe(); }));
+    out("urls-out", reviewable
+      ? "Pick one to review and add."
+      : "None of these addresses could be checked.", reviewable ? "muted" : "err");
   } finally {
     button.disabled = false; button.textContent = "Check these sites";
   }
@@ -737,7 +771,10 @@ async function init() {
     state.filter = e.target.value; renderSites();
   });
   $("select-all").addEventListener("click", () => {
-    state.sources.filter((s) => s.implemented).forEach((s) => state.selected.add(s.source_key));
+    // What is VISIBLE, not what exists: with a search term typed, taking the
+    // whole catalogue left the count contradicting the list on screen.
+    visibleSources().filter((s) => s.implemented)
+      .forEach((s) => state.selected.add(s.source_key));
     renderSites();
   });
   $("clear-sel").addEventListener("click", () => { state.selected.clear(); renderSites(); });
