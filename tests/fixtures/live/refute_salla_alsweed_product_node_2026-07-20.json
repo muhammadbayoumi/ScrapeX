@@ -1,0 +1,74 @@
+{
+ "_note": "REFUTER independent capture 2026-07-20. URL: https://alsweed.sa/ar/%D8%AF%D9%8A%D9%86%D9%85%D9%88-%D9%85%D8%A7%D8%A1-%D8%A5%D9%8A%D8%B7%D8%A7%D9%84%D9%8A/p698258674 . Verbatim schema.org Product node. NOTE: no brand key at all; sku is a URL path fragment, not a SKU; offers is a plain Offer with numeric price (not AggregateOffer).",
+ "product_node": {
+  "@type": "Product",
+  "name": "دينمو ماء إيطالي",
+  "description": "دينمو ماء ايطالي يجمع بين القوة والدقة والهدوء في التشغيل، ليكون الحل الأمثل لكل منزل أو مشروع يحتاج إلى تدفق مياه مستمر وموثوق. يتميز هذا الدينمو الإيطالي المت...",
+  "sku": "دينمو-ماء-إيطالي/p698258674",
+  "offers": {
+   "@type": "Offer",
+   "url": "https://alsweed.sa/%D8%AF%D9%8A%D9%86%D9%85%D9%88-%D9%85%D8%A7%D8%A1-%D8%A5%D9%8A%D8%B7%D8%A7%D9%84%D9%8A/p698258674",
+   "availability": "https://schema.org/InStock",
+   "price": 129,
+   "priceCurrency": "SAR",
+   "priceValidUntil": "2026-08-20T18:49:00+03:00",
+   "seller": {
+    "@type": "Organization",
+    "name": "السويد للسباكة"
+   }
+  },
+  "aggregateRating": {
+   "@type": "AggregateRating",
+   "ratingCount": 6,
+   "ratingValue": 5
+  },
+  "review": [
+   {
+    "@type": "Review",
+    "author": {
+     "@type": "Person",
+     "name": "عبدالله الحربي"
+    },
+    "datePublished": "2026-07-10",
+    "reviewBody": "ممتاز",
+    "reviewRating": {
+     "@type": "Rating",
+     "worstRating": 1,
+     "bestRating": 5,
+     "ratingValue": 5
+    }
+   },
+   {
+    "@type": "Review",
+    "author": {
+     "@type": "Person",
+     "name": "مها الخيبري"
+    },
+    "datePublished": "2025-05-19",
+    "reviewBody": "ممتاز ما شاء الله الجودة عاليه",
+    "reviewRating": {
+     "@type": "Rating",
+     "worstRating": 1,
+     "bestRating": 5,
+     "ratingValue": 5
+    }
+   },
+   {
+    "@type": "Review",
+    "author": {
+     "@type": "Person",
+     "name": "أحمد الزارع"
+    },
+    "datePublished": "2024-08-06",
+    "reviewBody": "ايطاليه مايحتاج ممتازة",
+    "reviewRating": {
+     "@type": "Rating",
+     "worstRating": 1,
+     "bestRating": 5,
+     "ratingValue": 5
+    }
+   }
+  ],
+  "image": "https://cdn.salla.sa/RPNxP/7bfcd1c7-560c-45f4-964d-1921daafa1b2-1000x1000-CP2AcFtlVpUcYwEr0gTpuMRT3C1Y1RxNUmv08PgC.jpg"
+ }
+}

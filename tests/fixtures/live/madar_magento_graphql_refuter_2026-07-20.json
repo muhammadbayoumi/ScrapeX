@@ -1,0 +1,36 @@
+{
+  "_capture_note": "REAL LIVE CAPTURE, verbatim. Source: POST/GET https://www.madar.com/graphql (Magento 2 GraphQL). Captured 2026-07-20 by the refuter audit. Retrieved via a browser-grade fetcher: scripted clients (urllib/httpx/curl, HTTP1.1 and HTTP2, browser UA) are answered HTTP 403 by the nginx/Cloudflare edge from this host. Live catalogue at capture time: total_count 788, page_info at pageSize=100 = {current_page:1,total_pages:8}. Items below are byte-faithful from currentPage:1; the array is TRIMMED for size, structure/field names/values are unmodified. Note: categories{uid name} IS populated on this store for most products (see the configurable below); it is sparse only on the first page-1 items.",
+  "data": {
+    "products": {
+      "total_count": 788,
+      "page_info": { "current_page": 1, "total_pages": 8 },
+      "items": [
+        {"uid":"NzQ5MA==","sku":"72702007","name":"QGC Gypsum Board - 12.5mm x 1.2 x 2.4mtr - Fire Rated","url_key":"72702007","stock_status":"IN_STOCK","categories":[],"price_range":{"minimum_price":{"regular_price":{"value":22.34},"final_price":{"value":22.34}}}},
+        {"uid":"NzQ4Mw==","sku":"71231005","name":"71231005","url_key":"71231005","stock_status":"IN_STOCK","categories":[],"price_range":{"minimum_price":{"regular_price":{"value":65.21},"final_price":{"value":65.21}}}},
+        {"uid":"NzQ4Mg==","sku":"71231004","name":"71231004","url_key":"71231004","stock_status":"IN_STOCK","categories":[],"price_range":{"minimum_price":{"regular_price":{"value":30.19},"final_price":{"value":30.19}}}},
+        {
+          "uid": "Njg4MA==",
+          "sku": "12512-TSP",
+          "name": "Tigercore Shuttering Plywood",
+          "url_key": "12512-tsp",
+          "stock_status": "IN_STOCK",
+          "categories": [
+            {"uid": "MTE=", "name": "الأخشاب والمنتجات الخشبية"},
+            {"uid": "MTY=", "name": "أبلكاش مدهون"}
+          ],
+          "price_range": {"minimum_price": {"regular_price": {"value": 50.4}, "final_price": {"value": 50.4}}},
+          "variants": [
+            {
+              "product": {"uid":"NTQ4MA==","sku":"12512182813","name":"Tigercore Shuttering Plywood | 18 × 610 × 2440mm | 13PLY","stock_status":"IN_STOCK","price_range":{"minimum_price":{"regular_price":{"value":50.4},"final_price":{"value":50.4}}}},
+              "attributes": [{"code": "width_mm", "label": "610"}]
+            },
+            {
+              "product": {"uid":"NTg4Nw==","sku":"12512184813","name":"Tigercore Shuttering Plywood | 18 × 1220 × 2440mm | 13PLY","stock_status":"IN_STOCK","price_range":{"minimum_price":{"regular_price":{"value":90.3},"final_price":{"value":90.3}}}},
+              "attributes": [{"code": "width_mm", "label": "1220"}]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

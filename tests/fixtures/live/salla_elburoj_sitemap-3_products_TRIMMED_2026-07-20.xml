@@ -1,0 +1,47 @@
+<!-- CAPTURED LIVE 2026-07-20 by refuter audit. URL: https://elburoj.com/ar/sitemap-3.xml
+     HTTP 200. FULL file: 3572 <loc>, of which 1720 match /p(\d{5,}) = 860 unique product ids x (ar + en).
+     TRIMMED to the first 40 product <loc> for size; URLs byte-faithful (raw UTF-8 Arabic paths).
+     Evidence for: the ar/en duplication defect, and that ELBUROJ has THREE product sitemaps
+     (sitemap-1/2/3) - store total 6720 product locs / 3360 unique ids. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://elburoj.com/ar/قسام-سن-داخلي-من-تحويل-20x1-2-مل-أخضر/p1554381606</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-سن-داخلي-من-تحويل-20x1-2-مل-أخضر/p1554381606</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-سن-داخلي-من-تحويل-32x1-2-مل-أخضر/p692049908</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-سن-داخلي-من-تحويل-32x1-2-مل-أخضر/p692049908</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-سن-داخلي-من-تحويل-32x3-4-مل-أخضر/p615966405</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-سن-داخلي-من-تحويل-32x3-4-مل-أخضر/p615966405</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادي-upvc-من-بحريني-مقاس-2-بوصة-أبيض/p466887398</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادي-upvc-من-بحريني-مقاس-2-بوصة-أبيض/p466887398</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادي-upvc-من-بحريني-مقاس-2-1-1-بوصة-أبيض/p121046716</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادي-upvc-من-بحريني-مقاس-2-1-1-بوصة-أبيض/p121046716</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-غراء-من-فابكو-مقاس-50-مم-رمادي/p1155215560</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-غراء-من-فابكو-مقاس-50-مم-رمادي/p1155215560</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادي-حار-cpvc-من-الخليج-مقاس-1-بوصة-ضغط-80/p1774397926</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادي-حار-cpvc-من-الخليج-مقاس-1-بوصة-ضغط-80/p1774397926</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادى-upvc-من-نيبرو-مقاس-2-بوصة-ضغط-40-أبيض/p73447446</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادى-upvc-من-نيبرو-مقاس-2-بوصة-ضغط-40-أبيض/p73447446</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-نقاص-حراري-من-تحويل-مقاس-90x32x90-مم-أخضر/p1408142900</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-نقاص-حراري-من-تحويل-مقاس-90x32x90-مم-أخضر/p1408142900</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-نقاص-من-تحويل-مقاس-25x20-مم-أخضر/p1167479324</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-نقاص-من-تحويل-مقاس-25x20-مم-أخضر/p1167479324</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-نقاص-من-تحويل-مقاس-50x32x50-مم-أخضر/p1759563054</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-نقاص-من-تحويل-مقاس-50x32x50-مم-أخضر/p1759563054</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-نقاص-من-تحويل-مقاس-63x32-مم-أخضر/p2138772374</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-نقاص-من-تحويل-مقاس-63x32-مم-أخضر/p2138772374</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-نقاص-من-تحويل-مقاس-63x40-مم-أخضر/p1451683235</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-نقاص-من-تحويل-مقاس-63x40-مم-أخضر/p1451683235</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-نقاص-من-تحويل-مقاس-75x32x75-مم-أخضر/p1953523097</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-نقاص-من-تحويل-مقاس-75x32x75-مم-أخضر/p1953523097</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-نقاص-من-تحويل-مقاس-63x90-مم-أخضر/p403166767</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-نقاص-من-تحويل-مقاس-63x90-مم-أخضر/p403166767</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادى-upvc-من-نيبرو-مقاس-1-بوصة-ضغط-40-أبيض/p728423271</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادى-upvc-من-نيبرو-مقاس-1-بوصة-ضغط-40-أبيض/p728423271</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادى-بارد-من-نيبرو-مقاس-3-4-بوصة-ضغط-80-رمادي/p2013590079</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادى-بارد-من-نيبرو-مقاس-3-4-بوصة-ضغط-80-رمادي/p2013590079</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-حار-cpvc-من-نيبرو-مقاس-3-4-بوصة-ضغط-80-رمادي/p859180459</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-حار-cpvc-من-نيبرو-مقاس-3-4-بوصة-ضغط-80-رمادي/p859180459</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادى-بارد-من-نيبرو-مقاس-1-بوصة-ضغط-80-رمادي/p1145911328</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادى-بارد-من-نيبرو-مقاس-1-بوصة-ضغط-80-رمادي/p1145911328</loc></url>
+  <url><loc>https://elburoj.com/ar/قسام-عادى-بارد-من-نيبرو-مقاس-11-2-بوصة-ضغط-80-رمادي/p276476446</loc></url>
+  <url><loc>https://elburoj.com/en/قسام-عادى-بارد-من-نيبرو-مقاس-11-2-بوصة-ضغط-80-رمادي/p276476446</loc></url>
+</urlset>

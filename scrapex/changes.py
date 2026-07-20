@@ -124,10 +124,14 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     for a commodity source: a price move on Egyptian diesel and one on Saudi
     diesel would otherwise both read as just "DIESEL".
     """
-    sql = ("SELECT c.*, sp.source_name AS product_name, so.region AS region "
+    sql = ("SELECT c.*, sp.source_name AS product_name, so.region AS region, "
+           "       su.unit_code AS unit_code, so.basis_quantity AS basis_quantity "
            "FROM change_event c "
            "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
-           "LEFT JOIN source_offer so ON so.offer_id = c.offer_id ")
+           "LEFT JOIN source_offer so ON so.offer_id = c.offer_id "
+           # A feed reading "325 -> 300" without saying per WHAT leaves the reader
+           # to assume the unit held still. That is exactly what may have moved.
+           "LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id ")
     params: list = []
     if source_key is not None:
         sql += ("JOIN source_site ss ON ss.source_id = sp.source_id "
@@ -136,11 +140,13 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     sql += "ORDER BY c.change_event_id DESC LIMIT ?"
     params.append(max(1, min(limit, 500)))
 
-    from .reports import region_name          # display-only resolution (ISO -> name)
+    from .reports import price_unit, region_name   # display-only resolution
     out = []
     for row in conn.execute(sql, params):
         item = dict(row)
         item["region"] = item.get("region") or ""
         item["region_name"] = region_name(item["region"])
+        item["unit"] = price_unit(item.pop("unit_code", None),
+                                  item.pop("basis_quantity", 1))
         out.append(item)
     return out

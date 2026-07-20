@@ -114,6 +114,10 @@
           <td class="num muted">{{ r.sku or "—" }}</td>
           <td>
             <span class="price">{{ "%g"|format(r.effective_price) }} {{ r.currency }}</span>
+            {# The unit qualifies the number, so it belongs to it. Without this a
+               column of prices where some are per tonne and some per bag reads
+               as one comparable list. #}
+            {% if r.unit %}<span class="per">/ {{ r.unit }}</span>{% endif %}
             {% if r.sale_price is not none and r.regular_price and r.regular_price != r.effective_price %}
               <span class="strike">{{ "%g"|format(r.regular_price) }}</span>
             {% endif %}

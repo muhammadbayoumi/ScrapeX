@@ -1,0 +1,332 @@
+{
+  "products": [
+    {
+      "id": 10157311557932,
+      "title": "كشاف واجهات400وات اضاءة ابيض IP 65",
+      "handle": "luma-floodlight-400w-ip65-6500k",
+      "body_html": "<p>كشاف واجهات400وات اضاءة ابيض IP 65</p>",
+      "published_at": "2025-12-02T09:45:43+02:00",
+      "created_at": "2025-12-02T07:32:11+02:00",
+      "updated_at": "2026-07-20T18:49:16+03:00",
+      "vendor": "Luma",
+      "product_type": "Floodlight",
+      "tags": [
+        "Floodlight"
+      ],
+      "variants": [
+        {
+          "id": 52388706844972,
+          "title": "Default Title",
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null,
+          "sku": "312890",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "7136.40",
+          "grams": 22,
+          "compare_at_price": null,
+          "position": 1,
+          "product_id": 10157311557932,
+          "created_at": "2025-12-02T07:32:11+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        }
+      ],
+      "images": [
+        {
+          "id": 52001828274476,
+          "created_at": "2025-12-02T09:23:54+02:00",
+          "position": 1,
+          "updated_at": "2025-12-02T09:23:55+02:00",
+          "product_id": 10157311557932,
+          "variant_ids": [],
+          "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/212549.png?v=1764660235",
+          "width": 1000,
+          "height": 1000
+        }
+      ],
+      "options": [
+        {
+          "name": "Title",
+          "position": 1,
+          "values": [
+            "Default Title"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 9033503572268,
+      "title": "سلك نحاس شعر pvc جهد450/750قطاع 25 مم",
+      "handle": "cu-pvc-copper-wire-felexible-25mm-thick",
+      "body_html": "سلك نحاس شعر pvc جهد450/750قطاع 25 مم",
+      "published_at": "2024-05-09T15:24:53+03:00",
+      "created_at": "2024-02-20T15:14:40+02:00",
+      "updated_at": "2026-07-20T18:49:16+03:00",
+      "vendor": "El Sewedy Cables",
+      "product_type": "wires",
+      "tags": [
+        "wires"
+      ],
+      "variants": [
+        {
+          "id": 47996449030444,
+          "title": "black",
+          "option1": "black",
+          "option2": null,
+          "option3": null,
+          "sku": "105330",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "28545.28",
+          "grams": 0,
+          "compare_at_price": "30367.32",
+          "position": 1,
+          "product_id": 9033503572268,
+          "created_at": "2024-02-20T15:14:40+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        },
+        {
+          "id": 47996449063212,
+          "title": "Blue",
+          "option1": "Blue",
+          "option2": null,
+          "option3": null,
+          "sku": "105330",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "28545.28",
+          "grams": 0,
+          "compare_at_price": "30367.32",
+          "position": 2,
+          "product_id": 9033503572268,
+          "created_at": "2024-02-20T15:14:40+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        },
+        {
+          "id": 47996449095980,
+          "title": "EARTH",
+          "option1": "EARTH",
+          "option2": null,
+          "option3": null,
+          "sku": "105330",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "28545.28",
+          "grams": 0,
+          "compare_at_price": "30367.32",
+          "position": 3,
+          "product_id": 9033503572268,
+          "created_at": "2024-02-20T15:14:40+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        },
+        {
+          "id": 47996449128748,
+          "title": "Green",
+          "option1": "Green",
+          "option2": null,
+          "option3": null,
+          "sku": "105330",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "28545.28",
+          "grams": 0,
+          "compare_at_price": "30367.32",
+          "position": 4,
+          "product_id": 9033503572268,
+          "created_at": "2024-02-20T15:14:40+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        },
+        {
+          "id": 47996449161516,
+          "title": "Red",
+          "option1": "Red",
+          "option2": null,
+          "option3": null,
+          "sku": "105330",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "28545.28",
+          "grams": 0,
+          "compare_at_price": "30367.32",
+          "position": 5,
+          "product_id": 9033503572268,
+          "created_at": "2024-02-20T15:14:40+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        },
+        {
+          "id": 47996449194284,
+          "title": "Yellow",
+          "option1": "Yellow",
+          "option2": null,
+          "option3": null,
+          "sku": "105330",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "28545.28",
+          "grams": 0,
+          "compare_at_price": "30367.32",
+          "position": 6,
+          "product_id": 9033503572268,
+          "created_at": "2024-02-20T15:14:40+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        }
+      ],
+      "images": [
+        {
+          "id": 45783205151020,
+          "created_at": "2024-05-28T11:55:09+03:00",
+          "position": 1,
+          "updated_at": "2024-05-28T11:55:10+03:00",
+          "product_id": 9033503572268,
+          "variant_ids": [],
+          "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/EP0121TRS008_955066_db47e485-663a-4fc5-bf6b-6ceb34f0d92c.jpg?v=1716886510",
+          "width": 1000,
+          "height": 1000
+        }
+      ],
+      "options": [
+        {
+          "name": "color",
+          "position": 1,
+          "values": [
+            "black",
+            "Blue",
+            "EARTH",
+            "Green",
+            "Red",
+            "Yellow"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 10157310968108,
+      "title": "سبوت غاطس مربع اضاءة أصفر 6 وات مقاوم للعوامل الجوية IP 65",
+      "handle": "luma-downlight-square-ip65-6w-3000k",
+      "body_html": "<p>سبوت غاطس مربع اضاءة أصفر 6 وات مقاوم للعوامل الجوية IP 65</p>",
+      "published_at": "2025-12-02T09:45:32+02:00",
+      "created_at": "2025-12-02T07:31:14+02:00",
+      "updated_at": "2026-07-20T18:49:16+03:00",
+      "vendor": "Luma",
+      "product_type": "Spot Light",
+      "tags": [
+        "spot light"
+      ],
+      "variants": [
+        {
+          "id": 52388705993004,
+          "title": "Default Title",
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null,
+          "sku": "212522",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": true,
+          "price": "925.00",
+          "grams": 6,
+          "compare_at_price": "0.00",
+          "position": 1,
+          "product_id": 10157310968108,
+          "created_at": "2025-12-02T07:31:14+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        }
+      ],
+      "images": [
+        {
+          "id": 52001823523116,
+          "created_at": "2025-12-02T09:19:40+02:00",
+          "position": 1,
+          "updated_at": "2025-12-02T09:19:41+02:00",
+          "product_id": 10157310968108,
+          "variant_ids": [],
+          "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/212523.png?v=1764659981",
+          "width": 1000,
+          "height": 1000
+        }
+      ],
+      "options": [
+        {
+          "name": "Title",
+          "position": 1,
+          "values": [
+            "Default Title"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 10157310804268,
+      "title": "سبوت لوما فارغ متحرك أبيض معدن ألومنيوم بعاكس بلاستيك أبيض قطر 7 سم",
+      "handle": "luma-die-cast-round-spot-7cm-white-with-plastic-white-reflector",
+      "body_html": "<p>سبوت لوما فارغ متحرك أبيض معدن ألومنيوم بعاكس بلاستيك أبيض قطر 7 سم</p>",
+      "published_at": "2025-12-02T09:45:28+02:00",
+      "created_at": "2025-12-02T07:30:56+02:00",
+      "updated_at": "2026-07-20T18:49:16+03:00",
+      "vendor": "Luma",
+      "product_type": "Spot Light",
+      "tags": [
+        "spot light"
+      ],
+      "variants": [
+        {
+          "id": 52388705763628,
+          "title": "Default Title",
+          "option1": "Default Title",
+          "option2": null,
+          "option3": null,
+          "sku": "312859",
+          "requires_shipping": true,
+          "taxable": false,
+          "featured_image": null,
+          "available": false,
+          "price": "110.00",
+          "grams": 1,
+          "compare_at_price": null,
+          "position": 1,
+          "product_id": 10157310804268,
+          "created_at": "2025-12-02T07:30:56+02:00",
+          "updated_at": "2026-07-20T18:49:16+03:00"
+        }
+      ],
+      "images": [
+        {
+          "id": 52001819590956,
+          "created_at": "2025-12-02T09:16:39+02:00",
+          "position": 1,
+          "updated_at": "2025-12-02T09:16:41+02:00",
+          "product_id": 10157310804268,
+          "variant_ids": [],
+          "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/312859_1.jpg?v=1764659801",
+          "width": 1000,
+          "height": 1000
+        }
+      ],
+      "options": [
+        {
+          "name": "Title",
+          "position": 1,
+          "values": [
+            "Default Title"
+          ]
+        }
+      ]
+    }
+  ]
+}

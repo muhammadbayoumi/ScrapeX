@@ -1,0 +1,381 @@
+{
+  "_note": "REAL LIVE CAPTURE. Endpoint https://www.madar.com/graphql (POST, application/json). Captured 2026-07-20 by the fixture audit. Query text is byte-identical to _QUERY in scrapex/connectors/magento.py. Values byte-faithful; items[] trimmed from 100 to 3 simple + 2 configurable for size. page_info/total_count are the REAL live values (untrimmed).",
+  "_endpoint": "https://www.madar.com/graphql",
+  "_captured_at": "2026-07-20",
+  "_default_store_is": "ar_SA (no Store header == Arabic); Store: en_SA header switches category names. Product names are NOT translated in either store view.",
+  "products_page1_trimmed": {
+    "total_pages_real": 8,
+    "page_info": {
+      "current_page": 1,
+      "total_pages": 8
+    },
+    "items_count_real": 100,
+    "items": [
+      {
+        "uid": "NzQ5MA==",
+        "sku": "72702007",
+        "name": "QGC Gypsum Board - 12.5mm x 1.2 x 2.4mtr - Fire Rated",
+        "url_key": "72702007",
+        "stock_status": "IN_STOCK",
+        "price_range": {
+          "minimum_price": {
+            "regular_price": {
+              "value": 22.34
+            },
+            "final_price": {
+              "value": 22.34
+            }
+          }
+        }
+      },
+      {
+        "uid": "NzQ4Mw==",
+        "sku": "71231005",
+        "name": "71231005",
+        "url_key": "71231005",
+        "stock_status": "IN_STOCK",
+        "price_range": {
+          "minimum_price": {
+            "regular_price": {
+              "value": 65.21
+            },
+            "final_price": {
+              "value": 65.21
+            }
+          }
+        }
+      },
+      {
+        "uid": "NzQ4Mg==",
+        "sku": "71231004",
+        "name": "71231004",
+        "url_key": "71231004",
+        "stock_status": "IN_STOCK",
+        "price_range": {
+          "minimum_price": {
+            "regular_price": {
+              "value": 30.19
+            },
+            "final_price": {
+              "value": 30.19
+            }
+          }
+        }
+      },
+      {
+        "uid": "Njg4MA==",
+        "sku": "12512-TSP",
+        "name": "Tigercore Shuttering Plywood",
+        "url_key": "12512-tsp",
+        "stock_status": "IN_STOCK",
+        "price_range": {
+          "minimum_price": {
+            "regular_price": {
+              "value": 50.4
+            },
+            "final_price": {
+              "value": 50.4
+            }
+          }
+        },
+        "variants": [
+          {
+            "product": {
+              "uid": "NTQ4MA==",
+              "sku": "12512182813",
+              "name": "Tigercore Shuttering Plywood | 18 × 610 × 2440mm | 13PLY",
+              "stock_status": "IN_STOCK",
+              "price_range": {
+                "minimum_price": {
+                  "regular_price": {
+                    "value": 50.4
+                  },
+                  "final_price": {
+                    "value": 50.4
+                  }
+                }
+              }
+            },
+            "attributes": [
+              {
+                "code": "width_mm",
+                "label": "610"
+              }
+            ]
+          },
+          {
+            "product": {
+              "uid": "NTg4Nw==",
+              "sku": "12512184813",
+              "name": "Tigercore Shuttering Plywood | 18 × 1220 × 2440mm | 13PLY",
+              "stock_status": "IN_STOCK",
+              "price_range": {
+                "minimum_price": {
+                  "regular_price": {
+                    "value": 90.3
+                  },
+                  "final_price": {
+                    "value": 90.3
+                  }
+                }
+              }
+            },
+            "attributes": [
+              {
+                "code": "width_mm",
+                "label": "1220"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "uid": "NjEzNA==",
+        "sku": "61002-PFT",
+        "name": "Panasonic Flexible Steel Conduit (Thailand)",
+        "url_key": "panasonic-flexible-steel-conduit-thailand",
+        "stock_status": "IN_STOCK",
+        "price_range": {
+          "minimum_price": {
+            "regular_price": {
+              "value": 150.94
+            },
+            "final_price": {
+              "value": 150.94
+            }
+          }
+        },
+        "variants": [
+          {
+            "product": {
+              "uid": "NDgzNA==",
+              "sku": "61002280007",
+              "name": "EMT 1 FLEXIBLE STEEL PIPE PANASONIC THAILAND",
+              "stock_status": "IN_STOCK",
+              "price_range": {
+                "minimum_price": {
+                  "regular_price": {
+                    "value": 181.13
+                  },
+                  "final_price": {
+                    "value": 181.13
+                  }
+                }
+              }
+            },
+            "attributes": [
+              {
+                "code": "size",
+                "label": "1\""
+              }
+            ]
+          },
+          {
+            "product": {
+              "uid": "NDgzNQ==",
+              "sku": "61002280009",
+              "name": "EMT-1/2\" FLEXIBLE STEEL PIPE PANASONIC THAILAND",
+              "stock_status": "IN_STOCK",
+              "price_range": {
+                "minimum_price": {
+                  "regular_price": {
+                    "value": 150.94
+                  },
+                  "final_price": {
+                    "value": 150.94
+                  }
+                }
+              }
+            },
+            "attributes": [
+              {
+                "code": "size",
+                "label": "1/2\""
+              }
+            ]
+          },
+          {
+            "product": {
+              "uid": "NDgzNg==",
+              "sku": "61002280010",
+              "name": "EMT-3/4\" FLEXIBLE STEEL PIPE PANASONIC THAILAND",
+              "stock_status": "IN_STOCK",
+              "price_range": {
+                "minimum_price": {
+                  "regular_price": {
+                    "value": 175.09
+                  },
+                  "final_price": {
+                    "value": 175.09
+                  }
+                }
+              }
+            },
+            "attributes": [
+              {
+                "code": "size",
+                "label": "3/4\""
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "availableStores": {
+    "data": {
+      "availableStores": [
+        {
+          "store_code": "en_SA",
+          "store_name": "English",
+          "locale": "en_US"
+        },
+        {
+          "store_code": "ar_SA",
+          "store_name": "العربية",
+          "locale": "ar_SA"
+        }
+      ]
+    }
+  },
+  "categoryList_default_ar": {
+    "data": {
+      "categoryList": [
+        {
+          "uid": "Mg==",
+          "name": "Main Menu",
+          "children": [
+            {
+              "uid": "MTg=",
+              "name": "مواد البناء ولوازم الموقع",
+              "product_count": 158
+            },
+            {
+              "uid": "Mw==",
+              "name": "المعادن والحديد الإنشائي",
+              "product_count": 53
+            },
+            {
+              "uid": "MTE=",
+              "name": "الأخشاب والمنتجات الخشبية",
+              "product_count": 88
+            },
+            {
+              "uid": "MjM=",
+              "name": "الكهرباء والإنارة",
+              "product_count": 103
+            },
+            {
+              "uid": "MjI=",
+              "name": "السباكة وأنظمة المياه",
+              "product_count": 22
+            },
+            {
+              "uid": "MjE=",
+              "name": "العدد والأدوات",
+              "product_count": 248
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "categoryList_store_en_SA": {
+    "data": {
+      "categoryList": [
+        {
+          "uid": "Mg==",
+          "name": "Main Menu",
+          "children": [
+            {
+              "uid": "MTg=",
+              "name": "Building Materials",
+              "product_count": 158
+            },
+            {
+              "uid": "Mw==",
+              "name": "Steel Materials",
+              "product_count": 53
+            },
+            {
+              "uid": "MTE=",
+              "name": "Wood Materials",
+              "product_count": 88
+            },
+            {
+              "uid": "MjM=",
+              "name": "Electrical Materials",
+              "product_count": 103
+            },
+            {
+              "uid": "MjI=",
+              "name": "Plumbing Materials",
+              "product_count": 22
+            },
+            {
+              "uid": "MjE=",
+              "name": "Tools & Hardware",
+              "product_count": 248
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "products_filtered_by_category_uid_MTE": {
+    "data": {
+      "products": {
+        "total_count": 88,
+        "items": [
+          {
+            "sku": "12512-TSP",
+            "name": "Tigercore Shuttering Plywood",
+            "categories": [
+              {
+                "uid": "MTE=",
+                "name": "الأخشاب والمنتجات الخشبية"
+              },
+              {
+                "uid": "MTY=",
+                "name": "أبلكاش مدهون"
+              }
+            ]
+          },
+          {
+            "sku": "120201848",
+            "name": "Ordinary Plywood Miroplex | 18 x 1220 x 2440mm",
+            "categories": [
+              {
+                "uid": "MTE=",
+                "name": "الأخشاب والمنتجات الخشبية"
+              },
+              {
+                "uid": "MTQ=",
+                "name": "الألواح الخشبيه"
+              },
+              {
+                "uid": "ODM=",
+                "name": "أبلكاش وبلوك بورد"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "single_product_categories_and_weight": {
+    "data": {
+      "products": {
+        "items": [
+          {
+            "sku": "72702007",
+            "url_key": "72702007",
+            "url_suffix": ".html",
+            "categories": [],
+            "weight": 12
+          }
+        ]
+      }
+    }
+  }
+}

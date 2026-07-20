@@ -372,7 +372,8 @@ async function loadRecords(reset) {
           ${r.region ? `<div class="kv"><span class="muted">Country</span>
             <span>${esc(r.region_name || r.region)} <span class="tech">${esc(r.region)}</span></span></div>` : ""}
           <div class="kv"><span class="muted">Price</span>
-            <span class="tech">${esc(r.effective_price)} ${esc(r.currency)}</span></div>
+            <span class="tech">${esc(r.effective_price)} ${esc(r.currency)}${
+              r.unit ? ` / ${esc(r.unit)}` : ""}</span></div>
           <div class="kv"><span class="muted">Status</span>
             <span>${esc(String(r.availability).replace(/_/g, " "))}</span></div>
           ${r.sku ? `<div class="kv"><span class="muted">SKU</span><span class="tech">${esc(r.sku)}</span></div>` : ""}

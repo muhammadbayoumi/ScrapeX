@@ -128,8 +128,12 @@
         <td dir="auto">{{ c.product_name or "—" }}</td>
         <td>{{ c.region_name or c.region or "—" }}</td>
         <td class="muted"><code>{{ c.field_key }}</code></td>
+        {# The unit rides on the NEW value only. Repeating it either side would
+           imply it could differ between them, when a unit change opens a
+           separate series rather than showing as a movement inside one. #}
         <td class="num">{{ c.previous_value if c.previous_value is not none else "—" }}</td>
-        <td class="num">{{ c.new_value if c.new_value is not none else "—" }}</td>
+        <td class="num">{{ c.new_value if c.new_value is not none else "—" }}{%
+          if c.unit and c.new_value is not none %}<span class="per">/ {{ c.unit }}</span>{% endif %}</td>
         <td class="num">
           {# Absolute and percentage change, but only when both sides are numeric. #}
           {% if prev and new %}

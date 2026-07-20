@@ -43,7 +43,7 @@ def test_recent_observations_is_bounded_and_shaped(conn):
     sample = recent_observations(conn, "ELSEWEDYSHOP", limit=3)
     assert len(sample) == 3
     assert set(sample[0]) == {"name", "price", "currency", "availability", "vat_included",
-                              "business_date", "region", "region_name"}
+                              "business_date", "region", "region_name", "unit"}
     assert sample[0]["currency"] == "EGP"
 
 

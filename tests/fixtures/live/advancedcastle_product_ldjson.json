@@ -1,0 +1,89 @@
+{
+ "_note": "LIVE CAPTURE 2026-07-20. URL: https://advancedcastle.com/products/6-pack-battery-powered-smoke-detectors. HTTP 200, 486354 bytes of HTML. The page carries 3 separate application/ld+json <script> blocks (NOT an @graph). Each entry below is the verbatim parsed content of one block, in document order.",
+ "blocks": [
+  {
+   "@context": "https://schema.org/",
+   "@type": "Product",
+   "url": "https://advancedcastle.com/products/6-pack-battery-powered-smoke-detectors",
+   "name": "بكج 6 كواشف دخان ببطارية",
+   "image": [
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/4d8d754b-0a53-4ffd-8c2a-6d9d89008f24-thumbnail-1000x1000-70.jpeg",
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/e3dd7f13-bd0d-4bca-8c55-e4faeb3dea84-thumbnail-1000x1000-70.jpg"
+   ],
+   "description": "بكج 6 كواشف دخان تعمل بالبطارية لتغطية كامل المنزل أو المنشأة بحماية متكاملة ضد الحرائق، بإنذار صوتي عالٍ وتركيب سهل دون كهرباء.",
+   "sku": "a4ba0102-P6",
+   "category": "كاشف دخان",
+   "offers": {
+    "@type": "Offer",
+    "url": "https://advancedcastle.com/products/6-pack-battery-powered-smoke-detectors",
+    "priceCurrency": "SAR",
+    "price": "160.00",
+    "itemCondition": "https://schema.org/NewCondition",
+    "availability": "https://schema.org/InStock"
+   }
+  },
+  {
+   "@context": "https://schema.org",
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "Home",
+     "item": "https://advancedcastle.com/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "كاشف دخان",
+     "item": "https://advancedcastle.com/categories/402523/smoke-detector"
+    },
+    {
+     "@type": "ListItem",
+     "position": 3,
+     "name": "بكج 6 كواشف دخان ببطارية",
+     "item": "https://advancedcastle.com/products/6-pack-battery-powered-smoke-detectors"
+    }
+   ]
+  },
+  {
+   "@context": "https://schema.org",
+   "@graph": [
+    {
+     "@type": "Organization",
+     "@id": "https://advancedcastle.com/#organization",
+     "name": "القلعة المتقدمة لأجهزة السلامة",
+     "url": "https://advancedcastle.com/",
+     "telephone": "966544055802",
+     "image": "https://media.zid.store/cdn-cgi/image/w=512,h=512,q=90/https://media.zid.store/c8ea395e-772e-4ce7-bcfb-117308676724/95bf9f21-cc66-49b2-8889-f7d5dc51839b-32x32.png",
+     "logo": "https://media.zid.store/cdn-cgi/image/w=512,h=512,q=90/https://media.zid.store/c8ea395e-772e-4ce7-bcfb-117308676724/95bf9f21-cc66-49b2-8889-f7d5dc51839b-32x32.png",
+     "sameAs": [
+      "https://www.facebook.com/AdvancedCastle",
+      "https://www.instagram.com/advancedcastle",
+      "https://x.com/AdvancedCastle",
+      "https://www.tiktok.com/@advancedcastle",
+      "https://www.snapchat.com/add/Castle_Advanced"
+     ]
+    },
+    {
+     "@type": "WebSite",
+     "@id": "https://advancedcastle.com/#website",
+     "url": "https://advancedcastle.com/",
+     "name": "القلعة المتقدمة لأجهزة السلامة",
+     "description": "متجر متخصص  ببيع أدوات السلامة والأمان و معدات الطوارئ و طفايات الحريق للحماية من الحرائق الشخصية والمهنية والعمل علي اصدار التراخيص لجميع الأنشطة التجارية أجهزة الإنذار المبكر والإطفاء والرش الآلي حسب متطلبات الدفاع المدني أسعار مخفضة ومناسبة جوده عالية صيانة وتعبئة طفايات الحريق توفير قطع غيار توصيل لجميع مدن المملكة",
+     "publisher": {
+      "@id": "https://advancedcastle.com/#organization"
+     },
+     "potentialAction": {
+      "@type": "SearchAction",
+      "target": {
+       "@type": "EntryPoint",
+       "urlTemplate": "https://advancedcastle.com/products?q={search_term_string}"
+      },
+      "query-input": "required name=search_term_string"
+     }
+    }
+   ]
+  }
+ ]
+}

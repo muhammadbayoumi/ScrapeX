@@ -71,6 +71,9 @@
     tr:last-child td{border-bottom:none}
     tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
     .price{font-variant-numeric:tabular-nums;font-weight:600;direction:ltr;display:inline-block}
+    /* The unit reads as part of the price, quieter than the number but attached
+       to it — never a separate column the eye can skip. */
+    .per{color:var(--muted);font-size:.85em;direction:ltr;margin-inline-start:.15rem}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never
