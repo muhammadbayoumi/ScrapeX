@@ -81,3 +81,32 @@ def test_the_schema_of_a_domain_database_is_left_alone(split_client, tmp_path):
 
     after = registry.marketlens.health().schema_version
     assert after == before == registry.marketlens.latest_schema_version
+
+
+# ---- a configured source that has never run must still be visible -----------
+
+def test_a_fresh_install_shows_every_configured_source(split_client):
+    """The overview read the DATABASE, which only knows a source once it has
+    ingested something. On a fresh install that meant "No data yet" and none of
+    the configured sources — a source that had never run did not look like a
+    problem, it simply did not exist."""
+    body = split_client.get("/").text
+
+    assert "Configured, never run" in body
+    assert "GPP_ENERGY" in body and "ELSEWEDYSHOP" in body
+    assert "Never run" in body, "the status must be stated in words"
+
+
+def test_a_source_that_has_run_is_not_listed_as_never_run(split_client):
+    """The two lists must be disjoint, or a source appears twice and the owner
+    cannot tell which card is current."""
+    split_client.get("/source/GPP_ENERGY")     # registers nothing; still never run
+    body = split_client.get("/").text
+
+    import re
+
+    section = body.split("Configured, never run")[-1]
+    # Count CARDS, not string occurrences: a card names its source twice, once
+    # as the key and once inside the suggested crawl command.
+    cards = re.findall(r'class="key">([A-Z_]+)</div>', section)
+    assert cards.count("GPP_ENERGY") == 1, f"listed more than once: {cards}"

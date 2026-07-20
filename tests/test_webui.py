@@ -67,4 +67,10 @@ def test_empty_db_overview_has_hint(tmp_path: Path):
     conn.close()
     client = TestClient(create_app(db_path))
     r = client.get("/")
-    assert r.status_code == 200 and "scrapex crawl" in r.text
+    assert r.status_code == 200
+    # An empty warehouse no longer means an empty page: the configured sources
+    # are listed as "never run", each with the command that would run it. The
+    # command is spelled the way it actually works — `scrapex` alone is not on
+    # PATH after a plain editable install.
+    assert "python -m scrapex.cli crawl" in r.text
+    assert "Never run" in r.text

@@ -199,9 +199,22 @@ def create_app(
             sources = list_sources(conn)
         finally:
             conn.close()
+        # The manifest is the list of sources the owner CONFIGURED; the database
+        # only knows the ones that have run. Reading the database alone meant a
+        # fresh install showed "No data yet" and none of the 12 configured
+        # sources — a source that had never run did not appear as a problem, it
+        # simply did not exist. Never-run sources are appended, clearly marked.
+        known = {s.source_key for s in sources}
+        pending = [
+            {"source_key": key, "source_name": entry.source_name,
+             "family": entry.family.value, "active": entry.active}
+            for entry in sorted(app.state.manifest.sources, key=lambda e: e.source_key)
+            for key in [entry.source_key]
+            if key not in known
+        ]
         return TEMPLATES.TemplateResponse(request=request, name="overview.html",
-                                          context={"sources": sources, "tab": "overview",
-                                                   "source_key": None})
+                                          context={"sources": sources, "pending": pending,
+                                                   "tab": "overview", "source_key": None})
 
     @app.get("/source/{source_key}", response_class=HTMLResponse)
     def source(request: Request, source_key: str, q: str = "", availability: str = "",

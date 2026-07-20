@@ -8,12 +8,20 @@
   <a href="/manage"><button>+ Add / manage sources</button></a>
 </div>
 
-{% if not sources %}
+{% if not sources and not pending %}
   <div class="empty">
     No data yet.<br>
-    Run: <code>scrapex crawl ELSEWEDYSHOP</code> then <code>scrapex ingest ELSEWEDYSHOP</code>
+    Run: <code>python -m scrapex.cli crawl ELSEWEDYSHOP</code> then
+    <code>python -m scrapex.cli ingest ELSEWEDYSHOP</code>
   </div>
-{% else %}
+{% elif not sources %}
+  <div class="banner">
+    None of your configured sources has run yet. Pick one below and press
+    <b>Run</b> in the side panel, or use
+    <code>python -m scrapex.cli crawl &lt;SOURCE&gt;</code>.
+  </div>
+{% endif %}
+{% if sources %}
   <div class="banner">
     The warehouse has two layers: <b>source-local</b> (raw, exactly as scraped) and
     <b>unified</b> (fills only after curation and matching).
@@ -40,6 +48,31 @@
         Last run: {{ s.last_run or "—" }}{% if s.last_status %} ({{ s.last_status }}){% endif %}
       </div>
     </a>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if pending %}
+  {# Configured but never run. These used to be invisible: the overview read the
+     database, which only knows a source once it has ingested something, so a
+     source that had never run did not look like a problem — it did not exist. #}
+  <h2>Configured, never run</h2>
+  <p class="muted" style="font-size:.85rem">These are in your manifest and have
+    produced no data yet. "Never run" is a status, not an error.</p>
+  <div class="grid">
+    {% for p in pending %}
+      <div class="card">
+        <div class="name" dir="auto">{{ p.source_name }}</div>
+        <div class="key">{{ p.source_key }}</div>
+        <div style="margin-top:.6rem">
+          <span class="chip">Never run</span>
+          <span class="chip">{{ p.family }}</span>
+          {% if not p.active %}<span class="chip amber">Not enabled</span>{% endif %}
+        </div>
+        <div class="muted" style="font-size:.76rem;margin-top:.6rem">
+          <code>python -m scrapex.cli crawl {{ p.source_key }}</code>
+        </div>
+      </div>
     {% endfor %}
   </div>
 {% endif %}
