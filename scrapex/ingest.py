@@ -31,6 +31,12 @@ class IngestResult:
     variants: int = 0            # newly-seen variants this run
     observations: int = 0        # rows actually appended (new content)
     duplicates: int = 0          # idempotent no-ops (already had this content)
+    confirmed: int = 0           # unchanged prices re-confirmed, NOT appended
+    # offer_id -> the latest values seen this run. The spec allows a run to hold
+    # its seen set in memory while finalizing; these become confirmations only
+    # if the run completes successfully, because a failed or partial run has not
+    # established that anything is still true.
+    seen: dict = field(default_factory=dict)
     skipped_ignored: int = 0     # rows under an owner-ignored product
     rejected_out_of_scope: int = 0
     errors: list[str] = field(default_factory=list)
@@ -351,6 +357,10 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
             except Exception as exc:  # noqa: BLE001 — isolate one bad row (Q3)
                 result.errors.append(f"row {i}: {exc}")
 
+    # Only a run that completed may claim it confirmed anything.
+    if result.status is RunStatus.SUCCESS:
+        _confirm_seen(conn, result)
+
     conn.execute(
         "UPDATE crawl_run SET finished_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
         "status = ?, products_discovered = ?, variants_discovered = ?, errors_count = ?, "
@@ -414,6 +424,55 @@ def _commodity_to_product_row(c: dict) -> dict:
     }
 
 
+def _still_the_same_price(conn: sqlite3.Connection, offer_id: int, v: dict) -> bool:
+    """Does the open period already hold this exact price key?
+
+    Only an OPEN period counts: a closed one describes a price that has already
+    been superseded, and matching it would resurrect history rather than confirm
+    the present. Two keys built from different field sets are never the same
+    price — the source is publishing more (or less), which is a new period with
+    its own reason, not a confirmation.
+    """
+    if not v.get("price_hash"):
+        return False                    # no key, no claim
+    open_period = conn.execute(
+        "SELECT price_hash, price_fields FROM price_period "
+        "WHERE offer_id = ? AND closed_at IS NULL LIMIT 1", (offer_id,)).fetchone()
+    if open_period is None or not open_period["price_hash"]:
+        return False
+    if open_period["price_hash"] != v["price_hash"]:
+        return False
+    return pricekey.comparable(pricekey.parse_fields(open_period["price_fields"]),
+                               pricekey.parse_fields(v["price_fields"]))
+
+
+def _confirm_seen(conn: sqlite3.Connection, result: IngestResult) -> None:
+    """Advance what a SUCCESSFUL run proved, and nothing more.
+
+    The spec is explicit that a failed, partial or cancelled run must not advance
+    last_confirmed_at: not seeing something proves nothing when the run did not
+    finish. So confirmations are held in memory during the run and applied only
+    here, once the run's own status says they are earned.
+    """
+    from . import pricehistory
+
+    for offer_id, v in result.seen.items():
+        # Rebuild first: an appended observation may have opened a new period,
+        # and the derivation in pricehistory is the one tested implementation.
+        pricehistory.rebuild_offer(conn, offer_id)
+        conn.execute(
+            "UPDATE price_period SET last_confirmed_at = ? "
+            "WHERE offer_id = ? AND closed_at IS NULL", (v["observed_at"], offer_id))
+        # Availability and stock are current state only — the owner asked for the
+        # latest situation, never its history — so they land here and nowhere else.
+        conn.execute(
+            "UPDATE offer_state SET availability = ?, stock_quantity = ?, "
+            " last_confirmed_at = ?, last_seen_at = ?, "
+            " updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE offer_id = ?",
+            (v["availability"], v["stock_quantity"], v["observed_at"],
+             v["observed_at"], offer_id))
+
+
 def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
                  job_id: int | None = None) -> None:
     """Get-or-create the source_product -> variant -> offer chain and append one
@@ -435,6 +494,16 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
 
     offer_id = _get_offer_id(conn, variant_id, r)
     v = _observation_values(r, observed_at)
+    # Every row seen is a candidate confirmation, appended or not.
+    result.seen[offer_id] = v
+
+    # The price history is a timeline of real changes, not a daily copy of an
+    # unchanged row. If the open period already holds this exact price key, the
+    # refresh CONFIRMS it; appending would add a row that says nothing new.
+    if _still_the_same_price(conn, offer_id, v):
+        result.confirmed += 1
+        return
+
     # Read the prior state BEFORE appending — same tiebreak as the publish path.
     previous = conn.execute(
         "SELECT effective_price, availability FROM price_observation WHERE offer_id = ? "

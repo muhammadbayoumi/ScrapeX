@@ -76,7 +76,9 @@ def test_reingest_same_content_is_idempotent(conn):
     entry = make_entry()
     ingest_payloads(conn, entry, [make_payload([one_row()])])
     second = ingest_payloads(conn, entry, [make_payload([one_row()])])
-    assert second.observations == 0 and second.duplicates == 1
+    # Caught by the confirmation path now, before the insert is even attempted:
+    # the price has not moved, so there is nothing new to append.
+    assert second.observations == 0 and second.confirmed == 1
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM source_product").fetchone()[0] == 1
 
@@ -156,7 +158,7 @@ def test_price_scale_does_not_fork_the_dedupe_hash(conn):
     entry = make_entry()
     ingest_payloads(conn, entry, [make_payload([one_row(effective_price="0.620")])])
     second = ingest_payloads(conn, entry, [make_payload([one_row(effective_price="0.62")])])
-    assert second.observations == 0 and second.duplicates == 1
+    assert second.observations == 0 and second.confirmed == 1
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
 
 
@@ -193,3 +195,13 @@ def test_ingest_never_updates_price_observation(conn):
     ingest_payloads(conn, entry, [make_payload([one_row(effective_price="1,250.00")])])
     prices = {r[0] for r in conn.execute("SELECT effective_price FROM price_observation")}
     assert prices == {1200.00, 1250.00}
+
+
+def test_two_identical_rows_in_one_payload_are_still_counted_as_duplicates(conn):
+    """The confirmation path cannot catch these: the period that would prove the
+    price unchanged is only derived once the run finalizes, so within a single
+    payload the dedupe index is still what stops a doubled row."""
+    entry = make_entry()
+    result = ingest_payloads(conn, entry, [make_payload([one_row(), one_row()])])
+    assert result.observations == 1 and result.duplicates == 1
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1

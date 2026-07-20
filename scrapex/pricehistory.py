@@ -71,9 +71,22 @@ def _same_price(previous: sqlite3.Row, current: sqlite3.Row) -> tuple[bool, str]
 def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
     """Rebuild one offer's periods and state. Returns the number of periods.
 
-    Idempotent: running it twice produces the same rows, because it derives
-    everything from the evidence rather than from what it found last time.
+    Idempotent: running it twice produces the same rows, because the SHAPE of
+    the timeline — where each period begins and ends — is derived entirely from
+    the evidence.
+
+    One thing is NOT derivable and is preserved rather than recomputed:
+    `last_confirmed_at`. A refresh that finds an unchanged price appends no
+    observation, by design — the history is a timeline of changes, not a daily
+    copy — so the evidence cannot say a price was still true last Tuesday. That
+    fact is written at run finalisation and would be destroyed by a naive
+    rebuild, quietly rolling every confirmation back to the last time the price
+    actually moved.
     """
+    held = conn.execute(
+        "SELECT last_confirmed_at FROM offer_state WHERE offer_id = ?",
+        (offer_id,)).fetchone()
+    confirmed_through = held["last_confirmed_at"] if held else None
     conn.execute("DELETE FROM price_period WHERE offer_id = ?", (offer_id,))
     rows = _observations(conn, offer_id)
     if not rows:
@@ -113,6 +126,11 @@ def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
         reason = "price_change"
 
     latest = rows[-1]
+    confirmed_at = max(latest["observed_at"], confirmed_through or "")
+    if confirmed_at != latest["observed_at"] and open_id is not None:
+        conn.execute(
+            "UPDATE price_period SET last_confirmed_at = ? WHERE price_period_id = ?",
+            (confirmed_at, open_id))
     conn.execute(
         "INSERT INTO offer_state (offer_id, effective_price, currency, availability, "
         " stock_quantity, price_hash, price_fields, last_confirmed_at, last_seen_at, "
@@ -127,7 +145,7 @@ def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
         " updated_at = excluded.updated_at",
         (offer_id, latest["effective_price"], latest["currency"], latest["availability"],
          latest["stock_quantity"], latest["price_hash"], latest["price_fields"],
-         latest["observed_at"], latest["observed_at"], rows[0]["observed_at"]))
+         confirmed_at, confirmed_at, rows[0]["observed_at"]))
     return periods
 
 

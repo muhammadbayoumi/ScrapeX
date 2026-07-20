@@ -214,3 +214,54 @@ def test_a_warehouse_of_daily_duplicates_collapses_into_its_real_changes(conn):
     periods = pricehistory.timeline(conn, offer_id)
     assert [p["effective_price"] for p in periods] == [100.0, 150.0], \
         "four daily rows are two prices"
+
+
+# ---- only a completed run may claim it confirmed anything --------------------
+
+def test_a_failed_run_does_not_advance_the_confirmation(conn):
+    """The spec is explicit: a failed, partial or cancelled run must not advance
+    last_confirmed_at. Not finishing proves nothing about what is still true."""
+    from scrapex.payload import PAYLOAD_VERSION, FunnelPayload
+    from scrapex.rowspec import PRODUCT_PRICES
+    from scrapex.vocab import ExtractKind
+
+    crawl(conn, price="100.00", day="2026-07-01")
+    before = conn.execute("SELECT last_confirmed_at FROM offer_state").fetchone()[0]
+
+    # A payload whose every row is unusable: the run reports FAILED.
+    broken = FunnelPayload(
+        payload_version=PAYLOAD_VERSION, source_key="ELSEWEDYSHOP",
+        kind=ExtractKind.PRODUCT_PRICES, client="cli",
+        scraped_at="2026-07-09T10:00:00Z",
+        source_url="https://elsewedyshop.com/products.json",
+        header=list(PRODUCT_PRICES.columns),
+        rows=[["1001", "5001", "SKU1", "LED", "Elsewedy", "", "", "", "EG", "EGP",
+               "1", "", "", "", "in_stock", ""]])
+    result = ingest_payloads(conn, make_entry(), [broken])
+
+    assert result.status.value != "success", "the fixture must actually fail"
+    after = conn.execute("SELECT last_confirmed_at FROM offer_state").fetchone()[0]
+    assert after == before, "a run that did not complete confirmed nothing"
+
+
+def test_a_successful_run_advances_the_confirmation_without_appending(conn):
+    crawl(conn, price="100.00", day="2026-07-01")
+    crawl(conn, price="100.00", day="2026-07-08")
+
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT last_confirmed_at FROM offer_state").fetchone()[0] == "2026-07-08T10:00:00Z"
+    assert conn.execute(
+        "SELECT last_confirmed_at FROM price_period WHERE closed_at IS NULL"
+    ).fetchone()[0] == "2026-07-08T10:00:00Z"
+
+
+def test_a_rebuild_does_not_roll_a_confirmation_back_to_the_last_price_move(conn):
+    """The bug this prevents: rebuild derives the timeline from observations, and
+    a confirmation leaves no observation. A naive rebuild silently rewound every
+    offer to the last time its price actually changed."""
+    crawl(conn, price="100.00", day="2026-07-01")
+    crawl(conn, price="100.00", day="2026-07-20")
+    pricehistory.rebuild_all(conn)
+    assert conn.execute(
+        "SELECT last_confirmed_at FROM offer_state").fetchone()[0] == "2026-07-20T10:00:00Z"

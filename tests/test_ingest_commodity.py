@@ -93,7 +93,7 @@ def test_same_day_recrawl_is_idempotent(conn):
     entry = commodity_entry()
     ingest_payloads(conn, entry, [commodity_payload([commodity_row()])])
     second = ingest_payloads(conn, entry, [commodity_payload([commodity_row()])])
-    assert second.observations == 0 and second.duplicates == 1
+    assert second.observations == 0 and second.confirmed == 1
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
 
 
@@ -106,13 +106,33 @@ def test_same_day_price_change_appends(conn):
     assert dates == ["2026-07-16", "2026-07-16"]  # append-only keeps both, same day
 
 
-def test_next_week_same_price_is_one_new_observation(conn):
+def test_next_week_at_the_same_price_confirms_rather_than_appends(conn):
+    """This test asserted the opposite, and its old name said so out loud.
+
+    Until the owner defined the price-history semantics, every weekly crawl
+    appended a row whether or not the price had moved — a year of unchanged
+    diesel was 52 identical "history" entries. The history is now a timeline of
+    real changes, so the second crawl CONFIRMS the price it already knows.
+    """
     entry = commodity_entry()
     ingest_payloads(conn, entry, [commodity_payload([commodity_row()])])
-    nextwk = ingest_payloads(conn, entry, [commodity_payload([commodity_row()],
-                                                             scraped_at="2026-07-23T10:00:00Z")])
-    assert nextwk.observations == 1  # business_date advanced -> exactly one obs per weekly crawl
-    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 2
+    nextwk = ingest_payloads(conn, entry, [commodity_payload(
+        [commodity_row()], scraped_at="2026-07-23T10:00:00Z")])
+
+    assert nextwk.observations == 0 and nextwk.confirmed == 1
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+    # ...and the confirmation is recorded, so the price is known to still hold.
+    assert conn.execute(
+        "SELECT last_confirmed_at FROM offer_state").fetchone()[0] == "2026-07-23T10:00:00Z"
+
+
+def test_a_real_weekly_change_still_appends(conn):
+    entry = commodity_entry()
+    ingest_payloads(conn, entry, [commodity_payload([commodity_row()])])
+    moved = ingest_payloads(conn, entry, [commodity_payload(
+        [commodity_row(effective_price="0.990")], scraped_at="2026-07-23T10:00:00Z")])
+    assert moved.observations == 1
+    assert conn.execute("SELECT COUNT(*) FROM price_period").fetchone()[0] == 2
 
 
 # ---- scope guard on material -------------------------------------------------
