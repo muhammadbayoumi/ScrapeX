@@ -336,11 +336,26 @@ def _cmd_ui(args: argparse.Namespace) -> int:
         return 1
     registry = None if args.db else DatabaseRegistry.defaults()
     if registry is not None:
-        registry.verify()
-    db_path = Path(args.db) if args.db else registry.marketlens.path
-    if not Path(db_path).exists():
-        print("harvest.db not initialized — run: scrapex init-db, then crawl + ingest", file=sys.stderr)
-        return 1
+        # Starting the engine IS the setup. The side panel cannot create a
+        # database — the local runtime owns both files (spec 5) — so the runtime
+        # creates them on the way up instead of sending the owner to a terminal.
+        report = registry.ensure_ready()
+        for kind in report["created"]:
+            print(f"created the {kind} database")
+        if not report["ok"]:
+            for state in report["databases"].values():
+                if not state["ok"]:
+                    print(f"error: the {state['kind']} database is "
+                          f"{state['status'].lower()} — {state['action']}",
+                          file=sys.stderr)
+            return 1
+        db_path = registry.marketlens.path
+    else:
+        db_path = Path(args.db)
+        if not db_path.exists():
+            print(f"no database at {db_path} — run: python -m scrapex.cli init-db",
+                  file=sys.stderr)
+            return 1
     # start_worker: the local runtime owns job execution, so a queued job runs
     # (and keeps running) whether or not the side panel is open (spec 4/23).
     app = create_app(

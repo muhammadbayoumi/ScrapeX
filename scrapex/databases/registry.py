@@ -104,6 +104,32 @@ class DatabaseRegistry:
         self.write()
         return result
 
+    def ensure_ready(self) -> dict:
+        """Create whichever database is not there yet, then report both.
+
+        This exists so that starting the engine is the only thing the owner has
+        to do. A database that does not exist holds nothing to lose, so creating
+        it needs no permission and no warning.
+
+        An EXISTING database is never migrated here. Advancing the schema of a
+        file that already holds the owner's data is their decision (spec 40), so
+        a database that is behind is reported with the command that upgrades it
+        rather than upgraded behind their back. The caller decides what to do
+        with a report that is not ok; this method never refuses on its own.
+        """
+        created: list[str] = []
+        for database in (self.general, self.marketlens):
+            if not database.path.is_file():
+                database.initialize()
+                created.append(database.kind)
+        states = self.health()
+        ok = all(item["ok"] for item in states.values())
+        # The pointer names the pair that is actually usable. Writing it while a
+        # database is unusable would record a broken pair as the live one.
+        if created and ok:
+            self.write()
+        return {"ok": ok, "created": created, "databases": states}
+
     def verify(self) -> None:
         for database in (self.general, self.marketlens):
             health = database.health()

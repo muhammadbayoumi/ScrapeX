@@ -248,14 +248,46 @@ class DomainDatabase(Generic[T]):
                 self.kind, str(self.path), True, "Healthy",
                 "No action is required.", version, app_id,
             )
+        except DatabaseMigrationError as exc:
+            # A database whose schema does not match this build is unusable, but
+            # it is not damaged. Reporting it as "Failed" and telling the owner to
+            # restore a backup sends them to destroy good data over a one-command
+            # upgrade, so this case gets its own status and its own instruction.
+            version = self._schema_version_or_none()
+            if version is not None and version > self.latest_schema_version:
+                return DatabaseHealth(
+                    self.kind, str(self.path), False, "Needs a newer ScrapeX",
+                    f"This database was written by a later version (schema v{version}; "
+                    f"this build reads v{self.latest_schema_version}). Update ScrapeX "
+                    "and retry, and do not downgrade the database.",
+                    version, None,
+                )
+            return DatabaseHealth(
+                self.kind, str(self.path), False, "Needs upgrade",
+                f"This database is at schema v{version} and this build expects "
+                f"v{self.latest_schema_version}. Run 'python -m scrapex.cli init-db' "
+                "to upgrade it, then retry.",
+                version, None,
+            )
         except (sqlite3.DatabaseError, DatabaseUnavailableError,
-                DatabaseKindError, DatabaseMigrationError) as exc:
+                DatabaseKindError) as exc:
             return DatabaseHealth(
                 self.kind, str(self.path), False, "Failed",
                 f"Choose the correct {self.kind} database or restore a verified backup, "
                 f"then retry. ({exc})",
                 None, None,
             )
+
+    def _schema_version_or_none(self) -> int | None:
+        """The stored schema version, read without the checks that just failed."""
+        try:
+            conn = sqlite3.connect(str(self.path))
+            try:
+                return int(conn.execute("PRAGMA user_version").fetchone()[0])
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError:
+            return None
 
     def backup(self, folder: Path | str | None = None) -> Path:
         target_folder = Path(folder) if folder else self.path.parent / "backups"

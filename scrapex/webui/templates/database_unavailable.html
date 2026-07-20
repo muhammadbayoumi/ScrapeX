@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Database unavailable — ScrapeX{% endblock %}
+{# The banner in base.html already names each database, its state and the command
+   that fixes it. This page adds what that page-level banner cannot: why THIS
+   request stopped, and the fact that nothing was written. #}
+{% block content %}
+  <h1>This page needs a database it cannot read</h1>
+  <p class="hint">Nothing was written and no data was lost. The workspace will
+    serve this page again as soon as the database below is usable.</p>
+  <div class="stack">
+    <div>
+      <h2 style="margin-top:0">What stopped the request</h2>
+      <p class="tech">{{ detail }}</p>
+    </div>
+    {% if db_state %}
+      <div>
+        <h2>Every database</h2>
+        <table>
+          <thead><tr><th>Database</th><th>Status</th><th>Schema</th><th>What to do</th></tr></thead>
+          <tbody>
+            {% for kind, s in db_state.all.items() %}
+              <tr>
+                <th>{{ s.kind }}<span class="tech" style="display:block">{{ s.path }}</span></th>
+                <td>{{ s.status }}</td>
+                <td class="num">{{ s.schema_version if s.schema_version is not none else "—" }}</td>
+                <td>{{ s.action }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+    <div>
+      <h2>Most likely</h2>
+      <ul>
+        <li>The drive holding the database is disconnected — reconnect it, then reload.</li>
+        <li>The database is behind this build — run
+          <code>python -m scrapex.cli init-db</code>, then reload.</li>
+        <li>The file was replaced or moved — point ScrapeX at the right one in
+          <a href="/settings#storage">Settings → Storage</a>.</li>
+      </ul>
+    </div>
+  </div>
+{% endblock %}

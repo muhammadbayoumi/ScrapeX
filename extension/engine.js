@@ -21,7 +21,8 @@ export async function checkEngine() {
     const res = await fetch(backend + "/api/health", { signal: AbortSignal.timeout(2500) });
     if (!res.ok) return { running: false, backend };
     const h = await res.json();
-    return { running: true, version: h.version, sources: h.sources_with_data, backend };
+    return { running: true, version: h.version, sources: h.sources_with_data,
+             databases: h.databases || null, backend };
   } catch (_) {
     return { running: false, backend };
   }

@@ -58,6 +58,13 @@ const COMPONENTS = [
   ["Core service", (e) => (e.running ? "Running" : "Stopped")],
   ["Python runtime", (e) => (e.running ? "Ready" : "Unknown")],
   ["HTTP fetcher", (e) => (e.running ? "Ready" : "Unknown")],
+  // The engine creates and owns both databases; the panel only reports them. A
+  // reachable engine sitting on an unusable database read as healthy from here.
+  ["Databases", (e) => {
+    if (!e.running) return "Unknown";
+    if (!e.databases) return "Ready";
+    return e.databases.ok ? "Healthy" : `Needs attention — ${e.databases.detail}`;
+  }],
   ["Browser automation", () => "Optional"],
 ];
 

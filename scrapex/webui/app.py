@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -24,7 +24,10 @@ from ..capture import capture_source
 from ..changes import change_summary, recent_changes
 from ..config import MANIFEST_FILE, SourceEntry, load_manifest
 from ..connectors.factory import _BUILDERS
-from ..databases import DatabaseRegistry, GeneralDatabase, MarketLensDatabase
+from ..databases import (
+    DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
+    DatabaseUnavailableError, GeneralDatabase, MarketLensDatabase,
+)
 from ..jobs import JobRunner, create_job, get_job, job_logs, list_jobs, set_control
 from ..fields import (
     delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
@@ -63,7 +66,30 @@ from ..vocab import (
 from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
 
-TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+def database_state(request: Request) -> dict:
+    """Database status for every page, derived from the request's own app.
+
+    A context processor rather than a template global: the state is read from
+    `request.app.state`, so two apps in one test process cannot report each
+    other's databases.
+
+    Every page carries it because the database is what every page is made of. A
+    status the owner has to go looking for is a status they find out about from
+    a failure instead.
+    """
+    registry = getattr(request.app.state, "databases", None)
+    if registry is None:
+        return {"db_state": None}
+    try:
+        states = registry.health()
+    except Exception:  # noqa: BLE001 - a status widget must never break a page
+        return {"db_state": None}
+    failed = {kind: item for kind, item in states.items() if not item["ok"]}
+    return {"db_state": {"ok": not failed, "all": states, "failed": failed}}
+
+
+TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"),
+                            context_processors=[database_state])
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
@@ -117,6 +143,27 @@ def create_app(
     if databases is not None:
         app.include_router(create_database_router(lambda: app.state.databases))
         app.include_router(create_domain_health_router(lambda: app.state.databases))
+
+    # A database can become unusable while the engine is running: a drive is
+    # unplugged, a file is replaced, a schema stops being the one this build
+    # reads. Every page then opened a connection and threw, so the owner met a
+    # stack trace instead of the status — the exact opposite of a notification.
+    # Serving the status is not "hiding an error": nothing is written and no
+    # request succeeds; the page just says which database, what state, what to do.
+    def _database_unavailable(request: Request, exc: Exception):
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(
+                {"ok": False, "error": "database_unavailable", "detail": str(exc)},
+                status_code=503,
+            )
+        return TEMPLATES.TemplateResponse(
+            request=request, name="database_unavailable.html",
+            context={"tab": None, "source_key": None, "detail": str(exc)},
+            status_code=503,
+        )
+
+    for failure in (DatabaseUnavailableError, DatabaseMigrationError, DatabaseKindError):
+        app.add_exception_handler(failure, _database_unavailable)
 
     def read_conn():
         if app.state.databases is not None:
@@ -284,12 +331,37 @@ def create_app(
     @app.get("/api/health")
     def api_health():
         from .. import __version__
-        conn = read_conn()
+        # Health must survive the thing it reports on. Counting sources needs a
+        # readable database, and when that failed this endpoint failed with it —
+        # so the panel's only timed poll went silent exactly when it had
+        # something to say.
         try:
-            n = len(list_sources(conn))
-        finally:
-            conn.close()
-        return {"ok": True, "app": "scrapex", "version": __version__, "sources_with_data": n}
+            conn = read_conn()
+            try:
+                n = len(list_sources(conn))
+            finally:
+                conn.close()
+        except (DatabaseUnavailableError, DatabaseMigrationError,
+                DatabaseKindError, sqlite3.DatabaseError):
+            n = 0
+        # The panel polls this and nothing else on a timer, so database status
+        # rides along: a reachable engine sitting on an unusable database looked
+        # exactly like a healthy one from the panel.
+        databases = None
+        if app.state.databases is not None:
+            try:
+                states = app.state.databases.health()
+                databases = {
+                    "ok": all(item["ok"] for item in states.values()),
+                    "detail": ", ".join(
+                        f"{item['kind']} {item['status'].lower()}"
+                        for item in states.values() if not item["ok"]
+                    ),
+                }
+            except Exception:  # noqa: BLE001 - health must not take health down
+                databases = {"ok": False, "detail": "status unavailable"}
+        return {"ok": True, "app": "scrapex", "version": __version__,
+                "sources_with_data": n, "databases": databases}
 
     @app.get("/api/features")
     def api_features():

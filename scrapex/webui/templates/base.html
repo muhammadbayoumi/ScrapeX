@@ -154,6 +154,12 @@
     .tech{direction:ltr;font-family:ui-monospace,monospace;font-size:.85em}
     progress{width:100%;height:.6rem}
     .banner.promise{background:var(--accent-weak)}
+    /* Database status, carried in the topbar on every page. */
+    .dbchip{margin-inline-start:auto;flex:none}
+    .dbchip:hover{filter:brightness(.95)}
+    .dblist{margin:.4rem 0 0;padding-inline-start:1.2rem}
+    .dblist li+li{margin-top:.3rem}
+    .dblist .tech{display:block;color:var(--muted);font-size:.85em}
     textarea{font:inherit;padding:.45rem .7rem;border:1px solid var(--line);
       border-radius:8px;background:var(--surface);color:var(--text)}
     code{direction:ltr;font-family:ui-monospace,monospace;background:var(--chip);
@@ -164,6 +170,14 @@
   <header class="topbar">
     <a href="/" class="brand"><span class="brand-logo" aria-hidden="true"></span>ScrapeX</a>
     <span class="sub">Price-tracking warehouse — local workspace</span>
+    {# Database status belongs on every page, because the database is what every
+       page is made of. The chip states it in words — never colour alone — and
+       links to the section that acts on it. #}
+    {% if db_state %}
+      <a class="chip dbchip {{ 'accent' if db_state.ok else 'amber' }}" href="/settings#storage">
+        {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
+      </a>
+    {% endif %}
   </header>
   {# The dataset in view is carried across every tab (spec 21) so switching tabs
      never loses which source you were looking at. #}
@@ -184,6 +198,21 @@
       <a href="{{ href }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </nav>
-  <main class="wrap">{% block content %}{% endblock %}</main>
+  <main class="wrap">
+    {# Stating the exact database, its status and the command that fixes it beats
+       a page that fails halfway through a query and blames the query. #}
+    {% if db_state and not db_state.ok %}
+      <div class="banner" role="alert">
+        <strong>Database attention needed.</strong>
+        <ul class="dblist">
+          {% for kind, s in db_state.failed.items() %}
+            <li><strong>{{ s.kind }}</strong> — {{ s.status }}. {{ s.action }}
+              <span class="tech">{{ s.path }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>
