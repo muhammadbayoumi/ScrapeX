@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 from scrapex import db as dbmod
+from scrapex.databases import DatabaseRegistry, GeneralDatabase, MarketLensDatabase
+from scrapex.databases.split import split_legacy_database
 from scrapex.extract import service
 from scrapex.extract.models import (
     CandidateApproval, CandidateNotApprovable, SnapshotCreate,
@@ -29,9 +32,19 @@ TABLE_HTML = """
 
 
 @pytest.fixture()
-def conn(tmp_path: Path):
-    connection = dbmod.connect(tmp_path / "generic.db")
-    dbmod.migrate(connection)
+def databases(tmp_path: Path):
+    registry = DatabaseRegistry(
+        GeneralDatabase(tmp_path / "general.db"),
+        MarketLensDatabase(tmp_path / "marketlens.db"),
+        pointer_file=tmp_path / "databases.json",
+    )
+    registry.initialize()
+    return registry
+
+
+@pytest.fixture()
+def conn(databases: DatabaseRegistry):
+    connection = databases.general.connect()
     try:
         yield connection
     finally:
@@ -64,8 +77,8 @@ def approval(candidate, identity: set[str] | None = None):
     )
 
 
-def test_0014_adds_separate_generic_storage_and_immutable_evidence(conn):
-    assert dbmod.schema_version(conn) == 14
+def test_general_0002_adds_generic_storage_and_immutable_evidence(conn):
+    assert dbmod.schema_version(conn) == 2
     objects = {
         row["name"]: row["type"]
         for row in conn.execute(
@@ -80,7 +93,7 @@ def test_0014_adds_separate_generic_storage_and_immutable_evidence(conn):
     assert objects["generic_ingestion"] == "table"
     assert objects["trg_generic_page_snapshot_immutable_update"] == "trigger"
     assert objects["trg_generic_record_revision_append_only_delete"] == "trigger"
-    assert objects["trg_price_obs_no_update"] == "trigger"
+    assert "trg_price_obs_no_update" not in objects
 
     snapshot = save(conn)
     with pytest.raises(sqlite3.IntegrityError, match="immutable"):
@@ -94,6 +107,69 @@ def test_0014_adds_separate_generic_storage_and_immutable_evidence(conn):
             "DELETE FROM generic_page_snapshot WHERE page_snapshot_id=?",
             (snapshot["page_snapshot_id"],),
         )
+
+
+def test_legacy_0014_remains_available_for_explicit_unified_sessions(tmp_path: Path):
+    legacy = dbmod.connect(tmp_path / "legacy.db")
+    try:
+        dbmod.migrate(legacy)
+        assert dbmod.schema_version(legacy) == 14
+        for table in ("price_observation", "generic_record"):
+            assert legacy.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+                (table,),
+            ).fetchone() is not None
+    finally:
+        legacy.close()
+
+
+def test_split_moves_existing_g2_records_to_general_and_keeps_prices_in_marketlens(
+    tmp_path: Path,
+):
+    legacy_path = tmp_path / "legacy.db"
+    legacy = dbmod.connect(legacy_path)
+    dbmod.migrate(legacy)
+    snapshot = save(legacy)
+    candidate = service._candidate(
+        service._snapshot_row(legacy, snapshot["page_snapshot_id"]), 0
+    )
+    service.approve_candidate(
+        legacy, snapshot["page_snapshot_id"], approval(candidate)
+    )
+    ingest_payloads(legacy, make_entry(), [make_payload([one_row()])])
+    legacy.commit()
+    legacy.close()
+
+    general_path = tmp_path / "general.db"
+    marketlens_path = tmp_path / "marketlens.db"
+    split_legacy_database(
+        legacy_path,
+        general_path=general_path,
+        marketlens_path=marketlens_path,
+        pointer_file=tmp_path / "databases.json",
+    )
+
+    with closing(GeneralDatabase(general_path).connect()) as general:
+        assert general.execute(
+            "SELECT COUNT(*) FROM generic_page_snapshot LIMIT 1"
+        ).fetchone()[0] == 1
+        assert general.execute(
+            "SELECT COUNT(*) FROM generic_record LIMIT 1"
+        ).fetchone()[0] == 2
+        assert general.execute(
+            "SELECT COUNT(*) FROM generic_record_revision LIMIT 1"
+        ).fetchone()[0] == 2
+        assert general.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'price_observation' LIMIT 1"
+        ).fetchone() is None
+
+    with closing(MarketLensDatabase(marketlens_path).connect()) as marketlens:
+        assert marketlens.execute(
+            "SELECT COUNT(*) FROM price_observation LIMIT 1"
+        ).fetchone()[0] == 1
+        assert marketlens.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'generic_record' LIMIT 1"
+        ).fetchone() is None
 
 
 def test_discovery_returns_candidates_without_polluting_permanent_datasets(conn):
@@ -143,7 +219,9 @@ def test_owner_approval_atomically_creates_schema_and_typed_generic_records(conn
     ).fetchone()[0] == 2
 
 
-def test_failed_identity_approval_rolls_back_and_a_corrected_retry_recovers(conn):
+def test_failed_identity_approval_rolls_back_and_a_corrected_retry_recovers(
+    conn, databases: DatabaseRegistry,
+):
     html = """
     <table><tr><th>Region</th><th>Code</th></tr>
       <tr><td>North</td><td>N-1</td></tr>
@@ -162,6 +240,10 @@ def test_failed_identity_approval_rolls_back_and_a_corrected_retry_recovers(conn
     assert conn.execute(
         "SELECT COUNT(*) FROM dataset_definition LIMIT 1"
     ).fetchone()[0] == 0
+    with closing(databases.marketlens.connect()) as marketlens:
+        assert marketlens.execute(
+            "SELECT COUNT(*) FROM price_observation LIMIT 1"
+        ).fetchone()[0] == 0
 
     recovered = service.approve_candidate(
         conn, snapshot["page_snapshot_id"], approval(candidate, {"code"})
@@ -218,18 +300,34 @@ def test_later_snapshot_updates_current_record_and_appends_revision(conn):
     ).fetchone()[0] == 2
 
 
-def test_generic_ingestion_does_not_change_the_append_only_price_path(conn):
-    snapshot = save(conn)
-    candidate = service._candidate(
-        service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0
-    )
-    service.approve_candidate(conn, snapshot["page_snapshot_id"], approval(candidate))
+def test_generic_ingestion_and_price_ingestion_stay_in_separate_databases(
+    databases: DatabaseRegistry,
+):
+    with closing(databases.general.connect()) as general:
+        snapshot = save(general)
+        candidate = service._candidate(
+            service._snapshot_row(general, snapshot["page_snapshot_id"]), 0
+        )
+        service.approve_candidate(
+            general, snapshot["page_snapshot_id"], approval(candidate)
+        )
+        general.commit()
+        assert general.execute(
+            "SELECT COUNT(*) FROM generic_record LIMIT 1"
+        ).fetchone()[0] == 2
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            general.execute("SELECT COUNT(*) FROM price_observation LIMIT 1")
 
-    result = ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
-
-    assert result.observations == 1
-    assert conn.execute(
-        "SELECT COUNT(*) FROM price_observation LIMIT 1"
-    ).fetchone()[0] == 1
-    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
-        conn.execute("UPDATE price_observation SET effective_price=1.0")
+    with closing(databases.marketlens.connect()) as marketlens:
+        assert marketlens.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'generic_record' LIMIT 1"
+        ).fetchone() is None
+        result = ingest_payloads(
+            marketlens, make_entry(), [make_payload([one_row()])]
+        )
+        assert result.observations == 1
+        assert marketlens.execute(
+            "SELECT COUNT(*) FROM price_observation LIMIT 1"
+        ).fetchone()[0] == 1
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            marketlens.execute("UPDATE price_observation SET effective_price=1.0")

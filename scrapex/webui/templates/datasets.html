@@ -331,7 +331,7 @@
         fields
       };
       try {
-        const approved = await requestJson(`/api/extract/snapshots/${snapshotId}/approve`, {
+        const approved = await requestJson(`/api/general/extract/snapshots/${snapshotId}/approve`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload)
@@ -391,12 +391,12 @@
     setState(discoveryState, "loading", "Saving immutable HTML evidence and detecting bounded table candidates.");
     const form = new FormData(snapshotForm);
     try {
-      const snapshot = await requestJson("/api/extract/snapshots", {
+      const snapshot = await requestJson("/api/general/extract/snapshots", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({source_url: form.get("source_url"), html_content: form.get("html_content")})
       });
-      const candidates = await requestJson(`/api/extract/snapshots/${snapshot.page_snapshot_id}/candidates`);
+      const candidates = await requestJson(`/api/general/extract/snapshots/${snapshot.page_snapshot_id}/candidates`);
       renderCandidates(candidates);
     } catch (error) {
       setState(discoveryState, "failure", `${error.message} Correct the snapshot input and try detection again.`);
@@ -425,7 +425,7 @@
     setState(datasetsState, "loading", "Reading approved datasets from local storage.");
     moreDatasets.hidden = true;
     try {
-      const payload = await requestJson(`/api/extract/datasets?after_id=${after}&limit=50`);
+      const payload = await requestJson(`/api/general/extract/datasets?after_id=${after}&limit=50`);
       if (!append) datasetList.replaceChildren();
       payload.datasets.forEach(dataset => datasetList.append(datasetItem(dataset)));
       datasetAfter = payload.next_after_id || 0;
@@ -482,7 +482,7 @@
     previousRecords.disabled = true;
     nextRecords.disabled = true;
     try {
-      const payload = await requestJson(`/api/extract/datasets/${selectedDatasetId}/records?after_id=${after}&limit=50`);
+      const payload = await requestJson(`/api/general/extract/datasets/${selectedDatasetId}/records?after_id=${after}&limit=50`);
       recordNext = payload.next_after_id;
       renderRecords(payload);
       previousRecords.disabled = recordCursors.length === 1;

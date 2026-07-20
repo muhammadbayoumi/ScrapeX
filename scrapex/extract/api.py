@@ -82,17 +82,17 @@ def create_extraction_router(
         )
 
     @router.post(
-        "/api/extract/snapshots", status_code=status.HTTP_201_CREATED
+        "/api/general/extract/snapshots", status_code=status.HTTP_201_CREATED
     )
     def create_snapshot(request: SnapshotCreate):
         return write(lambda conn: service.save_snapshot(conn, request))
 
-    @router.get("/api/extract/snapshots/{snapshot_id}/candidates")
+    @router.get("/api/general/extract/snapshots/{snapshot_id}/candidates")
     def snapshot_candidates(snapshot_id: PositiveId):
         return read(lambda conn: service.discover_snapshot(conn, snapshot_id))
 
     @router.post(
-        "/api/extract/snapshots/{snapshot_id}/approve",
+        "/api/general/extract/snapshots/{snapshot_id}/approve",
         status_code=status.HTTP_201_CREATED,
     )
     def approve_snapshot_candidate(
@@ -102,7 +102,7 @@ def create_extraction_router(
             lambda conn: service.approve_candidate(conn, snapshot_id, request)
         )
 
-    @router.get("/api/extract/datasets")
+    @router.get("/api/general/extract/datasets")
     def approved_datasets(
         after_id: PageAfter = 0,
         limit: PageLimit = DEFAULT_RECORD_PAGE_SIZE,
@@ -113,7 +113,7 @@ def create_extraction_router(
             )
         )
 
-    @router.get("/api/extract/datasets/{dataset_id}/records")
+    @router.get("/api/general/extract/datasets/{dataset_id}/records")
     def dataset_records(
         dataset_id: PositiveId,
         after_id: PageAfter = 0,

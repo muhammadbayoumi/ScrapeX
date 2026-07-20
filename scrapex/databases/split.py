@@ -23,6 +23,12 @@ GENERIC_TABLES = (
     "field_definition",
     "dataset_relationship",
     "relationship_field_pair",
+    "generic_page_snapshot",
+    "dataset_schema_version",
+    "schema_version_field",
+    "generic_record",
+    "generic_record_revision",
+    "generic_ingestion",
 )
 GENERIC_COPY_COLUMNS = {
     "dataset_definition": (
@@ -43,6 +49,31 @@ GENERIC_COPY_COLUMNS = {
     "relationship_field_pair": (
         "relationship_field_pair_id", "dataset_relationship_id", "parent_field_id",
         "child_field_id", "pair_order",
+    ),
+    "generic_page_snapshot": (
+        "page_snapshot_id", "source_url", "content_type", "html_content",
+        "content_hash", "captured_at",
+    ),
+    "dataset_schema_version": (
+        "schema_version_id", "dataset_definition_id", "version_number",
+        "schema_hash", "status", "approved_at", "valid_to",
+    ),
+    "schema_version_field": (
+        "schema_version_id", "field_definition_id", "field_order",
+    ),
+    "generic_record": (
+        "generic_record_id", "dataset_definition_id", "record_key",
+        "schema_version_id", "data_json", "source_snapshot_id", "source_locator",
+        "content_hash", "first_seen_at", "last_seen_at", "status",
+    ),
+    "generic_record_revision": (
+        "record_revision_id", "generic_record_id", "schema_version_id",
+        "source_snapshot_id", "data_json", "content_hash", "observed_at",
+    ),
+    "generic_ingestion": (
+        "generic_ingestion_id", "dataset_definition_id", "schema_version_id",
+        "source_snapshot_id", "source_locator", "record_count", "status",
+        "ingested_at",
     ),
 }
 
