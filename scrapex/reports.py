@@ -9,6 +9,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
+from . import tax
+
 
 @dataclass
 class SourceSummary:
@@ -236,6 +238,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         f"{_LATEST_PER_OFFER}{filt} {_order_by(sort, direction)} LIMIT ? OFFSET ?",
         [*base_params, limit, offset],
     ).fetchall()
+    tax_rules = tax.load_rules(conn, source_key)
     shaped = [
         {"name": r[0], "option_label": r[1], "sku": r[2], "effective_price": r[3],
          "regular_price": r[4], "sale_price": r[5], "currency": r[6], "availability": r[7],
@@ -245,7 +248,10 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
          "last_confirmed": (r[13] or "")[:10],
          # A price without its unit is not a comparable number: 325 per tonne and
          # 325 per bag are different facts that look identical on screen.
-         "unit": price_unit(r[14], r[15])}
+         "unit": price_unit(r[14], r[15]),
+         # Resolved per ROW because one source can hold a different tax position
+         # per country. Rules are loaded once above, never queried per row.
+         **tax.resolve(tax_rules, r[12]).as_dict()}
         for r in rows
     ]
     return BrowsePage(rows=shaped, total=total, offset=offset, limit=limit)
@@ -257,7 +263,10 @@ EXPORT_HEADER = [
     "product_name", "region", "country", "option_label", "sku", "effective_price",
     # The unit sits beside the price it qualifies. A column of bare numbers where
     # some are per tonne and some per bag is not a price list, it is a trap.
-    "unit", "regular_price", "sale_price", "currency", "availability", "vat_included",
+    "unit", "regular_price", "sale_price", "currency", "availability",
+    # vat_included alone was a claim with no source. The three columns beside it
+    # say how well we actually know it, and where the owner can go and read it.
+    "vat_included", "tax_evidence", "tax_rate_pct", "tax_statement_url",
     # price_changed_on is when the price last MOVED; last_confirmed_on is when a
     # completed run last saw it still true. They are different questions, and
     # publishing only the first made a confirmed price look stale.
@@ -278,15 +287,21 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit),
     ).fetchall()
-    table = [
-        [r[0] or "", (r[11] or "") if r[11] != "*" else "", region_name(r[11]),
-         r[1] or "", r[2] or "",
-         r[3] if r[3] is not None else "", price_unit(r[13], r[14]),
-         r[4] if r[4] is not None else "",
-         r[5] if r[5] is not None else "", r[6] or "", r[7] or "",
-         "yes" if r[8] else "no", r[9] or "", (r[12] or "")[:10], r[10] or ""]
-        for r in rows
-    ]
+    tax_rules = tax.load_rules(conn, source_key)
+    table = []
+    for r in rows:
+        state = tax.resolve(tax_rules, r[11])
+        table.append(
+            [r[0] or "", (r[11] or "") if r[11] != "*" else "", region_name(r[11]),
+             r[1] or "", r[2] or "",
+             r[3] if r[3] is not None else "", price_unit(r[13], r[14]),
+             r[4] if r[4] is not None else "",
+             r[5] if r[5] is not None else "", r[6] or "", r[7] or "",
+             "yes" if r[8] else "no",
+             state.evidence,
+             state.rate_pct if state.rate_pct is not None else "",
+             state.statement_url,
+             r[9] or "", (r[12] or "")[:10], r[10] or ""])
     return list(EXPORT_HEADER), table
 
 

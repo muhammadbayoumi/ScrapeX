@@ -74,6 +74,9 @@
     /* The unit reads as part of the price, quieter than the number but attached
        to it — never a separate column the eye can skip. */
     .per{color:var(--muted);font-size:.85em;direction:ltr;margin-inline-start:.15rem}
+    /* An unverified tax position is marked in TEXT ("unverified" is in the
+       label itself); the dotted underline only reinforces it, never carries it. */
+    .unverified{border-bottom:1px dotted var(--amber);color:var(--amber)}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never

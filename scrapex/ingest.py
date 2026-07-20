@@ -16,7 +16,7 @@ from .changes import (
     record_alias, record_change,
 )
 from .config import SourceEntry
-from . import pricekey
+from . import pricekey, tax
 from .normalize import parse_money, record_hash
 from .payload import FunnelPayload
 from .rowspec import PRODUCT_PRICES, RowView, spec_for
@@ -418,6 +418,17 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     from .contract import assert_writable
     assert_writable(conn)  # two-engine guardrail: never write across contract versions
     source_id = _get_source_id(conn, entry, _first_currency(payloads))
+    # The manifest's tax evidence is recorded before any price is written, so a
+    # price can never be stored under a tax position the warehouse cannot state.
+    # Failing to record evidence must not lose a crawl, so it is contained: the
+    # prices are the irreplaceable part, and an unrecorded rule reads as
+    # unverified, which is honest.
+    try:
+        tax.upsert_rules(conn, entry)
+    except sqlite3.DatabaseError as exc:
+        result_note = f"tax evidence not recorded: {exc}"
+    else:
+        result_note = ""
     run_id = _insert(conn, "crawl_run", {
         "source_id": source_id,
         "status": RunStatus.RUNNING.value,
@@ -425,6 +436,8 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
         "job_id": job_id,
     })
     result = IngestResult(source_key=entry.source_key, run_id=run_id)
+    if result_note:
+        result.errors.append(result_note)
 
     for payload in payloads:
         if payload.source_key != entry.source_key:

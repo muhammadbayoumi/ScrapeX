@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -64,6 +65,60 @@ class ApiConfig(BaseModel):
     base_site: str | None = None  # OCC baseSite id (Hybris)
 
 
+class TaxEvidence(BaseModel):
+    """What the SOURCE says about tax, and where it says it.
+
+    The owner's rule is to be certain of what is written and never assume, so a
+    rate may only be recorded together with the sentence it came from and a link
+    to that sentence. Three states, because a live survey of a real source found
+    exactly three:
+
+      stated   a clause naming a rate            -> rate_pct required
+      general  a clause confirming inclusion but -> rate_pct must stay empty
+               naming no rate
+      unknown  the source publishes nothing      -> shown as unverified
+
+    `region` is '*' for a source-wide statement, or an ISO country code — one
+    source can publish a general statement for the site and specific evidence
+    for individual countries.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    region: str = "*"
+    vat_mode: VatMode | None = None       # defaults to the source's vat_mode
+    evidence: Literal["stated", "general", "unknown"] = "unknown"
+    rate_pct: float | None = Field(default=None, ge=0, le=100)
+    statement_text: str | None = None
+    statement_url: str | None = None
+    statement_lang: str | None = None
+    verified_at: str | None = None
+
+    @model_validator(mode="after")
+    def _evidence_must_be_evidenced(self) -> "TaxEvidence":
+        # These mirror the CHECK constraints in migration 0018, so a bad manifest
+        # is refused by validate-manifest instead of by SQLite mid-crawl.
+        if self.evidence == "stated":
+            if self.rate_pct is None:
+                raise ValueError("tax evidence 'stated' must name a rate_pct")
+            if not self.statement_url:
+                raise ValueError(
+                    "tax evidence 'stated' must carry statement_url — a rate "
+                    "without a source is the assertion this field exists to prevent")
+        if self.evidence == "general":
+            if self.rate_pct is not None:
+                raise ValueError(
+                    "tax evidence 'general' means the source confirms inclusion "
+                    "WITHOUT naming a rate; use 'stated' if it names one")
+            if not self.statement_url:
+                raise ValueError("tax evidence 'general' must carry statement_url")
+        if self.evidence == "unknown" and (self.rate_pct is not None or self.statement_text):
+            raise ValueError(
+                "tax evidence 'unknown' means nothing is published; it cannot "
+                "carry a rate or a statement")
+        return self
+
+
 class IdentityRules(BaseModel):
     """How a record is recognised again on the next crawl (spec 14).
 
@@ -111,6 +166,11 @@ class SourceEntry(BaseModel):
     currency: str | None = None
     default_region: str = "*"
     vat_mode: VatMode = VatMode.INCLUSIVE
+    # Evidence FOR that vat_mode, when the source publishes any. Optional, so
+    # every existing entry stays valid — but a source without it is reported as
+    # unverified rather than quietly trusted, which is the whole point:
+    # vat_mode on its own is a claim, not a source.
+    tax: list[TaxEvidence] = Field(default_factory=list)
     extract: list[ExtractSpec] = Field(min_length=1)
     # F6 volume-sanity canary (generalized samehgabriel canary):
     min_expected_rows: int | None = Field(default=None, ge=0)

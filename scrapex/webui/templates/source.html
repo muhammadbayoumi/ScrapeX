@@ -98,7 +98,7 @@
         <th>{{ sortlink("sku", "SKU") }}</th>
         <th>{{ sortlink("effective_price", "Price") }}</th>
         <th>{{ sortlink("availability", "Availability") }}</th>
-        <th>VAT</th>
+        <th>Tax</th>
         <th>{{ sortlink("business_date", "Date") }}</th>
         <th>Curation</th><th></th>
       </tr></thead>
@@ -128,7 +128,17 @@
             {% elif r.availability == "out_of_stock" %}<span class="badge off">Out of stock</span>
             {% else %}<span class="badge">Unknown</span>{% endif %}
           </td>
-          <td class="muted">{{ "Incl." if r.vat_included else "Excl." }}</td>
+          {# "Incl." on its own was a claim with no source behind it. The label
+             now says how well this is actually known, and links to the sentence
+             it came from so the owner can read it rather than trust us. #}
+          <td class="muted">
+            {% if r.tax_statement_url %}
+              <a href="{{ r.tax_statement_url }}" target="_blank" rel="noopener noreferrer"
+                 title="{{ r.tax_statement or 'Read the source statement' }}">{{ r.tax_label }}</a>
+            {% else %}
+              <span{% if not r.tax_verified %} class="unverified"{% endif %}>{{ r.tax_label }}</span>
+            {% endif %}
+          </td>
           <td class="num muted">{{ r.business_date }}</td>
           <td><span class="chip">{{ r.curation_status }}</span></td>
           <td>{% if r.product_url %}<a href="{{ r.product_url }}" target="_blank" rel="noopener"

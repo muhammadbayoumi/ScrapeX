@@ -186,6 +186,26 @@ sources:
     authority: aggregator
     active: false
     currency: USD           # published in USD; each commodity row also carries it
+    # Tax evidence, found by READING the live site on 2026-07-20, not assumed.
+    # The fuel list pages do state that these are retail prices whose differences
+    # come from taxes and subsidies — a real statement, but it names no rate, so
+    # this is 'general' and rate_pct stays empty.
+    # The electricity and natural gas pages say nothing about tax at all, and the
+    # "fuel price primer" they link to is a scanned PDF with no extractable text.
+    # Nothing on the site states a rate for any country, so no rate is recorded
+    # for any: inventing 169 of them is the assertion this field exists to prevent.
+    tax:
+      - region: "*"
+        vat_mode: incl
+        evidence: general
+        statement_text: >-
+          The differences in prices across countries are due to the various taxes
+          and subsidies for diesel. All countries have access to the same petroleum
+          prices of international markets but then decide to impose different taxes.
+          As a result, the retail price of diesel is different.
+        statement_url: https://www.globalpetrolprices.com/diesel_prices/
+        statement_lang: en
+        verified_at: "2026-07-20"
     extract:
       - kind: commodity_price
         scope: latest_only     # owner decision: latest published price only,
