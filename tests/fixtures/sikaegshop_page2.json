@@ -1,0 +1,172 @@
+{
+ "success": true,
+ "data": [
+  {
+   "product_id": 252,
+   "product_enname": "Sika Backing ® Rod 1 CM",
+   "product_arname": "سيكا باكينج رود 1 سم",
+   "short_description_en": "Backing rod for joint sealing",
+   "short_description_ar": "مادة حشو خلفي لمواد سيكا فليكس لملىء الفواصل على البارد و ذلك لإعطاء الفاصل العمق المطلوب",
+   "keywords_en": "Sika Backing rod",
+   "keywords_ar": "سيكا باكينج رود",
+   "price": 10,
+   "sale_price": null,
+   "specail_price": 7,
+   "stock_quantity": 198,
+   "weight": 1,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 22,
+   "product_categories": {
+    "category_id": 22,
+    "category_enname": "Joints Sealing",
+    "category_arname": "ملئ فواصل التمدد"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3105,
+     "file_name": "Sika Backing Rod  (1).jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767561337784_23tx671bvjq.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 59118,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3105,
+     "product_id": 252,
+     "file_name": "Sika Backing Rod  (1).jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767561337784_23tx671bvjq.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 59118,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  },
+  {
+   "product_id": 253,
+   "product_enname": "Sika Backing ® Rod 2 CM",
+   "product_arname": "سيكا باكينج رود 2 سم",
+   "short_description_en": "Backing rod for joint sealing",
+   "short_description_ar": "مادة حشو خلفي لمواد سيكا فليكس لملىء الفواصل على البارد و ذلك لإعطاء الفاصل العمق المطلوب",
+   "keywords_en": "Sika Backing rod",
+   "keywords_ar": "سيكا باكينج رود",
+   "price": 18.75,
+   "sale_price": null,
+   "specail_price": 13.13,
+   "stock_quantity": 99,
+   "weight": 1,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 22,
+   "product_categories": {
+    "category_id": 22,
+    "category_enname": "Joints Sealing",
+    "category_arname": "ملئ فواصل التمدد"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3093,
+     "file_name": "Sika Backing Rod  (1).jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767561232356_lc1gkk22uwi.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 59118,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3093,
+     "product_id": 253,
+     "file_name": "Sika Backing Rod  (1).jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767561232356_lc1gkk22uwi.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 59118,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  },
+  {
+   "product_id": 248,
+   "product_enname": "Sika Swell S2 ®  600ml",
+   "product_arname": "سيكا سويل إس 2 - 600ملي",
+   "short_description_en": "POLYURETHANE HYDROPHILIC SWELLABLE SEALANT",
+   "short_description_ar": "مادة ملىء للفواصل مرنة أساسها البولى يوريثان الذى يتمدد مع ملامسة المياه",
+   "keywords_en": "Sika Swell S2 , Sika Swell, Volclay",
+   "keywords_ar": "سيكا سويل اس 2, فولك لاي",
+   "price": 1600,
+   "sale_price": null,
+   "specail_price": 1200,
+   "stock_quantity": 100,
+   "weight": 1,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 22,
+   "product_categories": {
+    "category_id": 22,
+    "category_enname": "Joints Sealing",
+    "category_arname": "ملئ فواصل التمدد"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3137,
+     "file_name": "sikaswell.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767563736821_7t9ra35qbmp.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 5759,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3137,
+     "product_id": 248,
+     "file_name": "sikaswell.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767563736821_7t9ra35qbmp.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 5759,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  }
+ ],
+ "pagination": {
+  "total": 87,
+  "page": 2,
+  "limit": 12,
+  "totalPages": 8,
+  "hasMore": true
+ },
+ "_capture_note": "CAPTURED from https://www.sikaegshop.com/api/products?page=2 on 2026-07-20. Products trimmed to 3; envelope, field names, values and pagination untouched."
+}

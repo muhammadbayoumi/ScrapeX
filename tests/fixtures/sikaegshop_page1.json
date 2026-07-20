@@ -1,0 +1,172 @@
+{
+ "success": true,
+ "data": [
+  {
+   "product_id": 256,
+   "product_enname": "Sika Fume® 5 KG",
+   "product_arname": "سيكا فيوم 5 كيلو",
+   "short_description_en": "concrete additive of a new generation in powder form, based on Sika silicafume® technology.",
+   "short_description_ar": "يعتبر كاضافة للخرسانة على صورة بودرة اساسها مادة السيليكافيوم",
+   "keywords_en": "Sika Fume",
+   "keywords_ar": "سيكا فيوم",
+   "price": 325,
+   "sale_price": null,
+   "specail_price": 206.25,
+   "stock_quantity": 1,
+   "weight": 5,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 20,
+   "product_categories": {
+    "category_id": 20,
+    "category_enname": "Concrete additives",
+    "category_arname": "\tإضافات الخرسانه"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3644,
+     "file_name": "sikafume1.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767560160547_auajij72rck.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 88048,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3644,
+     "product_id": 256,
+     "file_name": "sikafume1.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767560160547_auajij72rck.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 88048,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  },
+  {
+   "product_id": 223,
+   "product_enname": "Sika Lite®- 1 kg",
+   "product_arname": "سيكا ليت -1 كيلو",
+   "short_description_en": "Additive to the mortar for moisture resistance",
+   "short_description_ar": "اضافه للمونه لمقاومه الرطوبه",
+   "keywords_en": "Sika lite, waterproofing",
+   "keywords_ar": "سيكا ليت, مقاوه الرطوبه, عزل",
+   "price": 82,
+   "sale_price": null,
+   "specail_price": 61.5,
+   "stock_quantity": 83,
+   "weight": 1,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 25,
+   "product_categories": {
+    "category_id": 25,
+    "category_enname": "Additives for cement",
+    "category_arname": "إضافات للمونه الاسمنتيه"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3310,
+     "file_name": "lite-packing.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1762816908960_kquua1ggah.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 806679,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3310,
+     "product_id": 223,
+     "file_name": "lite-packing.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1762816908960_kquua1ggah.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 806679,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  },
+  {
+   "product_id": 257,
+   "product_enname": "Sika Grout 200 ® 25 KG",
+   "product_arname": "سيكا جراوت 200 - 25 كيلو",
+   "short_description_en": "High strength, Non-shrink, Cementitious Grout",
+   "short_description_ar": "مركب جراوت أسمنتى جاهز للإستعمال ، غير قابل للانكماش .",
+   "keywords_en": "Sika Grout, Sika Grout 200",
+   "keywords_ar": "سيكا جراوت , سيكا جراوت 200",
+   "price": 366.25,
+   "sale_price": null,
+   "specail_price": 238.06,
+   "stock_quantity": 8,
+   "weight": 25,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 21,
+   "product_categories": {
+    "category_id": 21,
+    "category_enname": "Cementitious products",
+    "category_arname": "\tالمون الاسمنتية الجاهزه"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3059,
+     "file_name": "SikaGrout-200_2.png",
+     "file_url": "/uploads/productattachments/product_temp_1767559850159_mmuuvfg2zym.png",
+     "file_type": "image/png",
+     "file_size": 692689,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3059,
+     "product_id": 257,
+     "file_name": "SikaGrout-200_2.png",
+     "file_url": "/uploads/productattachments/product_temp_1767559850159_mmuuvfg2zym.png",
+     "file_type": "image/png",
+     "file_size": 692689,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  }
+ ],
+ "pagination": {
+  "total": 87,
+  "page": 1,
+  "limit": 12,
+  "totalPages": 8,
+  "hasMore": true
+ },
+ "_capture_note": "CAPTURED from https://www.sikaegshop.com/api/products?page=1 on 2026-07-20. Products trimmed to 3; envelope, field names, values and pagination untouched."
+}
