@@ -484,6 +484,10 @@ async function loadCurrentPage() {
       title.textContent = "This tab is not a website";
       url.textContent = address || "";
       use.disabled = true;
+      // Reset the label too: it may still read "Open its dataset" from the last
+      // tab, promising something this page cannot do.
+      use.textContent = "Use this page";
+      delete use.dataset.registered;
       out("cur-out", "Open a site in this tab, then come back.", "muted");
       return;
     }
@@ -538,8 +542,10 @@ async function checkPastedUrls() {
   try {
     // One at a time, deliberately: these are real requests to sites the owner
     // does not control, and the shared fetcher's politeness applies per call.
-    for (const address of addresses) {
-      out("urls-out", `Testing ${addresses.indexOf(address) + 1} of ${addresses.length}…`, "muted");
+    for (const [position, address] of addresses.entries()) {
+      // entries(), not indexOf: two identical pasted addresses both resolved to
+      // the first position, so the counter stalled and then jumped.
+      out("urls-out", `Testing ${position + 1} of ${addresses.length}…`, "muted");
       let row;
       try {
         const found = await post("/api/probe", { url: address });

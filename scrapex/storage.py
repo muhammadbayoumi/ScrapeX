@@ -246,11 +246,16 @@ def _size(path: Path) -> int:
         return 0
 
 
-def measure(db_path: Path | str) -> dict:
-    """Sizes that add up to what the warehouse really occupies."""
+def measure(db_path: Path | str, backups_in: Path | None = None) -> dict:
+    """Sizes that add up to what the warehouse really occupies.
+
+    `backups_in` matters: an owner who pointed backups at another disk — which
+    is the arrangement this product recommends — was shown "0 backups" while
+    holding a folder full of them.
+    """
     path = Path(db_path)
     wal, shm = path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")
-    backups = list_backups(path)
+    backups = list_backups(path, backups_in)
     return {
         "db_bytes": _size(path),
         "wal_bytes": _size(wal),
@@ -812,16 +817,19 @@ def migrate_location(db_path: Path | str, new_dir: Path | str, *,
     write_pointer(destination)             # ---- the commit point ----
 
     step("tidying")
-    left_behind = _retire(path, "moved", destination)
+    left_behind, marked = _retire(path, "moved", destination)
     return RunResult(
         ok=True, location=str(destination),
         detail=(f"Moved to {destination}. The old database is still on disk as "
                 f"{Path(left_behind).name} and is marked inside as superseded, so "
                 "it can never be opened as the live warehouse by accident. Delete "
-                "it yourself once you have confirmed everything works."))
+                "it yourself once you have confirmed everything works."
+                if marked else
+                " Its contents are intact, but ScrapeX could not mark it as "
+                "superseded — do not point ScrapeX back at it by hand."))
 
 
-def _retire(path: Path, reason: str, successor: Path) -> str:
+def _retire(path: Path, reason: str, successor: Path) -> tuple[str, bool]:
     """Mark a superseded database, then TRY to rename it. Returns where it is.
 
     The mark is what matters and always happens; the rename is cosmetic and
@@ -829,16 +837,16 @@ def _retire(path: Path, reason: str, successor: Path) -> str:
     Relying on the rename alone left a superseded database sitting at the
     default path, ready to be opened as live if the pointer were ever lost.
     """
-    mark_sealed(path, reason, successor)
+    marked = mark_sealed(path, reason, successor)
     retired = path.with_name(
         f"{path.stem}.{reason}-{settings.file_stamp()}{path.suffix}")
     try:
         os.replace(path, retired)
         for suffix in ("-wal", "-shm"):
             path.with_name(path.name + suffix).unlink(missing_ok=True)
-        return str(retired)
+        return str(retired), marked
     except OSError:
-        return str(path)
+        return str(path), marked
 
 
 def _same_contents(src: Path, dst: Path) -> bool:
@@ -879,7 +887,8 @@ def _same_contents(src: Path, dst: Path) -> bool:
 
 def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
     path = Path(db_path)
-    sizes = measure(path)
+    folder = backup_folder(conn, path)
+    sizes = measure(path, folder)
     verdict = health(path)
     return {
         "key": "local_storage",
@@ -892,8 +901,8 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         "drive_kind": drive_kind(path.parent),
         "sizes": sizes,
         "health": verdict,
-        "backups": list_backups(path, backup_folder(conn, path)),
-        "backup_folder": str(backup_folder(conn, path)),
+        "backups": list_backups(path, folder),
+        "backup_folder": str(folder),
         "last": settings.get_state(conn, "storage_last"),
         "migration": settings.get_state(conn, "storage_migration"),
     }

@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 16  # +0016 price periods
+    assert dbmod.schema_version(conn) == 17  # +0017 field paging index
 
 
 def test_all_owner_tables_exist(conn):

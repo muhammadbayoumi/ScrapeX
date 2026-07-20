@@ -43,11 +43,14 @@ def create_catalog_router(
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except sqlite3.OperationalError as exc:
-            # Matches every other write route in app.py: a busy database is a
-            # retryable conflict, not an internal error.
-            raise HTTPException(
-                status_code=409,
-                detail=f"the database is busy — try again shortly ({exc})")
+            # Only LOCK contention is a retryable conflict. Reporting a malformed
+            # statement or a missing table as "the database is busy" would send
+            # the owner to retry something that will never succeed.
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"the database is busy — try again shortly ({exc})")
+            raise
 
     @router.post(
         "/sites", status_code=status.HTTP_201_CREATED,

@@ -78,7 +78,7 @@ def approval(candidate, identity: set[str] | None = None):
 
 
 def test_general_0002_adds_generic_storage_and_immutable_evidence(conn):
-    assert dbmod.schema_version(conn) == 2
+    assert dbmod.schema_version(conn) == 3   # +0003 field paging index
     objects = {
         row["name"]: row["type"]
         for row in conn.execute(
@@ -113,7 +113,7 @@ def test_legacy_0014_remains_available_for_explicit_unified_sessions(tmp_path: P
     legacy = dbmod.connect(tmp_path / "legacy.db")
     try:
         dbmod.migrate(legacy)
-        assert dbmod.schema_version(legacy) == 16   # +0016 price periods
+        assert dbmod.schema_version(legacy) == 17   # +0017 field paging index
         for table in ("price_observation", "generic_record"):
             assert legacy.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",

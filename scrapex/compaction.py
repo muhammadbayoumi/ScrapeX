@@ -283,7 +283,12 @@ def preview(conn: sqlite3.Connection, db_path: Path | str, *, today: str,
         result.ok = not result.problems
         result.detail = _preview_sentence(result)
     finally:
-        _discard(trial)
+        try:
+            _discard(trial)
+        except OSError:
+            # A trial file we could not remove is untidy, not a failed preview.
+            # Raising here would discard a measurement that was already correct.
+            pass
     result.built_path = ""              # it is gone; do not offer a path to nothing
     return result
 
@@ -368,13 +373,18 @@ def compact_warehouse(conn: sqlite3.Connection, db_path: Path | str, *, today: s
     # blocks the rename, which used to leave the superseded database sitting at
     # the default path — ready to be opened as live the moment the pointer was
     # lost, hiding everything gathered since.
-    result.sealed_path = storage._retire(source, "sealed", built)
+    result.sealed_path, sealed_ok = storage._retire(source, "sealed", built)
     result.ok = True
     result.detail = (
         f"Now using a database with {result.observations_after:,} observations. "
         f"The previous file — all {result.observations_before:,} of them — is sealed "
         f"at {result.sealed_path}. ScrapeX will never delete it; removing it "
         f"yourself returns about {result.bytes_the_archive_would_free:,} bytes.")
+    if not sealed_ok:
+        # Never claim a mark that did not land: without it, a lost pointer could
+        # open this archive as the live warehouse.
+        result.detail += (" ScrapeX could not mark it as superseded, so do not "
+                          "point ScrapeX back at it by hand.")
     result.detail += _stale_pin_note(result)
     if Path(result.sealed_path) == source:
         result.detail += (" It kept its original name because another program still "

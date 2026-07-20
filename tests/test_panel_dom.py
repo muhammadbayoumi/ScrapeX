@@ -248,3 +248,33 @@ def test_a_scraped_name_containing_markup_cannot_inject_into_the_panel(open_pane
     page.wait_for_timeout(500)
     assert page.evaluate("() => window.__owned") is None, "scraped markup executed"
     assert "<img" in page.text_content("#sites"), "it must render as visible text"
+
+
+# ---- the last review minors --------------------------------------------------
+
+def test_the_action_label_does_not_survive_onto_a_tab_it_cannot_apply_to(open_panel):
+    """A stale "Open its dataset" on a chrome:// page promises something that
+    page cannot do, even with the button disabled."""
+    page = open_panel(resolve={"matched": True, "source_name": "Example Store",
+                               "source_key": "SHOP_EXAMPLE", "implemented": True})
+    page.wait_for_timeout(300)
+    assert "Open its dataset" in page.text_content("#cur-use")
+
+    page.evaluate("""() => {
+        window.chrome.tabs.query = async () => [
+            {url: "chrome://settings", title: "Settings"}];
+    }""")
+    page.click('label[for="source-current"]')
+    page.wait_for_timeout(300)
+    assert page.is_disabled("#cur-use")
+    assert "Open its dataset" not in page.text_content("#cur-use")
+
+
+def test_duplicate_pasted_addresses_do_not_stall_the_counter(open_panel):
+    page = open_panel()
+    page.click('label[for="source-urls"]')
+    page.fill("#urls-box", "https://shop.example.com\nhttps://shop.example.com")
+    page.click("#urls-check")
+    page.wait_for_timeout(900)
+    assert page.locator("#urls-results .srow").count() == 2, \
+        "both pasted lines must be reported, even when identical"

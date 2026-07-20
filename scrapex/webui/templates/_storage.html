@@ -24,7 +24,11 @@
           free on this disk.</div></td></tr>
   <tr><th>Health</th>
       <td><span class="badge {{ 'ok' if storage.health.ok else 'off' }}">
-        {{ storage.health.status | capitalize }}</span>
+        {{ {"healthy": "Healthy", "missing": "Not created yet",
+             "empty": "Empty", "unreadable": "Unreadable",
+             "damaged": "Damaged", "not_scrapex": "Not a ScrapeX database",
+             "incompatible": "Made by a newer ScrapeX"}
+            .get(storage.health.status, storage.health.status) }}</span>
         <div class="muted small">{{ storage.health.detail }}</div></td></tr>
   <tr><th>Backups</th>
       <td class="num">{{ storage.sizes.backup_count }}
