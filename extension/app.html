@@ -69,8 +69,8 @@
          align-items: baseline; padding: var(--sp-1) 0; }
   .out + .out { border-top: 1px solid var(--line); }
 
-  /* Source picker — UI prototype only. Backend/browser bindings are intentionally
-     deferred; see the TODO beside the markup. */
+  /* Source picker. Each choice is a radio whose panel opens when checked, so
+     only one set of controls is ever on screen at 320px. */
   .source-picker { display: flex; flex-direction: column; gap: var(--sp-3); }
   .source-picker-title { margin: var(--sp-1) 0; color: var(--muted);
                          font-size: var(--fs-xs); font-weight: var(--fw-bold);
@@ -136,6 +136,9 @@
   .source-choice:has(.source-radio:checked) .source-choice-panel-inner {
     padding-top: var(--sp-3); border-top-color: var(--line);
   }
+  /* The Add Site panel holds the full settings form. Capping it keeps the other
+     choices reachable without scrolling past every field. */
+  .source-choice-addsite .source-choice-panel-inner { max-height: 60vh; overflow-y: auto; }
   .source-current-preview { display: flex; align-items: flex-start; gap: var(--sp-3); }
   .source-preview-icon { width: 17px; height: 17px; flex: none; margin-top: 2px; }
   .source-preview-copy { display: flex; flex-direction: column; gap: 2px; }
@@ -310,12 +313,20 @@
 
     <!-- =========================== SOURCE =========================== -->
     <section id="view-source">
-      <!-- Each choice below leads to the SAME confirm-and-adjust form further
-           down: probing fills it in, and the owner reviews what was discovered
-           before anything is saved. A source picker that could register a site
-           without showing what it detected would be guessing on their behalf. -->
+      <!-- Two different jobs live on this screen, and the split is deliberate.
+           ADD SITE registers a product site for PRICE TRACKING: a stable source
+           with a connector, a currency, a region and a schedule, whose history
+           is kept forever. The other three are general scraping — point ScrapeX
+           at something and pull structured data out of it — which is a different
+           promise with different guarantees. Blurring them would let someone
+           expect price history from a one-off scrape, or expect a one-off scrape
+           to survive a rebuild. -->
       <div class="source-picker">
         <h2 class="source-picker-title">Choose a Data Source</h2>
+        <p class="hint">The first three check what a page or address exposes. General
+          extraction from any page is not built yet — today a checked address that
+          turns out to be a product site hands you to <b>Add Site</b>, which is the
+          finished path.</p>
 
         <article class="source-choice">
           <input class="source-radio" type="radio" name="data-source" id="source-current" checked>
@@ -324,7 +335,7 @@
             <span class="source-choice-icon source-icon-browser" aria-hidden="true"></span>
             <span class="source-choice-copy">
               <span class="source-choice-title">Current Page</span>
-              <span class="source-choice-description">Extract data from the active tab</span>
+              <span class="source-choice-description">Check the tab you are on.</span>
             </span>
           </label>
           <div class="source-choice-panel">
@@ -351,7 +362,7 @@
             <span class="source-choice-icon source-icon-link" aria-hidden="true"></span>
             <span class="source-choice-copy">
               <span class="source-choice-title">URLs</span>
-              <span class="source-choice-description">Paste one address per site to register.</span>
+              <span class="source-choice-description">Check several addresses at once.</span>
             </span>
           </label>
           <div class="source-choice-panel">
@@ -410,16 +421,29 @@
             </div>
           </div>
         </article>
-      </div>
 
-      <!-- The confirm-and-adjust step. Hidden until a choice above has something
-           to confirm, then revealed with the discovered values filled in. It is
-           NOT aria-hidden while visible, and it is always reachable directly by
-           typing an address, so the picker can never become the only way in. -->
-      <div id="source-detail" class="hidden">
-      <h2 class="flush">Review and add</h2>
-      <p class="hint">Everything below was detected, not assumed. Change anything
-        that looks wrong before saving.</p>
+        <!-- The fourth choice, and the only one that is fully built. Price
+             tracking needs more than an address: a connector family, a currency,
+             a region, an identity rule and a schedule. Those settings live INSIDE
+             this choice rather than under the picker, so opening them is a
+             decision rather than a wall of fields everyone scrolls past. -->
+        <article class="source-choice source-choice-addsite">
+          <input class="source-radio" type="radio" name="data-source" id="source-addsite">
+          <label class="source-choice-label" for="source-addsite">
+            <span class="source-choice-check" aria-hidden="true">✓</span>
+            <span class="source-choice-icon source-icon-link" aria-hidden="true"></span>
+            <span class="source-choice-copy">
+              <span class="source-choice-title">Add Site — price tracking</span>
+              <span class="source-choice-description">Register a product site and keep
+                its price history.</span>
+            </span>
+          </label>
+          <div class="source-choice-panel">
+            <div class="source-choice-panel-inner">
+      <div id="source-detail">
+      <p class="hint">A tracked site keeps every price it ever reported. Everything
+        below is detected, not assumed — change anything that looks wrong before
+        saving.</p>
 
       <div class="card stack">
         <div class="fieldset">
@@ -543,6 +567,10 @@
         <button id="add-btn" class="block">Add site</button>
         <div id="add-out" class="hint"></div>
       </div>
+      </div>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
 

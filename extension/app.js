@@ -562,12 +562,19 @@ function fieldError(id, message) {
   $(id).className = message ? "err hint" : "hint";
 }
 
-// The confirm-and-adjust form is revealed by whichever source choice produced
-// something to confirm. Keeping the reveal in ONE place means no future entry
-// point can forget it and leave the owner with a form they cannot see.
+// The settings form lives inside the Add Site choice, whose panel only opens
+// when that radio is checked. Every entry point goes through here, so no future
+// one can fill a form the owner cannot see. Add Site is the PRICE TRACKING
+// path: the other choices check an address and hand over to it.
 function showSourceDetail(url) {
+  const choice = $("source-addsite");
+  if (choice && !choice.checked) {
+    choice.checked = true;
+    choice.dispatchEvent(new Event("change", { bubbles: true }));
+  }
   $("source-detail").classList.remove("hidden");
   if (url !== undefined) $("url").value = url;
+  $("source-detail").scrollIntoView({ block: "nearest" });
 }
 
 async function probe() {

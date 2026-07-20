@@ -228,3 +228,16 @@ sources:
         materials: [GASOLINE_91, GASOLINE_95, DIESEL, LPG]
         regions: [SA]          # updates ONLY the Saudi fuel row — nothing else
     notes: run `scrapex probe` first; official monthly fuel-price announcements.
+
+  - source_key: TABLER
+    source_name: tabler.io
+    base_url: https://tabler.io/icons
+    family: TBD-probe
+    cadence: manual
+    authority: shop
+    default_region: '*'
+    vat_mode: incl
+    active: false
+    extract:
+    - kind: enrichment
+      scope: census

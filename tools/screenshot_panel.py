@@ -214,6 +214,7 @@ def main() -> int:
     TAB_SOURCE = 'nav.tabs button[data-view="source"]'
     SOURCE_URLS = 'label[for="source-urls"]'
     SOURCE_FILE = 'label[for="source-file"]'
+    SOURCE_ADDSITE = 'label[for="source-addsite"]'
     running_job = [{
         "job_ref": "job_demo", "status": "running", "run_mode": "update",
         "source_keys": ["LONG_AR", "SHORT"], "current_source_key": "LONG_AR",
@@ -253,6 +254,8 @@ def main() -> int:
             [TAB_SOURCE, SOURCE_URLS,
              ("#urls-box", "https://shop.example.com"), "#urls-check"]),
         "12-source-file-image": (_stub(args.backend), [TAB_SOURCE, SOURCE_FILE]),
+        # The fourth choice: price tracking, with its settings inside it.
+        "12b-source-addsite": (_stub(args.backend), [TAB_SOURCE, SOURCE_ADDSITE]),
         "13-selected-cards": (_stub(args.backend),
                               [TAB_RUN, 'input[data-key="LONG_AR"]', 'input[data-key="SHORT"]']),
     }
