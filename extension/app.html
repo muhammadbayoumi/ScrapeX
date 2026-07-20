@@ -310,12 +310,10 @@
 
     <!-- =========================== SOURCE =========================== -->
     <section id="view-source">
-      <!-- TODO(integration): UI ONLY. Connect these source choices to:
-           1) chrome.tabs/activeTab for Current Page title, URL and access state;
-           2) the extraction API for pasted URL batches;
-           3) CSV/Excel parsing and File & Image uploads.
-           The hidden legacy form below remains temporarily so existing app.js
-           bindings do not break before this source picker is wired end-to-end. -->
+      <!-- Each choice below leads to the SAME confirm-and-adjust form further
+           down: probing fills it in, and the owner reviews what was discovered
+           before anything is saved. A source picker that could register a site
+           without showing what it detected would be guessing on their behalf. -->
       <div class="source-picker">
         <h2 class="source-picker-title">Choose a Data Source</h2>
 
@@ -334,9 +332,13 @@
               <div class="source-current-preview">
                 <span class="source-preview-icon source-icon-browser" aria-hidden="true"></span>
                 <span class="source-preview-copy">
-                  <span class="source-preview-title">Current page preview</span>
-                  <span class="source-preview-url">Title and URL will appear after active-tab integration.</span>
+                  <span class="source-preview-title" id="cur-title">Reading the active tab…</span>
+                  <span class="source-preview-url tech" id="cur-url"></span>
                 </span>
+              </div>
+              <div class="row" style="margin-top:var(--sp-3)">
+                <button id="cur-use" disabled>Use this page</button>
+                <span id="cur-out" class="hint" role="status" aria-live="polite"></span>
               </div>
             </div>
           </div>
@@ -349,22 +351,22 @@
             <span class="source-choice-icon source-icon-link" aria-hidden="true"></span>
             <span class="source-choice-copy">
               <span class="source-choice-title">URLs</span>
-              <span class="source-choice-description">Paste a list of URLs to extract in batch.</span>
+              <span class="source-choice-description">Paste one address per site to register.</span>
             </span>
           </label>
           <div class="source-choice-panel">
             <div class="source-choice-panel-inner">
-              <textarea class="source-url-box" aria-label="URLs to extract"
-                placeholder="Paste URLs here (one per row).&#10;https://www.example.com/page-1&#10;https://www.example.com/page-2&#10;Max: 2,000 URLs"></textarea>
-              <div class="source-or">or</div>
-              <button type="button" class="source-import" data-integration="url-file-import">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                  <path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"></path>
-                  <path d="m10 17 5-5-5-5M15 12H3"></path>
-                </svg>
-                Import CSV / Excel
-              </button>
-              <div class="source-limit">Max: 5,000 URLs <span class="source-info" title="Import limit">i</span></div>
+              <textarea id="urls-box" class="source-url-box" aria-label="Site addresses"
+                placeholder="One address per line.&#10;https://shop.example.com&#10;https://another-store.example"></textarea>
+              <div class="row" style="margin-top:var(--sp-2)">
+                <button id="urls-check">Check these sites</button>
+                <span id="urls-out" class="hint" role="status" aria-live="polite"></span>
+              </div>
+              <div id="urls-results" class="list hidden" style="margin-top:var(--sp-2)"></div>
+              <!-- Says what this does, not what a bigger product might do: one
+                   site per line, registered after you review what was detected. -->
+              <div class="source-limit">Each address is tested on its own; you review
+                every one before it is saved.</div>
             </div>
           </div>
         </article>
@@ -376,25 +378,27 @@
             <span class="source-choice-icon source-icon-file" aria-hidden="true"></span>
             <span class="source-choice-copy">
               <span class="source-choice-title">File &amp; Image</span>
-              <span class="source-choice-description">Extract data from documents and images.</span>
+              <span class="source-choice-description">Not built yet.</span>
             </span>
           </label>
           <div class="source-choice-panel">
             <div class="source-choice-panel-inner">
+              <!-- Disabled and labelled, not silent. A button that looks ready
+                   and does nothing is worse than one that says it is not ready. -->
               <div class="source-dropzone">
                 <div class="source-drop-copy">
-                  <span>Drag &amp; Drop Files Here</span>
-                  <span class="source-info" title="Supported file types">i</span>
+                  <span>Reading data out of documents and images is not implemented.
+                    ScrapeX reads websites today.</span>
                 </div>
                 <div class="source-file-actions">
-                  <button type="button" data-integration="file-upload">
+                  <button type="button" disabled data-integration="file-upload">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                       <path d="M12 16V4M7 9l5-5 5 5"></path>
                       <path d="M5 15v4h14v-4"></path>
                     </svg>
                     Upload
                   </button>
-                  <button type="button" data-integration="screenshot-capture">
+                  <button type="button" disabled data-integration="screenshot-capture">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                       <circle cx="12" cy="12" r="3"></circle>
                       <path d="M4 7h3l2-2h6l2 2h3v11H4z"></path>
@@ -408,8 +412,14 @@
         </article>
       </div>
 
-      <div id="source-legacy-integration" class="hidden" aria-hidden="true">
-      <h2 class="flush">Add site</h2>
+      <!-- The confirm-and-adjust step. Hidden until a choice above has something
+           to confirm, then revealed with the discovered values filled in. It is
+           NOT aria-hidden while visible, and it is always reachable directly by
+           typing an address, so the picker can never become the only way in. -->
+      <div id="source-detail" class="hidden">
+      <h2 class="flush">Review and add</h2>
+      <p class="hint">Everything below was detected, not assumed. Change anything
+        that looks wrong before saving.</p>
 
       <div class="card stack">
         <div class="fieldset">

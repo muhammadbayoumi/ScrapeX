@@ -72,6 +72,7 @@ def _stub(backend: str, *, engine_up=True, sources=None, jobs=None, records=None
             {"key": "google_drive", "label": "Google Drive and Sheets", "ready": False,
              "required": False, "settings_url": "/sync",
              "blocker": "Not signed in yet — use Continue with Google."}]},
+        "/api/resolve": {"matched": False},
         "/api/probe": {"url": "https://shop.example.com", "reachable": True,
             "family": "shopify-json", "implemented": True,
             "evidence": ["/products.json returned a Shopify products array (24 products)"],
@@ -85,7 +86,8 @@ def _stub(backend: str, *, engine_up=True, sources=None, jobs=None, records=None
     return f"""
 window.chrome = {{
   runtime: {{ getURL: p => p, lastError: null }},
-  tabs: {{ query: async () => [{{url: "https://elsewedyshop.com/products/lamp"}}],
+  tabs: {{ query: async () => [{{url: "https://shop.example.com/products/lamp",
+                               title: "Example Store — Lamps"}}],
            create: () => {{}} }},
   storage: {{ local: {{ get: async () => ({{backend: {backend!r}}}), set: async () => {{}} }} }},
 }};
@@ -243,7 +245,13 @@ def main() -> int:
         "09-job-running-on-data-tab": (
             _stub(args.backend, jobs=running_job, records=arabic_records), TAB_DATA),
         "10-source-current-page": (_stub(args.backend), TAB_SOURCE),
+        # The whole point of the tab: a real page becomes a reviewable site.
+        "10b-source-reviewed": (_stub(args.backend), [TAB_SOURCE, "#cur-use"]),
         "11-source-urls": (_stub(args.backend), [TAB_SOURCE, SOURCE_URLS]),
+        "11b-source-urls-checked": (
+            _stub(args.backend),
+            [TAB_SOURCE, SOURCE_URLS,
+             ("#urls-box", "https://shop.example.com"), "#urls-check"]),
         "12-source-file-image": (_stub(args.backend), [TAB_SOURCE, SOURCE_FILE]),
         "13-selected-cards": (_stub(args.backend),
                               [TAB_RUN, 'input[data-key="LONG_AR"]', 'input[data-key="SHORT"]']),

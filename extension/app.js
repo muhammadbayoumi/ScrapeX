@@ -50,6 +50,7 @@ function showView(name) {
   });
   if (name === "data") loadDatasets();
   if (name === "settings") { loadSchedules(); loadStorage(); }
+  if (name === "source") loadCurrentPage();
 }
 
 // ---- runtime status --------------------------------------------------------
@@ -464,6 +465,82 @@ async function loadStorage() {
 // ---- source / add site (first tab, spec 11) ---------------------------------
 let lastProbe = null;
 
+// ---- the three source choices -----------------------------------------------
+// Each one ends at the same confirm-and-adjust form. The panel never registers
+// a site from a guess: it detects, shows what it detected, and waits.
+
+async function loadCurrentPage() {
+  const title = $("cur-title"), url = $("cur-url"), use = $("cur-use");
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const address = tab?.url || "";
+    // chrome:// and extension pages are not sites anyone can crawl, and saying
+    // so beats offering a button that would fail at probe time.
+    if (!/^https?:\/\//.test(address)) {
+      title.textContent = "This tab is not a website";
+      url.textContent = address || "";
+      use.disabled = true;
+      out("cur-out", "Open a site in this tab, then come back.", "muted");
+      return;
+    }
+    title.textContent = tab.title || "Untitled page";
+    url.textContent = address;
+    use.disabled = false;
+    const known = await api(`/api/resolve?url=${encodeURIComponent(address)}`);
+    out("cur-out", known.matched
+      ? `Already registered as ${esc(known.source_name)}.`
+      : "", known.matched ? "muted" : "");
+    use.textContent = known.matched ? "Review its settings" : "Use this page";
+  } catch (_) {
+    title.textContent = "Could not read the active tab";
+    use.disabled = true;
+    out("cur-out", "The engine or the browser did not answer.", "err");
+  }
+}
+
+async function checkPastedUrls() {
+  const box = $("urls-box"), results = $("urls-results"), button = $("urls-check");
+  const addresses = box.value.split(/\s+/).map((a) => a.trim()).filter(Boolean);
+  out("urls-out", "");
+  if (!addresses.length) {
+    out("urls-out", "Paste at least one address first.", "err");
+    return;
+  }
+  const bad = addresses.filter((a) => !/^https?:\/\/.+\..+/.test(a));
+  if (bad.length) {
+    out("urls-out", `Not a full address: ${esc(bad[0])}`, "err");
+    return;
+  }
+
+  button.disabled = true; button.textContent = "Testing…";
+  results.classList.remove("hidden");
+  results.innerHTML = "";
+  try {
+    // One at a time, deliberately: these are real requests to sites the owner
+    // does not control, and the shared fetcher's politeness applies per call.
+    for (const address of addresses) {
+      out("urls-out", `Testing ${addresses.indexOf(address) + 1} of ${addresses.length}…`, "muted");
+      let row;
+      try {
+        const found = await post("/api/probe", { url: address });
+        row = `<div class="srow"><span class="name">${esc(address)}</span>
+          <span class="chip ${found.implemented ? "" : "off"}">${
+            esc(found.implemented ? found.family : `${found.family} — no connector`)}</span>
+          <button class="link" data-pick="${esc(address)}">Review</button></div>`;
+      } catch (err) {
+        row = `<div class="srow"><span class="name">${esc(address)}</span>
+          <span class="err hint">${esc(err.message)}</span></div>`;
+      }
+      results.insertAdjacentHTML("beforeend", row);
+    }
+    out("urls-out", "Pick one to review and add.", "muted");
+    results.querySelectorAll("[data-pick]").forEach((link) =>
+      link.addEventListener("click", () => { showSourceDetail(link.dataset.pick); probe(); }));
+  } finally {
+    button.disabled = false; button.textContent = "Check these sites";
+  }
+}
+
 const FAMILY_LABELS = {
   "shopify-json": "Shopify (products.json)", "magento-graphql": "Magento (GraphQL)",
   "woocommerce-storeapi": "WooCommerce (Store API)", "salla-html": "Salla (HTML)",
@@ -485,7 +562,16 @@ function fieldError(id, message) {
   $(id).className = message ? "err hint" : "hint";
 }
 
+// The confirm-and-adjust form is revealed by whichever source choice produced
+// something to confirm. Keeping the reveal in ONE place means no future entry
+// point can forget it and leave the owner with a form they cannot see.
+function showSourceDetail(url) {
+  $("source-detail").classList.remove("hidden");
+  if (url !== undefined) $("url").value = url;
+}
+
 async function probe() {
+  showSourceDetail();
   const url = $("url").value.trim();
   fieldError("err-url", "");
   out("add-out", "");
@@ -655,6 +741,14 @@ async function init() {
   });
   $("add-btn").addEventListener("click", addSite);
   $("check").addEventListener("click", probe);
+  $("cur-use").addEventListener("click", () => {
+    showSourceDetail($("cur-url").textContent.trim());
+    probe();
+  });
+  $("urls-check").addEventListener("click", checkPastedUrls);
+  // Re-read the active tab when the owner returns to Current Page: they may
+  // have navigated since the panel was opened.
+  document.getElementById("source-current").addEventListener("change", loadCurrentPage);
   $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") probe(); });
 
   $("run-mode").addEventListener("change", refreshMode);
