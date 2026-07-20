@@ -5,8 +5,16 @@ storefront base_url (masdar: api.masdaronline.com vs www.masdaronline.com), so t
 is the first connector to read SourceEntry.api (the OCC host + baseSite id). Product
 search is paginated 0-indexed; one product -> one PRODUCT_PRICES row (v1 is
 product-level; baseProduct->variant expansion via the product-detail call is a later
-enhancement). VAT trap (masdar): the search price is VAT-exclusive on this platform,
-recorded via vat_mode=excl; the tax-inclusive priceWithTax needs the detail call.
+enhancement).
+
+VAT (masdar) — CORRECTED 2026-07-20 by reading the live API. This file used to
+claim the search price was VAT-exclusive and that priceWithTax needed a separate
+detail call. Both are false: a FULL search response carries price, priceWithTax
+and priceWithoutTax together, and price.value equals priceWithTax.value on every
+live product (206.99999999999997 inclusive against 180.00 exclusive — exactly
+15%). The manifest said excl, so every MASDAR row would have been published with
+its VAT flag inverted. The basis is now read FROM THE PAYLOAD rather than taken
+on the manifest's word, because the payload cannot be wrong about itself.
 """
 from __future__ import annotations
 
@@ -25,6 +33,45 @@ _STOCK = {
     "lowStock": Availability.IN_STOCK.value,
     "outOfStock": Availability.OUT_OF_STOCK.value,
 }
+
+
+def _vat_basis(product: dict, default: str) -> str:
+    """'1' when the price we take includes tax, '0' when it does not.
+
+    Decided from the payload wherever the API states both figures, and only
+    falling back to the manifest's claim when it does not. The manifest declared
+    masdar exclusive while its API returns price == priceWithTax on every
+    product — a flag inverted on ~1,354 products, and nothing in the pipeline
+    could have noticed, because a VAT flag is carried, never checked.
+    """
+    value = (product.get("price") or {}).get("value")
+    with_tax = (product.get("priceWithTax") or {}).get("value")
+    without_tax = (product.get("priceWithoutTax") or {}).get("value")
+    try:
+        if value is not None and with_tax is not None and float(value) == float(with_tax):
+            return "1"
+        if value is not None and without_tax is not None and float(value) == float(without_tax):
+            return "0"
+    except (TypeError, ValueError):
+        pass
+    return default
+
+
+def _money(value) -> str:
+    """A price as the site means it, not as binary floating point renders it.
+
+    OCC serves 206.99999999999997 for a 207.00 price. Passing that straight
+    through publishes a number no human sees on the site, and it defeats the
+    price-key's scale-invariance, which folds 0.620 and 0.62 but not this.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "" if value is None else str(value)
+    # Minimal representation: 206.99999999999997 -> "207", 25.5 -> "25.5",
+    # 320.2865 -> "320.29". Trailing zeros are not added, because the shape of
+    # the string is not ours to invent — only the binary artefact is ours to remove.
+    return f"{round(number, 2):.2f}".rstrip("0").rstrip(".")
 
 
 def _availability(stock: dict) -> str:
@@ -88,6 +135,10 @@ class HybrisOccConnector:
         code = str(product.get("code") or "")
         if value in (None, "") or not code:
             return None  # login-gated / unpriced product — skip, don't emit empty required
+        # The payload knows whether its own price includes tax; the manifest only
+        # claims to. Where the API states both, believe the API — the manifest
+        # said 'excl' for a price that equals priceWithTax exactly.
+        vat_flag = _vat_basis(product, default=vat)
         url = product.get("url") or ""
         if url and not url.startswith("http"):
             url = f"{display_base}/{url.lstrip('/')}"
@@ -102,10 +153,10 @@ class HybrisOccConnector:
             product_url=url,
             region=region,
             currency=price.get("currencyIso") or currency,
-            vat_included=vat,
-            regular_price=value,
+            vat_included=vat_flag,
+            regular_price=_money(value),
             sale_price="",
-            effective_price=value,
+            effective_price=_money(value),
             availability=_availability(stock),
             stock_quantity=level if level is not None else "",
         )

@@ -61,8 +61,8 @@ class ShopifyConnector:
                 value = variant.get(f"option{i}")
                 if value and value != "Default Title":
                     options[name] = value
-            compare_at = variant.get("compare_at_price")  # the "was" price, if on sale
             price = variant.get("price")
+            compare_at = was_price(variant.get("compare_at_price"), price)
             rows.append(builder.row(
                 external_product_id=product.get("id"),
                 external_variant_id=variant.get("id"),
@@ -82,6 +82,26 @@ class ShopifyConnector:
                 stock_quantity="",
             ))
         return rows
+
+
+def was_price(compare_at, price) -> str:
+    """The genuine "was" price, or "" when the variant is not on sale.
+
+    Shopify writes compare_at_price as a STRING, and a shop that has cleared a
+    sale often leaves "0.00" behind rather than null. "0.00" is a non-empty
+    string, so the previous `compare_at or price` selected it and the sale
+    branch fired: 44 of 1034 live ELSEWEDYSHOP variants were being published as
+    "on sale, was 0.00" — a price movement from zero that never happened.
+
+    A "was" price is only real when it is strictly ABOVE what is being charged;
+    equal or lower is not a discount, it is noise or a stale field.
+    """
+    try:
+        was = float(str(compare_at).strip())
+        now = float(str(price).strip())
+    except (TypeError, ValueError):
+        return ""
+    return str(compare_at) if was > now else ""
 
 
 def _availability(variant: dict) -> str:

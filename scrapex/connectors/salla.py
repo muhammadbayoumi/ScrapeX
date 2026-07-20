@@ -26,6 +26,33 @@ from .jsonld import brand_name, offer_price, parse_product_jsonld, sitemap_locs
 _PRODUCT_ID = re.compile(r"/p(\d{5,})")
 
 
+def one_url_per_product(urls: list[str]) -> list[str]:
+    """One URL per product id, first occurrence wins.
+
+    A Salla sitemap index lists every product ONCE PER LOCALE — /ar/…/p123 and
+    /en/…/p123 are the same product. Deduplicating by URL string, as this did,
+    collapses nothing: alsweed published 2466 URLs for 1233 products, so every
+    crawl fetched each page twice and emitted two rows carrying the SAME
+    external_product_id.
+
+    That is worse than wasted requests. Two rows per product inflate the count,
+    so min_expected_rows can never catch it — the canary only watches for rows
+    going missing — and downstream every product looks like it has a duplicate
+    offer. It also doubled the crawl cost against elburoj, which asks for a
+    10-second delay between requests.
+    """
+    seen: set[str] = set()
+    kept: list[str] = []
+    for url in urls:
+        match = _PRODUCT_ID.search(url)
+        key = match.group(1) if match else url
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(url)
+    return kept
+
+
 class SallaConnector:
     connector_id = "salla-html"
 
@@ -63,7 +90,7 @@ class SallaConnector:
                 products += [u for u in sitemap_locs(self._fetcher.get(sub).text) if _PRODUCT_ID.search(u)]
             except Exception:  # noqa: BLE001
                 continue
-        return list(dict.fromkeys(products))  # dedupe, preserve order
+        return one_url_per_product(products)
 
     @staticmethod
     def _row(builder: RowBuilder, node: dict, url: str, source: SourceEntry, vat: str):

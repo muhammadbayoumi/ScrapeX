@@ -121,20 +121,36 @@ sources:
     active: false
     currency: SAR
     default_region: SA
-    vat_mode: excl          # OCC search price is VAT-exclusive on this platform
+    # CORRECTED 2026-07-20 against the live API: was `excl`, which was backwards.
+    # price.value == priceWithTax.value on every product checked; the connector
+    # now derives this from the payload and does not depend on this line.
+    vat_mode: incl
     api:
       base_url: https://api.masdaronline.com   # data host != storefront base_url
-      base_site: masdar                        # OCC baseSite id — verify on first live crawl
+      base_site: masdar                        # CONFIRMED live 2026-07-20
+    tax:
+      # Not a claim: the API returns both figures, so the rate is read off the
+      # source rather than asserted. 180.00 excl -> 206.99999999999997 incl = 15%.
+      - region: SA
+        vat_mode: incl
+        evidence: stated
+        rate_pct: 15
+        statement_text: >-
+          The OCC search response publishes priceWithoutTax and priceWithTax for
+          every product; price equals priceWithTax, and their ratio is 1.15.
+        statement_url: https://api.masdaronline.com/rest/v2/masdar/products/search?fields=FULL
+        statement_lang: en
+        verified_at: "2026-07-20"
     extract:
       - kind: product_prices
         scope: census
     min_expected_rows: 200
     max_drop_pct: 50
     notes: >
-      ~1310 SKUs via api.masdaronline.com/rest/v2/{base_site}/products/search.
-      VAT trap: the search price is VAT-exclusive (vat_mode=excl); the inclusive
-      priceWithTax needs the per-product detail call (deferred). base_site is a
-      best guess until confirmed on the first live run (source stays inactive).
+      1354 SKUs via api.masdaronline.com/rest/v2/{base_site}/products/search
+      (confirmed live 2026-07-20). A FULL search response already carries price,
+      priceWithTax and priceWithoutTax — no per-product detail call is needed for
+      any of them.
 
   # ---- probed: custom Next.js shop with open unauthenticated JSON API ----
   - source_key: SIKAEGSHOP
