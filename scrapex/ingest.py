@@ -19,7 +19,7 @@ from .config import SourceEntry
 from . import pricekey
 from .normalize import parse_money, record_hash
 from .payload import FunnelPayload
-from .rowspec import RowView, spec_for
+from .rowspec import PRODUCT_PRICES, RowView, spec_for
 from .vocab import Availability, ChangeType, CurationStatus, ExtractKind, RunStatus
 
 
@@ -398,30 +398,33 @@ def _ingest_commodity_row(conn, entry, source_id, run_id, c, observed_at,
 def _commodity_to_product_row(c: dict) -> dict:
     """Adapt a COMMODITY_PRICE row into the product-row shape _persist_row expects.
 
-    `unit` ('USD/liter') is kept verbatim in option_label — a lossless home that
-    leaves selling_unit_id NULL so the shared offer identity still matches.
+    `unit` ('USD/liter') is carried in BOTH the row's own `unit` column, which is
+    its correct home in the widened contract, and — for now — in option_label,
+    which is the only one of the two that anything actually persists. Moving it
+    out of option_label before ingest writes `selling_unit` would not tidy the
+    unit away, it would delete it: the row would carry a unit and the warehouse
+    would store none. option_label stops carrying it in the same change that
+    starts writing selling_unit_id, not before.
+
     `observed_label` is deliberately DROPPED: it has no schema column and must
     never drive business_date/record_hash (owner rule: the history is OUR own
     weekly observations, stamped with our crawl date, not the publisher's dating).
+
+    Built from the spec's own column list, so a widened contract cannot leave
+    the adapter silently behind it.
     """
-    return {
+    row = {col: "" for col in PRODUCT_PRICES.columns}
+    row.update({
         "external_product_id": c["material_key"],
-        "external_variant_id": "",
-        "external_sku": "",
         "product_name": c["material_key"],
-        "brand_raw": "",
-        "option_label": c.get("unit", ""),
-        "option_fingerprint": "",
-        "product_url": "",
         "region": c["region"],
         "currency": c["currency"],
         "vat_included": c.get("vat_included", ""),
-        "regular_price": "",
-        "sale_price": "",
         "effective_price": c["effective_price"],
-        "availability": "",
-        "stock_quantity": "",
-    }
+        "unit": c.get("unit", ""),
+        "option_label": c.get("unit", ""),
+    })
+    return row
 
 
 def _still_the_same_price(conn: sqlite3.Connection, offer_id: int, v: dict) -> bool:

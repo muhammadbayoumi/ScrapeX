@@ -235,8 +235,14 @@ def test_a_failed_run_does_not_advance_the_confirmation(conn):
         scraped_at="2026-07-09T10:00:00Z",
         source_url="https://elsewedyshop.com/products.json",
         header=list(PRODUCT_PRICES.columns),
-        rows=[["1001", "5001", "SKU1", "LED", "Elsewedy", "", "", "", "EG", "EGP",
-               "1", "", "", "", "in_stock", ""]])
+        # Positioned by NAME against the spec, so widening the contract cannot
+        # turn this into a ragged-row failure instead of the missing-price
+        # failure it is actually testing.
+        rows=[[{"external_product_id": "1001", "external_variant_id": "5001",
+                "external_sku": "SKU1", "product_name": "LED",
+                "brand_raw": "Elsewedy", "region": "EG", "currency": "EGP",
+                "vat_included": "1", "availability": "in_stock",
+                }.get(col, "") for col in PRODUCT_PRICES.columns]])
     result = ingest_payloads(conn, make_entry(), [broken])
 
     assert result.status.value != "success", "the fixture must actually fail"

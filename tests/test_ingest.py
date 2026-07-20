@@ -143,8 +143,12 @@ def test_wrong_source_key_payload_is_flagged(conn):
 
 def test_header_drift_payload_is_rejected_whole(conn):
     payload = make_payload([one_row()])
-    broken = payload.model_copy(update={"header": payload.header[:-1] + ["renamed_col"],
-                                        "rows": [r[:-1] + ["x"] for r in payload.rows]})
+    # Rename a CORE column. An additive column going missing is tolerated by
+    # design, so renaming whichever happens to be last no longer proves drift
+    # detection — it would pass for the wrong reason.
+    renamed = list(payload.header)
+    renamed[renamed.index("effective_price")] = "renamed_col"
+    broken = payload.model_copy(update={"header": renamed})
     result = ingest_payloads(conn, make_entry(), [broken])
     assert result.observations == 0 and any("header drift" in e for e in result.errors)
 

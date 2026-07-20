@@ -57,12 +57,17 @@ def commodity_payload(rows, source_key="GPP_ENERGY", scraped_at="2026-07-16T10:0
 
 # ---- the adapter (pure) ------------------------------------------------------
 
-def test_adapter_maps_commodity_row_onto_the_16_product_columns():
+def test_adapter_maps_commodity_row_onto_every_product_column():
     c = RowView(COMMODITY_PRICE, list(COMMODITY_PRICE.columns)).as_dict(commodity_row())
     r = _commodity_to_product_row(c)
     assert set(r) == set(PRODUCT_PRICES.columns)          # exactly the product shape
     assert r["external_product_id"] == "DIESEL" and r["product_name"] == "DIESEL"
-    assert r["option_label"] == "USD/liter"               # unit kept verbatim
+    # The unit has its own column in the widened contract. It is ALSO still in
+    # option_label, because that is the only one of the two the warehouse
+    # currently stores — dropping it there before selling_unit_id is written
+    # would delete the unit, not relocate it.
+    assert r["unit"] == "USD/liter"
+    assert r["option_label"] == "USD/liter"
     assert r["region"] == "EG" and r["currency"] == "USD" and r["effective_price"] == "0.620"
     assert r["external_variant_id"] == "" and r["option_fingerprint"] == ""  # NULL/NULL variant
     assert r["regular_price"] == "" and r["sale_price"] == ""
