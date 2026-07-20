@@ -17,6 +17,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from .database_ids import GENERAL_APPLICATION_ID
+
 # db/ lives next to the package; schema.sql is the single DDL truth (Q1).
 DB_DIR = Path(__file__).resolve().parent.parent / "db"
 SCHEMA_FILE = DB_DIR / "schema.sql"
@@ -33,13 +35,26 @@ class DbLockedError(RuntimeError):
     """Another scrapex command holds the write lock (A10)."""
 
 
+class WrongDatabaseKindError(RuntimeError):
+    """The legacy MarketLens facade was pointed at the General database."""
+
+
 def connect(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    """Open harvest.db with the mandated pragmas. Creates parent dirs."""
+    """Open the legacy/MarketLens price database with the mandated pragmas.
+
+    This compatibility facade remains for price-domain modules while they move
+    behind repositories. It explicitly refuses the General database.
+    """
     path = Path(db_path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    if int(conn.execute("PRAGMA application_id").fetchone()[0]) == GENERAL_APPLICATION_ID:
+        conn.close()
+        raise WrongDatabaseKindError(
+            f"{path} is the General database; choose the MarketLens database and retry"
+        )
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")

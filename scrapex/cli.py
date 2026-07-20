@@ -21,6 +21,11 @@ from . import db as dbmod
 from . import localinbox
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
+from .databases import DatabaseRegistry
+from .databases.registry import (
+    DEFAULT_GENERAL_PATH, DEFAULT_MARKETLENS_PATH, REGISTRY_FILE,
+)
+from .databases.split import rollback_to_legacy, split_legacy_database
 from .funnel import FunnelClient
 from .ingest import ingest_payloads
 from .reports import recent_observations, source_summary
@@ -35,8 +40,26 @@ from .vocab import ExtractKind, PayloadClient
 CONTRACTS_DIR = Path(__file__).resolve().parent.parent / "contracts"
 
 
+def _marketlens_path(args: argparse.Namespace) -> Path:
+    explicit = getattr(args, "db", None)
+    if explicit:
+        return Path(explicit)
+    registry = DatabaseRegistry.defaults()
+    registry.verify()
+    return registry.marketlens.path
+
+
 def _cmd_init_db(args: argparse.Namespace) -> int:
-    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    if not args.db:
+        registry = DatabaseRegistry.defaults()
+        applied = registry.initialize()
+        print(f"General database at {registry.general.path}: applied {applied['general'] or 'none'}")
+        print(
+            f"MarketLens database at {registry.marketlens.path}: "
+            f"applied {applied['marketlens'] or 'none'}"
+        )
+        return 0
+    db_path = Path(args.db)
     with dbmod.write_lock(db_path):
         conn = dbmod.connect(db_path)
         try:
@@ -47,6 +70,57 @@ def _cmd_init_db(args: argparse.Namespace) -> int:
         print(f"harvest.db at {db_path}: applied migrations {applied}")
     else:
         print(f"harvest.db at {db_path}: already at version — nothing to apply")
+    return 0
+
+
+def _cmd_split_databases(args: argparse.Namespace) -> int:
+    from .storage import resolve_db_path
+
+    legacy_path = Path(args.legacy_db) if args.legacy_db else resolve_db_path()
+    result = split_legacy_database(
+        legacy_path,
+        general_path=Path(args.general_db) if args.general_db else DEFAULT_GENERAL_PATH,
+        marketlens_path=(
+            Path(args.marketlens_db) if args.marketlens_db else DEFAULT_MARKETLENS_PATH
+        ),
+        pointer_file=Path(args.registry) if args.registry else REGISTRY_FILE,
+    )
+    print(json.dumps(result.public(), indent=2, ensure_ascii=False))
+    return 0
+
+
+def _cmd_rollback_databases(args: argparse.Namespace) -> int:
+    legacy = rollback_to_legacy(Path(args.registry) if args.registry else REGISTRY_FILE)
+    print(
+        f"Rolled back to the sealed legacy database at {legacy}. The split databases "
+        "remain unchanged. Start a legacy session with --db, then retry the split "
+        "when ready."
+    )
+    return 0
+
+
+def _cmd_database_status(args: argparse.Namespace) -> int:
+    registry = DatabaseRegistry.read(Path(args.registry) if args.registry else REGISTRY_FILE)
+    health = registry.health()
+    print(json.dumps(health, indent=2, ensure_ascii=False))
+    return 0 if all(item["ok"] for item in health.values()) else 1
+
+
+def _cmd_backup_databases(args: argparse.Namespace) -> int:
+    registry = DatabaseRegistry.read(Path(args.registry) if args.registry else REGISTRY_FILE)
+    result = registry.backup_bundle(Path(args.folder))
+    print(json.dumps({"status": "Succeeded", "backups": result}, indent=2))
+    return 0
+
+
+def _cmd_restore_database(args: argparse.Namespace) -> int:
+    registry = DatabaseRegistry.read(Path(args.registry) if args.registry else REGISTRY_FILE)
+    database = registry.general if args.kind == "general" else registry.marketlens
+    displaced = database.restore(Path(args.backup))
+    print(
+        f"Restored {args.kind} from {args.backup}. The replaced database remains at "
+        f"{displaced}. Restart ScrapeX, then run database-status."
+    )
     return 0
 
 
@@ -113,7 +187,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     if not payloads:
         print(f"no payloads in local inbox for {entry.source_key} — run: scrapex crawl {entry.source_key}")
         return 1
-    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    db_path = _marketlens_path(args)
     with dbmod.write_lock(db_path):
         conn = dbmod.connect(db_path)
         try:
@@ -135,7 +209,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_peek(args: argparse.Namespace) -> int:
-    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    db_path = _marketlens_path(args)
     if not Path(db_path).exists():
         print("harvest.db not initialized — run: scrapex init-db")
         return 1
@@ -185,7 +259,7 @@ def _cmd_native_host(args: argparse.Namespace) -> int:
     """Chrome launches this; it speaks framed JSON on stdio, not to a human."""
     from .native import serve
 
-    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    db_path = _marketlens_path(args)
     return serve(db_path)
 
 
@@ -209,7 +283,7 @@ def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
     arrangement, different sink."""
     from .publish import publish_source
 
-    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    db_path = _marketlens_path(args)
     if not Path(db_path).exists():
         print("harvest.db not initialized — crawl + ingest first", file=sys.stderr)
         return 1
@@ -260,13 +334,20 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     except ImportError:
         print("the UI needs the ui extra: pip install -e .[ui]", file=sys.stderr)
         return 1
-    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    registry = None if args.db else DatabaseRegistry.defaults()
+    if registry is not None:
+        registry.verify()
+    db_path = Path(args.db) if args.db else registry.marketlens.path
     if not Path(db_path).exists():
         print("harvest.db not initialized — run: scrapex init-db, then crawl + ingest", file=sys.stderr)
         return 1
     # start_worker: the local runtime owns job execution, so a queued job runs
     # (and keeps running) whether or not the side panel is open (spec 4/23).
-    app = create_app(db_path, start_worker=True)
+    app = create_app(
+        db_path if registry is None else None,
+        start_worker=True,
+        databases=registry,
+    )
     url = f"http://{args.host}:{args.port}"
     print(f"ScrapeX UI → {url}   (Ctrl+C to stop)")
     if not args.no_open:
@@ -280,7 +361,7 @@ def _cmd_ui(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     # S8 watchdog: fleshed out when ingest lands (Phase 1); the surface exists
     # now so the owner's habit starts on day one.
-    db_path = Path(args.db) if args.db else dbmod.DEFAULT_DB_PATH
+    db_path = _marketlens_path(args)
     if not Path(db_path).exists():
         print("harvest.db not initialized — run: scrapex init-db")
         return 1
@@ -305,9 +386,43 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="scrapex", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("init-db", help="create/upgrade harvest.db")
-    p.add_argument("--db", help="database path (default: env SCRAPEX_DB_PATH or ~/.scrapex/harvest.db)")
+    p = sub.add_parser("init-db", help="create/upgrade both isolated databases")
+    p.add_argument(
+        "--db",
+        help="legacy unified database path (only for migration or rollback)",
+    )
     p.set_defaults(func=_cmd_init_db)
+
+    p = sub.add_parser(
+        "split-databases",
+        help="copy a unified warehouse into isolated General and MarketLens databases",
+    )
+    p.add_argument("--legacy-db", help="unified harvest.db path")
+    p.add_argument("--general-db", help="General target path")
+    p.add_argument("--marketlens-db", help="MarketLens target path")
+    p.add_argument("--registry", help="database registry path")
+    p.set_defaults(func=_cmd_split_databases)
+
+    p = sub.add_parser(
+        "rollback-databases", help="switch the runtime pointer back to the legacy database"
+    )
+    p.add_argument("--registry", help="database registry path")
+    p.set_defaults(func=_cmd_rollback_databases)
+
+    p = sub.add_parser("database-status", help="show independent database health")
+    p.add_argument("--registry", help="database registry path")
+    p.set_defaults(func=_cmd_database_status)
+
+    p = sub.add_parser("backup-databases", help="back up General and MarketLens independently")
+    p.add_argument("--folder", required=True, help="folder that will receive both backups")
+    p.add_argument("--registry", help="database registry path")
+    p.set_defaults(func=_cmd_backup_databases)
+
+    p = sub.add_parser("restore-database", help="restore one isolated database from backup")
+    p.add_argument("kind", choices=("general", "marketlens"))
+    p.add_argument("backup", help="verified backup path")
+    p.add_argument("--registry", help="database registry path")
+    p.set_defaults(func=_cmd_restore_database)
 
     p = sub.add_parser("validate-manifest", help="validate sources.yaml")
     p.add_argument("--manifest", help="manifest path (default: scraper/sources.yaml)")

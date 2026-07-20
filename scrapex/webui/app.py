@@ -24,6 +24,7 @@ from ..capture import capture_source
 from ..changes import change_summary, recent_changes
 from ..config import MANIFEST_FILE, SourceEntry, load_manifest
 from ..connectors.factory import _BUILDERS
+from ..databases import DatabaseRegistry, GeneralDatabase, MarketLensDatabase
 from ..jobs import JobRunner, create_job, get_job, job_logs, list_jobs, set_control
 from ..fields import (
     delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
@@ -59,6 +60,7 @@ from ..vocab import (
     JobControl, MissedRunPolicy, OverlapPolicy, RunMode, ScheduleFrequency, VatMode,
 )
 from .catalog_api import create_catalog_router
+from .database_api import create_database_router, create_domain_health_router
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 STATIC_DIR = Path(__file__).parent / "static"
@@ -66,10 +68,30 @@ PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
 
 
-def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
-               start_worker: bool = False) -> FastAPI:
+def create_app(
+    db_path: Path | str | None = None,
+    manifest_path: Path | str = MANIFEST_FILE,
+    start_worker: bool = False,
+    *,
+    databases: DatabaseRegistry | None = None,
+    general_db_path: Path | str | None = None,
+) -> FastAPI:
+    if databases is None and db_path is None:
+        databases = DatabaseRegistry.defaults()
+        databases.verify()
+    if databases is not None:
+        databases.verify()
+        price_path = databases.marketlens.path
+        general_database = databases.general
+    else:
+        price_path = Path(db_path)  # explicit legacy-compatible test/session path
+        general_database = GeneralDatabase(general_db_path) if general_db_path else None
+        if general_database is not None:
+            general_database.initialize()
     app = FastAPI(title="ScrapeX", docs_url=None, redoc_url=None)
-    app.state.db_path = str(db_path)
+    app.state.db_path = str(price_path)
+    app.state.databases = databases
+    app.state.general_database = general_database
     app.state.manifest_path = str(manifest_path)
     app.state.manifest = load_manifest(manifest_path)
     # The job worker owns ALL long-running crawls (spec 4). Tests drive the
@@ -78,7 +100,7 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
     # app.state.db_path, and a worker still holding the old file would crawl
     # into a database nothing else reads.
     app.state.runner = JobRunner(
-        str(db_path), lambda: app.state.manifest,
+        str(price_path), lambda: app.state.manifest,
         path_provider=lambda: app.state.db_path) if start_worker else None
     if app.state.runner is not None:
         app.state.runner.start()
@@ -91,8 +113,19 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
     )
 
+    if databases is not None:
+        app.include_router(create_database_router(lambda: app.state.databases))
+        app.include_router(create_domain_health_router(lambda: app.state.databases))
+
     def read_conn():
+        if app.state.databases is not None:
+            return app.state.databases.marketlens.connect()
         return dbmod.connect(app.state.db_path)
+
+    def general_read_conn():
+        if app.state.general_database is None:
+            return read_conn()
+        return app.state.general_database.connect()
 
     # ---- HTML browse UI ----------------------------------------------------
 
@@ -393,9 +426,25 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
                 status_code=409,
                 detail="a crawl is currently writing to the database — try again shortly")
 
-    # G1 foundation: typed persistence and API only. The feature stays disabled
-    # until a later slice adds a complete user-facing catalogue workflow.
-    app.include_router(create_catalog_router(read_conn, _write))
+    def _general_write(fn):
+        if app.state.general_database is None:
+            return _write(fn)
+        try:
+            return app.state.general_database.write(fn)
+        except dbmod.DbLockedError:
+            raise HTTPException(
+                status_code=409,
+                detail="the General database is busy — try again shortly",
+            )
+
+    # The namespaced route is authoritative. The old catalogue path stays as a
+    # compatibility alias during G2's rebase and writes to the same General DB.
+    app.include_router(create_catalog_router(
+        general_read_conn, _general_write, prefix="/api/general/catalog"
+    ))
+    app.include_router(create_catalog_router(
+        general_read_conn, _general_write, prefix="/api/catalog"
+    ))
 
     @app.get("/api/fields/{source_key}")
     def api_fields(source_key: str):
@@ -525,7 +574,7 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
 
     def _write_conn():
         """A connection for routes that persist settings or run status."""
-        return dbmod.connect(app.state.db_path)
+        return read_conn()
 
     def _integration(fn, *args, state_after=None, **kwargs):
         """Run one integration action under the write lock, mapping the
@@ -837,6 +886,14 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         # The pointer moved, so this process follows it. Otherwise the server
         # keeps writing to a file the owner has been told is no longer live.
         app.state.db_path = str(resolve_db_path())
+        if app.state.databases is not None:
+            app.state.databases = DatabaseRegistry(
+                app.state.databases.general,
+                MarketLensDatabase(app.state.db_path),
+                app.state.databases.legacy_path,
+                app.state.databases.pointer_file,
+            )
+            app.state.databases.write()
         return result
 
     @app.get("/api/retention")
@@ -906,6 +963,14 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             finally:
                 conn.close()
         app.state.db_path = str(resolve_db_path())
+        if app.state.databases is not None:
+            app.state.databases = DatabaseRegistry(
+                app.state.databases.general,
+                MarketLensDatabase(app.state.db_path),
+                app.state.databases.legacy_path,
+                app.state.databases.pointer_file,
+            )
+            app.state.databases.write()
         return {**result.as_state(), "sealed_path": result.sealed_path,
                 "observations_after": result.observations_after}
 
