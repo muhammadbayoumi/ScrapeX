@@ -113,10 +113,23 @@ def _general_plan() -> tuple[Migration, ...]:
 # Listed rather than ranged: the unified chain and this one have diverged, so a
 # new price migration lands at the END of the legacy chain but in the middle of
 # this plan. A range would silently swallow whatever General adds next.
-_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15)
+_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16)
+
+# Where the identity migration sits in this stream. Everything before it is the
+# price history the unified warehouse already had; everything after is a price
+# migration written since the split.
+_IDENTITY_POSITION = 13
 
 
 def _marketlens_plan() -> tuple[Migration, ...]:
+    """The MarketLens migration stream.
+
+    Its version numbers are its OWN and are not the legacy file numbers: legacy
+    13 and 14 created the generic catalogue and generic extraction storage, which
+    belong to General alone, and the gap they leave is closed here rather than
+    carried. The price files are listed rather than ranged, because a range would
+    silently swallow whatever General adds next.
+    """
     legacy = {number: path
               for number, path in legacy_db._migration_files()  # noqa: SLF001
               if number in _MARKETLENS_LEGACY_NUMBERS}
@@ -126,13 +139,21 @@ def _marketlens_plan() -> tuple[Migration, ...]:
             f"MarketLens expects legacy price migrations {missing}, which are not in "
             "db/migrations. A price migration was renamed or removed.")
 
-    # This stream's version numbers are its own; they are NOT the legacy file
-    # numbers, and the gap left by 13/14 is closed here rather than carried.
+    before_identity = sorted(n for n in legacy if n < _IDENTITY_POSITION)
+    after_identity = sorted(n for n in legacy if n > _IDENTITY_POSITION)
+
     plan = [Migration(1, legacy_db.SCHEMA_FILE)]
-    for position, number in enumerate(sorted(n for n in legacy if n <= 12), start=2):
-        plan.append(Migration(position, legacy[number]))
-    plan.append(Migration(13, MARKETLENS_IDENTITY))
-    plan.append(Migration(14, legacy[15]))
+    plan.extend(Migration(position, legacy[number])
+                for position, number in enumerate(before_identity, start=2))
+    if len(plan) + 1 != _IDENTITY_POSITION:
+        raise MigrationStreamError(
+            f"MarketLens identity must land at v{_IDENTITY_POSITION}; the price "
+            f"history before it now occupies {len(plan)} versions. A migration was "
+            "added below the identity boundary, which would renumber a shipped "
+            "database.")
+    plan.append(Migration(_IDENTITY_POSITION, MARKETLENS_IDENTITY))
+    plan.extend(Migration(_IDENTITY_POSITION + offset, legacy[number])
+                for offset, number in enumerate(after_identity, start=1))
     return tuple(plan)
 
 
