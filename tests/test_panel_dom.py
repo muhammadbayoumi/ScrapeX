@@ -270,6 +270,49 @@ def test_the_action_label_does_not_survive_onto_a_tab_it_cannot_apply_to(open_pa
     assert "Open its dataset" not in page.text_content("#cur-use")
 
 
+# ---- keyboard access (spec 28) ----------------------------------------------
+
+def test_the_workspace_links_can_be_reached_and_fired_from_the_keyboard(open_panel):
+    """These three were click-only <span>s, and they are the ONLY routes from the
+    panel into the workspace — so the Settings tab dead-ended completely for
+    anyone not using a mouse. A span takes no focus and fires on no key."""
+    page = open_panel()
+    page.evaluate("""() => {
+        window.__opened = [];
+        window.chrome.tabs.create = (o) => window.__opened.push(o.url);
+    }""")
+    page.click('nav.tabs button[data-view="settings"]')
+    page.wait_for_timeout(300)
+    # The links live behind progressive disclosure, so reaching them by keyboard
+    # means the section toggle has to be operable that way too.
+    page.focus('button.sect[data-sect="s-storage"]')
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(300)
+    assert page.is_visible("#open-storage"), "the section did not open from the keyboard"
+
+    for control in ("#open-storage", "#open-browse", "#open-manage"):
+        page.focus(control)
+        assert page.evaluate(
+            "(sel) => document.activeElement === document.querySelector(sel)", control
+        ), f"{control} cannot take keyboard focus"
+        page.keyboard.press("Enter")
+
+    page.wait_for_timeout(300)
+    opened = page.evaluate("() => window.__opened")
+    assert len(opened) == 3, f"a keyboard press opened nothing: {opened}"
+
+
+def test_nothing_that_looks_like_a_link_is_an_unfocusable_span(open_panel):
+    """A guard, not a spot check: the styling makes these read as links, so the
+    next one added as a <span> would look correct and be unusable."""
+    page = open_panel()
+    offenders = page.evaluate("""() => Array.from(
+        document.querySelectorAll('.link'))
+        .filter(el => !['BUTTON', 'A', 'INPUT'].includes(el.tagName))
+        .map(el => el.tagName + '#' + (el.id || '?') + ' — ' + el.textContent.trim())""")
+    assert offenders == [], f"click-only controls, unreachable by keyboard: {offenders}"
+
+
 def test_duplicate_pasted_addresses_do_not_stall_the_counter(open_panel):
     page = open_panel()
     page.click('label[for="source-urls"]')
