@@ -741,6 +741,12 @@ def create_app(
         """Rename / hide / reorder / reset — all reversible, none destructive."""
         body = body or {}
         def apply(conn):
+            # The grid can name a column the side panel has never registered —
+            # the panel registers on open, the grid's menu does not need it open.
+            # Without this, hiding a column UPDATEd zero rows and returned 404,
+            # which the grid then reloaded straight past. Additive by design, so
+            # calling it here cannot disturb an existing view.
+            ensure_fields(conn, source_key, [key for key, _ in BROWSE_COLUMNS])
             if "reset" in body:
                 reset_view(conn, source_key)
             if "display_name" in body:

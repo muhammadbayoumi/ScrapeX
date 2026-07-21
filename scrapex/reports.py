@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
-from . import tax
+from . import fields, tax
 
 
 @dataclass
@@ -730,10 +730,16 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
               for r in rows]
 
     present = column_presence(conn, source_key)
+    # Two independent questions, and both must be asked. `present` answers "does
+    # this source publish anything here at all"; the saved view answers "does the
+    # owner want to see it". Asking only the first is why Hide this column did
+    # nothing: the choice was written to dataset_field and this payload — the only
+    # thing the grid reads — never consulted it.
+    wanted = set(fields.visible_columns(conn, source_key, fallback=list(present)))
     return {
         "source_key": source_key,
         "columns": [{"key": key, "label": label} for key, label in BROWSE_COLUMNS
-                    if key in present],
+                    if key in present and key in wanted],
         "rows": shaped,
         "tax_by_region": tax_by_region,
         "total": total,

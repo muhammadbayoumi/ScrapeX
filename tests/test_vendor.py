@@ -167,3 +167,82 @@ def test_a_preference_saved_under_the_old_defaults_cannot_resurrect_them():
     answer to "why did the table change"."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     assert "scrapex-features-v2-" in script
+
+
+# ---- the five defects the owner reported on the live grid -------------------
+
+def test_a_capability_switch_does_not_also_choose_the_column():
+    """Turning grouping ON used to group the table immediately, by a column the
+    server guessed. That made one control do two things: allow grouping, AND
+    decide what by. The switch allows; the column chooses."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert "payload.tree && payload.tree.by" not in script, (
+        "the server's guess is back — switching the feature on will silently group")
+    assert "if (features.tree && groupedBy)" in script
+
+
+def test_grouping_and_nesting_are_separate_capabilities():
+    """The owner drew the distinction: a GROUP is a synthetic band above rows
+    carrying a count; a TREE nests real rows inside one column. Different
+    questions, so different controls — both per column."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+
+    assert 'data-feature="rows"' in page, "no switch for nested rows"
+    assert "dataTree" in script and "dataTreeChildField" in script
+    assert "Nest rows by this column" in script and "Group by this column" in script
+
+
+def test_the_two_hierarchies_cannot_be_on_at_once():
+    """Bands above rows that are themselves nested is two hierarchies stacked;
+    neither reads. Choosing one clears the other rather than rendering both."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert 'if (groupedBy) { treeBy = ""' in script
+    assert 'if (treeBy) { groupedBy = ""' in script
+
+
+def test_no_colour_the_library_chose_survives_into_the_table():
+    """The library paints its group counts red and its scrollbars light. Red
+    means failure in this project, and the scrollbars were the one part of the
+    dark table still drawn in light mode."""
+    css = THEME.read_text(encoding="utf-8")
+    assert ".tabulator-row.tabulator-group span" in css, "the library's red count"
+    assert "scrollbar-color" in css and "::-webkit-scrollbar-thumb" in css
+    import re
+    literals = re.findall(r":\s*(#[0-9a-fA-F]{3,8})", css)
+    assert literals == [], f"hardcoded colours in the grid theme: {literals}"
+
+
+def test_a_table_too_wide_for_its_column_can_still_be_scrolled_to():
+    """overflow-x was hidden to kill a 15px phantom scrollbar. That also removed
+    the real one, so columns past the edge became unreachable. The phantom is
+    handled by reserving the gutter; the real overflow gets its scrollbar."""
+    css = THEME.read_text(encoding="utf-8")
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert "overflow-x: hidden" not in css, "columns past the edge are unreachable again"
+    assert "overflow-x: auto" in css
+    assert "scrollbar-gutter: stable" in css, "without this the phantom bar returns"
+    # fitColumns shrinks without limit unless the columns have a floor, and then
+    # nothing ever overflows — the scrollbar above would be dead code.
+    assert "columnDefaults" in script and "minWidth" in script
+
+
+def test_a_tree_heading_never_speaks_for_its_children():
+    """The first build promoted the set's FIRST row to be the branch, which made
+    Andorra the face of all 169 diesel rows — one arbitrary country's price
+    presented as the heading for every country, and Andorra itself then missing
+    from the children. A heading carries the shared value and a count; every
+    other cell is empty, because no single value stands for the set."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert "_children: set}" in script.replace(", ", "").replace("_branch: set.length", "") or \
+           "_children: set," in script, "the whole set must become the children"
+    assert "Object.assign({}, set[0], {_children" not in script, (
+        "a real row is being promoted to a heading again")
+    assert "_branch" in script and "branchCount" in script
+
+
+def test_a_heading_row_offers_no_link_to_a_record_it_does_not_have():
+    """A heading has no offer_id, so a History link on it pointed at
+    /offer/undefined — a control that looks live and leads nowhere."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert "if (!cell.getValue()) return \"\";" in script

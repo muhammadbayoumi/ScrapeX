@@ -133,3 +133,51 @@ def test_unhiding_brings_the_column_back_with_its_data(client, db_path):
         conn.close()
     header, rows = sink.tabs[SOURCE]
     assert "currency" in header and rows[0][header.index("currency")] == "EGP"
+
+
+def test_hiding_a_column_actually_removes_it_from_the_grid(client):
+    """The defect the owner hit: Hide this column did nothing at all.
+
+    Three breaks in one chain, and no test crossed the layers to see any of them.
+    The grid's menu names a column the side panel may never have registered, so
+    the UPDATE matched zero rows and answered 404; the grid reloaded past it; and
+    /api/table built its column list from `column_presence` alone and would have
+    ignored the choice even if it had been stored. Hiding is only real when the
+    payload the grid actually reads stops carrying the column.
+    """
+    before = client.get(f"/api/table/{SOURCE}").json()
+    keys = [c["key"] for c in before["columns"]]
+    assert "sku" in keys, "fixture no longer publishes the column this test hides"
+
+    hidden = client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
+    assert hidden.status_code == 200, hidden.text
+
+    after = client.get(f"/api/table/{SOURCE}").json()
+    assert "sku" not in [c["key"] for c in after["columns"]]
+    # The DATA is untouched: hiding is a view, never a delete.
+    assert after["rows"][0]["sku"] == before["rows"][0]["sku"]
+
+
+def test_showing_every_column_brings_a_hidden_one_back(client):
+    """The recovery path. A hidden column that no control can restore is the
+    failure the owner called catastrophic, and it is only closed if the reverse
+    of the operation is proven, not assumed."""
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
+    assert "sku" not in [c["key"] for c in client.get(f"/api/table/{SOURCE}").json()["columns"]]
+
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": False})
+    assert "sku" in [c["key"] for c in client.get(f"/api/table/{SOURCE}").json()["columns"]]
+
+
+def test_resetting_the_view_restores_every_hidden_column(client):
+    """Reset the layout is the last resort in the column menu; it has to work
+    without the owner knowing which columns they hid."""
+    start = [c["key"] for c in client.get(f"/api/table/{SOURCE}").json()["columns"]]
+    for key in start:
+        client.post(f"/api/fields/{SOURCE}", json={"field_key": key, "hidden": True})
+    # Every column hidden is the worst case and the one that matters: the owner
+    # reaches for Reset precisely when the table has gone blank.
+    assert client.get(f"/api/table/{SOURCE}").json()["columns"] == []
+
+    client.post(f"/api/fields/{SOURCE}", json={"reset": True})
+    assert [c["key"] for c in client.get(f"/api/table/{SOURCE}").json()["columns"]] == start

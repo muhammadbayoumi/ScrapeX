@@ -260,7 +260,13 @@
         drawn. They never change the data, and they are remembered for
         <span class="key">{{ source_key }}</span> only.</p>
       <div class="featuregrid">
-        <label><input type="checkbox" data-feature="tree"> Group rows</label>
+        {# These two only ALLOW a capability; the column's own menu decides which
+           column uses it. A switch here could never know that a fuel table wants
+           grouping by material and a shop wants it by product. #}
+        <label><input type="checkbox" data-feature="tree"> Allow grouping
+          <span class="muted">— choose the column in its ⋮ menu</span></label>
+        <label><input type="checkbox" data-feature="rows"> Allow nested rows
+          <span class="muted">— a tree, indented inside one column</span></label>
         <label><input type="checkbox" data-feature="totals"> Column totals</label>
         <label><input type="checkbox" data-feature="rownum"> Row numbers</label>
         <label><input type="checkbox" data-feature="compact"> Compact rows</label>

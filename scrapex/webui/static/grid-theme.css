@@ -79,6 +79,40 @@
   font-weight: 600;
 }
 .tabulator .tabulator-row.tabulator-group:hover { background: var(--accent-weak) !important; }
+/* The library paints the group's row count in its own red. Nothing in this
+   project is red except a failure, so a count of 169 diesel rows was reading as
+   an error. It is secondary text, and it is styled as secondary text. */
+.tabulator .tabulator-row.tabulator-group span {
+  color: var(--muted) !important;
+  font-weight: 400;
+}
+/* The group's expand arrow is drawn as a hardcoded dark triangle, invisible on
+   a dark surface. Bound to the text colour it follows the theme. */
+.tabulator .tabulator-row.tabulator-group .tabulator-arrow {
+  border-left-color: var(--text) !important;
+  border-top-color: var(--text) !important;
+  border-bottom-color: var(--text) !important;
+}
+
+/* ---- the tree: the parent IS a row, so it must not look like a band ------- */
+.tabulator-row .tabulator-data-tree-control {
+  border-color: var(--muted);
+  margin-inline-end: .4rem;
+}
+.tabulator-row .tabulator-data-tree-control:hover { background: var(--accent-weak); }
+.tabulator-row .tabulator-data-tree-control-collapse,
+.tabulator-row .tabulator-data-tree-control-expand {
+  background: var(--text);
+}
+.tabulator-row .tabulator-data-tree-control-collapse:after,
+.tabulator-row .tabulator-data-tree-control-expand:after {
+  background: var(--text);
+}
+/* A parent row carries children, which the reader should see before opening it. */
+.tabulator-row:has(.tabulator-data-tree-control-expand) .tabulator-cell:first-child,
+.tabulator-row:has(.tabulator-data-tree-control-collapse) .tabulator-cell:first-child {
+  font-weight: 600;
+}
 .tabulator .tabulator-header .tabulator-calcs-holder .tabulator-row,
 .tabulator .tabulator-footer .tabulator-calcs-holder .tabulator-row,
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.tabulator-calcs {
@@ -162,12 +196,33 @@
  * scrollbar, so a table that scrolls vertically overflows horizontally by
  * exactly the scrollbar's width — about 15px, which is enough to cut the last
  * column and add a scrollbar nobody wants. Reserving the gutter up front costs
- * nothing and removes the second scrollbar entirely. */
+ * nothing and removes that phantom scrollbar. */
 .tabulator .tabulator-tableholder { scrollbar-gutter: stable; }
 .tabulator .tabulator-header { padding-inline-end: 0; }
-/* With fitColumns the columns are sized to the width available, so nothing
- * should ever need to scroll sideways. The 15px that remained was the vertical
- * scrollbar being counted twice, and it produced a scrollbar that scrolled
- * nothing. A genuinely too-narrow viewport is handled by .tablewrap, which
- * scrolls the whole grid — one scroller instead of two nested ones. */
-.tabulator .tabulator-tableholder { overflow-x: hidden; }
+
+/* ---- scrolling: sideways when it is genuinely needed ----------------------
+ * This was set to `hidden` to kill the 15px phantom above, which also removed
+ * the scrollbar for the real case: enough columns that they cannot fit at a
+ * legible width. With `columnDefaults.minWidth` now giving the columns a floor,
+ * overflow is a truthful signal — there IS more table — and hiding it left the
+ * remaining columns unreachable. The gutter reservation kills the phantom; this
+ * carries the real one. */
+.tabulator .tabulator-tableholder { overflow-x: auto; }
+
+/* The scrollbars themselves. Left alone, both browser engines draw their own
+ * light-mode bars, so a dark table came with two bright grey rails down its
+ * edges — a colour the theme never chose, on top of the theme. */
+.tabulator .tabulator-tableholder,
+.tabulator .tabulator-header {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.tabulator .tabulator-tableholder::-webkit-scrollbar { width: 10px; height: 10px; }
+.tabulator .tabulator-tableholder::-webkit-scrollbar-track { background: transparent; }
+.tabulator .tabulator-tableholder::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 6px;
+  border: 2px solid var(--surface);
+}
+.tabulator .tabulator-tableholder::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.tabulator .tabulator-tableholder::-webkit-scrollbar-corner { background: transparent; }

@@ -42,7 +42,7 @@
   // Defaults chosen to leave the table looking EXACTLY as it did: no stripes,
   // no extra columns, standard spacing. Grouping is the one thing on by
   // default, and only where the server found something to group.
-  const DEFAULT_FEATURES = {tree: true, totals: false, rownum: false,
+  const DEFAULT_FEATURES = {tree: true, rows: true, totals: false, rownum: false,
                             compact: false, wrap: false, stripe: false};
   let features = Object.assign({}, DEFAULT_FEATURES);
   // WHICH column groups the table. Per source and per column, because the right
@@ -50,20 +50,71 @@
   // A global on/off switch could never express that, which is why it moved out
   // of the features panel and onto the column itself.
   const GROUP_KEY = "scrapex-groupby-" + (mount.dataset.source || "");
+  const TREE_KEY = "scrapex-treeby-" + (mount.dataset.source || "");
   let groupedBy = "";
-  try { groupedBy = localStorage.getItem(GROUP_KEY) || ""; } catch (err) { groupedBy = ""; }
+  let treeBy = "";
+  try {
+    groupedBy = localStorage.getItem(GROUP_KEY) || "";
+    treeBy = localStorage.getItem(TREE_KEY) || "";
+  } catch (err) { groupedBy = ""; treeBy = ""; }
   try {
     const saved = JSON.parse(localStorage.getItem(FEATURE_KEY) || "null");
     if (saved) features = Object.assign(features, saved);
   } catch (err) { /* a corrupt preference must not stop the table loading */ }
 
+  function remember_(key, value) {
+    try {
+      if (value) localStorage.setItem(key, value);
+      else localStorage.removeItem(key);
+    } catch (err) { /* private mode: it still works, it just forgets */ }
+  }
+
   function setGroup(field) {
     groupedBy = field || "";
-    try {
-      if (groupedBy) localStorage.setItem(GROUP_KEY, groupedBy);
-      else localStorage.removeItem(GROUP_KEY);
-    } catch (err) { /* private mode: it still groups, it just forgets */ }
+    // A grouped tree would show synthetic bands over rows that are already
+    // nested — two hierarchies stacked, neither readable. Choosing one turns
+    // the other off, visibly, rather than rendering the collision.
+    if (groupedBy) { treeBy = ""; remember_(TREE_KEY, ""); }
+    remember_(GROUP_KEY, groupedBy);
     build();
+  }
+
+  function setTree(field) {
+    treeBy = field || "";
+    if (treeBy) { groupedBy = ""; remember_(GROUP_KEY, ""); }
+    remember_(TREE_KEY, treeBy);
+    build();
+  }
+
+  /** Fold flat rows into parent -> children on one column's value.
+   *
+   * The parent is a HEADING, not a promoted row: it carries the shared value
+   * and a count, and every other cell is empty. Promoting the set's first row
+   * instead — which is what this did first — made Andorra the face of DIESEL:
+   * one arbitrary country's price sat on the branch as if it stood for all 169,
+   * and that country then vanished from the list of children. An empty cell says
+   * "no value here"; a real value in a heading row says something false.
+   *
+   * A value with a single row is left flat. A branch with one child is one more
+   * click to see exactly what was already visible.
+   */
+  function nest(rows, field) {
+    const buckets = new Map();
+    rows.forEach((row) => {
+      const key = row[field] == null ? "" : String(row[field]);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(row);
+    });
+    const out = [];
+    let nested = false;
+    buckets.forEach((set, key) => {
+      if (set.length === 1) { out.push(set[0]); return; }
+      nested = true;
+      const parent = {_children: set, _branch: set.length};
+      parent[field] = key;
+      out.push(parent);
+    });
+    return nested ? out : [];      // nothing to nest is not a tree
   }
 
   function hide(field) {
@@ -239,12 +290,23 @@
       {label: "Show every column", action: showAll},
       {separator: true},
       {label: groupedBy === field ? "✓ Grouped by this column" : "Group by this column",
-       action: () => setGroup(groupedBy === field ? "" : field)},
+       action: () => setGroup(groupedBy === field ? "" : field), disabled: !features.tree},
       {label: "Un-group all", action: () => setGroup(""), disabled: !groupedBy},
       {label: "Expand all groups", action: () => table.getGroups().forEach((g) => g.show()),
        disabled: !groupedBy},
       {label: "Collapse all groups", action: () => table.getGroups().forEach((g) => g.hide()),
        disabled: !groupedBy},
+      {separator: true},
+      // A tree nests the rows themselves inside this column; grouping puts a
+      // band above them. Same menu, adjacent, because the choice between them
+      // is made per column and per table.
+      {label: treeBy === field ? "✓ Nested by this column" : "Nest rows by this column",
+       action: () => setTree(treeBy === field ? "" : field), disabled: !features.rows},
+      {label: "Un-nest", action: () => setTree(""), disabled: !treeBy},
+      {label: "Expand every branch",
+       action: () => table.getRows().forEach((r) => r.treeExpand()), disabled: !treeBy},
+      {label: "Collapse every branch",
+       action: () => table.getRows().forEach((r) => r.treeCollapse()), disabled: !treeBy},
       {separator: true},
       {label: "Reset the layout", action: resetLayout},
     ];
@@ -270,10 +332,12 @@
     frozen.clear();
     widths.clear();
     groupedBy = "";
+    treeBy = "";
     // Clear the BROWSER's memory too. A reset that only wrote to the server is
     // how a hidden column became unrecoverable in the first place.
     try {
       localStorage.removeItem(GROUP_KEY);
+      localStorage.removeItem(TREE_KEY);
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-columns");
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-sort");
       localStorage.removeItem(FEATURE_KEY);
@@ -294,6 +358,29 @@
   }
 
   // ---- cell rendering: the meaning earlier slices established ---------------
+  /** Add "(n)" to a tree HEADING's cell, leaving every real row untouched.
+   *
+   * The count is the one thing a heading can state truthfully — its other cells
+   * are empty precisely because no single value stands for the set. Without it
+   * a closed branch gives no reason to open it.
+   */
+  function branchCount(inner) {
+    return (cell, params, done) => {
+      const branch = cell.getRow().getData()._branch;
+      const body = inner ? inner(cell, params, done) : text(cell.getValue());
+      if (!branch) return body;
+      const wrap = document.createElement("span");
+      wrap.dir = "auto";
+      if (body instanceof Node) wrap.append(body);
+      else wrap.append(document.createTextNode(String(body == null ? "" : body)));
+      const count = document.createElement("span");
+      count.className = "muted";
+      count.textContent = " (" + branch.toLocaleString() + ")";
+      wrap.append(count);
+      return wrap;
+    };
+  }
+
   function formatterFor(key) {
     if (key === "product_name" || key === "option_label") {
       return (cell) => {
@@ -386,7 +473,11 @@
       if (col.key === "price_changed_on" || col.key === "last_confirmed_on") {
         def.hozAlign = "right";
       }
-      const formatter = formatterFor(col.key);
+      let formatter = formatterFor(col.key);
+      // On the column a tree nests by, a heading row must say how many rows it
+      // hides — whichever column that is. Wrapping here rather than teaching
+      // every formatter about trees keeps the count in exactly one place.
+      if (col.key === treeBy) formatter = branchCount(formatter);
       if (formatter) def.formatter = formatter;
       if (frozen.has(col.key)) def.frozen = true;
       if (widths.has(col.key)) def.width = widths.get(col.key);
@@ -397,6 +488,10 @@
       title: "History", field: "offer_id", headerSort: false, resizable: false,
       width: 110, download: false, headerMenu: undefined, headerPopup: undefined,
       formatter: (cell) => {
+        // A tree heading is not an offer, so it has no history to link to.
+        // Rendering the link anyway would point at /offer/undefined: a control
+        // that looks live and leads nowhere.
+        if (!cell.getValue()) return "";
         const link = document.createElement("a");
         link.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + cell.getValue();
         link.textContent = "History";
@@ -430,6 +525,12 @@
       // header between the icons and the sort arrow.
       layout: "fitColumns",
       layoutColumnsOnNewData: false,
+      // fitColumns alone will shrink columns without limit to avoid overflowing,
+      // so a table with many columns became a row of unreadable slivers and no
+      // scrollbar — the width was "fitted" by destroying the content. A floor
+      // means the columns stay legible and the table overflows honestly, which
+      // is what the horizontal scrollbar below is for.
+      columnDefaults: {minWidth: 110},
       // Tabulator measures the full width and does not subtract the vertical
       // scrollbar, so the last column is cut by exactly its width. Telling it
       // the gutter exists is cheaper than fighting the layout afterwards.
@@ -447,18 +548,35 @@
       persistenceID: "scrapex-" + SOURCE,
     };
 
-    // Nesting is decided by the SERVER from what the source actually publishes:
-    // a commodity source reads as material -> countries, and a shop whose every
-    // row shares one region has nothing to nest.
-    // The COLUMN decides what groups; the feature switch only decides whether
-    // grouping is available at all. The server's suggestion is the starting
-    // point for a source that has never been grouped by hand.
-    const groupField = groupedBy || (payload.tree && payload.tree.by) || "";
-    if (features.tree && groupField) {
-      options.groupBy = groupField;
+    // GROUPING: a synthetic parent BAND above the rows, carrying the value and
+    // a count. The feature switch decides only whether grouping is AVAILABLE;
+    // the column decides what it groups by. The server used to supply a guess
+    // here, which meant switching the feature on silently grouped the table by
+    // a column nobody chose — the switch appeared to do two things at once.
+    if (features.tree && groupedBy) {
+      options.groupBy = groupedBy;
       options.groupStartOpen = false;
       options.groupHeader = (value, count) =>
         text(value) + " <span class='muted'>(" + count + ")</span>";
+    }
+
+    // TREE: not grouping. There is no extra band — the parent IS a row of the
+    // table, and its children are indented inside the SAME first column behind
+    // a ⊟ toggle. Grouping answers "how many rows share this value"; a tree
+    // answers "which rows sit under this one". They are different questions, so
+    // they are different controls, and only one may be on at a time.
+    if (features.rows && treeBy) {
+      const nested = nest(payload.rows, treeBy);
+      if (nested.length) {
+        options.data = nested;
+        options.dataTree = true;
+        options.dataTreeChildField = "_children";
+        options.dataTreeStartExpanded = false;
+        options.dataTreeChildIndent = 14;
+        // The toggle belongs on the column being nested by, not on whichever
+        // column happens to be first after the owner drags the headers around.
+        options.dataTreeElementColumn = treeBy;
+      }
     }
 
     mount.classList.toggle("compact", !!features.compact);
@@ -509,19 +627,13 @@
     panel.querySelectorAll("[data-feature]").forEach((box) => {
       const name = box.dataset.feature;
       box.checked = !!features[name];
-      // The tree checkbox is only meaningful where the SERVER found something
-      // to nest. Offering it on a table that cannot group would be a control
-      // that does nothing, which is worse than one that is absent.
-      if (name === "tree" && !(payload.tree && payload.tree.by)) {
-        box.disabled = true;
-        box.checked = false;
-        box.closest("label").append(
-          Object.assign(document.createElement("span"),
-            {className: "muted", textContent: " — nothing to group here"}));
-        return;
-      }
       box.addEventListener("change", () => {
         features[name] = box.checked;
+        // These two switches say whether the capability is OFFERED, and nothing
+        // more. Turning one off must therefore also drop a choice made while it
+        // was on, or the table would stay grouped by a control that is now off.
+        if (name === "tree" && !box.checked && groupedBy) { groupedBy = ""; remember_(GROUP_KEY, ""); }
+        if (name === "rows" && !box.checked && treeBy) { treeBy = ""; remember_(TREE_KEY, ""); }
         saveFeatures();
         build();
       });
