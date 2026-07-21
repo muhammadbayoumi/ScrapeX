@@ -187,6 +187,12 @@ sources:
     extract:
       - kind: product_prices
         scope: census
+      # The attributes, categories, tags and measurements arrive in the SAME
+      # response the price comes from — colours, cable type, length, brand,
+      # size, application, voltage type, warranty. Asking for them costs no
+      # extra request; not asking threw them away.
+      - kind: enrichment
+        scope: census
     # Split-brain domain (homepage serves advancedcastle content) — the volume
     # canary IS the migration watch: any big drop fails the run loudly.
     min_expected_rows: 10
