@@ -207,7 +207,13 @@ sources:
     cadence: weekly
     authority: aggregator
     active: false
-    currency: USD           # published in USD; each commodity row also carries it
+    # FALLBACK currency only — it now covers just the electricity rank-table
+    # rows, which are the site's own USD conversions, honestly marked
+    # price_basis=converted. Fuel rows carry the currency each country page
+    # publishes (EGP, SAR, EUR...), read off the page, never from here.
+    # Warehouse wiped + set for recrawl 2026-07-21 when this changed; the
+    # pre-wipe backup sits beside marketlens.db.
+    currency: USD
     # Tax evidence, found by READING the live site on 2026-07-20, not assumed.
     # The fuel list pages do state that these are retail prices whose differences
     # come from taxes and subsidies — a real statement, but it names no rate, so

@@ -955,3 +955,74 @@ def storage_status(conn: sqlite3.Connection, db_path: Path | str) -> dict:
         "last": settings.get_state(conn, "storage_last"),
         "migration": settings.get_state(conn, "storage_migration"),
     }
+
+
+def wipe_source(conn: sqlite3.Connection, db_path: Path | str,
+                source_key: str) -> RunResult:
+    """Erase everything one source ever ingested. The registration survives.
+
+    Exists for exactly one situation: a source's stored rows were collected
+    under semantics the owner has since changed (GPP's USD conversions versus
+    the published local price), and letting the two meanings share offers would
+    record fictional price jumps. The owner decided a clean recrawl over
+    identity surgery; this is that decision, made loud and reversible.
+
+    Reversible because a BACKUP IS TAKEN FIRST, unconditionally — a wipe that
+    cannot be undone is not a dev tool, it is a trap. The append-only trigger
+    on price_observation is dropped and recreated FROM ITS OWN STORED SQL
+    inside the same transaction, so the guard cannot come back different from
+    how it was, and no other connection ever sees the table unguarded.
+    """
+    source_id = conn.execute(
+        "SELECT source_id FROM source_site WHERE source_key = ?",
+        (source_key,)).fetchone()
+    if source_id is None:
+        raise StorageRefused(f"No source named {source_key!r} has ever ingested here.")
+    source_id = source_id[0]
+
+    backup = backup_now(conn, db_path, tag=f"pre-wipe-{source_key}")
+    # backup_now records its own state, which leaves sqlite3's implicit
+    # transaction open; the explicit BEGIN below needs a clean slate.
+    conn.commit()
+
+    guard = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' "
+        "AND name='trg_price_obs_no_delete'").fetchone()
+    products = "SELECT source_product_id FROM source_product WHERE source_id = ?"
+    variants = ("SELECT source_variant_id FROM source_variant WHERE "
+                f"source_product_id IN ({products})")
+    offers = ("SELECT offer_id FROM source_offer WHERE "
+              f"source_variant_id IN ({variants})")
+    counts: dict[str, int] = {}
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if guard:
+            conn.execute("DROP TRIGGER trg_price_obs_no_delete")
+        for table, where in (
+            ("change_event", f"source_product_id IN ({products})"),
+            ("price_period", f"offer_id IN ({offers})"),
+            ("offer_state", f"offer_id IN ({offers})"),
+            ("price_observation", f"offer_id IN ({offers})"),
+            ("source_offer", f"source_variant_id IN ({variants})"),
+            ("source_variant_match", f"source_variant_id IN ({variants})"),
+            ("source_product_match", f"source_product_id IN ({products})"),
+            ("identity_alias", f"source_product_id IN ({products})"),
+            ("source_variant", f"source_product_id IN ({products})"),
+            ("source_product", "source_id = ?"),
+        ):
+            cur = conn.execute(f"DELETE FROM {table} WHERE {where}", (source_id,))
+            counts[table] = cur.rowcount
+        if guard:
+            conn.execute(guard[0])
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+    wiped = ", ".join(f"{name} {n}" for name, n in counts.items() if n)
+    result = RunResult(
+        ok=True, rows=sum(counts.values()), location=backup.location,
+        detail=(f"Wiped {source_key}: {wiped or 'nothing to delete'}. "
+                f"Backup first: {backup.location}"))
+    settings.set_state(conn, "storage_last", result.as_state())
+    return result

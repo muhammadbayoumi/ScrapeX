@@ -124,6 +124,36 @@ def _cmd_restore_database(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_wipe_source(args: argparse.Namespace) -> int:
+    """Erase one source's ingested rows so it can be recrawled under new
+    semantics. Registration and crawl audit history survive; a backup is taken
+    first, unconditionally."""
+    from . import db as dbmod
+    from .storage import wipe_source
+
+    if not args.yes:
+        print("wipe-source deletes every row this source ever ingested "
+              "(a backup is taken first). Re-run with --yes to proceed.",
+              file=sys.stderr)
+        return 2
+    if args.db:
+        db_path = Path(args.db)
+    else:
+        # Price rows live in the MarketLens database of the two-database
+        # registry; the legacy single-file path would "succeed" against an
+        # empty warehouse and wipe nothing.
+        registry = DatabaseRegistry.defaults()
+        registry.verify()
+        db_path = registry.marketlens.path
+    conn = dbmod.connect(db_path)
+    try:
+        result = wipe_source(conn, db_path, args.source)
+    finally:
+        conn.close()
+    print(result.detail)
+    return 0
+
+
 def _cmd_validate_manifest(args: argparse.Namespace) -> int:
     path = Path(args.manifest) if args.manifest else MANIFEST_FILE
     manifest = load_manifest(path)
@@ -465,6 +495,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("backup", help="verified backup path")
     p.add_argument("--registry", help="database registry path")
     p.set_defaults(func=_cmd_restore_database)
+
+    p = sub.add_parser(
+        "wipe-source",
+        help="erase one source's ingested rows for a clean recrawl (backup taken first)")
+    p.add_argument("source", help="source_key whose rows to erase")
+    p.add_argument("--db", help="database path")
+    p.add_argument("--yes", action="store_true", help="actually do it")
+    p.set_defaults(func=_cmd_wipe_source)
 
     p = sub.add_parser("validate-manifest", help="validate sources.yaml")
     p.add_argument("--manifest", help="manifest path (default: scraper/sources.yaml)")
