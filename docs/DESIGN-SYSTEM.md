@@ -1,9 +1,10 @@
 # ScrapeX Design System
 
 Single source of visual truth. Tokens live in `extension/tokens.css`; shared
-component primitives in `extension/components.css`. Every UI surface (the
-extension now, the TS product later, the Python web UI) consumes these — no
-hardcoded colors/spacing anywhere (DRY).
+component primitives in `extension/components.css`. The extension consumes the
+source directly and `tools/sync_ui_assets.py` generates the packaged web copy.
+`tests/test_ui_assets.py` rejects drift, so the two interfaces cannot silently
+acquire different themes.
 
 ## Principles
 1. **Consistency over creativity** — one token set, one component set.

@@ -37,6 +37,11 @@ drives the engine over its local JSON API.
 - **Your data** — Browse price tables / Advanced manage (open the engine's views).
 - **Engine settings** — point at a different engine URL; the note states data
   never leaves your machine.
+- **Workspace tools** — open Changes, Crawl history, Review, Jobs, Schedules,
+  Sync, Exports, Logs, and Settings from the shared engine-provided navigation.
+
+The panel and workspace share navigation and run-mode copy through `/api/ui`;
+see [the UI surfaces guide](../docs/UI-SURFACES.md) for the capability-parity rules.
 
 ## Files
 

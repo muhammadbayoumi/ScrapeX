@@ -37,6 +37,7 @@ const state = {
   sources: [], selected: new Set(), filter: "",
   job: null, jobRef: null, autoscroll: true, logs: [],
   dataset: null, cursor: 0, records: [], engineUp: false,
+  ui: { navigation: [], run_modes: [] },
 };
 
 // ---- views ----------------------------------------------------------------
@@ -159,19 +160,13 @@ async function loadChangeSummaries() {
 }
 
 // ---- run -------------------------------------------------------------------
-const MODES = {
-  update: ["Update existing data", "Collect current data and record what changed.", null],
-  initial_crawl: ["Initial crawl", "Collect and save these sites for the first time.", null],
-  full_rebuild: ["Full rebuild", "Archive the current dataset, then crawl again.",
-    "Full rebuild archives the current catalogue and takes a database backup first. Nothing is deleted, and the backup is your rollback."],
-};
-
 function refreshMode() {
-  const [label, help, warn] = MODES[$("run-mode").value];
-  $("mode-help").textContent = help;
-  $("mode-warn").className = warn ? "card warn" : "hidden";
-  $("mode-warn").innerHTML = warn ? `<span class="muted">${esc(warn)}</span>` : "";
-  $("run").textContent = `Start ${label.toLowerCase()}`;
+  const mode = state.ui.run_modes.find((item) => item.key === $("run-mode").value);
+  $("mode-help").textContent = mode?.detail || "Run modes load from the local engine.";
+  $("mode-warn").className = mode?.warning ? "card warn" : "hidden";
+  $("mode-warn").innerHTML = mode?.warning
+    ? `<span class="muted">${esc(mode.warning)}</span>` : "";
+  $("run").textContent = mode ? `Start ${mode.label.toLowerCase()}` : "Start update";
   refreshRunButton();
 }
 
@@ -180,9 +175,10 @@ function refreshRunButton() {
   $("sel-count").textContent = `${n} selected`;
   let blocked = "";
   if (!state.engineUp) blocked = "The engine is not running — start it to run a crawl.";
+  else if ($("run-mode").disabled) blocked = "Run modes couldn't be loaded from the engine.";
   else if (!n) blocked = "Select at least one site above.";
   else if (state.job) blocked = "A job is already running. It will queue behind it.";
-  $("run").disabled = !state.engineUp || !n;
+  $("run").disabled = !state.engineUp || $("run-mode").disabled || !n;
   $("run-blocked").textContent = blocked;
 }
 
@@ -190,9 +186,8 @@ async function startRun() {
   const keys = [...state.selected];
   if (!keys.length) return;
   const mode = $("run-mode").value;
-  if (mode === "full_rebuild" &&
-      !confirm(`Full rebuild will archive the current catalogue for ${keys.length} site(s) ` +
-               `and take a backup first. Continue?`)) return;
+  const metadata = state.ui.run_modes.find((item) => item.key === mode);
+  if (metadata?.warning && !confirm(`${metadata.warning} Continue for ${keys.length} site(s)?`)) return;
   $("run").disabled = true;
   try {
     const r = await post("/api/jobs", { source_keys: keys, run_mode: mode });
@@ -374,7 +369,34 @@ async function loadRecords(reset) {
   }
 }
 
-// ---- settings --------------------------------------------------------------
+// ---- shared interface contract + settings ----------------------------------
+async function loadUi() {
+  const select = $("run-mode");
+  const links = $("workspace-links");
+  try {
+    const manifest = await api("/api/ui");
+    state.ui = manifest;
+    select.innerHTML = manifest.run_modes.map((mode) =>
+      `<option value="${esc(mode.key)}">${esc(mode.label)}</option>`).join("");
+    select.disabled = manifest.run_modes.length === 0;
+    links.innerHTML = manifest.navigation.map((item) => `
+      <button class="link workspace-link" data-workspace-path="${esc(item.path)}">
+        <span class="workspace-link-copy">
+          <span class="workspace-link-label">${esc(item.label)}</span>
+          <span class="workspace-link-description">${esc(item.description)}</span>
+        </span><span aria-hidden="true">↗</span>
+      </button>`).join("");
+    links.querySelectorAll("[data-workspace-path]").forEach((button) =>
+      button.addEventListener("click", () => openTab(button.dataset.workspacePath)));
+  } catch (_) {
+    state.ui = { navigation: [], run_modes: [] };
+    select.innerHTML = '<option value="">Run modes unavailable</option>';
+    select.disabled = true;
+    links.innerHTML = '<span class="err hint">Couldn\'t load workspace tools.</span>';
+  }
+  refreshMode();
+}
+
 async function loadSchedules() {
   try {
     const d = await api("/api/schedules");
@@ -694,10 +716,14 @@ async function render() {
   setStatus(engine);
   $("setup").classList.toggle("hidden", engine.running);
   if (engine.running) {
+    await loadUi();
     await Promise.all([loadCurrentSite(), loadSources(), loadOutputs(), pollJob()]);
   } else {
     clearTimeout(pollTimer);
     renderMiniplayer(null);
+    $("run-mode").disabled = true;
+    $("workspace-links").innerHTML =
+      '<span class="muted hint">Start the engine to open workspace tools.</span>';
     $("sites").innerHTML = `<div class="srow"><span class="muted">Start the engine to see your sites.</span></div>`;
   }
   refreshRunButton();

@@ -2,8 +2,43 @@
 {% block title %}Jobs — ScrapeX{% endblock %}
 {% block content %}
 <h1>Jobs</h1>
+
+<h2>Start a job</h2>
+<form id="job-form" class="stack" onsubmit="return false">
+  <fieldset class="picklist">
+    <legend class="muted small">Sites</legend>
+    {% for source in sources %}
+      <label class="pickrow">
+        <input type="checkbox" name="source_keys" value="{{ source.source_key }}"
+               {{ "" if source.implemented else "disabled" }}>
+        <span class="pickname" dir="auto">{{ source.source_name }}</span>
+        <span class="num muted">{{ "{:,}".format(source.observations) }} prices</span>
+        {% if not source.implemented %}<span class="badge off">Not supported yet</span>{% endif %}
+      </label>
+    {% endfor %}
+  </fieldset>
+  <div class="field">
+    <label for="run-mode">Run mode</label>
+    <select id="run-mode">
+      {% for mode in run_modes %}
+        <option value="{{ mode.key }}" data-detail="{{ mode.detail }}"
+                data-warning="{{ mode.warning or '' }}">{{ mode.label }}</option>
+      {% endfor %}
+    </select>
+    <span id="mode-detail" class="hint"></span>
+    <div id="mode-warning" class="banner" hidden></div>
+  </div>
+  <div class="row">
+    <button id="start-job" disabled>Start update</button>
+    <span id="job-out" class="hint" role="status" aria-live="polite">
+      Select at least one site.
+    </span>
+  </div>
+</form>
+
+<h2>Recent jobs</h2>
 {% if not jobs %}
-  <div class="empty">No jobs yet. Start one from the side panel.</div>
+  <div class="empty">No jobs yet. Start one above or from the side panel.</div>
 {% else %}
   <div class="tablewrap"><table>
     <thead><tr><th>Job</th><th>Mode</th><th>Sources</th><th>Status</th>
@@ -30,4 +65,56 @@
     </tbody>
   </table></div>
 {% endif %}
+
+<script>
+const jobForm = document.getElementById("job-form");
+const runMode = document.getElementById("run-mode");
+const startJob = document.getElementById("start-job");
+const jobOut = document.getElementById("job-out");
+const modeDetail = document.getElementById("mode-detail");
+const modeWarning = document.getElementById("mode-warning");
+
+function selectedSources() {
+  return [...jobForm.querySelectorAll('input[name="source_keys"]:checked')]
+    .map((input) => input.value);
+}
+
+function refreshLauncher() {
+  const option = runMode.selectedOptions[0];
+  const count = selectedSources().length;
+  modeDetail.textContent = option?.dataset.detail || "";
+  modeWarning.textContent = option?.dataset.warning || "";
+  modeWarning.hidden = !option?.dataset.warning;
+  startJob.textContent = `Start ${(option?.textContent || "update").toLowerCase()}`;
+  startJob.disabled = count === 0;
+  jobOut.textContent = count ? `${count} site${count === 1 ? "" : "s"} selected.`
+    : "Select at least one site.";
+}
+
+jobForm.addEventListener("change", refreshLauncher);
+startJob.addEventListener("click", async () => {
+  const option = runMode.selectedOptions[0];
+  const sourceKeys = selectedSources();
+  if (option?.dataset.warning && !confirm(`${option.dataset.warning} Continue?`)) return;
+  startJob.disabled = true;
+  jobOut.textContent = "Queueing job…";
+  try {
+    const response = await fetch("/api/jobs", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({source_keys: sourceKeys, run_mode: runMode.value}),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || response.statusText);
+    jobOut.textContent = `Queued ${result.job_ref}. Refreshing…`;
+    window.location.reload();
+  } catch (error) {
+    const message = `Couldn't start: ${error.message}`;
+    refreshLauncher();
+    jobOut.textContent = message;
+  }
+});
+
+refreshLauncher();
+</script>
 {% endblock %}

@@ -5,22 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ScrapeX{% endblock %}</title>
   <link rel="icon" href="/static/x-mark.png">
+  {# Generated from extension/tokens.css: both interfaces use one visual truth. #}
+  <link rel="stylesheet" href="/static/tokens.css">
   <style>
-    :root{
-      --bg:#f6f7f9; --surface:#fff; --line:#e4e7eb; --text:#1a1d21; --muted:#6b7280;
-      --accent:#00adb5; --accent-ink:#007a80; --accent-weak:#d9f6f7;
-      --button-bg:#eeeeee; --button-text:#0f1216;
-      --amber:#b7791f; --amber-weak:#fdf6e3;
-      --red:#c0392b; --chip:#eef1f4; --shadow:0 1px 3px rgba(0,0,0,.06);
-    }
-    @media (prefers-color-scheme:dark){
-      :root{
-        --bg:#0f1216; --surface:#171b21; --line:#2a2f37; --text:#e6e9ee; --muted:#9aa4b2;
-        --accent:#00adb5; --accent-ink:#50d5da; --accent-weak:#063b3f;
-        --amber:#e0b25a; --amber-weak:#2a2312;
-        --red:#e07a6f; --chip:#222831; --shadow:none;
-      }
-    }
+    :root{--shadow:0 1px 3px rgba(0,0,0,.06)}
+    @media (prefers-color-scheme:dark){:root{--shadow:none}}
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--text);
       font-family:"Segoe UI",system-ui,-apple-system,"Noto Sans Arabic",sans-serif;line-height:1.5}
@@ -167,21 +156,9 @@
   </header>
   {# The dataset in view is carried across every tab (spec 21) so switching tabs
      never loses which source you were looking at. #}
-  {% set ctx = ("?source_key=" ~ source_key) if source_key else "" %}
   <nav class="wstabs" aria-label="Workspace">
-    {% for href, label, key in [
-        ("/", "Overview", "overview"),
-        ("/source/" ~ source_key if source_key else "/", "Data", "data"),
-        ("/changes" ~ ctx, "Changes", "changes"),
-        ("/history" ~ ctx, "Crawl history", "history"),
-        ("/review" ~ ctx, "Review queue", "review"),
-        ("/jobs", "Jobs", "jobs"),
-        ("/schedules", "Schedules", "schedules"),
-        ("/sync", "Sync", "sync"),
-        ("/exports", "Exports", "exports"),
-        ("/logs", "Logs", "logs"),
-        ("/settings", "Settings", "settings")] %}
-      <a href="{{ href }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% for item in workspace_navigation(source_key) %}
+      <a href="{{ item.path }}"{% if tab == item.key %} aria-current="page"{% endif %}>{{ item.label }}</a>
     {% endfor %}
   </nav>
   <main class="wrap">{% block content %}{% endblock %}</main>

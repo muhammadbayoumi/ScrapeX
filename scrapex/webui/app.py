@@ -42,6 +42,7 @@ from ..outputs import (
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
+from ..ui_manifest import ui_manifest, workspace_navigation
 from .. import compaction, retention
 from ..storage import (
     StorageRefused, backup_now, check_move, export_database, migrate_location, repair,
@@ -61,6 +62,7 @@ from ..vocab import (
 from .catalog_api import create_catalog_router
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+TEMPLATES.env.globals["workspace_navigation"] = workspace_navigation
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
@@ -181,8 +183,11 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
     def page_jobs(request: Request):
         conn = read_conn()
         try:
+            summaries = {s.source_key: s for s in list_sources(conn)}
             return _page(request, "jobs.html", "jobs", None,
-                         jobs=[_job_view(j) for j in list_jobs(conn, limit=50)])
+                         jobs=[_job_view(j) for j in list_jobs(conn, limit=50)],
+                         sources=_source_rows(app.state.manifest, summaries),
+                         run_modes=ui_manifest()["run_modes"])
         finally:
             conn.close()
 
@@ -261,6 +266,17 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
         """What is genuinely usable, separate from what the roadmap names."""
         return feature_manifest()
 
+    @app.get("/api/ui")
+    def api_ui(source_key: str | None = None):
+        """Shared presentation metadata for the workspace and Chrome panel."""
+        if source_key:
+            try:
+                app.state.manifest.get(source_key)
+            except KeyError:
+                raise HTTPException(status_code=404,
+                                    detail=f"unknown source_key {source_key!r}")
+        return ui_manifest(source_key)
+
     @app.get("/api/sources")
     def api_sources():
         conn = read_conn()
@@ -268,17 +284,7 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
             summaries = {s.source_key: s for s in list_sources(conn)}
         finally:
             conn.close()
-        out = []
-        for entry in app.state.manifest.sources:
-            s = summaries.get(entry.source_key)
-            out.append({
-                "source_key": entry.source_key, "source_name": entry.source_name,
-                "base_url": entry.base_url, "family": entry.family.value,
-                "active": entry.active, "implemented": _is_implemented(entry),
-                "observations": s.observations if s else 0,
-                "products": s.products if s else 0,
-            })
-        return {"sources": out}
+        return {"sources": _source_rows(app.state.manifest, summaries)}
 
     @app.get("/api/resolve")
     def api_resolve(url: str):
@@ -1072,6 +1078,24 @@ def create_app(db_path: Path | str, manifest_path: Path | str = MANIFEST_FILE,
 
 def _is_implemented(entry) -> bool:
     return entry.family in _BUILDERS
+
+
+def _source_rows(manifest, summaries: dict) -> list[dict]:
+    """One source-card shape for the side panel and web job launcher."""
+    rows = []
+    for entry in manifest.sources:
+        summary = summaries.get(entry.source_key)
+        rows.append({
+            "source_key": entry.source_key,
+            "source_name": entry.source_name,
+            "base_url": entry.base_url,
+            "family": entry.family.value,
+            "active": entry.active,
+            "implemented": _is_implemented(entry),
+            "observations": summary.observations if summary else 0,
+            "products": summary.products if summary else 0,
+        })
+    return rows
 
 
 def _job_view(job: dict) -> dict:

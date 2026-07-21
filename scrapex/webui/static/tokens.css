@@ -1,0 +1,30 @@
+/* GENERATED from extension/tokens.css by tools/sync_ui_assets.py. */
+:root {
+  /* neutral surfaces */
+  --bg:#f6f7f9; --surface:#fff; --line:#e4e7eb; --text:#1a1d21; --muted:#6b7280; --chip:#eef1f4;
+  /* semantic — accent (brand/success), amber (warning/soon), red (error/danger) */
+  --accent:#00adb5; --accent-ink:#007a80; --accent-weak:#d9f6f7;
+  --button-bg:#eeeeee; --button-text:#0f1216;
+  --amber:#b7791f;  --amber-weak:#fdf6e3;
+  --red:#c0392b;    --red-weak:#fdecea;
+
+  /* spacing scale (4px base) */
+  --sp-1:.25rem; --sp-2:.5rem; --sp-3:.75rem; --sp-4:1rem; --sp-5:1.5rem;
+  /* radius */
+  --radius-sm:6px; --radius:9px; --radius-lg:12px; --radius-pill:999px;
+  /* typography */
+  --font: "Segoe UI", system-ui, -apple-system, "Noto Sans Arabic", sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+  --fs-xs:.72rem; --fs-sm:.85rem; --fs:13.5px; --fs-lg:1.05rem; --fw-regular:400; --fw-bold:600;
+  /* motion */
+  --dur:.15s;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#0f1216; --surface:#171b21; --line:#2a2f37; --text:#e6e9ee; --muted:#9aa4b2; --chip:#222831;
+    --accent:#00adb5; --accent-ink:#50d5da; --accent-weak:#063b3f;
+    --amber:#e0b25a;  --amber-weak:#2a2312;
+    --red:#e07a6f;    --red-weak:#2a1512;
+  }
+}

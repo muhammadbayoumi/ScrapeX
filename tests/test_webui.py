@@ -43,6 +43,21 @@ def test_source_page_shows_products(client):
     assert "Copper Wire" in r.text
 
 
+def test_jobs_page_can_start_the_same_run_modes_as_the_side_panel(client):
+    r = client.get("/jobs")
+    assert r.status_code == 200
+    assert 'id="job-form"' in r.text
+    assert 'value="ELSEWEDYSHOP"' in r.text
+    assert 'value="full_rebuild"' in r.text
+
+
+def test_workspace_navigation_is_rendered_from_the_shared_manifest(client):
+    r = client.get("/jobs")
+    assert 'href="/changes"' in r.text
+    assert 'href="/sync"' in r.text
+    assert 'href="/settings"' in r.text
+
+
 def test_search_filters_rows(client):
     r = client.get("/source/ELSEWEDYSHOP", params={"q": "Copper"})
     assert "Copper Wire" in r.text

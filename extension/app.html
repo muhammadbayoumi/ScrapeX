@@ -16,12 +16,21 @@
   * { min-width: 0; }
   .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
 
-  .sx-header { position: sticky; top: 0; z-index: 5; }
+  /* Chrome already renders the extension icon + name. Runtime state lives in a
+     compact status strip at the very bottom, below the primary navigation. */
+  .sx-engine-bar { flex: none; display: flex; align-items: center;
+                   justify-content: flex-start; padding: 0 var(--sp-2);
+                   background: var(--surface); border-top: 1px solid var(--line); }
   .estat { font-size: var(--fs-sm); color: var(--muted); display: flex;
            align-items: center; gap: var(--sp-1); cursor: pointer;
-           background: none; border: 0; padding: var(--sp-1); }
+           justify-content: flex-start; width: 100%; background: none; border: 0;
+           padding: var(--sp-1) 0; font-family: Consolas, var(--font-mono); }
+  .engine-label { color: var(--text); font-weight: var(--fw-bold);
+                  margin-inline-end: var(--sp-1); }
+  #runtime-details { flex: none; max-height: 40vh; overflow-y: auto;
+                     margin: var(--sp-2) var(--sp-3) 0; }
   .chev { transition: transform .15s ease; }
-  .chev.open { transform: rotate(90deg); }
+  .chev.open { transform: rotate(-90deg); }
 
   main { flex: 1; overflow-y: auto; padding: var(--sp-4);
          display: flex; flex-direction: column; gap: var(--sp-4); }
@@ -31,6 +40,16 @@
   .field input, .field select { flex: 1; }
   .links { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
   .steps code { background: var(--chip); }
+  .workspace-links { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .workspace-links .workspace-link { display: flex; width: 100%; align-items: center;
+                                     justify-content: space-between; gap: var(--sp-2);
+                                     padding: var(--sp-2); border: 1px solid var(--line);
+                                     border-radius: var(--radius); color: var(--text);
+                                     text-align: left; }
+  .workspace-link-copy { min-width: 0; }
+  .workspace-link-label { display: block; font-weight: var(--fw-bold); }
+  .workspace-link-description { display: block; color: var(--muted);
+                                font-size: var(--fs-xs); white-space: normal; }
 
   /* Sites checklist — fixed height so the list can never push the run button off
      screen, however many sites are registered. Rows reuse the shared `.srow`
@@ -218,27 +237,7 @@
 </style>
 </head>
 <body>
-  <header class="sx-header">
-    <span class="brand"><span class="brand-logo" aria-hidden="true"></span>ScrapeX</span>
-    <button id="estat" class="estat" aria-expanded="false" aria-controls="runtime-details"
-            title="Local runtime status">
-      <span id="dot" class="dot"></span><span id="estat-text">Checking…</span>
-      <span class="chev" id="chev" aria-hidden="true">›</span>
-    </button>
-  </header>
-
   <main>
-    <!-- Runtime detail, opened from the status row ------------------------- -->
-    <section id="runtime-details" class="card hidden">
-      <h2 style="margin-top:0">Local runtime</h2>
-      <div id="components"></div>
-      <div class="links" style="margin-top:var(--sp-2)">
-        <button id="recheck" class="ghost">Recheck status</button>
-        <button id="diagnostics" class="ghost">Run diagnostics</button>
-      </div>
-      <div id="diag-out" class="muted" style="font-size:var(--fs-xs)"></div>
-    </section>
-
     <!-- ============================ RUN ============================ -->
     <section id="view-run" class="hidden">
       <div id="setup" class="card warn hidden">
@@ -279,10 +278,8 @@
       <div class="card">
         <h2 style="margin-top:0">Run mode</h2>
         <div class="field">
-          <select id="run-mode" aria-label="Run mode">
-            <option value="update">Update existing data</option>
-            <option value="initial_crawl">Initial crawl</option>
-            <option value="full_rebuild">Full rebuild</option>
+          <select id="run-mode" aria-label="Run mode" disabled>
+            <option value="">Connect to the engine to load run modes</option>
           </select>
         </div>
         <div id="mode-help" class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)"></div>
@@ -635,6 +632,14 @@
         </div>
       </div>
       <div class="card">
+        <button class="link sect" data-sect="s-workspace" aria-expanded="false">Workspace tools ›</button>
+        <div id="s-workspace" class="hidden" style="margin-top:var(--sp-2)">
+          <div id="workspace-links" class="workspace-links">
+            <div class="skeleton"></div><div class="skeleton"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
         <button class="link sect" data-sect="s-about" aria-expanded="false">About ›</button>
         <div id="s-about" class="hidden muted" style="margin-top:var(--sp-2);font-size:var(--fs-sm)">
           ScrapeX — local-first price tracking.
@@ -666,6 +671,27 @@
     <button data-view="data" aria-controls="view-data">Browse data</button>
     <button data-view="settings" aria-controls="view-settings">Settings</button>
   </nav>
+
+  <!-- Runtime detail opens next to its bottom status strip, not at the top of
+       whichever workspace view happens to be active. -->
+  <section id="runtime-details" class="card hidden">
+    <h2 style="margin-top:0">Local runtime</h2>
+    <div id="components"></div>
+    <div class="links" style="margin-top:var(--sp-2)">
+      <button id="recheck" class="ghost">Recheck status</button>
+      <button id="diagnostics" class="ghost">Run diagnostics</button>
+    </div>
+    <div id="diag-out" class="muted" style="font-size:var(--fs-xs)"></div>
+  </section>
+
+  <footer class="sx-engine-bar">
+    <button id="estat" class="estat" aria-expanded="false" aria-controls="runtime-details"
+            title="Local runtime status">
+      <span class="engine-label">Engine</span>
+      <span id="dot" class="dot"></span><span id="estat-text">Checking…</span>
+      <span class="chev" id="chev" aria-hidden="true">›</span>
+    </button>
+  </footer>
 
   <script type="module" src="app.js"></script>
 </body>

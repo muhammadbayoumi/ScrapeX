@@ -57,6 +57,23 @@ def test_feature_manifest_is_honest_about_the_generic_roadmap(client):
     assert features["generic_extraction"]["stage"] == "not_started"
 
 
+def test_ui_manifest_serves_the_same_navigation_and_run_modes_to_the_panel(client):
+    response = client.get("/api/ui")
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["key"] for item in payload["navigation"]] == [
+        "overview", "data", "changes", "history", "review", "jobs",
+        "schedules", "sync", "exports", "logs", "settings",
+    ]
+    assert [mode["key"] for mode in payload["run_modes"]] == [
+        "update", "initial_crawl", "full_rebuild",
+    ]
+
+
+def test_ui_manifest_rejects_an_unknown_source_context(client):
+    assert client.get("/api/ui", params={"source_key": "MISSING"}).status_code == 404
+
+
 def test_sources_lists_manifest_with_counts(client):
     data = client.get("/api/sources").json()["sources"]
     keys = {s["source_key"] for s in data}

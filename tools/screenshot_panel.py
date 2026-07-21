@@ -25,6 +25,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scrapex.ui_manifest import ui_manifest  # noqa: E402
+
 EXT = ROOT / "extension"
 OUT = ROOT / "docs" / "screenshots"
 
@@ -53,6 +56,7 @@ def _stub(backend: str, *, engine_up=True, sources=None, jobs=None, records=None
     deterministically — including states a live engine cannot easily produce."""
     routes = {
         "/api/health": {"ok": True, "app": "scrapex", "version": "0.1.0", "sources_with_data": 2},
+        "/api/ui": ui_manifest(),
         "/api/sources": {"sources": sources if sources is not None else STRESS_SOURCES},
         "/api/jobs": {"jobs": jobs or []},
         "/api/records": records or {"records": [], "total": 0, "next_cursor": None},
@@ -243,6 +247,8 @@ def main() -> int:
         "07-data-records-arabic": (
             _stub(args.backend, records=arabic_records), TAB_DATA + " >> nth=0"),
         "08-settings": (_stub(args.backend), TAB_SETTINGS),
+        "08b-settings-workspace": (
+            _stub(args.backend), [TAB_SETTINGS, 'button[data-sect="s-workspace"]']),
         "09-job-running-on-data-tab": (
             _stub(args.backend, jobs=running_job, records=arabic_records), TAB_DATA),
         "10-source-current-page": (_stub(args.backend), TAB_SOURCE),

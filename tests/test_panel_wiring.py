@@ -75,3 +75,24 @@ def test_the_interface_stays_english():
     no Arabic — the stress fixtures that do live in the screenshot harness."""
     arabic = re.findall(r"[؀-ۿ]+", HTML)
     assert not arabic, f"Arabic leaked into the panel markup: {arabic[:3]}"
+
+
+def test_navigation_and_run_mode_copy_come_from_the_shared_ui_manifest():
+    assert 'api("/api/ui")' in JS
+    assert "const MODES" not in JS
+    assert "workspace-links" in DEFINED
+
+
+def test_engine_bar_does_not_duplicate_chromes_branding():
+    bar = HTML[HTML.index('<footer class="sx-engine-bar">'):HTML.index("</footer>")]
+    assert "brand-logo" not in bar
+    assert ">ScrapeX<" not in bar
+    assert '<span class="engine-label">Engine</span>' in bar
+
+
+def test_engine_bar_is_bottom_compact_left_aligned_and_monospace():
+    assert HTML.index('<nav class="tabs"') < HTML.index('<footer class="sx-engine-bar">')
+    assert ".sx-engine-bar { flex: none; display: flex; align-items: center;" in HTML
+    assert "justify-content: flex-start; padding: 0 var(--sp-2);" in HTML
+    assert "justify-content: flex-start; width: 100%;" in HTML
+    assert "font-family: Consolas, var(--font-mono);" in HTML
