@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Generic datasets · ScrapeX{% endblock %}
 {% block content %}
+{# Tabulator is served from OUR origin, never a CDN. ScrapeX has to work on a
+   machine with no internet, and a page that quietly fetches a library would
+   fail exactly when the owner is offline. See static/vendor/README.md. #}
+<link rel="stylesheet" href="/static/vendor/tabulator.min.css">
+<script src="/static/vendor/tabulator.min.js" defer></script>
 <style>
   .dataset-workflow{display:grid;gap:1rem}
   .dataset-workflow section{background:var(--surface);border:1px solid var(--line);
@@ -440,38 +445,61 @@
     }
   }
 
+  // A grid, not hand-built rows. This page browses schemas DISCOVERED at runtime
+  // — the field list differs per dataset and is not known when the template is
+  // written — which is exactly the case a generic grid is for. It also had no
+  // sort and no filtering at all; both now come for free.
+  //
+  // The MarketLens Data page deliberately does NOT use this: there the URL is
+  // the question, and a grid holding its state in memory would trade that away.
+  let recordsGrid = null;
+
+  function columnsFor(fields) {
+    return fields.map(field => ({
+      title: field.identity ? `${field.label} (Identity)` : field.label,
+      field: field.field_key,
+      headerFilter: "input",          // a filter on every column, as asked
+      headerSort: true,
+      resizable: true,
+      // Scraped values are DATA: Arabic must read right-to-left inside this
+      // LTR English interface, and the column header is interface text.
+      formatter: cell => {
+        const span = document.createElement("span");
+        span.dir = "auto";
+        span.textContent = valueText(cell.getValue());
+        return span;
+      },
+    }));
+  }
+
   function renderRecords(payload) {
-    recordsTable.replaceChildren();
     recordsContext.textContent = `${payload.dataset.label} · ${payload.dataset.site_display_name} · ${payload.dataset.record_count} total records`;
     if (!payload.records.length) {
+      if (recordsGrid) { recordsGrid.destroy(); recordsGrid = null; }
+      recordsTable.replaceChildren();
       setState(recordsState, "empty", "This approved dataset has no records on this page. Return to the first page or approve a populated table.");
       return;
     }
     hideState(recordsState);
-    const table = document.createElement("table");
-    const head = document.createElement("thead");
-    const headRow = document.createElement("tr");
-    payload.fields.forEach(field => {
-      const label = field.identity ? `${field.label} (Identity)` : field.label;
-      const th = textElement("th", label);
-      th.dir = "auto";
-      headRow.append(th);
+    const rows = payload.records.map(record => ({ ...record.data }));
+
+    // Rebuilt rather than updated when the SHAPE changes: a different dataset
+    // has different fields, and reusing the grid would keep the old columns.
+    if (recordsGrid) { recordsGrid.destroy(); recordsGrid = null; }
+    recordsTable.replaceChildren();
+    recordsGrid = new Tabulator(recordsTable, {
+      data: rows,
+      columns: columnsFor(payload.fields),
+      layout: "fitDataStretch",
+      movableColumns: true,           // drag to reorder
+      // Paging stays SERVER-side: the page is already bounded to 50 rows by the
+      // API, and loading everything to sort it in the browser is the unbounded
+      // read the spec forbids. Tabulator sorts and filters within the page it
+      // was given, and Previous/Next still fetch from the server.
+      height: "28rem",
+      placeholder: "No records on this page.",
     });
-    head.append(headRow);
-    table.append(head);
-    const body = document.createElement("tbody");
-    payload.records.forEach(record => {
-      const row = document.createElement("tr");
-      payload.fields.forEach(field => {
-        const cell = textElement("td", valueText(record.data[field.field_key]), "value");
-        cell.dir = "auto";
-        row.append(cell);
-      });
-      body.append(row);
-    });
-    table.append(body);
-    recordsTable.append(table);
-    setState(recordsState, "success", `${payload.records.length} records are displayed from the approved dynamic schema.`);
+    setState(recordsState, "success", `${payload.records.length} records are displayed from the approved dynamic schema. Sort, filter and reorder the columns in place.`);
   }
 
   async function loadRecordPage() {
