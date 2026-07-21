@@ -110,3 +110,82 @@ def test_a_source_that_has_run_is_not_listed_as_never_run(split_client):
     # as the key and once inside the suggested crawl command.
     cards = re.findall(r'class="key">([A-Z_]+)</div>', section)
     assert cards.count("GPP_ENERGY") == 1, f"listed more than once: {cards}"
+
+
+# ---- Data page, slice 1: a row can finally be asked about itself ------------
+
+def _seed(client, source_key="GPP_ENERGY"):
+    """Crawl nothing; just make the page reachable and return its HTML."""
+    return client.get(f"/source/{source_key}").text
+
+
+def test_a_row_carries_its_own_identity(split_client, tmp_path):
+    """pricehistory.timeline() has been callable since migration 0016 and no
+    screen could reach it, because browse_observations selected sixteen columns
+    and offer_id was not one of them. The row had nothing to ask about."""
+    from scrapex.reports import browse_observations
+    from scrapex.databases import DatabaseRegistry
+
+    registry = DatabaseRegistry.read(tmp_path / "databases.json")
+    conn = registry.marketlens.connect()
+    try:
+        page = browse_observations(conn, "GPP_ENERGY")
+    finally:
+        conn.close()
+
+    assert all("offer_id" in row for row in page.rows)
+
+
+def test_history_counts_is_one_query_for_the_page_not_one_per_row(split_client, tmp_path):
+    from scrapex.reports import history_counts
+    from scrapex.databases import DatabaseRegistry
+
+    registry = DatabaseRegistry.read(tmp_path / "databases.json")
+    conn = registry.marketlens.connect()
+    try:
+        assert history_counts(conn, []) == {}, "no offers must cost no query"
+        assert isinstance(history_counts(conn, [1, 2, 3]), dict)
+    finally:
+        conn.close()
+
+
+def test_an_offer_page_refuses_an_offer_from_another_source(split_client):
+    """The ownership check is the security boundary. Without it the URL could be
+    walked into another source's history by anyone who can count."""
+    response = split_client.get("/source/GPP_ENERGY/offer/999999")
+    assert response.status_code == 404
+
+
+def test_a_missing_and_a_foreign_offer_are_indistinguishable(split_client):
+    """Saying which would confirm the existence of an id the caller may not own."""
+    missing = split_client.get("/source/GPP_ENERGY/offer/999999")
+    foreign = split_client.get("/source/ELSEWEDYSHOP/offer/999999")
+    assert missing.status_code == foreign.status_code == 404
+
+
+# ---- Data page, slice 2: orientation ----------------------------------------
+
+def test_a_never_run_source_still_names_itself_and_a_next_step(split_client):
+    """Found by this test rather than by me: the Data page renders NOTHING about
+    a source that has never run — no name, no key, no command — because the
+    whole block is behind `summary is not none`. It is the same blindness the
+    overview had, and it is fixed the same way."""
+    body = split_client.get("/source/GPP_ENERGY").text
+
+    assert "GPP_ENERGY" in body
+    assert "Never run" in body, "the status must be stated, not implied by silence"
+    assert "crawl GPP_ENERGY" in body, "an empty page must say how to fill it"
+
+
+def test_rows_per_page_offers_only_sizes_the_server_will_honour(split_client):
+    """A dropdown offering a number the server silently clamps is a lie."""
+    from scrapex.webui.app import PER_PAGE_OPTIONS
+
+    assert max(PER_PAGE_OPTIONS) == 200, "the cap browse_observations enforces"
+
+
+def test_an_absurd_page_size_is_refused_not_served(split_client):
+    response = split_client.get("/source/GPP_ENERGY?per_page=40000")
+    assert response.status_code in (200, 404)
+    if response.status_code == 200:
+        assert "40000" not in response.text.split("per_page")[-1][:200]

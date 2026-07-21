@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Price history — {{ source_key }} — ScrapeX{% endblock %}
+{% block content %}
+{# One offer's price story. A real page at a real URL rather than a dialog, so
+   it can be linked, bookmarked and read with scripting off. #}
+<p class="muted" style="margin:0 0 .4rem">
+  <a href="/source/{{ source_key }}">← Back to {{ source_key }}</a></p>
+
+<h1 dir="auto">{{ offer.name }}</h1>
+<p class="muted" style="margin:-.6rem 0 1rem">
+  {% if offer.region_name %}{{ offer.region_name }}<span class="code">{{ offer.region }}</span> · {% endif %}
+  {% if offer.option_label %}<span dir="auto">{{ offer.option_label }}</span> · {% endif %}
+  {% if offer.sku %}<span class="tech">{{ offer.sku }}</span> · {% endif %}
+  prices in {{ offer.currency }}{% if offer.unit %} per {{ offer.unit }}{% endif %}
+  {% if offer.product_url %}
+    · <a href="{{ offer.product_url }}" target="_blank" rel="noopener">Open on the site ↗</a>
+  {% endif %}
+</p>
+
+{# ---- what the price DID: one entry per real change ---------------------- #}
+<h2>Price changes</h2>
+{% if not periods %}
+  {# Three different silences, told apart. "No price periods" would be true and
+     useless: it does not say whether nothing moved or nothing was derived. #}
+  <div class="empty">
+    No price changes are recorded for this offer yet.<br>
+    <span class="muted">Either its price has never moved, or the derived history
+      has not been built. Rebuild it from
+      <a href="/changes?source_key={{ source_key }}">Changes</a>.</span>
+  </div>
+{% else %}
+  <div class="tablewrap"><table>
+    <thead><tr>
+      <th>From</th><th>Until</th><th class="nowrap">Price</th>
+      <th>Why it opened</th><th class="nowrap">Last confirmed</th>
+    </tr></thead>
+    <tbody>
+    {% for p in periods %}
+      <tr>
+        <td class="num muted nowrap">{{ p.first_detected_at[:10] }}</td>
+        <td class="num muted nowrap">
+          {% if p.closed_at %}{{ p.closed_at[:10] }}
+          {% else %}<span class="chip accent">current</span>{% endif %}
+        </td>
+        <td class="nowrap">
+          <span class="price">{{ "%g"|format(p.effective_price) }} {{ p.currency }}</span>
+          {% if offer.unit %}<span class="per">/ {{ offer.unit }}</span>{% endif %}
+          {% if p.sale_price and p.regular_price and p.regular_price != p.effective_price %}
+            <span class="strike">{{ "%g"|format(p.regular_price) }}</span>
+          {% endif %}
+        </td>
+        <td class="muted">{{ (p.opened_because or "").replace("_", " ") or "—" }}</td>
+        <td class="num muted nowrap">{{ (p.last_confirmed_at or "")[:10] or "—" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endif %}
+
+{# ---- what was RECORDED, including what we did not see ourselves --------- #}
+<h2>What was recorded</h2>
+<p class="muted" style="font-size:.85rem">
+  The list above shows changes. This shows every observation behind them —
+  including prices the source <em>reported</em> for an earlier date, which are
+  not ones we watched happen.</p>
+{% if not observations %}
+  <div class="empty">Nothing recorded yet.</div>
+{% else %}
+  <div class="tablewrap"><table>
+    <thead><tr>
+      <th class="nowrap">Date</th><th class="nowrap">Price</th>
+      <th>Where it came from</th><th class="nowrap">Recorded at</th>
+    </tr></thead>
+    <tbody>
+    {% for o in observations %}
+      <tr>
+        <td class="num muted nowrap">{{ o.business_date }}</td>
+        <td class="nowrap">
+          <span class="price">{{ "%g"|format(o.effective_price) }} {{ o.currency }}</span>
+          {% if offer.unit %}<span class="per">/ {{ offer.unit }}</span>{% endif %}
+        </td>
+        <td class="muted">
+          {# Stated in words, because the difference between "we saw this" and
+             "we were told this held" is the whole reason it is stored. #}
+          {% if o.provenance == "reported" %}
+            <span class="unverified"
+                  title="The source stated this price for that date; we did not observe it ourselves."
+                  >reported by the source</span>
+          {% else %}observed by a crawl{% endif %}
+        </td>
+        <td class="num muted nowrap">{{ (o.observed_at or "")[:10] }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% endif %}
+{% endblock %}

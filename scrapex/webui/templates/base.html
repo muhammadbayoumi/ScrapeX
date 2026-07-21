@@ -95,6 +95,11 @@
        the eye lands on first. */
     .code{color:var(--muted);font-size:.78em;direction:ltr;
       font-variant-numeric:tabular-nums;margin-inline-start:.3rem}
+    /* Identity on the left, "is this current?" on the right. */
+    .idblock{display:flex;align-items:flex-start;justify-content:space-between;
+      gap:1rem;flex-wrap:wrap}
+    .runline{margin:.2rem 0 1rem;display:flex;align-items:center;gap:.5rem;
+      flex-wrap:wrap;font-size:.85rem}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never

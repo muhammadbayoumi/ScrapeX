@@ -6,10 +6,45 @@
 <p class="muted" style="margin:0 0 .4rem"><a href="/">← All sources</a></p>
 
 {% if summary is none %}
-  <div class="empty">No data for <code>{{ source_key }}</code> yet.</div>
+  {# A source that has never run still exists, and the page has to say so. The
+     whole identity block used to sit behind this branch, so a configured source
+     with no data rendered nothing about itself at all — the same blindness the
+     overview had. #}
+  <div class="idblock">
+    <div><h1><span class="key">{{ source_key }}</span></h1></div>
+    <p class="runline"><span class="chip amber">Never run</span></p>
+  </div>
+  <div class="empty">
+    No data for <code>{{ source_key }}</code> yet.<br>
+    <span class="muted">Run it from the side panel, or:
+      <code>python -m scrapex.cli crawl {{ source_key }}</code> then
+      <code>python -m scrapex.cli ingest {{ source_key }}</code></span>
+  </div>
 {% else %}
-  <h1 dir="auto">{{ summary.source_name }}
-    <span class="key" style="font-size:.8rem">{{ summary.source_key }}</span></h1>
+  {# Identity, then "is what I am reading current?". last_run and last_status are
+     computed into SourceSummary (reports.py) and were rendered NOWHERE — the
+     page showed 721 rows with no hint whether the last crawl succeeded, failed,
+     or ran a month ago. #}
+  <div class="idblock">
+    <div>
+      <h1 dir="auto">{{ summary.source_name }}</h1>
+      <p class="muted" style="margin:-.5rem 0 0;font-size:.85rem">
+        <span class="key">{{ summary.source_key }}</span>
+      </p>
+    </div>
+    <p class="runline">
+      {% if not summary.last_run %}
+        <span class="chip amber">Never run</span>
+      {% elif summary.last_status == "success" %}
+        <span class="chip accent">Last run completed</span>
+        <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+      {% else %}
+        <span class="chip amber">Last run {{ summary.last_status or "did not finish" }}</span>
+        <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+      {% endif %}
+      <a href="/history?source_key={{ summary.source_key }}">Crawl history</a>
+    </p>
+  </div>
   <div class="metrics">
     <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">Products</div></div>
     <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">Variants</div></div>
@@ -173,8 +208,24 @@
               <td><span class="chip">{{ r.curation_status }}</span></td>
             {% endif %}
           {% endfor %}
-          <td>{% if r.product_url %}<a href="{{ r.product_url }}" target="_blank" rel="noopener"
-                 title="Open the product page">↗</a>{% endif %}</td>
+          {# A LABELLED control, not a bare icon: it says how much there is to
+             see, so "which of these 721 rows actually moved?" is answered by
+             scanning the column instead of opening rows one at a time. #}
+          <td class="nowrap">
+            {% set changes = changes_by_offer.get(r.offer_id, 0) %}
+            {% if changes %}
+              <a href="/source/{{ source_key }}/offer/{{ r.offer_id }}"
+                 title="Every price this offer has had">History
+                <span class="muted">· {{ changes }} price{{ "s" if changes != 1 else "" }}</span></a>
+            {% else %}
+              <a class="muted" href="/source/{{ source_key }}/offer/{{ r.offer_id }}"
+                 title="What has been recorded for this offer">History</a>
+            {% endif %}
+            {% if r.product_url %}
+              <a href="{{ r.product_url }}" target="_blank" rel="noopener"
+                 title="Open the product page">↗</a>
+            {% endif %}
+          </td>
         </tr>
       {% endfor %}
       </tbody>
@@ -182,13 +233,44 @@
 
     {% set base = "/source/" ~ source_key ~ "?q=" ~ q ~ "&availability=" ~ availability
                   ~ "&sort=" ~ sort ~ "&direction=" ~ direction %}
+    {# "Page 3" alone does not say how far you are or how far there is to go.
+       The row range and the page count both come from BrowsePage, which has
+       carried them all along. #}
+    {% set last_page = ((page_data.total - 1) // page_data.limit) + 1 if page_data.total else 1 %}
     <div class="pager">
-      {% if page_data.has_prev %}<a href="{{ base }}&page={{ page-1 }}">← Previous</a>
-      {% else %}<span class="disabled">← Previous</span>{% endif %}
-      <span class="muted">Page {{ page }}</span>
-      {% if page_data.has_next %}<a href="{{ base }}&page={{ page+1 }}">Next →</a>
-      {% else %}<span class="disabled">Next →</span>{% endif %}
+      {% if page_data.has_prev %}
+        <a href="{{ base }}&page=1" title="First page">« First</a>
+        <a href="{{ base }}&page={{ page-1 }}">← Previous</a>
+      {% else %}
+        <span class="disabled">« First</span><span class="disabled">← Previous</span>
+      {% endif %}
+      <span class="muted">Page {{ page }} of {{ "{:,}".format(last_page) }}
+        · rows {{ "{:,}".format(page_data.offset + 1) }}–{{
+          "{:,}".format(page_data.offset + page_data.rows|length) }}
+        of {{ "{:,}".format(page_data.total) }}</span>
+      {% if page_data.has_next %}
+        <a href="{{ base }}&page={{ page+1 }}">Next →</a>
+        <a href="{{ base }}&page={{ last_page }}" title="Last page">Last »</a>
+      {% else %}
+        <span class="disabled">Next →</span><span class="disabled">Last »</span>
+      {% endif %}
     </div>
+    {# Rows per page is a plain GET form, so it works with scripting off. The
+       options stop at the cap browse_observations already enforces — offering
+       a number the server will silently clamp would be a lie. #}
+    <form class="pager" method="get" action="/source/{{ source_key }}">
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="availability" value="{{ availability }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="direction" value="{{ direction }}">
+      <label for="per_page" class="muted">Rows per page</label>
+      <select id="per_page" name="per_page">
+        {% for size in per_page_options %}
+          <option value="{{ size }}" {% if size == page_data.limit %}selected{% endif %}>{{ size }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Apply</button>
+    </form>
   {% endif %}
 {% endif %}
 

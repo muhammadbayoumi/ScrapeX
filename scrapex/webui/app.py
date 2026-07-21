@@ -56,7 +56,8 @@ from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
 from ..reports import (
     BROWSE_COLUMNS, SORTABLE, browse_observations, column_presence, crawl_history,
-    export_source_table, list_sources, price_extremes, source_summary,
+    export_source_table, history_counts, list_sources, offer_identity,
+    offer_observations, price_extremes, source_summary,
 )
 from ..scheduler import list_schedules, upsert_schedule
 from ..vocab import (
@@ -93,6 +94,10 @@ TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"),
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
+# The page sizes offered. The largest is the cap browse_observations already
+# enforces (reports.py) — offering a number the server would silently clamp
+# would be a lie told by a dropdown.
+PER_PAGE_OPTIONS = (25, 50, 100, 200)
 
 
 def create_app(
@@ -218,17 +223,22 @@ def create_app(
 
     @app.get("/source/{source_key}", response_class=HTMLResponse)
     def source(request: Request, source_key: str, q: str = "", availability: str = "",
-               page: int = 1, sort: str = "", direction: str = "asc"):
+               page: int = 1, sort: str = "", direction: str = "asc",
+               per_page: int = PAGE_SIZE):
         page = max(1, page)
+        # Clamped against the same cap browse_observations enforces, so a
+        # hand-typed ?per_page=40000 cannot ask the warehouse for everything.
+        per_page = per_page if per_page in PER_PAGE_OPTIONS else PAGE_SIZE
         conn = read_conn()
         try:
             summary = source_summary(conn, source_key)
             page_data, fields, views, columns = None, [], [], []
+            changes_by_offer = {}
             if summary is not None:
                 page_data = browse_observations(
                     conn, source_key, search=q or None, availability=availability or None,
                     sort=sort or None, direction=direction,
-                    offset=(page - 1) * PAGE_SIZE, limit=PAGE_SIZE)
+                    offset=(page - 1) * per_page, limit=per_page)
                 # Register THIS SOURCE's columns — not a constant header shared by
                 # every site — so "manage columns" manages what the table shows,
                 # and a source with no variants is never given a Variant column.
@@ -245,6 +255,9 @@ def create_app(
                            if f.get("display_name")}
                 columns = [{"key": key, "label": renamed.get(key) or labels.get(key, key)}
                            for key in shown if key in labels]
+                # One bounded query for the whole page, never one per row.
+                changes_by_offer = history_counts(
+                    conn, [r["offer_id"] for r in page_data.rows if r.get("offer_id")])
         finally:
             conn.close()
         return TEMPLATES.TemplateResponse(
@@ -253,12 +266,40 @@ def create_app(
                      "q": q, "availability": availability, "page": page, "tab": "data",
                      "sort": sort or "name", "direction": direction,
                      "sortable": list(SORTABLE), "fields": fields, "views": views,
-                     "columns": columns,
+                     "columns": columns, "changes_by_offer": changes_by_offer,
                      # When the Unit column is hidden the unit rides on the price
                      # instead: a price may lose its column, never its unit.
                      "shows_unit": any(c["key"] == "unit" for c in columns),
-                     "availability_options": AVAILABILITY_OPTIONS},
+                     "availability_options": AVAILABILITY_OPTIONS,
+                     "per_page_options": PER_PAGE_OPTIONS},
             status_code=200 if summary is not None else 404)
+
+    @app.get("/source/{source_key}/offer/{offer_id}", response_class=HTMLResponse)
+    def offer_history(request: Request, source_key: str, offer_id: int):
+        """One offer's price story: every change, and what was recorded.
+
+        A real page at a real URL, not a dialog, so it can be linked, bookmarked
+        and read with scripting off. pricehistory.timeline() has been callable
+        since migration 0016 and no screen could reach it — the row on the data
+        page carried no offer_id to ask about.
+        """
+        conn = read_conn()
+        try:
+            offer = offer_identity(conn, source_key, offer_id)
+            if offer is None:
+                # Either the offer does not exist or it belongs to another
+                # source. Both are "not here" from this URL, and saying which
+                # would confirm the existence of an id the caller may not own.
+                raise HTTPException(status_code=404,
+                                    detail=f"no offer {offer_id} in {source_key}")
+            periods = pricehistory.timeline(conn, offer_id)
+            observations = offer_observations(conn, offer_id)
+        finally:
+            conn.close()
+        return TEMPLATES.TemplateResponse(
+            request=request, name="offer.html",
+            context={"tab": "data", "source_key": source_key, "offer": offer,
+                     "periods": periods, "observations": observations})
 
     # ---- Workspace tabs (spec 21) ------------------------------------------
     # Each tab is a thin render over logic that already exists and is tested;

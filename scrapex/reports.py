@@ -234,7 +234,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, po.vat_included, "
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
-        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity "
+        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id "
         f"{_LATEST_PER_OFFER}{filt} {_order_by(sort, direction)} LIMIT ? OFFSET ?",
         [*base_params, limit, offset],
     ).fetchall()
@@ -251,10 +251,36 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
          "unit": price_unit(r[14], r[15]),
          # Resolved per ROW because one source can hold a different tax position
          # per country. Rules are loaded once above, never queried per row.
-         **tax.resolve(tax_rules, r[12]).as_dict()}
+         **tax.resolve(tax_rules, r[12]).as_dict(),
+         # The row's own identity. Its absence is why no screen has ever been
+         # able to ask "what did THIS price do over time" — pricehistory.timeline
+         # has been callable since migration 0016 and had no way to be reached,
+         # because the row on the page carried nothing to ask about.
+         "offer_id": r[16]}
         for r in rows
     ]
     return BrowsePage(rows=shaped, total=total, offset=offset, limit=limit)
+
+
+def history_counts(conn: sqlite3.Connection, offer_ids: list[int]) -> dict[int, int]:
+    """How many distinct prices each offer has had. One query for the page.
+
+    Answers "which of these 721 rows actually moved?" by scanning the column,
+    instead of opening rows one at a time to find out. Bounded by the page size
+    (A8), so it costs one GROUP BY over at most 200 offers, never a query per row.
+    """
+    if not offer_ids:
+        return {}
+    marks = ",".join("?" for _ in offer_ids)
+    try:
+        rows = conn.execute(
+            f"SELECT offer_id, COUNT(*) FROM price_period WHERE offer_id IN ({marks}) "
+            "GROUP BY offer_id", offer_ids).fetchall()
+    except sqlite3.DatabaseError:
+        # price_period arrives with migration 0016 and is DERIVED — a warehouse
+        # that has not rebuilt it yet is not broken, it just has nothing to say.
+        return {}
+    return {int(r[0]): int(r[1]) for r in rows}
 
 
 # The columns the DATA TABLE can show, as (key, label) in default order. One
@@ -433,3 +459,54 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
 
 def _scalar(conn: sqlite3.Connection, sql: str, params: tuple) -> int:
     return int(conn.execute(sql, params).fetchone()[0])
+
+
+def offer_identity(conn: sqlite3.Connection, source_key: str,
+                   offer_id: int) -> dict | None:
+    """What this offer IS, and None when it does not belong to this source.
+
+    The ownership check is the security boundary, not a nicety: without it the
+    URL /source/A/offer/<id> would happily render an offer belonging to source B
+    to anyone who could count. The join through source_site is what makes the
+    check impossible to forget — the row simply does not come back.
+    """
+    row = conn.execute(
+        "SELECT sp.source_name, sv.option_label, sv.external_sku, so.region, "
+        "       so.currency, su.unit_code, so.basis_quantity, sp.product_url, "
+        "       ss.source_key "
+        "FROM source_offer so "
+        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+        "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id "
+        "WHERE so.offer_id = ? AND ss.source_key = ?",
+        (offer_id, source_key)).fetchone()
+    if row is None:
+        return None
+    return {"name": row[0], "option_label": row[1] or "", "sku": row[2] or "",
+            "region": row[3] or "", "region_name": region_name(row[3]),
+            "currency": row[4], "unit": price_unit(row[5], row[6]),
+            "product_url": row[7] or "", "source_key": row[8],
+            "offer_id": offer_id}
+
+
+def offer_observations(conn: sqlite3.Connection, offer_id: int,
+                       limit: int = 200) -> list[dict]:
+    """The raw append-only observations behind the timeline, newest first.
+
+    The timeline shows CHANGES; this shows what was actually recorded, including
+    which rows we observed ourselves and which the source reported for an earlier
+    date. Keeping them distinguishable on screen is the whole point of storing
+    the distinction (migration 0019).
+    """
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(price_observation)")}
+    provenance = "provenance" if "provenance" in columns else "'observed'"
+    rows = conn.execute(
+        f"SELECT business_date, effective_price, regular_price, sale_price, currency, "
+        f"       observed_at, {provenance} "
+        "FROM price_observation WHERE offer_id = ? "
+        "ORDER BY business_date DESC, price_observation_id DESC LIMIT ?",
+        (offer_id, max(1, min(limit, 500)))).fetchall()
+    return [{"business_date": r[0], "effective_price": r[1], "regular_price": r[2],
+             "sale_price": r[3], "currency": r[4], "observed_at": r[5],
+             "provenance": r[6]} for r in rows]
