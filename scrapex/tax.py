@@ -57,11 +57,26 @@ class TaxState:
                     else "Tax excluded, rate not published")
         return "Tax treatment unverified"
 
+    def short_label(self) -> str:
+        """The same fact, sized for a table cell.
+
+        `label()` is a sentence, and a sentence in a cell wraps to three lines
+        and triples the height of all 721 rows — which is what it did. The cell
+        carries the short form and the sentence moves to the tooltip, so nothing
+        is lost and nothing is implied: "Incl. —" says a rate exists nowhere,
+        not that the rate is zero.
+        """
+        if self.evidence == "stated" and self.rate_pct is not None:
+            return f"{'Incl.' if self.vat_mode == 'incl' else 'Excl.'} {self.rate_pct:g}%"
+        if self.evidence == "general":
+            return f"{'Incl.' if self.vat_mode == 'incl' else 'Excl.'} —"
+        return "Unverified"
+
     def as_dict(self) -> dict:
         return {"tax_evidence": self.evidence, "tax_mode": self.vat_mode,
                 "tax_rate_pct": self.rate_pct, "tax_statement": self.statement_text,
                 "tax_statement_url": self.statement_url, "tax_label": self.label(),
-                "tax_verified": self.verified}
+                "tax_short": self.short_label(), "tax_verified": self.verified}
 
 
 UNVERIFIED = TaxState("unknown", "unknown", None, "", "", WILDCARD)

@@ -12,6 +12,11 @@
       --button-bg:#eeeeee; --button-text:#0f1216;
       --amber:#b7791f; --amber-weak:#fdf6e3;
       --red:#c0392b; --chip:#eef1f4; --shadow:0 1px 3px rgba(0,0,0,.06);
+      /* Where the tab bar sticks: directly below the topbar. A starting value
+         only — the script at the end of the page MEASURES the topbar and
+         overwrites it, because the topbar's height changes with the viewport
+         (60px wide, 139px at 800px) and every fixed guess is wrong somewhere. */
+      --sticky-tabs:52px;
     }
     @media (prefers-color-scheme:dark){
       :root{
@@ -60,7 +65,13 @@
     /* Only COLUMN headers stick. A two-column table whose left cells are row
        headers would otherwise pin them under the tab bar and leave a blank
        label behind — which is exactly what it looked like. */
-    thead th{position:sticky;top:52px}
+    /* top:0, NOT an offset below the bars. .tablewrap sets overflow-x, which
+       makes it a scroll container, and a sticky child anchors to its nearest
+       scrolling ancestor — so an offset here is measured from the top of the
+       TABLE and simply pushes the header down over the first rows. That is
+       what the old top:52px did: the header was never sticky to the page, it
+       was a header sitting on top of row one. */
+    thead th{position:sticky;top:0}
     /* A row header labels its row, so it may wrap rather than run off the edge.
        Scoped to tbody so it can never reshape a real column header. */
     tbody>tr>th:first-child{white-space:normal;width:14rem;vertical-align:top}
@@ -77,13 +88,25 @@
     /* An unverified tax position is marked in TEXT ("unverified" is in the
        label itself); the dotted underline only reinforces it, never carries it. */
     .unverified{border-bottom:1px dotted var(--amber);color:var(--amber)}
+    /* Values that mean nothing once broken across two lines: a price and
+       its currency, a date, a tax verdict. */
+    td.nowrap,th.nowrap{white-space:nowrap}
+    /* An ISO code beside a country name: present, quiet, never the thing
+       the eye lands on first. */
+    .code{color:var(--muted);font-size:.78em;direction:ltr;
+      font-variant-numeric:tabular-nums;margin-inline-start:.3rem}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never
        colour alone, and carries aria-current for assistive tech. */
-    .wstabs{display:flex;gap:.15rem;flex-wrap:wrap;background:var(--surface);
-      border-bottom:1px solid var(--line);padding:0 1.2rem;position:sticky;top:52px;z-index:4}
-    .wstabs a{padding:.6rem .8rem;font-size:.86rem;color:var(--muted);
+    /* Deliberately NOT wrapping: a tab bar that gains a second line at narrow
+       widths changes its own height, and then no fixed offset for the sticky
+       table header can ever be correct. It scrolls sideways instead. */
+    .wstabs{display:flex;gap:.15rem;flex-wrap:nowrap;overflow-x:auto;
+      scrollbar-width:none;background:var(--surface);
+      border-bottom:1px solid var(--line);padding:0 1.2rem;position:sticky;
+      top:var(--sticky-tabs);z-index:4}
+    .wstabs a{padding:.6rem .8rem;font-size:.86rem;color:var(--muted);white-space:nowrap;
       border-bottom:2px solid transparent}
     .wstabs a:hover{color:var(--text)}
     .wstabs a[aria-current=page]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
@@ -220,5 +243,30 @@
     {% endif %}
     {% block content %}{% endblock %}
   </main>
+  <script>
+  // The tab bar sticks directly below the topbar, and the topbar's height
+  // changes with the viewport and its own content — 60px wide, 139px at 800px.
+  // So it is measured, not assumed: the hardcoded 52px put the tab bar inside
+  // the topbar at every width where the title wrapped.
+  //
+  // Progressive enhancement: the CSS defaults are sensible on their own, so a
+  // page with scripting off gets a slightly imperfect offset, never a broken one.
+  (function () {
+    var root = document.documentElement;
+    var topbar = document.querySelector('.topbar');
+    var tabs = document.querySelector('.wstabs');
+    function measure() {
+      var top = topbar ? topbar.getBoundingClientRect().height : 0;
+      root.style.setProperty('--sticky-tabs', Math.round(top) + 'px');
+    }
+    measure();
+    if (window.ResizeObserver) {
+      var observer = new ResizeObserver(measure);
+      if (topbar) observer.observe(topbar);
+    } else {
+      window.addEventListener('resize', measure);
+    }
+  })();
+  </script>
 </body>
 </html>

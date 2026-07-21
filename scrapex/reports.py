@@ -295,7 +295,10 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(TRIM(COALESCE(sv.external_sku,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(so.region,'')),'')), "
         "       COUNT(so.selling_unit_id), "
-        "       COUNT(NULLIF(TRIM(COALESCE(po.availability,'')),'')) "
+        # 'unknown' is a non-empty string that states nothing. Counting it as
+        # present gave GPP a Status column reading "Unknown" on all 721 rows —
+        # a column of noise. No information is not information.
+        "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("option_label", row[0]), ("sku", row[1]),

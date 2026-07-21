@@ -214,3 +214,67 @@ def test_the_identifying_columns_are_never_swept_away(conn):
     ingest_payloads(conn, entry(), [payload([row()])])
 
     assert ESSENTIAL_COLUMNS <= column_presence(conn, "SHOP")
+
+
+# ---- the table has to be READABLE, not merely correct ------------------------
+#
+# Rendered and looked at: every row was three lines tall because the tax cell
+# carried a sentence, the price broke across two lines, and a Status column read
+# "Unknown" 721 times. Correct data laid out unreadably is not a working screen.
+
+def test_a_column_that_says_unknown_everywhere_is_not_a_column(conn):
+    """'unknown' is a non-empty string that states nothing. Counting it as
+    present gave GPP a Status column reading Unknown on all 721 rows."""
+    from scrapex.reports import column_presence
+
+    ingest_payloads(conn, entry(), [payload([row(availability="unknown")])])
+
+    assert "availability" not in column_presence(conn, "SHOP")
+
+
+def test_a_source_with_real_stock_data_keeps_its_status_column(conn):
+    from scrapex.reports import column_presence
+
+    ingest_payloads(conn, entry(), [payload([row(availability="in_stock")])])
+
+    assert "availability" in column_presence(conn, "SHOP")
+
+
+def test_the_tax_cell_is_short_and_the_sentence_moves_to_the_tooltip(conn):
+    """"Tax included, rate not published" wrapped to three lines and tripled the
+    height of every row. The short form says the same thing in a cell."""
+    from scrapex import tax
+
+    state = tax.TaxState("general", "incl", None, "", "https://x", "*")
+    assert state.short_label() == "Incl. —"
+    assert state.label() == "Tax included, rate not published"
+    assert len(state.short_label()) < len(state.label()) / 3
+
+
+def test_the_short_label_never_implies_a_rate_it_does_not_have():
+    """"Incl. —" says a rate exists nowhere. "Incl. 0%" would say tax is zero,
+    which is a claim nobody made."""
+    from scrapex import tax
+
+    short = tax.TaxState("general", "incl", None, "", "u", "*").short_label()
+
+    assert "0" not in short and "%" not in short
+    assert tax.UNVERIFIED.short_label() == "Unverified"
+
+
+def test_a_stated_rate_still_shows_the_number_in_the_cell():
+    from scrapex import tax
+
+    assert tax.TaxState("stated", "incl", 15, "", "u", "*").short_label() == "Incl. 15%"
+    assert tax.TaxState("stated", "excl", 15, "", "u", "*").short_label() == "Excl. 15%"
+
+
+def test_both_the_short_and_the_full_label_reach_the_page(conn):
+    """The cell needs one and the tooltip needs the other; losing either makes
+    the compact cell either unreadable or unexplained."""
+    ingest_payloads(conn, entry(), [payload([row()])])
+
+    shown = browse_observations(conn, "SHOP").rows[0]
+
+    assert shown["tax_short"] and shown["tax_label"]
+    assert shown["tax_short"] != shown["tax_label"]

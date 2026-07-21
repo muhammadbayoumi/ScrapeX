@@ -109,16 +109,19 @@
             {% if c.key == "name" %}
               <td dir="auto">{{ r.name or "—" }}</td>
             {% elif c.key == "region" %}
-              {# For a commodity source the country IS what distinguishes the row. #}
-              <td>{% if r.region %}<span class="num">{{ r.region }}</span>
-                    {% if r.region_name %} {{ r.region_name }}{% endif %}
+              {# For a commodity source the country IS what distinguishes the row,
+                 so the NAME leads and the ISO code follows quietly. Leading with
+                 the code made every row start with two characters of noise and
+                 pushed "United Arab Emirates" onto a second line. #}
+              <td>{% if r.region %}{{ r.region_name or r.region }}
+                    {% if r.region_name %}<span class="code">{{ r.region }}</span>{% endif %}
                   {% else %}—{% endif %}</td>
             {% elif c.key == "option_label" %}
               <td class="muted" dir="auto">{{ r.option_label or "—" }}</td>
             {% elif c.key == "sku" %}
               <td class="num muted">{{ r.sku or "—" }}</td>
             {% elif c.key == "effective_price" %}
-              <td>
+              <td class="nowrap">
                 <span class="price">{{ "%g"|format(r.effective_price) }} {{ r.currency }}</span>
                 {# When the Unit column is not shown, the unit rides on the price
                    instead. A price may lose its column but never its unit. #}
@@ -139,21 +142,33 @@
                 {% else %}<span class="badge">Unknown</span>{% endif %}
               </td>
             {% elif c.key == "tax_label" %}
-              {# "Incl." on its own was a claim with no source behind it. The
-                 label says how well this is known and links to the sentence it
-                 came from, so you can read the source rather than trust us. #}
-              <td class="muted">
+              {# The CELL carries the short form and the tooltip carries the
+                 sentence: "Tax included, rate not published" wrapped to three
+                 lines and tripled the height of every row. Nothing is lost —
+                 the full phrase and the source statement are both in the title,
+                 and "Incl. —" says a rate exists nowhere, not that it is zero. #}
+              <td class="muted nowrap">
                 {% if r.tax_statement_url %}
                   <a href="{{ r.tax_statement_url }}" target="_blank" rel="noopener noreferrer"
-                     title="{{ r.tax_statement or 'Read the source statement' }}">{{ r.tax_label }}</a>
+                     title="{{ r.tax_label }} — {{ r.tax_statement or 'Read the source statement' }}"
+                     >{{ r.tax_short }}</a>
                 {% else %}
-                  <span{% if not r.tax_verified %} class="unverified"{% endif %}>{{ r.tax_label }}</span>
+                  <span title="{{ r.tax_label }}"
+                        {% if not r.tax_verified %}class="unverified"{% endif %}>{{ r.tax_short }}</span>
                 {% endif %}
               </td>
             {% elif c.key == "business_date" %}
-              <td class="num muted">{{ r.business_date }}</td>
+              <td class="num muted nowrap">{{ r.business_date }}</td>
             {% elif c.key == "last_confirmed" %}
-              <td class="num muted">{{ r.last_confirmed or "—" }}</td>
+              {# On a first crawl every price was confirmed the day it was first
+                 seen, so repeating the date in both columns is noise. Saying
+                 "same day" keeps the column meaningful for later crawls, where
+                 the two genuinely diverge. #}
+              <td class="num muted nowrap">
+                {% if not r.last_confirmed %}—
+                {% elif r.last_confirmed == r.business_date %}<span class="muted">same day</span>
+                {% else %}{{ r.last_confirmed }}{% endif %}
+              </td>
             {% elif c.key == "curation_status" %}
               <td><span class="chip">{{ r.curation_status }}</span></td>
             {% endif %}
