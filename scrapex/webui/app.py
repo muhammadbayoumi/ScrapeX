@@ -223,6 +223,36 @@ def create_app(
                                           context={"sources": sources, "pending": pending,
                                                    "tab": "overview", "source_key": None})
 
+    def _view_defaults(source_key: str, view_id: int) -> dict:
+        """A saved view as query parameters. Unknown keys never reach SQL.
+
+        A view can name a column this source no longer publishes, or a filter
+        key that has since been removed. Both are dropped HERE, before anything
+        is queried, and the page says which — a filter silently disappearing
+        makes the answer bigger than the question with no way to tell.
+        """
+        conn = read_conn()
+        try:
+            saved = next((v for v in list_views(conn, source_key)
+                          if v["saved_view_id"] == view_id), None)
+        finally:
+            conn.close()
+        if saved is None:
+            return {}
+        config = saved.get("config") or {}
+        out: dict = {}
+        dropped: list[str] = []
+        for key in ("q", "sort", "direction", "per_page"):
+            if config.get(key):
+                out[key] = str(config[key])
+        for key, spec in (config.get("filters") or {}).items():
+            if key in FILTERABLE and FILTERABLE[key][1] != "derived":
+                out[f"f.{key}"] = str(spec)
+            else:
+                dropped.append(f"filter {key}")
+        out["__dropped__"] = dropped
+        return out
+
     def build_query(current: dict, **overrides) -> str:
         """One query-string builder for sort links, the pager, chips and Reset.
 
@@ -247,7 +277,7 @@ def create_app(
     def source(request: Request, source_key: str, q: str = "", availability: str = "",
                page: int = 1, sort: str = "", direction: str = "asc",
                per_page: int = PAGE_SIZE, edit: str = "", said: str = "",
-               focus: str = ""):
+               focus: str = "", view_id: int = 0):
         page = max(1, page)
         # Clamped against the same cap browse_observations enforces, so a
         # hand-typed ?per_page=40000 cannot ask the warehouse for everything.
@@ -256,6 +286,18 @@ def create_app(
         # filters is not known in advance — so they are read from the raw query
         # string and validated against the allow-list before anything else.
         raw = dict(request.query_params)
+        # A saved view supplies DEFAULTS. Anything explicitly in the URL wins,
+        # so opening a view and then changing a filter does what it looks like
+        # rather than snapping back to the saved state.
+        dropped_from_view: list[str] = []
+        if view_id:
+            with_view = _view_defaults(source_key, view_id)
+            dropped_from_view = with_view.pop("__dropped__", [])
+            for key, value in with_view.items():
+                raw.setdefault(key, value)
+            q = q or raw.get("q", "")
+            sort = sort or raw.get("sort", "")
+            direction = raw.get("direction", direction) if "direction" not in request.query_params else direction
         column_filters, ignored_filters = parse_filters(raw)
         # The state every URL on this page is built from.
         state = {k: v for k, v in raw.items()
@@ -264,6 +306,8 @@ def create_app(
                       "direction": direction, "per_page": per_page})
         if edit:
             state["edit"] = edit
+        if view_id:
+            state["view_id"] = view_id
         conn = read_conn()
         try:
             summary = source_summary(conn, source_key)
@@ -322,7 +366,8 @@ def create_app(
                      "shows_unit": any(c["key"] == "unit" for c in columns),
                      "availability_options": AVAILABILITY_OPTIONS,
                      "per_page_options": PER_PAGE_OPTIONS,
-                     "watch": watch_counts, "edit": bool(edit),
+                     "watch": watch_counts, "edit": bool(edit), "view_id": view_id,
+                     "dropped_from_view": dropped_from_view,
                      "said": said, "focus": focus, "absent_columns": absent_columns,
                      "filters": column_filters, "ignored_filters": ignored_filters,
                      "facets": facets, "filter_kinds": {k: v[1] for k, v in FILTERABLE.items()},

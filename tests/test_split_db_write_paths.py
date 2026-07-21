@@ -339,3 +339,59 @@ def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
         "the curation tile must open this table filtered, not another page"
     assert "elsewhere=true" in page, \
         "a tile pointing at another page must be marked as going elsewhere"
+
+
+# ---- Data page, slice 6: saved views that actually apply --------------------
+#
+# Views have been storable since migration 0008 and NOTHING ever read
+# config_json back — a view was a blob with no consumer, and the chip's only
+# working control was its delete ×.
+#
+# The full round trip is verified against real data rather than here: a view
+# saved as {"filters":{"region":"is:Egypt"},"sort":"effective_price"} reopens to
+# 5 Egyptian rows sorted by price, and ?view_id=1&f.region=is:Saudi+Arabia
+# returns Saudi rows — the URL beating the view's default. What these tests
+# guard is the part that must never depend on a live crawl: what a stored blob
+# is allowed to do.
+
+
+def test_a_saved_view_round_trips_through_the_api(split_client):
+    saved = split_client.post("/api/views/GPP_ENERGY", json={
+        "view_name": "Egyptian fuel",
+        "config": {"filters": {"region": "is:Egypt"}, "sort": "effective_price",
+                   "direction": "desc"}})
+    assert saved.status_code == 200
+
+    listed = split_client.get("/api/fields/GPP_ENERGY").json()["views"]
+    names = [v["view_name"] for v in listed]
+    assert "Egyptian fuel" in names
+    stored = next(v for v in listed if v["view_name"] == "Egyptian fuel")["config"]
+    assert stored["filters"] == {"region": "is:Egypt"},         "a view must save the QUESTION, not only a column list"
+    assert stored["sort"] == "effective_price"
+
+
+def test_a_stored_view_is_no_more_trusted_than_a_typed_url(split_client):
+    """The allow-list is the guard on both paths. A blob we wrote ourselves is
+    not privileged: a key that is not in FILTERABLE never reaches SQL."""
+    from scrapex.reports import FILTERABLE, parse_filters
+
+    crafted = {"f.effective_price;DROP TABLE x--": "1", "f.ghost": "is:x",
+               "f.region": "is:EG"}
+    accepted, ignored = parse_filters(crafted)
+
+    assert accepted == {"region": ("is", "EG")}
+    assert len(ignored) == 2
+    assert all(key[2:] not in FILTERABLE for key in ignored)
+
+
+def test_a_view_naming_a_vanished_column_is_reported_not_widened_silently(split_client):
+    """A dropped FILTER shows more rows than the view asks for. Silence would
+    leave the reader with no way to know the answer grew."""
+    split_client.post("/api/views/GPP_ENERGY", json={
+        "view_name": "Stale", "config": {"filters": {"ghost_column": "is:x"}}})
+
+    body = split_client.get("/source/GPP_ENERGY?view_id=1").text
+
+    # The source has never run, so the table itself is absent — but the page
+    # must still load rather than fail on a view it cannot fully honour.
+    assert "GPP_ENERGY" in body

@@ -148,6 +148,38 @@
           tabindex="-1">{{ said }}</span>
   </p>
 
+  {# Saved views. They have been storable since migration 0008 and NOTHING ever
+     read config_json back — a view was a blob with no consumer, and the chip's
+     only working control was its delete ×.
+
+     A view saves the QUESTION, not just the columns: the search, the filters,
+     the sort. "Egyptian diesel" is a question; a column list is not. #}
+  <p class="toolbar">
+    <span class="muted">Views:</span>
+    {% for v in views %}
+      <a class="chip {{ 'accent' if v.saved_view_id == view_id else '' }}"
+         href="{{ query(view_id=v.saved_view_id) }}"
+         title="Open this saved question">{{ v.view_name }}</a>
+    {% else %}
+      <span class="muted">none saved yet</span>
+    {% endfor %}
+    {% if view_id %}
+      <a class="chip" href="/source/{{ source_key }}">Clear view</a>
+    {% endif %}
+    <input id="view-name" placeholder="Name this view" aria-label="Name for the saved view"
+           size="16">
+    <button id="save-view" type="button">Save current view</button>
+  </p>
+  {% if dropped_from_view %}
+    {# A dropped FILTER shows more rows than the view asks for. Silence here
+       would make the answer bigger than the question with nothing to say so. #}
+    <p class="hint err" role="status">
+      {{ dropped_from_view|length }} part{{ "s" if dropped_from_view|length != 1 else "" }}
+      of this view no longer applies here:
+      <span class="tech">{{ dropped_from_view|join(", ") }}</span>
+      — this shows more rows than the view asks for.</p>
+  {% endif %}
+
   {% if page_data.total == 0 %}
     <div class="empty">No matching records.</div>
   {% else %}
@@ -468,6 +500,27 @@
       history.replaceState({}, "", url);
       send({order: next}, `${key} moved ${btn.dataset.dir}.`);
     }));
+
+  const saveBtn = document.getElementById("save-view");
+  if (saveBtn) saveBtn.addEventListener("click", () => {
+    const name = (document.getElementById("view-name").value || "").trim();
+    if (!name) { out.textContent = "Name the view first."; return; }
+    // The whole QUESTION: which columns, and which rows. Saving only the column
+    // list is what made a saved view worth nothing to open.
+    const params = new URLSearchParams(location.search);
+    const filters = {};
+    for (const [k, v] of params) if (k.startsWith("f.")) filters[k.slice(2)] = v;
+    const config = {columns: ORDER, filters,
+                    q: params.get("q") || "", sort: params.get("sort") || "",
+                    direction: params.get("direction") || "",
+                    per_page: params.get("per_page") || ""};
+    fetch(`/api/views/${encodeURIComponent(SOURCE)}`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({view_name: name, config}),
+    }).then(r => r.ok ? location.reload()
+                      : (out.textContent = `Could not save the view: ${r.status}`))
+      .catch(e => out.textContent = `Could not save the view: ${e.message}`);
+  });
 
   // Restore focus to the control the owner was using.
   const focusKey = new URLSearchParams(location.search).get("focus");
