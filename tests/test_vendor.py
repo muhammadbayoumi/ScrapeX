@@ -84,3 +84,28 @@ def test_the_grid_script_is_served_from_our_origin_too():
     body = script.read_text(encoding="utf-8")
     assert "http://" not in body and "https://" not in body, (
         "the grid must not reach the internet at runtime")
+
+
+def test_the_grid_features_panel_is_keyboard_operable_by_construction():
+    """A real <details> with real checkboxes, not a custom popup: it opens and
+    closes with the keyboard for free, and every toggle is a control that tabs.
+    Building that from divs is where keyboard support usually gets lost."""
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+
+    assert "<details id=\"grid-features\"" in page
+    assert page.count('type="checkbox" data-feature=') >= 6
+
+
+def test_feature_choices_are_per_source_not_global():
+    """A commodity table and a shop table do not want the same shape, so one
+    global preference would be wrong for one of them."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert 'FEATURE_KEY = "scrapex-features-" + (mount.dataset.source' in script
+
+
+def test_a_total_is_only_offered_where_a_total_means_something():
+    """Summing prices across different currencies and units would be a number
+    with no referent. The count is what is shown for anything not plainly
+    additive."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert 'topCalc = "avg"' in script and 'topCalc = "count"' in script

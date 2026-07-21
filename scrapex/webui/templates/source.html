@@ -248,6 +248,24 @@
        the page can SAY what is being filtered: a grid that quietly shows fewer
        rows than it holds is the same failure as a filter that vanishes — the
        reader cannot tell. #}
+    {# Grid features, as a real <details> rather than a custom popup: it opens
+       and closes with the keyboard for free, and its state is visible in the
+       markup. Choices are per SOURCE — a commodity table and a shop table do
+       not want the same shape — and they are remembered. #}
+    <details id="grid-features" class="card" style="margin:.4rem 0 .8rem">
+      <summary style="cursor:pointer;font-weight:600">⚙ Grid features</summary>
+      <p class="muted" style="font-size:.85rem">These change how this table is
+        drawn. They never change the data, and they are remembered for
+        <span class="key">{{ source_key }}</span> only.</p>
+      <div class="featuregrid">
+        <label><input type="checkbox" data-feature="tree"> Group rows</label>
+        <label><input type="checkbox" data-feature="totals"> Column totals</label>
+        <label><input type="checkbox" data-feature="rownum"> Row numbers</label>
+        <label><input type="checkbox" data-feature="compact"> Compact rows</label>
+        <label><input type="checkbox" data-feature="wrap"> Wrap long text</label>
+        <label><input type="checkbox" data-feature="stripe"> Striped rows</label>
+      </div>
+    </details>
     <p id="grid-toolbar" class="toolbar">
       <span class="muted">Export what you see:</span>
       <button type="button" class="chip" data-export="csv">CSV</button>

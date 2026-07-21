@@ -142,6 +142,18 @@
     .setfilter-row input{width:auto;flex:none}
     .setfilter-actions{display:flex;gap:.4rem;margin-top:.5rem}
     .filter-icon{color:var(--muted);font-size:.8em}
+    /* The feature checkboxes: a plain grid of labels, so every one is a real
+       control that tabs and toggles with the keyboard. */
+    .featuregrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));
+      gap:.3rem .8rem;margin-top:.5rem}
+    .featuregrid label{display:flex;align-items:center;gap:.4rem;font-size:.85rem;cursor:pointer}
+    .featuregrid input{width:auto;flex:none}
+    /* Compact and striped are drawn here rather than by the library, so they
+       follow the page's own surface and spacing. */
+    .tabulator.compact .tabulator-cell{padding-top:.15rem;padding-bottom:.15rem}
+    .tabulator.striped .tabulator-row.tabulator-row-even{
+      background:color-mix(in srgb,var(--text) 3%,transparent)}
+    .tabulator.wrap .tabulator-cell{white-space:normal}
     /* Tabulator inserts both icons BEFORE the title (insertBefore firstChild),
        so the label would read "⛛⋮Record". Flexbox puts the label first and the
        icons after it, which is where the owner's reference puts them. */

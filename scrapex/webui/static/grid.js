@@ -31,6 +31,24 @@
   let table = null;
   let payload = null;
 
+  // Which features are on, per SOURCE. A commodity table and a shop table do
+  // not want the same shape, so one global preference would be wrong for one of
+  // them. localStorage rather than the database: this is how a table is DRAWN,
+  // not what it means, and it should not survive into an export or a backup.
+  const FEATURE_KEY = "scrapex-features-" + (mount.dataset.source || "");
+  const DEFAULT_FEATURES = {tree: true, totals: false, rownum: false,
+                            compact: false, wrap: false, stripe: true};
+  let features = Object.assign({}, DEFAULT_FEATURES);
+  try {
+    const saved = JSON.parse(localStorage.getItem(FEATURE_KEY) || "null");
+    if (saved) features = Object.assign(features, saved);
+  } catch (err) { /* a corrupt preference must not stop the table loading */ }
+
+  function saveFeatures() {
+    try { localStorage.setItem(FEATURE_KEY, JSON.stringify(features)); }
+    catch (err) { /* private mode: the table still works, it just forgets */ }
+  }
+
   function applyFilters() {
     if (!table) return;
     table.setFilter([...active].map(([field, f]) => ({
@@ -333,6 +351,21 @@
       },
     });
 
+    if (features.rownum) {
+      columns.unshift({title: "#", field: "__n", width: 56, headerSort: false,
+                       resizable: false, download: false,
+                       formatter: "rownum"});
+    }
+    if (features.totals) {
+      // A total only where a total MEANS something. Summing prices across
+      // different currencies and units would be a number with no referent, so
+      // the count is what is shown for anything that is not plainly additive.
+      columns.forEach((c) => {
+        if (c.field === "effective_price") { c.topCalc = "avg"; c.topCalcParams = {precision: 2}; }
+        else if (c.field === "product_name") c.topCalc = "count";
+      });
+    }
+
     const options = {
       data: payload.rows,
       columns: columns,
@@ -348,12 +381,16 @@
     // Nesting is decided by the SERVER from what the source actually publishes:
     // a commodity source reads as material -> countries, and a shop whose every
     // row shares one region has nothing to nest.
-    if (payload.tree && payload.tree.by) {
+    if (features.tree && payload.tree && payload.tree.by) {
       options.groupBy = payload.tree.by;
       options.groupStartOpen = false;
       options.groupHeader = (value, count) =>
         text(value) + " <span class='muted'>· " + count + "</span>";
     }
+
+    mount.classList.toggle("compact", !!features.compact);
+    mount.classList.toggle("wrap", !!features.wrap);
+    mount.classList.toggle("striped", !!features.stripe);
 
     table = new Tabulator(mount, options);
     table.on("tableBuilt", () => { applyFilters(); describe(); });
@@ -385,6 +422,31 @@
       }));
   }
 
+  function wireFeatures() {
+    const panel = document.getElementById("grid-features");
+    if (!panel) return;
+    panel.querySelectorAll("[data-feature]").forEach((box) => {
+      const name = box.dataset.feature;
+      box.checked = !!features[name];
+      // The tree checkbox is only meaningful where the SERVER found something
+      // to nest. Offering it on a table that cannot group would be a control
+      // that does nothing, which is worse than one that is absent.
+      if (name === "tree" && !(payload.tree && payload.tree.by)) {
+        box.disabled = true;
+        box.checked = false;
+        box.closest("label").append(
+          Object.assign(document.createElement("span"),
+            {className: "muted", textContent: " — nothing to group here"}));
+        return;
+      }
+      box.addEventListener("change", () => {
+        features[name] = box.checked;
+        saveFeatures();
+        build();
+      });
+    });
+  }
+
   fetch("/api/table/" + encodeURIComponent(SOURCE))
     .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
     .then((data) => {
@@ -395,6 +457,7 @@
       }
       build();
       wireExport();
+      wireFeatures();
     })
     .catch((err) => {
       if (note) note.textContent = "Could not load the table: " + err.message;
