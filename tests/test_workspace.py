@@ -207,8 +207,10 @@ def test_the_active_sort_is_announced_to_assistive_tech(client):
     body = client.get(f"/source/{SOURCE}",
                       params={"sort": "effective_price", "direction": "desc"}).text
     assert 'aria-sort="descending"' in body
-    # ...and clicking the same header again flips back to ascending.
-    assert "sort=effective_price&direction=asc" in body
+    # ...and clicking the same header again flips back to ascending. The URL is
+    # built by build_query() and properly escaped in the href, so the assertion
+    # is on the two parameters rather than on one unescaped byte sequence.
+    assert "sort=effective_price" in body and "direction=asc" in body
 
 
 # ---- manage columns + saved views (spec 22) ---------------------------------

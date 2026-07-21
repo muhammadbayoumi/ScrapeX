@@ -100,6 +100,15 @@
       gap:1rem;flex-wrap:wrap}
     .runline{margin:.2rem 0 1rem;display:flex;align-items:center;gap:.5rem;
       flex-wrap:wrap;font-size:.85rem}
+    /* The filter row. Sticky is switched OFF here: thead th{position:sticky}
+       applies to every header row, so a second one would pin over the first. */
+    .filterrow th{position:static;padding-top:.2rem;padding-bottom:.5rem;font-weight:400}
+    .filterrow input,.filterrow select{padding:.25rem .4rem;font-size:.8rem;max-width:12rem}
+    /* The answer line: how many rows, and which questions produced them. */
+    .answer{font-size:.85rem;margin:.4rem 0 .8rem;display:flex;align-items:center;
+      gap:.4rem;flex-wrap:wrap}
+    .chip.pill{background:var(--accent-weak);color:var(--accent-ink);cursor:pointer}
+    .chip.pill:hover{filter:brightness(.95)}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never

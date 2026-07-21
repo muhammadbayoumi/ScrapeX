@@ -189,3 +189,73 @@ def test_an_absurd_page_size_is_refused_not_served(split_client):
     assert response.status_code in (200, 404)
     if response.status_code == 200:
         assert "40000" not in response.text.split("per_page")[-1][:200]
+
+
+# ---- Data page, slice 3: per-column filters ---------------------------------
+
+def test_a_crafted_filter_key_is_refused_and_named(split_client):
+    """The allow-list is the guard. A key never reaches SQL as text — and a
+    filter that vanished silently would make the answer BIGGER than the
+    question, with no way for the reader to tell."""
+    from scrapex.reports import parse_filters
+
+    accepted, ignored = parse_filters({
+        "f.region": "is:EG",
+        "f.effective_price;DROP TABLE x--": "1",
+        "f.nonexistent": "is:x",
+    })
+
+    assert accepted == {"region": ("is", "EG")}
+    assert "f.effective_price;DROP TABLE x--" in ignored
+    assert "f.nonexistent" in ignored
+
+
+def test_an_unknown_operator_is_refused():
+    from scrapex.reports import parse_filters
+
+    accepted, ignored = parse_filters({"f.region": "exec:EG"})
+
+    assert accepted == {} and ignored == ["f.region"]
+
+
+def test_a_computed_column_is_declared_unfilterable_not_half_supported():
+    """unit and tax_label are produced in Python — price_unit() and
+    tax.resolve(), the latter with a region->wildcard fallback and valid_to
+    temporality. Half-supporting them in SQL is a correctness trap."""
+    from scrapex.reports import FILTERABLE, SORTABLE, parse_filters
+
+    assert FILTERABLE["unit"][1] == "derived"
+    assert FILTERABLE["tax_label"][1] == "derived"
+    assert "unit" not in SORTABLE and "tax_label" not in SORTABLE
+    accepted, ignored = parse_filters({"f.unit": "is:liter"})
+    assert accepted == {} and ignored == ["f.unit"]
+
+
+def test_sortable_is_derived_from_the_same_table_so_they_cannot_drift():
+    """They were two separate lists, and SORTABLE quietly omitted
+    last_confirmed and curation_status — columns the page rendered with no way
+    to order by them, and nothing said so."""
+    from scrapex.reports import FILTERABLE, SORTABLE
+
+    assert SORTABLE == {k: v[0] for k, v in FILTERABLE.items() if v[1] != "derived"}
+    assert "last_confirmed" in SORTABLE and "curation_status" in SORTABLE
+
+
+def test_filtering_by_country_uses_the_name_shown_on_screen(split_client):
+    """The table renders region_name ("Egypt"); the column stores the ISO code.
+    Without translating, filtering by the only string on screen matches nothing."""
+    from scrapex.reports import _browse_filters
+
+    clause, params = _browse_filters(None, None, {"region": ("is", "Egypt")})
+
+    assert "so.region = ?" in clause
+    assert params == ["EG"], "the visible name was not resolved to its code"
+
+
+def test_a_filter_value_is_always_bound_never_spliced():
+    from scrapex.reports import _browse_filters
+
+    clause, params = _browse_filters(None, None, {"name": ("has", "'; DROP TABLE x--")})
+
+    assert "'; DROP" not in clause, "a value reached the statement text"
+    assert params == ["%'; DROP TABLE x--%"]

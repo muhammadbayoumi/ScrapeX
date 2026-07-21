@@ -177,7 +177,9 @@ def region_code(text: str | None) -> str:
         return ""
 
 
-def _browse_filters(search: str | None, availability: str | None) -> tuple[str, list]:
+def _browse_filters(search: str | None, availability: str | None,
+                    column_filters: dict[str, tuple[str, str]] | None = None
+                    ) -> tuple[str, list]:
     clause, params = "", []
     if search:
         # Match the region too: for a commodity source the country IS the row.
@@ -193,20 +195,98 @@ def _browse_filters(search: str | None, availability: str | None) -> tuple[str, 
     if availability:
         clause += " AND po.availability = ?"
         params.append(availability)
+    # Per-column filters. Built by iterating FILTERABLE, never the caller's dict,
+    # so an unknown key cannot reach SQL even if one slipped past parse_filters.
+    for key, (operator, value) in (column_filters or {}).items():
+        entry = FILTERABLE.get(key)
+        if entry is None or entry[1] == "derived":
+            continue
+        template = _OPERATORS.get(operator)
+        if template is None:
+            continue
+        clause += " AND " + template.format(col=entry[0])
+        if operator == "has":
+            params.append(f"%{value}%")
+        elif key == "region" and operator == "is":
+            # The screen shows the country NAME (region_name), so that is what a
+            # person types. The column stores the ISO code. Without this,
+            # filtering by the only string on screen matches nothing.
+            params.append(region_code(value) or value)
+        else:
+            params.append(value)
     return clause, params
 
 
-# Sortable columns, as an ALLOW-LIST of key -> SQL expression. A sort key never
-# reaches the query as text, so no ordering choice can become SQL injection.
-SORTABLE = {
-    "name": "sp.source_name",
-    "region": "so.region",
-    "sku": "sv.external_sku",
-    "effective_price": "po.effective_price",
-    "availability": "po.availability",
-    "business_date": "po.business_date",
+# Every column a query may touch, as an ALLOW-LIST of key -> (SQL expression,
+# kind). A key never reaches the query as text, so neither a sort nor a filter
+# can become SQL injection — the expression is looked UP, never interpolated.
+#
+# ONE table, so sorting and filtering cannot drift apart. They were separate,
+# and SORTABLE quietly omitted last_confirmed and curation_status: two columns
+# the page rendered with no way to order by them, and nothing said so.
+#
+# kind decides what control the header offers:
+#   text    free text, matched with LIKE
+#   exact   a bounded domain (a CHECK constraint or ISO codes) -> a <select>
+#   number  a numeric comparison
+#   date    a date comparison
+#   derived computed in PYTHON after the query, so SQL cannot filter it at all
+FILTERABLE: dict[str, tuple[str, str]] = {
+    "name": ("sp.source_name", "text"),
+    "region": ("so.region", "exact"),
+    "option_label": ("sv.option_label", "text"),
+    "sku": ("sv.external_sku", "text"),
+    "effective_price": ("po.effective_price", "number"),
+    "availability": ("po.availability", "exact"),
+    "business_date": ("po.business_date", "date"),
+    "last_confirmed": ("ost.last_confirmed_at", "date"),
+    "curation_status": ("sp.curation_status", "exact"),
+    # Computed in Python — price_unit() and tax.resolve(), the latter with a
+    # region->wildcard fallback and valid_to temporality. Reimplementing that in
+    # SQL and keeping the two in agreement across 169 regions is a correctness
+    # trap, so these are honestly marked unfilterable rather than half-supported.
+    "unit": ("", "derived"),
+    "tax_label": ("", "derived"),
 }
+
+# Derived from the same table, so the two can never disagree about a column.
+SORTABLE = {key: expr for key, (expr, kind) in FILTERABLE.items() if kind != "derived"}
 DEFAULT_SORT = "name"
+
+# What a filter may ASK. The operator picks a SQL template; the value is always
+# a bound parameter, never text spliced into the statement.
+_OPERATORS: dict[str, str] = {
+    "has": "{col} LIKE ?",
+    "is": "{col} = ?",
+    "gte": "{col} >= ?",
+    "lte": "{col} <= ?",
+    "after": "{col} > ?",
+    "before": "{col} < ?",
+}
+
+
+def parse_filters(params: dict[str, str]) -> tuple[dict[str, tuple[str, str]], list[str]]:
+    """Read `f.<key>=<op>:<value>` pairs. Returns (accepted, ignored keys).
+
+    Anything unknown is REPORTED, not silently dropped: a filter that vanishes
+    without a word makes the answer bigger than the question, and the reader has
+    no way to tell. A crafted key is refused here and never reaches SQL.
+    """
+    accepted: dict[str, tuple[str, str]] = {}
+    ignored: list[str] = []
+    for raw_key, raw_value in params.items():
+        if not raw_key.startswith("f."):
+            continue
+        key = raw_key[2:]
+        operator, _, value = str(raw_value).partition(":")
+        if not value or key not in FILTERABLE or operator not in _OPERATORS:
+            ignored.append(raw_key)
+            continue
+        if FILTERABLE[key][1] == "derived":
+            ignored.append(raw_key)      # computed in Python; SQL cannot filter it
+            continue
+        accepted[key] = (operator, value)
+    return accepted, ignored
 
 
 def _order_by(sort: str | None, direction: str | None) -> str:
@@ -220,13 +300,14 @@ def _order_by(sort: str | None, direction: str | None) -> str:
 def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: str | None = None,
                         availability: str | None = None, sort: str | None = None,
                         direction: str | None = None,
+                        column_filters: dict[str, tuple[str, str]] | None = None,
                         offset: int = 0, limit: int = 50) -> BrowsePage:
     """Paginated current-price browse for one source (A8: always LIMIT+OFFSET).
 
     Filters and the base join are shared between the page query and the count
     query so the two can never diverge (DRY)."""
     limit = max(1, min(limit, 200))  # hard cap (A8) — never an unbounded read
-    filt, fparams = _browse_filters(search, availability)
+    filt, fparams = _browse_filters(search, availability, column_filters)
     base_params = [source_key, *fparams]
 
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}{filt}", base_params).fetchone()[0])
@@ -510,3 +591,23 @@ def offer_observations(conn: sqlite3.Connection, offer_id: int,
     return [{"business_date": r[0], "effective_price": r[1], "regular_price": r[2],
              "sale_price": r[3], "currency": r[4], "observed_at": r[5],
              "provenance": r[6]} for r in rows]
+
+
+def facet_options(conn: sqlite3.Connection, source_key: str, key: str,
+                  limit: int = 200) -> list[str]:
+    """The distinct values of one BOUNDED column, for a <select>.
+
+    Only for columns whose domain the schema already limits — a CHECK
+    constraint or ISO codes. Excel offers this list for every column; at 40,000
+    rows a product-name column has ~40,000 distinct values, and building that
+    list is exactly the unbounded read A8 forbids. So free-text columns get a
+    text box, and this is never called for them.
+    """
+    entry = FILTERABLE.get(key)
+    if entry is None or entry[1] != "exact":
+        return []
+    rows = conn.execute(
+        f"SELECT DISTINCT {entry[0]} {_LATEST_PER_OFFER} "
+        f"AND {entry[0]} IS NOT NULL AND TRIM({entry[0]}) <> '' "
+        f"ORDER BY 1 LIMIT ?", (source_key, max(1, min(limit, 500)))).fetchall()
+    return [str(r[0]) for r in rows]

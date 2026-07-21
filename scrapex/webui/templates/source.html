@@ -114,16 +114,49 @@
   {% if page_data.total == 0 %}
     <div class="empty">No matching records.</div>
   {% else %}
-    <p class="muted" style="font-size:.85rem">
-      {{ "{:,}".format(page_data.total) }} records — latest price per offer.
+    {# The form the header controls belong to. It sits OUTSIDE the table because
+       a <form> cannot legally wrap <tr>s; form="browse" on each control is how
+       they join it. #}
+    <form id="browse" method="get" action="/source/{{ source_key }}">
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="direction" value="{{ direction }}">
+      <input type="hidden" name="per_page" value="{{ page_data.limit }}">
+    </form>
+    {# The answer line. Present even with no filters, so its absence never means
+       "I forgot to look". Each pill is a link that removes exactly one filter. #}
+    <p class="answer">
+      {% if filters %}
+        <strong>{{ "{:,}".format(page_data.total) }}</strong> matching
+        {{ "record" if page_data.total == 1 else "records" }}
+        {% for key, spec in filters.items() %}
+          <a class="chip pill" href="{{ query(**{('f.' ~ key): ''}) }}"
+             title="Remove filter: {{ key }} {{ spec[0] }} {{ spec[1] }}"
+             >{{ key }} {{ spec[0] }} <span dir="auto">{{ spec[1] }}</span> ✕</a>
+        {% endfor %}
+        <a href="/source/{{ source_key }}">Clear all</a>
+      {% else %}
+        {{ "{:,}".format(page_data.total) }} records — latest price per offer.
+      {% endif %}
     </p>
+    {% if ignored_filters %}
+      {# A dropped filter makes the answer BIGGER than the question. Silence
+         would leave the reader with no way to know. #}
+      <p class="hint err" role="status">
+        Ignored {{ ignored_filters|length }} unrecognised
+        {{ "filter" if ignored_filters|length == 1 else "filters" }}:
+        <span class="tech">{{ ignored_filters|join(", ") }}</span></p>
+    {% endif %}
     {# Sorting is a link, so it survives a reload and can be shared or bookmarked.
        The arrow makes the active column and direction readable without colour. #}
+    {# Every URL on this page comes from ONE builder. The hand-built link this
+       replaces listed four parameters and dropped `page`; with per-column
+       filters it would have discarded them on every sort click, and the table
+       would have looked like it simply found different rows. #}
     {% macro sortlink(key, label) %}
       {% set nextdir = "desc" if (sort == key and direction == "asc") else "asc" %}
-      <a href="?q={{ q }}&availability={{ availability }}&sort={{ key }}&direction={{ nextdir }}"
-         {% if sort == key %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
-        {{ label }}{% if sort == key %} {{ "▲" if direction == "asc" else "▼" }}{% endif %}</a>
+      <a href="{{ query(sort=key, direction=nextdir) }}">{{ label }}{%
+        if sort == key %} {{ "▲" if direction == "asc" else "▼" }}{% endif %}</a>
     {% endmacro %}
     <div class="tablewrap"><table>
       {# The header and every row are driven by `columns`, which is this SOURCE's
@@ -131,12 +164,53 @@
          A commodity source with no variants and no SKUs is not handed two
          columns of em-dashes to read past, and hiding a column in "Manage
          columns" now changes the table you are looking at. #}
-      <thead><tr>
+      <thead>
+      <tr>
         {% for c in columns %}
-          <th>{% if c.key in sortable %}{{ sortlink(c.key, c.label) }}{% else %}{{ c.label }}{% endif %}</th>
+          {# aria-sort belongs on the CELL. It used to sit on the <a> inside it,
+             where assistive tech does not look for it. #}
+          <th {% if sort == c.key %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
+            {% if c.key in sortable %}{{ sortlink(c.key, c.label) }}{% else %}{{ c.label }}{% endif %}
+          </th>
         {% endfor %}
         <th></th>
-      </tr></thead>
+      </tr>
+      {# The filter row. Inline controls in a second header row — NOT a popup:
+         table{overflow:hidden} nested in .tablewrap{overflow-x:auto} clips
+         anything opened from a <th>. Sticky is switched off on this row so it
+         cannot pin over the labels above it. Every control carries
+         form="browse", so one GET form submits all of them and filtering needs
+         no JavaScript at all. #}
+      <tr class="filterrow">
+        {% for c in columns %}
+          <th>
+            {% set kind = filter_kinds.get(c.key, "text") %}
+            {% set active = filters.get(c.key) %}
+            {% if kind == "derived" %}
+              <span class="muted" style="font-weight:400">computed — not filterable</span>
+            {% elif kind == "exact" %}
+              <select name="f.{{ c.key }}" form="browse" aria-label="Filter by {{ c.label }}">
+                <option value="">Any</option>
+                {% for option in facets.get(c.key, []) %}
+                  <option value="is:{{ option }}"
+                    {% if active and active[1] == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            {% elif kind in ("number", "date") %}
+              <input type="text" form="browse" name="f.{{ c.key }}"
+                     value="{{ (active[0] ~ ':' ~ active[1]) if active else '' }}"
+                     placeholder="{{ 'gte:100' if kind == 'number' else 'after:2026-01-01' }}"
+                     aria-label="Filter by {{ c.label }}" size="12">
+            {% else %}
+              <input type="search" form="browse" name="f.{{ c.key }}"
+                     value="{{ ('has:' ~ active[1]) if active else '' }}"
+                     placeholder="has:…" aria-label="Filter by {{ c.label }}" size="12">
+            {% endif %}
+          </th>
+        {% endfor %}
+        <th><button type="submit" form="browse">Apply</button></th>
+      </tr>
+      </thead>
       <tbody>
       {% for r in page_data.rows %}
         <tr>
@@ -231,16 +305,15 @@
       </tbody>
     </table></div>
 
-    {% set base = "/source/" ~ source_key ~ "?q=" ~ q ~ "&availability=" ~ availability
-                  ~ "&sort=" ~ sort ~ "&direction=" ~ direction %}
+
     {# "Page 3" alone does not say how far you are or how far there is to go.
        The row range and the page count both come from BrowsePage, which has
        carried them all along. #}
     {% set last_page = ((page_data.total - 1) // page_data.limit) + 1 if page_data.total else 1 %}
     <div class="pager">
       {% if page_data.has_prev %}
-        <a href="{{ base }}&page=1" title="First page">« First</a>
-        <a href="{{ base }}&page={{ page-1 }}">← Previous</a>
+        <a href="{{ query(page=1) }}" title="First page">« First</a>
+        <a href="{{ query(page=page-1) }}">← Previous</a>
       {% else %}
         <span class="disabled">« First</span><span class="disabled">← Previous</span>
       {% endif %}
@@ -249,8 +322,8 @@
           "{:,}".format(page_data.offset + page_data.rows|length) }}
         of {{ "{:,}".format(page_data.total) }}</span>
       {% if page_data.has_next %}
-        <a href="{{ base }}&page={{ page+1 }}">Next →</a>
-        <a href="{{ base }}&page={{ last_page }}" title="Last page">Last »</a>
+        <a href="{{ query(page=page+1) }}">Next →</a>
+        <a href="{{ query(page=last_page) }}" title="Last page">Last »</a>
       {% else %}
         <span class="disabled">Next →</span><span class="disabled">Last »</span>
       {% endif %}
@@ -263,6 +336,10 @@
       <input type="hidden" name="availability" value="{{ availability }}">
       <input type="hidden" name="sort" value="{{ sort }}">
       <input type="hidden" name="direction" value="{{ direction }}">
+      {# Without these, changing the page size would silently clear every filter. #}
+      {% for key, spec in filters.items() %}
+        <input type="hidden" name="f.{{ key }}" value="{{ spec[0] }}:{{ spec[1] }}">
+      {% endfor %}
       <label for="per_page" class="muted">Rows per page</label>
       <select id="per_page" name="per_page">
         {% for size in per_page_options %}

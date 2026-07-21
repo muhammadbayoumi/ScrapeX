@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from urllib.parse import urlencode
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -55,7 +56,8 @@ from ..storage import (
 from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
 from ..reports import (
-    BROWSE_COLUMNS, SORTABLE, browse_observations, column_presence, crawl_history,
+    BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
+    crawl_history, facet_options, parse_filters,
     export_source_table, history_counts, list_sources, offer_identity,
     offer_observations, price_extremes, source_summary,
 )
@@ -221,6 +223,26 @@ def create_app(
                                           context={"sources": sources, "pending": pending,
                                                    "tab": "overview", "source_key": None})
 
+    def build_query(current: dict, **overrides) -> str:
+        """One query-string builder for sort links, the pager, chips and Reset.
+
+        Everything that builds a URL on the data page routes through here. The
+        hand-concatenated links it replaces listed q/availability/sort/direction
+        and already dropped `page` — with per-column filters added, every sort
+        click would have silently discarded the filters the reader had set, and
+        the page would have looked like it simply found different rows.
+
+        A changed filter or sort always returns to page 1: staying on page 7 of
+        a result set that no longer has seven pages shows an empty table and
+        blames the data.
+        """
+        merged = dict(current)
+        merged.update(overrides)
+        if any(k not in ("page",) for k in overrides):
+            merged.pop("page", None)
+        pairs = [(k, v) for k, v in merged.items() if v not in (None, "", [])]
+        return "?" + urlencode(pairs, doseq=True) if pairs else ""
+
     @app.get("/source/{source_key}", response_class=HTMLResponse)
     def source(request: Request, source_key: str, q: str = "", availability: str = "",
                page: int = 1, sort: str = "", direction: str = "asc",
@@ -229,15 +251,26 @@ def create_app(
         # Clamped against the same cap browse_observations enforces, so a
         # hand-typed ?per_page=40000 cannot ask the warehouse for everything.
         per_page = per_page if per_page in PER_PAGE_OPTIONS else PAGE_SIZE
+        # f.* cannot be expressed as typed FastAPI arguments — the number of
+        # filters is not known in advance — so they are read from the raw query
+        # string and validated against the allow-list before anything else.
+        raw = dict(request.query_params)
+        column_filters, ignored_filters = parse_filters(raw)
+        # The state every URL on this page is built from.
+        state = {k: v for k, v in raw.items()
+                 if k.startswith("f.") and k[2:] in column_filters}
+        state.update({"q": q, "availability": availability, "sort": sort,
+                      "direction": direction, "per_page": per_page})
         conn = read_conn()
         try:
             summary = source_summary(conn, source_key)
             page_data, fields, views, columns = None, [], [], []
-            changes_by_offer = {}
+            changes_by_offer, facets = {}, {}
             if summary is not None:
                 page_data = browse_observations(
                     conn, source_key, search=q or None, availability=availability or None,
                     sort=sort or None, direction=direction,
+                    column_filters=column_filters,
                     offset=(page - 1) * per_page, limit=per_page)
                 # Register THIS SOURCE's columns — not a constant header shared by
                 # every site — so "manage columns" manages what the table shows,
@@ -258,6 +291,12 @@ def create_app(
                 # One bounded query for the whole page, never one per row.
                 changes_by_offer = history_counts(
                     conn, [r["offer_id"] for r in page_data.rows if r.get("offer_id")])
+                # A <select> only where the schema bounds the domain. Free-text
+                # columns get a text box, because listing every distinct product
+                # name is the unbounded read A8 forbids.
+                facets = {key: facet_options(conn, source_key, key)
+                          for key in shown
+                          if FILTERABLE.get(key, ("", ""))[1] == "exact"}
         finally:
             conn.close()
         return TEMPLATES.TemplateResponse(
@@ -271,7 +310,10 @@ def create_app(
                      # instead: a price may lose its column, never its unit.
                      "shows_unit": any(c["key"] == "unit" for c in columns),
                      "availability_options": AVAILABILITY_OPTIONS,
-                     "per_page_options": PER_PAGE_OPTIONS},
+                     "per_page_options": PER_PAGE_OPTIONS,
+                     "filters": column_filters, "ignored_filters": ignored_filters,
+                     "facets": facets, "filter_kinds": {k: v[1] for k, v in FILTERABLE.items()},
+                     "query": lambda **kw: build_query(state, **kw)},
             status_code=200 if summary is not None else 404)
 
     @app.get("/source/{source_key}/offer/{offer_id}", response_class=HTMLResponse)
