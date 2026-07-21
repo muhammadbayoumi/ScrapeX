@@ -5,6 +5,8 @@
    internet, and a page that quietly fetched a library would fail exactly when
    the owner is offline. See static/vendor/README.md. #}
 <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
+{# Loaded AFTER the library so the project's own table appearance wins. #}
+<link rel="stylesheet" href="/static/grid-theme.css">
 <script src="/static/vendor/tabulator.min.js"></script>
 <script src="/static/grid.js" defer></script>
 {# Interface language is English only (spec 1). Scraped values are DATA: they

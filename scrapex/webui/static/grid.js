@@ -35,9 +35,15 @@
   // not want the same shape, so one global preference would be wrong for one of
   // them. localStorage rather than the database: this is how a table is DRAWN,
   // not what it means, and it should not survive into an export or a backup.
-  const FEATURE_KEY = "scrapex-features-" + (mount.dataset.source || "");
+  // v2: the key is versioned because the defaults changed. A preference saved
+  // under the old defaults would keep showing stripes the owner never asked
+  // for, and "clear your browser storage" is not an answer.
+  const FEATURE_KEY = "scrapex-features-v2-" + (mount.dataset.source || "");
+  // Defaults chosen to leave the table looking EXACTLY as it did: no stripes,
+  // no extra columns, standard spacing. Grouping is the one thing on by
+  // default, and only where the server found something to group.
   const DEFAULT_FEATURES = {tree: true, totals: false, rownum: false,
-                            compact: false, wrap: false, stripe: true};
+                            compact: false, wrap: false, stripe: false};
   let features = Object.assign({}, DEFAULT_FEATURES);
   try {
     const saved = JSON.parse(localStorage.getItem(FEATURE_KEY) || "null");

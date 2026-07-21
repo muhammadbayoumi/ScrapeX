@@ -151,6 +151,8 @@
     /* Compact and striped are drawn here rather than by the library, so they
        follow the page's own surface and spacing. */
     .tabulator.compact .tabulator-cell{padding-top:.15rem;padding-bottom:.15rem}
+    /* Only when the owner ticks "Striped rows". Mixed from --text so it follows
+       light and dark rather than being a colour of its own. */
     .tabulator.striped .tabulator-row.tabulator-row-even{
       background:color-mix(in srgb,var(--text) 3%,transparent)}
     .tabulator.wrap .tabulator-cell{white-space:normal}
@@ -161,21 +163,11 @@
     .tabulator .tabulator-header-popup-button{order:2;cursor:pointer;opacity:.55}
     .tabulator .tabulator-header-popup-button:hover{opacity:1;color:var(--accent-ink)}
     .tabulator .tabulator-col-title > :not(.tabulator-header-popup-button){order:1}
-    /* Tabulator inherits the page's surface rather than shipping its own look,
-       so the grid does not read as a component bolted onto a different app. */
-    .tabulator{background:var(--surface);border:1px solid var(--line);
-      border-radius:12px;font-size:.9rem}
-    .tabulator .tabulator-header{background:var(--surface);border-bottom:1px solid var(--line)}
-    .tabulator .tabulator-col{background:var(--surface);border-right:1px solid var(--line)}
-    .tabulator .tabulator-col-title{color:var(--muted);font-weight:500;font-size:.78rem}
-    .tabulator-row{background:var(--surface);color:var(--text)}
-    .tabulator-row.tabulator-row-even{background:var(--surface)}
-    .tabulator-row:hover{background:color-mix(in srgb,var(--accent) 6%,transparent)}
-    .tabulator-row .tabulator-cell{border-right:1px solid var(--line)}
-    .tabulator .tabulator-menu,.tabulator .tabulator-popup-container{
-      background:var(--surface);border:1px solid var(--line);border-radius:10px;
-      box-shadow:var(--shadow);color:var(--text)}
-    .tabulator-menu-item:hover{background:var(--accent-weak);color:var(--accent-ink)}
+    /* The grid's appearance lives in static/grid-theme.css, loaded after the
+       library so the project's own table rules win. It is a stylesheet rather
+       than more lines here because it has to override a hardcoded theme,
+       including several !important declarations, and that is easier to read and
+       to check when it sits beside what it overrides. */
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never

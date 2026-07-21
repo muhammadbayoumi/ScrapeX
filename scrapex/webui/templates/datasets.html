@@ -5,6 +5,8 @@
    machine with no internet, and a page that quietly fetches a library would
    fail exactly when the owner is offline. See static/vendor/README.md. #}
 <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
+{# Loaded AFTER the library so the project's own table appearance wins. #}
+<link rel="stylesheet" href="/static/grid-theme.css">
 <script src="/static/vendor/tabulator.min.js" defer></script>
 <style>
   .dataset-workflow{display:grid;gap:1rem}
