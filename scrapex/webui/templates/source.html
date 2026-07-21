@@ -45,6 +45,47 @@
       <a href="/history?source_key={{ summary.source_key }}">Crawl history</a>
     </p>
   </div>
+  {# The watch strip: what needs you, before what exists. Every tile is a plain
+     <a> to the filtered table, so one mechanism does the filtering, the link is
+     bookmarkable, and a screen reader gets a link rather than a click handler.
+     A zero tile stays VISIBLE and greyed — a tile that disappears is
+     indistinguishable from one nobody built. #}
+  {% if watch %}
+  <div class="watch">
+    {# A tile's number and the page it opens must count the SAME rows, or the
+       owner learns to distrust both. So a tile that filters THIS table links to
+       this table filtered; a tile whose answer lives on another page says so
+       with an arrow, and is never presented as a filter of what is below. #}
+    {% macro tile(count, label, href, zero_text, elsewhere=false) %}
+      {% if count %}
+        <a class="tile" href="{{ href }}">
+          <span class="n">{{ "{:,}".format(count) }}</span>
+          <span class="l">{{ label }}{% if elsewhere %} →{% endif %}</span></a>
+      {% else %}
+        <span class="tile zero"><span class="n">0</span>
+          <span class="l">{{ zero_text }}</span></span>
+      {% endif %}
+    {% endmacro %}
+
+    {% if not watch.history_built %}
+      {# A bare 0 here would say "nothing moved". The truth is that nothing has
+         been derived yet, which is a different answer. #}
+      <span class="tile zero"><span class="n">—</span>
+        <span class="l">Price history not built yet</span></span>
+    {% else %}
+      {{ tile(watch.moved, "moved in 7 days", "/changes?source_key=" ~ source_key,
+              "no price moved this week", elsewhere=true) }}
+    {% endif %}
+    {{ tile(watch.missing, "missing from the site", "/changes?source_key=" ~ source_key,
+            "none missing", elsewhere=true) }}
+    {{ tile(watch.state_not_derived, "state not derived",
+            "/source/" ~ source_key, "all states derived") }}
+    {{ tile(watch.needs_curation, "not curated yet",
+            query(**{"f.curation_status": "is:inventoried"}),
+            "everything is curated") }}
+  </div>
+  {% endif %}
+
   <div class="metrics">
     <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">Products</div></div>
     <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">Variants</div></div>

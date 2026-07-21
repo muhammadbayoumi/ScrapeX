@@ -57,7 +57,7 @@ from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
 from ..reports import (
     BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
-    crawl_history, facet_options, parse_filters,
+    crawl_history, facet_options, parse_filters, watch,
     export_source_table, history_counts, list_sources, offer_identity,
     offer_observations, price_extremes, source_summary,
 )
@@ -265,7 +265,7 @@ def create_app(
         try:
             summary = source_summary(conn, source_key)
             page_data, fields, views, columns = None, [], [], []
-            changes_by_offer, facets = {}, {}
+            changes_by_offer, facets, watch_counts = {}, {}, {}
             if summary is not None:
                 page_data = browse_observations(
                     conn, source_key, search=q or None, availability=availability or None,
@@ -294,6 +294,7 @@ def create_app(
                 # A <select> only where the schema bounds the domain. Free-text
                 # columns get a text box, because listing every distinct product
                 # name is the unbounded read A8 forbids.
+                watch_counts = watch(conn, source_key)
                 facets = {key: facet_options(conn, source_key, key)
                           for key in shown
                           if FILTERABLE.get(key, ("", ""))[1] == "exact"}
@@ -311,6 +312,7 @@ def create_app(
                      "shows_unit": any(c["key"] == "unit" for c in columns),
                      "availability_options": AVAILABILITY_OPTIONS,
                      "per_page_options": PER_PAGE_OPTIONS,
+                     "watch": watch_counts,
                      "filters": column_filters, "ignored_filters": ignored_filters,
                      "facets": facets, "filter_kinds": {k: v[1] for k, v in FILTERABLE.items()},
                      "query": lambda **kw: build_query(state, **kw)},

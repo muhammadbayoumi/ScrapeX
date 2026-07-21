@@ -611,3 +611,70 @@ def facet_options(conn: sqlite3.Connection, source_key: str, key: str,
         f"AND {entry[0]} IS NOT NULL AND TRIM({entry[0]}) <> '' "
         f"ORDER BY 1 LIMIT ?", (source_key, max(1, min(limit, 500)))).fetchall()
     return [str(r[0]) for r in rows]
+
+
+def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7) -> dict:
+    """What needs the owner, counted once — the watch strip above the table.
+
+    Three queries, not five: the offer-scoped counts share one pass over the
+    latest-per-offer join, and the period tables are asked once each. Five
+    separate COUNT(*)s over that correlated subquery would be five full scans to
+    render one strip.
+
+    Every count is DERIVED from the same rows the table shows, so a tile and the
+    page it links to can never disagree. A tile whose number does not match the
+    list it opens teaches the owner to distrust both.
+    """
+    from datetime import date, timedelta
+
+    cutoff = (date.today() - timedelta(days=max(1, moved_within_days))).isoformat()
+    result = {"total": 0, "state_not_derived": 0, "needs_curation": 0,
+              "moved": 0, "missing": 0, "history_built": True}
+
+    row = conn.execute(
+        "SELECT COUNT(*), "
+        # A NULL offer_state is NOT "confirmed" — _LATEST_PER_OFFER joins it
+        # LEFT precisely because an offer whose state has not been derived still
+        # has a price. Folding those into "confirmed" would under-report exactly
+        # the staleness this strip exists to surface.
+        "       SUM(CASE WHEN ost.last_confirmed_at IS NULL THEN 1 ELSE 0 END), "
+        "       SUM(CASE WHEN sp.curation_status = 'inventoried' THEN 1 ELSE 0 END) "
+        f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
+    if row:
+        result["total"] = int(row[0] or 0)
+        result["state_not_derived"] = int(row[1] or 0)
+        result["needs_curation"] = int(row[2] or 0)
+
+    try:
+        built = conn.execute(
+            "SELECT COUNT(*) FROM price_period pp "
+            "JOIN source_offer so ON so.offer_id = pp.offer_id "
+            "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+            "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ?", (source_key,)).fetchone()[0]
+        # price_period is DERIVED and only filled by a rebuild. Empty means
+        # "not built yet", which is a different answer from "nothing moved" —
+        # reporting a bare 0 for both would be a lie of omission.
+        result["history_built"] = bool(built)
+        result["moved"] = int(conn.execute(
+            "SELECT COUNT(DISTINCT pp.offer_id) FROM price_period pp "
+            "JOIN source_offer so ON so.offer_id = pp.offer_id "
+            "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+            "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ? AND pp.first_detected_at >= ? "
+            "AND pp.opened_because = 'price_change'", (source_key, cutoff)).fetchone()[0])
+        result["missing"] = int(conn.execute(
+            "SELECT COUNT(*) FROM absence_period ap "
+            "JOIN source_offer so ON so.offer_id = ap.offer_id "
+            "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+            "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ? AND ap.returned_at IS NULL",
+            (source_key,)).fetchone()[0])
+    except sqlite3.DatabaseError:
+        # A warehouse older than migration 0016 has neither table. Saying so is
+        # correct; pretending the counts are zero is not.
+        result["history_built"] = False
+    return result

@@ -109,6 +109,15 @@
       gap:.4rem;flex-wrap:wrap}
     .chip.pill{background:var(--accent-weak);color:var(--accent-ink);cursor:pointer}
     .chip.pill:hover{filter:brightness(.95)}
+    /* The watch strip. A zero tile is greyed and NOT a link, but it is still
+       there and still says what it counts — in words, never by colour alone. */
+    .watch{display:flex;gap:.6rem;flex-wrap:wrap;margin:.2rem 0 1rem}
+    .tile{display:flex;flex-direction:column;gap:.1rem;background:var(--surface);
+      border:1px solid var(--line);border-radius:10px;padding:.5rem .8rem;min-width:8rem}
+    a.tile:hover{border-color:var(--accent)}
+    .tile .n{font-size:1.2rem;font-weight:600;font-variant-numeric:tabular-nums}
+    .tile .l{font-size:.72rem;color:var(--muted)}
+    .tile.zero{opacity:.6}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never

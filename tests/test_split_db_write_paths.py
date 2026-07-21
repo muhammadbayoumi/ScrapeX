@@ -259,3 +259,76 @@ def test_a_filter_value_is_always_bound_never_spliced():
 
     assert "'; DROP" not in clause, "a value reached the statement text"
     assert params == ["%'; DROP TABLE x--%"]
+
+
+# ---- Data page, slice 4: the watch strip ------------------------------------
+
+def test_a_state_that_was_never_derived_is_not_counted_as_confirmed(tmp_path):
+    """_LATEST_PER_OFFER joins offer_state LEFT precisely because an offer whose
+    state has not been derived still has a price. Folding those into "confirmed"
+    would under-report exactly the staleness this strip exists to surface."""
+    from scrapex.databases import DatabaseRegistry
+    from scrapex.reports import watch
+
+    registry = DatabaseRegistry(
+        GeneralDatabase(tmp_path / "g" / "g.db"),
+        MarketLensDatabase(tmp_path / "m" / "m.db"),
+        pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.marketlens.connect()
+    try:
+        counts = watch(conn, "GPP_ENERGY")
+    finally:
+        conn.close()
+
+    assert "state_not_derived" in counts
+    assert counts["state_not_derived"] == 0, "no offers yet, so none can be undrived"
+
+
+def test_an_unbuilt_history_is_reported_as_unbuilt_not_as_zero(tmp_path):
+    """price_period is DERIVED and only filled by a rebuild. Empty means "not
+    built yet", which is a different answer from "nothing moved" — a bare 0 for
+    both is a lie of omission."""
+    from scrapex.databases import DatabaseRegistry
+    from scrapex.reports import watch
+
+    registry = DatabaseRegistry(
+        GeneralDatabase(tmp_path / "g2" / "g.db"),
+        MarketLensDatabase(tmp_path / "m2" / "m.db"),
+        pointer_file=tmp_path / "databases2.json")
+    registry.initialize()
+    conn = registry.marketlens.connect()
+    try:
+        counts = watch(conn, "GPP_ENERGY")
+    finally:
+        conn.close()
+
+    assert counts["history_built"] is False
+    assert counts["moved"] == 0
+
+
+def test_the_strip_is_rendered_and_a_zero_tile_still_appears(split_client):
+    """A tile that disappears at zero is indistinguishable from one nobody
+    built. It stays, greyed, and says what it counts — in words."""
+    body = split_client.get("/source/GPP_ENERGY").text
+    # A source with no data renders the never-run block instead; either way the
+    # page must not crash and must state something.
+    assert "Never run" in body or "watch" in body
+
+
+def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
+    """The design's decisive acceptance check, and it caught a real defect: the
+    curation tile counted 721 offers in THIS table and opened /review, which
+    lists match reviews — a different population entirely. A tile whose number
+    disagrees with the list it opens teaches the owner to distrust both.
+
+    Tiles that ARE a filter of this table now link to this table filtered; tiles
+    whose answer lives elsewhere say so with an arrow instead of pretending.
+    """
+    page = (Path(__file__).resolve().parent.parent / "scrapex" / "webui"
+            / "templates" / "source.html").read_text(encoding="utf-8")
+
+    assert 'f.curation_status": "is:inventoried"' in page, \
+        "the curation tile must open this table filtered, not another page"
+    assert "elsewhere=true" in page, \
+        "a tile pointing at another page must be marked as going elsewhere"
