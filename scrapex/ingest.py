@@ -524,6 +524,13 @@ def _commodity_to_product_row(c: dict) -> dict:
         "vat_included": c.get("vat_included", ""),
         "effective_price": c["effective_price"],
         "unit": c.get("unit", ""),
+        # A row the SOURCE dates versus a row WE date. These used to be dropped
+        # here, which stamped every reported history anchor with the crawl date:
+        # three "months ago" prices all landing as today, colliding with the
+        # current price and with each other. They travel so _persist_row can put
+        # reported rows on their own path.
+        "provenance": c.get("provenance", ""),
+        "as_of_date": c.get("as_of_date", ""),
     })
     return row
 
@@ -598,6 +605,37 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
 
     offer_id = _get_offer_id(conn, variant_id, r)
     v = _observation_values(r, observed_at)
+
+    # A REPORTED row is the source's own statement about an earlier date — not
+    # something we watched. It takes a separate, quieter path:
+    #   - business_date is the date the source says the price held, which is the
+    #     row's whole meaning;
+    #   - it is not a confirmation of today's open period, does not mark the
+    #     offer as seen (it says nothing about the site today), and NEVER feeds
+    #     change detection — a backfilled 2016 price arriving after today's row
+    #     would otherwise be read as a price change that happened this morning.
+    if r.get("provenance") == "reported":
+        if not r.get("as_of_date"):
+            # A dated claim with no date is no claim at all.
+            result.rejected_out_of_scope += 1
+            return
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO price_observation "
+            "(offer_id, observed_at, business_date, regular_price, sale_price, "
+            " effective_price, currency, vat_included, availability, stock_quantity, "
+            " run_id, record_hash, price_hash, price_fields, provenance) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'reported')",
+            (offer_id, v["observed_at"], r["as_of_date"], v["regular_price"],
+             v["sale_price"], v["effective_price"], v["currency"], v["vat_included"],
+             v["availability"], v["stock_quantity"], run_id, v["record_hash"],
+             v["price_hash"], v["price_fields"]),
+        )
+        if cur.rowcount == 1:
+            result.observations += 1
+        else:
+            result.duplicates += 1
+        return
+
     # Every row seen is a candidate confirmation, appended or not.
     result.seen[offer_id] = v
 
@@ -609,16 +647,20 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
         return
 
     # Read the prior state BEFORE appending — same tiebreak as the publish path.
+    # Observed rows only: the freshest row by insertion order may be a REPORTED
+    # backfill whose business_date is years old, and comparing today's price
+    # against a 2016 anchor would record a change nobody's price ever made.
     previous = conn.execute(
-        "SELECT effective_price, availability FROM price_observation WHERE offer_id = ? "
+        "SELECT effective_price, availability FROM price_observation "
+        "WHERE offer_id = ? AND provenance = 'observed' "
         "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1", (offer_id,)
     ).fetchone()
     cur = conn.execute(
         "INSERT OR IGNORE INTO price_observation "
         "(offer_id, observed_at, business_date, regular_price, sale_price, effective_price, "
         " currency, vat_included, availability, stock_quantity, run_id, record_hash, "
-        "price_hash, price_fields) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "price_hash, price_fields, provenance) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'observed')",
         (offer_id, v["observed_at"], v["business_date"], v["regular_price"], v["sale_price"],
          v["effective_price"], v["currency"], v["vat_included"], v["availability"],
          v["stock_quantity"], run_id, v["record_hash"],

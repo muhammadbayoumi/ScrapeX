@@ -60,7 +60,11 @@ def commodity_payload(rows, source_key="GPP_ENERGY", scraped_at="2026-07-16T10:0
 def test_adapter_maps_commodity_row_onto_every_product_column():
     c = RowView(COMMODITY_PRICE, list(COMMODITY_PRICE.columns)).as_dict(commodity_row())
     r = _commodity_to_product_row(c)
-    assert set(r) == set(PRODUCT_PRICES.columns)          # exactly the product shape
+    # The product shape plus the two fields _persist_row ROUTES on. They ride
+    # outside the product columns deliberately: putting them into PRODUCT_PRICES
+    # would widen every product connector's contract to carry what only
+    # commodity history uses.
+    assert set(r) == set(PRODUCT_PRICES.columns) | {"provenance", "as_of_date"}
     assert r["external_product_id"] == "DIESEL" and r["product_name"] == "DIESEL"
     # The unit goes to its own column and nowhere else. It used to be stuffed
     # into option_label, where a unit was indistinguishable from a variant

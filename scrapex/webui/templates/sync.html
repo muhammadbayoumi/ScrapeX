@@ -18,7 +18,10 @@
     <div class="step-body">
       <h3>Copy the script into your spreadsheet</h3>
       <p class="hint">In the sheet: Extensions → Apps Script, replace the file contents,
-        then Deploy → New deployment → Web app, executing as you, accessible to you only.</p>
+        then Project Settings → Script Properties → add <code>FUNNEL_TOKEN</code> (step 2
+        generates it). Deploy → New deployment → Web app, <strong>Execute as: Me</strong>,
+        <strong>Who has access: Anyone</strong> — ScrapeX posts without a Google sign-in,
+        so any narrower access answers the login page instead of the funnel.</p>
       <div class="row">
         <button id="copy-script">Copy script</button>
         <button id="show-script" class="ghost" aria-expanded="false"

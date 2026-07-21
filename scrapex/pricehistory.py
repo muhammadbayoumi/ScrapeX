@@ -30,17 +30,23 @@ UNKNOWN_KEY = ""
 
 
 def _observations(conn: sqlite3.Connection, offer_id: int) -> list[sqlite3.Row]:
-    """Every observation for one offer, oldest first.
+    """Every observation WE made for one offer, oldest first.
 
     The tie-break matters: one crawl stamps every row with the same observed_at,
     so ordering by time alone leaves the sequence undefined and a rebuild would
     produce a different timeline each run.
+
+    Reported rows are excluded by design: the derived timeline is the record of
+    what ScrapeX watched happen (owner rule: real changes only). A publisher's
+    backfilled anchor sits in the same table for display and analysis, but
+    letting it open and close periods would let someone else's dating write our
+    history.
     """
     return conn.execute(
         "SELECT price_observation_id, observed_at, business_date, effective_price, "
         "       regular_price, sale_price, currency, vat_included, availability, "
         "       stock_quantity, price_hash, price_fields "
-        "FROM price_observation WHERE offer_id = ? "
+        "FROM price_observation WHERE offer_id = ? AND provenance = 'observed' "
         "ORDER BY observed_at, price_observation_id",
         (offer_id,),
     ).fetchall()

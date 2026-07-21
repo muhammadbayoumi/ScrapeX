@@ -26,11 +26,17 @@ class _Resp:
 
 
 class _StubFetcher:
+    """Serves the LIST at /diesel_prices/ and the Egypt COUNTRY page for every
+    /{Country}/diesel_prices/ — the same two shapes the live site serves. The
+    list is the frontier; the country page is where the price now comes from."""
     def __init__(self): self.requests_count = 0
     def get(self, url, **kwargs):
         self.requests_count += 1
-        if url.endswith("/diesel_prices/"):
+        path = url.split(".com", 1)[-1]
+        if path == "/diesel_prices/":
             return _Resp(_read("gpp_diesel.html"))
+        if path.endswith("/diesel_prices/"):
+            return _Resp(_read("gpp_country_egypt_diesel.html"))
         raise RuntimeError("404 " + url)
     def close(self): pass
 
@@ -92,19 +98,30 @@ def test_region_maps_and_skips_unknown():
 # ---- full fetch --------------------------------------------------------------
 
 def test_gpp_fetches_diesel_and_maps_regions():
+    """The price is now the one the source PUBLISHES, in its own currency.
+
+    1 list request + 3 country requests (Atlantis is unmapped, so its page is
+    never fetched). Each mapped country yields its current published price plus
+    the free history anchors as reported rows.
+    """
     fetcher = _StubFetcher()
     table = next(iter(GlobalPetrolPricesConnector(fetcher).fetch(make_entry())))
-    assert fetcher.requests_count == 1          # only the DIESEL page is contracted here
-    assert len(table.rows) == 3                 # Atlantis (unmapped) skipped
+    assert fetcher.requests_count == 4          # 1 list + 3 country pages
     view = RowView(COMMODITY_PRICE, table.header)
+    rows = [view.as_dict(r) for r in table.rows]
 
-    egypt = view.as_dict(table.rows[0])
+    current = [r for r in rows if r["provenance"] == "observed"]
+    assert len(current) == 3                    # Atlantis (unmapped) skipped
+    egypt = current[0]
     assert egypt["material_key"] == "DIESEL" and egypt["region"] == "EG"
-    assert egypt["effective_price"] == "0.404" and egypt["currency"] == "USD"
-    assert egypt["unit"] == "USD/liter" and egypt["vat_included"] == "1"
+    # EGP 20.50 as published — NOT the list page's 0.404 USD conversion.
+    assert egypt["effective_price"] == "20.50" and egypt["currency"] == "EGP"
+    assert egypt["unit"] == "liter" and egypt["vat_included"] == "1"
+    assert egypt["price_basis"] == "original"
+    assert egypt["source_date"] == "2026-07-13"
 
-    ksa = view.as_dict(table.rows[1])
-    assert ksa["region"] == "SA" and ksa["effective_price"] == "0.476"
+    reported = [r for r in rows if r["provenance"] == "reported"]
+    assert reported and all(r["as_of_date"] for r in reported)
 
 
 def test_one_failing_page_does_not_kill_the_crawl():
@@ -112,8 +129,7 @@ def test_one_failing_page_does_not_kill_the_crawl():
     fetcher = _StubFetcher()
     table = next(iter(GlobalPetrolPricesConnector(fetcher).fetch(
         make_entry(materials=("DIESEL", "GASOLINE")))))
-    assert fetcher.requests_count == 2       # both pages attempted
-    assert len(table.rows) == 3              # the DIESEL page survived the GASOLINE failure
+    assert fetcher.requests_count == 5       # both lists attempted + 3 country pages
     view = RowView(COMMODITY_PRICE, table.header)
     assert {view.as_dict(r)["region"] for r in table.rows} == {"EG", "SA", "US"}
 
@@ -134,7 +150,6 @@ def test_layout_drift_on_one_page_does_not_discard_the_others():
 
     table = next(iter(GlobalPetrolPricesConnector(_DriftFetcher()).fetch(
         make_entry(materials=("DIESEL", "GASOLINE")))))
-    assert len(table.rows) == 3            # the DIESEL page survived
     view = RowView(COMMODITY_PRICE, table.header)
     assert {view.as_dict(r)["region"] for r in table.rows} == {"EG", "SA", "US"}
 
@@ -166,9 +181,14 @@ def test_gpp_end_to_end_into_warehouse():
         offers = conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0]
     finally:
         conn.close()
-    # one product (DIESEL), one implicit variant, three region offers:
-    assert (result.products, result.variants, result.observations) == (1, 1, 3)
+    # One product (DIESEL), one implicit variant, three region offers. Each
+    # offer lands 1 observed row + reported rows for the source's own dating and
+    # its free history anchors; reported rows on distinct business dates all
+    # persist (the dedupe key includes the date), and none of them fires change
+    # detection or period logic — covered by test_ingest_reported.py.
+    assert (result.products, result.variants) == (1, 1)
     assert offers == 3
+    assert result.observations >= 9   # 3 observed + at least 2 dated anchors each
 
 
 # ---- the electricity page uses a different layout entirely -------------------
@@ -189,9 +209,12 @@ class _FiveePageFetcher:
     def get(self, url, **kwargs):
         self.requests_count += 1
         self.urls.append(url)
-        if url.endswith("/diesel_prices/"):
+        path = url.split(".com", 1)[-1]
+        if path == "/diesel_prices/":
             return _Resp(_read("gpp_diesel.html"))
-        if url.endswith("/electricity_prices/"):
+        if path.endswith("/diesel_prices/"):
+            return _Resp(_read("gpp_country_egypt_diesel.html"))
+        if path.endswith("/electricity_prices/"):
             return _Resp("<html><body>nothing here</body></html>" if self._break
                          else _read("gpp_electricity.html"))
         raise RuntimeError("404 " + url)
@@ -377,10 +400,15 @@ def test_a_reported_price_never_passes_for_one_we_observed():
 
     current = [r for r in rows if r["provenance"] == "observed"]
     reported = [r for r in rows if r["provenance"] == "reported"]
-    assert len(current) == 1 and len(reported) == 3
+    # 3 free anchors + the source's own "Last update" dating of the current price
+    assert len(current) == 1 and len(reported) == 4
     assert current[0]["as_of_date"] == "", "today's price needs no as-of date"
     year_ago = [r for r in reported if r["as_of_date"] == "2025-07-20"]
     assert year_ago and year_ago[0]["effective_price"] == "15.50"
+    # The page's Last update (2026-07-13) is the SOURCE's claim about when this
+    # price took effect — a dated claim, so it lands as reported, on that date.
+    stamped = [r for r in reported if r["as_of_date"] == "2026-07-13"]
+    assert stamped and stamped[0]["effective_price"] == "20.50"
 
 
 def test_the_amount_and_its_currency_label_always_agree():
@@ -412,11 +440,79 @@ def test_a_page_without_the_tables_yields_nothing_rather_than_a_guess():
     assert page.price == "" and page.currency == "" and page.history == ()
 
 
-def test_the_country_url_follows_the_sites_own_shape():
-    from scrapex.connectors.gpp import country_page_url
+def test_the_country_link_is_read_off_the_page_never_rebuilt_from_the_name():
+    """The predecessor slugified the printed NAME into a path. The live list
+    pages disprove the premise: every label is a link, and for 11 countries the
+    abbreviation and the slug disagree — 'UK' links to /United-Kingdom/,
+    'Dom. Rep.' to /Dominican-Republic/. Guessing 404s exactly there."""
+    from scrapex.connectors.gpp import parse_country_links
 
-    base = "https://www.globalpetrolprices.com"
-    assert (country_page_url(base, "Saudi Arabia", "diesel_prices")
-            == f"{base}/Saudi-Arabia/diesel_prices/")
-    assert (country_page_url(base, "Egypt", "gasoline_prices")
-            == f"{base}/Egypt/gasoline_prices/")
+    html = """
+    <div id="outsideLinks"><div>
+      <div class="outsideTitle"><a class='graph_outside_link'
+        href='/United-Kingdom/diesel_prices/'>UK</a></div>
+      <div class="outsideTitle"><a class='graph_outside_link'
+        href='/Dominican-Republic/diesel_prices/'>Dom. Rep.</a></div>
+      <div class="outsideTitle"><a class='graph_outside_link'
+        href='/Egypt/diesel_prices/'>Egypt*&nbsp;</a></div>
+    </div></div>"""
+    links = parse_country_links(html)
+
+    assert links["UK"] == "/United-Kingdom/diesel_prices/"
+    assert links["Dom. Rep."] == "/Dominican-Republic/diesel_prices/"
+    assert links["Egypt"] == "/Egypt/diesel_prices/"   # label cleaned of * and nbsp
+
+
+def test_a_blocked_crawl_stops_instead_of_marching_through_the_frontier():
+    """CrawlBlocked is the fetcher saying the SITE said no. The per-page guard
+    exists to survive one bad page; catching the stop signal under it would turn
+    'stop' into hundreds more requests against a server that already objected."""
+    from scrapex.connectors.base import CrawlBlocked
+
+    class _BlockedFetcher(_StubFetcher):
+        def get(self, url, **kwargs):
+            path = url.split(".com", 1)[-1]
+            if path == "/diesel_prices/":
+                return _Resp(_read("gpp_diesel.html"))
+            raise CrawlBlocked("5 consecutive refusals")
+
+    with pytest.raises(CrawlBlocked):
+        next(iter(GlobalPetrolPricesConnector(_BlockedFetcher()).fetch(make_entry())))
+
+
+def test_a_fuel_country_whose_page_fails_gets_no_converted_stand_in():
+    """Currency is outside offer identity and the canonical unit collapses
+    'USD/liter' with 'liter', so a USD stand-in would land on the SAME offer as
+    last week's EGP row — recorded as a ~5,000% price change. A missing week is
+    honest; a false jump is corruption. The warning carries what was skipped."""
+    class _EgyptDownFetcher(_StubFetcher):
+        def get(self, url, **kwargs):
+            if "/Egypt/" in url:
+                self.requests_count += 1
+                raise RuntimeError("504 gateway timeout")
+            return super().get(url, **kwargs)
+
+    table = next(iter(GlobalPetrolPricesConnector(_EgyptDownFetcher()).fetch(
+        make_entry())))
+
+    view = RowView(COMMODITY_PRICE, table.header)
+    rows = [view.as_dict(r) for r in table.rows]
+    assert rows, "the healthy countries must still land"
+    assert {r["region"] for r in rows} == {"SA", "US"}, "Egypt must be absent, not faked"
+    assert all(r["currency"] != "USD" for r in rows), "a converted stand-in slipped through"
+    assert any("EG" in w for w in table.warnings),         "a skipped country must be named, not lost quietly"
+
+
+def test_every_country_down_still_fails_loud():
+    """One country down is a warning; ALL of them down is a broken crawl and
+    must not report an empty success."""
+    class _AllCountriesDownFetcher(_StubFetcher):
+        def get(self, url, **kwargs):
+            path = url.split(".com", 1)[-1]
+            if path == "/diesel_prices/":
+                return _Resp(_read("gpp_diesel.html"))
+            raise RuntimeError("504 gateway timeout")
+
+    with pytest.raises(ValueError, match="every contracted GPP page failed"):
+        next(iter(GlobalPetrolPricesConnector(_AllCountriesDownFetcher()).fetch(
+            make_entry())))

@@ -44,13 +44,19 @@ python -m scrapex.cli validate-manifest  # checks sources.yaml (same gate runs i
    -join ((48..57)+(97..122) | Get-Random -Count 48 | % {[char]$_})
    ```
 4. Deploy → New deployment → **Web app** → Execute as: *Me* · Access: *Anyone*.
-   Copy the `/exec` URL.
+   Copy the `/exec` URL. *Anyone* is required — ScrapeX posts without a Google
+   sign-in, so a narrower setting answers the login page instead of the script.
 5. Set the environment and self-test:
    ```powershell
    $env:SCRAPEX_FUNNEL_URL   = "<exec url>"
    $env:SCRAPEX_FUNNEL_TOKEN = "<token>"
    scrapex funnel-test        # expect a FUNNEL_SELFTEST row in the _INBOX tab
    ```
+6. Reload the spreadsheet once. A **ScrapeX** menu appears with *Rebuild tables
+   from _INBOX*, which turns the raw chunk rows into one readable tab per
+   `source_key` (newest complete batch wins, tab replaced wholesale — that is
+   the sync). `doPost` is untouched by it: the sync only reads `_INBOX`, so the
+   audit log Python ingests stays exactly as it was.
 
 The token lives ONLY in: Script Properties, your env, GitHub Secrets (later),
 and the extension's chrome.storage (later). Never in code or the repo (A4).

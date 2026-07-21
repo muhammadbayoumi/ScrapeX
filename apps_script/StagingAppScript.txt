@@ -10,6 +10,14 @@
  *   - Total logic deliberately tiny; its test suite is the shared payload
  *     contract fixtures (T8) — see scraper/contracts/.
  *
+ * TABLE SYNC (second half of this file) is a READ path the owner triggers, and
+ * it does not weaken S1: doPost is untouched and still appends verbatim. The
+ * sync only ever READS _INBOX and writes derived, disposable tabs. If it has a
+ * bug the raw inbox — the thing Python ingests — is unharmed, and rerunning it
+ * repairs the tabs. It mirrors payload.reassemble_chunks() exactly: group by
+ * (source_key, scraped_at), order by chunk.index, and REFUSE an incomplete
+ * batch rather than publish a table missing rows.
+ *
  * COMPLETELY SEPARATE from the license/telemetry script: different script,
  * different spreadsheet, different token — zero LockService contention with
  * the engineers' license checks.
@@ -22,7 +30,11 @@
  *      -join ((48..57)+(97..122) | Get-Random -Count 48 | % {[char]$_})
  *   4. Deploy -> New deployment -> Web app -> Execute as: Me,
  *      Who has access: Anyone. Copy the /exec URL.
+ *      "Anyone" is required: ScrapeX posts without a Google sign-in, so any
+ *      narrower setting answers the login page instead of this script.
  *   5. Locally: set SCRAPEX_FUNNEL_URL + SCRAPEX_FUNNEL_TOKEN, run: scrapex funnel-test
+ *   6. Reload the spreadsheet once: a "ScrapeX" menu appears, with
+ *      "Rebuild tables from _INBOX" and the automatic-sync switches.
  * ========================================================================== */
 
 const INBOX_SHEET = "_INBOX";
@@ -101,4 +113,265 @@ function jsonReply(obj) {
 /* Health check: open the /exec URL in a browser. */
 function doGet() {
   return ContentService.createTextOutput("ScrapeX staging funnel operational");
+}
+
+/* ============================================================================
+ * TABLE SYNC — one readable tab per source_key, rebuilt from _INBOX.
+ *
+ * _INBOX is a mailbox, not a table: one row per wire chunk, payload as JSON.
+ * This turns the newest COMPLETE batch of each source into a plain tab named
+ * after its source_key. Every run replaces the tab wholesale, so the tab is
+ * always exactly "the last thing that source sent" — that is the sync.
+ *
+ * Nothing here mutates _INBOX. It stays the append-only audit log that Python
+ * ingests; the tabs are derived and safe to delete at any time.
+ * ========================================================================== */
+
+/* Sources that should not get a tab of their own (self-test noise). */
+const SYNC_SKIP_SOURCES = ["FUNNEL_SELFTEST"];
+
+/* Mirrors gdrive.MAX_EXPORT_ROWS: a runaway batch must not try to paint
+ * millions of cells and die halfway through, leaving a half-written tab. */
+const SYNC_MAX_ROWS = 40000;
+
+/* The payload contract this script speaks (payload.PAYLOAD_VERSION). A batch
+ * announcing anything else is skipped loudly instead of parsed on a guess. */
+const SYNC_PAYLOAD_VERSION = 1;
+
+/* Cells are written as TEXT on purpose. Python already canonicalised every
+ * value to a string (outputs._canonical_cell) so that 15 and 15.0 cannot fork
+ * the record hash; letting Sheets re-type "1124.87" or "2026-07-21" would undo
+ * exactly that. Flip to false if you would rather do arithmetic in the sheet
+ * than keep the values byte-identical to what ScrapeX sent. */
+const SYNC_AS_TEXT = true;
+
+/* Menu. Appears after the spreadsheet is reloaded once. */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu("ScrapeX")
+    .addItem("Rebuild tables from _INBOX", "syncTables")
+    .addSeparator()
+    .addItem("Sync automatically every 15 minutes", "installSyncTrigger")
+    .addItem("Stop syncing automatically", "removeSyncTrigger")
+    .addToUi();
+}
+
+/* Rebuild every source's tab. Safe to run at any time, as often as you like. */
+function syncTables() {
+  // A DOCUMENT lock, deliberately NOT the script lock doPost uses: holding that
+  // one here would make an arriving chunk wait, and the Python client treats a
+  // "busy" ack as a permanent refusal (funnel.py: not retryable). Sync must
+  // never be able to fail a live delivery. Concurrent syncs are still excluded
+  // from each other, which is all this needs.
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(30000)) {
+    throw new Error("another sync is already running — try again in a moment");
+  }
+  try {
+    const report = rebuildTables_();
+    logSync_(report);
+    notifySync_(report);
+    return report;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function rebuildTables_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const inbox = ss.getSheetByName(INBOX_SHEET);
+  if (!inbox) return { written: [], skipped: [{ source: "(all)", reason: "no _INBOX sheet yet" }] };
+
+  const batches = collectBatches_(inbox);
+  const written = [];
+  const skipped = [];
+
+  Object.keys(batches).sort().forEach(function (sourceKey) {
+    if (SYNC_SKIP_SOURCES.indexOf(sourceKey) !== -1) return;
+    let batch;
+    try {
+      batch = newestCompleteBatch_(batches[sourceKey]);
+    } catch (error) {
+      skipped.push({ source: sourceKey, reason: String(error && error.message || error) });
+      return;
+    }
+    try {
+      // One source failing must not stop the others: a ragged batch from one
+      // connector should never leave every other table stale.
+      writeTable_(ss, sourceKey, batch.header, batch.rows);
+      written.push({ source: sourceKey, rows: batch.rows.length, scraped_at: batch.scraped_at });
+    } catch (error) {
+      skipped.push({ source: sourceKey, reason: String(error && error.message || error) });
+    }
+  });
+  return { written: written, skipped: skipped };
+}
+
+/* Read _INBOX once and group the chunks by (source_key, scraped_at) — the same
+ * batch identity payload.reassemble_chunks() enforces.
+ *
+ * The envelope COLUMNS are for human eyes only; every value used here is read
+ * back out of payload_json, because Sheets may re-type a cell (an ISO date in
+ * particular) and a re-typed key would split one batch into two. */
+function collectBatches_(inbox) {
+  const values = inbox.getDataRange().getValues();
+  const bySource = {};
+  for (let i = 1; i < values.length; i++) {  // row 0 is INBOX_HEADER
+    const raw = values[i][8];                // payload_json
+    if (!raw) continue;
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch (error) {
+      continue;  // a corrupt cell must not take down every table
+    }
+    if (!payload || !payload.source_key) continue;
+    const chunk = payload.chunk || { index: 1, total: 1 };
+    const sourceKey = String(payload.source_key);
+    const batchKey = String(payload.scraped_at || "");
+    if (!bySource[sourceKey]) bySource[sourceKey] = {};
+    if (!bySource[sourceKey][batchKey]) bySource[sourceKey][batchKey] = [];
+    bySource[sourceKey][batchKey].push({
+      index: Number(chunk.index || 1),
+      total: Number(chunk.total || 1),
+      version: Number(payload.payload_version),
+      header: payload.header || [],
+      rows: payload.rows || [],
+      scraped_at: batchKey,
+      row: i + 1,
+    });
+  }
+  return bySource;
+}
+
+/* Pick the newest batch that is COMPLETE, and reassemble it.
+ *
+ * Newest-first, then fall back: a batch still arriving (chunk 3 of 5 landed a
+ * second ago) must not blank the tab, and must not replace it with a partial
+ * table either — the previous complete batch stays published until the new one
+ * is whole. Silent truncation is the one outcome this must never produce. */
+function newestCompleteBatch_(batchesForSource) {
+  const keys = Object.keys(batchesForSource).sort().reverse();  // ISO8601 sorts chronologically
+  const problems = [];
+  for (let k = 0; k < keys.length; k++) {
+    const chunks = batchesForSource[keys[k]];
+    try {
+      return reassemble_(chunks);
+    } catch (error) {
+      problems.push(keys[k] + ": " + String(error && error.message || error));
+    }
+  }
+  throw new Error("no complete batch (" + problems.join("; ") + ")");
+}
+
+/* The GAS mirror of payload.reassemble_chunks(). Deliberately as strict:
+ * a missing or duplicated chunk is a loud error, never silently-partial data. */
+function reassemble_(chunks) {
+  const total = chunks[0].total;
+  if (chunks[0].version !== SYNC_PAYLOAD_VERSION) {
+    throw new Error("payload_version " + chunks[0].version + "; this script speaks " +
+                    SYNC_PAYLOAD_VERSION);
+  }
+  if (chunks.length !== total) {
+    throw new Error("expected " + total + " chunks, have " + chunks.length);
+  }
+  const ordered = chunks.slice().sort(function (a, b) { return a.index - b.index; });
+  let rows = [];
+  for (let i = 0; i < ordered.length; i++) {
+    if (ordered[i].index !== i + 1) {
+      throw new Error("chunk sequence broken: expected " + (i + 1) + ", got " + ordered[i].index);
+    }
+    if (ordered[i].total !== total) {
+      throw new Error("chunks disagree on total (" + ordered[i].total + " vs " + total + ")");
+    }
+    rows = rows.concat(ordered[i].rows);
+  }
+  return { header: ordered[0].header, rows: rows, scraped_at: ordered[0].scraped_at };
+}
+
+/* Replace one tab with header + rows. */
+function writeTable_(ss, sourceKey, header, rows) {
+  const tab = tabNameFor_(sourceKey);
+  if (!header || !header.length) throw new Error("batch carries no header");
+  if (rows.length > SYNC_MAX_ROWS) {
+    throw new Error(rows.length + " rows exceeds SYNC_MAX_ROWS=" + SYNC_MAX_ROWS);
+  }
+  const width = header.length;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].length !== width) {
+      // setValues() would reject the whole block anyway; saying which row is
+      // ragged turns an opaque Sheets error into a connector bug report.
+      throw new Error("row " + i + " has " + rows[i].length + " cells, header has " + width);
+    }
+  }
+
+  let sheet = ss.getSheetByName(tab);
+  if (!sheet) sheet = ss.insertSheet(tab);
+  sheet.clear();
+  const data = [header].concat(rows);
+  const range = sheet.getRange(1, 1, data.length, width);
+  if (SYNC_AS_TEXT) range.setNumberFormat("@");
+  range.setValues(data);
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+/* A tab named after the source, without ever colliding with the two sheets
+ * this system actually depends on. */
+function tabNameFor_(sourceKey) {
+  const cleaned = String(sourceKey).replace(/[\[\]\*\/\\\?:]/g, "_").substring(0, 90).trim();
+  const name = cleaned || "UNNAMED";
+  if (name === INBOX_SHEET || name === RUNS_SHEET) {
+    throw new Error("source_key '" + sourceKey + "' collides with a system sheet");
+  }
+  return name;
+}
+
+/* Record every sync in _RUNS. An automatic trigger fails invisibly otherwise:
+ * without this line a broken 15-minute sync just looks like stale tabs. */
+function logSync_(report) {
+  const sheet = ensureSheet(RUNS_SHEET, RUNS_HEADER);
+  const wrote = report.written.map(function (w) { return w.source + "(" + w.rows + ")"; });
+  const level = report.skipped.length ? "warning" : "info";
+  let message = "sync: wrote " + report.written.length + " tab(s)" +
+                (wrote.length ? " — " + wrote.join(", ") : "");
+  if (report.skipped.length) {
+    message += " | skipped: " + report.skipped.map(function (s) {
+      return s.source + " (" + s.reason + ")";
+    }).join("; ");
+  }
+  sheet.appendRow([new Date(), "", "apps_script", level, message]);
+}
+
+/* Toast only when a human is watching; a time-driven run has no UI. */
+function notifySync_(report) {
+  try {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      "Wrote " + report.written.length + " tab(s)" +
+      (report.skipped.length ? ", skipped " + report.skipped.length : ""),
+      "ScrapeX sync", 5);
+  } catch (error) {
+    // No UI attached (time-driven trigger). _RUNS already has the record.
+  }
+}
+
+function installSyncTrigger() {
+  removeSyncTrigger();
+  ScriptApp.newTrigger("syncTables").timeBased().everyMinutes(15).create();
+  notify_("Automatic sync is on: every 15 minutes.");
+}
+
+function removeSyncTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "syncTables") ScriptApp.deleteTrigger(triggers[i]);
+  }
+}
+
+function notify_(message) {
+  try {
+    SpreadsheetApp.getActiveSpreadsheet().toast(message, "ScrapeX", 5);
+  } catch (error) {
+    // Called from a context without a UI; nothing to show.
+  }
 }

@@ -948,8 +948,12 @@ def create_app(
             finally:
                 conn.close()
         return {"token": token, "shown_once": True,
-                "next_step": "Paste this into the Apps Script property SCRAPEX_TOKEN, "
-                             "then redeploy. The old token stops working immediately."}
+                # The name must match the property StagingAppScript.txt reads:
+                # naming it anything else makes every send fail "unauthorized".
+                "next_step": "Paste this into the Apps Script property FUNNEL_TOKEN "
+                             "(Project Settings -> Script Properties). It takes effect "
+                             "at once — no redeploy needed. The old token stops working "
+                             "immediately."}
 
     @app.get("/api/outputs/google")
     def api_google_status():

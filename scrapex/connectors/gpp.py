@@ -33,7 +33,7 @@ from bs4 import BeautifulSoup
 from ..config import SourceEntry
 from ..rowspec import COMMODITY_PRICE, RowBuilder
 from ..vocab import ExtractKind
-from .base import HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 # material_key -> (page slug, price unit, rank-table column).
 # Fuels are per-liter; power is per-kWh.
@@ -189,6 +189,7 @@ class GlobalPetrolPricesConnector:
         base = source.base_url.rstrip("/")
         currency = source.currency or "USD"
         vat = "1" if source.vat_mode.value == "incl" else "0"
+        today = date.today()
         rows: list[list[str]] = []
         page_errors: list[str] = []
         unmapped: set[str] = set()
@@ -205,9 +206,25 @@ class GlobalPetrolPricesConnector:
                 html = pages[slug]
                 pairs = (parse_rank_table(html, column) if column is not None
                          else parse_price_table(html))
+            except CrawlBlocked:
+                # The fetcher counted five straight refusals: the site said no.
+                # This guard exists to survive ONE bad page, and catching the
+                # stop signal under it would turn "stop" into hundreds more
+                # requests against a server that already objected.
+                raise
             except Exception as exc:  # noqa: BLE001 — one page down never kills the crawl
                 page_errors.append(f"{material_key}: {exc}")
                 continue
+
+            # The list page is the FRONTIER and the CANARY, not the price. Its
+            # figures are conversions the site computed for a default dropdown
+            # selection; the published price lives on each country's own page,
+            # in the currency the country actually sets it in. Electricity is
+            # the exception for now: its country pages are a different page type
+            # this parser reads as empty, so its rank-table rows remain the
+            # record and remain honestly marked price_basis='converted'.
+            links = {} if column is not None else parse_country_links(html)
+
             for country, price in pairs:
                 region = _region(country)
                 if region is None:
@@ -216,9 +233,37 @@ class GlobalPetrolPricesConnector:
                     # UK went missing from all five energy types unnoticed.
                     unmapped.add(country)
                     continue
-                row = _row(builder, material_key, region, price, currency, unit, vat)
-                if row is not None:
-                    rows.append(row)
+
+                href = links.get(country, "")
+                if not href:
+                    # Electricity, or a label the list page did not link. The
+                    # converted figure is all there is, and the row says so.
+                    row = _row(builder, material_key, region, price, currency, unit, vat)
+                    if row is not None:
+                        rows.append(row)
+                    continue
+
+                # NO converted fallback for a fuel country whose page fails.
+                # Currency is excluded from offer identity and the canonical
+                # unit collapses 'USD/liter' and 'liter' together, so a USD
+                # stand-in would land on the SAME offer as last week's EGP row
+                # and be recorded as a ~5,000% price change. A missing week is
+                # honest; a false jump is data corruption. The warning carries
+                # what was skipped.
+                try:
+                    detail = parse_country_page(self._fetcher.get(base + href).text)
+                except CrawlBlocked:
+                    raise
+                except Exception as exc:  # noqa: BLE001 — isolate per country
+                    page_errors.append(f"{material_key}/{region}: {exc}")
+                    continue
+                if not (detail.price and detail.currency):
+                    page_errors.append(
+                        f"{material_key}/{region}: country page published no "
+                        "local price — no row this week (never the conversion)")
+                    continue
+                rows.extend(country_rows(builder, material_key, region, detail,
+                                         currency, unit, vat, today))
 
         # A total layout change still fails LOUD (Q4) — but only when nothing at
         # all could be parsed, never when some pages succeeded.
@@ -285,6 +330,17 @@ def country_rows(builder: RowBuilder, material_key: str, region: str,
                    unit, vat, country)
     if current is not None:
         rows.append(current)
+    # The page stamps its own "Last update" — the day the price took effect,
+    # which is not the day we happened to read it. That dating is the source's
+    # claim, so it lands the way every source claim does: a reported row on that
+    # date. Idempotent across weeks (same date + same price = same dedupe key),
+    # and our own observation above keeps our crawl date untouched.
+    if country.source_date and country.price:
+        anchor = _row(builder, material_key, region, "", currency, unit, vat,
+                      country, as_of=country.source_date, provenance="reported",
+                      value=country.price)
+        if anchor is not None:
+            rows.append(anchor)
     for days_ago, past_price in country.history:
         row = _row(builder, material_key, region, "", currency, unit, vat, country,
                    as_of=(today - timedelta(days=days_ago)).isoformat(),
@@ -395,11 +451,21 @@ def parse_country_page(html: str) -> CountryPrice:
                         analytics=tuple(analytics))
 
 
-def country_page_url(base: str, country_name: str, slug: str) -> str:
-    """The site's own URL shape: /Saudi-Arabia/diesel_prices/, verified live.
+def parse_country_links(html: str, country_sel: str = _COUNTRY_SEL) -> dict[str, str]:
+    """country label -> the country page's path, read off the list page VERBATIM.
 
-    Built from the country NAME as the list page prints it, because that is the
-    only identifier the two pages share — there is no id to join on.
+    An earlier version rebuilt the path by slugifying the printed name, on the
+    belief that the name was "the only identifier the two pages share". The
+    captured bytes refute that: every list-page label IS a link, and for 11
+    countries the printed abbreviation and the real slug disagree — 'UK' links
+    to /United-Kingdom/, 'Dom. Rep.' to /Dominican-Republic/, 'DR Congo' to
+    /Democratic-Republic-of-the-Congo/. A crawler that guesses 404s on exactly
+    those; a crawler that reads the href cannot be wrong about it.
     """
-    path = re.sub(r"[^A-Za-z0-9]+", "-", country_name.strip()).strip("-")
-    return f"{base.rstrip('/')}/{path}/{slug}/"
+    soup = BeautifulSoup(html, "lxml")
+    links: dict[str, str] = {}
+    for a in soup.select(country_sel):
+        href = a.get("href") or ""
+        if href:
+            links[_clean_country(a.get_text(strip=True))] = href
+    return links
