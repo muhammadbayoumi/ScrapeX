@@ -45,10 +45,32 @@
   const DEFAULT_FEATURES = {tree: true, totals: false, rownum: false,
                             compact: false, wrap: false, stripe: false};
   let features = Object.assign({}, DEFAULT_FEATURES);
+  // WHICH column groups the table. Per source and per column, because the right
+  // grouping for a fuel table (by material) is not the right one for a shop.
+  // A global on/off switch could never express that, which is why it moved out
+  // of the features panel and onto the column itself.
+  const GROUP_KEY = "scrapex-groupby-" + (mount.dataset.source || "");
+  let groupedBy = "";
+  try { groupedBy = localStorage.getItem(GROUP_KEY) || ""; } catch (err) { groupedBy = ""; }
   try {
     const saved = JSON.parse(localStorage.getItem(FEATURE_KEY) || "null");
     if (saved) features = Object.assign(features, saved);
   } catch (err) { /* a corrupt preference must not stop the table loading */ }
+
+  function setGroup(field) {
+    groupedBy = field || "";
+    try {
+      if (groupedBy) localStorage.setItem(GROUP_KEY, groupedBy);
+      else localStorage.removeItem(GROUP_KEY);
+    } catch (err) { /* private mode: it still groups, it just forgets */ }
+    build();
+  }
+
+  function hide(field) {
+    // Server only. A local column.hide() would persist in the browser and then
+    // outvote the server for ever.
+    remember(field, true).then(() => location.reload());
+  }
 
   function saveFeatures() {
     try { localStorage.setItem(FEATURE_KEY, JSON.stringify(features)); }
@@ -213,8 +235,17 @@
       {label: "Fit this column to its content", action: () => autosize(field)},
       {label: "Fit every column", action: () => autosizeAll()},
       {separator: true},
-      {label: "Hide this column", action: () => { column.hide(); remember(field, true); }},
+      {label: "Hide this column", action: () => hide(field)},
       {label: "Show every column", action: showAll},
+      {separator: true},
+      {label: groupedBy === field ? "✓ Grouped by this column" : "Group by this column",
+       action: () => setGroup(groupedBy === field ? "" : field)},
+      {label: "Un-group all", action: () => setGroup(""), disabled: !groupedBy},
+      {label: "Expand all groups", action: () => table.getGroups().forEach((g) => g.show()),
+       disabled: !groupedBy},
+      {label: "Collapse all groups", action: () => table.getGroups().forEach((g) => g.hide()),
+       disabled: !groupedBy},
+      {separator: true},
       {label: "Reset the layout", action: resetLayout},
     ];
   }
@@ -238,6 +269,15 @@
   function resetLayout() {
     frozen.clear();
     widths.clear();
+    groupedBy = "";
+    // Clear the BROWSER's memory too. A reset that only wrote to the server is
+    // how a hidden column became unrecoverable in the first place.
+    try {
+      localStorage.removeItem(GROUP_KEY);
+      localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-columns");
+      localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-sort");
+      localStorage.removeItem(FEATURE_KEY);
+    } catch (err) { /* nothing to clear */ }
     fetch("/api/fields/" + encodeURIComponent(SOURCE), {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({reset: true}),
@@ -336,8 +376,16 @@
         headerPopupIcon: "<span class='filter-icon' title='Filter this column'>⛛</span>",
         resizable: true,
         headerSort: true,
-        minWidth: 90,
+        minWidth: 80,
+        // A ceiling as well as a floor: without one, fitColumns hands a short
+        // column like Unit the same share as a long one like Record.
+        widthGrow: col.key === "product_name" || col.key === "region" ? 2 : 1,
       };
+      // Numbers and dates read right-aligned; text reads from its own side.
+      if (col.key === "effective_price") def.hozAlign = "right";
+      if (col.key === "price_changed_on" || col.key === "last_confirmed_on") {
+        def.hozAlign = "right";
+      }
       const formatter = formatterFor(col.key);
       if (formatter) def.formatter = formatter;
       if (frozen.has(col.key)) def.frozen = true;
@@ -346,8 +394,8 @@
     });
 
     columns.push({
-      title: "", field: "offer_id", headerSort: false, resizable: false,
-      width: 100, download: false,
+      title: "History", field: "offer_id", headerSort: false, resizable: false,
+      width: 110, download: false, headerMenu: undefined, headerPopup: undefined,
       formatter: (cell) => {
         const link = document.createElement("a");
         link.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + cell.getValue();
@@ -375,23 +423,42 @@
     const options = {
       data: payload.rows,
       columns: columns,
-      layout: "fitDataStretch",
+      // fitColumns, not fitDataStretch: the table should fill the width it has
+      // and no more. fitDataStretch sized every column to its widest possible
+      // content and then stretched, which pushed the total past the container —
+      // a horizontal scrollbar, Curation cut off, and a wide dead gap in every
+      // header between the icons and the sort arrow.
+      layout: "fitColumns",
+      layoutColumnsOnNewData: false,
+      // Tabulator measures the full width and does not subtract the vertical
+      // scrollbar, so the last column is cut by exactly its width. Telling it
+      // the gutter exists is cheaper than fighting the layout afterwards.
+      renderVerticalBuffer: 300,
       movableColumns: true,        // drag a header to build the table you want
       height: "34rem",             // virtual rendering keeps thousands smooth
       placeholder: "No rows match these filters.",
-      // The owner's arrangement survives closing the browser.
-      persistence: {sort: true, filter: false, columns: ["width", "visible"]},
+      // WIDTH only, never VISIBLE. Persisting visibility here created two
+      // sources of truth that fought each other: the server said show Country,
+      // the browser's saved layout said hide it, the browser won, and "Show
+      // every column" — which only writes to the server — could not bring it
+      // back. A column disappeared and nothing in the interface could recover
+      // it. Which columns exist and which are shown is the SERVER's answer.
+      persistence: {sort: true, filter: false, columns: ["width"]},
       persistenceID: "scrapex-" + SOURCE,
     };
 
     // Nesting is decided by the SERVER from what the source actually publishes:
     // a commodity source reads as material -> countries, and a shop whose every
     // row shares one region has nothing to nest.
-    if (features.tree && payload.tree && payload.tree.by) {
-      options.groupBy = payload.tree.by;
+    // The COLUMN decides what groups; the feature switch only decides whether
+    // grouping is available at all. The server's suggestion is the starting
+    // point for a source that has never been grouped by hand.
+    const groupField = groupedBy || (payload.tree && payload.tree.by) || "";
+    if (features.tree && groupField) {
+      options.groupBy = groupField;
       options.groupStartOpen = false;
       options.groupHeader = (value, count) =>
-        text(value) + " <span class='muted'>· " + count + "</span>";
+        text(value) + " <span class='muted'>(" + count + ")</span>";
     }
 
     mount.classList.toggle("compact", !!features.compact);
@@ -399,7 +466,15 @@
     mount.classList.toggle("striped", !!features.stripe);
 
     table = new Tabulator(mount, options);
-    table.on("tableBuilt", () => { applyFilters(); describe(); });
+    table.on("tableBuilt", () => {
+      applyFilters();
+      describe();
+      // fitColumns divides the width measured BEFORE the vertical scrollbar
+      // exists, so the last column is cut by exactly its width — 15px, enough
+      // to add a horizontal scrollbar nobody asked for. One redraw once the
+      // rows are in remeasures against the real client width.
+      requestAnimationFrame(() => { try { table.redraw(true); } catch (err) {} });
+    });
     table.on("dataFiltered", describe);
   }
 

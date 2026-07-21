@@ -118,3 +118,56 @@
   color: var(--text);
   border: 1px solid var(--line);
 }
+
+
+/* ---- header layout: label left, controls right ----------------------------
+ * Tabulator inserts its menu and popup icons at the FRONT of the title and
+ * parks the sort arrow at the far right of the cell, which left a wide dead
+ * gap in the middle of every header — read, correctly, as an empty column.
+ * The label leads, and the filter, menu and sort controls sit together at the
+ * right edge where the reference puts them.
+ */
+.tabulator .tabulator-col .tabulator-col-content {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  position: relative;
+}
+.tabulator .tabulator-col-title-holder { flex: 1; min-width: 0; }
+.tabulator .tabulator-col-title {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  width: 100%;
+}
+/* the label first, then the two icons pushed to the end together */
+.tabulator .tabulator-col-title > :not(.tabulator-header-popup-button) { order: 1; }
+.tabulator .tabulator-header-popup-button { order: 2; }
+.tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
+/* the sorter joins them instead of floating at the far edge */
+.tabulator .tabulator-col .tabulator-col-sorter {
+  position: static;
+  order: 3;
+  flex: none;
+  width: auto;
+  padding-inline-start: .1rem;
+}
+/* An unsorted column shows no arrow at all: eight grey arrows pointing up said
+   nothing except that the header was busy. */
+.tabulator .tabulator-col:not([aria-sort="ascending"]):not([aria-sort="descending"])
+  .tabulator-col-sorter .tabulator-arrow { opacity: 0; }
+.tabulator .tabulator-col:hover .tabulator-col-sorter .tabulator-arrow { opacity: .35; }
+
+/* fitColumns divides the FULL width and does not subtract the vertical
+ * scrollbar, so a table that scrolls vertically overflows horizontally by
+ * exactly the scrollbar's width — about 15px, which is enough to cut the last
+ * column and add a scrollbar nobody wants. Reserving the gutter up front costs
+ * nothing and removes the second scrollbar entirely. */
+.tabulator .tabulator-tableholder { scrollbar-gutter: stable; }
+.tabulator .tabulator-header { padding-inline-end: 0; }
+/* With fitColumns the columns are sized to the width available, so nothing
+ * should ever need to scroll sideways. The 15px that remained was the vertical
+ * scrollbar being counted twice, and it produced a scrollbar that scrolled
+ * nothing. A genuinely too-narrow viewport is handled by .tablewrap, which
+ * scrolls the whole grid — one scroller instead of two nested ones. */
+.tabulator .tabulator-tableholder { overflow-x: hidden; }
