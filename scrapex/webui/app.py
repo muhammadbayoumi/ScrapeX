@@ -246,7 +246,8 @@ def create_app(
     @app.get("/source/{source_key}", response_class=HTMLResponse)
     def source(request: Request, source_key: str, q: str = "", availability: str = "",
                page: int = 1, sort: str = "", direction: str = "asc",
-               per_page: int = PAGE_SIZE):
+               per_page: int = PAGE_SIZE, edit: str = "", said: str = "",
+               focus: str = ""):
         page = max(1, page)
         # Clamped against the same cap browse_observations enforces, so a
         # hand-typed ?per_page=40000 cannot ask the warehouse for everything.
@@ -261,11 +262,14 @@ def create_app(
                  if k.startswith("f.") and k[2:] in column_filters}
         state.update({"q": q, "availability": availability, "sort": sort,
                       "direction": direction, "per_page": per_page})
+        if edit:
+            state["edit"] = edit
         conn = read_conn()
         try:
             summary = source_summary(conn, source_key)
             page_data, fields, views, columns = None, [], [], []
             changes_by_offer, facets, watch_counts = {}, {}, {}
+            absent_columns = []
             if summary is not None:
                 page_data = browse_observations(
                     conn, source_key, search=q or None, availability=availability or None,
@@ -283,6 +287,12 @@ def create_app(
                 # The owner's arrangement wins; the per-source seed is the
                 # fallback for a source whose fields have never been registered.
                 shown = visible_columns(conn, source_key, fallback=seed)
+                # A column registered once and no longer published is NOT the
+                # same as one the owner hid; conflating them sends them hunting
+                # for a control that was never there.
+                absent_columns = [f["field_key"] for f in list_fields(conn, source_key)
+                                  if f["field_key"] not in present
+                                  and f["field_key"] in dict(BROWSE_COLUMNS)]
                 labels = dict(BROWSE_COLUMNS)
                 renamed = {f["field_key"]: f["display_name"] for f in fields
                            if f.get("display_name")}
@@ -312,7 +322,8 @@ def create_app(
                      "shows_unit": any(c["key"] == "unit" for c in columns),
                      "availability_options": AVAILABILITY_OPTIONS,
                      "per_page_options": PER_PAGE_OPTIONS,
-                     "watch": watch_counts,
+                     "watch": watch_counts, "edit": bool(edit),
+                     "said": said, "focus": focus, "absent_columns": absent_columns,
                      "filters": column_filters, "ignored_filters": ignored_filters,
                      "facets": facets, "filter_kinds": {k: v[1] for k, v in FILTERABLE.items()},
                      "query": lambda **kw: build_query(state, **kw)},
@@ -652,8 +663,14 @@ def create_app(
     def api_fields(source_key: str):
         conn = read_conn()
         try:
-            header, _ = export_source_table(conn, source_key, limit=1)
-            ensure_fields(conn, source_key, header)
+            # Seeded from THIS SOURCE's present columns, the same way the page
+            # does it. It used to seed from export_source_table's constant
+            # header, so merely opening the panel registered columns the source
+            # does not publish — and they then showed up in the manage list
+            # forever, because ensure_fields is additive by design.
+            present = column_presence(conn, source_key)
+            ensure_fields(conn, source_key,
+                          [key for key, _ in BROWSE_COLUMNS if key in present])
             conn.commit()
             return {"source_key": source_key, "fields": list_fields(conn, source_key),
                     "views": list_views(conn, source_key)}

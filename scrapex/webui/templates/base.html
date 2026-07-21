@@ -118,6 +118,16 @@
     .tile .n{font-size:1.2rem;font-weight:600;font-variant-numeric:tabular-nums}
     .tile .l{font-size:.72rem;color:var(--muted)}
     .tile.zero{opacity:.6}
+    /* Column controls, shown only in edit mode. Real buttons, so they take
+       focus and fire on Enter and Space — a drag handle does neither. */
+    .toolbar{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;
+      font-size:.85rem;margin:.4rem 0 .8rem}
+    .colctl{display:inline-flex;gap:.1rem;margin-inline-start:.35rem}
+    .colctl button{padding:0 .3rem;font-size:.75rem;line-height:1.4;
+      background:transparent;border:1px solid var(--line);color:var(--muted)}
+    .colctl button:hover:not(:disabled){color:var(--text);border-color:var(--accent)}
+    .colctl button:disabled{opacity:.3}
+    button.chip{border:1px solid var(--line);cursor:pointer}
     .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
     .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never

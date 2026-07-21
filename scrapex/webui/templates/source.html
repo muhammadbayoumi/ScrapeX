@@ -105,52 +105,48 @@
     <button type="submit">Filter</button>
   </form>
 
-  {# ---- Manage columns + saved views (spec 22) --------------------------- #}
-  <details class="card" style="margin-bottom:1rem">
-    <summary style="cursor:pointer;font-weight:600">Manage columns and views</summary>
-    <p class="muted" style="font-size:.85rem">Hiding a column removes it from your view
-      only. The field keeps its data and keeps receiving every future update, and you
-      can show it again at any time. Nothing here deletes anything.</p>
+  {# ---- Columns (spec 22) ------------------------------------------------
+     The controls live ON the thing they control. They used to sit in a
+     collapsed <details> holding a second table of checkboxes: to hide a column
+     you opened a panel, found its row, unticked a box — and the table did not
+     change, because the panel only affected a later export.
 
-    <table id="fieldtable">
-      <thead><tr><th>Column</th><th>Display name</th><th>Original</th>
-        <th>Shown</th><th>Order</th></tr></thead>
-      <tbody>
-      {% for f in fields %}
-        <tr data-field="{{ f.field_key }}">
-          <td><code>{{ f.field_key }}</code></td>
-          <td><input class="rename" value="{{ f.display_name or '' }}"
-                     placeholder="{{ f.original_name }}" aria-label="Display name for {{ f.field_key }}"></td>
-          <td class="muted">{{ f.original_name }}</td>
-          <td><label><input type="checkbox" class="vis" {% if not f.is_hidden %}checked{% endif %}
-                            style="width:auto" aria-label="Show {{ f.field_key }}">
-            <span class="visword">{{ "Hidden" if f.is_hidden else "Shown" }}</span></label></td>
-          <td><button class="up" title="Move earlier">↑</button></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-
-    <div class="filters" style="margin-top:.8rem">
-      <button id="reset-view" style="background:var(--surface);color:var(--text)">
-        Restore default view</button>
-      <input id="view-name" placeholder="Name this view" aria-label="View name">
-      <button id="save-view">Save view</button>
-      <span id="field-out" class="muted" style="font-size:.85rem"></span>
-    </div>
-
-    {% if views %}
-      <h2 style="font-size:.9rem">Saved views</h2>
-      {% for v in views %}
-        <span class="chip">{{ v.view_name }}
-          <a href="#" data-delview="{{ v.saved_view_id }}" title="Delete this view">×</a></span>
+     Edit mode is a toggle rather than always-on controls, for one honest
+     reason: three extra controls per column would put 4xN stops in the resting
+     tab order, and reading the table is the common case. Pressed, it is a link
+     that reloads with ?edit=1 — so it works with scripting off, and the state
+     is in the URL like everything else here. #}
+  <p class="toolbar">
+    {% if edit %}
+      <a class="chip accent" href="{{ query(edit='') }}" aria-pressed="true">✓ Editing columns</a>
+      <span class="muted">Use ✕ to hide a column, ◀ ▶ to move it. Nothing is deleted.</span>
+    {% else %}
+      <a class="chip" href="{{ query(edit=1) }}" aria-pressed="false">Edit columns</a>
+    {% endif %}
+    {% set hidden_fields = fields | selectattr("is_hidden") | list %}
+    {% if hidden_fields %}
+      <span class="muted">Hidden:</span>
+      {% for f in hidden_fields %}
+        {# Restoring is a click on the thing itself, not a hunt through a panel. #}
+        <button class="chip" type="button" data-show="{{ f.field_key }}"
+                title="Show this column again">{{ f.display_name or f.original_name }} ↩</button>
       {% endfor %}
     {% endif %}
-
-    <p class="muted" style="font-size:.85rem;margin-top:.8rem">
-      Export uses either schema — <code>scrapex export {{ source_key }} --schema original</code>
-      (every column, raw names) or <code>--schema current</code> (this arrangement).</p>
-  </details>
+    {% if absent_columns %}
+      {# A column that vanished because the source stopped publishing it is not
+         the same as one you hid. Saying which is which stops the owner hunting
+         for a control that was never there. #}
+      <span class="muted" title="{{ absent_columns|join(', ') }}">
+        {{ absent_columns|length }} column{{ "s" if absent_columns|length != 1 else "" }}
+        not published by this source</span>
+    {% endif %}
+    {# Rendered by the SERVER, so the confirmation exists when the page is
+       parsed. Announcing into a live region and then reloading destroys the
+       region before a screen reader reaches it — the message would be written
+       and never heard. #}
+    <span id="field-out" class="muted" role="status" aria-live="polite"
+          tabindex="-1">{{ said }}</span>
+  </p>
 
   {% if page_data.total == 0 %}
     <div class="empty">No matching records.</div>
@@ -212,6 +208,20 @@
              where assistive tech does not look for it. #}
           <th {% if sort == c.key %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
             {% if c.key in sortable %}{{ sortlink(c.key, c.label) }}{% else %}{{ c.label }}{% endif %}
+            {% if edit %}
+              {# Real <button>s: they take focus and fire on Enter and Space,
+                 which a drag handle does not. #}
+              <span class="colctl">
+                <button type="button" data-move="{{ c.key }}" data-dir="left"
+                        title="Move {{ c.label }} earlier"
+                        {% if loop.first %}disabled{% endif %}>◀</button>
+                <button type="button" data-move="{{ c.key }}" data-dir="right"
+                        title="Move {{ c.label }} later"
+                        {% if loop.last %}disabled{% endif %}>▶</button>
+                <button type="button" data-hide="{{ c.key }}"
+                        title="Hide {{ c.label }} — it keeps its data">✕</button>
+              </span>
+            {% endif %}
           </th>
         {% endfor %}
         <th></th>
@@ -256,7 +266,7 @@
       {% for r in page_data.rows %}
         <tr>
           {% for c in columns %}
-            {% if c.key == "name" %}
+            {% if c.key == "product_name" %}
               <td dir="auto">{{ r.name or "—" }}</td>
             {% elif c.key == "region" %}
               {# For a commodity source the country IS what distinguishes the row,
@@ -307,9 +317,9 @@
                         {% if not r.tax_verified %}class="unverified"{% endif %}>{{ r.tax_short }}</span>
                 {% endif %}
               </td>
-            {% elif c.key == "business_date" %}
+            {% elif c.key == "price_changed_on" %}
               <td class="num muted nowrap">{{ r.business_date }}</td>
-            {% elif c.key == "last_confirmed" %}
+            {% elif c.key == "last_confirmed_on" %}
               {# On a first crawl every price was confirmed the day it was first
                  seen, so repeating the date in both columns is noise. Saying
                  "same day" keeps the column meaningful for later crawls, where
@@ -393,69 +403,78 @@
 {% endif %}
 
 <script>
-// Column management talks to the same /api/fields endpoints the extension uses —
-// one implementation of the rules, two surfaces.
+// Column edits go to the SAME /api/fields endpoint the extension uses — one
+// implementation of the rules, two surfaces, zero new routes.
+//
+// Each edit is a POST then a reload. That is deliberate: the column set decides
+// what the server SELECTs, so re-rendering client-side would show a table the
+// server did not produce. It also means the result is a normal page with a
+// normal URL, and the status line below survives the navigation because it is
+// rendered by the server, not injected into a region that the reload destroys.
 (() => {
   const SOURCE = {{ source_key|tojson }};
+  const ORDER = {{ (columns | map(attribute="key") | list) | tojson }};
   const out = document.getElementById("field-out");
-  const table = document.getElementById("fieldtable");
-  if (!table) return;
+  if (!out) return;
 
-  async function send(body) {
-    out.textContent = "Saving...";
-    const res = await fetch(`/api/fields/${SOURCE}`, {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body)});
-    const data = await res.json().catch(() => ({}));
-    out.textContent = res.ok ? "Saved." : "Failed: " + (data.detail || res.statusText);
-    return res.ok;
+  async function send(body, said) {
+    out.textContent = "Saving…";
+    try {
+      const res = await fetch(`/api/fields/${encodeURIComponent(SOURCE)}`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      if (res.status === 409) {
+        // fields.py refuses an edit while a crawl is writing. Saying so beats a
+        // silent no-op that looks like the click missed.
+        out.textContent = "A crawl is running — try again when it finishes.";
+        return;
+      }
+      if (!res.ok) { out.textContent = `Could not save: ${res.status}`; return; }
+      // ?said= is read back by the server and rendered into the status line, so
+      // the confirmation exists at parse time instead of being announced into a
+      // live region that the reload is about to destroy.
+      const url = new URL(location.href);
+      url.searchParams.set("said", said);
+      location.replace(url);
+    } catch (err) {
+      out.textContent = `Could not save: ${err.message}`;
+    }
   }
 
-  table.querySelectorAll("tr[data-field]").forEach((row) => {
-    const key = row.dataset.field;
-    // Rename on blur, not per keystroke — one write per decision.
-    row.querySelector(".rename").addEventListener("change", (e) =>
-      send({field_key: key, display_name: e.target.value}));
-    row.querySelector(".vis").addEventListener("change", async (e) => {
-      const hidden = !e.target.checked;
-      if (await send({field_key: key, hidden}))
-        row.querySelector(".visword").textContent = hidden ? "Hidden" : "Shown";
-    });
-    row.querySelector(".up").addEventListener("click", async () => {
-      const prev = row.previousElementSibling;
-      if (!prev) return;
-      // Send the full order so the server never has to infer intent.
-      const order = [...table.querySelectorAll("tr[data-field]")].map((r) => r.dataset.field);
-      const i = order.indexOf(key);
-      order.splice(i - 1, 0, order.splice(i, 1)[0]);
-      if (await send({order})) prev.before(row);
-    });
-  });
+  document.querySelectorAll("[data-hide]").forEach(btn =>
+    btn.addEventListener("click", () =>
+      send({field_key: btn.dataset.hide, hidden: true},
+           `${btn.dataset.hide} hidden. It keeps its data.`)));
 
-  document.getElementById("reset-view").addEventListener("click", async () => {
-    if (!confirm("Restore the default view? Names, visibility and order return to " +
-                 "their originals. No data is affected.")) return;
-    if (await send({reset: true})) location.reload();
-  });
+  document.querySelectorAll("[data-show]").forEach(btn =>
+    btn.addEventListener("click", () =>
+      send({field_key: btn.dataset.show, hidden: false},
+           `${btn.dataset.show} shown again.`)));
 
-  document.getElementById("save-view").addEventListener("click", async () => {
-    const name = document.getElementById("view-name").value.trim();
-    if (!name) { out.textContent = "Name the view first."; return; }
-    const columns = [...table.querySelectorAll("tr[data-field]")]
-      .filter((r) => r.querySelector(".vis").checked).map((r) => r.dataset.field);
-    const res = await fetch(`/api/views/${SOURCE}`, {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({view_name: name, config: {columns}})});
-    out.textContent = res.ok ? "View saved." : "Couldn't save the view.";
-    if (res.ok) location.reload();
-  });
-
-  document.querySelectorAll("[data-delview]").forEach((a) =>
-    a.addEventListener("click", async (e) => {
-      e.preventDefault();
-      const res = await fetch(`/api/views/${a.dataset.delview}`, {method: "DELETE"});
-      if (res.ok) location.reload();
+  document.querySelectorAll("[data-move]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.move;
+      const at = ORDER.indexOf(key);
+      const to = btn.dataset.dir === "left" ? at - 1 : at + 1;
+      if (at < 0 || to < 0 || to >= ORDER.length) return;
+      const next = ORDER.slice();
+      next.splice(to, 0, next.splice(at, 1)[0]);
+      // ?focus= puts the cursor back on the same button after the reload.
+      // Without it every reorder drops focus to the top of the document, and a
+      // keyboard user has to tab back for each step.
+      const url = new URL(location.href);
+      url.searchParams.set("focus", key);
+      history.replaceState({}, "", url);
+      send({order: next}, `${key} moved ${btn.dataset.dir}.`);
     }));
+
+  // Restore focus to the control the owner was using.
+  const focusKey = new URLSearchParams(location.search).get("focus");
+  if (focusKey) {
+    const target = document.querySelector(`[data-move="${CSS.escape(focusKey)}"]`);
+    if (target) target.focus({preventScroll: true});
+  }
 })();
 </script>
 {% endblock %}

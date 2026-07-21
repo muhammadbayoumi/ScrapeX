@@ -49,20 +49,24 @@ class _MemorySink:
 def test_fields_are_discovered_from_the_real_export(client):
     body = client.get(f"/api/fields/{SOURCE}").json()
     keys = [f["field_key"] for f in body["fields"]]
-    assert "effective_price" in keys and "currency" in keys
+    # GET /api/fields seeds from THIS SOURCE's present browse columns now, not
+    # from export_source_table's constant header — merely opening the panel used
+    # to register columns the source does not publish, and ensure_fields is
+    # additive, so they stayed in the list forever.
+    assert "effective_price" in keys and "product_name" in keys
     assert all(f["display_name"] is None and not f["is_hidden"] for f in body["fields"])
 
 
 def test_rename_and_hide_through_the_api(client):
     client.get(f"/api/fields/{SOURCE}")
     r = client.post(f"/api/fields/{SOURCE}",
-                    json={"field_key": "currency", "display_name": "Currency code"})
+                    json={"field_key": "sku", "display_name": "Product code"})
     assert r.status_code == 200
-    field = next(f for f in r.json()["fields"] if f["field_key"] == "currency")
-    assert field["label"] == "Currency code" and field["original_name"] == "currency"
+    field = next(f for f in r.json()["fields"] if f["field_key"] == "sku")
+    assert field["label"] == "Product code" and field["original_name"] == "sku"
 
-    r = client.post(f"/api/fields/{SOURCE}", json={"field_key": "currency", "hidden": True})
-    field = next(f for f in r.json()["fields"] if f["field_key"] == "currency")
+    r = client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
+    field = next(f for f in r.json()["fields"] if f["field_key"] == "sku")
     assert field["is_hidden"] is True     # still listed — hidden, not gone
 
 
@@ -74,8 +78,8 @@ def test_unknown_field_is_404(client):
 
 def test_reset_restores_everything(client):
     client.get(f"/api/fields/{SOURCE}")
-    client.post(f"/api/fields/{SOURCE}", json={"field_key": "currency", "hidden": True})
-    client.post(f"/api/fields/{SOURCE}", json={"field_key": "currency", "display_name": "X"})
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "display_name": "X"})
     fields = client.post(f"/api/fields/{SOURCE}", json={"reset": True}).json()["fields"]
     assert all(f["display_name"] is None and not f["is_hidden"] for f in fields)
 
@@ -99,7 +103,7 @@ def test_view_name_is_required(client):
 
 def test_hidden_column_is_dropped_from_the_view_but_kept_in_the_original(client, db_path):
     client.get(f"/api/fields/{SOURCE}")
-    client.post(f"/api/fields/{SOURCE}", json={"field_key": "currency", "hidden": True})
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
 
     conn = dbmod.connect(db_path)
     try:
@@ -111,15 +115,15 @@ def test_hidden_column_is_dropped_from_the_view_but_kept_in_the_original(client,
 
     view_header, view_rows = view_sink.tabs[SOURCE]
     orig_header, orig_rows = orig_sink.tabs[SOURCE]
-    assert "currency" not in view_header          # the owner's arrangement
+    assert "sku" not in view_header               # the owner's arrangement
     assert "currency" in orig_header              # the raw contract is intact
     assert len(orig_rows[0]) == len(view_rows[0]) + 1   # no value was destroyed
 
 
 def test_unhiding_brings_the_column_back_with_its_data(client, db_path):
     client.get(f"/api/fields/{SOURCE}")
-    client.post(f"/api/fields/{SOURCE}", json={"field_key": "currency", "hidden": True})
-    client.post(f"/api/fields/{SOURCE}", json={"field_key": "currency", "hidden": False})
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": False})
 
     conn = dbmod.connect(db_path)
     try:

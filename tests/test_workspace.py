@@ -163,7 +163,7 @@ def test_empty_states_are_designed_not_blank(client, tmp_path):
 
 def test_sort_links_are_offered_for_the_sortable_columns(client):
     body = client.get(f"/source/{SOURCE}").text
-    for key in ("name", "region", "effective_price", "business_date"):
+    for key in ("product_name", "region", "effective_price", "price_changed_on"):
         assert f"sort={key}" in body
 
 
@@ -215,21 +215,43 @@ def test_the_active_sort_is_announced_to_assistive_tech(client):
 
 # ---- manage columns + saved views (spec 22) ---------------------------------
 
-def test_manage_columns_panel_lists_every_field(client):
+def test_the_column_controls_live_on_the_columns(client):
+    """They used to sit in a collapsed <details> holding a second table of
+    checkboxes: to hide a column you opened a panel, found its row, unticked a
+    box — and the table did not change, because the panel only affected a later
+    export. The controls are now on the header cells themselves."""
+    resting = client.get(f"/source/{SOURCE}").text
+    assert "Edit columns" in resting
+    assert "data-hide=" not in resting,         "editing controls must not sit in the resting tab order"
+
+    editing = client.get(f"/source/{SOURCE}?edit=1").text
+    assert "data-hide=" in editing and "data-move=" in editing
+
+
+def test_edit_mode_is_a_link_so_it_survives_without_scripting(client):
+    """Everything else on this page keeps its state in the URL; edit mode does
+    too, rather than being a JavaScript-only toggle."""
     body = client.get(f"/source/{SOURCE}").text
-    assert "Manage columns and views" in body
-    assert "effective_price" in body and "Original" in body
+    assert "edit=1" in body
 
 
-def test_panel_states_that_hiding_is_not_deleting(client):
+def test_hiding_is_stated_to_be_reversible_where_the_control_is(client):
+    """The reassurance has to be where the action is. It used to live in the
+    panel that no longer exists."""
+    body = client.get(f"/source/{SOURCE}?edit=1").text
+    assert "Nothing is deleted" in body
+    assert "keeps its data" in body
+
+
+def test_a_hidden_column_can_be_restored_from_where_it_went(client):
+    """A hidden column leaves a chip. Without it the only way back was to
+    remember the panel existed and go looking for the row."""
+    client.get(f"/source/{SOURCE}")
+    client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
+
     body = client.get(f"/source/{SOURCE}").text
-    assert "keeps receiving every future update" in body
-    assert "Nothing here deletes anything" in body
 
-
-def test_both_export_schemas_are_offered(client):
-    body = client.get(f"/source/{SOURCE}").text
-    assert "--schema original" in body and "--schema current" in body
+    assert "data-show=" in body and "Hidden:" in body
 
 
 def test_hiding_a_column_through_the_api_is_reflected_on_the_page(client):

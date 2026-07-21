@@ -238,7 +238,14 @@ def test_sortable_is_derived_from_the_same_table_so_they_cannot_drift():
     from scrapex.reports import FILTERABLE, SORTABLE
 
     assert SORTABLE == {k: v[0] for k, v in FILTERABLE.items() if v[1] != "derived"}
-    assert "last_confirmed" in SORTABLE and "curation_status" in SORTABLE
+    # ...and the keys are the EXPORT vocabulary, so dataset_field holds one name
+    # per fact. They were invented separately, and the manage list then showed
+    # "name" beside "product_name" — the same column twice, and hiding one did
+    # not hide the other.
+    from scrapex.reports import EXPORT_HEADER
+    shared = {k for k, _ in __import__("scrapex.reports", fromlist=["x"]).BROWSE_COLUMNS} & set(EXPORT_HEADER)
+    assert "product_name" in shared and "price_changed_on" in shared
+    assert "last_confirmed_on" in SORTABLE and "curation_status" in SORTABLE
 
 
 def test_filtering_by_country_uses_the_name_shown_on_screen(split_client):
@@ -255,7 +262,7 @@ def test_filtering_by_country_uses_the_name_shown_on_screen(split_client):
 def test_a_filter_value_is_always_bound_never_spliced():
     from scrapex.reports import _browse_filters
 
-    clause, params = _browse_filters(None, None, {"name": ("has", "'; DROP TABLE x--")})
+    clause, params = _browse_filters(None, None, {"product_name": ("has", "'; DROP TABLE x--")})
 
     assert "'; DROP" not in clause, "a value reached the statement text"
     assert params == ["%'; DROP TABLE x--%"]

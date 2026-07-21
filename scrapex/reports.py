@@ -232,14 +232,14 @@ def _browse_filters(search: str | None, availability: str | None,
 #   date    a date comparison
 #   derived computed in PYTHON after the query, so SQL cannot filter it at all
 FILTERABLE: dict[str, tuple[str, str]] = {
-    "name": ("sp.source_name", "text"),
+    "product_name": ("sp.source_name", "text"),
     "region": ("so.region", "exact"),
     "option_label": ("sv.option_label", "text"),
     "sku": ("sv.external_sku", "text"),
     "effective_price": ("po.effective_price", "number"),
     "availability": ("po.availability", "exact"),
-    "business_date": ("po.business_date", "date"),
-    "last_confirmed": ("ost.last_confirmed_at", "date"),
+    "price_changed_on": ("po.business_date", "date"),
+    "last_confirmed_on": ("ost.last_confirmed_at", "date"),
     "curation_status": ("sp.curation_status", "exact"),
     # Computed in Python — price_unit() and tax.resolve(), the latter with a
     # region->wildcard fallback and valid_to temporality. Reimplementing that in
@@ -251,7 +251,7 @@ FILTERABLE: dict[str, tuple[str, str]] = {
 
 # Derived from the same table, so the two can never disagree about a column.
 SORTABLE = {key: expr for key, (expr, kind) in FILTERABLE.items() if kind != "derived"}
-DEFAULT_SORT = "name"
+DEFAULT_SORT = "product_name"
 
 # What a filter may ASK. The operator picks a SQL template; the value is always
 # a bound parameter, never text spliced into the statement.
@@ -368,8 +368,13 @@ def history_counts(conn: sqlite3.Connection, offer_ids: list[int]) -> dict[int, 
 # definition, so "manage columns" manages exactly what the table renders — until
 # now the panel managed a constant 14-key export header while the table itself
 # had ten literal <th> cells, and the two had no relationship at all.
+# The KEYS are the export vocabulary, deliberately. They were invented fresh
+# when this list was written — "name" beside EXPORT_HEADER's "product_name",
+# "business_date" beside "price_changed_on" — and dataset_field then held two
+# names for the same fact, so the manage list showed each column twice and
+# hiding one did not hide the other. One vocabulary, one list, one meaning.
 BROWSE_COLUMNS: list[tuple[str, str]] = [
-    ("name", "Record"),
+    ("product_name", "Record"),
     ("region", "Country"),
     ("option_label", "Variant"),
     ("sku", "SKU"),
@@ -377,14 +382,14 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("unit", "Unit"),
     ("availability", "Status"),
     ("tax_label", "Tax"),
-    ("business_date", "Price changed"),
-    ("last_confirmed", "Last confirmed"),
+    ("price_changed_on", "Price changed"),
+    ("last_confirmed_on", "Last confirmed"),
     ("curation_status", "Curation"),
 ]
 
 # Never hidden by the emptiness sweep: without them a row cannot be identified
 # or is not a price at all.
-ESSENTIAL_COLUMNS = frozenset({"name", "effective_price"})
+ESSENTIAL_COLUMNS = frozenset({"product_name", "effective_price"})
 
 
 def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:

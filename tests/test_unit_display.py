@@ -175,7 +175,7 @@ def test_a_source_with_no_variants_or_skus_is_not_given_those_columns(conn):
 
     assert "option_label" not in present, "a Variant column of em-dashes"
     assert "sku" not in present, "an SKU column of em-dashes"
-    assert "unit" in present and "name" in present and "effective_price" in present
+    assert "unit" in present and "product_name" in present and "effective_price" in present
 
 
 def test_a_source_that_does_supply_them_keeps_those_columns(conn):
