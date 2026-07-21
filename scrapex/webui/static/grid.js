@@ -450,6 +450,17 @@
     return undefined;
   }
 
+  // A real element around the title lets CSS place the four header parts as
+  // four intentional flex items: label, sort arrow, filter, menu. Tabulator
+  // otherwise leaves the label as an anonymous text node and absolutely parks
+  // the sorter at the far edge, where it reads as detached from the label.
+  function headerLabel(cell) {
+    const label = document.createElement("span");
+    label.className = "grid-header-label";
+    label.textContent = text(cell.getValue());
+    return label;
+  }
+
   function build() {
     if (table) { widthsFromTable(); table.destroy(); table = null; }
 
@@ -463,6 +474,9 @@
         headerPopupIcon: "<span class='filter-icon' title='Filter this column'>⛛</span>",
         resizable: true,
         headerSort: true,
+        // The third click removes the sorter. With no active sorter Tabulator
+        // renders the rows in the payload's original order again.
+        headerSortTristate: true,
         minWidth: 80,
         // A ceiling as well as a floor: without one, fitColumns hands a short
         // column like Unit the same share as a long one like Record.
@@ -530,7 +544,7 @@
       // scrollbar — the width was "fitted" by destroying the content. A floor
       // means the columns stay legible and the table overflows honestly, which
       // is what the horizontal scrollbar below is for.
-      columnDefaults: {minWidth: 110},
+      columnDefaults: {minWidth: 110, titleFormatter: headerLabel},
       // Tabulator measures the full width and does not subtract the vertical
       // scrollbar, so the last column is cut by exactly its width. Telling it
       // the gutter exists is cheaper than fighting the layout afterwards.

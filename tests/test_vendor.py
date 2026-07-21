@@ -202,6 +202,30 @@ def test_header_is_one_and_a_quarter_normal_rows_with_bold_white_text():
     assert "min-height: var(--grid-header-height)" in css
 
 
+def test_header_sort_cycles_back_to_the_original_row_order():
+    """One column click means ascending, two descending, three no sorter. The
+    no-sort state is Tabulator's original input order, not a third invented
+    ordering."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    vendor = (VENDOR / "tabulator.min.js").read_text(encoding="utf-8")
+
+    assert "headerSortTristate: true" in script
+    assert "headerSortTristate" in vendor, "the pinned Tabulator lacks tri-state sorting"
+
+
+def test_header_parts_follow_label_sort_filter_menu_order():
+    """The sorter belongs to the label; filter and menu form the far-edge
+    control cluster shown in the reference image."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    css = THEME.read_text(encoding="utf-8")
+
+    assert 'className = "grid-header-label"' in script
+    assert ".grid-header-label" in css and "order: 0" in css
+    assert ".tabulator-col-sorter" in css and "order: 1" in css
+    assert ".tabulator-header-popup-button" in css and "order: 2" in css
+    assert "margin-inline-start: auto" in css
+
+
 def test_every_hardcoded_row_colour_the_library_sets_is_overridden():
     """Named explicitly, because a library update that adds one more will show
     through, and the failure is silent — it just looks wrong."""

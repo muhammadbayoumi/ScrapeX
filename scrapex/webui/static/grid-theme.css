@@ -227,12 +227,12 @@
 .tabulator.wrap .tabulator-cell { white-space: normal; }
 
 
-/* ---- header layout: label left, controls right ----------------------------
- * Tabulator inserts its menu and popup icons at the FRONT of the title and
- * parks the sort arrow at the far right of the cell, which left a wide dead
- * gap in the middle of every header — read, correctly, as an empty column.
- * The label leads, and the filter, menu and sort controls sit together at the
- * right edge where the reference puts them.
+/* ---- header layout: label + sort, then filter + menu -----------------------
+ * Tabulator nests both popup buttons inside the title but puts the sorter
+ * beside it and absolutely parks that sorter at the far edge. `display:
+ * contents` flattens the title's wrapped children into this flex row. The real
+ * label element comes first, its sorter follows immediately, then auto margin
+ * pushes the filter and menu together to the opposite edge.
  */
 .tabulator .tabulator-col .tabulator-col-content {
   display: flex;
@@ -240,29 +240,50 @@
   gap: .3rem;
   position: relative;
 }
-.tabulator .tabulator-col-title-holder { flex: 1; min-width: 0; }
-.tabulator .tabulator-col-title {
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content
+  .tabulator-col-title-holder {
   display: flex;
   align-items: center;
   gap: .25rem;
+  flex: 1;
+  min-width: 0;
   width: 100%;
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content
+  .tabulator-col-title {
+  display: contents;
   color: var(--grid-header-text);
   font-weight: var(--grid-header-weight);
   font-size: var(--table-header-font-size);
 }
-/* the label first, then the two icons pushed to the end together */
-.tabulator .tabulator-col-title > :not(.tabulator-header-popup-button) { order: 1; }
-.tabulator .tabulator-header-popup-button { order: 2; cursor: pointer; opacity: .55; }
-.tabulator .tabulator-header-popup-button:hover { opacity: 1; color: var(--accent-ink); }
-.tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
-/* the sorter joins them instead of floating at the far edge */
-.tabulator .tabulator-col .tabulator-col-sorter {
+.tabulator .grid-header-label {
+  order: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Match the library selector's specificity so its absolute positioning cannot
+   pull the arrow away from the title again. */
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content
+  .tabulator-col-sorter {
   position: static;
-  order: 3;
+  inset: auto;
+  order: 1;
   flex: none;
   width: auto;
   padding-inline-start: .1rem;
 }
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content
+  .tabulator-header-popup-button {
+  order: 2;
+  flex: none;
+  cursor: pointer;
+  opacity: .55;
+  padding-inline: .2rem;
+}
+.tabulator .tabulator-header-popup-button:hover { opacity: 1; color: var(--accent-ink); }
+.tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
 /* An unsorted column shows no arrow at all: eight grey arrows pointing up said
    nothing except that the header was busy. */
 .tabulator .tabulator-col:not([aria-sort="ascending"]):not([aria-sort="descending"])
