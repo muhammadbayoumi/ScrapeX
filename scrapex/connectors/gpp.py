@@ -181,8 +181,14 @@ def _contracted_materials(source: SourceEntry) -> list[str]:
 class GlobalPetrolPricesConnector:
     connector_id = "static-html-table"
 
-    def __init__(self, fetcher: HttpFetcher) -> None:
+    def __init__(self, fetcher: HttpFetcher, *, history: bool = False) -> None:
         self._fetcher = fetcher
+        # One-time backfill mode (owner decision 2026-07-21): also read each
+        # country's ARABIC mirror, whose chart data carries the full weekly
+        # series in local currency. Off for the weekly crawl — the series only
+        # grows by the point the weekly crawl already collects, so re-fetching
+        # 500+ known points every week would double the volume for nothing.
+        self._history = history
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
         builder = RowBuilder(COMMODITY_PRICE)
@@ -265,10 +271,63 @@ class GlobalPetrolPricesConnector:
                 rows.extend(country_rows(builder, material_key, region, detail,
                                          currency, unit, vat, today))
 
+                if self._history:
+                    rows.extend(self._history_rows(
+                        builder, material_key, region, detail, base, href,
+                        currency, unit, vat, page_errors))
+
         # A total layout change still fails LOUD (Q4) — but only when nothing at
         # all could be parsed, never when some pages succeeded.
         if page_errors and not rows:
             raise ValueError("every contracted GPP page failed: " + "; ".join(page_errors))
+        return self._finish(source, base, builder, rows, page_errors, unmapped)
+
+    def _history_rows(self, builder: RowBuilder, material_key: str, region: str,
+                      detail: "CountryPrice", base: str, href: str,
+                      currency: str, unit: str, vat: str,
+                      page_errors: list[str]) -> list[list[str]]:
+        """The full weekly series from the Arabic mirror, as reported rows.
+
+        Same path, different host — the Arabic edition mirrors the English URL
+        shape exactly. The series carries no currency of its own, so it is
+        accepted ONLY when its last point equals the local price the English
+        page just published: that anchor proves the series is in the same
+        currency and unit, and a series that cannot be anchored is skipped with
+        a warning rather than stored on a guess.
+        """
+        ar_url = base.replace("//www.", "//ar.", 1) + href
+        try:
+            points = parse_arabic_history(self._fetcher.get(ar_url).text)
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — history is additive, not vital
+            page_errors.append(f"{material_key}/{region}: history mirror: {exc}")
+            return []
+        if not points:
+            page_errors.append(
+                f"{material_key}/{region}: history mirror carried no chart data")
+            return []
+        try:
+            anchored = float(points[-1][1]) == float(detail.price)
+        except ValueError:
+            anchored = False
+        if not anchored:
+            page_errors.append(
+                f"{material_key}/{region}: history series ends at "
+                f"{points[-1][1]!r} but the page publishes {detail.price!r} — "
+                "cannot prove the currency; series skipped, not guessed")
+            return []
+        out: list[list[str]] = []
+        for as_of, value in points:
+            row = _row(builder, material_key, region, "", currency, unit, vat,
+                       detail, as_of=as_of, provenance="reported", value=value)
+            if row is not None:
+                out.append(row)
+        return out
+
+    def _finish(self, source: SourceEntry, base: str, builder: RowBuilder,
+                rows: list[list[str]], page_errors: list[str],
+                unmapped: set[str]) -> Iterable[ScrapedTable]:
 
         warnings = list(page_errors)
         if unmapped:
@@ -449,6 +508,38 @@ def parse_country_page(html: str) -> CountryPrice:
                         source_date=source_date, available_from=available,
                         frequency=frequency, history=tuple(history),
                         analytics=tuple(analytics))
+
+
+# The Arabic mirror's inline chart data. The English page renders the full
+# weekly series as a server-side PNG — pixels, not data. The Arabic edition of
+# the SAME public page emits it as Google Charts rows: 520 weekly points of
+# (date, local-currency price) back to 2016, readable by any visitor's browser.
+# In scope under the owner's licence rule (what the public page shows any
+# visitor); the paid API and data download remain untouched.
+_ADDROWS = re.compile(r"data\.addRows\(\[(.*?)\]\);", re.S)
+_AR_POINT = re.compile(r"\[\s*'([^']*)'\s*,\s*([\d.]+)\s*\]")
+# The labels read 'يوم DD شهر MM سنة YYYY' — day, month, year, in words the
+# regex anchors on so a digit can never be read out of position.
+_AR_DATE = re.compile(r"يوم\s*(\d{1,2})\s*شهر\s*(\d{1,2})\s*سنة\s*(\d{4})")
+
+
+def parse_arabic_history(html: str) -> list[tuple[str, str]]:
+    """(ISO date, price) points from the Arabic mirror's chart data.
+
+    Points whose label does not parse as an Arabic date are DROPPED, not
+    guessed: a mis-read date would file a real price under a day it never held.
+    """
+    found = _ADDROWS.search(html)
+    if not found:
+        return []
+    points: list[tuple[str, str]] = []
+    for label, value in _AR_POINT.findall(found.group(1)):
+        stamp = _AR_DATE.search(label)
+        if not stamp:
+            continue
+        day, month, year = (int(x) for x in stamp.groups())
+        points.append((f"{year:04d}-{month:02d}-{day:02d}", value))
+    return points
 
 
 def parse_country_links(html: str, country_sel: str = _COUNTRY_SEL) -> dict[str, str]:

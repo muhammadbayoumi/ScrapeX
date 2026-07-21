@@ -516,3 +516,115 @@ def test_every_country_down_still_fails_loud():
     with pytest.raises(ValueError, match="every contracted GPP page failed"):
         next(iter(GlobalPetrolPricesConnector(_AllCountriesDownFetcher()).fetch(
             make_entry())))
+
+
+# ---- the Arabic mirror: the series the English page renders as pixels --------
+#
+# The English country page draws its ten-year chart as a server-side PNG — no
+# data, only pixels. The ARABIC edition of the same public page emits the same
+# chart as Google Charts rows: 520 weekly (date, local price) points back to
+# 2016. Verified in the raw captured bytes on 2026-07-21. In scope under the
+# owner's licence rule (what the public page shows any visitor); the paid API
+# and data download remain untouched.
+
+def test_the_arabic_chart_data_parses_to_iso_dated_local_prices():
+    from scrapex.connectors.gpp import parse_arabic_history
+
+    points = parse_arabic_history(_read("gpp_ar_egypt_diesel_trimmed.html"))
+
+    # Trimmed live capture: the real first and last six points of 520.
+    assert len(points) == 12
+    assert points[0] == ("2016-08-01", "1.8")     # يوم 01 شهر 08 سنة 2016
+    assert points[-1] == ("2026-07-13", "20.5")   # يوم 13 شهر 07 سنة 2026
+    # Every date is ISO — the Arabic day/month/year words anchor the regex, so
+    # a digit can never be read out of position.
+    assert all(len(d) == 10 and d[4] == d[7] == "-" for d, _ in points)
+
+
+def test_a_page_without_chart_data_yields_no_points_not_a_guess():
+    from scrapex.connectors.gpp import parse_arabic_history
+
+    assert parse_arabic_history("<html><body>redesigned</body></html>") == []
+
+
+class _HistoryFetcher(_StubFetcher):
+    """English list + country pages, plus the Arabic mirror per country."""
+    def get(self, url, **kwargs):
+        if "//ar." in url:
+            self.requests_count += 1
+            return _Resp(_read("gpp_ar_egypt_diesel_trimmed.html"))
+        return super().get(url, **kwargs)
+
+
+def test_history_mode_lands_the_series_as_reported_rows():
+    """One --history crawl: ten years of local-currency points per country,
+    every one dated by the source and marked reported — never ours."""
+    fetcher = _HistoryFetcher()
+    connector = GlobalPetrolPricesConnector(fetcher, history=True)
+    table = next(iter(connector.fetch(make_entry())))
+
+    view = RowView(COMMODITY_PRICE, table.header)
+    rows = [view.as_dict(r) for r in table.rows]
+    series = [r for r in rows if r["provenance"] == "reported"
+              and r["as_of_date"] == "2016-08-01"]
+    # 3 mapped countries, each backfilled from its mirror (the stub serves the
+    # same Egypt series for all three).
+    assert len(series) == 3
+    assert all(r["currency"] == "EGP" and r["effective_price"] == "1.8"
+               for r in series)
+    assert all(r["price_basis"] == "original" for r in series)
+
+
+def test_the_weekly_crawl_does_not_touch_the_mirror():
+    """History is a one-time backfill. The weekly crawl re-fetching 500+ known
+    points per country would double the volume for data it already has."""
+    fetcher = _HistoryFetcher()
+    connector = GlobalPetrolPricesConnector(fetcher)          # history OFF
+    next(iter(connector.fetch(make_entry())))
+
+    assert fetcher.requests_count == 4      # 1 list + 3 countries, no ar. host
+
+
+def test_a_series_that_cannot_be_anchored_is_skipped_not_stored():
+    """The chart rows carry no currency. They are trusted ONLY because the last
+    point equals the local price the English page just published. A series that
+    ends anywhere else might be a different unit, currency, or country — and a
+    guess stored as history is corruption with a ten-year reach."""
+    mismatched = """<script>var data;
+      data.addRows([[' يوم 01 شهر 08 سنة 2016',9.99],[' يوم 13 شهر 07 سنة 2026',7.77]]);
+    </script>"""
+
+    class _DriftMirror(_StubFetcher):
+        def get(self, url, **kwargs):
+            if "//ar." in url:
+                self.requests_count += 1
+                return _Resp(mismatched)
+            return super().get(url, **kwargs)
+
+    connector = GlobalPetrolPricesConnector(_DriftMirror(), history=True)
+    table = next(iter(connector.fetch(make_entry())))
+
+    view = RowView(COMMODITY_PRICE, table.header)
+    rows = [view.as_dict(r) for r in table.rows]
+    assert not any(r["as_of_date"] == "2016-08-01" for r in rows), \
+        "an unanchored series was stored"
+    assert any("cannot prove the currency" in w for w in table.warnings)
+
+
+def test_a_dead_mirror_costs_a_warning_never_the_current_price():
+    """The mirror going away must not take the weekly price with it."""
+    class _DeadMirror(_StubFetcher):
+        def get(self, url, **kwargs):
+            if "//ar." in url:
+                self.requests_count += 1
+                raise RuntimeError("503 service unavailable")
+            return super().get(url, **kwargs)
+
+    connector = GlobalPetrolPricesConnector(_DeadMirror(), history=True)
+    table = next(iter(connector.fetch(make_entry())))
+
+    view = RowView(COMMODITY_PRICE, table.header)
+    observed = [view.as_dict(r) for r in table.rows
+                if view.as_dict(r)["provenance"] == "observed"]
+    assert len(observed) == 3, "the current prices must survive a dead mirror"
+    assert any("history mirror" in w for w in table.warnings)

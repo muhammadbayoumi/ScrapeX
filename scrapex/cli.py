@@ -166,6 +166,16 @@ def _cmd_funnel_test(args: argparse.Namespace) -> int:
 def _cmd_crawl(args: argparse.Namespace) -> int:
     entry = load_manifest().get(args.source)
     connector, fetcher = build_connector(entry)
+    if getattr(args, "history", False):
+        # The backfill is a MODE of the connector, not a different connector:
+        # same frontier, same politeness, plus the published series per country.
+        # Idempotent by construction (the observation dedupe key includes the
+        # business date), so running it twice cannot double the history.
+        if not hasattr(connector, "_history"):
+            print(f"--history is not supported for family {entry.family.value!r}",
+                  file=sys.stderr)
+            return 2
+        connector._history = True
     try:
         tables = list(connector.fetch(entry))
     finally:
@@ -471,6 +481,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("crawl", help="fetch a source into the local inbox (dev loop)")
     p.add_argument("source", help="source_key from sources.yaml")
     p.add_argument("--inbox", help="local inbox dir (default: ~/.scrapex/inbox)")
+    p.add_argument("--history", action="store_true",
+                   help="one-time backfill: also collect the source's published "
+                        "history series as reported rows (GPP only)")
     p.set_defaults(func=_cmd_crawl)
 
     p = sub.add_parser("ingest", help="ingest a source's local-inbox payloads into harvest.db")
