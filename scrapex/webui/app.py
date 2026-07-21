@@ -59,7 +59,7 @@ from ..reports import (
     BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
     export_source_table, history_counts, list_sources, offer_identity,
-    offer_observations, price_extremes, source_summary,
+    offer_observations, price_extremes, source_summary, table_payload,
 )
 from ..scheduler import list_schedules, upsert_schedule
 from ..vocab import (
@@ -373,6 +373,20 @@ def create_app(
                      "facets": facets, "filter_kinds": {k: v[1] for k, v in FILTERABLE.items()},
                      "query": lambda **kw: build_query(state, **kw)},
             status_code=200 if summary is not None else 404)
+
+    @app.get("/api/table/{source_key}")
+    def api_table(source_key: str):
+        """The whole table for one source, for a grid that filters it in place.
+
+        Bounded at reports.TABLE_ROW_CAP — a large number, but a number. A source
+        past it reports truncated=true, because a prefix presented as the whole
+        is exactly the failure the bound exists to prevent.
+        """
+        conn = read_conn()
+        try:
+            return table_payload(conn, source_key)
+        finally:
+            conn.close()
 
     @app.get("/source/{source_key}/offer/{offer_id}", response_class=HTMLResponse)
     def offer_history(request: Request, source_key: str, offer_id: int):

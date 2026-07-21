@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ source_key }} — ScrapeX{% endblock %}
 {% block content %}
+{# The grid is served from OUR origin, never a CDN: this tool must work with no
+   internet, and a page that quietly fetched a library would fail exactly when
+   the owner is offline. See static/vendor/README.md. #}
+<link rel="stylesheet" href="/static/vendor/tabulator.min.css">
+<script src="/static/vendor/tabulator.min.js"></script>
+<script src="/static/grid.js" defer></script>
 {# Interface language is English only (spec 1). Scraped values are DATA: they
    carry dir="auto" so Arabic product names render RTL inside an LTR page. #}
 <p class="muted" style="margin:0 0 .4rem"><a href="/">← All sources</a></p>
@@ -227,167 +233,32 @@
       <a href="{{ query(sort=key, direction=nextdir) }}">{{ label }}{%
         if sort == key %} {{ "▲" if direction == "asc" else "▼" }}{% endif %}</a>
     {% endmacro %}
-    <div class="tablewrap"><table>
-      {# The header and every row are driven by `columns`, which is this SOURCE's
-         column set in the owner's own order — not a list shared by every site.
-         A commodity source with no variants and no SKUs is not handed two
-         columns of em-dashes to read past, and hiding a column in "Manage
-         columns" now changes the table you are looking at. #}
-      <thead>
-      <tr>
-        {% for c in columns %}
-          {# aria-sort belongs on the CELL. It used to sit on the <a> inside it,
-             where assistive tech does not look for it. #}
-          <th {% if sort == c.key %}aria-sort="{{ 'ascending' if direction == 'asc' else 'descending' }}"{% endif %}>
-            {% if c.key in sortable %}{{ sortlink(c.key, c.label) }}{% else %}{{ c.label }}{% endif %}
-            {% if edit %}
-              {# Real <button>s: they take focus and fire on Enter and Space,
-                 which a drag handle does not. #}
-              <span class="colctl">
-                <button type="button" data-move="{{ c.key }}" data-dir="left"
-                        title="Move {{ c.label }} earlier"
-                        {% if loop.first %}disabled{% endif %}>◀</button>
-                <button type="button" data-move="{{ c.key }}" data-dir="right"
-                        title="Move {{ c.label }} later"
-                        {% if loop.last %}disabled{% endif %}>▶</button>
-                <button type="button" data-hide="{{ c.key }}"
-                        title="Hide {{ c.label }} — it keeps its data">✕</button>
-              </span>
-            {% endif %}
-          </th>
-        {% endfor %}
-        <th></th>
-      </tr>
-      {# The filter row. Inline controls in a second header row — NOT a popup:
-         table{overflow:hidden} nested in .tablewrap{overflow-x:auto} clips
-         anything opened from a <th>. Sticky is switched off on this row so it
-         cannot pin over the labels above it. Every control carries
-         form="browse", so one GET form submits all of them and filtering needs
-         no JavaScript at all. #}
-      <tr class="filterrow">
-        {% for c in columns %}
-          <th>
-            {% set kind = filter_kinds.get(c.key, "text") %}
-            {% set active = filters.get(c.key) %}
-            {% if kind == "derived" %}
-              <span class="muted" style="font-weight:400">computed — not filterable</span>
-            {% elif kind == "exact" %}
-              <select name="f.{{ c.key }}" form="browse" aria-label="Filter by {{ c.label }}">
-                <option value="">Any</option>
-                {% for option in facets.get(c.key, []) %}
-                  <option value="is:{{ option }}"
-                    {% if active and active[1] == option %}selected{% endif %}>{{ option }}</option>
-                {% endfor %}
-              </select>
-            {% elif kind in ("number", "date") %}
-              <input type="text" form="browse" name="f.{{ c.key }}"
-                     value="{{ (active[0] ~ ':' ~ active[1]) if active else '' }}"
-                     placeholder="{{ 'gte:100' if kind == 'number' else 'after:2026-01-01' }}"
-                     aria-label="Filter by {{ c.label }}" size="12">
-            {% else %}
-              <input type="search" form="browse" name="f.{{ c.key }}"
-                     value="{{ ('has:' ~ active[1]) if active else '' }}"
-                     placeholder="has:…" aria-label="Filter by {{ c.label }}" size="12">
-            {% endif %}
-          </th>
-        {% endfor %}
-        <th><button type="submit" form="browse">Apply</button></th>
-      </tr>
-      </thead>
-      <tbody>
-      {% for r in page_data.rows %}
-        <tr>
-          {% for c in columns %}
-            {% if c.key == "product_name" %}
-              <td dir="auto">{{ r.name or "—" }}</td>
-            {% elif c.key == "region" %}
-              {# For a commodity source the country IS what distinguishes the row,
-                 so the NAME leads and the ISO code follows quietly. Leading with
-                 the code made every row start with two characters of noise and
-                 pushed "United Arab Emirates" onto a second line. #}
-              <td>{% if r.region %}{{ r.region_name or r.region }}
-                    {% if r.region_name %}<span class="code">{{ r.region }}</span>{% endif %}
-                  {% else %}—{% endif %}</td>
-            {% elif c.key == "option_label" %}
-              <td class="muted" dir="auto">{{ r.option_label or "—" }}</td>
-            {% elif c.key == "sku" %}
-              <td class="num muted">{{ r.sku or "—" }}</td>
-            {% elif c.key == "effective_price" %}
-              <td class="nowrap">
-                <span class="price">{{ "%g"|format(r.effective_price) }} {{ r.currency }}</span>
-                {# When the Unit column is not shown, the unit rides on the price
-                   instead. A price may lose its column but never its unit. #}
-                {% if r.unit and not shows_unit %}<span class="per">/ {{ r.unit }}</span>{% endif %}
-                {% if r.sale_price is not none and r.regular_price and r.regular_price != r.effective_price %}
-                  <span class="strike">{{ "%g"|format(r.regular_price) }}</span>
-                {% endif %}
-              </td>
-            {% elif c.key == "unit" %}
-              {# The unit qualifies the number. When this column is hidden the
-                 unit rides on the price instead, so it is never lost. #}
-              <td class="muted">{{ r.unit or "—" }}</td>
-            {% elif c.key == "availability" %}
-              <td>
-                {# Status is spelled out, never conveyed by colour alone (spec 1.13). #}
-                {% if r.availability == "in_stock" %}<span class="badge ok">In stock</span>
-                {% elif r.availability == "out_of_stock" %}<span class="badge off">Out of stock</span>
-                {% else %}<span class="badge">Unknown</span>{% endif %}
-              </td>
-            {% elif c.key == "tax_label" %}
-              {# The CELL carries the short form and the tooltip carries the
-                 sentence: "Tax included, rate not published" wrapped to three
-                 lines and tripled the height of every row. Nothing is lost —
-                 the full phrase and the source statement are both in the title,
-                 and "Incl. —" says a rate exists nowhere, not that it is zero. #}
-              <td class="muted nowrap">
-                {% if r.tax_statement_url %}
-                  <a href="{{ r.tax_statement_url }}" target="_blank" rel="noopener noreferrer"
-                     title="{{ r.tax_label }} — {{ r.tax_statement or 'Read the source statement' }}"
-                     >{{ r.tax_short }}</a>
-                {% else %}
-                  <span title="{{ r.tax_label }}"
-                        {% if not r.tax_verified %}class="unverified"{% endif %}>{{ r.tax_short }}</span>
-                {% endif %}
-              </td>
-            {% elif c.key == "price_changed_on" %}
-              <td class="num muted nowrap">{{ r.business_date }}</td>
-            {% elif c.key == "last_confirmed_on" %}
-              {# On a first crawl every price was confirmed the day it was first
-                 seen, so repeating the date in both columns is noise. Saying
-                 "same day" keeps the column meaningful for later crawls, where
-                 the two genuinely diverge. #}
-              <td class="num muted nowrap">
-                {% if not r.last_confirmed %}—
-                {% elif r.last_confirmed == r.business_date %}<span class="muted">same day</span>
-                {% else %}{{ r.last_confirmed }}{% endif %}
-              </td>
-            {% elif c.key == "curation_status" %}
-              <td><span class="chip">{{ r.curation_status }}</span></td>
-            {% endif %}
-          {% endfor %}
-          {# A LABELLED control, not a bare icon: it says how much there is to
-             see, so "which of these 721 rows actually moved?" is answered by
-             scanning the column instead of opening rows one at a time. #}
-          <td class="nowrap">
-            {% set changes = changes_by_offer.get(r.offer_id, 0) %}
-            {% if changes %}
-              <a href="/source/{{ source_key }}/offer/{{ r.offer_id }}"
-                 title="Every price this offer has had">History
-                <span class="muted">· {{ changes }} price{{ "s" if changes != 1 else "" }}</span></a>
-            {% else %}
-              <a class="muted" href="/source/{{ source_key }}/offer/{{ r.offer_id }}"
-                 title="What has been recorded for this offer">History</a>
-            {% endif %}
-            {% if r.product_url %}
-              <a href="{{ r.product_url }}" target="_blank" rel="noopener"
-                 title="Open the product page">↗</a>
-            {% endif %}
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
+    {# The grid. Tabulator, served from our own origin — see static/vendor.
 
+       Every column carries a three-dot menu: pick values, type a match, hide
+       it, or move it. Columns resize by dragging their edge and reorder by
+       dragging their header, so the table can be arranged into the shape the
+       work needs rather than the shape it shipped in.
+
+       The rows arrive in ONE bounded request and are filtered in the browser.
+       That is the owner's decision and it has a real consequence, stated on the
+       page rather than hidden: a filter sees every row that was sent, and a
+       source past the cap says how many it is not showing. #}
+    {# Toolbar, then the active-filter chips, then the grid. The chips exist so
+       the page can SAY what is being filtered: a grid that quietly shows fewer
+       rows than it holds is the same failure as a filter that vanishes — the
+       reader cannot tell. #}
+    <p id="grid-toolbar" class="toolbar">
+      <span class="muted">Export what you see:</span>
+      <button type="button" class="chip" data-export="csv">CSV</button>
+      <button type="button" class="chip" data-export="xlsx">Excel</button>
+      <button type="button" class="chip" data-export="json">JSON</button>
+      <span class="muted" title="Your filters, your column order, your hidden columns">
+        — with your filters and column order</span>
+    </p>
+    <p id="grid-chips" class="answer"></p>
+    <div id="grid" class="tablewrap" data-source="{{ source_key }}"></div>
+    <p id="grid-note" class="hint" role="status" aria-live="polite">Loading the table…</p>
 
     {# "Page 3" alone does not say how far you are or how far there is to go.
        The row range and the page count both come from BrowsePage, which has

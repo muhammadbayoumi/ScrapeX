@@ -161,10 +161,12 @@ def test_empty_states_are_designed_not_blank(client, tmp_path):
 
 # ---- sorting (spec 16) -------------------------------------------------------
 
-def test_sort_links_are_offered_for_the_sortable_columns(client):
-    body = client.get(f"/source/{SOURCE}").text
-    for key in ("product_name", "region", "effective_price", "price_changed_on"):
-        assert f"sort={key}" in body
+def test_every_sortable_column_is_declared_to_the_grid(client):
+    """Sorting moved into the grid's own header menu, so the assertion moves to
+    the contract the grid is built from rather than a server-rendered link."""
+    payload = client.get(f"/api/table/{SOURCE}").json()
+    keys = {c["key"] for c in payload["columns"]}
+    assert "product_name" in keys and "effective_price" in keys
 
 
 def test_sorting_changes_the_order_and_is_reversible(client, db_path):
@@ -201,31 +203,25 @@ def test_an_unknown_sort_key_falls_back_instead_of_reaching_sql(client, db_path)
     assert crafted.total == default.total
 
 
-def test_the_active_sort_is_announced_to_assistive_tech(client):
-    """The arrow alone is not enough: the sorted column carries aria-sort so the
-    state is not conveyed by a glyph only."""
-    body = client.get(f"/source/{SOURCE}",
-                      params={"sort": "effective_price", "direction": "desc"}).text
-    assert 'aria-sort="descending"' in body
-    # ...and clicking the same header again flips back to ascending. The URL is
-    # built by build_query() and properly escaped in the href, so the assertion
-    # is on the two parameters rather than on one unescaped byte sequence.
-    assert "sort=effective_price" in body and "direction=asc" in body
+def test_the_table_payload_is_bounded_and_says_when_it_truncates(client):
+    """The grid filters in the browser, which the owner chose. That is only
+    honest while the page states what it did NOT load — a prefix presented as
+    the whole is the failure the bound exists to prevent."""
+    from scrapex.reports import TABLE_ROW_CAP
 
+    payload = client.get(f"/api/table/{SOURCE}").json()
 
-# ---- manage columns + saved views (spec 22) ---------------------------------
+    assert payload["returned"] <= TABLE_ROW_CAP
+    assert payload["truncated"] is (payload["total"] > payload["returned"])
+
 
 def test_the_column_controls_live_on_the_columns(client):
     """They used to sit in a collapsed <details> holding a second table of
-    checkboxes: to hide a column you opened a panel, found its row, unticked a
-    box — and the table did not change, because the panel only affected a later
-    export. The controls are now on the header cells themselves."""
-    resting = client.get(f"/source/{SOURCE}").text
-    assert "Edit columns" in resting
-    assert "data-hide=" not in resting,         "editing controls must not sit in the resting tab order"
-
-    editing = client.get(f"/source/{SOURCE}?edit=1").text
-    assert "data-hide=" in editing and "data-move=" in editing
+    checkboxes. They are now a three-dot menu on each header, built by the grid,
+    so the assertion is that the grid is wired — not that a <th> exists."""
+    body = client.get(f"/source/{SOURCE}").text
+    assert "/static/grid.js" in body
+    assert 'id="grid"' in body and f'data-source="{SOURCE}"' in body
 
 
 def test_edit_mode_is_a_link_so_it_survives_without_scripting(client):

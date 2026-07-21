@@ -683,3 +683,83 @@ def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7)
         # correct; pretending the counts are zero is not.
         result["history_built"] = False
     return result
+
+
+# The whole table, for a browser that filters and groups it in place. Bounded —
+# large, but a number, not "everything" (A8). A source past this cap says so
+# rather than quietly showing a prefix and letting the reader believe it is all.
+TABLE_ROW_CAP = 20_000
+
+
+def table_payload(conn: sqlite3.Connection, source_key: str,
+                  limit: int = TABLE_ROW_CAP) -> dict:
+    """Every row of one source, shaped for a client-side grid.
+
+    Deliberately LEANER than browse_observations' shape. The tax verdict, its
+    sentence and its source URL are identical for every row sharing a region —
+    sending them per row cost about a third of the payload for nothing. They
+    travel once, keyed by region, and the grid joins them.
+
+    The tree grouping is decided HERE rather than in the template, because it
+    depends on what the source actually publishes: a commodity source has one
+    row per (material, country) and reads naturally as material -> countries,
+    while a shop has products and variants.
+    """
+    limit = max(1, min(limit, TABLE_ROW_CAP))
+    total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}", (source_key,)).fetchone()[0])
+    rows = conn.execute(
+        "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
+        "       po.regular_price, po.sale_price, po.currency, po.availability, "
+        "       po.business_date, sp.product_url, sp.curation_status, so.region, "
+        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id "
+        f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
+        (source_key, limit)).fetchall()
+
+    tax_rules = tax.load_rules(conn, source_key)
+    regions = {r[11] or "" for r in rows}
+    tax_by_region = {region: tax.resolve(tax_rules, region).as_dict() for region in regions}
+
+    shaped = [{"product_name": r[0], "option_label": r[1] or "", "sku": r[2] or "",
+               "effective_price": r[3], "regular_price": r[4], "sale_price": r[5],
+               "currency": r[6], "availability": r[7],
+               "price_changed_on": r[8], "product_url": r[9] or "",
+               "curation_status": r[10], "region": r[11] or "",
+               "region_name": region_name(r[11]),
+               "last_confirmed_on": (r[12] or "")[:10],
+               "unit": price_unit(r[13], r[14]), "offer_id": r[15]}
+              for r in rows]
+
+    present = column_presence(conn, source_key)
+    return {
+        "source_key": source_key,
+        "columns": [{"key": key, "label": label} for key, label in BROWSE_COLUMNS
+                    if key in present],
+        "rows": shaped,
+        "tax_by_region": tax_by_region,
+        "total": total,
+        "returned": len(shaped),
+        # A prefix presented as the whole is the failure this flag exists to
+        # prevent; the page states it rather than looking complete.
+        "truncated": total > len(shaped),
+        "tree": _tree_shape(shaped),
+    }
+
+
+def _tree_shape(rows: list[dict]) -> dict:
+    """How this source's rows nest, decided from what they actually contain.
+
+    A commodity source carries one row per (material, country), so it reads as
+    material -> countries: five rows that open into 169 instead of 721 flat
+    ones. A source whose rows share no region has nothing to nest and says so,
+    rather than being given a tree with one child each.
+    """
+    if not rows:
+        return {"by": "", "child": ""}
+    regions = {r["region"] for r in rows if r["region"] and r["region"] != "*"}
+    names = {r["product_name"] for r in rows}
+    # The region has to VARY for nesting by it to mean anything. A shop whose
+    # every row is 'SA' would otherwise get a tree whose branch has one child
+    # reading "Saudi Arabia" — more clicks to see the same list.
+    if len(regions) > 1 and len(names) < len(rows):
+        return {"by": "product_name", "child": "region_name"}
+    return {"by": "", "child": ""}

@@ -36,23 +36,35 @@ def test_overview_lists_the_source(client):
     assert "ELSEWEDYSHOP" in r.text and "السويدي شوب" in r.text
 
 
-def test_source_page_shows_products(client):
-    r = client.get("/source/ELSEWEDYSHOP")
-    assert r.status_code == 200
-    assert "LED Floodlight 400W" in r.text
-    assert "Copper Wire" in r.text
+# The rows are rendered by the grid in the browser now, so asserting product
+# names in the server's HTML would only prove the template still inlines them.
+# The question these tests were really asking — does the page carry the right
+# rows — is asked of the payload the grid is built from.
+
+def test_the_page_delivers_this_sources_rows(client):
+    assert client.get("/source/ELSEWEDYSHOP").status_code == 200
+
+    payload = client.get("/api/table/ELSEWEDYSHOP").json()
+
+    names = {row["product_name"] for row in payload["rows"]}
+    assert "LED Floodlight 400W" in names
+    assert "Copper Wire" in names
 
 
-def test_search_filters_rows(client):
-    r = client.get("/source/ELSEWEDYSHOP", params={"q": "Copper"})
-    assert "Copper Wire" in r.text
-    assert "LED Floodlight 400W" not in r.text
+def test_the_payload_carries_what_a_filter_needs_to_work_on(client):
+    """Filtering moved into the grid, which filters what it was sent. So the
+    server's job is to send the fields the filters name — and to send every row,
+    not the 50 that used to be a page."""
+    payload = client.get("/api/table/ELSEWEDYSHOP").json()
+
+    assert payload["returned"] == payload["total"], "the grid filters what it holds"
+    assert {"product_name", "availability"} <= set(payload["rows"][0])
+    assert {"out_of_stock", "in_stock"} & {r["availability"] for r in payload["rows"]}
 
 
-def test_availability_filter(client):
-    r = client.get("/source/ELSEWEDYSHOP", params={"availability": "out_of_stock"})
-    assert "Copper Wire" in r.text
-    assert "LED Floodlight 400W" not in r.text
+def test_a_source_with_no_rows_says_so_rather_than_failing(client):
+    payload = client.get("/api/table/NOPE").json()
+    assert payload["rows"] == [] and payload["total"] == 0
 
 
 def test_unknown_source_returns_404(client):

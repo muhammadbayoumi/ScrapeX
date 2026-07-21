@@ -64,12 +64,23 @@ def test_the_datasets_page_loads_the_grid_from_our_own_origin():
     assert '/static/vendor/tabulator.min.css' in page
 
 
-def test_the_marketlens_data_page_does_not_use_the_grid():
-    """Deliberate, and worth a test because the temptation is obvious: on the
-    Data page the URL IS the question — filters, sort and paging live in the
-    query string so a link still means the same thing a week later, and the page
-    works with scripting off. A grid holding its state in memory trades that away
-    for column resizing."""
+def test_the_data_page_uses_the_grid_from_our_own_origin():
+    """The owner overruled the earlier "no grid on the Data page" rule after
+    seeing what a header menu, drag-resize and drag-reorder actually buy. What
+    does NOT change is where the bytes come from: our origin, never a CDN.
+
+    The URL-as-question property that argued against a grid is kept where it
+    still pays — the watch tiles, saved views and the offer history are all
+    still plain links — while the table itself is now a grid.
+    """
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert "tabulator" not in page.lower()
-    assert "Tabulator" not in page
+    assert "/static/vendor/tabulator.min.js" in page
+    assert "/static/grid.js" in page
+
+
+def test_the_grid_script_is_served_from_our_origin_too():
+    script = (VENDOR.parent / "grid.js")
+    assert script.is_file(), "the Data page loads /static/grid.js"
+    body = script.read_text(encoding="utf-8")
+    assert "http://" not in body and "https://" not in body, (
+        "the grid must not reach the internet at runtime")
