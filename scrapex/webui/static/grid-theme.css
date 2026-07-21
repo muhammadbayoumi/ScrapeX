@@ -31,6 +31,13 @@
   font-family: inherit;
 }
 
+/* The Data page uses square table edges. Other Tabulator views retain the
+ * shared table radius because this rule is scoped to its unique mount. */
+#grid.tablewrap,
+#grid.tabulator {
+  border-radius: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   .tabulator { --grid-header-surface: var(--line); }
 }
@@ -217,7 +224,15 @@
 }
 .setfilter-row input { width: auto; flex: none; }
 .setfilter-actions { display: flex; gap: .4rem; margin-top: .5rem; }
-.filter-icon { color: var(--grid-header-text); font-size: .8em; }
+.material-icon {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+  fill: currentColor;
+  flex: none;
+}
+.material-filter-icon,
+.material-menu-icon { color: var(--grid-header-text); }
 
 /* Optional rendering modes selected from the grid features panel. */
 .tabulator.compact .tabulator-cell { padding-top: .15rem; padding-bottom: .15rem; }
@@ -271,8 +286,8 @@
   inset: auto;
   order: 1;
   flex: none;
-  width: auto;
-  padding-inline-start: .1rem;
+  width: 1.125rem;
+  padding: 0;
 }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content
   .tabulator-header-popup-button {
@@ -280,15 +295,28 @@
   flex: none;
   cursor: pointer;
   opacity: .55;
-  padding-inline: .2rem;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  min-width: 1.5rem;
+  padding: 0;
 }
 .tabulator .tabulator-header-popup-button:hover { opacity: 1; color: var(--accent-ink); }
 .tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
-/* An unsorted column shows no arrow at all: eight grey arrows pointing up said
-   nothing except that the header was busy. */
-.tabulator .tabulator-col:not([aria-sort="ascending"]):not([aria-sort="descending"])
-  .tabulator-col-sorter .tabulator-arrow { opacity: 0; }
-.tabulator .tabulator-col:hover .tabulator-col-sorter .tabulator-arrow { opacity: .35; }
+/* The same Material arrow points down by rotation. In the no-sort state it
+ * stays fully hidden even while the pointer remains over the header; the old
+ * hover preview made a successful third-click cancellation look unsuccessful. */
+.tabulator .tabulator-col .material-sort-icon {
+  opacity: 0;
+  transform: rotate(0deg);
+}
+.tabulator .tabulator-col[aria-sort="ascending"] .material-sort-icon {
+  opacity: 1;
+}
+.tabulator .tabulator-col[aria-sort="descending"] .material-sort-icon {
+  opacity: 1;
+  transform: rotate(180deg);
+}
 
 /* fitColumns divides the FULL width and does not subtract the vertical
  * scrollbar, so a table that scrolls vertically overflows horizontally by

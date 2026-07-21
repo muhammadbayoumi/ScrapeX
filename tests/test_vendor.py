@@ -15,6 +15,7 @@ import pytest
 
 VENDOR = Path(__file__).resolve().parent.parent / "scrapex" / "webui" / "static" / "vendor"
 TEMPLATES = Path(__file__).resolve().parent.parent / "scrapex" / "webui" / "templates"
+MATERIAL_ICONS = VENDOR.parent / "material-icons"
 
 # name -> (minimum plausible size, a string that must appear in it)
 EXPECTED = {
@@ -86,6 +87,29 @@ def test_the_grid_script_is_served_from_our_origin_too():
         "the grid must not reach the internet at runtime")
 
 
+def test_grid_behaviour_changes_bust_the_browser_cache():
+    """Starlette supplies ETag and Last-Modified but no explicit cache policy.
+    A new grid behaviour therefore needs a new URL or an open browser can keep
+    running the previous script after the application has been updated."""
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+    assert '/static/grid.js?v=material-grid-controls-2' in page
+    assert '/static/grid-theme.css?v=material-grid-controls-2' in page
+
+
+def test_material_header_icons_are_local_and_dry():
+    """The three shapes come from Google's Material Icons, but one local SVG
+    sprite is enough; separate copies add files without adding behaviour."""
+    sprite = (MATERIAL_ICONS / "material-icons.svg").read_text(encoding="utf-8")
+    licence = (MATERIAL_ICONS / "material-icons.LICENSE.txt").read_text(encoding="utf-8")
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    expected_symbols = {'id="filter-list"', 'id="more-vert"', 'id="arrow-upward"'}
+
+    assert all(token in sprite for token in expected_symbols)
+    assert "Apache License" in licence and "Version 2.0" in licence
+    assert "material-icons.svg" in script
+    assert not list(MATERIAL_ICONS.glob("*_*.svg")), "use the single SVG sprite"
+
+
 def test_the_grid_features_panel_is_keyboard_operable_by_construction():
     """A real <details> with real checkboxes, not a custom popup: it opens and
     closes with the keyboard for free, and every toggle is a control that tabs.
@@ -151,7 +175,7 @@ def test_grid_styling_is_fully_separated_from_the_base_template():
     base = BASE.read_text(encoding="utf-8")
     css = THEME.read_text(encoding="utf-8")
 
-    grid_only = (".tabulator", ".setfilter", ".featuregrid", ".filter-icon",
+    grid_only = (".tabulator", ".setfilter", ".featuregrid", ".material-icon",
                  "#grid-features")
     assert all(selector not in base for selector in grid_only)
     assert all(selector in css for selector in grid_only)
@@ -211,6 +235,19 @@ def test_header_sort_cycles_back_to_the_original_row_order():
 
     assert "headerSortTristate: true" in script
     assert "headerSortTristate" in vendor, "the pinned Tabulator lacks tri-state sorting"
+    assert "columnHeaderSortMulti: false" in script
+    assert 'persistence: {columns: ["width"]}' in script, (
+        "a saved sorter can make the next click cycle start in an old state")
+    assert 'PERSISTENCE_ID = "scrapex-grid-v2-"' in script
+
+
+def test_no_sort_state_does_not_preview_an_arrow_on_hover():
+    """After the third click the pointer is necessarily still over the header.
+    A hover-only arrow made the cleared state look as though it had not cleared."""
+    css = THEME.read_text(encoding="utf-8")
+
+    assert ".tabulator .tabulator-col .material-sort-icon" in css
+    assert ".tabulator .tabulator-col:hover .material-sort-icon" not in css
 
 
 def test_header_parts_follow_label_sort_filter_menu_order():
@@ -224,6 +261,28 @@ def test_header_parts_follow_label_sort_filter_menu_order():
     assert ".tabulator-col-sorter" in css and "order: 1" in css
     assert ".tabulator-header-popup-button" in css and "order: 2" in css
     assert "margin-inline-start: auto" in css
+    assert "material-filter-icon" in css and "material-menu-icon" in css
+    assert "material-sort-icon" in css
+
+
+def test_minimum_column_width_always_keeps_filter_and_menu_visible():
+    import re
+
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    css = THEME.read_text(encoding="utf-8")
+    minimum = int(re.search(r"GRID_MIN_COLUMN_WIDTH\s*=\s*(\d+)", script).group(1))
+
+    assert minimum >= 128
+    assert "minWidth: GRID_MIN_COLUMN_WIDTH" in script
+    assert "minWidth: 80" not in script, "a per-column override defeats the shared floor"
+    assert css.count("min-width: 1.5rem") >= 1
+
+
+def test_data_grid_edges_are_square_without_changing_other_tables():
+    css = THEME.read_text(encoding="utf-8")
+
+    assert "#grid.tablewrap" in css and "#grid.tabulator" in css
+    assert "border-radius: 0" in css
 
 
 def test_every_hardcoded_row_colour_the_library_sets_is_overridden():

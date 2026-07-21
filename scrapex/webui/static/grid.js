@@ -22,6 +22,22 @@
 
   const SOURCE = mount.dataset.source;
   const text = (v) => (v === null || v === undefined) ? "" : String(v);
+  const GRID_MIN_COLUMN_WIDTH = 128;
+  // v2 intentionally forgets column widths and sort state saved by the older
+  // grid. Those values could leave a header too narrow for its controls and a
+  // saved sorter could make the first three-click cycle start mid-sequence.
+  const PERSISTENCE_ID = "scrapex-grid-v2-" + SOURCE;
+  const MATERIAL_ICON_SPRITE = "/static/material-icons/material-icons.svg";
+
+  function materialIcon(name, className, title) {
+    return "<svg class='material-icon " + className + "' viewBox='0 0 24 24'" +
+      " aria-hidden='true' focusable='false' title='" + title + "'>" +
+      "<use href='" + MATERIAL_ICON_SPRITE + "#" + name + "'></use></svg>";
+  }
+
+  const FILTER_ICON = materialIcon("filter-list", "material-filter-icon", "Filter this column");
+  const MENU_ICON = materialIcon("more-vert", "material-menu-icon", "Column menu");
+  const SORT_ICON = materialIcon("arrow-upward", "material-sort-icon", "Sort direction");
 
   // ---- active filters, and the line that reports them ----------------------
   // Kept here rather than inside Tabulator so the page can SAY what is being
@@ -340,6 +356,7 @@
       localStorage.removeItem(TREE_KEY);
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-columns");
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-sort");
+      localStorage.removeItem("tabulator-" + PERSISTENCE_ID + "-columns");
       localStorage.removeItem(FEATURE_KEY);
     } catch (err) { /* nothing to clear */ }
     fetch("/api/fields/" + encodeURIComponent(SOURCE), {
@@ -469,15 +486,15 @@
         title: col.label,
         field: col.key,
         headerMenu: columnMenu,
+        headerMenuIcon: MENU_ICON,
         headerFilter: false,
         headerPopup: filterPopup,
-        headerPopupIcon: "<span class='filter-icon' title='Filter this column'>⛛</span>",
+        headerPopupIcon: FILTER_ICON,
         resizable: true,
         headerSort: true,
         // The third click removes the sorter. With no active sorter Tabulator
         // renders the rows in the payload's original order again.
         headerSortTristate: true,
-        minWidth: 80,
         // A ceiling as well as a floor: without one, fitColumns hands a short
         // column like Unit the same share as a long one like Record.
         widthGrow: col.key === "product_name" || col.key === "region" ? 2 : 1,
@@ -544,7 +561,9 @@
       // scrollbar — the width was "fitted" by destroying the content. A floor
       // means the columns stay legible and the table overflows honestly, which
       // is what the horizontal scrollbar below is for.
-      columnDefaults: {minWidth: 110, titleFormatter: headerLabel},
+      columnDefaults: {minWidth: GRID_MIN_COLUMN_WIDTH, titleFormatter: headerLabel},
+      headerSortElement: SORT_ICON,
+      columnHeaderSortMulti: false,
       // Tabulator measures the full width and does not subtract the vertical
       // scrollbar, so the last column is cut by exactly its width. Telling it
       // the gutter exists is cheaper than fighting the layout afterwards.
@@ -558,8 +577,8 @@
       // every column" — which only writes to the server — could not bring it
       // back. A column disappeared and nothing in the interface could recover
       // it. Which columns exist and which are shown is the SERVER's answer.
-      persistence: {sort: true, filter: false, columns: ["width"]},
-      persistenceID: "scrapex-" + SOURCE,
+      persistence: {columns: ["width"]},
+      persistenceID: PERSISTENCE_ID,
     };
 
     // GROUPING: a synthetic parent BAND above the rows, carrying the value and
