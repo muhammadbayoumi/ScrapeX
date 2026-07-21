@@ -56,54 +56,11 @@
     .chip.amber{background:var(--amber-weak);color:var(--amber)}
     .banner{background:var(--amber-weak);border:1px solid var(--line);border-radius:10px;
       padding:.7rem .9rem;font-size:.86rem;color:var(--text);margin:.4rem 0 1.1rem}
-    table{width:100%;border-collapse:collapse;background:var(--surface);
-      border:1px solid var(--line);border-radius:12px;overflow:hidden}
-    /* The interface is LTR English; only scraped VALUES flip (dir="auto"). */
-    th,td{padding:.6rem .7rem;border-bottom:1px solid var(--line);text-align:left;font-size:.9rem}
-    th{background:var(--surface);color:var(--muted);
-      font-weight:500;font-size:.78rem;white-space:nowrap}
-    /* Only COLUMN headers stick. A two-column table whose left cells are row
-       headers would otherwise pin them under the tab bar and leave a blank
-       label behind — which is exactly what it looked like. */
-    /* top:0, NOT an offset below the bars. .tablewrap sets overflow-x, which
-       makes it a scroll container, and a sticky child anchors to its nearest
-       scrolling ancestor — so an offset here is measured from the top of the
-       TABLE and simply pushes the header down over the first rows. That is
-       what the old top:52px did: the header was never sticky to the page, it
-       was a header sitting on top of row one. */
-    thead th{position:sticky;top:0}
-    /* A row header labels its row, so it may wrap rather than run off the edge.
-       Scoped to tbody so it can never reshape a real column header. */
-    tbody>tr>th:first-child{white-space:normal;width:14rem;vertical-align:top}
-    th a{color:inherit}
-    th a:hover{color:var(--accent-ink)}
-    /* A wide dataset scrolls INSIDE the workspace, never the whole page. */
-    .tablewrap{overflow-x:auto;border-radius:12px}
-    tr:last-child td{border-bottom:none}
-    tr:hover td{background:color-mix(in srgb,var(--accent) 6%,transparent)}
-    .price{font-variant-numeric:tabular-nums;font-weight:600;direction:ltr;display:inline-block}
-    /* The unit reads as part of the price, quieter than the number but attached
-       to it — never a separate column the eye can skip. */
-    .per{color:var(--muted);font-size:.85em;direction:ltr;margin-inline-start:.15rem}
-    /* An unverified tax position is marked in TEXT ("unverified" is in the
-       label itself); the dotted underline only reinforces it, never carries it. */
-    .unverified{border-bottom:1px dotted var(--amber);color:var(--amber)}
-    /* Values that mean nothing once broken across two lines: a price and
-       its currency, a date, a tax verdict. */
-    td.nowrap,th.nowrap{white-space:nowrap}
-    /* An ISO code beside a country name: present, quiet, never the thing
-       the eye lands on first. */
-    .code{color:var(--muted);font-size:.78em;direction:ltr;
-      font-variant-numeric:tabular-nums;margin-inline-start:.3rem}
     /* Identity on the left, "is this current?" on the right. */
     .idblock{display:flex;align-items:flex-start;justify-content:space-between;
       gap:1rem;flex-wrap:wrap}
     .runline{margin:.2rem 0 1rem;display:flex;align-items:center;gap:.5rem;
       flex-wrap:wrap;font-size:.85rem}
-    /* The filter row. Sticky is switched OFF here: thead th{position:sticky}
-       applies to every header row, so a second one would pin over the first. */
-    .filterrow th{position:static;padding-top:.2rem;padding-bottom:.5rem;font-weight:400}
-    .filterrow input,.filterrow select{padding:.25rem .4rem;font-size:.8rem;max-width:12rem}
     /* The answer line: how many rows, and which questions produced them. */
     .answer{font-size:.85rem;margin:.4rem 0 .8rem;display:flex;align-items:center;
       gap:.4rem;flex-wrap:wrap}
@@ -118,58 +75,9 @@
     .tile .n{font-size:1.2rem;font-weight:600;font-variant-numeric:tabular-nums}
     .tile .l{font-size:.72rem;color:var(--muted)}
     .tile.zero{opacity:.6}
-    /* Column controls, shown only in edit mode. Real buttons, so they take
-       focus and fire on Enter and Space — a drag handle does neither. */
     .toolbar{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;
       font-size:.85rem;margin:.4rem 0 .8rem}
-    .colctl{display:inline-flex;gap:.1rem;margin-inline-start:.35rem}
-    .colctl button{padding:0 .3rem;font-size:.75rem;line-height:1.4;
-      background:transparent;border:1px solid var(--line);color:var(--muted)}
-    .colctl button:hover:not(:disabled){color:var(--text);border-color:var(--accent)}
-    .colctl button:disabled{opacity:.3}
     button.chip{border:1px solid var(--line);cursor:pointer}
-    /* The set filter: search, select-all, checkboxes — the shape asked for by
-       picture. Tabulator has no set filter, so this is ours, which also means
-       its wording and behaviour are ours rather than a library's defaults. */
-    .setfilter{min-width:15rem;max-width:20rem;padding:.5rem}
-    .setfilter input[type=search]{width:100%;min-width:0;margin-bottom:.4rem}
-    .setfilter-list{max-height:14rem;overflow:auto;border:1px solid var(--line);
-      border-radius:8px;padding:.3rem}
-    .setfilter-row{display:flex;align-items:center;gap:.4rem;padding:.15rem .2rem;
-      font-size:.85rem;cursor:pointer}
-    .setfilter-row.strong{font-weight:600;border-bottom:1px solid var(--line);
-      margin-bottom:.2rem;padding-bottom:.3rem}
-    .setfilter-row input{width:auto;flex:none}
-    .setfilter-actions{display:flex;gap:.4rem;margin-top:.5rem}
-    .filter-icon{color:var(--muted);font-size:.8em}
-    /* The feature checkboxes: a plain grid of labels, so every one is a real
-       control that tabs and toggles with the keyboard. */
-    .featuregrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));
-      gap:.3rem .8rem;margin-top:.5rem}
-    .featuregrid label{display:flex;align-items:center;gap:.4rem;font-size:.85rem;cursor:pointer}
-    .featuregrid input{width:auto;flex:none}
-    /* Compact and striped are drawn here rather than by the library, so they
-       follow the page's own surface and spacing. */
-    .tabulator.compact .tabulator-cell{padding-top:.15rem;padding-bottom:.15rem}
-    /* Only when the owner ticks "Striped rows". Mixed from --text so it follows
-       light and dark rather than being a colour of its own. */
-    .tabulator.striped .tabulator-row.tabulator-row-even{
-      background:color-mix(in srgb,var(--text) 3%,transparent)}
-    .tabulator.wrap .tabulator-cell{white-space:normal}
-    /* Tabulator inserts both icons BEFORE the title (insertBefore firstChild),
-       so the label would read "⛛⋮Record". Flexbox puts the label first and the
-       icons after it, which is where the owner's reference puts them. */
-    .tabulator .tabulator-col-title{display:flex;align-items:center;gap:.25rem}
-    .tabulator .tabulator-header-popup-button{order:2;cursor:pointer;opacity:.55}
-    .tabulator .tabulator-header-popup-button:hover{opacity:1;color:var(--accent-ink)}
-    .tabulator .tabulator-col-title > :not(.tabulator-header-popup-button){order:1}
-    /* The grid's appearance lives in static/grid-theme.css, loaded after the
-       library so the project's own table rules win. It is a stylesheet rather
-       than more lines here because it has to override a hardcoded theme,
-       including several !important declarations, and that is easier to read and
-       to check when it sits beside what it overrides. */
-    .strike{color:var(--muted);text-decoration:line-through;font-weight:400;margin-inline-start:.4rem;font-size:.82rem}
-    .num{direction:ltr;font-variant-numeric:tabular-nums}
     /* Workspace tabs (spec 21). Active is marked by weight + underline, never
        colour alone, and carries aria-current for assistive tech. */
     /* Deliberately NOT wrapping: a tab bar that gains a second line at narrow
@@ -252,7 +160,6 @@
     .sect-sub{color:var(--muted);font-size:.85rem}
     .sect-body{padding:.4rem 1.1rem 1.1rem}
     .sect-body h3{font-size:.95rem;font-weight:600;margin:1.2rem 0 .5rem}
-    .sect-body table{margin:.3rem 0}
     .tech{direction:ltr;font-family:ui-monospace,monospace;font-size:.85em}
     progress{width:100%;height:.6rem}
     .banner.promise{background:var(--accent-weak)}
@@ -267,6 +174,7 @@
     code{direction:ltr;font-family:ui-monospace,monospace;background:var(--chip);
       padding:.1rem .35rem;border-radius:5px;font-size:.85em}
   </style>
+  <link rel="stylesheet" href="/static/table-theme.css">
 </head>
 <body>
   <header class="topbar">

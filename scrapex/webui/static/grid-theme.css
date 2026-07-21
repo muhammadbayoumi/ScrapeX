@@ -7,9 +7,8 @@
  * renderer changed, which is not a thing a renderer is allowed to do.
  *
  * So every colour it sets is overridden here and bound to the same variables
- * the project's own `table`/`th`/`td` rules use. Nothing below invents a
- * colour, a weight or a spacing: each value is copied from those rules, so a
- * grid table and a plain table are indistinguishable.
+ * the project's own `table`/`th`/`td` rules use. Shared table values are design
+ * tokens in table-theme.css; this file owns every grid-specific selector.
  *
  * Loaded AFTER tabulator.min.css. `!important` is used only where Tabulator
  * used it first — matching its weapon, not escalating.
@@ -17,54 +16,71 @@
 
 /* ---- the frame: same as `table` ---- */
 .tabulator {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--text);
-  font-size: .9rem;
+  /* Grid-only header treatment requested for the Data page. A normal row is
+   * .9rem × 1.5 line-height + .6rem on each side; 3.1875 is exactly 1.25×. */
+  --grid-row-height: 2.55rem;
+  --grid-header-height: 3.1875rem;
+  --grid-header-surface: var(--text);
+  --grid-header-text: white;
+  --grid-header-weight: 700;
+  background: var(--table-surface);
+  border: var(--table-rule);
+  border-radius: var(--table-radius);
+  color: var(--table-text);
+  font-size: var(--table-font-size);
   font-family: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tabulator { --grid-header-surface: var(--line); }
 }
 
 /* ---- the header: same as `th` ---- */
 .tabulator .tabulator-header,
 .tabulator .tabulator-header .tabulator-col {
-  background: var(--surface) !important;
-  border-bottom: 1px solid var(--line);
-  color: var(--muted);
+  background: var(--grid-header-surface) !important;
+  border-bottom: var(--table-rule);
+  color: var(--grid-header-text);
 }
 .tabulator .tabulator-header .tabulator-col {
   border-right: none;                 /* the project's tables have no vertical rules */
 }
-.tabulator .tabulator-col-title {
-  color: var(--muted);
-  font-weight: 500;
-  font-size: .78rem;
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content {
+  padding: var(--table-cell-padding);
+  min-height: var(--grid-header-height);
 }
-.tabulator .tabulator-header .tabulator-col .tabulator-col-content { padding: .6rem .7rem; }
 .tabulator .tabulator-header .tabulator-col.tabulator-sortable:hover {
-  background: var(--surface) !important;
-  color: var(--text);
+  background: var(--grid-header-surface) !important;
+  color: var(--grid-header-text);
 }
 
 /* ---- rows: same as `td`, and NO zebra unless asked for ---- */
-.tabulator .tabulator-tableholder { background: var(--surface); }
-.tabulator .tabulator-tableholder .tabulator-table { background: var(--surface); color: var(--text); }
+.tabulator .tabulator-tableholder { background: var(--table-surface); }
+.tabulator .tabulator-tableholder .tabulator-table {
+  background: var(--table-surface);
+  color: var(--table-text);
+}
 .tabulator-row,
 .tabulator-row.tabulator-row-even,
 .tabulator-row.tabulator-row-odd {
-  background-color: var(--surface) !important;
-  color: var(--text);
-  border-bottom: 1px solid var(--line);
+  background-color: var(--table-surface) !important;
+  color: var(--table-text);
+  border-bottom: var(--table-rule);
 }
 .tabulator-row .tabulator-cell {
   border-right: none;
-  padding: .6rem .7rem;
-  color: var(--text);
+  padding: var(--table-cell-padding);
+  color: var(--table-text);
+}
+/* The ratio above describes the normal renderer only. Compact rows deliberately
+   shrink; wrapped rows must remain free to grow with their content. */
+.tabulator:not(.compact):not(.wrap) .tabulator-row .tabulator-cell {
+  min-height: var(--grid-row-height);
 }
 /* the project's own hover, value for value */
 .tabulator-row:hover,
 .tabulator-row.tabulator-selectable:hover {
-  background-color: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+  background-color: var(--table-hover-bg) !important;
 }
 .tabulator-row.tabulator-selected,
 .tabulator-row.tabulator-selected:hover {
@@ -153,6 +169,63 @@
   border: 1px solid var(--line);
 }
 
+/* ---- grid-owned controls --------------------------------------------------
+ * These classes are created by grid.js or occur only beside a Tabulator grid.
+ * Keeping them here means base.html has no knowledge of this renderer. */
+#grid-features { margin: .4rem 0 .8rem; }
+#grid-features > summary { cursor: pointer; font-weight: 600; }
+#grid-features > p { font-size: .85rem; }
+
+.featuregrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: .3rem .8rem;
+  margin-top: .5rem;
+}
+.featuregrid label {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.featuregrid input { width: auto; flex: none; }
+
+/* Tabulator has no set filter, so grid.js supplies this popup. */
+.setfilter { min-width: 15rem; max-width: 20rem; padding: .5rem; }
+.setfilter input[type=search] { width: 100%; min-width: 0; margin-bottom: .4rem; }
+.setfilter-list {
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: .3rem;
+}
+.setfilter-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .15rem .2rem;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.setfilter-row.strong {
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: .2rem;
+  padding-bottom: .3rem;
+}
+.setfilter-row input { width: auto; flex: none; }
+.setfilter-actions { display: flex; gap: .4rem; margin-top: .5rem; }
+.filter-icon { color: var(--grid-header-text); font-size: .8em; }
+
+/* Optional rendering modes selected from the grid features panel. */
+.tabulator.compact .tabulator-cell { padding-top: .15rem; padding-bottom: .15rem; }
+.tabulator.striped .tabulator-row.tabulator-row-even {
+  background-color: color-mix(in srgb, var(--text) 3%, transparent) !important;
+}
+.tabulator.wrap .tabulator-cell { white-space: normal; }
+
 
 /* ---- header layout: label left, controls right ----------------------------
  * Tabulator inserts its menu and popup icons at the FRONT of the title and
@@ -173,10 +246,14 @@
   align-items: center;
   gap: .25rem;
   width: 100%;
+  color: var(--grid-header-text);
+  font-weight: var(--grid-header-weight);
+  font-size: var(--table-header-font-size);
 }
 /* the label first, then the two icons pushed to the end together */
 .tabulator .tabulator-col-title > :not(.tabulator-header-popup-button) { order: 1; }
-.tabulator .tabulator-header-popup-button { order: 2; }
+.tabulator .tabulator-header-popup-button { order: 2; cursor: pointer; opacity: .55; }
+.tabulator .tabulator-header-popup-button:hover { opacity: 1; color: var(--accent-ink); }
 .tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
 /* the sorter joins them instead of floating at the far edge */
 .tabulator .tabulator-col .tabulator-col-sorter {

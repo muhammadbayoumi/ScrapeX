@@ -1,0 +1,98 @@
+/* Shared table vocabulary and the native HTML table renderer.
+ *
+ * This file owns plain <table> presentation. grid-theme.css owns Tabulator's
+ * renderer and consumes only the tokens declared here. Keeping the mapping in
+ * separate files gives both renderers one visual vocabulary without making the
+ * application shell aware of either one's selectors.
+ */
+
+:root {
+  --table-surface: var(--surface);
+  --table-text: var(--text);
+  --table-header-text: var(--muted);
+  --table-rule: 1px solid var(--line);
+  --table-radius: 12px;
+  --table-cell-padding: .6rem .7rem;
+  --table-font-size: .9rem;
+  --table-header-font-size: .78rem;
+  --table-header-weight: 500;
+  --table-hover-bg: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--table-surface);
+  color: var(--table-text);
+  border: var(--table-rule);
+  border-radius: var(--table-radius);
+  overflow: hidden;
+}
+
+/* The interface is LTR English; only scraped values choose their direction. */
+th,
+td {
+  padding: var(--table-cell-padding);
+  border-bottom: var(--table-rule);
+  text-align: left;
+  font-size: var(--table-font-size);
+}
+th {
+  background: var(--table-surface);
+  color: var(--table-header-text);
+  font-weight: var(--table-header-weight);
+  font-size: var(--table-header-font-size);
+  white-space: nowrap;
+}
+
+/* .tablewrap is the scrolling ancestor, so a native header sticks at zero
+ * inside the table. Offsetting it for the app bars would cover the first row. */
+thead th { position: sticky; top: 0; }
+
+/* A row header labels its row and may wrap; real column headers may not. */
+tbody > tr > th:first-child {
+  white-space: normal;
+  width: 14rem;
+  vertical-align: top;
+}
+th a { color: inherit; }
+th a:hover { color: var(--accent-ink); }
+
+/* A wide table scrolls inside the workspace, never the whole page. */
+.tablewrap { overflow-x: auto; border-radius: var(--table-radius); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--table-hover-bg); }
+
+/* Table-value semantics shared by history, changes, settings and data views. */
+.price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  direction: ltr;
+  display: inline-block;
+}
+.per {
+  color: var(--muted);
+  font-size: .85em;
+  direction: ltr;
+  margin-inline-start: .15rem;
+}
+.unverified { border-bottom: 1px dotted var(--amber); color: var(--amber); }
+td.nowrap,
+th.nowrap { white-space: nowrap; }
+.code {
+  color: var(--muted);
+  font-size: .78em;
+  direction: ltr;
+  font-variant-numeric: tabular-nums;
+  margin-inline-start: .3rem;
+}
+.strike {
+  color: var(--muted);
+  text-decoration: line-through;
+  font-weight: 400;
+  margin-inline-start: .4rem;
+  font-size: .82rem;
+}
+.num { direction: ltr; font-variant-numeric: tabular-nums; }
+
+.sect-body table { margin: .3rem 0; }

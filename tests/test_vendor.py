@@ -119,6 +119,8 @@ def test_a_total_is_only_offered_where_a_total_means_something():
 # changed because its renderer changed, which is not a thing a renderer may do.
 
 THEME = VENDOR.parent / "grid-theme.css"
+TABLE_THEME = VENDOR.parent / "table-theme.css"
+BASE = TEMPLATES / "base.html"
 
 
 def test_the_grid_theme_is_loaded_after_the_library():
@@ -140,6 +142,64 @@ def test_the_grid_binds_to_the_projects_variables_not_its_own_colours():
     import re
     literals = re.findall(r":\s*(#[0-9a-fA-F]{3,8})\b", css)
     assert literals == [], f"hardcoded colours in the grid theme: {literals}"
+
+
+def test_grid_styling_is_fully_separated_from_the_base_template():
+    """The application shell must not know Tabulator's selectors or the names
+    of controls created by grid.js. Otherwise changing the grid requires edits
+    in two stylesheets and the two copies can silently drift apart."""
+    base = BASE.read_text(encoding="utf-8")
+    css = THEME.read_text(encoding="utf-8")
+
+    grid_only = (".tabulator", ".setfilter", ".featuregrid", ".filter-icon",
+                 "#grid-features")
+    assert all(selector not in base for selector in grid_only)
+    assert all(selector in css for selector in grid_only)
+
+
+def test_native_table_styling_is_fully_separated_from_the_base_template():
+    """The shell loads the native table renderer but contains none of its
+    rules. Table presentation therefore has one file and one owner."""
+    import re
+
+    base = BASE.read_text(encoding="utf-8")
+    native = TABLE_THEME.read_text(encoding="utf-8")
+
+    assert '/static/table-theme.css' in base
+    assert re.search(r"(?m)^\s*(?:table|th,\s*td|\.tablewrap)\s*\{", base) is None
+    assert "--table-" not in base
+    assert "table {" in native and ".tablewrap {" in native
+
+
+def test_native_and_grid_tables_consume_one_set_of_shape_tokens():
+    """Shared appearance is named once; each renderer only maps its selectors
+    onto that vocabulary."""
+    native = TABLE_THEME.read_text(encoding="utf-8")
+    css = THEME.read_text(encoding="utf-8")
+
+    tokens = ("--table-surface", "--table-text", "--table-rule", "--table-radius",
+              "--table-cell-padding", "--table-font-size",
+              "--table-header-font-size", "--table-hover-bg")
+    for token in tokens:
+        assert f"{token}:" in native, f"{token} has no single definition"
+        assert f"var({token})" in native, f"native tables do not consume {token}"
+        assert f"var({token})" in css, f"the grid does not consume {token}"
+
+
+def test_header_is_one_and_a_quarter_normal_rows_with_bold_white_text():
+    """The requested ratio is between the header and an ordinary unwrapped,
+    non-compact data row; wrapping must still be allowed to grow."""
+    import re
+
+    css = THEME.read_text(encoding="utf-8")
+
+    row = float(re.search(r"--grid-row-height:\s*([\d.]+)rem", css).group(1))
+    header = float(re.search(r"--grid-header-height:\s*([\d.]+)rem", css).group(1))
+    assert header == pytest.approx(row * 1.25)
+    assert "--grid-header-weight: 700" in css
+    assert "--grid-header-text: white" in css
+    assert ".tabulator:not(.compact):not(.wrap)" in css
+    assert "min-height: var(--grid-header-height)" in css
 
 
 def test_every_hardcoded_row_colour_the_library_sets_is_overridden():
