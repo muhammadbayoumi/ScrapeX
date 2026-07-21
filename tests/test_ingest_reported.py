@@ -160,3 +160,63 @@ def test_an_anchor_alone_does_not_mark_the_offer_as_seen(conn):
     result = ingest_payloads(conn, _entry(), [_payload([ANCHOR_1Y])])
 
     assert result.seen == {}
+
+
+# ---- the fetch-time pulse (lives here for the shared db fixture) -------------
+
+def test_a_running_jobs_row_gains_a_pulse_during_the_fetch(conn):
+    """The job's progress unit is sources, so a 450-page single-source fetch
+    sat at '0/1, 0 requests' with a start-time heartbeat for a quarter hour —
+    indistinguishable from a hang. The capture layer now hangs a throttled
+    per-request hook on the fetcher; this drives it exactly as a fetcher would
+    and reads what the panel reads."""
+    import json
+
+    from scrapex.capture import _job_progress
+    from scrapex.jobs import create_job, job_logs
+
+    job_ref = create_job(conn, ["GPP_ENERGY"])
+    job_id = conn.execute("SELECT job_id FROM crawl_job WHERE job_ref=?",
+                          (job_ref,)).fetchone()[0]
+    tick = _job_progress(conn, job_id, "GPP_ENERGY")
+
+    for count in range(1, 121):
+        tick(count, f"https://example.test/page/{count}")
+
+    row = conn.execute("SELECT counters_json, last_heartbeat_at FROM crawl_job "
+                       "WHERE job_id=?", (job_id,)).fetchone()
+    assert json.loads(row["counters_json"])["requests"] == 120, \
+        "the Requests figure the panel shows never moved"
+    assert row["last_heartbeat_at"], "no pulse — a watchdog reads this as a hang"
+    lines = [entry["message"] for entry in job_logs(conn, job_ref)]
+    assert "fetching — 50 requests so far" in lines
+    assert "fetching — 100 requests so far" in lines
+    # Throttled: two narrations for 120 pages, not 120.
+    assert sum("fetching" in line for line in lines) == 2
+
+
+def test_what_a_connector_could_not_collect_reaches_the_job_log(conn):
+    """The run that lost NATURAL_GAS entirely logged three clean lines and read
+    as a full success: the connector's warnings were printed by the CLI path
+    and dropped by the job path. A loss the log never mentions is a loss the
+    owner discovers from the data, months later."""
+    from scrapex.capture import CaptureResult
+    from scrapex.ingest import IngestResult
+    from scrapex.jobs import create_job, job_logs, run_job_once
+
+    def fake_capture(conn_, entry, job_id=None):
+        return CaptureResult(
+            ingest=IngestResult(source_key=entry.source_key, run_id=1),
+            requests_count=5, tables=1, rows=3,
+            warnings=["NATURAL_GAS/EG: country page published no local price"])
+
+    class _Manifest:
+        def get(self, key): return _entry()
+
+    job_ref = create_job(conn, ["GPP_ENERGY"])
+    run_job_once(conn, job_ref, _Manifest(), capture=fake_capture)
+
+    lines = [(entry["level"], entry["message"]) for entry in job_logs(conn, job_ref)]
+    assert ("warning", "NATURAL_GAS/EG: country page published no local price") in [
+        (lvl.lower(), msg) for lvl, msg in lines], \
+        "the connector's warning never reached the job log"

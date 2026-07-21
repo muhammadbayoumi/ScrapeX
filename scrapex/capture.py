@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable
 
 from . import settings
@@ -68,12 +68,45 @@ def crawl_settings(conn: sqlite3.Connection) -> dict:
     }
 
 
+def _job_progress(conn: sqlite3.Connection, job_id: int,
+                  source_key: str) -> Callable[[int, str], None]:
+    """A per-request heartbeat for the job row, throttled to stay negligible.
+
+    Every 10 requests the heartbeat and the live request counter move — the
+    panel's Requests figure ticks and a watchdog can tell life from a hang.
+    Every 50, one log line states plainly what is happening. The counter is
+    provisional (this source's count so far); the authoritative total is merged
+    per source by the job loop as before.
+    """
+    def tick(count: int, url: str) -> None:
+        if count % 10:
+            return
+        conn.execute(
+            "UPDATE crawl_job SET last_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+            "counters_json = json_set(COALESCE(NULLIF(counters_json,''),'{}'), "
+            "'$.requests', ?) WHERE job_id = ?",
+            (count, job_id))
+        if count % 50 == 0:
+            # Local import: jobs.py imports this module at its top.
+            from .jobs import append_log
+            append_log(conn, job_id, f"fetching — {count} requests so far",
+                       source_key=source_key)
+        conn.commit()
+    return tick
+
+
 @dataclass
 class CaptureResult:
     ingest: IngestResult
     requests_count: int
     tables: int
     rows: int = 0          # raw rows the connector produced — the F6 canary input
+    # The connector's own account of what it could NOT collect: skipped
+    # countries, pages that published nothing, an energy type that produced no
+    # rows. The CLI printed these; the job path dropped them on the floor, so a
+    # run that silently lost NATURAL_GAS entirely logged three clean lines and
+    # read as a full success.
+    warnings: list[str] = field(default_factory=list)
 
 
 def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
@@ -89,6 +122,13 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
 
     Connector/network errors propagate; per-row data errors are isolated (Q3)."""
     connector, fetcher = build_connector(entry, crawl_settings(conn))
+    if job_id is not None and hasattr(fetcher, "on_request"):
+        # A long single-source fetch was INVISIBLE: the job's progress unit is
+        # sources, so a 450-page country crawl sat at "0/1, 0 requests" with a
+        # start-time heartbeat for a quarter hour — indistinguishable from a
+        # hang. The fetch holds no lock (see above), so these tiny job-row
+        # writes are exactly the kind the lock design set out to keep flowing.
+        fetcher.on_request = _job_progress(conn, job_id, entry.source_key)
     try:
         tables = list(connector.fetch(entry))       # network only — no DB involved
         requests_count = fetcher.requests_count
@@ -99,4 +139,5 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         _refuse_if_superseded(conn)
         result = ingest_payloads(conn, entry, payloads, job_id=job_id)
     return CaptureResult(ingest=result, requests_count=requests_count,
-                         tables=len(tables), rows=sum(len(t.rows) for t in tables))
+                         tables=len(tables), rows=sum(len(t.rows) for t in tables),
+                         warnings=[w for t in tables for w in t.warnings])

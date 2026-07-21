@@ -43,13 +43,22 @@ from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 # materially different rates per country — residential and business, e.g. Germany
 # 0.406 vs 0.283 — so they are two SERIES, not one price with a lost qualifier.
 # Collapsing them would silently pick one and call it "the" electricity price.
+# The 4th flag says whether this material's COUNTRY pages publish the price in
+# local currency. Verified live 2026-07-21: diesel/gasoline/LPG pages carry the
+# "Price (EGP/Liter)" table; electricity and natural-gas country pages are a
+# different page type with no price table at all — the parser reads them as
+# empty, and their first crawl under the country-page design skipped all 47
+# natural-gas countries with a swallowed warning each, landing ZERO rows where
+# the list had 47. A material without country detail stays on its list page,
+# every week, so its offers are ALWAYS the same converted-USD series — one
+# stable identity, honestly marked, rather than a mix that reads as jumps.
 _PAGES = {
-    "DIESEL":                ("diesel_prices",      "USD/liter", None),
-    "GASOLINE":              ("gasoline_prices",    "USD/liter", None),
-    "LPG":                   ("lpg_prices",         "USD/liter", None),
-    "ELECTRICITY":           ("electricity_prices", "USD/kWh",   1),
-    "ELECTRICITY_BUSINESS":  ("electricity_prices", "USD/kWh",   2),
-    "NATURAL_GAS":           ("natural_gas_prices", "USD/kWh",   None),
+    "DIESEL":                ("diesel_prices",      "USD/liter", None, True),
+    "GASOLINE":              ("gasoline_prices",    "USD/liter", None, True),
+    "LPG":                   ("lpg_prices",         "USD/liter", None, True),
+    "ELECTRICITY":           ("electricity_prices", "USD/kWh",   1,    False),
+    "ELECTRICITY_BUSINESS":  ("electricity_prices", "USD/kWh",   2,    False),
+    "NATURAL_GAS":           ("natural_gas_prices", "USD/kWh",   None, False),
 }
 
 # Verified against the live page. Country labels live in their own column;
@@ -202,7 +211,7 @@ class GlobalPetrolPricesConnector:
 
         pages: dict[str, str] = {}   # slug -> html, so two materials on one page
         for material_key in _contracted_materials(source):            # fetch it once
-            slug, unit, column = _PAGES[material_key]
+            slug, unit, column, country_detail = _PAGES[material_key]
             url = f"{base}/{slug}/"
             # The PARSE belongs inside the guard too: a layout drift on one fuel
             # page must not discard the four sibling pages already parsed (Q3).
@@ -222,14 +231,13 @@ class GlobalPetrolPricesConnector:
                 page_errors.append(f"{material_key}: {exc}")
                 continue
 
-            # The list page is the FRONTIER and the CANARY, not the price. Its
-            # figures are conversions the site computed for a default dropdown
-            # selection; the published price lives on each country's own page,
-            # in the currency the country actually sets it in. Electricity is
-            # the exception for now: its country pages are a different page type
-            # this parser reads as empty, so its rank-table rows remain the
-            # record and remain honestly marked price_basis='converted'.
-            links = {} if column is not None else parse_country_links(html)
+            # For a material WITH country detail, the list page is the FRONTIER
+            # and the CANARY, not the price: its figures are conversions the
+            # site computed for a default dropdown selection, and the published
+            # price lives on each country's own page. Electricity and natural
+            # gas have no such pages (see _PAGES), so their list rows remain
+            # the record, honestly marked price_basis='converted'.
+            links = parse_country_links(html) if country_detail else {}
 
             for country, price in pairs:
                 region = _region(country)

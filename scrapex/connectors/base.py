@@ -156,6 +156,13 @@ class HttpFetcher:
         self.requests_count = 0   # recorded into crawl_run (F5 accounting)
         self.not_modified_count = 0
         self.retry_count = 0
+        # Optional live-progress hook, called after EVERY completed request with
+        # (requests_count, url). A 450-page country crawl used to be a quarter
+        # hour of total silence — 0/1 sources, zero requests, a start-time
+        # heartbeat — indistinguishable from a hang while everything was fine.
+        # The display's failure must never become the crawl's: the call site
+        # guards the hook.
+        self.on_request = None
 
     # ---- validators, so a repeat crawl can be answered with 304 -------------
 
@@ -209,6 +216,11 @@ class HttpFetcher:
                 self._sleep_backoff(attempt)
                 continue
             self.requests_count += 1
+            if self.on_request is not None:
+                try:
+                    self.on_request(self.requests_count, url)
+                except Exception:  # noqa: BLE001 — progress display only
+                    pass
 
             if response.status_code == 304:
                 # Unchanged since our last visit. The caller asked for content,

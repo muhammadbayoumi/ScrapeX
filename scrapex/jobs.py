@@ -250,6 +250,21 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                        f"{result.ingest.observations} observations, "
                        f"{result.ingest.products} new products, {result.requests_count} requests",
                        source_key=source_key)
+            # What the connector could NOT collect belongs in this log too. The
+            # CLI printed these warnings; here they were dropped, so the run
+            # that lost NATURAL_GAS entirely — 47 country pages publishing no
+            # local price, every one skipped — logged three clean lines and
+            # read as a full success. Capped so a systemic failure cannot bury
+            # the log; the cap itself is stated.
+            shown = getattr(result, "warnings", None) or []
+            for warning in shown[:30]:
+                append_log(conn, job_id, warning, level=LogLevel.WARNING,
+                           source_key=source_key)
+            if len(shown) > 30:
+                append_log(conn, job_id,
+                           f"...and {len(shown) - 30} more warnings like these "
+                           "(the CLI crawl prints them all)",
+                           level=LogLevel.WARNING, source_key=source_key)
             # F6: a rotted connector fails QUIETLY — treat a volume breach as a
             # real failure, never a clean success.
             breach = canary_breach(entry, result.rows, previous)
