@@ -5,10 +5,12 @@ each with a single current price. This is a COMMODITY_PRICE source: one row per
 (material, country). Country names map to ISO alpha-2 regions via pycountry (the
 [commodity] extra), so the warehouse region joins feed_assignment directly.
 
-LICENSE (owner decision, T6 / scope: latest_only): take ONLY the latest published
-price, never the paid historical series. This connector fetches only the current
-list page; history accrues from OUR weekly crawls (ingest stamps business_date =
-our crawl date), never from their feed.
+LICENSE (owner decision, revised 2026-07-20): take what the PUBLIC PAGE shows any
+visitor, and nothing more. Their paid product is the full weekly series back to
+2016, reachable through the API and the data download — this connector touches
+neither. The three past figures printed on each country page are published free
+to every reader, so they are in scope; they are stored as 'reported', never as
+something we watched happen.
 
 POSITIONAL PARSING (Q4): the page renders country labels and price bars as two
 PARALLEL lists, both sorted by price, with no shared id to join on — so position
@@ -22,6 +24,8 @@ pairing spot-checked (Venezuela 0.004, Egypt 0.404, Saudi Arabia 0.476 USD/litre
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Iterable
 
 from bs4 import BeautifulSoup
@@ -231,10 +235,171 @@ class GlobalPetrolPricesConnector:
 
 
 def _row(builder: RowBuilder, material_key: str, region: str, price: str,
-         currency: str, unit: str, vat: str):
-    if not any(ch.isdigit() for ch in price):
+         currency: str, unit: str, vat: str, country: "CountryPrice | None" = None,
+         *, as_of: str = "", provenance: str = "observed", value: str = ""):
+    """One commodity row. `country` carries what the country page published.
+
+    Without it the row is the list-page figure: a conversion the site computed
+    for a default currency and unit, which price_basis records honestly as
+    'converted'. With it, the ORIGINAL price and its own currency are carried
+    alongside, and the row is 'original'.
+    """
+    amount = value or price
+    if not any(ch.isdigit() for ch in amount):
         return None  # '-' / 'N/A' cells — skip, don't feed the money parser garbage
-    return builder.row(
+    fields = dict(
         material_key=material_key, region=region, currency=currency, unit=unit,
-        vat_included=vat, effective_price=price, observed_label="",
+        vat_included=vat, effective_price=amount, observed_label="",
+        provenance=provenance, as_of_date=as_of,
+        price_basis="converted",
     )
+    if country and country.price and country.currency:
+        # The price becomes the one the SOURCE publishes, in the currency it
+        # publishes it in. Carrying an EGP amount in a field labelled USD — which
+        # is what pairing them naively does — is the exact corruption this whole
+        # change exists to remove. A different currency is a different offer, and
+        # the warehouse is right to treat it as one.
+        fields.update(
+            currency=country.currency,
+            original_price=amount,
+            original_currency=country.currency,
+            source_date=country.source_date,
+            price_basis="original",
+        )
+        if country.unit:
+            fields["unit"] = country.unit
+    return builder.row(**fields)
+
+
+def country_rows(builder: RowBuilder, material_key: str, region: str,
+                 country: "CountryPrice", currency: str, unit: str, vat: str,
+                 today: date) -> list[list[str]]:
+    """The current price plus whatever history the country page published.
+
+    The past figures become their OWN rows, dated to the day they refer to and
+    marked 'reported', so a year of history lands on the first crawl and none of
+    it pretends to be something we watched happen.
+    """
+    rows: list[list[str]] = []
+    current = _row(builder, material_key, region, country.price or "", currency,
+                   unit, vat, country)
+    if current is not None:
+        rows.append(current)
+    for days_ago, past_price in country.history:
+        row = _row(builder, material_key, region, "", currency, unit, vat, country,
+                   as_of=(today - timedelta(days=days_ago)).isoformat(),
+                   provenance="reported", value=past_price)
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
+# ---- the country page: where the price is actually published -----------------
+#
+# The list pages we crawl weekly render EVERY figure through two dropdowns —
+# <select name="currency"> with 156 options and <select name="literGalon"> with
+# four. So the USD-per-litre number we have been storing is a conversion the
+# site computed for a default selection, not what the source published.
+#
+# The per-country page states the real thing, and a great deal more, in one
+# request (verified live 2026-07-20 on /Egypt/diesel_prices/):
+#
+#   Price (EGP/Liter)  20.50     the published price, in the currency it is set in
+#   Current price       0.40     the USD conversion, for reference
+#   Last update   2026-07-13     the SOURCE's date, not our crawl date
+#   Data available from 2016-08-01
+#   One month ago      20.50
+#   Three months ago   20.50
+#   One year ago       15.50     +32.3%
+#   ...plus eight analytics (correlation with crude, with the USD rate, ...)
+#
+# The three past figures are the reason an initial crawl is worth its requests:
+# they are a year of history on day one, instead of fifty-two weeks of waiting.
+# They are NOT our observations — we did not watch that price in July 2025 — so
+# they are stored with provenance='reported' (migration 0019) and can never pass
+# for something we saw.
+#
+# LICENCE: only what the public page shows any visitor. Their paid product is
+# the full weekly series back to 2016, reachable through the API and the data
+# download; this connector touches neither.
+
+_AGO_LABELS = {
+    "one month ago": 30,
+    "three months ago": 91,
+    "six months ago": 182,
+    "one year ago": 365,
+}
+_CURRENCY_UNIT = re.compile(r"Price\s*\(([A-Za-z]{3})\s*/\s*([^)]+)\)", re.I)
+
+
+@dataclass(frozen=True)
+class CountryPrice:
+    """Everything one country page publishes about one energy type."""
+
+    price: str = ""            # in the source's own currency
+    currency: str = ""
+    unit: str = ""
+    usd_price: str = ""        # the site's own conversion, kept for reference
+    source_date: str = ""      # what the site calls "Last update"
+    available_from: str = ""
+    frequency: str = ""
+    history: tuple[tuple[int, str], ...] = ()   # (days ago, price)
+    analytics: tuple[tuple[str, str], ...] = ()
+
+
+def _rows_of(table) -> list[list[str]]:
+    return [[c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])]
+            for tr in table.find_all("tr")]
+
+
+def parse_country_page(html: str) -> CountryPrice:
+    """Read one country page. Absent fields come back empty, never guessed."""
+    soup = BeautifulSoup(html, "lxml")
+    price = currency = unit = usd = source_date = available = frequency = ""
+    history: list[tuple[int, str]] = []
+    analytics: list[tuple[str, str]] = []
+
+    for table in soup.find_all("table"):
+        rows = _rows_of(table)
+        if not rows:
+            continue
+        header = " ".join(rows[0]).lower()
+        labelled = {r[0].strip().lower(): r[1:] for r in rows[1:] if len(r) >= 2}
+
+        # The overview table: USD figure, the source's own date, coverage.
+        if "current price" in labelled and "last update" in labelled:
+            usd = labelled["current price"][0]
+            source_date = labelled["last update"][0]
+            available = labelled.get("data availability from", [""])[0]
+            frequency = labelled.get("data frequency", [""])[0]
+            continue
+
+        # The local-currency table. Its HEADER carries the currency and unit —
+        # "Price (EGP/Liter)" — which is the only place either is stated.
+        found = _CURRENCY_UNIT.search(" ".join(rows[0]))
+        if found and "current price" in labelled:
+            currency = found.group(1).upper()
+            unit = found.group(2).strip().lower()
+            price = labelled["current price"][0]
+            for label, days in _AGO_LABELS.items():
+                if label in labelled and labelled[label][0]:
+                    history.append((days, labelled[label][0]))
+            continue
+
+        if "analytics" in header:
+            analytics.extend((r[0], r[1]) for r in rows[1:] if len(r) >= 2)
+
+    return CountryPrice(price=price, currency=currency, unit=unit, usd_price=usd,
+                        source_date=source_date, available_from=available,
+                        frequency=frequency, history=tuple(history),
+                        analytics=tuple(analytics))
+
+
+def country_page_url(base: str, country_name: str, slug: str) -> str:
+    """The site's own URL shape: /Saudi-Arabia/diesel_prices/, verified live.
+
+    Built from the country NAME as the list page prints it, because that is the
+    only identifier the two pages share — there is no id to join on.
+    """
+    path = re.sub(r"[^A-Za-z0-9]+", "-", country_name.strip()).strip("-")
+    return f"{base.rstrip('/')}/{path}/{slug}/"

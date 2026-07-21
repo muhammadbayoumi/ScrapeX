@@ -132,11 +132,22 @@ COMMODITY_PRICE = RowSpec(
         "consumer_segment",      # 'household' | 'business' — power prices differ
         "tax_evidence",          # 'stated' | 'general' | 'unknown' — never assumed
         "tax_statement_url",     # where that evidence can be read
+        # --- added 2026-07-20 -----------------------------------------------
+        # A price we READ today, versus a price the source TELLS us held on an
+        # earlier date. globalpetrolprices prints, free on each country page,
+        # what a price was one month, three months and a year ago — a year of
+        # history on the first crawl instead of fifty-two weeks of waiting.
+        # They are not our observations and must never pass for them, so the row
+        # carries which it is and, for a reported one, which date it refers to.
+        "provenance",            # 'observed' | 'reported'
+        "as_of_date",            # 'YYYY-MM-DD' the price refers to; blank = today
+        "source_date",           # the date the SOURCE stamps on its own figure
     ),
     required=frozenset({"material_key", "region", "currency", "effective_price"}),
     additive=frozenset({"original_price", "original_currency", "price_basis",
                         "geo_region", "consumer_segment",
-                        "tax_evidence", "tax_statement_url"}),
+                        "tax_evidence", "tax_statement_url",
+                        "provenance", "as_of_date", "source_date"}),
 )
 
 _BY_KIND = {spec.kind: spec for spec in (PRODUCT_PRICES, COMMODITY_PRICE, ENRICHMENT)}

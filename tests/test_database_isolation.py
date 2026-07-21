@@ -67,7 +67,7 @@ def test_fresh_registry_creates_two_typed_databases_without_domain_tables_crossi
     assert applied["general"] == list(
         range(1, registry.general.latest_schema_version + 1)
     )
-    assert applied["marketlens"] == list(range(1, 17))   # +14 price key, +15 periods, +16 tax
+    assert applied["marketlens"] == list(range(1, 18))   # +15 periods, +16 tax, +17 provenance
     assert registry.health()["general"]["status"] == "Healthy"
     assert registry.health()["marketlens"]["status"] == "Healthy"
 

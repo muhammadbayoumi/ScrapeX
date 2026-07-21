@@ -12,7 +12,7 @@ from scrapex.connectors.gpp import (
     GlobalPetrolPricesConnector, _contracted_materials, _region, parse_price_table,
 )
 from scrapex.ingest import ingest_payloads
-from scrapex.rowspec import COMMODITY_PRICE, RowView
+from scrapex.rowspec import COMMODITY_PRICE, RowBuilder, RowView
 from scrapex.vocab import ExtractKind, ExtractScope
 
 FX = Path(__file__).parent / "fixtures"
@@ -321,3 +321,102 @@ def test_an_unmappable_country_is_reported_not_silently_dropped():
     assert len(table.rows) == 1, "the mappable country must still be kept"
     assert any("Wakanda" in w for w in table.warnings), \
         "a dropped country left no trace"
+
+
+# ---- the country page: the price the source actually publishes ---------------
+#
+# The list pages render every figure through <select name="currency"> (156
+# options) and <select name="literGalon"> (4), so the USD-per-litre number we
+# stored was a conversion for a default selection, not what was published. The
+# owner said so and was right; this is the fix.
+
+def test_the_country_page_gives_the_price_in_the_currency_it_is_published_in():
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page(_read("gpp_country_egypt_diesel.html"))
+
+    assert page.price == "20.50" and page.currency == "EGP" and page.unit == "liter"
+    assert page.usd_price == "0.40", "the conversion is kept, but only for reference"
+
+
+def test_the_source_stamps_its_own_date_which_is_not_our_crawl_date():
+    """Ingest stamps our crawl date. Natural gas data can be seven months old and
+    would read as current; the page states when it was actually updated."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page(_read("gpp_country_egypt_diesel.html"))
+
+    assert page.source_date == "2026-07-13"
+    assert page.available_from == "2016-08-01" and page.frequency == "Weekly"
+
+
+def test_the_free_history_anchors_are_read():
+    """A year of history on the first crawl instead of fifty-two weeks of waiting.
+    Egyptian diesel: 15.50 a year ago against 20.50 now."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page(_read("gpp_country_egypt_diesel.html"))
+
+    assert dict(page.history) == {30: "20.50", 91: "20.50", 365: "15.50"}
+
+
+def test_a_reported_price_never_passes_for_one_we_observed():
+    """We did not watch Egyptian diesel in July 2025. The source tells us today
+    what it was then, and the row has to say which of the two it is."""
+    from datetime import date
+
+    from scrapex.connectors.gpp import country_rows, parse_country_page
+
+    page = parse_country_page(_read("gpp_country_egypt_diesel.html"))
+    builder = RowBuilder(COMMODITY_PRICE)
+    view = RowView(COMMODITY_PRICE, builder.header)
+
+    rows = [view.as_dict(r) for r in
+            country_rows(builder, "DIESEL", "EG", page, "USD", "liter", "1",
+                         date(2026, 7, 20))]
+
+    current = [r for r in rows if r["provenance"] == "observed"]
+    reported = [r for r in rows if r["provenance"] == "reported"]
+    assert len(current) == 1 and len(reported) == 3
+    assert current[0]["as_of_date"] == "", "today's price needs no as-of date"
+    year_ago = [r for r in reported if r["as_of_date"] == "2025-07-20"]
+    assert year_ago and year_ago[0]["effective_price"] == "15.50"
+
+
+def test_the_amount_and_its_currency_label_always_agree():
+    """The bug this caught in its own author: pairing the country page's EGP
+    amount with the manifest's USD label puts an Egyptian price in a field that
+    says dollars — the exact corruption the whole change exists to remove."""
+    from datetime import date
+
+    from scrapex.connectors.gpp import country_rows, parse_country_page
+
+    page = parse_country_page(_read("gpp_country_egypt_diesel.html"))
+    builder = RowBuilder(COMMODITY_PRICE)
+    view = RowView(COMMODITY_PRICE, builder.header)
+
+    for row in country_rows(builder, "DIESEL", "EG", page, "USD", "liter", "1",
+                            date(2026, 7, 20)):
+        shaped = view.as_dict(row)
+        assert shaped["currency"] == "EGP", "an EGP amount labelled USD"
+        assert shaped["price_basis"] == "original"
+
+
+def test_a_page_without_the_tables_yields_nothing_rather_than_a_guess():
+    """Electricity country pages have a different structure entirely — no tables
+    at all. Returning empty is correct; inventing a price would not be."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page("<html><body><h1>Germany electricity prices</h1></body></html>")
+
+    assert page.price == "" and page.currency == "" and page.history == ()
+
+
+def test_the_country_url_follows_the_sites_own_shape():
+    from scrapex.connectors.gpp import country_page_url
+
+    base = "https://www.globalpetrolprices.com"
+    assert (country_page_url(base, "Saudi Arabia", "diesel_prices")
+            == f"{base}/Saudi-Arabia/diesel_prices/")
+    assert (country_page_url(base, "Egypt", "gasoline_prices")
+            == f"{base}/Egypt/gasoline_prices/")
