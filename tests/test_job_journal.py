@@ -242,6 +242,29 @@ def test_pause_mid_fetch_keeps_pages_and_resume_completes_the_job(conn, journal,
     assert observations == 3, "the resumed job must land the WHOLE crawl"
 
 
+def test_politeness_notes_land_in_the_job_log_as_info_not_warning(conn, journal, monkeypatch):
+    """Owner robots ruling (docs/robots-policy.md): a Disallow crossed — like
+    every politeness disclosure — is ONE info-level line. A warning would
+    dress a policy decision as a defect that needs review."""
+    class _NotingFetcher(_Fetcher):
+        robots_warnings = [
+            "x.com: robots.txt disallows some of the paths we crawl (first: "
+            "/p) — crawled anyway per the robots policy: Disallow is "
+            "informational, not enforced"]
+
+    import scrapex.capture as capmod
+    monkeypatch.setattr(capmod, "build_connector",
+                        lambda entry, crawl_settings=None: (_PagedConnector(),
+                                                            _NotingFetcher()))
+    ref = create_job(conn, ["GPP_ENERGY"])
+
+    run_job_once(conn, ref, {"GPP_ENERGY": make_entry()})
+
+    entries = [e for e in job_logs(conn, ref) if "disallows" in e["message"]]
+    assert len(entries) == 1, "the disclosure must appear exactly once"
+    assert entries[0]["level"] == "info", "a politeness note was dressed as a warning"
+
+
 def test_cancel_mid_fetch_discards_the_journal(conn, journal, monkeypatch):
     _with_connector(monkeypatch, _PagedConnector(interrupt_after=2, control="cancel"))
     ref = create_job(conn, ["GPP_ENERGY"])

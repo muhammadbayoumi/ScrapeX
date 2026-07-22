@@ -292,6 +292,11 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                            f"...and {len(shown) - 30} more warnings like these "
                            "(the CLI crawl prints them all)",
                            level=LogLevel.WARNING, source_key=source_key)
+            # Politeness disclosures ride at INFO — the owner's robots ruling
+            # (docs/robots-policy.md): how we behaved toward the site is worth
+            # a line, never a warning that suggests the run needs review.
+            for note in (getattr(result, "notes", None) or []):
+                append_log(conn, job_id, note, source_key=source_key)
             # F6: a rotted connector fails QUIETLY — treat a volume breach as a
             # real failure, never a clean success.
             breach = canary_breach(entry, result.rows, previous)

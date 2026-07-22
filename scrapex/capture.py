@@ -116,6 +116,12 @@ class CaptureResult:
     # run that silently lost NATURAL_GAS entirely logged three clean lines and
     # read as a full success.
     warnings: list[str] = field(default_factory=list)
+    # Politeness disclosures from the fetcher (robots crawl-delay honoured,
+    # Disallow crossed, Retry-After capped). Owner ruling (docs/
+    # robots-policy.md): these are INFO — they describe how we behaved toward
+    # the site, not a defect in the data — so they must never be dressed as
+    # warnings that suggest the run needs review.
+    notes: list[str] = field(default_factory=list)
 
 
 def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
@@ -193,20 +199,21 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
             # The journaled pages survive, but their warnings live only in
             # memory (the payload contract carries none) — flush them to the
             # job log now or the resume silently forgets e.g. which countries
-            # published nothing this week.
-            notes = ([w for t in tables for w in t.warnings]
-                     + list(getattr(fetcher, "robots_warnings", []) or []))
-            if notes:
-                from .jobs import append_log
-                from .vocab import LogLevel
-                for w in notes[:12]:
-                    append_log(conn, job_id, f"warning: {w}",
-                               level=LogLevel.WARNING, source_key=entry.source_key)
-                if len(notes) > 12:
-                    append_log(conn, job_id,
-                               f"...and {len(notes) - 12} more warning(s) from "
-                               "the interrupted fetch",
-                               level=LogLevel.WARNING, source_key=entry.source_key)
+            # published nothing this week. Politeness notes flush at INFO
+            # (owner robots ruling), data warnings at WARNING.
+            from .jobs import append_log
+            from .vocab import LogLevel
+            flush = [w for t in tables for w in t.warnings]
+            for w in flush[:12]:
+                append_log(conn, job_id, f"warning: {w}",
+                           level=LogLevel.WARNING, source_key=entry.source_key)
+            if len(flush) > 12:
+                append_log(conn, job_id,
+                           f"...and {len(flush) - 12} more warning(s) from "
+                           "the interrupted fetch",
+                           level=LogLevel.WARNING, source_key=entry.source_key)
+            for note in list(getattr(fetcher, "robots_warnings", []) or []):
+                append_log(conn, job_id, note, source_key=entry.source_key)
         raise
     finally:
         fetcher.close()
@@ -225,5 +232,5 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
     # only the tail of the crawl, and the F6 volume canary must see the whole.
     return CaptureResult(ingest=result, requests_count=requests_count,
                          tables=len(payloads), rows=sum(len(p.rows) for p in payloads),
-                         warnings=[w for t in tables for w in t.warnings]
-                         + list(getattr(fetcher, "robots_warnings", []) or []))
+                         warnings=[w for t in tables for w in t.warnings],
+                         notes=list(getattr(fetcher, "robots_warnings", []) or []))
