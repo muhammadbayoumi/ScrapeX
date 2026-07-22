@@ -27,6 +27,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from . import db as dbmod
 from . import settings
@@ -633,6 +634,66 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
         detail += (f" The database that was here is still on disk as "
                    f"{Path(displaced).name} — delete it yourself once you have "
                    "confirmed the restore.")
+    return RunResult(ok=True, location=str(path), detail=detail)
+
+
+def start_fresh(db_path: Path | str,
+                initialize: Callable[[Path], None]) -> RunResult:
+    """Put an EMPTY warehouse in place. The full one is sealed aside, not erased.
+
+    Restore's shape exactly, with the incoming file built by `initialize`
+    (the caller supplies the marketlens migration stream — storage knows files,
+    not schemas) instead of copied from a backup. The displaced database keeps
+    every row and is named like a backup on purpose: it appears in the Restore
+    picker, so undoing a reset is the same one click as any other restore.
+
+    Same commit discipline as restore: the switch is the only destructive-
+    LOOKING step and it is a rename; on failure the original is put back and
+    nothing has changed.
+    """
+    path = Path(db_path)
+    incoming = path.with_name(path.name + ".fresh-incoming")
+    incoming.unlink(missing_ok=True)
+    try:
+        initialize(incoming)
+    except Exception:
+        incoming.unlink(missing_ok=True)
+        raise
+    verdict = health(incoming)
+    if not verdict["ok"]:
+        incoming.unlink(missing_ok=True)
+        raise StorageRefused(
+            f"The fresh database did not pass a health check ({verdict['status']}): "
+            f"{verdict['detail']} The current database was not touched.")
+
+    displaced = ""
+    try:
+        if path.exists():
+            displaced = str(path.with_name(
+                f"{path.stem}.reset-backup-{settings.file_stamp()}{path.suffix}"))
+            # Windows refuses this while ANY connection holds the live file —
+            # the caller must have released the worker's connection first, and
+            # must hold no connection of its own (restore's hard lesson).
+            os.replace(path, displaced)
+        os.replace(incoming, path)
+    except OSError as exc:
+        if displaced and not path.exists():   # put the original back
+            os.replace(displaced, path)
+        incoming.unlink(missing_ok=True)
+        raise StorageRefused(
+            f"The database could not be replaced ({exc}). Another part of ScrapeX "
+            "still has it open — stop any running crawl and try again. Nothing "
+            "was changed.") from exc
+    for suffix in ("-wal", "-shm"):
+        try:
+            path.with_name(path.name + suffix).unlink(missing_ok=True)
+        except OSError:
+            pass                                   # cosmetic, after the commit
+    detail = "Started fresh with an empty database."
+    if displaced:
+        detail += (f" Everything that was here is intact in "
+                   f"{Path(displaced).name}, listed under Restore — restoring "
+                   "it undoes this completely.")
     return RunResult(ok=True, location=str(path), detail=detail)
 
 
