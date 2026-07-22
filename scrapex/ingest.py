@@ -780,7 +780,7 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
     # backfill whose business_date is years old, and comparing today's price
     # against a 2016 anchor would record a change nobody's price ever made.
     previous = conn.execute(
-        "SELECT effective_price, availability FROM price_observation "
+        "SELECT effective_price, availability, currency FROM price_observation "
         "WHERE offer_id = ? AND provenance = 'observed' "
         "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1", (offer_id,)
     ).fetchone()
@@ -801,11 +801,23 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
         if previous is not None:  # no previous state = the 'new' event already said it
             ids = {"source_product_id": product_id, "source_variant_id": variant_id,
                    "offer_id": offer_id, "run_id": run_id, "job_id": job_id}
-            moved = classify_price(previous["effective_price"], v["effective_price"])
-            if moved is not None:
-                record_change(conn, moved, "effective_price",
-                              previous_value=previous["effective_price"],
-                              new_value=v["effective_price"], **ids)
+            if (previous["currency"] and v["currency"]
+                    and previous["currency"] != v["currency"]):
+                # A currency flip is NOT a price move: 20.50 EGP after 0.40 USD
+                # would go into the change feed as a −98% crash when nobody's
+                # price changed. The numbers are incomparable, so the flip
+                # itself is the event — recorded with both values, never
+                # dressed as a price movement (the guard behind the
+                # currency-in-price-key rule).
+                record_change(conn, ChangeType.FIELD_UPDATED, "currency",
+                              previous_value=previous["currency"],
+                              new_value=v["currency"], **ids)
+            else:
+                moved = classify_price(previous["effective_price"], v["effective_price"])
+                if moved is not None:
+                    record_change(conn, moved, "effective_price",
+                                  previous_value=previous["effective_price"],
+                                  new_value=v["effective_price"], **ids)
             stock_moved = classify_availability(previous["availability"], v["availability"])
             if stock_moved is not None:
                 record_change(conn, stock_moved, "availability",

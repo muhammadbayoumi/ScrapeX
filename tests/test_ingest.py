@@ -278,3 +278,25 @@ def test_two_identical_rows_in_one_payload_are_still_counted_as_duplicates(conn)
     result = ingest_payloads(conn, entry, [make_payload([one_row(), one_row()])])
     assert result.observations == 1 and result.duplicates == 1
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+
+
+def test_a_currency_flip_never_reaches_the_change_feed_as_a_price_move(conn):
+    """Currency is excluded from offer identity, so both rows land on the SAME
+    offer — and comparing their bare numbers would put a −98% crash in the
+    change feed when nobody's price moved. The flip itself is the event."""
+    ingest_payloads(conn, make_entry(), [make_payload(
+        [one_row(effective_price="0.40", currency="USD")],
+        scraped_at="2026-07-01T10:00:00Z")])
+    ingest_payloads(conn, make_entry(), [make_payload(
+        [one_row(effective_price="20.50", currency="EGP")],
+        scraped_at="2026-07-08T10:00:00Z")])
+
+    events = conn.execute(
+        "SELECT change_type, field_key, previous_value, new_value "
+        "FROM change_event").fetchall()
+    moves = [e for e in events
+             if e["change_type"] in ("price_increase", "price_decrease")]
+    assert not moves, f"a currency flip was recorded as a price move: {moves}"
+    flips = [e for e in events if e["field_key"] == "currency"]
+    assert flips, "the flip itself left no event at all"
+    assert flips[0]["previous_value"] == "USD" and flips[0]["new_value"] == "EGP"

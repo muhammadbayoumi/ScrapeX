@@ -316,3 +316,22 @@ def test_browse_reports_when_a_price_was_last_confirmed_not_only_when_it_moved(c
     row = browse_observations(conn, "ELSEWEDYSHOP").rows[0]
     assert row["business_date"] == "2026-07-01", "the price last moved then"
     assert row["last_confirmed"] == "2026-07-20", "...and was still true then"
+
+
+def test_a_currency_flip_opens_a_period_named_for_what_happened(conn):
+    """Currency is inside the price key, so the flip correctly opens a new
+    period — but 'price_change' as its reason would tell the owner 20.50 EGP
+    after 0.40 USD was a price move. The amounts are incomparable; the reason
+    says so (0030)."""
+    ingest_payloads(conn, make_entry(), [make_payload(
+        [one_row(effective_price="0.40", currency="USD")],
+        scraped_at="2026-07-01T10:00:00Z")])
+    ingest_payloads(conn, make_entry(), [make_payload(
+        [one_row(effective_price="20.50", currency="EGP")],
+        scraped_at="2026-07-08T10:00:00Z")])
+    pricehistory.rebuild_all(conn)
+
+    periods = pricehistory.timeline(conn, offer(conn))
+    assert [p["currency"] for p in periods] == ["USD", "EGP"]
+    assert periods[1]["opened_because"] == "currency_change", \
+        "a currency flip was filed as a price move"

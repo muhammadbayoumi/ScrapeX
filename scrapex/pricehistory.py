@@ -71,7 +71,14 @@ def _same_price(previous: sqlite3.Row, current: sqlite3.Row) -> tuple[bool, str]
     new_fields = pricekey.parse_fields(current["price_fields"])
     if not pricekey.comparable(old_fields, new_fields):
         return False, "fields_changed"
-    return old_hash == new_hash, "price_change"
+    if old_hash == new_hash:
+        return True, "price_change"
+    if (previous["currency"] or "") != (current["currency"] or ""):
+        # Same field set, different currency: the two amounts are incomparable,
+        # so the new period opens for a currency flip, not a price move — the
+        # distinction decides what the owner is told happened (0030).
+        return False, "currency_change"
+    return False, "price_change"
 
 
 def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
