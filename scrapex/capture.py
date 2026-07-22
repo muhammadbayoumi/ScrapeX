@@ -111,7 +111,8 @@ class CaptureResult:
 
 def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                    job_id: int | None = None,
-                   lock: Callable[[], AbstractContextManager] | None = None) -> CaptureResult:
+                   lock: Callable[[], AbstractContextManager] | None = None,
+                   history: bool = False) -> CaptureResult:
     """Fetch a source via its connector and ingest straight into harvest.db.
 
     `lock` (when given) wraps ONLY the ingest write. Holding the process-wide DB
@@ -122,6 +123,17 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
 
     Connector/network errors propagate; per-row data errors are isolated (Q3)."""
     connector, fetcher = build_connector(entry, crawl_settings(conn))
+    if history:
+        # The panel gates this per source, but a job is data and data can be
+        # forged; the capability check here is the one that counts. Running
+        # "history" on a connector that has none would silently be a normal
+        # crawl wearing the wrong name.
+        if not hasattr(connector, "_history"):
+            fetcher.close()
+            raise ValueError(
+                f"history backfill is not supported for family "
+                f"{entry.family.value!r}")
+        connector._history = True
     if job_id is not None and hasattr(fetcher, "on_request"):
         # A long single-source fetch was INVISIBLE: the job's progress unit is
         # sources, so a 450-page country crawl sat at "0/1, 0 requests" with a

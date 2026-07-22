@@ -433,3 +433,25 @@ def test_a_chosen_mode_that_stops_meaning_anything_is_moved_visibly(open_panel):
     assert page.input_value("#run-mode") == "initial_crawl"
     assert "no data yet" in page.text_content("#mode-help")
     assert "Start initial crawl" in page.text_content("#run")
+
+
+# ---- history backfill is offered per CAPABILITY, not per data ----------------
+
+HISTORY_SITE = {"source_key": "GPP_LIKE", "base_url": "https://prices.example.com",
+                "source_name": "Energy Prices", "family": "static-html-table",
+                "active": True, "implemented": True, "observations": 700,
+                "products": 5, "supports_history": True}
+
+
+def test_history_backfill_is_offered_only_where_the_source_publishes_history(open_panel):
+    page = open_panel(sources=[HISTORY_SITE, FULL_SITE])
+    _pick(page, "GPP_LIKE")
+
+    assert not page.is_disabled('#run-mode option[value="history_backfill"]')
+
+    page.check('input[data-key="STOCKED"]')     # a shop joins the selection
+    page.wait_for_timeout(200)
+    assert page.is_disabled('#run-mode option[value="history_backfill"]'), \
+        "a shop with no history capability left the mode on offer"
+    assert "History backfill is available only for" in page.text_content("#mode-help")
+    assert "Energy Prices" in page.text_content("#mode-help")

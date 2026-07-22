@@ -245,7 +245,13 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                 append_log(conn, job_id, f"archived {archived} products before rebuild",
                            source_key=source_key)
             previous = previous_rows_seen(conn, source_key)
-            result = capture(conn, entry, job_id)
+            # The keyword travels only when the mode asks for it, so every
+            # existing capture fake with the plain (conn, entry, job_id)
+            # signature keeps working untouched.
+            if job["run_mode"] == RunMode.HISTORY_BACKFILL.value:
+                result = capture(conn, entry, job_id, history=True)
+            else:
+                result = capture(conn, entry, job_id)
             _merge_counters(counters, result)
             append_log(conn, job_id,
                        f"{result.ingest.observations} observations, "
@@ -423,12 +429,14 @@ class JobRunner:
         """Called after enqueueing so a new job starts without waiting a full poll."""
 
     def _locked_capture(self, conn: sqlite3.Connection, entry,
-                        job_id: int | None = None) -> CaptureResult:
+                        job_id: int | None = None, *,
+                        history: bool = False) -> CaptureResult:
         # The lock is passed DOWN so it wraps only the ingest write, not the
         # network crawl. Holding it across the whole fetch made every unrelated
         # UI write fail with a conflict for the duration of a crawl.
         return capture_source(conn, entry, job_id,
-                              lock=lambda: dbmod.write_lock(self._db_path))
+                              lock=lambda: dbmod.write_lock(self._db_path),
+                              history=history)
 
     def release_database(self) -> None:
         """Ask the worker to drop its connection before the next poll.

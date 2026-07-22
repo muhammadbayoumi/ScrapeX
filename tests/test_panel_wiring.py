@@ -99,7 +99,7 @@ def test_every_mode_the_select_offers_is_covered_by_the_availability_map():
     silently exempt from the owner's rule."""
     offered = set(re.findall(r'<option value="([\w-]+)"', HTML.split('id="run-mode"')[1]
                              .split("</select>")[0]))
-    mapped = set(re.findall(r"(update|initial_crawl|full_rebuild):\s", JS))
+    mapped = set(re.findall(r"(update|initial_crawl|full_rebuild|history_backfill):\s", JS))
     assert offered <= mapped, f"modes without an availability rule: {offered - mapped}"
 
 

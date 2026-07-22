@@ -176,6 +176,9 @@ const MODES = {
   initial_crawl: ["Initial crawl", "Collect and save these sites for the first time.", null],
   full_rebuild: ["Full rebuild", "Archive the current dataset, then crawl again.",
     "Full rebuild archives the current catalogue and takes a database backup first. Nothing is deleted, and the backup is your rollback."],
+  history_backfill: ["History backfill",
+    "Collect the history this source itself publishes (e.g. ten years of weekly prices), recorded as the source's own dated claims. Safe to repeat — known points are skipped.",
+    null],
 };
 
 function renderModeTexts(availabilityNote) {
@@ -202,9 +205,15 @@ function syncModeChoices() {
   const without = chosen.length - withData;
   // Nothing selected: leave every mode open — the Run button is blocked anyway,
   // and greying the whole list would read as a fault rather than a state.
+  // History backfill is a CAPABILITY, not a data state: only sources whose
+  // connector knows where their site publishes history can run it, and a mixed
+  // selection may not — running "history" on a shop that has none would be a
+  // normal crawl wearing the wrong name.
+  const allHistory = chosen.length > 0 && chosen.every((s) => s.supports_history);
   const allow = chosen.length === 0
-    ? { update: true, initial_crawl: true, full_rebuild: true }
-    : { update: withData > 0, initial_crawl: without > 0, full_rebuild: withData > 0 };
+    ? { update: true, initial_crawl: true, full_rebuild: true, history_backfill: true }
+    : { update: withData > 0, initial_crawl: without > 0, full_rebuild: withData > 0,
+        history_backfill: allHistory };
   const select = $("run-mode");
   for (const option of select.options) option.disabled = !allow[option.value];
   let note = "";
@@ -212,6 +221,14 @@ function syncModeChoices() {
     note = "The selected sites have no data yet, so this run is their first crawl.";
   } else if (chosen.length > 0 && without === 0) {
     note = "Every selected site already has data, so a first crawl is not on offer.";
+  }
+  if (chosen.length > 0 && !allHistory) {
+    const capable = state.sources.filter((s) => s.supports_history)
+      .map((s) => s.source_name);
+    if (capable.length) {
+      note += (note ? " " : "") + "History backfill is available only for: " +
+        capable.join(", ") + ".";
+    }
   }
   if (!allow[select.value]) {
     // The mode the owner had chosen stopped being meaningful for this

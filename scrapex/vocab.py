@@ -124,6 +124,12 @@ class RunMode(StrEnum):
     INITIAL_CRAWL = "initial_crawl"
     UPDATE = "update"
     FULL_REBUILD = "full_rebuild"
+    # Collect the source's OWN published history (e.g. ten years of weekly
+    # prices) as reported rows. A capability, not a universal mode: only a
+    # connector that knows where its source publishes history can run it, and
+    # the Run panel offers it per source accordingly. Idempotent by
+    # construction — the observation dedupe key includes the business date.
+    HISTORY_BACKFILL = "history_backfill"
 
 
 class JobStatus(StrEnum):

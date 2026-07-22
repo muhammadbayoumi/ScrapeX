@@ -24,7 +24,7 @@ from .. import db as dbmod
 from ..capture import capture_source
 from ..changes import change_summary, changes_for_offer, recent_changes
 from ..config import MANIFEST_FILE, SourceEntry, load_manifest
-from ..connectors.factory import _BUILDERS
+from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
     DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
     DatabaseUnavailableError, GeneralDatabase, MarketLensDatabase,
@@ -604,6 +604,9 @@ def create_app(
                 "source_key": entry.source_key, "source_name": entry.source_name,
                 "base_url": entry.base_url, "family": entry.family.value,
                 "active": entry.active, "implemented": _is_implemented(entry),
+                # A per-source CAPABILITY, not a universal mode: the panel
+                # offers History backfill only where this is true.
+                "supports_history": supports_history(entry.family),
                 "observations": s.observations if s else 0,
                 "products": s.products if s else 0,
             })

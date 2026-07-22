@@ -372,3 +372,51 @@ def test_a_new_record_appears_once_in_the_feed_not_twice(conn):
     stored = conn.execute("SELECT COUNT(*) FROM change_event "
                           "WHERE change_type='new'").fetchone()[0]
     assert stored == 2, "the collapse deleted data instead of shaping display"
+
+
+# ---- history backfill from the interface -------------------------------------
+
+def test_a_history_job_reaches_the_connector_and_a_forged_one_is_refused(conn):
+    """The owner runs everything from the panel; the ten-year backfill is now a
+    job mode. The panel gates it per source, but a job is data and data can be
+    forged — the capability check in capture is the one that counts."""
+    import pytest as _pytest
+
+    from scrapex.capture import capture_source
+    from scrapex.jobs import create_job, get_job, run_job_once
+    from scrapex.vocab import RunMode
+
+    seen = {}
+
+    def fake_capture(conn_, entry, job_id=None, history=False):
+        from scrapex.capture import CaptureResult
+        from scrapex.ingest import IngestResult
+        seen["history"] = history
+        return CaptureResult(ingest=IngestResult(source_key=entry.source_key, run_id=1),
+                             requests_count=1, tables=1, rows=1)
+
+    class _Manifest:
+        def get(self, key): return _entry()
+
+    ref = create_job(conn, ["GPP_ENERGY"], run_mode=RunMode.HISTORY_BACKFILL)
+    run_job_once(conn, ref, _Manifest(), capture=fake_capture)
+    assert seen["history"] is True, "the mode never reached the capture layer"
+    assert get_job(conn, ref)["status"] == "completed"
+
+    # And the real capture layer refuses a family with no history capability.
+    from scrapex.config import SourceEntry
+    shop = SourceEntry.model_validate(dict(
+        source_key="ELSEWEDYSHOP", source_name="السويدي شوب",
+        base_url="https://elsewedyshop.com", family="shopify-json",
+        cadence="daily", authority="shop", currency="EGP", vat_mode="incl",
+        extract=[{"kind": "product_prices"}]))
+    with _pytest.raises(ValueError, match="not supported for family"):
+        capture_source(conn, shop, history=True)
+
+
+def test_the_sources_api_declares_who_supports_history():
+    from scrapex.connectors.factory import supports_history
+    from scrapex.vocab import ConnectorFamily
+
+    assert supports_history(ConnectorFamily.STATIC_HTML_TABLE) is True
+    assert supports_history(ConnectorFamily.SHOPIFY_JSON) is False
