@@ -2,8 +2,14 @@
 
 WooCommerce's Store API (`/wp-json/wc/store/products`) is open JSON, paginated.
 Gotcha (handled here): prices are integer strings in MINOR units with a
-`currency_minor_unit` (e.g. "1050" + 2 → 10.50). v1 emits one row per product
-(product-level price); per-variation prices need extra calls — a later enhancement.
+`currency_minor_unit` (e.g. "1050" + 2 → 10.50).
+
+A VARIABLE product's list entry carries only the price RANGE's low end; each
+variation is itself a product at /products/{id}, with its own price, sku and a
+human "variation" string ("Color: أرضي"). Verified live on samehgabriel.com
+2026-07-22: the parent showed 450.00 while its earth-coloured variation sells
+at 2,776.66 — the product-level row was hiding the actual prices. One extra
+request per variation buys the real numbers.
 """
 from __future__ import annotations
 
@@ -12,9 +18,10 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
+from ..normalize import option_fingerprint
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, ExtractKind
-from .base import HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PER_PAGE = 100
 
@@ -82,6 +89,7 @@ class WooCommerceConnector:
         endpoint = f"{base}/wp-json/wc/store/products"
         vat = "1" if source.vat_mode.value == "incl" else "0"
         rows: list[list[str]] = []
+        notes: list[str] = []
         fetched: list[dict] = []      # kept so enrichment needs no second fetch
 
         page = 1
@@ -91,9 +99,7 @@ class WooCommerceConnector:
                 break
             fetched.extend(products)
             for p in products:
-                row = self._row(builder, p, source, vat)
-                if row is not None:
-                    rows.append(row)
+                rows.extend(self._product_rows(builder, p, source, vat, endpoint, notes))
             if len(products) < PER_PAGE:
                 break
             page += 1
@@ -101,6 +107,7 @@ class WooCommerceConnector:
         yield ScrapedTable(
             source_key=source.source_key, kind=PRODUCT_PRICES.kind,
             source_url=endpoint, header=builder.header, rows=rows,
+            warnings=notes,
         )
         # A SECOND table from the SAME fetch. The attributes, categories, tags,
         # description and measurements were all in the responses already read;
@@ -117,23 +124,70 @@ class WooCommerceConnector:
                     source_url=endpoint, header=extra.header, rows=attribute_rows,
                 )
 
+    def _product_rows(self, builder: RowBuilder, product: dict, source: SourceEntry,
+                      vat: str, endpoint: str, notes: list[str]) -> list[list[str]]:
+        """The rows one catalogue entry is worth: its variations, or itself.
+
+        For a variable product the list entry's price is only the range's low
+        end, so the variation rows REPLACE the parent row — emitting both would
+        state the same offer twice at two different prices. The parent price
+        survives only as a fallback when every variation fetch failed, said out
+        loud, because a missing week is honest but a silently thinner catalogue
+        is not (Q3)."""
+        variation_ids = [str(v.get("id") or "")
+                         for v in (product.get("variations") or []) if v.get("id")]
+        if not variation_ids:
+            row = self._row(builder, product, source, vat)
+            return [row] if row is not None else []
+        out: list[list[str]] = []
+        for vid in variation_ids:
+            try:
+                child = self._fetcher.get(f"{endpoint}/{vid}").json()
+            except CrawlBlocked:
+                raise    # the site said no — hundreds more requests is not the answer
+            except Exception as exc:  # noqa: BLE001 — isolate per variation
+                notes.append(f"{product.get('name')}: variation {vid}: {exc}")
+                continue
+            row = self._row(builder, child if isinstance(child, dict) else {},
+                            source, vat, parent=product)
+            if row is not None:
+                out.append(row)
+        if not out:
+            notes.append(
+                f"{product.get('name')}: no variation answered with a price — "
+                "the product-level price (the range's low end) is kept instead")
+            row = self._row(builder, product, source, vat)
+            if row is not None:
+                out.append(row)
+        return out
+
     @staticmethod
-    def _row(builder: RowBuilder, product: dict, source: SourceEntry, vat: str):
+    def _row(builder: RowBuilder, product: dict, source: SourceEntry, vat: str,
+             parent: dict | None = None):
         prices = product.get("prices") or {}
         effective = _money(prices, "price")
         if not effective:
             return None  # no price — skip
         regular = _money(prices, "regular_price") or effective
         sale = _money(prices, "sale_price")
-        pid = str(product.get("id", ""))
-        basis, unit = selling_basis(product)
+        pid = str((parent or product).get("id", ""))
+        # Variation payloads arrive with attributes:[] (verified live), so the
+        # selling basis and the brand always come from the CARRIER of the
+        # attributes — the parent when there is one.
+        carrier = parent or product
+        basis, unit = selling_basis(carrier)
+        # "Color: أرضي" — the site's own words for which variation this is.
+        option = str(product.get("variation") or "").strip()
+        axes = _variation_axes(option)
         return builder.row(
             external_product_id=pid,
-            external_variant_id=pid,  # v1: product-level; per-variation prices later
-            external_sku=product.get("sku") or "",
-            product_name=product.get("name") or "",
-            brand_raw=brand_of(product),
-            product_url=product.get("permalink") or "",
+            external_variant_id=str(product.get("id", "")),
+            external_sku=product.get("sku") or carrier.get("sku") or "",
+            product_name=product.get("name") or carrier.get("name") or "",
+            brand_raw=brand_of(carrier),
+            product_url=product.get("permalink") or carrier.get("permalink") or "",
+            option_label=option,
+            option_fingerprint=option_fingerprint(axes) if axes else "",
             unit=unit,
             basis_quantity=basis,
             region=source.default_region,
@@ -144,6 +198,19 @@ class WooCommerceConnector:
             effective_price=effective,
             availability=Availability.IN_STOCK.value if product.get("is_in_stock") else Availability.OUT_OF_STOCK.value,
         )
+
+
+def _variation_axes(text: str) -> dict[str, str]:
+    """"Color: أرضي, Size: L" -> {"Color": "أرضي", "Size": "L"}.
+
+    The parsed axes feed the option fingerprint so the SAME choice keeps the
+    same identity across crawls even if the site reorders the string."""
+    axes: dict[str, str] = {}
+    for part in (text or "").split(","):
+        key, _, value = part.partition(":")
+        if key.strip() and value.strip():
+            axes[key.strip()] = value.strip()
+    return axes
 
 
 # ---- enrichment: the attributes the same response already carries ------------
