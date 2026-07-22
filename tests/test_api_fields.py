@@ -181,3 +181,52 @@ def test_resetting_the_view_restores_every_hidden_column(client):
 
     client.post(f"/api/fields/{SOURCE}", json={"reset": True})
     assert [c["key"] for c in client.get(f"/api/table/{SOURCE}").json()["columns"]] == start
+
+
+# ---- the Start fresh endpoint (this file already builds a seeded app) --------
+
+def test_start_fresh_requires_the_typed_phrase(client):
+    response = client.post("/api/storage/start-fresh", json={"confirm": "yes"})
+    assert response.status_code == 400
+    assert "start fresh" in response.json()["detail"]
+
+
+def test_start_fresh_is_refused_while_a_crawl_runs(client, db_path):
+    """Resetting under a live run would tear it in half: fetched pages ingest
+    into a database that no longer exists. The refusal must come BEFORE any
+    file is touched."""
+    import sqlite3
+
+    from scrapex.jobs import create_job
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA foreign_keys=ON")
+    ref = create_job(conn, ["ELSEWEDYSHOP"])
+    conn.execute("UPDATE crawl_job SET status='running' WHERE job_ref=?", (ref,))
+    conn.commit(); conn.close()
+
+    response = client.post("/api/storage/start-fresh", json={"confirm": "start fresh"})
+    assert response.status_code == 409
+
+    check = sqlite3.connect(db_path)
+    assert check.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0
+    check.close()
+
+
+def test_start_fresh_resets_and_the_old_rows_survive_on_disk(client, db_path):
+    before = client.get(f"/api/table/{SOURCE}").json()
+    assert before["total"] > 0
+
+    response = client.post("/api/storage/start-fresh", json={"confirm": "start fresh"})
+    assert response.status_code == 200, response.text
+    assert "intact" in response.json()["detail"]
+
+    after = client.get(f"/api/table/{SOURCE}").json()
+    assert after["total"] == 0, "the new database still shows old rows"
+
+    import sqlite3
+    sealed = list(db_path.parent.glob("*.reset-backup-*.db"))
+    assert len(sealed) == 1
+    kept = sqlite3.connect(sealed[0])
+    assert kept.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0
+    kept.close()

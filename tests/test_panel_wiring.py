@@ -75,3 +75,35 @@ def test_the_interface_stays_english():
     no Arabic — the stress fixtures that do live in the screenshot harness."""
     arabic = re.findall(r"[؀-ۿ]+", HTML)
     assert not arabic, f"Arabic leaked into the panel markup: {arabic[:3]}"
+
+
+# ---- run modes are offered according to the DATA -----------------------------
+#
+# "Update existing data" over sites with no data is not an update of anything,
+# and a rebuild has nothing to archive; "Initial crawl" over sites that all
+# have data already happened. The owner's rule: the choices follow the data.
+# Static pins over the wiring — the behaviour itself runs in the DOM.
+
+def test_mode_availability_is_computed_from_the_selected_sources_data():
+    assert "syncModeChoices" in JS
+    assert "Number(s.observations) > 0" in JS, (
+        "availability no longer consults the sources' data")
+    # It must run on every selection change, and refreshRunButton is the one
+    # funnel every selection path already goes through.
+    assert re.search(r"function refreshRunButton\(\) \{\s*syncModeChoices\(\);", JS), (
+        "syncModeChoices is not wired into the selection funnel")
+
+
+def test_every_mode_the_select_offers_is_covered_by_the_availability_map():
+    """A new <option> that the map does not know would be enabled forever —
+    silently exempt from the owner's rule."""
+    offered = set(re.findall(r'<option value="([\w-]+)"', HTML.split('id="run-mode"')[1]
+                             .split("</select>")[0]))
+    mapped = set(re.findall(r"(update|initial_crawl|full_rebuild):\s", JS))
+    assert offered <= mapped, f"modes without an availability rule: {offered - mapped}"
+
+
+def test_a_meaningless_chosen_mode_is_moved_not_run():
+    """If the selection changes under a chosen mode, the run must not quietly
+    proceed with a mode that stopped meaning anything."""
+    assert 'select.value = withData > 0 ? "update" : "initial_crawl"' in JS

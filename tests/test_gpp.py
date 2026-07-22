@@ -628,3 +628,27 @@ def test_a_dead_mirror_costs_a_warning_never_the_current_price():
                 if view.as_dict(r)["provenance"] == "observed"]
     assert len(observed) == 3, "the current prices must survive a dead mirror"
     assert any("history mirror" in w for w in table.warnings)
+
+
+def test_natural_gas_stays_on_the_list_because_its_country_pages_publish_nothing():
+    """Verified live 2026-07-21: natural-gas country pages are the same
+    table-less page type as electricity. The first country-page crawl skipped
+    all 47 of them and landed ZERO natural-gas rows where the list had 47 — a
+    regression dressed as rigour. A material without country detail keeps its
+    list rows: always converted, always the same offer identity."""
+    class _GasFetcher(_StubFetcher):
+        def get(self, url, **kwargs):
+            self.requests_count += 1
+            path = url.split(".com", 1)[-1]
+            if path == "/natural_gas_prices/":
+                return _Resp(_read("gpp_diesel.html"))   # same graphic layout
+            raise RuntimeError("404 " + url)
+
+    table = next(iter(GlobalPetrolPricesConnector(_GasFetcher()).fetch(
+        make_entry(materials=("NATURAL_GAS",)))))
+
+    view = RowView(COMMODITY_PRICE, table.header)
+    rows = [view.as_dict(r) for r in table.rows]
+    assert len(rows) == 3, "the list rows were lost again"
+    assert all(r["price_basis"] == "converted" and r["currency"] == "USD"
+               for r in rows)

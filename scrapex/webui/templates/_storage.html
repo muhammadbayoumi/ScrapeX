@@ -128,6 +128,27 @@
   <progress id="move-progress" value="0" max="100" hidden></progress>
 </form>
 
+<h3>Start fresh</h3>
+<form class="stack" onsubmit="return false">
+  <p class="hint">Seals the current database aside under a backup name and puts an
+    <strong>empty</strong> one in its place. Every row survives on disk, and the
+    sealed file appears under Restore — restoring it undoes this completely.
+    Sources, their settings and schedules live in <code>sources.yaml</code> and
+    are not touched.</p>
+  <div class="field">
+    <label for="fresh-confirm">Type <code>start fresh</code> to enable the button</label>
+    {# Typing is a decision; a checkbox is one habitual click. The phrase gates
+       the button client-side AND the API refuses without it server-side, so
+       neither a stray click nor a stray script can reset alone. #}
+    <input id="fresh-confirm" dir="ltr" spellcheck="false" autocomplete="off"
+           placeholder="start fresh">
+  </div>
+  <div class="row">
+    <button id="do-fresh" data-storage="start-fresh" disabled>Start fresh</button>
+    <span class="hint">Refused while a crawl is running.</span>
+  </div>
+</form>
+
 {% if storage.last %}
   <h3>Last storage action</h3>
   <table>
@@ -172,6 +193,17 @@
                               {which: button.dataset.open})).detail));
   });
 
+  // The reset button unlocks only while the field holds the exact phrase, so
+  // it can never be the first thing a stray click does. The server checks the
+  // same phrase again — this gate is comfort, that one is the guard.
+  const freshField = document.getElementById("fresh-confirm");
+  const freshButton = document.getElementById("do-fresh");
+  if (freshField && freshButton) {
+    freshField.addEventListener("input", () => {
+      freshButton.disabled = freshField.value.trim() !== "start fresh";
+    });
+  }
+
   document.querySelectorAll("button[data-storage]").forEach((button) => {
     button.addEventListener("click", () => {
       const what = button.dataset.storage;
@@ -191,6 +223,12 @@
                        + "moved aside, not deleted.")) return "Left as it was.";
           const r = await call("/api/storage/restore", {backup_path: path});
           setTimeout(() => location.reload(), 1200);
+          return r.detail;
+        }
+        if (what === "start-fresh") {
+          const r = await call("/api/storage/start-fresh",
+                               {confirm: value("fresh-confirm").trim()});
+          setTimeout(() => location.reload(), 1500);
           return r.detail;
         }
         if (what === "check-move") {

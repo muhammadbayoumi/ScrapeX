@@ -51,7 +51,8 @@ from ..settings import save as save_settings
 from .. import compaction, pricehistory, retention
 from ..storage import (
     StorageRefused, backup_folder, backup_now, check_move, export_database,
-    migrate_location, open_folder, repair, resolve_db_path, restore, storage_status,
+    migrate_location, open_folder, repair, resolve_db_path, restore, start_fresh,
+    storage_status,
 )
 from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
@@ -1161,6 +1162,40 @@ def create_app(
         with dbmod.write_lock(app.state.db_path):
             try:
                 result = restore(app.state.db_path, backup_path)
+            except StorageRefused as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        return result.as_state()
+
+    @app.post("/api/storage/start-fresh")
+    def api_storage_start_fresh(body: dict):
+        """Seal the warehouse aside and put an empty one in its place.
+
+        The most destructive-LOOKING action here, so the guards are explicit:
+        the exact phrase must be typed (a checkbox is one habitual click; typing
+        is a decision), and a running crawl refuses it — resetting mid-ingest
+        would tear the run. Like restore, no connection of ours may be open
+        during the switch, or Windows fails the rename outright.
+        """
+        if (body or {}).get("confirm", "") != "start fresh":
+            raise HTTPException(status_code=400,
+                                detail='Type "start fresh" to confirm.')
+        conn = read_conn()
+        try:
+            running = list_jobs(conn, active_only=True)
+        finally:
+            conn.close()
+        if running:
+            raise HTTPException(
+                status_code=409,
+                detail="A crawl is running. Let it finish or cancel it first — "
+                       "resetting under a live run would tear it in half.")
+        if app.state.runner is not None:
+            app.state.runner.release_database()
+        with dbmod.write_lock(app.state.db_path):
+            try:
+                result = start_fresh(
+                    app.state.db_path,
+                    lambda path: MarketLensDatabase(path).initialize())
             except StorageRefused as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
         return result.as_state()

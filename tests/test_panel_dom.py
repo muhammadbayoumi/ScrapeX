@@ -321,3 +321,72 @@ def test_duplicate_pasted_addresses_do_not_stall_the_counter(open_panel):
     page.wait_for_timeout(900)
     assert page.locator("#urls-results .srow").count() == 2, \
         "both pasted lines must be reported, even when identical"
+
+
+# ---- run modes follow the data (owner rule) ----------------------------------
+#
+# "Update existing data" over a site with no data is not an update of anything,
+# and a rebuild has nothing to archive; "Initial crawl" over sites that all
+# have data already happened. The select must say so, not let a meaningless
+# choice run and be quietly reinterpreted.
+
+EMPTY_SITE = {"source_key": "FRESH", "base_url": "https://fresh.example.com",
+              "source_name": "Fresh Site", "family": "shopify-json",
+              "active": True, "implemented": True, "observations": 0, "products": 0}
+FULL_SITE = {"source_key": "STOCKED", "base_url": "https://stocked.example.com",
+             "source_name": "Stocked Site", "family": "salla-html",
+             "active": True, "implemented": True, "observations": 42, "products": 7}
+
+
+def _pick(page, key):
+    page.click(RUN_TAB)
+    page.wait_for_timeout(400)
+    page.check(f'input[data-key="{key}"]')
+    page.wait_for_timeout(200)
+
+
+def test_update_is_not_on_offer_for_a_site_with_no_data(open_panel):
+    page = open_panel(sources=[EMPTY_SITE, FULL_SITE])
+    _pick(page, "FRESH")
+
+    assert page.is_disabled('#run-mode option[value="update"]')
+    assert page.is_disabled('#run-mode option[value="full_rebuild"]')
+    assert page.input_value("#run-mode") == "initial_crawl"
+    assert "first crawl" in page.text_content("#mode-help")
+
+
+def test_a_first_crawl_is_not_on_offer_where_it_already_happened(open_panel):
+    page = open_panel(sources=[EMPTY_SITE, FULL_SITE])
+    _pick(page, "STOCKED")
+
+    assert page.is_disabled('#run-mode option[value="initial_crawl"]')
+    assert not page.is_disabled('#run-mode option[value="update"]')
+    assert not page.is_disabled('#run-mode option[value="full_rebuild"]')
+
+
+def test_a_mixed_selection_offers_every_mode(open_panel):
+    page = open_panel(sources=[EMPTY_SITE, FULL_SITE])
+    _pick(page, "FRESH")
+    page.check('input[data-key="STOCKED"]')
+    page.wait_for_timeout(200)
+
+    for value in ("update", "initial_crawl", "full_rebuild"):
+        assert not page.is_disabled(f'#run-mode option[value="{value}"]'), value
+
+
+def test_a_chosen_mode_that_stops_meaning_anything_is_moved_visibly(open_panel):
+    """Select a stocked site, choose Update, then swap the selection to an
+    empty site: running "update" now would update nothing. The select must
+    move to the only honest mode and the help line must say why."""
+    page = open_panel(sources=[EMPTY_SITE, FULL_SITE])
+    _pick(page, "STOCKED")
+    page.select_option("#run-mode", "update")
+    page.wait_for_timeout(150)
+
+    page.uncheck('input[data-key="STOCKED"]')
+    page.check('input[data-key="FRESH"]')
+    page.wait_for_timeout(200)
+
+    assert page.input_value("#run-mode") == "initial_crawl"
+    assert "no data yet" in page.text_content("#mode-help")
+    assert "Start initial crawl" in page.text_content("#run")

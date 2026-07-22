@@ -242,11 +242,12 @@
     <!-- ============================ RUN ============================ -->
     <section id="view-run" class="hidden">
       <div id="setup" class="card warn hidden">
-        <div style="font-weight:var(--fw-bold);margin-bottom:var(--sp-1)">Setup required</div>
+        <div style="font-weight:var(--fw-bold);margin-bottom:var(--sp-1)">Engine not running</div>
         <div class="muted steps" style="margin-bottom:var(--sp-2)">
-          The ScrapeX engine is not running. Start it with <code class="tech">scrapex ui</code>.
-          First time? <button type="button" class="link" id="how">How to install</button>.
+          <span id="engine-note">Start it from here — no terminal needed.</span>
+          First time? <button type="button" class="link" id="how">Open setup</button>.
         </div>
+        <button id="engine-start">Start engine</button>
         <button id="setup-recheck" class="ghost">Check again</button>
       </div>
 

@@ -222,3 +222,49 @@ def test_politeness_can_be_widened_for_a_large_crawl(monkeypatch):
     fetcher.get(URL)
 
     assert any(w >= 4.9 for w in slept), "the configured interval was not applied"
+
+
+# ---- the live-progress hook --------------------------------------------------
+#
+# A 450-page country crawl used to be a quarter hour of total silence: the job
+# showed 0/1 sources, zero requests and a start-time heartbeat while everything
+# was in fact fine — indistinguishable from a hang. The hook is how the job row
+# gets a pulse. Its contract: fires per COMPLETED request with (count, url),
+# and its failure is the display's problem, never the crawl's.
+
+def test_the_progress_hook_fires_per_completed_request():
+    fetcher, _ = fetcher_over([httpx.Response(200, text="a"),
+                               httpx.Response(200, text="b")])
+    ticks: list[tuple[int, str]] = []
+    fetcher.on_request = lambda count, url: ticks.append((count, url))
+
+    fetcher.get(URL)
+    fetcher.get(URL)
+
+    assert ticks == [(1, URL), (2, URL)]
+
+
+def test_a_retried_request_ticks_per_wire_attempt_like_the_counter_it_mirrors():
+    """Three wire attempts for one page tick three times, because the hook
+    mirrors requests_count — the F5 wire-request accounting, where a retried
+    request DID cost the server two extra hits. For liveness this is also the
+    right pulse: each attempt proves the crawl is alive, and a backoff between
+    them is precisely when a watcher most wants a recent heartbeat."""
+    fetcher, _ = fetcher_over([httpx.Response(503), httpx.Response(503),
+                               httpx.Response(200, text="finally")])
+    ticks: list[int] = []
+    fetcher.on_request = lambda count, url: ticks.append(count)
+
+    fetcher.get(URL)
+
+    assert ticks == [1, 2, 3]
+    assert fetcher.requests_count == 3
+
+
+def test_a_broken_hook_never_breaks_the_crawl():
+    fetcher, _ = fetcher_over([httpx.Response(200, text="fine")])
+    fetcher.on_request = lambda count, url: 1 / 0
+
+    response = fetcher.get(URL)
+
+    assert response.status_code == 200, "a progress display took the crawl down"

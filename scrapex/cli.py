@@ -319,7 +319,11 @@ def _cmd_native_host(args: argparse.Namespace) -> int:
     from .native import serve
 
     db_path = _marketlens_path(args)
-    return serve(db_path)
+    # Migrate only an EXPLICIT legacy --db warehouse. The registry's MarketLens
+    # database has its own migration stream and is already at head; the unified
+    # stream over it dies on "table tax_rule already exists" — which killed the
+    # host at startup and made the Start-engine button look uninstalled.
+    return serve(db_path, migrate=bool(getattr(args, "db", None)))
 
 
 def _cmd_install_native_host(args: argparse.Namespace) -> int:

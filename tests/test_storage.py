@@ -450,3 +450,63 @@ def test_a_healthy_amount_of_space_says_nothing(db_path, monkeypatch):
 def test_the_warning_reaches_the_status_the_page_renders(conn, db_path, monkeypatch):
     monkeypatch.setattr(storage, "free_space", lambda folder: 10)
     assert storage.storage_status(conn, db_path)["space_warning"]
+
+
+# ---- start fresh: the owner's reset, which must never actually delete --------
+
+def _fresh_marketlens(path):
+    from scrapex.databases.domain import MarketLensDatabase
+    MarketLensDatabase(path).initialize()
+
+
+def test_start_fresh_seals_the_full_database_aside_and_installs_an_empty_one(db_path):
+    before = sqlite3.connect(db_path)
+    had = before.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
+    before.close()
+    assert had > 0, "the fixture lost its seed row; the test would prove nothing"
+
+    result = storage.start_fresh(db_path, _fresh_marketlens)
+
+    assert result.ok
+    live = sqlite3.connect(db_path)
+    assert live.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 0
+    live.close()
+    sealed = list(db_path.parent.glob("harvest.reset-backup-*.db"))
+    assert len(sealed) == 1, "the old database is not on disk — that is a delete"
+    kept = sqlite3.connect(sealed[0])
+    assert kept.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == had
+    kept.close()
+
+
+def test_the_sealed_reset_file_appears_in_the_restore_picker(db_path):
+    """Undo must be the same one click as any restore. list_backups globs
+    `stem.*backup*`, so the reset file's NAME is the mechanism — this pins it."""
+    storage.start_fresh(db_path, _fresh_marketlens)
+
+    names = [b["name"] for b in storage.list_backups(db_path)]
+    assert any(n.startswith("harvest.reset-backup-") for n in names), names
+
+
+def test_a_failed_fresh_build_leaves_the_live_database_untouched(db_path):
+    def broken(path):
+        raise RuntimeError("migration stream exploded")
+
+    with pytest.raises(RuntimeError):
+        storage.start_fresh(db_path, broken)
+
+    live = sqlite3.connect(db_path)
+    assert live.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0
+    live.close()
+    assert not list(db_path.parent.glob("*.fresh-incoming")), "debris left behind"
+
+
+def test_a_fresh_file_that_fails_health_is_refused_before_the_switch(db_path):
+    def not_a_warehouse(path):
+        Path(path).write_bytes(b"not sqlite at all")
+
+    with pytest.raises(storage.StorageRefused):
+        storage.start_fresh(db_path, not_a_warehouse)
+
+    live = sqlite3.connect(db_path)
+    assert live.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0
+    live.close()

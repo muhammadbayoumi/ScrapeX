@@ -75,3 +75,17 @@ export async function sendCommand(message, httpFallback) {
 export function nativeStatus() {
   return nativeAvailable === null ? "unknown" : nativeAvailable ? "connected" : "unavailable";
 }
+
+// Starting the engine is NATIVE-ONLY on purpose: the HTTP fallback IS the
+// engine, so when it is down there is nothing to fall back to. This either
+// reaches the installed host or throws — and the caller turns that throw into
+// "run the installer", which is the truthful next step.
+export function startEngine() {
+  return sendNative({ command: "START_ENGINE" }).then((response) => {
+    if (response && response.ok === false) {
+      throw new Error(response.detail || response.error || "the host refused");
+    }
+    nativeAvailable = true;
+    return response;
+  });
+}
