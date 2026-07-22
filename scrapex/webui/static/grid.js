@@ -71,8 +71,8 @@
   // Defaults chosen to leave the table looking EXACTLY as it did: no stripes,
   // no extra columns, standard spacing. Grouping is the one thing on by
   // default, and only where the server found something to group.
-  const DEFAULT_FEATURES = {tree: true, rows: true, totals: false, rownum: false,
-                            compact: false, wrap: false, stripe: false};
+  const DEFAULT_FEATURES = {tree: true, rows: true, select: true, totals: false,
+                            rownum: false, compact: false, wrap: false, stripe: false};
   let features = Object.assign({}, DEFAULT_FEATURES);
   // WHICH column groups the table. Per source and per column, because the right
   // grouping for a fuel table (by material) is not the right one for a shop.
@@ -172,16 +172,20 @@
     if (!table || !note) return;
     const shown = table.getDataCount("active");
     const all = table.getDataCount();
-    let line = active.size
-      ? shown.toLocaleString() + " of " + all.toLocaleString() + " rows"
-      : shown.toLocaleString() + " rows";
+    const details = [];
+    // The total already lives in the table footer. Repeat it below only when a
+    // filter changes its meaning and the reader needs the before/after count.
+    if (active.size) {
+      details.push(shown.toLocaleString() + " of " + all.toLocaleString() + " rows");
+    }
     if (payload && payload.truncated) {
       // Never let a prefix look like the whole. The filters below can only see
       // what was loaded, and the reader is told so plainly.
-      line += " — loaded " + payload.returned.toLocaleString() + " of " +
-              payload.total.toLocaleString() + "; filters search only what is loaded";
+      details.push("Loaded " + payload.returned.toLocaleString() + " of " +
+                   payload.total.toLocaleString() + "; filters search only what is loaded");
     }
-    note.textContent = line;
+    note.textContent = details.join(" — ");
+    note.hidden = details.length === 0;
   }
 
   function paintChips() {
@@ -303,62 +307,96 @@
   }
 
   // ---- the three-dot menu ---------------------------------------------------
-  function columnMenu(event, column) {
-    const field = column.getField();
+  function menuLabel(icon, labelText) {
+    const label = document.createElement("span");
+    label.className = "grid-menu-label";
+    const glyph = document.createElement("span");
+    glyph.className = "grid-menu-icon";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = icon || "";
+    const words = document.createElement("span");
+    words.textContent = labelText;
+    label.append(glyph, words);
+    return label;
+  }
+
+  function pinMenu(field) {
+    const side = pinned.get(field) || "";
     return [
-      {label: "↑  Sort ascending", action: () => column.getTable().setSort(field, "asc")},
-      {label: "↓  Sort descending", action: () => column.getTable().setSort(field, "desc")},
-      {separator: true},
-      {label: "📌  Pin to the left", action: () => setFrozen(field, true)},
-      {label: "Unpin", action: () => setFrozen(field, false)},
-      {separator: true},
-      {label: "Fit this column to its content", action: () => autosize(field)},
-      {label: "Fit every column", action: () => autosizeAll()},
-      {separator: true},
-      {label: "Hide this column", action: () => hide(field)},
-      {label: "Show every column", action: showAll},
-      {separator: true},
-      {label: groupedBy === field ? "✓ Grouped by this column" : "Group by this column",
-       action: () => setGroup(groupedBy === field ? "" : field), disabled: !features.tree},
-      {label: "Un-group all", action: () => setGroup(""), disabled: !groupedBy},
-      {label: "Expand all groups", action: () => table.getGroups().forEach((g) => g.show()),
-       disabled: !groupedBy},
-      {label: "Collapse all groups", action: () => table.getGroups().forEach((g) => g.hide()),
-       disabled: !groupedBy},
-      {separator: true},
-      // A tree nests the rows themselves inside this column; grouping puts a
-      // band above them. Same menu, adjacent, because the choice between them
-      // is made per column and per table.
-      {label: treeBy === field ? "✓ Nested by this column" : "Nest rows by this column",
-       action: () => setTree(treeBy === field ? "" : field), disabled: !features.rows},
-      {label: "Un-nest", action: () => setTree(""), disabled: !treeBy},
-      {label: "Expand every branch",
-       action: () => table.getRows().forEach((r) => r.treeExpand()), disabled: !treeBy},
-      {label: "Collapse every branch",
-       action: () => table.getRows().forEach((r) => r.treeCollapse()), disabled: !treeBy},
-      {separator: true},
-      {label: "Reset the layout", action: resetLayout},
+      {label: menuLabel(side ? "" : "\u2713", "No Pin"), action: () => setPinned(field, "")},
+      {label: menuLabel(side === "left" ? "\u2713" : "", "Pin Left"),
+       action: () => setPinned(field, "left")},
+      {label: menuLabel(side === "right" ? "\u2713" : "", "Pin Right"),
+       action: () => setPinned(field, "right")},
     ];
   }
 
-  // Pinning and autosizing rebuild the grid: Tabulator fixes `frozen` and
-  // width at construction, so changing them means constructing again. Cheap at
-  // these row counts, and it keeps one definition of a column rather than two.
-  const frozen = new Set();
+  function columnMenu(event, column) {
+    const field = column.getField();
+    const title = text(column.getDefinition().title || field);
+    return [
+      {label: menuLabel("\u2191", "Sort Ascending"),
+       action: () => column.getTable().setSort(field, "asc")},
+      {label: menuLabel("\u2193", "Sort Descending"),
+       action: () => column.getTable().setSort(field, "desc")},
+      {separator: true},
+      {label: menuLabel("\u2691", "Pin Column"), menu: pinMenu(field)},
+      {separator: true},
+      {label: menuLabel("", "Autosize This Column"), action: () => autosize(field)},
+      {label: menuLabel("", "Autosize All Columns"), action: autosizeAll},
+      {separator: true},
+      {label: menuLabel(groupedBy === field ? "\u2713" : "\u2261", "Group by " + title),
+       action: () => setGroup(groupedBy === field ? "" : field), disabled: !features.tree},
+      {label: menuLabel(treeBy === field ? "\u2713" : "\u2514", "Nest rows by this column"),
+       action: () => setTree(treeBy === field ? "" : field), disabled: !features.rows},
+      {separator: true},
+      {label: menuLabel("\u25a6", "Choose Columns"), action: chooseColumns},
+      {label: menuLabel("", "Reset Columns"), action: resetColumns},
+    ];
+  }
+
+  // Pinning is fixed at construction time. A map keeps left and right distinct;
+  // Tabulator treats frozen columns before the first normal column as left and
+  // frozen columns after it as right, so build() orders those three bands.
+  const pinned = new Map();
   const widths = new Map();
 
-  function setFrozen(field, on) {
-    on ? frozen.add(field) : frozen.delete(field);
+  function setPinned(field, side) {
+    side ? pinned.set(field, side) : pinned.delete(field);
     build();
   }
-  function autosize(field) { widths.delete(field); build(); }
-  function autosizeAll() { widths.clear(); build(); }
-  function showAll() {
-    payload.columns.forEach((c) => remember(c.key, false));
-    location.reload();
+
+  // `setWidth(true)` asks Tabulator to measure rendered header and cell content.
+  // Deleting a remembered width and rebuilding did not autosize: build() saved
+  // the old width again before destruction, making the menu command a no-op.
+  function autosize(field) {
+    const column = table && table.getColumn(field);
+    if (!column) return;
+    widths.delete(field);
+    column.setWidth(true);
+    widths.set(field, column.getWidth());
+    table.redraw(true);
   }
-  function resetLayout() {
-    frozen.clear();
+  function autosizeAll() {
+    if (!table) return;
+    widths.clear();
+    table.getColumns().forEach((column) => {
+      if (column.getDefinition().resizable === false) return;
+      column.setWidth(true);
+      const field = column.getField();
+      if (field) widths.set(field, column.getWidth());
+    });
+    table.redraw(true);
+  }
+
+  function chooseColumns() {
+    const url = new URL(location.href);
+    url.searchParams.set("edit", "1");
+    location.assign(url);
+  }
+
+  function resetColumns() {
+    pinned.clear();
     widths.clear();
     groupedBy = "";
     treeBy = "";
@@ -370,7 +408,6 @@
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-columns");
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-sort");
       localStorage.removeItem("tabulator-" + PERSISTENCE_ID + "-columns");
-      localStorage.removeItem(FEATURE_KEY);
     } catch (err) { /* nothing to clear */ }
     fetch("/api/fields/" + encodeURIComponent(SOURCE), {
       method: "POST", headers: {"Content-Type": "application/json"},
@@ -623,7 +660,7 @@
       // every formatter about trees keeps the count in exactly one place.
       if (col.key === treeBy) formatter = branchCount(formatter);
       if (formatter) def.formatter = formatter;
-      if (frozen.has(col.key)) def.frozen = true;
+      if (pinned.has(col.key)) def.frozen = true;
       if (widths.has(col.key)) def.width = widths.get(col.key);
       return def;
     });
@@ -670,6 +707,15 @@
       });
     }
 
+    // Frozen columns at the outside edges become true left/right pins in
+    // Tabulator. Keeping the History action in the middle ensures a right pin
+    // really reaches the right edge instead of stopping one column early.
+    const orderedColumns = [
+      ...columns.filter((column) => pinned.get(column.field) === "left"),
+      ...columns.filter((column) => !pinned.has(column.field)),
+      ...columns.filter((column) => pinned.get(column.field) === "right"),
+    ];
+
     // A compact summary belongs inside the table frame, not as another toolbar
     // below it. Build it with DOM nodes so the counts remain text-only and the
     // theme can style the shape without inheriting Tabulator's hardcoded skin.
@@ -688,19 +734,21 @@
       value.textContent = "0";
       stat.append(label, value);
       footer.append(stat);
-      return value;
+      return {stat, value};
     }
     const footerTotal = footerStat("Total Rows");
     const footerSelected = footerStat("Selected");
     function updateFooter() {
       if (!table) return;
-      footerTotal.textContent = table.getDataCount("active").toLocaleString();
-      footerSelected.textContent = table.getSelectedRows().length.toLocaleString();
+      const selected = table.getSelectedRows().length;
+      footerTotal.value.textContent = table.getDataCount("active").toLocaleString();
+      footerSelected.value.textContent = selected.toLocaleString();
+      footerSelected.stat.hidden = selected === 0;
     }
 
     const options = {
       data: payload.rows,
-      columns: columns,
+      columns: orderedColumns,
       // fitColumns, not fitDataStretch: the table should fill the width it has
       // and no more. fitDataStretch sized every column to its widest possible
       // content and then stretched, which pushed the total past the container —
@@ -724,7 +772,7 @@
       height: "34rem",             // virtual rendering keeps thousands smooth
       placeholder: "No rows match these filters.",
       footerElement: footer,
-      selectableRows: true,
+      selectableRows: !!features.select,
       selectableRowsRangeMode: "click",
       selectableRowsPersistence: false,
       // WIDTH only, never VISIBLE. Persisting visibility here created two
@@ -733,7 +781,11 @@
       // every column" — which only writes to the server — could not bring it
       // back. A column disappeared and nothing in the interface could recover
       // it. Which columns exist and which are shown is the SERVER's answer.
-      persistence: {columns: ["width"]},
+      // Loading a saved column order after orderedColumns would put a right pin
+      // back in its old middle position. Pinning is session-only already, so
+      // while it is active the in-memory widths win and persisted order waits
+      // until every column is unpinned again.
+      persistence: pinned.size ? false : {columns: ["width"]},
       persistenceID: PERSISTENCE_ID,
     };
 
@@ -1038,7 +1090,7 @@
     .then((data) => {
       payload = data;
       if (!payload.rows.length) {
-        if (note) note.textContent = "No records yet.";
+        if (note) { note.hidden = false; note.textContent = "No records yet."; }
         return;
       }
       build();
@@ -1046,6 +1098,9 @@
       wireFeatures();
     })
     .catch((err) => {
-      if (note) note.textContent = "Could not load the table: " + err.message;
+      if (note) {
+        note.hidden = false;
+        note.textContent = "Could not load the table: " + err.message;
+      }
     });
 })();

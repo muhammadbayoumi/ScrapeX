@@ -92,8 +92,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert '/static/grid.js?v=action-signature-1' in page
-    assert '/static/grid-theme.css?v=action-signature-1' in page
+    assert '/static/grid.js?v=grid-menu-1' in page
+    assert '/static/grid-theme.css?v=grid-menu-1' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -118,6 +118,19 @@ def test_the_grid_features_panel_is_keyboard_operable_by_construction():
 
     assert "<details id=\"grid-features\"" in page
     assert page.count('type="checkbox" data-feature=') >= 6
+
+
+def test_row_selection_is_an_explicit_feature_and_zero_is_not_noise():
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    css = THEME.read_text(encoding="utf-8")
+
+    assert 'data-feature="select"' in page
+    assert "select: true" in script
+    assert "selectableRows: !!features.select" in script
+    assert "footerSelected.stat.hidden = selected === 0" in script
+    assert ".grid-footer-stat[hidden]" in css
+    assert "note.hidden = details.length === 0" in script
 
 
 def test_feature_choices_are_per_source_not_global():
@@ -236,7 +249,7 @@ def test_header_sort_cycles_back_to_the_original_row_order():
     assert "headerSortTristate: true" in script
     assert "headerSortTristate" in vendor, "the pinned Tabulator lacks tri-state sorting"
     assert "columnHeaderSortMulti: false" in script
-    assert 'persistence: {columns: ["width"]}' in script, (
+    assert 'persistence: pinned.size ? false : {columns: ["width"]}' in script, (
         "a saved sorter can make the next click cycle start in an old state")
     assert 'PERSISTENCE_ID = "scrapex-grid-v2-"' in script
 
@@ -278,11 +291,12 @@ def test_minimum_column_width_always_keeps_filter_and_menu_visible():
     assert css.count("min-width: 1.5rem") >= 1
 
 
-def test_data_grid_edges_are_square_without_changing_other_tables():
+def test_data_grid_edges_are_rounded_without_changing_other_tables():
     css = THEME.read_text(encoding="utf-8")
 
     assert "#grid.tablewrap" in css and "#grid.tabulator" in css
-    assert "border-radius: 0" in css
+    assert "border-radius: var(--table-radius)" in css
+    assert "overflow: hidden" in css
 
 
 def test_every_hardcoded_row_colour_the_library_sets_is_overridden():
@@ -333,7 +347,20 @@ def test_grouping_and_nesting_are_separate_capabilities():
 
     assert 'data-feature="rows"' in page, "no switch for nested rows"
     assert "dataTree" in script and "dataTreeChildField" in script
-    assert "Nest rows by this column" in script and "Group by this column" in script
+    assert "Nest rows by this column" in script and '"Group by " + title' in script
+
+
+def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+
+    for label in ("Sort Ascending", "Sort Descending", "Pin Column", "No Pin",
+                  "Pin Left", "Pin Right", "Autosize This Column",
+                  "Autosize All Columns", "Choose Columns", "Reset Columns"):
+        assert label in script
+    assert "menu: pinMenu(field)" in script
+    assert "column.setWidth(true)" in script
+    assert 'layout: "fitColumns"' in script
+    assert "persistence: pinned.size ? false" in script
 
 
 def test_the_two_hierarchies_cannot_be_on_at_once():
