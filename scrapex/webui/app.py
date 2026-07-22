@@ -60,7 +60,8 @@ from ..reports import (
     BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
     export_source_table, history_counts, list_sources, offer_identity,
-    offer_observations, price_extremes, source_summary, table_payload,
+    offer_observations, price_extremes, product_attributes, source_summary,
+    table_payload,
 )
 from ..scheduler import list_schedules, upsert_schedule
 from ..vocab import (
@@ -434,6 +435,7 @@ def create_app(
                 "periods": pricehistory.timeline(conn, offer_id),
                 "observations": offer_observations(conn, offer_id),
                 "changes": changes_for_offer(conn, offer_id),
+                "details": product_attributes(conn, offer_id),
             }
         finally:
             conn.close()

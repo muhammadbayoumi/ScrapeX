@@ -94,3 +94,104 @@ def test_empty_values_are_skipped_not_stored_as_blanks():
     rows = shaped({"id": "1", "attributes": [
         {"taxonomy": "pa_x", "name": "X", "terms": [{"name": ""}, {"name": "kept"}]}]})
     assert [r["raw_value"] for r in rows] == ["kept"]
+
+
+# ---- the landing: details reach the warehouse and the offer API --------------
+
+def _woo_entry():
+    from scrapex.config import SourceEntry
+    return SourceEntry.model_validate(dict(
+        source_key="SAMEHGABRIEL", source_name="سامح جبرائيل",
+        base_url="https://samehgabriel.com", family="woocommerce-storeapi",
+        cadence="daily", authority="shop", currency="EGP", vat_mode="incl",
+        extract=[{"kind": "product_prices"}, {"kind": "enrichment"}],
+    ))
+
+
+def _tables_from_live_fixture():
+    """The connector's own output over the REAL samehgabriel capture — the
+    same bytes the live site served on 2026-07-20."""
+    import json
+    from pathlib import Path
+
+    from scrapex.connectors.woocommerce import WooCommerceConnector
+
+    class _Fetcher:
+        requests_count = 0
+        def get(self, url, **kw):
+            class R:
+                status_code = 200
+                text = Path(__file__).parent.joinpath(
+                    "fixtures/live/samehgabriel_wc_store_products_2026-07-20.json"
+                ).read_text(encoding="utf-8")
+                def json(self):
+                    return json.loads(self.text)
+                headers = {}
+            self.requests_count += 1
+            return R()
+        def close(self): pass
+
+    connector = WooCommerceConnector(_Fetcher())
+    return list(connector.fetch(_woo_entry()))
+
+
+def test_details_from_the_live_capture_land_and_reach_the_offer_api(tmp_path):
+    """End to end over real bytes: connector -> ingest -> the API the History
+    panel reads. This chain is what 'Phase 1' rejected wholesale — every
+    colour, length and warranty thrown away with an error logged."""
+    import sqlite3
+
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+    from scrapex.reports import product_attributes
+
+    conn = dbmod.connect(":memory:")
+    dbmod.migrate(conn)
+    tables = _tables_from_live_fixture()
+    result = ingest_payloads(conn, _woo_entry(), [t.to_payload() for t in tables])
+
+    assert result.errors == [], result.errors[:3]
+    assert result.attributes > 0, "no detail landed at all"
+    stored = conn.execute("SELECT COUNT(*) FROM source_product_attribute").fetchone()[0]
+    assert stored > 0
+
+    offer_id = conn.execute("SELECT offer_id FROM source_offer LIMIT 1").fetchone()[0]
+    details = product_attributes(conn, offer_id)
+    assert details, "the API view found nothing for a product with details"
+    assert all(d["value"] for d in details)
+
+
+def test_reingesting_the_same_details_refreshes_not_duplicates(tmp_path):
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+
+    conn = dbmod.connect(":memory:")
+    dbmod.migrate(conn)
+    payloads = [t.to_payload() for t in _tables_from_live_fixture()]
+    ingest_payloads(conn, _woo_entry(), payloads)
+    before = conn.execute("SELECT COUNT(*) FROM source_product_attribute").fetchone()[0]
+
+    ingest_payloads(conn, _woo_entry(), payloads)
+    after = conn.execute("SELECT COUNT(*) FROM source_product_attribute").fetchone()[0]
+    assert after == before, "a re-crawl duplicated the details"
+
+
+def test_enrichment_for_a_source_that_never_declared_it_is_refused(tmp_path):
+    """The scope guard, same rule as everything else: nothing lands that the
+    manifest did not declare."""
+    from scrapex import db as dbmod
+    from scrapex.config import SourceEntry
+    from scrapex.ingest import ingest_payloads
+
+    undeclared = SourceEntry.model_validate(dict(
+        source_key="SAMEHGABRIEL", source_name="سامح جبرائيل",
+        base_url="https://samehgabriel.com", family="woocommerce-storeapi",
+        cadence="daily", authority="shop", currency="EGP", vat_mode="incl",
+        extract=[{"kind": "product_prices"}],))
+    conn = dbmod.connect(":memory:")
+    dbmod.migrate(conn)
+    payloads = [t.to_payload() for t in _tables_from_live_fixture()]
+    result = ingest_payloads(conn, undeclared, payloads)
+
+    assert any("does not declare enrichment" in e for e in result.errors)
+    assert conn.execute("SELECT COUNT(*) FROM source_product_attribute").fetchone()[0] == 0

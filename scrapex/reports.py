@@ -599,6 +599,24 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
             "offer_id": offer_id}
 
 
+def product_attributes(conn: sqlite3.Connection, offer_id: int,
+                       limit: int = 300) -> list[dict]:
+    """The details the source printed for this offer's product, grouped as the
+    page grouped them (A8 bounded). Source-local layer: exactly what the shop
+    said, before any curation."""
+    rows = conn.execute(
+        "SELECT spa.attribute_group, spa.attribute_label, spa.attribute_code, "
+        "       spa.raw_value, spa.value_url, spa.last_seen_at "
+        "FROM source_product_attribute spa "
+        "JOIN source_variant sv ON sv.source_product_id = spa.source_product_id "
+        "JOIN source_offer so ON so.source_variant_id = sv.source_variant_id "
+        "WHERE so.offer_id = ? "
+        "ORDER BY spa.attribute_group, spa.attribute_label, spa.raw_value LIMIT ?",
+        (offer_id, max(1, min(limit, 1000)))).fetchall()
+    return [{"group": r[0] or "Details", "label": r[1] or r[2], "value": r[3],
+             "url": r[4] or "", "last_seen_at": (r[5] or "")[:10]} for r in rows]
+
+
 def offer_observations(conn: sqlite3.Connection, offer_id: int,
                        limit: int = 200) -> list[dict]:
     """The raw append-only observations behind the timeline, newest first.

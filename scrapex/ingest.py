@@ -31,6 +31,7 @@ class IngestResult:
     variants: int = 0            # newly-seen variants this run
     observations: int = 0        # rows actually appended (new content)
     duplicates: int = 0          # idempotent no-ops (already had this content)
+    attributes: int = 0          # enrichment values landed or refreshed
     confirmed: int = 0           # unchanged prices re-confirmed, NOT appended
     # offer_id -> the latest values seen this run. The spec allows a run to hold
     # its seen set in memory while finalizing; these become confirmations only
@@ -452,9 +453,16 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
         if payload.source_key != entry.source_key:
             result.errors.append(f"payload source_key {payload.source_key} != {entry.source_key}")
             continue
-        if payload.kind not in (ExtractKind.PRODUCT_PRICES, ExtractKind.COMMODITY_PRICE):
-            # Phase 1 ingests product + commodity prices; enrichment lands later.
-            result.errors.append(f"kind {payload.kind} not yet ingestable (Phase 1)")
+        if payload.kind not in (ExtractKind.PRODUCT_PRICES, ExtractKind.COMMODITY_PRICE,
+                                ExtractKind.ENRICHMENT):
+            result.errors.append(f"kind {payload.kind} not ingestable")
+            continue
+        if payload.kind == ExtractKind.ENRICHMENT and not any(
+                spec.kind == ExtractKind.ENRICHMENT for spec in entry.extract):
+            # The scope guard, same rule as everything else: nothing lands that
+            # the manifest did not declare (owner principle: له أساس).
+            result.errors.append(
+                f"{entry.source_key} does not declare enrichment; payload refused")
             continue
         try:
             view = RowView(spec_for(payload.kind), payload.header)
@@ -462,6 +470,7 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
             result.errors.append(f"header drift: {exc}")
             continue
         row_fn = (_ingest_commodity_row if payload.kind == ExtractKind.COMMODITY_PRICE
+                  else _ingest_enrichment_row if payload.kind == ExtractKind.ENRICHMENT
                   else _ingest_product_row)
         for i, raw in enumerate(payload.rows):
             try:
@@ -487,6 +496,46 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
          sum(len(p.rows) for p in payloads), run_id),
     )
     return result
+
+
+def _ingest_enrichment_row(conn, entry, source_id, run_id, r, observed_at,
+                           result: IngestResult, job_id=None) -> None:
+    """Land one detail exactly as the shop printed it (source-local layer).
+
+    The connector has emitted these since 2026-07-20 and this function's
+    absence made ingest refuse every one — "not yet ingestable (Phase 1)" —
+    so colours, lengths and warranties that arrived free in the price
+    response were thrown away, and (since completed_with_errors landed)
+    degraded a healthy job while doing it.
+
+    UPSERT on (product, code, value): a re-crawl refreshes last_seen_at, a
+    value the shop removed simply stops being refreshed. Nothing is deleted.
+    """
+    row = conn.execute(
+        "SELECT source_product_id FROM source_product "
+        "WHERE source_id = ? AND external_product_id = ?",
+        (source_id, r["external_product_id"])).fetchone()
+    if row is None:
+        # A detail for a product this run never registered says nothing that
+        # can be attached to anything; refuse it rather than minting a ghost.
+        result.rejected_out_of_scope += 1
+        return
+    conn.execute(
+        "INSERT INTO source_product_attribute "
+        "(source_product_id, attribute_code, attribute_label, raw_value, "
+        " numeric_value, unit_raw, value_url, attribute_group, lang) "
+        "VALUES (?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(source_product_id, attribute_code, raw_value) DO UPDATE SET "
+        "  attribute_label = excluded.attribute_label, "
+        "  numeric_value = excluded.numeric_value, "
+        "  unit_raw = excluded.unit_raw, "
+        "  value_url = excluded.value_url, "
+        "  attribute_group = excluded.attribute_group, "
+        "  last_seen_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+        (row[0], r["attribute_code"], r.get("attribute_label", ""),
+         r["raw_value"], r.get("numeric_value", ""), r.get("unit_raw", ""),
+         r.get("value_url", ""), r.get("attribute_group", ""), r.get("lang", "")))
+    result.attributes += 1
 
 
 def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at,

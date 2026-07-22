@@ -808,7 +808,45 @@
         })));
     }
 
-    // 3. Every observation behind the story, provenance spelled out.
+    // 3. The details the source printed for this product — colours, lengths,
+    // categories, warranties — grouped as the page grouped them. Scraped
+    // content throughout: names as text, URLs linked only when they parse.
+    const details = data.details || [];
+    if (details.length) {
+      panel.appendChild(el("h3", "", "Details"));
+      const groups = new Map();
+      details.forEach((d) => {
+        const key = d.group || "Details";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(d);
+      });
+      groups.forEach((items, groupName) => {
+        panel.appendChild(el("h4", "muted", groupName));
+        panel.appendChild(miniTable(
+          ["Attribute", "Value"],
+          items.map((d) => {
+            let valueNode;
+            let safe = "";
+            try {
+              const parsed = new URL(d.url);
+              if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
+            } catch (err) { /* no link — plain text */ }
+            if (safe) {
+              valueNode = document.createElement("a");
+              valueNode.href = safe;
+              valueNode.target = "_blank";
+              valueNode.rel = "noopener noreferrer";
+              valueNode.textContent = text(d.value);
+            } else {
+              valueNode = el("span", "", text(d.value));
+            }
+            valueNode.dir = "auto";
+            return [d.label || "", valueNode];
+          })));
+      });
+    }
+
+    // 4. Every observation behind the story, provenance spelled out.
     panel.appendChild(el("h3", "", "What was recorded"));
     const observations = data.observations || [];
     if (!observations.length) {

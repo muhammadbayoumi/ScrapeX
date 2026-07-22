@@ -34,7 +34,7 @@ from .vocab import (
 )
 
 _COUNTER_FIELDS = ("observations", "duplicates", "products", "variants",
-                   "skipped_ignored", "rejected_out_of_scope")
+                   "attributes", "skipped_ignored", "rejected_out_of_scope")
 
 
 # ---- store -------------------------------------------------------------------

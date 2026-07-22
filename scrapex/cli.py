@@ -251,9 +251,14 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
             conn.commit()
         finally:
             conn.close()
+    # confirmed and attributes were MISSING from this line: a re-crawl that
+    # confirmed every price and refreshed 306 details printed a row of zeros
+    # and read as if nothing had happened at all.
     print(f"ingested {result.source_key} (run {result.run_id}, status {result.status.value}): "
-          f"{result.observations} new observations, {result.duplicates} duplicates, "
+          f"{result.observations} new observations, {result.confirmed} confirmed, "
+          f"{result.duplicates} duplicates, "
           f"{result.products} new products, {result.variants} new variants, "
+          f"{result.attributes} details, "
           f"{result.skipped_ignored} skipped (ignored), "
           f"{result.rejected_out_of_scope} out-of-scope, {len(result.errors)} errors")
     for err in result.errors[:10]:

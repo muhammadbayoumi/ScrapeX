@@ -57,7 +57,7 @@ def test_migration_creates_the_catalogue_and_integrity_triggers(conn):
     assert objects["relationship_field_pair"] == "table"
     assert objects["trg_dataset_relationship_same_site_insert"] == "trigger"
     assert objects["trg_relationship_field_pair_matches_insert"] == "trigger"
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 23
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 24
 
 
 def test_one_site_can_hold_multiple_tables_with_different_dynamic_columns(conn):
