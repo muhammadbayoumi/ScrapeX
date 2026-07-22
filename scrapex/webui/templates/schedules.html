@@ -5,31 +5,115 @@
 <div class="banner">Schedules only fire while the ScrapeX engine is running. Nothing —
   not this app and not a browser alarm — can wake a sleeping or powered-off machine.
   A slot missed while it was off follows the source's missed-run policy.</div>
-{% if not schedules %}
-  <div class="empty">No schedules yet. Set one per source from the side panel.</div>
+
+{% if not rows %}
+  <div class="empty">No implemented sources yet.</div>
 {% else %}
-  <div class="tablewrap"><table>
-    <thead><tr><th>Source</th><th>Frequency</th><th>Runs at</th><th>Time zone</th>
-      <th>Run mode</th><th>If missed</th><th>If overlapping</th>
-      <th>Next run (UTC)</th><th>Last run</th><th>Enabled</th></tr></thead>
-    <tbody>
-    {% for s in schedules %}
-      <tr>
-        <td><code>{{ s.source_key }}</code></td>
-        <td>{{ s.frequency }}</td>
-        <td class="num">{{ s.run_at }}{% if s.weekday is not none %}
-          <span class="muted">(weekday {{ s.weekday }})</span>{% endif %}</td>
-        <td class="muted">{{ s.timezone }}</td>
-        <td>{{ s.run_mode.replace("_", " ") }}</td>
-        <td class="muted">{{ s.missed_run_policy.replace("_", " ") }}</td>
-        <td class="muted">{{ s.overlap_policy }}</td>
-        <td class="num">{{ s.next_run_at or "—" }}</td>
-        <td class="num muted">{{ s.last_run_at or "never" }}</td>
-        <td><span class="badge {% if s.enabled %}ok{% else %}off{% endif %}">
-          {{ "Enabled" if s.enabled else "Disabled" }}</span></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
+  {# THE central editor (owner's ruling): every knob the schedule model has,
+     editable HERE. Each save posts the whole row through the same
+     /api/schedules endpoint the panel uses, so the two faces cannot drift. #}
+  {% for r in rows %}
+  {% set s = r.sched %}
+  <form class="stack sched-row" data-sched="{{ r.source_key }}" onsubmit="return false"
+        style="padding:.8rem 0;border-bottom:1px solid var(--line)">
+    <div class="row" style="justify-content:space-between;align-items:baseline">
+      <b dir="auto">{{ r.source_name }}</b>
+      <span class="muted" data-role="next">
+        {% if s and s.enabled and s.next_run_at %}next {{ s.next_run_at[:16].replace("T", " ") }} UTC
+        {% elif s and not s.enabled %}paused
+        {% elif not s %}no schedule yet{% endif %}
+      </span>
+    </div>
+    <div class="row" style="gap:.5rem;flex-wrap:wrap">
+      <select data-role="freq" aria-label="Frequency for {{ r.source_name }}">
+        {% for f in ("manual", "daily", "weekly") %}
+          <option value="{{ f }}" {% if (s.frequency or "manual") == f %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+      <select data-role="weekday" aria-label="Weekday"
+              {% if (s.frequency or "manual") != "weekly" %}hidden{% endif %}>
+        {% for day in ("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday") %}
+          <option value="{{ loop.index0 }}"
+            {% if (s.weekday if s.weekday is not none else 0) == loop.index0 %}selected{% endif %}>{{ day }}</option>
+        {% endfor %}
+      </select>
+      <input type="time" data-role="time" value="{{ s.run_at or "09:00" }}" aria-label="Run time"
+             {% if (s.frequency or "manual") == "manual" %}disabled{% endif %}>
+      <input data-role="tz" dir="ltr" spellcheck="false" style="width:11rem"
+             value="{{ s.timezone or "" }}" placeholder="Africa/Cairo" aria-label="Timezone">
+    </div>
+    <div class="row" style="gap:.5rem;flex-wrap:wrap">
+      <select data-role="mode" aria-label="Run mode">
+        <option value="update" {% if (s.run_mode or "update") == "update" %}selected{% endif %}>Update existing data</option>
+        <option value="full_rebuild" {% if s.run_mode == "full_rebuild" %}selected{% endif %}>Full rebuild (archives first)</option>
+        <option value="history_backfill" {% if s.run_mode == "history_backfill" %}selected{% endif %}
+          {% if not r.supports_history %}disabled{% endif %}>History backfill{% if not r.supports_history %} — not published by this site{% endif %}</option>
+      </select>
+      <select data-role="missed" aria-label="Missed run policy"
+              title="What to do about a slot that passed while the machine was off">
+        <option value="run_when_available" {% if (s.missed_run_policy or "run_when_available") == "run_when_available" %}selected{% endif %}>If missed: run when back</option>
+        <option value="skip" {% if s.missed_run_policy == "skip" %}selected{% endif %}>If missed: skip that slot</option>
+      </select>
+      <select data-role="overlap" aria-label="Overlap policy"
+              title="What to do when the previous run is still going">
+        <option value="queue" {% if (s.overlap_policy or "queue") == "queue" %}selected{% endif %}>If overlapping: queue behind</option>
+        <option value="skip" {% if s.overlap_policy == "skip" %}selected{% endif %}>If overlapping: skip this one</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:.35rem">
+        <input type="checkbox" data-role="enabled" {% if not s or s.enabled %}checked{% endif %}>
+        Enabled</label>
+      <button data-role="save">Save</button>
+      <span class="hint" data-role="status" role="status" aria-live="polite">
+        {% if not r.active %}Auto is off for this site, so this will not fire — turn it on from the panel.{% endif %}</span>
+    </div>
+  </form>
+  {% endfor %}
+
+<script>
+(() => {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  document.querySelectorAll(".sched-row").forEach((row) => {
+    const pick = (role) => row.querySelector(`[data-role="${role}"]`);
+    if (!pick("tz").value) pick("tz").value = zone;
+    pick("freq").addEventListener("change", () => {
+      pick("weekday").hidden = pick("freq").value !== "weekly";
+      pick("time").disabled = pick("freq").value === "manual";
+    });
+    pick("save").addEventListener("click", async () => {
+      const status = pick("status");
+      pick("save").disabled = true;
+      status.textContent = "Saving…";
+      try {
+        const body = {
+          frequency: pick("freq").value,
+          run_at: pick("time").value || "09:00",
+          timezone: pick("tz").value.trim() || "UTC",
+          run_mode: pick("mode").value,
+          missed_run_policy: pick("missed").value,
+          overlap_policy: pick("overlap").value,
+          enabled: pick("enabled").checked,
+        };
+        if (body.frequency === "weekly") body.weekday = Number(pick("weekday").value);
+        const res = await fetch("/api/schedules/" + encodeURIComponent(row.dataset.sched), {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(body)});
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        status.textContent = !body.enabled ? "Saved — paused."
+          : data.next_run_at
+            ? "Saved — next " + String(data.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
+            : "Saved.";
+        pick("next").textContent = data.next_run_at && body.enabled
+          ? "next " + String(data.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
+          : (body.enabled ? "" : "paused");
+      } catch (err) {
+        status.textContent = "Couldn't save: " + err.message;
+      } finally {
+        pick("save").disabled = false;
+      }
+    });
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}

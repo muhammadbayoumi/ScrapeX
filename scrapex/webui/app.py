@@ -492,12 +492,27 @@ def create_app(
 
     @app.get("/schedules", response_class=HTMLResponse)
     def page_schedules(request: Request):
+        """THE central editor for automation (owner's ruling) — one editable
+        row per implemented source, its saved schedule merged in. The page was
+        a read-only table that said "set one from the side panel", which is
+        the opposite of central."""
         conn = read_conn()
         try:
-            return _page(request, "schedules.html", "schedules", None,
-                         schedules=list_schedules(conn))
+            saved = {s["source_key"]: s for s in list_schedules(conn)}
         finally:
             conn.close()
+        rows = []
+        for entry in app.state.manifest.sources:
+            if not _is_implemented(entry):
+                continue
+            rows.append({
+                "source_key": entry.source_key,
+                "source_name": entry.source_name,
+                "active": entry.active,
+                "supports_history": supports_history(entry.family),
+                "sched": saved.get(entry.source_key) or {},
+            })
+        return _page(request, "schedules.html", "schedules", None, rows=rows)
 
     @app.get("/logs", response_class=HTMLResponse)
     def page_logs(request: Request, job_ref: str | None = None):

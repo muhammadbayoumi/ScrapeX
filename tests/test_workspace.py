@@ -156,7 +156,12 @@ def test_empty_states_are_designed_not_blank(client, tmp_path):
     assert "No crawls recorded yet" in fresh.get("/history").text
     assert "Nothing awaiting review" in fresh.get("/review").text
     assert "No jobs yet" in fresh.get("/jobs").text
-    assert "No schedules yet" in fresh.get("/schedules").text
+    # Schedules is an EDITOR now: an empty database still shows a row per
+    # implemented source — creating a schedule is what the page is FOR — and
+    # each unscheduled row says so.
+    schedules_page = fresh.get("/schedules").text
+    assert 'data-sched="' in schedules_page
+    assert "no schedule yet" in schedules_page
 
 
 # ---- sorting (spec 16) -------------------------------------------------------
@@ -258,3 +263,17 @@ def test_hiding_a_column_through_the_api_is_reflected_on_the_page(client):
     assert "Hidden" in body                              # the word, not a colour
     # ...and the field is still listed, because hiding is a view operation.
     assert "sku" in body
+
+
+def test_the_schedules_page_is_the_full_editor(client):
+    """The owner's ruling, verbatim: editable, with everything. The page was a
+    read-only table that said "set one from the side panel" — the opposite of
+    the central control it is meant to be."""
+    body = client.get("/schedules").text
+    for role in ("freq", "weekday", "time", "tz", "mode", "missed",
+                 "overlap", "enabled", "save"):
+        assert f'data-role="{role}"' in body, f"the {role} control is missing"
+    assert "/api/schedules/" in body, "no save path — still read-only"
+    assert "Monday" in body                       # 0=Monday, server convention
+    # The capability gate reaches this face too.
+    assert "not published by this site" in body
