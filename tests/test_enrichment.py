@@ -34,8 +34,12 @@ def test_the_attributes_the_owner_named_are_all_extracted():
     values = {r["raw_value"] for r in rows}
 
     assert "مجدول" in values, "cable type"
-    assert "100 متر" in values, "length"
-    assert "السويدي اليكتريك" in values, "brand"
+    # Length and brand are deliberately ABSENT here since the owner's re-filing
+    # (2026-07-22): the single length term is the selling BASIS and rides the
+    # price row's unit ("100 m"), and the brand attribute rides brand_raw.
+    # Their presence in this set would be the same fact filed twice.
+    assert "100 متر" not in values, "length re-filed as the unit"
+    assert "السويدي اليكتريك" not in values, "brand re-filed as brand_raw"
     assert "3 مم" in values, "size"
     assert "جهد منخفض" in values, "voltage type"
     assert "ضد عيوب التصنيع" in values, "warranty"
@@ -195,3 +199,103 @@ def test_enrichment_for_a_source_that_never_declared_it_is_refused(tmp_path):
 
     assert any("does not declare enrichment" in e for e in result.errors)
     assert conn.execute("SELECT COUNT(*) FROM source_product_attribute").fetchone()[0] == 0
+
+
+# ---- the owner's re-filing: length is the UNIT, the attribute is the BRAND ---
+
+def test_the_single_length_term_becomes_the_selling_basis_not_a_detail():
+    """"100 متر" is what one price BUYS — the roll — so it rides the price
+    row's unit and basis, and leaves the details list. A length the buyer
+    CHOOSES (multi-term / variation) stays a detail: that is a variant axis,
+    not one basis."""
+    from scrapex.connectors.woocommerce import selling_basis
+
+    single = {"attributes": [{"taxonomy": "pa_الطول", "name": "الطول",
+                              "terms": [{"name": "100 متر"}]}]}
+    assert selling_basis(single) == ("100", "متر")
+
+    chosen = {"attributes": [{"taxonomy": "pa_الطول", "name": "الطول",
+                              "terms": [{"name": "50 متر"}, {"name": "100 متر"}]}]}
+    assert selling_basis(chosen) == ("", "")
+
+
+def test_the_brand_attribute_fills_brand_raw_because_brands_is_empty():
+    """The shop fills pa_الماركة and leaves the Store API's own brands list
+    empty; the brand belongs in the brand field, not filed under details."""
+    from scrapex.connectors.woocommerce import brand_of
+
+    assert brand_of({"brands": [], "attributes": [
+        {"taxonomy": "pa_الماركة", "name": "الماركة",
+         "terms": [{"name": "السويدي اليكتريك"}]}]}) == "السويدي اليكتريك"
+    # The API's own list wins when it is actually filled.
+    assert brand_of({"brands": [{"name": "Real Brand"}], "attributes": []}) == "Real Brand"
+
+
+def test_arabic_metre_folds_into_the_canonical_unit():
+    from scrapex.ingest import canonical_unit
+    assert canonical_unit("متر") == "m"
+
+
+def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_path):
+    """The whole ask, end to end over the live capture: the main table shows
+    the brand, the category, the pre-discount price, the computed discount,
+    and a per-row Details flag — and the unit reads '100 m'."""
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+    from scrapex.reports import table_payload
+
+    conn = dbmod.connect(":memory:")
+    dbmod.migrate(conn)
+    ingest_payloads(conn, _woo_entry(),
+                    [t.to_payload() for t in _tables_from_live_fixture()])
+
+    grid = table_payload(conn, "SAMEHGABRIEL")
+    keys = [c["key"] for c in grid["columns"]]
+    for key in ("brand", "category", "was_price", "discount", "details"):
+        assert key in keys, f"{key} missing from the columns"
+
+    row = next(r for r in grid["rows"] if r["discount"])
+    assert row["brand"] == "السويدي اليكتريك"
+    assert row["category"]
+    assert float(row["was_price"]) > float(row["effective_price"])
+    assert row["discount"].startswith("-") and "%" in row["discount"]
+    assert row["unit"] == "100 m"
+    assert row["has_details"] is True
+
+
+def test_payload_order_cannot_send_details_out_of_scope(tmp_path):
+    """The live failure on a fresh warehouse: the inbox reads files in
+    filename order, the enrichment payload sorted FIRST, found no products
+    registered yet, and all 270 details went out-of-scope. The ingester owns
+    the dependency: prices land before enrichment, whatever the caller sends."""
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+
+    conn = dbmod.connect(":memory:")
+    dbmod.migrate(conn)
+    payloads = [t.to_payload() for t in _tables_from_live_fixture()]
+    payloads.reverse()                       # enrichment deliberately first
+
+    result = ingest_payloads(conn, _woo_entry(), payloads)
+    assert result.rejected_out_of_scope == 0
+    assert result.attributes > 0
+
+
+def test_wiping_a_source_with_details_wipes_them_too(tmp_path):
+    """Caught live: source_product_attribute was missing from wipe-source's
+    table list, so the whole wipe died on its FOREIGN KEY — the right failure
+    mode, now with the table in the list."""
+    from scrapex import db as dbmod, storage
+    from scrapex.ingest import ingest_payloads
+
+    db = tmp_path / "harvest.db"
+    conn = dbmod.connect(db)
+    dbmod.migrate(conn)
+    ingest_payloads(conn, _woo_entry(),
+                    [t.to_payload() for t in _tables_from_live_fixture()])
+    conn.commit()
+
+    result = storage.wipe_source(conn, db, "SAMEHGABRIEL")
+    assert result.ok
+    assert conn.execute("SELECT COUNT(*) FROM source_product_attribute").fetchone()[0] == 0
+    conn.close()

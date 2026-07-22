@@ -19,6 +19,49 @@ from .base import HttpFetcher, ScrapedTable
 PER_PAGE = 100
 
 
+# Attributes that are NOT details (owner's correction, 2026-07-22): the single
+# length term is what one price BUYS — "100 متر" is the selling basis — and the
+# brand attribute is the brand, arriving here because the shop fills the
+# attribute instead of the Store API's own (empty) brands list. Both are mapped
+# to their first-class fields and skipped by enrichment. Multi-term or
+# variation-bearing attributes stay details: a length the buyer CHOOSES is a
+# variant axis, not one basis.
+_LENGTH_ATTRS = {"pa_الطول", "الطول", "pa_length", "length"}
+_BRAND_ATTRS = {"pa_الماركة", "الماركة", "pa_الماركه", "pa_brand", "brand"}
+_BASIS = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*(\S.*)$")
+
+
+def _single_term(product: dict, wanted: set) -> str:
+    """The one term of a non-variation attribute named in `wanted`, or ""."""
+    for attribute in product.get("attributes") or []:
+        code = str(attribute.get("taxonomy") or "").strip().lower()
+        name = str(attribute.get("name") or "").strip().lower()
+        if code not in wanted and name not in wanted:
+            continue
+        terms = attribute.get("terms") or []
+        if len(terms) == 1 and not attribute.get("has_variations"):
+            return str(terms[0].get("name") or "").strip()
+    return ""
+
+
+def selling_basis(product: dict) -> tuple[str, str]:
+    """(basis_quantity, unit) from the single length attribute — else ("", "")."""
+    value = _single_term(product, _LENGTH_ATTRS)
+    found = _BASIS.match(value) if value else None
+    if not found:
+        return "", ""
+    return found.group(1).replace(",", "."), found.group(2).strip()
+
+
+def brand_of(product: dict) -> str:
+    """The Store API's brands list first; the shop's brand ATTRIBUTE second."""
+    for brand in product.get("brands") or []:
+        name = str(brand.get("name") or "").strip()
+        if name:
+            return name
+    return _single_term(product, _BRAND_ATTRS)
+
+
 def _money(prices: dict, key: str) -> str:
     raw = prices.get(key)
     if raw in (None, ""):
@@ -83,12 +126,16 @@ class WooCommerceConnector:
         regular = _money(prices, "regular_price") or effective
         sale = _money(prices, "sale_price")
         pid = str(product.get("id", ""))
+        basis, unit = selling_basis(product)
         return builder.row(
             external_product_id=pid,
             external_variant_id=pid,  # v1: product-level; per-variation prices later
             external_sku=product.get("sku") or "",
             product_name=product.get("name") or "",
+            brand_raw=brand_of(product),
             product_url=product.get("permalink") or "",
+            unit=unit,
+            basis_quantity=basis,
             region=source.default_region,
             currency=prices.get("currency_code") or source.currency or "UNKNOWN",
             vat_included=vat,
@@ -136,12 +183,23 @@ def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,
             value_url=url, lang="", attribute_group=group))
 
+    basis, _unit = selling_basis(product)
     for attribute in product.get("attributes") or []:
         # `taxonomy` is the stable machine key ("pa_color"); `name` is what the
         # shop prints and can be renamed at any time. Keying on the label would
         # make a rename look like a new attribute.
         code = str(attribute.get("taxonomy") or attribute.get("name") or "").strip()
         label = str(attribute.get("name") or code)
+        lowered = code.lower()
+        named = str(attribute.get("name") or "").strip().lower()
+        # Mapped to first-class fields (owner's correction): the single length
+        # term is the selling BASIS and rides the price row's unit; the brand
+        # attribute rides brand_raw. Repeating them here would be the same fact
+        # filed twice under two names.
+        if basis and (lowered in _LENGTH_ATTRS or named in _LENGTH_ATTRS):
+            continue
+        if (lowered in _BRAND_ATTRS or named in _BRAND_ATTRS) and                 len(attribute.get("terms") or []) == 1:
+            continue
         for term in attribute.get("terms") or []:
             add(code, label, term.get("name"), url=term.get("link") or "",
                 group="Attributes")

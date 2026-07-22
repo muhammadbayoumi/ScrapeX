@@ -1068,6 +1068,10 @@ def wipe_source(conn: sqlite3.Connection, db_path: Path | str,
             ("source_variant_match", f"source_variant_id IN ({variants})"),
             ("source_product_match", f"source_product_id IN ({products})"),
             ("identity_alias", f"source_product_id IN ({products})"),
+            # Added with migration 0024; forgetting a child here fails the whole
+            # wipe on its FOREIGN KEY — which is the correct failure mode, and
+            # exactly what happened live the first time.
+            ("source_product_attribute", f"source_product_id IN ({products})"),
             ("source_variant", f"source_product_id IN ({products})"),
             ("source_product", "source_id = ?"),
         ):

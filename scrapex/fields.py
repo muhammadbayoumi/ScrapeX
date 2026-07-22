@@ -70,6 +70,19 @@ def visible_columns(conn: sqlite3.Connection, source_key: str,
     return [r["field_key"] for r in rows if not r["is_hidden"]]
 
 
+def hidden_columns(conn: sqlite3.Connection, source_key: str) -> set[str]:
+    """Only the keys the owner EXPLICITLY hid.
+
+    The complement of visible_columns for a different question: a column that
+    was never registered was never hidden, and must default to SHOWN. Deriving
+    "wanted" from the registered-visible list silently suppressed every column
+    added after a source's view was first seeded — brand, category and the
+    discount arrived in the payload rows and never in the column list."""
+    return {r["field_key"] for r in conn.execute(
+        "SELECT field_key FROM dataset_field WHERE source_key = ? AND is_hidden = 1",
+        (source_key,))}
+
+
 def set_display_name(conn: sqlite3.Connection, source_key: str, field_key: str,
                      display_name: str | None) -> bool:
     """Rename the LABEL. field_key and original_name are untouched, so a rename

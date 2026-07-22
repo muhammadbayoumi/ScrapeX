@@ -267,6 +267,12 @@ _UNIT_ALIASES = {
     "cubic meter": "m3", "cubic metre": "m3", "cbm": "m3", "m³": "m3",
     "pieces": "piece", "pcs": "piece", "pc": "piece", "each": "piece",
     "kwh": "kWh", "kw/h": "kWh",
+    # Arabic spellings, from live sources. samehgabriel sells cable by the roll
+    # and states the basis as an Arabic attribute — "100 متر" — which is the
+    # unit information, not a product detail (owner's correction).
+    "متر": "m", "امتار": "m", "أمتار": "m",
+    "كيلوجرام": "kg", "كجم": "kg", "كيلو": "kg",
+    "لتر": "liter", "قطعة": "piece", "حبة": "piece",
 }
 
 
@@ -449,6 +455,14 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     if result_note:
         result.contained.append(result_note)
 
+    # Prices before enrichment, whatever order the payloads ARRIVE in: a detail
+    # can only attach to a product the run has registered, and the local inbox
+    # reads files in filename order — which put the enrichment payload first
+    # and sent all 270 of samehgabriel's details out-of-scope on a fresh
+    # warehouse. The dependency is the ingester's to enforce, not the caller's
+    # to remember.
+    payloads = sorted(payloads,
+                      key=lambda pl: 1 if pl.kind == ExtractKind.ENRICHMENT else 0)
     for payload in payloads:
         if payload.source_key != entry.source_key:
             result.errors.append(f"payload source_key {payload.source_key} != {entry.source_key}")

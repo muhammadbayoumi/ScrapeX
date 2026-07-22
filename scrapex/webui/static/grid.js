@@ -464,6 +464,20 @@
         return badge;
       };
     }
+    if (key === "details") {
+      // Its own action, separated from History (the owner's ask): History is
+      // the price story, Details is what the product IS.
+      return (cell) => {
+        const data = cell.getRow().getData();
+        if (!data.has_details || !data.offer_id) return "";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "link";
+        button.textContent = "Details";
+        button.addEventListener("click", () => openOfferPanel(data.offer_id, "details"));
+        return button;
+      };
+    }
     if (key === "official_source") {
       // The official body the SOURCE names for its figure — scraped content,
       // so it is set as textContent (never HTML) and the URL becomes a link
@@ -531,8 +545,18 @@
       };
       // Numbers and dates read right-aligned; text reads from its own side.
       if (col.key === "effective_price") def.hozAlign = "right";
-      if (col.key === "price_changed_on" || col.key === "last_confirmed_on") {
+      if (col.key === "price_changed_on" || col.key === "last_confirmed_on" ||
+          col.key === "was_price" || col.key === "discount") {
         def.hozAlign = "right";
+      }
+      if (col.key === "details") {
+        // An action, not data: nothing to sort, filter, menu or export.
+        def.headerSort = false;
+        def.download = false;
+        def.headerMenu = undefined;
+        def.headerPopup = undefined;
+        def.width = 110;
+        def.resizable = false;
       }
       let formatter = formatterFor(col.key);
       // On the column a tree nests by, a heading row must say how many rows it
@@ -565,7 +589,7 @@
           if (event.button !== 0 || event.ctrlKey || event.metaKey ||
               event.shiftKey || event.altKey) return;
           event.preventDefault();
-          openOfferPanel(cell.getValue());
+          openOfferPanel(cell.getValue(), "history");
         });
         return link;
       },
@@ -684,6 +708,7 @@
   // markup must render as text, never run. Numbers and dates get dir=ltr so an
   // RTL page cannot mirror "20.5 -> 21.0" into "21.0 <- 20.5".
   let openOfferId = null;
+  let openOfferMode = "history";
 
   function el(tag, className, textValue) {
     const node = document.createElement(tag);
@@ -718,20 +743,22 @@
     return span;
   }
 
-  function openOfferPanel(offerId) {
+  function openOfferPanel(offerId, mode) {
     const panel = document.getElementById("offer-panel");
     if (!panel) return;
-    if (openOfferId === offerId && !panel.hidden) {  // same row again = close
-      closeOfferPanel();
+    mode = mode || "history";
+    if (openOfferId === offerId && openOfferMode === mode && !panel.hidden) {
+      closeOfferPanel();                       // same row, same ask = close
       return;
     }
     openOfferId = offerId;
+    openOfferMode = mode;
     panel.hidden = false;
     panel.textContent = "";
     panel.appendChild(el("p", "muted", "Loading the record's history…"));
     fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + offerId)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
-      .then((data) => renderOfferPanel(panel, data, offerId))
+      .then((data) => renderOfferPanel(panel, data, offerId, mode))
       .catch((err) => {
         panel.textContent = "";
         panel.appendChild(el("p", "err",
@@ -748,7 +775,11 @@
     openOfferId = null;
   }
 
-  function renderOfferPanel(panel, data, offerId) {
+  function renderOfferPanel(panel, data, offerId, mode) {
+    // The owner separated the two asks: History is the price story (periods,
+    // changes, observations); Details is what the product IS (attributes,
+    // classification, measurements). One panel, one ask at a time.
+    const showHistory = mode !== "details";
     panel.textContent = "";
     const offer = data.offer || {};
 
@@ -770,6 +801,7 @@
     head.appendChild(close);
     panel.appendChild(head);
 
+    if (showHistory) {
     // 1. The change-only timeline: the first price and each REAL move.
     panel.appendChild(el("h3", "", "Price changes"));
     const periods = data.periods || [];
@@ -808,10 +840,15 @@
         })));
     }
 
-    // 3. The details the source printed for this product — colours, lengths,
+    }
+
+    // The details the source printed for this product — colours, lengths,
     // categories, warranties — grouped as the page grouped them. Scraped
     // content throughout: names as text, URLs linked only when they parse.
-    const details = data.details || [];
+    const details = mode === "details" ? (data.details || []) : [];
+    if (mode === "details" && !details.length) {
+      panel.appendChild(el("p", "muted", "No details recorded for this record."));
+    }
     if (details.length) {
       panel.appendChild(el("h3", "", "Details"));
       const groups = new Map();
@@ -846,7 +883,8 @@
       });
     }
 
-    // 4. Every observation behind the story, provenance spelled out.
+    if (showHistory) {
+    // Every observation behind the story, provenance spelled out.
     panel.appendChild(el("h3", "", "What was recorded"));
     const observations = data.observations || [];
     if (!observations.length) {
@@ -859,6 +897,7 @@
           money(o.effective_price, o.currency, offer.unit),
           o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
         ])));
+    }
     }
 
     panel.focus({preventScroll: true});

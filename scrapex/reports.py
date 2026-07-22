@@ -141,6 +141,27 @@ def price_unit(unit_code: str | None, basis_quantity: float | None = 1) -> str:
     return f"{quantity} {unit_code}"
 
 
+def _discounted(regular, effective) -> bool:
+    try:
+        return regular is not None and effective is not None and             float(regular) > float(effective)
+    except (TypeError, ValueError):
+        return False
+
+
+def _discount_text(regular, effective) -> str:
+    """"-104.83 (-7.0%)" — the discount the price already includes.
+
+    The table shows the correct post-discount price; without this column
+    nothing said a discount existed at all, which is the information the owner
+    actually wanted. Absolute and percent together, same rule as the change
+    feed. Empty when there is no discount — a zero would imply "checked, none",
+    per row, in ink."""
+    if not _discounted(regular, effective):
+        return ""
+    saved = float(effective) - float(regular)
+    return f"{saved:+.2f} ({saved / float(regular) * 100:+.1f}%)"
+
+
 def region_name(region: str | None) -> str:
     """ISO alpha-2 -> English country name, for display only.
 
@@ -382,9 +403,16 @@ def history_counts(conn: sqlite3.Connection, offer_ids: list[int]) -> dict[int, 
 BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("product_name", "Record"),
     ("region", "Country"),
+    ("brand", "Brand"),
+    ("category", "Category"),
     ("option_label", "Variant"),
     ("sku", "SKU"),
     ("effective_price", "Price"),
+    # The price BEFORE the discount, and the discount itself, computed — the
+    # table showed the correct post-discount price and no sign a discount
+    # existed at all (owner's report).
+    ("was_price", "Was"),
+    ("discount", "Discount"),
     ("unit", "Unit"),
     ("availability", "Status"),
     ("tax_label", "Tax"),
@@ -394,6 +422,7 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # actually attribute (GPP country pages) populate it; the presence sweep
     # hides it everywhere else.
     ("official_source", "Source"),
+    ("details", "Details"),
     ("curation_status", "Curation"),
 ]
 
@@ -421,14 +450,29 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         # present gave GPP a Status column reading "Unknown" on all 721 rows —
         # a column of noise. No information is not information.
         "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')), "
-        "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')) "
+        "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')), "
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_raw,'')),'')), "
+        "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("option_label", row[0]), ("sku", row[1]),
                           ("region", row[2]), ("unit", row[3]),
-                          ("availability", row[4]), ("official_source", row[5])):
+                          ("availability", row[4]), ("official_source", row[5]),
+                          ("brand", row[6]), ("was_price", row[7]),
+                          ("discount", row[7])):
         if not count:
             present.discard(column)
+    details = conn.execute(
+        "SELECT COUNT(*), "
+        "SUM(CASE WHEN spa.attribute_code = 'category' THEN 1 ELSE 0 END) "
+        "FROM source_product_attribute spa "
+        "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ?", (source_key,)).fetchone()
+    if not details[0]:
+        present.discard("details")
+    if not details[1]:
+        present.discard("category")
     return present
 
 
@@ -753,7 +797,12 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       po.regular_price, po.sale_price, po.currency, po.availability, "
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
-        "       po.official_source_name, po.official_source_url "
+        "       po.official_source_name, po.official_source_url, sp.brand_raw, "
+        "       (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
+        "        WHERE spa.source_product_id = sp.source_product_id "
+        "        AND spa.attribute_code = 'category') AS category, "
+        "       EXISTS(SELECT 1 FROM source_product_attribute spa2 "
+        "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -781,20 +830,26 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "unit": price_unit(r[13], r[14]), "offer_id": r[15],
                "official_source": r[16] or "",
                "official_source_url": r[17] or "",
+               "brand": r[18] or "",
+               "category": r[19] or "",
+               "has_details": bool(r[20]),
+               "was_price": r[4] if _discounted(r[4], r[3]) else "",
+               "discount": _discount_text(r[4], r[3]),
                "tax_ref": tax_ref(r[11] or "", r[0] or "")}
               for r in rows]
 
     present = column_presence(conn, source_key)
     # Two independent questions, and both must be asked. `present` answers "does
-    # this source publish anything here at all"; the saved view answers "does the
-    # owner want to see it". Asking only the first is why Hide this column did
-    # nothing: the choice was written to dataset_field and this payload — the only
-    # thing the grid reads — never consulted it.
-    wanted = set(fields.visible_columns(conn, source_key, fallback=list(present)))
+    # this source publish anything here at all"; the saved view answers "did the
+    # owner HIDE it". Hidden is the explicit act — a column that was never
+    # registered was never hidden and defaults to shown. (Deriving this from
+    # the registered-VISIBLE list instead silently suppressed every column
+    # added after a source's view was first seeded.)
+    hidden = fields.hidden_columns(conn, source_key)
     return {
         "source_key": source_key,
         "columns": [{"key": key, "label": label} for key, label in BROWSE_COLUMNS
-                    if key in present and key in wanted],
+                    if key in present and key not in hidden],
         "rows": shaped,
         "tax_states": tax_states,
         "total": total,
