@@ -78,23 +78,25 @@
     .toolbar{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;
       font-size:.85rem;margin:.4rem 0 .8rem}
     button.chip{border:1px solid var(--line);cursor:pointer}
-    /* Workspace navigation: a quiet right rail keeps page navigation separate
-       from page actions. The active page is marked by weight, surface and a
-       right-edge rule, never colour alone, and still carries aria-current. */
-    .workspace-shell{max-width:1480px;min-height:calc(100vh - var(--sticky-tabs));margin:0 auto;
-      display:grid;grid-template-columns:minmax(0,1fr) 230px;align-items:stretch}
-    .workspace-shell>.wrap{grid-column:1;grid-row:1;width:100%;min-width:0}
-    .workspace-sidebar{grid-column:2;grid-row:1;align-self:start;position:sticky;
+    /* Workspace navigation: an edge-to-edge left rail separates wayfinding
+       from page actions. It can disappear completely without leaving a dead
+       gutter, and the content then reclaims the whole viewport. */
+    .workspace-shell{min-height:calc(100vh - var(--sticky-tabs));display:grid;
+      grid-template-columns:244px minmax(0,1fr);align-items:stretch;
+      transition:grid-template-columns .2s ease}
+    .workspace-shell>.wrap{grid-column:2;grid-row:1;width:100%;min-width:0}
+    .workspace-sidebar{grid-column:1;grid-row:1;align-self:start;position:sticky;
       top:var(--sticky-tabs);height:calc(100vh - var(--sticky-tabs));overflow-y:auto;
-      border-inline-start:1px solid var(--line);background:var(--surface);z-index:4}
+      border-inline-end:1px solid var(--line);background:var(--surface);z-index:4;
+      transition:transform .2s ease,opacity .16s ease}
     .workspace-sidebar-head{display:flex;align-items:center;justify-content:space-between;
       gap:.6rem;padding:1.15rem 1rem .75rem}
     .workspace-sidebar-title strong,.workspace-sidebar-title small{display:block}
     .workspace-sidebar-title strong{font-size:.92rem}
     .workspace-sidebar-title small{margin-top:.05rem;color:var(--muted);font-size:.72rem}
-    .sidebar-close{display:none;width:30px;height:30px;padding:0;place-items:center;
+    .sidebar-close{display:grid;width:30px;height:30px;padding:0;place-items:center;
       border:1px solid var(--line);background:transparent;color:var(--text);font-size:1.15rem}
-    .sidebar-toggle{display:none;align-items:center;gap:.4rem;padding:.34rem .62rem;
+    .sidebar-toggle{display:inline-flex;align-items:center;gap:.4rem;padding:.34rem .62rem;
       border:1px solid var(--line);background:transparent;color:var(--text);font-size:.8rem}
     .sidebar-toggle svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;
       stroke-linecap:round}
@@ -103,24 +105,30 @@
     .wsnav-label{display:block;padding:.15rem .7rem .3rem;color:var(--muted);
       font-size:.64rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
     .wsnav-links{display:flex;flex-direction:column;gap:.14rem}
-    .wstabs a{display:flex;align-items:center;min-height:38px;padding:.5rem .7rem;
-      border-radius:8px;color:var(--muted);font-size:.84rem}
+    .wstabs a{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;
+      gap:.65rem;min-height:40px;padding:.52rem .7rem;border-radius:9px;
+      color:var(--muted);font-size:.84rem}
+    .wsnav-icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.75;
+      stroke-linecap:round;stroke-linejoin:round}
+    .wsnav-symbols{position:absolute;width:0;height:0;overflow:hidden}
     .wstabs a:hover{background:var(--bg);color:var(--text)}
     .wstabs a[aria-current=page]{background:var(--accent-weak);color:var(--accent-ink);
-      font-weight:600;box-shadow:inset -3px 0 var(--accent)}
+      font-weight:600;box-shadow:inset 3px 0 var(--accent)}
+    @media(min-width:901px){
+      .sidebar-hidden .workspace-shell{grid-template-columns:0 minmax(0,1fr)}
+      .sidebar-hidden .workspace-sidebar{transform:translateX(-102%);opacity:0;pointer-events:none}
+    }
     .sidebar-backdrop{display:none}
     @media(max-width:900px){
       .topbar .sub{display:none}
-      .workspace-shell{display:block;max-width:none}
+      .workspace-shell{display:block}
       .workspace-shell>.wrap{width:auto}
-      .workspace-sidebar{position:static;width:auto;height:auto;border-inline-start:0;
+      .workspace-sidebar{position:static;width:auto;height:auto;border-inline-end:0;
         border-bottom:1px solid var(--line)}
-      .sidebar-ready .sidebar-toggle{display:inline-flex}
       .sidebar-ready .workspace-sidebar{position:fixed;inset-block:var(--sticky-tabs) 0;
-        inset-inline:auto 0;width:min(82vw,300px);height:auto;border-bottom:0;
-        border-inline-start:1px solid var(--line);box-shadow:-10px 0 30px rgba(0,0,0,.16);
-        transform:translateX(102%);transition:transform .18s ease;z-index:9}
-      .sidebar-ready .sidebar-close{display:grid}
+        inset-inline:0 auto;width:min(82vw,300px);height:auto;border-bottom:0;
+        border-inline-end:1px solid var(--line);box-shadow:10px 0 30px rgba(0,0,0,.16);
+        transform:translateX(-102%);transition:transform .18s ease;z-index:9}
       .sidebar-ready.sidebar-open .workspace-sidebar{transform:translateX(0)}
       .sidebar-ready .sidebar-backdrop{display:block;position:fixed;
         inset:var(--sticky-tabs) 0 0;background:rgba(0,0,0,.36);opacity:0;
@@ -288,9 +296,14 @@
       padding:.1rem .35rem;border-radius:5px;font-size:.85em}
   </style>
   <link rel="stylesheet" href="/static/table-theme.css">
-</head>
+  </head>
 <body>
   <header class="topbar">
+    <button type="button" class="sidebar-toggle" aria-label="Hide navigation"
+            aria-controls="workspace-sidebar" aria-expanded="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+      <span>Navigation</span>
+    </button>
     <a href="/" class="brand"><span class="brand-logo" aria-hidden="true"></span>ScrapeX</a>
     <span class="sub">Collect. Analyze. Grow.</span>
     {# Database status belongs on every page, because the database is what every
@@ -301,17 +314,25 @@
         {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
       </a>
     {% endif %}
-    <button type="button" class="sidebar-toggle" aria-label="Open navigation"
-            aria-controls="workspace-sidebar" aria-expanded="false">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
-      <span>Navigate</span>
-    </button>
   </header>
   {# The dataset in view is carried across every tab (spec 21) so switching tabs
      never loses which source you were looking at. #}
   {% set ctx = ("?source_key=" ~ source_key) if source_key else "" %}
   <div class="workspace-shell">
     <aside class="workspace-sidebar" id="workspace-sidebar" aria-label="Workspace navigation">
+      <svg class="wsnav-symbols" aria-hidden="true">
+        <symbol id="wsnav-overview" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><rect x="13.5" y="13.5" width="7" height="7" rx="1"/></symbol>
+        <symbol id="wsnav-data" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/></symbol>
+        <symbol id="wsnav-changes" viewBox="0 0 24 24"><path d="m4 17 5-5 4 4 7-8"/><path d="M15 8h5v5"/></symbol>
+        <symbol id="wsnav-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+        <symbol id="wsnav-review" viewBox="0 0 24 24"><path d="M4.5 12.5 9 17l10.5-11"/></symbol>
+        <symbol id="wsnav-jobs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></symbol>
+        <symbol id="wsnav-schedules" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 9.5h17M8 13h3M13 13h3M8 16.5h3"/></symbol>
+        <symbol id="wsnav-sync" viewBox="0 0 24 24"><path d="M20 7h-6l2.5-2.5M14 7l2.5 2.5M4 17h6l-2.5 2.5M10 17l-2.5-2.5"/><path d="M18.5 11A7 7 0 0 1 7 17M5.5 13A7 7 0 0 1 17 7"/></symbol>
+        <symbol id="wsnav-exports" viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4.5 20h15"/></symbol>
+        <symbol id="wsnav-logs" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M9 12h6M9 16h6"/></symbol>
+        <symbol id="wsnav-settings" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></symbol>
+      </svg>
       <div class="workspace-sidebar-head">
         <span class="workspace-sidebar-title">
           <strong>Workspace</strong>
@@ -341,7 +362,10 @@
             <span class="wsnav-label">{{ group }}</span>
             <div class="wsnav-links">
               {% for href, label, key in items %}
-                <a href="{{ href }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+                <a href="{{ href }}" title="{{ label }}"{% if tab == key %} aria-current="page"{% endif %}>
+                  <svg class="wsnav-icon" aria-hidden="true"><use href="#wsnav-{{ key }}"></use></svg>
+                  <span>{{ label }}</span>
+                </a>
               {% endfor %}
             </div>
           </div>
@@ -367,7 +391,7 @@
   </div>
   <div class="sidebar-backdrop" aria-hidden="true"></div>
   <script>
-  // The right rail starts directly below the topbar. The topbar's height changes
+  // The left rail starts directly below the topbar. The topbar's height changes
   // with its own content, so the offset is measured rather than assumed.
   //
   // Progressive enhancement: the CSS defaults are sensible on their own, so a
@@ -396,28 +420,46 @@
     var narrow = window.matchMedia('(max-width: 900px)');
     if (toggle && navigation && sidebar) {
       body.classList.add('sidebar-ready');
-      function setSidebar(open) {
-        open = Boolean(open && narrow.matches);
-        body.classList.toggle('sidebar-open', open);
+      var sidebarPreference = 'scrapex-navigation-hidden';
+      function desktopPreference() {
+        try { return window.localStorage.getItem(sidebarPreference) !== 'true'; }
+        catch (error) { return true; }
+      }
+      function rememberDesktop(open) {
+        try { window.localStorage.setItem(sidebarPreference, String(!open)); }
+        catch (error) { /* A blocked preference must never block navigation. */ }
+      }
+      function setSidebar(open, remember) {
+        body.classList.toggle('sidebar-open', narrow.matches && open);
+        body.classList.toggle('sidebar-hidden', !narrow.matches && !open);
         toggle.setAttribute('aria-expanded', String(open));
-        sidebar.toggleAttribute('inert', narrow.matches && !open);
-        if (narrow.matches && !open) sidebar.setAttribute('aria-hidden', 'true');
+        toggle.setAttribute('aria-label', open ? 'Hide navigation' : 'Show navigation');
+        toggle.setAttribute('title', open ? 'Hide navigation' : 'Show navigation');
+        sidebar.toggleAttribute('inert', !open);
+        if (!open) sidebar.setAttribute('aria-hidden', 'true');
         else sidebar.removeAttribute('aria-hidden');
-        if (open) {
+        if (remember && !narrow.matches) rememberDesktop(open);
+        if (open && narrow.matches) {
           var current = navigation.querySelector('[aria-current="page"]') || navigation.querySelector('a');
           if (current) current.focus();
         }
       }
-      toggle.addEventListener('click', function () { setSidebar(true); });
-      if (close) close.addEventListener('click', function () { setSidebar(false); toggle.focus(); });
-      if (backdrop) backdrop.addEventListener('click', function () { setSidebar(false); toggle.focus(); });
+      toggle.addEventListener('click', function () {
+        var open = narrow.matches || body.classList.contains('sidebar-hidden');
+        setSidebar(open, true);
+      });
+      if (close) close.addEventListener('click', function () { setSidebar(false, true); toggle.focus(); });
+      if (backdrop) backdrop.addEventListener('click', function () { setSidebar(false, false); toggle.focus(); });
       document.addEventListener('keydown', function (event) {
         if (event.key === 'Escape' && body.classList.contains('sidebar-open')) {
-          setSidebar(false); toggle.focus();
+          setSidebar(false, false); toggle.focus();
         }
       });
-      if (narrow.addEventListener) narrow.addEventListener('change', function () { setSidebar(false); });
-      setSidebar(false);
+      function syncSidebarMode() {
+        setSidebar(narrow.matches ? false : desktopPreference(), false);
+      }
+      if (narrow.addEventListener) narrow.addEventListener('change', syncSidebarMode);
+      syncSidebarMode();
     }
   })();
   </script>
