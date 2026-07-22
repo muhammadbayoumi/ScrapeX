@@ -107,3 +107,20 @@ def test_a_meaningless_chosen_mode_is_moved_not_run():
     """If the selection changes under a chosen mode, the run must not quietly
     proceed with a mode that stopped meaning anything."""
     assert 'select.value = withData > 0 ? "update" : "initial_crawl"' in JS
+
+
+# ---- schedules are EDITABLE from the panel -----------------------------------
+
+def test_the_schedules_section_is_an_editor_not_a_list():
+    """The API could create schedules since spec 26; the panel could only read
+    them — so the section said "No schedules yet" forever with no way to
+    change that, which the owner reported verbatim."""
+    assert '/api/schedules/' in JS.replace('"', "'"), "no save path — still read-only"
+    for role in ("freq", "weekday", "time", "save"):
+        assert f'data-role="{role}"' in JS, f"the {role} control is missing"
+    # The scheduler fires only ACTIVE sources; a schedule that will not fire
+    # must say so on its own row.
+    assert "Auto is off for this site" in JS
+    # 0=Monday, the server's convention — a drifted weekday list would fire
+    # runs a day away from what the owner picked.
+    assert '"Monday", "Tuesday"' in JS

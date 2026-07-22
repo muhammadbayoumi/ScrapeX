@@ -3,8 +3,10 @@
 # Owner principle: "له أساس ليس جمعاً عشوائياً" — nothing is collected that is
 # not declared here; the ingest scope guard rejects out-of-contract rows.
 #
-# All sources start active: false. Each is activated ONLY when its connector
-# lands with tests (ENGINEERING.md T1/T2) and the owner flips the flag.
+# Sources start active: false. Each is activated ONLY when its connector lands
+# with tests (ENGINEERING.md T1/T2); the owner flips the flag from the panel's
+# Auto switch (or here). active gates SCHEDULED runs only — manual runs from
+# the panel always work.
 # Validation: scrapex validate-manifest (same check runs in CI — S5).
 # ============================================================================
 

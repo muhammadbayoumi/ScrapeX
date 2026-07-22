@@ -32,11 +32,20 @@ def test_committed_manifest_is_valid():
     assert aramco.extract[0].regions == ["SA"]  # feeds ONLY the Saudi row
 
 
-def test_all_committed_sources_start_inactive():
-    """Activation is an explicit owner act after a connector lands with tests."""
+def test_no_source_is_active_without_a_shipped_connector():
+    """The rule this always meant to enforce, restated for the Auto switch era.
+
+    Activation is now a RUNTIME act the owner performs from the panel, and the
+    flag lives in the committed manifest — so "everything starts inactive" is
+    no longer true and no longer the point. What must never happen is a source
+    active with no connector to run it: the scheduler would fire jobs that can
+    only fail, forever, on a timer."""
+    from scrapex.connectors.factory import _BUILDERS
+
     manifest = load_manifest(MANIFEST_FILE)
-    active = [s.source_key for s in manifest.sources if s.active]
-    assert active == [], f"sources active without a landed connector: {active}"
+    orphaned = [s.source_key for s in manifest.sources
+                if s.active and s.family not in _BUILDERS]
+    assert orphaned == [], f"active without a connector: {orphaned}"
 
 
 def test_duplicate_source_key_rejected():

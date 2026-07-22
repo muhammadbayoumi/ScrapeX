@@ -455,3 +455,38 @@ def test_history_backfill_is_offered_only_where_the_source_publishes_history(ope
         "a shop with no history capability left the mode on offer"
     assert "History backfill is available only for" in page.text_content("#mode-help")
     assert "Energy Prices" in page.text_content("#mode-help")
+
+
+# ---- active crawl status bar -------------------------------------------------
+
+def test_the_active_crawl_minimizes_to_a_statusbar_and_opens_again(open_panel):
+    job = {
+        "job_ref": "job_live", "source_keys": ["GPP_ENERGY"],
+        "status": "running", "stage": "crawl", "started_at": "2026-07-22T10:00:00Z",
+        "current_source_key": "GPP_ENERGY",
+        "progress": {"done": 0, "total": 1, "percent": 0},
+        "counters": {"observations": 0, "duplicates": 0, "products": 0,
+                     "requests": 1, "errors": 0},
+    }
+    page = open_panel(jobs=[job])
+    bar = page.locator("#miniplayer")
+
+    assert bar.is_visible()
+    assert bar.evaluate("el => el.tagName") == "DETAILS"
+    assert not bar.evaluate("el => el.open"), "a running crawl should rest minimized"
+    assert page.is_visible("#mini-title") and page.is_visible("#mini-pct")
+    assert not page.is_visible("#mini-sub")
+    assert not page.is_visible("#mini-pause")
+
+    page.click("#miniplayer > summary")
+    assert bar.evaluate("el => el.open")
+    for control in ("#mini-view", "#mini-pause", "#mini-cancel"):
+        assert page.is_visible(control), f"{control} did not open with the status bar"
+    assert not page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+
+    page.focus("#miniplayer > summary")
+    page.keyboard.press("Enter")
+    assert not bar.evaluate("el => el.open")
+    assert page.is_visible("#mini-title"), "minimizing hid the crawl status itself"
+    assert not page.js_errors

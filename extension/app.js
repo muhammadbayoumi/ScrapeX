@@ -458,15 +458,97 @@ async function loadRecords(reset) {
 }
 
 // ---- settings --------------------------------------------------------------
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+                  "Saturday", "Sunday"];   // 0=Monday, the server's convention
+
 async function loadSchedules() {
+  // An EDITOR, not a list. The API could create schedules since spec 26 and
+  // the panel could only read them — so the section said "No schedules yet"
+  // forever, with no way to change that. One row per implemented site, its
+  // saved schedule merged in, defaults from the source's declared cadence.
   try {
-    const d = await api("/api/schedules");
+    const [d, src] = await Promise.all([api("/api/schedules"), api("/api/sources")]);
     $("sched-note").textContent = d.note;
-    $("schedules").innerHTML = d.schedules.length
-      ? d.schedules.map((s) => `<div class="kv"><span class="content">${esc(s.source_key)}</span>
-          <span class="muted">${esc(s.frequency)}${
-            s.next_run_at ? " · next " + esc(s.next_run_at) : ""}</span></div>`).join("")
-      : `<span class="muted">No schedules yet.</span>`;
+    const saved = new Map(d.schedules.map((s) => [s.source_key, s]));
+    const sites = src.sources.filter((s) => s.implemented);
+    if (!sites.length) {
+      $("schedules").innerHTML = `<span class="muted">No sites yet.</span>`;
+      return;
+    }
+    $("schedules").innerHTML = sites.map((s) => {
+      const sched = saved.get(s.source_key) || {};
+      const freq = sched.frequency || "manual";
+      const runAt = sched.run_at || "09:00";
+      const weekday = sched.weekday == null ? 0 : Number(sched.weekday);
+      const next = sched.next_run_at
+        ? "next " + esc(String(sched.next_run_at).slice(0, 16).replace("T", " ")) + " UTC"
+        : "";
+      // The scheduler fires only ACTIVE sources (the Auto switch). A schedule
+      // saved on an inactive one is a real record that will not fire — the
+      // row says so instead of letting the owner wait for nothing.
+      const gate = s.active ? "" :
+        `<span class="muted"> — Auto is off for this site, so this will not fire</span>`;
+      return `<div class="sched-row" data-sched="${esc(s.source_key)}"
+                  style="padding:var(--sp-2) 0;border-bottom:1px solid var(--line)">
+        <div class="row" style="justify-content:space-between">
+          <b class="name content">${esc(s.source_name)}</b>
+          <span class="muted" data-role="next">${next}</span>
+        </div>
+        <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-1)">
+          <select data-role="freq" aria-label="Frequency for ${esc(s.source_name)}">
+            ${["manual", "daily", "weekly"].map((f) =>
+              `<option value="${f}" ${f === freq ? "selected" : ""}>${f}</option>`).join("")}
+          </select>
+          <select data-role="weekday" class="${freq === "weekly" ? "" : "hidden"}"
+                  aria-label="Weekday">
+            ${WEEKDAYS.map((w, i) =>
+              `<option value="${i}" ${i === weekday ? "selected" : ""}>${w}</option>`).join("")}
+          </select>
+          <input type="time" data-role="time" value="${esc(runAt)}"
+                 aria-label="Run time" ${freq === "manual" ? "disabled" : ""}>
+          <button class="ghost" data-role="save">Save</button>
+        </div>
+        <div class="hint" data-role="status" role="status" aria-live="polite">${gate}</div>
+      </div>`;
+    }).join("");
+
+    $("schedules").querySelectorAll(".sched-row").forEach((row) => {
+      const freq = row.querySelector('[data-role="freq"]');
+      const weekday = row.querySelector('[data-role="weekday"]');
+      const time = row.querySelector('[data-role="time"]');
+      const status = row.querySelector('[data-role="status"]');
+      freq.addEventListener("change", () => {
+        weekday.classList.toggle("hidden", freq.value !== "weekly");
+        time.disabled = freq.value === "manual";
+      });
+      row.querySelector('[data-role="save"]').addEventListener("click", async (event) => {
+        const button = event.target;
+        button.disabled = true;
+        status.textContent = "Saving…";
+        try {
+          const body = {
+            frequency: freq.value,
+            run_at: time.value || "09:00",
+            // The owner's own clock, stated: 09:00 should mean 09:00 HERE.
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          };
+          if (freq.value === "weekly") body.weekday = Number(weekday.value);
+          const result = await post(
+            "/api/schedules/" + encodeURIComponent(row.dataset.sched), body);
+          const when = result && result.next_run_at
+            ? "Saved — next " + String(result.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
+            : "Saved.";
+          status.textContent = when;
+          row.querySelector('[data-role="next"]').textContent =
+            result && result.next_run_at
+              ? "next " + String(result.next_run_at).slice(0, 16).replace("T", " ") + " UTC" : "";
+        } catch (e) {
+          status.textContent = "Couldn't save: " + e.message;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
   } catch (_) { $("schedules").innerHTML = `<span class="err">Couldn't load schedules.</span>`; }
 }
 
