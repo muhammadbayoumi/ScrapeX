@@ -56,6 +56,30 @@
   .hint { font-size: var(--fs-xs); margin-top: var(--sp-1); }
   .hint:empty { display: none; }
   .block { width: 100%; }
+  /* Each task tab has one visible purpose, followed by clearly separated
+     sections. The side panel is too narrow for a flat stream of unrelated
+     cards: hierarchy has to come from spacing and headings, not extra chrome. */
+  #view-run, #view-data { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .view-heading { display: flex; flex-direction: column; gap: 2px; }
+  .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+  .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
+  .section-head { display: flex; align-items: flex-start; gap: var(--sp-2);
+                  margin-bottom: var(--sp-3); }
+  .section-head h2 { margin: 0; }
+  .section-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+  .step-number { width: 20px; height: 20px; flex: none; display: grid; place-items: center;
+                 border-radius: 50%; background: var(--accent-weak); color: var(--accent-ink);
+                 font-size: var(--fs-xs); font-weight: var(--fw-bold); }
+  .run-action { margin-top: var(--sp-3); padding-top: var(--sp-3);
+                border-top: 1px solid var(--line); }
+  .dataset-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .dataset-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .dataset-card button { width: 100%; }
+  .output-groups { display: flex; flex-direction: column; gap: var(--sp-4); }
+  .output-group + .output-group { border-top: 1px solid var(--line); padding-top: var(--sp-4); }
+  .output-group-head { margin-bottom: var(--sp-2); }
+  .output-group-head h3 { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .output-group-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
   .fieldset { display: flex; flex-direction: column; gap: var(--sp-1); }
   .fieldset > label { font-size: var(--fs-xs); color: var(--muted); }
   /* Two columns only when there is room; one column at 320px. */
@@ -241,6 +265,11 @@
 
     <!-- ============================ RUN ============================ -->
     <section id="view-run" class="hidden">
+      <header class="view-heading">
+        <h1>Run</h1>
+        <p>Choose the sites to crawl, then set how this run should update their data.</p>
+      </header>
+
       <div id="setup" class="card warn hidden">
         <div style="font-weight:var(--fw-bold);margin-bottom:var(--sp-1)">Engine not running</div>
         <div class="muted steps" style="margin-bottom:var(--sp-2)">
@@ -253,8 +282,14 @@
 
       <div id="current" class="card hi hidden"></div>
 
-      <div>
-        <h2>Sites</h2>
+      <section class="card" aria-labelledby="run-sites-heading">
+        <div class="section-head">
+          <span class="step-number" aria-hidden="true">1</span>
+          <div>
+            <h2 id="run-sites-heading">Choose sites</h2>
+            <p>Select one or more ready sites for this run.</p>
+          </div>
+        </div>
         <input id="site-search" type="search" placeholder="Search by name or URL..."
                aria-label="Search sites">
         <div class="toolbar" style="margin:var(--sp-2) 0">
@@ -266,19 +301,19 @@
         <div id="sites" class="checklist" role="group" aria-label="Sites">
           <div class="skeleton"></div><div class="skeleton"></div>
         </div>
-      </div>
+      </section>
 
       <!-- Selected site cards (spec 12) ----------------------------------- -->
       <div id="selected" class="stack hidden"></div>
 
-      <!-- Data output destinations (spec 16) ------------------------------ -->
-      <div class="card">
-        <h2 class="flush">Data output</h2>
-        <div id="outputs"><div class="skeleton"></div></div>
-      </div>
-
-      <div class="card">
-        <h2 style="margin-top:0">Run mode</h2>
+      <section class="card" aria-labelledby="run-options-heading">
+        <div class="section-head">
+          <span class="step-number" aria-hidden="true">2</span>
+          <div>
+            <h2 id="run-options-heading">Run options</h2>
+            <p>Choose how ScrapeX should handle the selected datasets.</p>
+          </div>
+        </div>
         <div class="field">
           <select id="run-mode" aria-label="Run mode">
             <option value="update">Update existing data</option>
@@ -288,12 +323,11 @@
         </div>
         <div id="mode-help" class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)"></div>
         <div id="mode-warn" class="hidden" style="margin-top:var(--sp-2)"></div>
-      </div>
-
-      <div>
-        <button id="run" style="width:100%">Start update</button>
-        <div id="run-blocked" class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)"></div>
-      </div>
+        <div class="run-action">
+          <button id="run" class="block">Start update</button>
+          <div id="run-blocked" class="muted hint"></div>
+        </div>
+      </section>
 
       <!-- ACTIVITY: why a run is slow, stuck, or failed --------------------- -->
       <section id="activity" class="card hidden">
@@ -579,9 +613,25 @@
 
     <!-- ============================ DATA ============================ -->
     <section id="view-data" class="hidden">
-      <h2 style="margin-top:0">Datasets</h2>
-      <div id="datasets"><div class="skeleton"></div><div class="skeleton"></div></div>
+      <header class="view-heading">
+        <h1>Data</h1>
+        <p>Open stored datasets directly in the full Workspace.</p>
+      </header>
 
+      <section class="card" aria-labelledby="browse-data-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="browse-data-heading">Browse Data</h2>
+            <p>Datasets open directly in the full Workspace.</p>
+          </div>
+        </div>
+        <div id="datasets" class="dataset-list">
+          <div class="skeleton"></div><div class="skeleton"></div>
+        </div>
+
+        <!-- Kept for compatibility with the existing panel wiring. Dataset
+             cards now open the full Workspace directly, so this compact detail
+             view is no longer part of the visible navigation. -->
       <section id="dataset-detail" class="hidden">
         <div class="row">
           <button id="data-back" class="ghost">← All datasets</button>
@@ -598,8 +648,10 @@
           </select>
         </div>
         <div id="records"></div>
-        <button id="more-records" class="ghost hidden" style="width:100%">Load more</button>
+        <button id="more-records" class="ghost hidden block">Load more</button>
       </section>
+      </section>
+
     </section>
 
     <!-- ========================== SETTINGS ========================== -->
@@ -619,6 +671,14 @@
         <div id="s-sched" class="hidden" style="margin-top:var(--sp-2)">
           <div id="schedules" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
           <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-2)" id="sched-note"></div>
+        </div>
+      </div>
+      <div class="card">
+        <button class="link sect" data-sect="s-output" aria-expanded="false">Data output settings ›</button>
+        <div id="s-output" class="hidden" style="margin-top:var(--sp-3)">
+          <p class="muted hint" style="margin-top:0">
+            Local destinations stay separate from external sync services.</p>
+          <div id="outputs" class="output-groups"><div class="skeleton"></div></div>
         </div>
       </div>
       <div class="card">
@@ -664,7 +724,7 @@
   <nav class="tabs" role="tablist">
     <button data-view="source" aria-controls="view-source" aria-current="page">Source</button>
     <button data-view="run" aria-controls="view-run">Run</button>
-    <button data-view="data" aria-controls="view-data">Browse data</button>
+    <button data-view="data" aria-controls="view-data">Data</button>
     <button data-view="settings" aria-controls="view-settings">Settings</button>
   </nav>
 

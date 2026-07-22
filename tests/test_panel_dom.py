@@ -25,6 +25,8 @@ import panel_harness as harness  # noqa: E402
 
 SOURCE_TAB = 'nav.tabs button[data-view="source"]'
 RUN_TAB = 'nav.tabs button[data-view="run"]'
+DATA_TAB = 'nav.tabs button[data-view="data"]'
+SETTINGS_TAB = 'nav.tabs button[data-view="settings"]'
 
 
 @pytest.fixture(scope="module")
@@ -233,6 +235,47 @@ def test_the_engine_being_down_is_stated_not_left_blank(open_panel):
     page.wait_for_timeout(500)
     assert "Start the engine" in page.text_content("#sites") or \
         "Couldn't reach" in page.text_content("#sites")
+
+
+# ---- data browsing and output configuration have separate homes --------------
+
+def test_data_output_is_grouped_under_settings_not_run_or_data(open_panel):
+    page = open_panel()
+    page.click(RUN_TAB)
+    page.wait_for_timeout(300)
+    assert "Data output settings" not in page.text_content("#view-run")
+
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    assert text_of(page, DATA_TAB) == "Data"
+    assert "Browse Data" in page.text_content("#view-data")
+    assert "Data output settings" not in page.text_content("#view-data")
+
+    page.click(SETTINGS_TAB)
+    page.click('button.sect[data-sect="s-output"]')
+    page.wait_for_timeout(300)
+    assert page.is_visible("#s-output")
+    assert "Local storage" in page.text_content("#outputs")
+    assert "Sync services" in page.text_content("#outputs")
+
+
+def test_dataset_action_opens_the_workspace_directly(open_panel):
+    page = open_panel()
+    page.evaluate("""() => {
+        window.__opened = [];
+        window.chrome.tabs.create = (o) => window.__opened.push(o.url);
+    }""")
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    assert "Open in Workspace" in page.text_content('[data-open="LONG_AR"]')
+    page.click('[data-open="LONG_AR"]')
+    page.wait_for_timeout(200)
+
+    opened = page.evaluate("() => window.__opened")
+    assert len(opened) == 1
+    assert opened[0].endswith("/source/LONG_AR")
+    assert page.is_hidden("#dataset-detail"), \
+        "the panel preview should not intercept an action that promises Workspace"
 
 
 # ---- untrusted content (spec 34) --------------------------------------------

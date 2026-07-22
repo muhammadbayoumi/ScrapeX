@@ -363,14 +363,12 @@ async function loadDatasets() {
       return;
     }
     box.innerHTML = withData.map((s) => `
-      <div class="card">
-        <div class="row">
-          <span><b class="name content">${esc(s.source_name)}</b>
-            <div class="n">${Number(s.observations).toLocaleString()} prices · ${
-              Number(s.products || 0).toLocaleString()} products</div>
-            <div class="n">${esc(s.changes || "no recorded changes yet")}</div></span>
-          <button data-open="${esc(s.source_key)}">Open</button>
-        </div>
+      <div class="card dataset-card">
+        <div><b class="name content">${esc(s.source_name)}</b>
+          <div class="n">${Number(s.observations).toLocaleString()} prices · ${
+            Number(s.products || 0).toLocaleString()} products</div>
+          <div class="n">${esc(s.changes || "no recorded changes yet")}</div></div>
+        <button data-open="${esc(s.source_key)}">Open in Workspace ↗</button>
       </div>`).join("");
     box.querySelectorAll("button[data-open]").forEach((b) =>
       b.addEventListener("click", () => openDataset(b.dataset.open)));
@@ -380,10 +378,7 @@ async function loadDatasets() {
 }
 
 function openDataset(key) {
-  state.dataset = key; state.cursor = 0; state.records = [];
-  $("datasets").classList.add("hidden");
-  $("dataset-detail").classList.remove("hidden");
-  loadRecords(true);
+  openTab("/source/" + key);
 }
 
 async function loadRecords(reset) {
@@ -471,7 +466,7 @@ function renderSelected() {
 async function loadOutputs() {
   try {
     const { outputs } = await api("/api/outputs");
-    $("outputs").innerHTML = outputs.map((o) => {
+    const renderRows = (items) => items.map((o) => {
       // State is a WORD, never a colour: "Enabled" / "Needs setup".
       const state_ = o.ready ? (o.required ? "Always on" : "Enabled") : "Needs setup";
       // A destination that needs setup must offer the way to do it. The panel
@@ -488,6 +483,23 @@ async function loadOutputs() {
         <span class="chip ${o.ready ? "" : "off"}">${esc(state_)}</span>
       </div>`;
     }).join("");
+    const local = outputs.filter((o) => o.key === "local_db" || o.key === "excel");
+    const sync = outputs.filter((o) => o.key !== "local_db" && o.key !== "excel");
+    $("outputs").innerHTML = `
+      <section class="output-group" aria-labelledby="local-output-heading">
+        <div class="output-group-head">
+          <h3 id="local-output-heading">Local storage</h3>
+          <p>Database and Excel output kept on this computer.</p>
+        </div>
+        <div>${renderRows(local)}</div>
+      </section>
+      <section class="output-group" aria-labelledby="sync-output-heading">
+        <div class="output-group-head">
+          <h3 id="sync-output-heading">Sync services</h3>
+          <p>Optional destinations that send data outside the local workspace.</p>
+        </div>
+        <div>${renderRows(sync)}</div>
+      </section>`;
     $("outputs").querySelectorAll("[data-setup]").forEach((b) =>
       b.addEventListener("click", () => openTab(b.dataset.setup)));
   } catch (_) {
