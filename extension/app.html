@@ -59,7 +59,7 @@
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-data { display: flex; flex-direction: column; gap: var(--sp-3); }
+  #view-run, #view-data, #view-settings { display: flex; flex-direction: column; gap: var(--sp-3); }
   .view-heading { display: flex; flex-direction: column; gap: 2px; }
   .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
   .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
@@ -80,6 +80,46 @@
   .output-group-head { margin-bottom: var(--sp-2); }
   .output-group-head h3 { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); }
   .output-group-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+  /* Settings is an information architecture, not a stack of identical cards.
+     Related controls share one surface and the disclosure rows explain what is
+     behind them before the owner commits to opening a long form. */
+  .settings-principle { display: flex; align-items: flex-start; gap: var(--sp-2);
+                        padding: var(--sp-3); border: 1px solid var(--line);
+                        border-radius: var(--radius-lg); background: var(--accent-weak); }
+  .settings-principle .dot { margin-top: 5px; background: var(--accent); flex: none; }
+  .settings-principle strong { display: block; color: var(--accent-ink);
+                               font-size: var(--fs-sm); }
+  .settings-principle p { margin: 1px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+  .settings-group { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .settings-group-head { display: flex; align-items: baseline; justify-content: space-between;
+                         gap: var(--sp-2); padding: 0 var(--sp-1); }
+  .settings-group-head h2 { margin: 0; }
+  .settings-group-head p { margin: 0; color: var(--muted); font-size: var(--fs-xs);
+                           text-align: right; }
+  .settings-list { overflow: hidden; border: 1px solid var(--line);
+                   border-radius: var(--radius-lg); background: var(--surface); }
+  .settings-item + .settings-item { border-top: 1px solid var(--line); }
+  #view-settings .settings-toggle { display: grid; grid-template-columns: 24px minmax(0,1fr) auto;
+                                    align-items: center; gap: var(--sp-3); width: 100%;
+                                    padding: var(--sp-3) var(--sp-4); }
+  .settings-index { width: 24px; height: 24px; display: grid; place-items: center;
+                    border-radius: var(--radius-sm); background: var(--chip); color: var(--muted);
+                    font-size: 10px; font-variant-numeric: tabular-nums; }
+  .settings-toggle-copy { display: flex; flex-direction: column; gap: 1px; }
+  .settings-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .settings-description { color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+  .settings-chevron { color: var(--muted); font-size: var(--fs-lg); line-height: 1;
+                      transition: transform var(--dur); }
+  #view-settings .settings-toggle:hover .settings-index,
+  #view-settings .settings-toggle[aria-expanded="true"] .settings-index {
+    background: var(--accent-weak); color: var(--accent-ink);
+  }
+  #view-settings .settings-toggle[aria-expanded="true"] .settings-chevron {
+    transform: rotate(90deg); color: var(--accent-ink);
+  }
+  .settings-panel { padding: var(--sp-3) var(--sp-4) var(--sp-4);
+                    border-top: 1px solid var(--line); background: var(--bg); }
+  .settings-panel > :first-child { margin-top: 0; }
   .fieldset { display: flex; flex-direction: column; gap: var(--sp-1); }
   .fieldset > label { font-size: var(--fs-xs); color: var(--muted); }
   /* Two columns only when there is room; one column at 320px. */
@@ -237,7 +277,7 @@
   @media (prefers-reduced-motion: reduce) {
     .skeleton { animation: none; }
     .source-choice, .source-choice-label, .source-choice-icon, .source-choice-check,
-    .source-choice-panel, .source-choice-panel-inner { transition: none; }
+    .source-choice-panel, .source-choice-panel-inner, .settings-chevron { transition: none; }
   }
 </style>
 </head>
@@ -656,52 +696,126 @@
 
     <!-- ========================== SETTINGS ========================== -->
     <section id="view-settings" class="hidden">
-      <div class="card">
-        <button class="link sect" data-sect="s-engine" aria-expanded="false">Local runtime ›</button>
-        <div id="s-engine" class="hidden" style="margin-top:var(--sp-2)">
-          <label class="muted" for="backend" style="font-size:var(--fs-xs)">Engine URL</label>
-          <div class="field"><input id="backend" placeholder="http://127.0.0.1:8000" class="tech">
-            <button id="save" class="ghost">Save</button></div>
-          <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)">
-            Your data stays on this machine. Nothing is sent to any server.</div>
+      <header class="view-heading">
+        <h1>Settings</h1>
+        <p>Configure how ScrapeX runs, stores data, and sends results.</p>
+      </header>
+
+      <aside class="settings-principle" aria-label="Privacy summary">
+        <span class="dot on" aria-hidden="true"></span>
+        <div>
+          <strong>Local-first by default</strong>
+          <p>External destinations stay off until you configure them.</p>
         </div>
-      </div>
-      <div class="card">
-        <button class="link sect" data-sect="s-sched" aria-expanded="false">Jobs and scheduling ›</button>
-        <div id="s-sched" class="hidden" style="margin-top:var(--sp-2)">
-          <div id="schedules" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
-          <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-2)" id="sched-note"></div>
+      </aside>
+
+      <section class="settings-group" aria-labelledby="settings-workspace-heading">
+        <div class="settings-group-head">
+          <h2 id="settings-workspace-heading">Workspace</h2>
+          <p>Engine and local data</p>
         </div>
-      </div>
-      <div class="card">
-        <button class="link sect" data-sect="s-output" aria-expanded="false">Data output settings ›</button>
-        <div id="s-output" class="hidden" style="margin-top:var(--sp-3)">
-          <p class="muted hint" style="margin-top:0">
-            Local destinations stay separate from external sync services.</p>
-          <div id="outputs" class="output-groups"><div class="skeleton"></div></div>
+        <div class="settings-list">
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-engine" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">01</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Local runtime</span>
+                <span class="settings-description">Connection and privacy</span>
+              </span>
+              <span class="settings-chevron" aria-hidden="true">›</span>
+            </button>
+            <div id="s-engine" class="settings-panel hidden">
+              <label class="muted" for="backend" style="font-size:var(--fs-xs)">Engine URL</label>
+              <div class="field"><input id="backend" placeholder="http://127.0.0.1:8000" class="tech">
+                <button id="save" class="ghost">Save</button></div>
+              <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)">
+                Your data stays on this machine. Nothing is sent to any server.</div>
+            </div>
+          </article>
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-storage" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">02</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Storage and data</span>
+                <span class="settings-description">Database health and source management</span>
+              </span>
+              <span class="settings-chevron" aria-hidden="true">›</span>
+            </button>
+            <div id="s-storage" class="settings-panel hidden">
+              <!-- Read-only on purpose. Every control that can rewrite the database
+                   lives in the workspace, so a destructive action is never one
+                   stray tap away in a panel used while browsing. -->
+              <div id="storage-info" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
+              <div class="links">
+                <button type="button" class="link" id="open-storage">Manage storage ↗</button>
+                <button type="button" class="link" id="open-browse">Browse all data ↗</button>
+                <button type="button" class="link" id="open-manage">Manage sources ↗</button>
+              </div>
+            </div>
+          </article>
         </div>
-      </div>
-      <div class="card">
-        <button class="link sect" data-sect="s-storage" aria-expanded="false">Storage and data ›</button>
-        <div id="s-storage" class="hidden" style="margin-top:var(--sp-2)">
-          <!-- Read-only on purpose. Every control that can rewrite the database
-               lives in the workspace, so a destructive action is never one
-               stray tap away in a panel used while browsing. -->
-          <div id="storage-info" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
-          <div class="links">
-            <button type="button" class="link" id="open-storage">Manage storage ↗</button>
-            <button type="button" class="link" id="open-browse">Browse all data ↗</button>
-            <button type="button" class="link" id="open-manage">Manage sources ↗</button>
-          </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="settings-operations-heading">
+        <div class="settings-group-head">
+          <h2 id="settings-operations-heading">Automation &amp; output</h2>
+          <p>Schedules and destinations</p>
         </div>
-      </div>
-      <div class="card">
-        <button class="link sect" data-sect="s-about" aria-expanded="false">About ›</button>
-        <div id="s-about" class="hidden muted" style="margin-top:var(--sp-2);font-size:var(--fs-sm)">
-          ScrapeX — local-first price tracking.
-          Engine <span id="about-version" class="tech">—</span>
+        <div class="settings-list">
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-sched" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">03</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Jobs and scheduling</span>
+                <span class="settings-description">Run cadence and worker availability</span>
+              </span>
+              <span class="settings-chevron" aria-hidden="true">›</span>
+            </button>
+            <div id="s-sched" class="settings-panel hidden">
+              <div id="schedules" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
+              <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-2)" id="sched-note"></div>
+            </div>
+          </article>
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-output" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">04</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Data output settings</span>
+                <span class="settings-description">Local exports and external sync</span>
+              </span>
+              <span class="settings-chevron" aria-hidden="true">›</span>
+            </button>
+            <div id="s-output" class="settings-panel hidden">
+              <p class="muted hint">
+                Local destinations stay separate from external sync services.</p>
+              <div id="outputs" class="output-groups"><div class="skeleton"></div></div>
+            </div>
+          </article>
         </div>
-      </div>
+      </section>
+
+      <section class="settings-group" aria-labelledby="settings-product-heading">
+        <div class="settings-group-head">
+          <h2 id="settings-product-heading">Product</h2>
+          <p>Build information</p>
+        </div>
+        <div class="settings-list">
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-about" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">05</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">About</span>
+                <span class="settings-description">Version and product details</span>
+              </span>
+              <span class="settings-chevron" aria-hidden="true">›</span>
+            </button>
+            <div id="s-about" class="settings-panel hidden muted" style="font-size:var(--fs-sm)">
+              ScrapeX — local-first price tracking.
+              Engine <span id="about-version" class="tech">—</span>
+            </div>
+          </article>
+        </div>
+      </section>
     </section>
   </main>
 
