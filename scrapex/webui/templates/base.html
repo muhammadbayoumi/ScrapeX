@@ -30,7 +30,7 @@
     body{margin:0;background:var(--bg);color:var(--text);
       font-family:"Segoe UI",system-ui,-apple-system,"Noto Sans Arabic",sans-serif;line-height:1.5}
     a{color:inherit;text-decoration:none}
-    .topbar{display:flex;align-items:baseline;gap:.6rem;padding:.85rem 1.2rem;
+    .topbar{display:flex;align-items:center;gap:.6rem;min-height:58px;padding:.65rem 1rem;
       background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
     .brand{display:inline-flex;align-items:center;gap:.5rem;font-weight:600;font-size:1.15rem;color:var(--accent-ink)}
     .brand-logo{display:inline-block;width:22px;height:22px;background:var(--accent);
@@ -82,25 +82,24 @@
        from page actions. It can disappear completely without leaving a dead
        gutter, and the content then reclaims the whole viewport. */
     .workspace-shell{min-height:calc(100vh - var(--sticky-tabs));display:grid;
-      grid-template-columns:244px minmax(0,1fr);align-items:stretch;
+      grid-template-columns:284px minmax(0,1fr);align-items:stretch;
       transition:grid-template-columns .2s ease}
     .workspace-shell>.wrap{grid-column:2;grid-row:1;width:100%;min-width:0}
     .workspace-sidebar{grid-column:1;grid-row:1;align-self:start;position:sticky;
       top:var(--sticky-tabs);height:calc(100vh - var(--sticky-tabs));overflow-y:auto;
       border-inline-end:1px solid var(--line);background:var(--surface);z-index:4;
       transition:transform .2s ease,opacity .16s ease}
-    .workspace-sidebar-head{display:flex;align-items:center;justify-content:space-between;
-      gap:.6rem;padding:1.15rem 1rem .75rem}
-    .workspace-sidebar-title strong,.workspace-sidebar-title small{display:block}
-    .workspace-sidebar-title strong{font-size:.92rem}
-    .workspace-sidebar-title small{margin-top:.05rem;color:var(--muted);font-size:.72rem}
-    .sidebar-close{display:grid;width:30px;height:30px;padding:0;place-items:center;
-      border:1px solid var(--line);background:transparent;color:var(--text);font-size:1.15rem}
-    .sidebar-toggle{display:inline-flex;align-items:center;gap:.4rem;padding:.34rem .62rem;
-      border:1px solid var(--line);background:transparent;color:var(--text);font-size:.8rem}
-    .sidebar-toggle svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;
-      stroke-linecap:round}
-    .wstabs{display:flex;flex-direction:column;gap:1rem;padding:.25rem .75rem 1rem}
+    .workspace-sidebar-head{padding:1rem 1.05rem .9rem;border-bottom:1px solid var(--line)}
+    .workspace-sidebar-brand{display:inline-flex;align-items:center;gap:.55rem;
+      color:var(--accent-ink);font-size:1.08rem;font-weight:600}
+    .workspace-sidebar-brand .brand-logo{width:21px;height:21px}
+    .workspace-sidebar-sub{display:block;margin:.22rem 0 0 1.75rem;color:var(--muted);font-size:.72rem}
+    .sidebar-toggle{display:grid;width:34px;height:34px;padding:0;place-items:center;
+      border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--text)}
+    .sidebar-toggle:hover:not(:disabled){background:var(--accent-weak);color:var(--accent-ink);filter:none}
+    .sidebar-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;
+      stroke-linecap:round;stroke-linejoin:round}
+    .wstabs{display:flex;flex-direction:column;gap:1rem;padding:.85rem .9rem 1rem}
     .wsnav-group{min-width:0}
     .wsnav-label{display:block;padding:.15rem .7rem .3rem;color:var(--muted);
       font-size:.64rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
@@ -126,7 +125,7 @@
       .workspace-sidebar{position:static;width:auto;height:auto;border-inline-end:0;
         border-bottom:1px solid var(--line)}
       .sidebar-ready .workspace-sidebar{position:fixed;inset-block:var(--sticky-tabs) 0;
-        inset-inline:0 auto;width:min(82vw,300px);height:auto;border-bottom:0;
+        inset-inline:0 auto;width:min(88vw,324px);height:auto;border-bottom:0;
         border-inline-end:1px solid var(--line);box-shadow:10px 0 30px rgba(0,0,0,.16);
         transform:translateX(-102%);transition:transform .18s ease;z-index:9}
       .sidebar-ready.sidebar-open .workspace-sidebar{transform:translateX(0)}
@@ -135,10 +134,6 @@
         pointer-events:none;transition:opacity .18s ease;z-index:8}
       .sidebar-ready.sidebar-open .sidebar-backdrop{opacity:1;pointer-events:auto}
       .sidebar-ready.sidebar-open{overflow:hidden}
-    }
-    @media(max-width:480px){
-      .sidebar-toggle{padding:.34rem .5rem}
-      .sidebar-toggle span{display:none}
     }
     .badge{font-size:.72rem;padding:.1rem .5rem;border-radius:6px}
     .ok{background:var(--accent-weak);color:var(--accent-ink)}
@@ -301,11 +296,11 @@
   <header class="topbar">
     <button type="button" class="sidebar-toggle" aria-label="Hide navigation"
             aria-controls="workspace-sidebar" aria-expanded="true">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
-      <span>Navigation</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3.5" y="4" width="17" height="16" rx="3"/>
+        <path d="M9 4v16"/>
+      </svg>
     </button>
-    <a href="/" class="brand"><span class="brand-logo" aria-hidden="true"></span>ScrapeX</a>
-    <span class="sub">Collect. Analyze. Grow.</span>
     {# Database status belongs on every page, because the database is what every
        page is made of. The chip states it in words — never colour alone — and
        links to the section that acts on it. #}
@@ -334,11 +329,10 @@
         <symbol id="wsnav-settings" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></symbol>
       </svg>
       <div class="workspace-sidebar-head">
-        <span class="workspace-sidebar-title">
-          <strong>Workspace</strong>
-          <small>Navigate ScrapeX</small>
-        </span>
-        <button type="button" class="sidebar-close" aria-label="Close navigation">&times;</button>
+        <a href="/" class="workspace-sidebar-brand">
+          <span class="brand-logo" aria-hidden="true"></span>ScrapeX
+        </a>
+        <span class="workspace-sidebar-sub">Collect. Analyze. Grow.</span>
       </div>
       <nav class="wstabs" aria-label="Workspace">
         {% for group, items in [
@@ -413,7 +407,6 @@
 
     var body = document.body;
     var toggle = document.querySelector('.sidebar-toggle');
-    var close = document.querySelector('.sidebar-close');
     var backdrop = document.querySelector('.sidebar-backdrop');
     var navigation = document.querySelector('.wstabs');
     var sidebar = document.querySelector('.workspace-sidebar');
@@ -445,10 +438,11 @@
         }
       }
       toggle.addEventListener('click', function () {
-        var open = narrow.matches || body.classList.contains('sidebar-hidden');
+        var open = narrow.matches
+          ? !body.classList.contains('sidebar-open')
+          : body.classList.contains('sidebar-hidden');
         setSidebar(open, true);
       });
-      if (close) close.addEventListener('click', function () { setSidebar(false, true); toggle.focus(); });
       if (backdrop) backdrop.addEventListener('click', function () { setSidebar(false, false); toggle.focus(); });
       document.addEventListener('keydown', function (event) {
         if (event.key === 'Escape' && body.classList.contains('sidebar-open')) {
