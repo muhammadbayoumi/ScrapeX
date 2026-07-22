@@ -13,7 +13,7 @@ from ..config import SourceEntry
 from ..normalize import option_fingerprint
 from ..rowspec import PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability
-from .base import HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 100
 
@@ -31,6 +31,24 @@ _QUERY = """query($pageSize:Int!,$currentPage:Int!){
         }
       }
     }
+  }
+}"""
+
+
+# The category TREE, to four levels — the same L1..L4 the main table offers.
+# Queried once per crawl because madar's price-filtered census answers
+# categories:[] on every product (verified live 2026-07-22) while the tree and
+# per-category listings are fully populated: the classification exists, the
+# census query just refuses to say it. Walking the tree makes the path known
+# from the walk itself, so the per-leaf product query needs nothing but uids.
+_TREE_QUERY = """{categoryList{
+  children{uid name children{uid name children{uid name children{uid name}}}}
+}}"""
+
+_LEAF_PRODUCTS_QUERY = """query($uid:String!,$pageSize:Int!,$currentPage:Int!){
+  products(filter:{category_uid:{eq:$uid}},pageSize:$pageSize,currentPage:$currentPage){
+    page_info{current_page total_pages}
+    items{uid}
   }
 }"""
 
@@ -89,6 +107,8 @@ class MagentoGraphqlConnector:
             "vat": "1" if source.vat_mode.value == "incl" else "0",
             "region": source.default_region,
         }
+        notes: list[str] = []
+        ctx["paths"] = self._category_map(endpoint, source, notes)
         rows: list[list[str]] = []
         page = 1
         while True:
@@ -108,7 +128,72 @@ class MagentoGraphqlConnector:
         yield ScrapedTable(
             source_key=source.source_key, kind=PRODUCT_PRICES.kind,
             source_url=endpoint, header=builder.header, rows=rows,
+            warnings=notes,
         )
+
+    def _category_map(self, endpoint: str, source: SourceEntry,
+                      notes: list[str]) -> dict[str, tuple[str, str]]:
+        """product uid -> (category_path, leaf uid), from walking the tree.
+
+        The walk KNOWS each leaf's full path, so the per-leaf query fetches
+        nothing but product uids. A product filed in several places keeps its
+        DEEPEST home. When the manifest targets categories (spec.categories),
+        only those subtrees are walked — the owner's targeted mode for free.
+        Any failure here degrades to no classification WITH a note, never to a
+        lost price crawl.
+        """
+        wanted: set[str] = set()
+        for spec in source.extract:
+            wanted.update(spec.categories or [])
+        paths: dict[str, tuple[str, str]] = {}
+        try:
+            answer = (self._fetcher.post(endpoint, json={"query": _TREE_QUERY}).json()
+                      or {})
+            roots = (((answer.get("data") or {}).get("categoryList") or [{}])[0]
+                     .get("children")) or []
+
+            def walk(node: dict, trail: list[str]) -> None:
+                name = str(node.get("name") or "").strip()
+                uid = str(node.get("uid") or "")
+                if not name or not uid:
+                    return
+                here = [*trail, name]
+                children = node.get("children") or []
+                for child in children:
+                    walk(child, here)
+                if children:
+                    return              # only LEAVES list products; parents repeat them
+                if wanted and uid not in wanted and not (set(here) & wanted):
+                    return
+                path = " > ".join(here)
+                page = 1
+                while True:
+                    body = {"query": _LEAF_PRODUCTS_QUERY,
+                            "variables": {"uid": uid, "pageSize": PAGE_SIZE,
+                                          "currentPage": page}}
+                    listing = (((self._fetcher.post(endpoint, json=body).json() or {})
+                                .get("data") or {}).get("products")) or {}
+                    for item in listing.get("items") or []:
+                        puid = str(item.get("uid") or "")
+                        if puid and len(path) > len(paths.get(puid, ("", ""))[0]):
+                            paths[puid] = (path, uid)
+                    total = ((listing.get("page_info") or {}).get("total_pages")) or page
+                    if page >= total:
+                        break
+                    page += 1
+
+            for root in roots:
+                walk(root, [])
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — classification is additive, prices are vital
+            notes.append(f"category tree walk failed — rows carry no "
+                         f"classification this run: {exc}")
+            return {}
+        if not paths:
+            notes.append("category tree walk found no products — rows carry "
+                         "no classification this run")
+        return paths
 
     @staticmethod
     def _product_rows(builder: RowBuilder, product: dict, ctx: dict) -> list[list[str]]:
@@ -116,8 +201,17 @@ class MagentoGraphqlConnector:
         url = f"{ctx['base']}/{url_key}.html" if url_key else ""
         variants = product.get("variants") or []
         # Classification belongs to the PRODUCT: every variant of it files in
-        # the same place, so it is read once and rides every row.
-        category_path, category_id = _classification(product)
+        # the same place, so it is read once and rides every row. Two sources
+        # of truth, deepest wins: what the product payload states (fully
+        # populated on stock Magento) and what the tree walk found (madar's
+        # census answers categories:[] while its tree knows the real home).
+        stated_path, stated_id = _classification(product)
+        walked_path, walked_id = (ctx.get("paths") or {}).get(
+            str(product.get("uid") or ""), ("", ""))
+        if len(walked_path) > len(stated_path):
+            category_path, category_id = walked_path, walked_id
+        else:
+            category_path, category_id = stated_path, stated_id
         out: list[list[str]] = []
 
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp=""):

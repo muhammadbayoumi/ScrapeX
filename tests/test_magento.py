@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import json as _json
 import sqlite3
 from pathlib import Path
 
@@ -21,13 +22,57 @@ class _StubResponse:
 
 
 class _StubFetcher:
-    """Serves the fixture on page 1, an empty page after (ends pagination)."""
+    """Serves the fixture on page 1, an empty page after (ends pagination).
+    The tree walk sees an empty tree — classification comes from the product
+    payloads themselves, the stock-Magento path."""
     def __init__(self): self.requests_count = 0
     def post(self, url, json=None, **kwargs):
         self.requests_count += 1
+        query = (json or {}).get("query", "")
+        if "categoryList" in query:
+            return _StubResponse({"data": {"categoryList": [{"children": []}]}})
         page = (json or {}).get("variables", {}).get("currentPage", 1)
         return _StubResponse(FIXTURE if page == 1 else {"data": {"products": {"items": []}}})
     def close(self): pass
+
+
+class _CensusBlindFetcher(_StubFetcher):
+    """The madar shape, verified live 2026-07-22: the price-filtered census
+    answers categories:[] on every product while the category tree and the
+    per-category listings are fully populated."""
+    TREE = {"data": {"categoryList": [{"children": [
+        {"uid": "Mw==", "name": "المعادن والحديد الإنشائي", "children": [
+            {"uid": "NA==", "name": "حديد التسليح والشبك", "children": []},
+        ]},
+        {"uid": "MTg=", "name": "مواد البناء ولوازم الموقع", "children": [
+            {"uid": "MjA=", "name": "الأسمنت والجبس", "children": []},
+        ]},
+    ]}]}}
+    # The plywood product files in BOTH leaves; a longer path always wins, a
+    # tie keeps the first-walked home.
+    LEAVES = {
+        "NA==": ["NDY3Mg=="],
+        "MjA=": ["NDY3Mg==", "Q0VNQg=="],
+    }
+
+    def post(self, url, json=None, **kwargs):
+        self.requests_count += 1
+        query = (json or {}).get("query", "")
+        variables = (json or {}).get("variables", {})
+        if "categoryList" in query:
+            return _StubResponse(self.TREE)
+        if "category_uid" in query:
+            uids = self.LEAVES.get(variables.get("uid"), [])
+            return _StubResponse({"data": {"products": {
+                "items": [{"uid": u} for u in uids],
+                "page_info": {"current_page": 1, "total_pages": 1}}}})
+        page = variables.get("currentPage", 1)
+        if page != 1:
+            return _StubResponse({"data": {"products": {"items": []}}})
+        blind = _json.loads(_json.dumps(FIXTURE))
+        for item in blind["data"]["products"]["items"]:
+            item["categories"] = []                  # what madar actually answers
+        return _StubResponse(blind)
 
 
 def make_entry() -> SourceEntry:
@@ -156,3 +201,34 @@ def test_a_product_the_site_refiles_records_the_move():
         assert event[0] == "أسمنت" and event[1] == "مواد البناء > مواد لاصقة"
     finally:
         conn.close()
+
+
+def test_a_census_that_hides_categories_gets_them_from_the_tree_walk():
+    """Verified live: madar's price census answers categories:[] on every
+    product while the tree knows the real home. The walk knows each leaf's
+    full path, and a product filed in two leaves keeps the DEEPEST one."""
+    fetcher = _CensusBlindFetcher()
+    table = next(iter(MagentoGraphqlConnector(fetcher).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    plywood = view.as_dict(table.rows[0])
+    # Both walked homes are two levels; the tie keeps the first-walked, and
+    # either way BOTH levels arrive — never the census's empty answer.
+    assert plywood["category_path"] == "المعادن والحديد الإنشائي > حديد التسليح والشبك"
+    assert plywood["category_external_id"] == "NA=="
+    cement = view.as_dict(table.rows[2])
+    assert cement["category_path"] == "مواد البناء ولوازم الموقع > الأسمنت والجبس"
+
+
+def test_a_dead_tree_walk_costs_a_note_never_the_price_crawl():
+    class _TreeDownFetcher(_StubFetcher):
+        def post(self, url, json=None, **kwargs):
+            if "categoryList" in (json or {}).get("query", ""):
+                self.requests_count += 1
+                raise RuntimeError("503 service unavailable")
+            return super().post(url, json=json, **kwargs)
+
+    table = next(iter(MagentoGraphqlConnector(_TreeDownFetcher()).fetch(make_entry())))
+
+    assert len(table.rows) == 3, "the prices must survive a dead tree walk"
+    assert any("category tree walk failed" in w for w in table.warnings)
