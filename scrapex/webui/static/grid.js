@@ -648,6 +648,34 @@
       });
     }
 
+    // A compact summary belongs inside the table frame, not as another toolbar
+    // below it. Build it with DOM nodes so the counts remain text-only and the
+    // theme can style the shape without inheriting Tabulator's hardcoded skin.
+    const footer = document.createElement("div");
+    footer.className = "grid-footer-summary";
+    footer.setAttribute("role", "status");
+    footer.setAttribute("aria-live", "polite");
+    function footerStat(labelText) {
+      const stat = document.createElement("span");
+      stat.className = "grid-footer-stat";
+      const label = document.createElement("span");
+      label.className = "grid-footer-label";
+      label.textContent = labelText + ":";
+      const value = document.createElement("strong");
+      value.className = "grid-footer-value";
+      value.textContent = "0";
+      stat.append(label, value);
+      footer.append(stat);
+      return value;
+    }
+    const footerTotal = footerStat("Total Rows");
+    const footerSelected = footerStat("Selected");
+    function updateFooter() {
+      if (!table) return;
+      footerTotal.textContent = table.getDataCount("active").toLocaleString();
+      footerSelected.textContent = table.getSelectedRows().length.toLocaleString();
+    }
+
     const options = {
       data: payload.rows,
       columns: columns,
@@ -673,6 +701,10 @@
       movableColumns: true,        // drag a header to build the table you want
       height: "34rem",             // virtual rendering keeps thousands smooth
       placeholder: "No rows match these filters.",
+      footerElement: footer,
+      selectableRows: true,
+      selectableRowsRangeMode: "click",
+      selectableRowsPersistence: false,
       // WIDTH only, never VISIBLE. Persisting visibility here created two
       // sources of truth that fought each other: the server said show Country,
       // the browser's saved layout said hide it, the browser won, and "Show
@@ -722,13 +754,15 @@
     table.on("tableBuilt", () => {
       applyFilters();
       describe();
+      updateFooter();
       // fitColumns divides the width measured BEFORE the vertical scrollbar
       // exists, so the last column is cut by exactly its width — 15px, enough
       // to add a horizontal scrollbar nobody asked for. One redraw once the
       // rows are in remeasures against the real client width.
       requestAnimationFrame(() => { try { table.redraw(true); } catch (err) {} });
     });
-    table.on("dataFiltered", describe);
+    table.on("dataFiltered", () => { describe(); updateFooter(); });
+    table.on("rowSelectionChanged", updateFooter);
   }
 
   function widthsFromTable() {

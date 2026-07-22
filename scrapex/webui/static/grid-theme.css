@@ -29,13 +29,14 @@
   color: var(--table-text);
   font-size: var(--table-font-size);
   font-family: inherit;
+  overflow: hidden;
 }
 
-/* The Data page uses square table edges. Other Tabulator views retain the
- * shared table radius because this rule is scoped to its unique mount. */
+/* The Data grid is one framed object: header, rows and footer share the same
+ * rounded outline instead of ending as three unrelated rectangles. */
 #grid.tablewrap,
 #grid.tabulator {
-  border-radius: 0;
+  border-radius: var(--table-radius);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -92,6 +93,30 @@
 .tabulator-row.tabulator-selected,
 .tabulator-row.tabulator-selected:hover {
   background-color: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+}
+
+/* ---- footer: total rows and the live selection count --------------------- */
+.tabulator > .grid-footer-summary {
+  padding: 0;
+  background: var(--table-surface);
+  border-top: var(--table-rule);
+  border-bottom: 0;
+  border-radius: 0 0 var(--table-radius) var(--table-radius);
+  color: var(--table-text);
+}
+.grid-footer-summary {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: 3rem;
+  padding: .7rem 1rem !important;
+  font-size: .82rem;
+}
+.grid-footer-stat { display: inline-flex; align-items: baseline; gap: .3rem; }
+.grid-footer-label { color: var(--table-text); font-weight: 600; }
+.grid-footer-value {
+  color: var(--accent-ink);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- group headers, totals rows, placeholder ---- */
