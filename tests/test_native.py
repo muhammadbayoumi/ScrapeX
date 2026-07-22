@@ -321,3 +321,32 @@ def test_start_engine_honours_a_requested_port(conn, monkeypatch):
     r = handle(conn, {"command": "START_ENGINE", "port": 8077})
 
     assert seen == [8077] and r["port"] == 8077
+
+
+def test_the_host_never_runs_the_unified_migrations_over_a_marketlens_database(tmp_path):
+    """The bug that killed the host at startup, caught by driving the shim the
+    way Chrome does: serve() ran dbmod.migrate() unconditionally, the unified
+    stream re-applied migration 1 over the split MarketLens database, and the
+    process died on "table tax_rule already exists" before reading one frame.
+    From the extension's side that is indistinguishable from "not installed".
+
+    Same policy as the web layer's ensure_schema: only a LEGACY --db warehouse
+    is migrated here."""
+    from scrapex.databases.domain import MarketLensDatabase
+    from scrapex.native import serve
+
+    db = tmp_path / "marketlens.db"
+    MarketLensDatabase(db).initialize()          # split stream, already at head
+
+    request = io.BytesIO()
+    payload = json.dumps({"command": "PING", "request_id": "b1"}).encode()
+    request.write(struct.pack("<I", len(payload)) + payload)
+    request.seek(0)
+    reply = io.BytesIO()
+
+    assert serve(db, stdin=request, stdout=reply) == 0   # no migrate: must not die
+
+    reply.seek(0)
+    (n,) = struct.unpack("<I", reply.read(4))
+    answer = json.loads(reply.read(n))
+    assert answer["ok"] and answer["request_id"] == "b1"

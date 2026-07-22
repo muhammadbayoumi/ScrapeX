@@ -289,15 +289,26 @@ def _job_brief(job: dict) -> dict:
 
 # ---- the stdio loop ----------------------------------------------------------
 
-def serve(db_path=None, stdin: BinaryIO | None = None, stdout: BinaryIO | None = None) -> int:
-    """Read framed commands from Chrome until the pipe closes."""
+def serve(db_path=None, stdin: BinaryIO | None = None, stdout: BinaryIO | None = None,
+          migrate: bool = False) -> int:
+    """Read framed commands from Chrome until the pipe closes.
+
+    `migrate` is for LEGACY single-file warehouses only (tests, --db sessions).
+    A MarketLens database has its own numbered migration stream and was
+    migrated when it was created; running the unified stream over it re-applies
+    migration 1 and dies — "table tax_rule already exists" — before the first
+    frame is read. That killed the host at startup, and from the extension's
+    side it looked like the host was never installed at all. The same policy as
+    the web layer's ensure_schema, at the same kind of seam.
+    """
     from .config import load_manifest
 
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
     conn = dbmod.connect(db_path or dbmod.DEFAULT_DB_PATH)
     try:
-        dbmod.migrate(conn)
+        if migrate:
+            dbmod.migrate(conn)
         manifest = load_manifest()
         while True:
             message = read_message(stdin)
