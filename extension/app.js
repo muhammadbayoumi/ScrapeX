@@ -475,41 +475,87 @@ async function loadSchedules() {
       $("schedules").innerHTML = `<span class="muted">No sites yet.</span>`;
       return;
     }
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     $("schedules").innerHTML = sites.map((s) => {
       const sched = saved.get(s.source_key) || {};
       const freq = sched.frequency || "manual";
       const runAt = sched.run_at || "09:00";
       const weekday = sched.weekday == null ? 0 : Number(sched.weekday);
-      const next = sched.next_run_at
-        ? "next " + esc(String(sched.next_run_at).slice(0, 16).replace("T", " ")) + " UTC"
-        : "";
+      const paused = sched.schedule_id != null && !sched.enabled;
+      const summary = freq === "manual" ? "manual"
+        : freq + (freq === "weekly" ? " · " + WEEKDAYS[weekday] : "") + " · " + esc(runAt);
+      const next = paused ? "paused"
+        : sched.next_run_at
+          ? "next " + esc(String(sched.next_run_at).slice(0, 16).replace("T", " ")) + " UTC"
+          : "";
       // The scheduler fires only ACTIVE sources (the Auto switch). A schedule
       // saved on an inactive one is a real record that will not fire — the
       // row says so instead of letting the owner wait for nothing.
       const gate = s.active ? "" :
         `<span class="muted"> — Auto is off for this site, so this will not fire</span>`;
-      return `<div class="sched-row" data-sched="${esc(s.source_key)}"
+      // Every knob the schedule model has, one disclosure per site so the
+      // 320px panel is not wallpapered with forms. This section is THE
+      // central control for automation (owner's ruling): nothing about a
+      // schedule is decided anywhere else.
+      return `<details class="sched-row" data-sched="${esc(s.source_key)}"
                   style="padding:var(--sp-2) 0;border-bottom:1px solid var(--line)">
-        <div class="row" style="justify-content:space-between">
+        <summary class="row" style="justify-content:space-between;cursor:pointer;list-style:none">
           <b class="name content">${esc(s.source_name)}</b>
-          <span class="muted" data-role="next">${next}</span>
+          <span class="muted" data-role="next">${esc(summary)}${next ? " · " + next : ""}</span>
+        </summary>
+        <div class="stack" style="margin-top:var(--sp-2)">
+          <div class="row" style="gap:var(--sp-2)">
+            <select data-role="freq" aria-label="Frequency for ${esc(s.source_name)}">
+              ${["manual", "daily", "weekly"].map((f) =>
+                `<option value="${f}" ${f === freq ? "selected" : ""}>${f}</option>`).join("")}
+            </select>
+            <select data-role="weekday" class="${freq === "weekly" ? "" : "hidden"}"
+                    aria-label="Weekday">
+              ${WEEKDAYS.map((w, i) =>
+                `<option value="${i}" ${i === weekday ? "selected" : ""}>${w}</option>`).join("")}
+            </select>
+            <input type="time" data-role="time" value="${esc(runAt)}"
+                   aria-label="Run time" ${freq === "manual" ? "disabled" : ""}>
+          </div>
+          <div class="fieldset">
+            <label>Timezone <span class="muted">(IANA name — 09:00 means 09:00 there)</span></label>
+            <input data-role="tz" dir="ltr" spellcheck="false"
+                   value="${esc(sched.timezone || zone)}" aria-label="Timezone">
+          </div>
+          <div class="fieldset">
+            <label>What the run does</label>
+            <select data-role="mode" aria-label="Run mode">
+              <option value="update" ${(sched.run_mode || "update") === "update" ? "selected" : ""}>Update existing data</option>
+              <option value="full_rebuild" ${sched.run_mode === "full_rebuild" ? "selected" : ""}>Full rebuild (archives first)</option>
+              <option value="history_backfill" ${sched.run_mode === "history_backfill" ? "selected" : ""}
+                ${s.supports_history ? "" : "disabled"}>History backfill${s.supports_history ? "" : " — not published by this site"}</option>
+            </select>
+          </div>
+          <div class="two">
+            <div class="fieldset">
+              <label>If the machine was off</label>
+              <select data-role="missed" aria-label="Missed run policy">
+                <option value="run_when_available" ${(sched.missed_run_policy || "run_when_available") === "run_when_available" ? "selected" : ""}>Run when back</option>
+                <option value="skip" ${sched.missed_run_policy === "skip" ? "selected" : ""}>Skip that slot</option>
+              </select>
+            </div>
+            <div class="fieldset">
+              <label>If the previous run is still going</label>
+              <select data-role="overlap" aria-label="Overlap policy">
+                <option value="queue" ${(sched.overlap_policy || "queue") === "queue" ? "selected" : ""}>Queue behind it</option>
+                <option value="skip" ${sched.overlap_policy === "skip" ? "selected" : ""}>Skip this one</option>
+              </select>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" data-role="enabled"
+                 ${paused ? "" : "checked"}>
+            <span>Enabled <span class="muted">— untick to pause without losing these settings</span></span></label>
+          <div class="row">
+            <button class="ghost" data-role="save">Save</button>
+            <span class="hint" data-role="status" role="status" aria-live="polite">${gate}</span>
+          </div>
         </div>
-        <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-1)">
-          <select data-role="freq" aria-label="Frequency for ${esc(s.source_name)}">
-            ${["manual", "daily", "weekly"].map((f) =>
-              `<option value="${f}" ${f === freq ? "selected" : ""}>${f}</option>`).join("")}
-          </select>
-          <select data-role="weekday" class="${freq === "weekly" ? "" : "hidden"}"
-                  aria-label="Weekday">
-            ${WEEKDAYS.map((w, i) =>
-              `<option value="${i}" ${i === weekday ? "selected" : ""}>${w}</option>`).join("")}
-          </select>
-          <input type="time" data-role="time" value="${esc(runAt)}"
-                 aria-label="Run time" ${freq === "manual" ? "disabled" : ""}>
-          <button class="ghost" data-role="save">Save</button>
-        </div>
-        <div class="hint" data-role="status" role="status" aria-live="polite">${gate}</div>
-      </div>`;
+      </details>`;
     }).join("");
 
     $("schedules").querySelectorAll(".sched-row").forEach((row) => {
@@ -529,19 +575,19 @@ async function loadSchedules() {
           const body = {
             frequency: freq.value,
             run_at: time.value || "09:00",
-            // The owner's own clock, stated: 09:00 should mean 09:00 HERE.
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+            timezone: row.querySelector('[data-role="tz"]').value.trim() || "UTC",
+            run_mode: row.querySelector('[data-role="mode"]').value,
+            missed_run_policy: row.querySelector('[data-role="missed"]').value,
+            overlap_policy: row.querySelector('[data-role="overlap"]').value,
+            enabled: row.querySelector('[data-role="enabled"]').checked,
           };
           if (freq.value === "weekly") body.weekday = Number(weekday.value);
           const result = await post(
             "/api/schedules/" + encodeURIComponent(row.dataset.sched), body);
-          const when = result && result.next_run_at
-            ? "Saved — next " + String(result.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
-            : "Saved.";
-          status.textContent = when;
-          row.querySelector('[data-role="next"]').textContent =
-            result && result.next_run_at
-              ? "next " + String(result.next_run_at).slice(0, 16).replace("T", " ") + " UTC" : "";
+          status.textContent = !body.enabled ? "Saved — paused."
+            : result && result.next_run_at
+              ? "Saved — next " + String(result.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
+              : "Saved.";
         } catch (e) {
           status.textContent = "Couldn't save: " + e.message;
         } finally {

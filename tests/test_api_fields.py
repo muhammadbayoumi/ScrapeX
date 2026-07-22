@@ -295,3 +295,44 @@ def test_a_probe_placeholder_refuses_activation_with_the_reason(client):
 
 def test_activating_an_unknown_source_is_404(client):
     assert client.post("/api/sources/GHOST/active", json={"active": True}).status_code == 404
+
+
+# ---- the schedules page is the CENTRAL control (owner ruling) ----------------
+
+def test_a_schedule_accepts_every_run_mode_its_source_supports(client):
+    """Scheduling a history backfill died on schedule.run_mode's CHECK until
+    migration 0026 — crawl_job learned the word in 0025 and the two
+    vocabularies had drifted. A mode a job can run is a mode a schedule can
+    name."""
+    r = client.post("/api/schedules/GPP_ENERGY", json={
+        "frequency": "weekly", "run_at": "09:00", "weekday": 0,
+        "timezone": "Africa/Cairo", "run_mode": "history_backfill",
+        "missed_run_policy": "skip", "overlap_policy": "skip", "enabled": True})
+    assert r.status_code == 200, r.text
+    saved = r.json()
+    assert saved["run_mode"] == "history_backfill"
+    assert saved["missed_run_policy"] == "skip"
+    assert saved["overlap_policy"] == "skip"
+    assert saved["next_run_at"]
+
+
+def test_a_typoed_timezone_is_refused_not_silently_utc(client):
+    """_zone falls back to UTC when FIRING (right: a crash at 09:00 helps
+    nobody) — but a SAVE it cannot honour must refuse, or the owner's 09:00
+    fires at a different hour, unexplained forever."""
+    r = client.post("/api/schedules/GPP_ENERGY", json={
+        "frequency": "daily", "run_at": "09:00", "timezone": "Cairo/Africa"})
+    assert r.status_code == 400
+    assert "Cairo/Africa" in r.json()["detail"]
+
+
+def test_a_disabled_schedule_keeps_its_settings_and_computes_no_next_run(client):
+    client.post("/api/schedules/GPP_ENERGY", json={
+        "frequency": "daily", "run_at": "07:30", "timezone": "Africa/Cairo"})
+    r = client.post("/api/schedules/GPP_ENERGY", json={
+        "frequency": "daily", "run_at": "07:30", "timezone": "Africa/Cairo",
+        "enabled": False})
+    saved = r.json()
+    assert saved["enabled"] == 0 or saved["enabled"] is False
+    assert saved["next_run_at"] is None, "a paused schedule still promises a firing"
+    assert saved["run_at"] == "07:30", "pausing lost the settings"

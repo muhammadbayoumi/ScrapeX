@@ -116,7 +116,10 @@ def test_the_schedules_section_is_an_editor_not_a_list():
     them — so the section said "No schedules yet" forever with no way to
     change that, which the owner reported verbatim."""
     assert '/api/schedules/' in JS.replace('"', "'"), "no save path — still read-only"
-    for role in ("freq", "weekday", "time", "save"):
+    # FULL control (owner's ruling: this section is THE central place for
+    # scheduling) — every knob the schedule model has must be present.
+    for role in ("freq", "weekday", "time", "save", "tz", "mode",
+                 "missed", "overlap", "enabled"):
         assert f'data-role="{role}"' in JS, f"the {role} control is missing"
     # The scheduler fires only ACTIVE sources; a schedule that will not fire
     # must say so on its own row.

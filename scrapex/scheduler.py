@@ -36,6 +36,19 @@ def _format_iso(value: datetime) -> str:
     return value.astimezone(dt_timezone.utc).strftime(ISO)
 
 
+def zone_exists(name: str) -> bool:
+    """Can this IANA name actually resolve HERE? The web layer refuses a save
+    it cannot honour: _zone's silent UTC fallback is right for FIRING (a crash
+    at 09:00 helps nobody) and wrong for SAVING (a typo'd zone would silently
+    mean UTC and the owner's 09:00 would fire at a different hour, unexplained
+    forever)."""
+    try:
+        ZoneInfo(name)
+        return True
+    except (ZoneInfoNotFoundError, ValueError, KeyError):
+        return False
+
+
 def _zone(name: str):
     """Resolve an IANA zone, falling back to fixed UTC.
 

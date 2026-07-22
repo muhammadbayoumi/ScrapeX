@@ -63,7 +63,7 @@ from ..reports import (
     offer_observations, price_extremes, product_attributes, source_summary,
     table_payload,
 )
-from ..scheduler import list_schedules, upsert_schedule
+from ..scheduler import list_schedules, upsert_schedule, zone_exists
 from ..vocab import (
     Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher,
     JobControl, MissedRunPolicy, OverlapPolicy, RunMode, ScheduleFrequency, VatMode,
@@ -710,6 +710,13 @@ def create_app(
         if frequency not in {f.value for f in ScheduleFrequency}:
             raise HTTPException(status_code=400, detail="frequency must be "
                                 f"{[f.value for f in ScheduleFrequency]}")
+        tz_name = body.get("timezone", "UTC")
+        if not zone_exists(tz_name):
+            # Saving would silently mean UTC and 09:00 would fire at a
+            # different hour, unexplained forever. Refuse with the name.
+            raise HTTPException(status_code=400,
+                                detail=f"unknown timezone {tz_name!r} — use an "
+                                       "IANA name like Africa/Cairo")
         try:
             saved = _write(lambda c: upsert_schedule(
                 c, source_key, frequency=frequency,
