@@ -22,6 +22,7 @@ _QUERY = """query($pageSize:Int!,$currentPage:Int!){
     page_info{current_page total_pages}
     items{
       uid sku name url_key stock_status
+      categories{uid name breadcrumbs{category_name}}
       price_range{minimum_price{regular_price{value} final_price{value}}}
       ... on ConfigurableProduct{
         variants{
@@ -32,6 +33,29 @@ _QUERY = """query($pageSize:Int!,$currentPage:Int!){
     }
   }
 }"""
+
+
+def _classification(product: dict) -> tuple[str, str]:
+    """(category_path, category_external_id) — the DEEPEST filing the site states.
+
+    Madar files one product under several categories at several depths (the
+    owner's report: multiple layers of classification, all of which must reach
+    the main table). Magento's breadcrumbs carry the ancestors in order, so the
+    deepest chain IS the levels, joined with the contract's ' > ' separator.
+    Deepest rather than first: a shallow duplicate filing ("Promotions") says
+    less than the real place in the tree.
+    """
+    best_chain: list[str] = []
+    best_uid = ""
+    for category in product.get("categories") or []:
+        crumbs = [(b.get("category_name") or "").strip()
+                  for b in (category.get("breadcrumbs") or [])]
+        chain = [*[c for c in crumbs if c], (category.get("name") or "").strip()]
+        chain = [c for c in chain if c]
+        if len(chain) > len(best_chain):
+            best_chain = chain
+            best_uid = str(category.get("uid") or "")
+    return " > ".join(best_chain), best_uid
 
 
 def _availability(stock_status: str | None) -> str:
@@ -91,6 +115,9 @@ class MagentoGraphqlConnector:
         url_key = product.get("url_key") or ""
         url = f"{ctx['base']}/{url_key}.html" if url_key else ""
         variants = product.get("variants") or []
+        # Classification belongs to the PRODUCT: every variant of it files in
+        # the same place, so it is read once and rides every row.
+        category_path, category_id = _classification(product)
         out: list[list[str]] = []
 
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp=""):
@@ -104,6 +131,7 @@ class MagentoGraphqlConnector:
                 regular_price=reg if reg is not None else effective,
                 sale_price=fin if (reg is not None and fin is not None and reg != fin) else "",
                 effective_price=effective, availability=_availability(stock),
+                category_path=category_path, category_external_id=category_id,
             ))
 
         if variants:

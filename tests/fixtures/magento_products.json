@@ -1,43 +1,122 @@
 {
-  "data": {
-    "products": {
-      "page_info": { "current_page": 1, "total_pages": 1 },
-      "items": [
-        {
-          "uid": "NDY3Mg==",
-          "sku": "12015-FRP",
-          "name": "Fire Retardant Plywood",
-          "url_key": "fire-retardant-plywood",
-          "stock_status": "IN_STOCK",
-          "price_range": { "minimum_price": { "regular_price": { "value": 112.5 }, "final_price": { "value": 112.5 } } },
-          "variants": [
-            {
-              "product": {
-                "uid": "NDY3MA==", "sku": "120151248", "name": "Fire Retardant Plywood - 12 * 1220 * 2440mm",
-                "stock_status": "IN_STOCK",
-                "price_range": { "minimum_price": { "regular_price": { "value": 112.5 }, "final_price": { "value": 112.5 } } }
-              },
-              "attributes": [{ "code": "thickness_mm", "label": "12" }]
+    "data": {
+        "products": {
+            "page_info": {
+                "current_page": 1,
+                "total_pages": 1
             },
-            {
-              "product": {
-                "uid": "NDY3MQ==", "sku": "120151848", "name": "Fire Retardant Plywood - 18 * 1220 * 2440mm",
-                "stock_status": "IN_STOCK",
-                "price_range": { "minimum_price": { "regular_price": { "value": 200.00 }, "final_price": { "value": 168.78 } } }
-              },
-              "attributes": [{ "code": "thickness_mm", "label": "18" }]
-            }
-          ]
-        },
-        {
-          "uid": "Q0VNQg==",
-          "sku": "CEMBOARD",
-          "name": "Cement Boards",
-          "url_key": "cement-boards",
-          "stock_status": "OUT_OF_STOCK",
-          "price_range": { "minimum_price": { "regular_price": { "value": 126.79 }, "final_price": { "value": 126.79 } } }
+            "items": [
+                {
+                    "uid": "NDY3Mg==",
+                    "sku": "12015-FRP",
+                    "name": "Fire Retardant Plywood",
+                    "url_key": "fire-retardant-plywood",
+                    "stock_status": "IN_STOCK",
+                    "price_range": {
+                        "minimum_price": {
+                            "regular_price": {
+                                "value": 112.5
+                            },
+                            "final_price": {
+                                "value": 112.5
+                            }
+                        }
+                    },
+                    "variants": [
+                        {
+                            "product": {
+                                "uid": "NDY3MA==",
+                                "sku": "120151248",
+                                "name": "Fire Retardant Plywood - 12 * 1220 * 2440mm",
+                                "stock_status": "IN_STOCK",
+                                "price_range": {
+                                    "minimum_price": {
+                                        "regular_price": {
+                                            "value": 112.5
+                                        },
+                                        "final_price": {
+                                            "value": 112.5
+                                        }
+                                    }
+                                }
+                            },
+                            "attributes": [
+                                {
+                                    "code": "thickness_mm",
+                                    "label": "12"
+                                }
+                            ]
+                        },
+                        {
+                            "product": {
+                                "uid": "NDY3MQ==",
+                                "sku": "120151848",
+                                "name": "Fire Retardant Plywood - 18 * 1220 * 2440mm",
+                                "stock_status": "IN_STOCK",
+                                "price_range": {
+                                    "minimum_price": {
+                                        "regular_price": {
+                                            "value": 200.0
+                                        },
+                                        "final_price": {
+                                            "value": 168.78
+                                        }
+                                    }
+                                }
+                            },
+                            "attributes": [
+                                {
+                                    "code": "thickness_mm",
+                                    "label": "18"
+                                }
+                            ]
+                        }
+                    ],
+                    "categories": [
+                        {
+                            "uid": "Q0FULTk=",
+                            "name": "عروض",
+                            "breadcrumbs": null
+                        },
+                        {
+                            "uid": "Q0FULTQ0",
+                            "name": "أخشاب معالجة",
+                            "breadcrumbs": [
+                                {
+                                    "category_name": "مواد البناء"
+                                },
+                                {
+                                    "category_name": "الأخشاب"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "uid": "Q0VNQg==",
+                    "sku": "CEMBOARD",
+                    "name": "Cement Boards",
+                    "url_key": "cement-boards",
+                    "stock_status": "OUT_OF_STOCK",
+                    "price_range": {
+                        "minimum_price": {
+                            "regular_price": {
+                                "value": 126.79
+                            },
+                            "final_price": {
+                                "value": 126.79
+                            }
+                        }
+                    },
+                    "categories": [
+                        {
+                            "uid": "Q0FULTc=",
+                            "name": "أسمنت",
+                            "breadcrumbs": []
+                        }
+                    ]
+                }
+            ]
         }
-      ]
     }
-  }
 }

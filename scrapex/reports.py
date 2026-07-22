@@ -449,7 +449,17 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("product_name", "Record"),
     ("region", "Country"),
     ("brand", "Brand"),
+    # Classification (owner ruling 2026-07-22): part of the MAIN table, with
+    # every level the source publishes. "category" carries the source's full
+    # path ("Cables > Low voltage") or, for a source that only files products
+    # under flat labels, the labels themselves. The per-level columns split
+    # the path so the table can sort and group by any layer; presence gating
+    # keeps each level to the sources that actually reach that depth.
     ("category", "Category"),
+    ("category_l1", "Category L1"),
+    ("category_l2", "Category L2"),
+    ("category_l3", "Category L3"),
+    ("category_l4", "Category L4"),
     ("option_label", "Variant"),
     ("sku", "SKU"),
     ("effective_price", "Price"),
@@ -548,8 +558,22 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "WHERE ss.source_key = ?", (source_key,)).fetchone()
     if not details[0]:
         present.discard("details")
-    if not details[1]:
+    # Classification depth is per source, from its own products (the same
+    # invariant as usd_price): a source whose deepest path is two levels gets
+    # exactly L1 and L2, a flat-label shop gets the single Category column, a
+    # source that classifies nothing gets none of them.
+    depth = conn.execute(
+        "SELECT MAX(LENGTH(category_path) - LENGTH(REPLACE(category_path, '>', '')) + 1) "
+        "FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND TRIM(COALESCE(category_path,'')) <> ''",
+        (source_key,)).fetchone()[0] or 0
+    if not details[1] and not depth:
         present.discard("category")
+    for level in (1, 2, 3, 4):
+        if depth < level or (level == 1 and depth < 2):
+            # L1 alone would duplicate Category exactly; the split only earns
+            # its columns once there is more than one level to split.
+            present.discard(f"category_l{level}")
     history = conn.execute(
         "SELECT MAX(n), MAX(distinct_prices) FROM ("
         "  SELECT COUNT(*) AS n, COUNT(DISTINCT po.effective_price) AS distinct_prices "
@@ -900,6 +924,18 @@ def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7)
     return result
 
 
+def _category_levels(path: str | None) -> dict[str, str]:
+    """Split "Cables > Low voltage > Copper" into category_l1..l4.
+
+    Always all four keys, so every row has the same shape (a grid that meets a
+    ragged row invents undefineds). Levels past the fourth stay visible in the
+    full-path Category column rather than being lost; the presence gate hides
+    the level columns a source never reaches."""
+    segments = [s.strip() for s in (path or "").split(">") if s.strip()]
+    return {f"category_l{i}": (segments[i - 1] if i <= len(segments) else "")
+            for i in (1, 2, 3, 4)}
+
+
 # The whole table, for a browser that filters and groups it in place. Bounded —
 # large, but a number, not "everything" (A8). A source past this cap says so
 # rather than quietly showing a prefix and letting the reader believe it is all.
@@ -946,7 +982,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "        WHERE spa.source_product_id = sp.source_product_id "
         "        AND spa.attribute_code = 'category') AS category, "
         "       EXISTS(SELECT 1 FROM source_product_attribute spa2 "
-        "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details "
+        "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details, "
+        "       sp.category_path "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -975,7 +1012,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "official_source": r[16] or "",
                "official_source_url": r[17] or "",
                "brand": r[18] or "",
-               "category": r[24] or "",
+               # The full stated path when the source classifies in levels;
+               # the flat labels otherwise. The per-level keys split the path
+               # so any layer can be sorted or grouped on its own.
+               "category": r[26] or r[24] or "",
+               **_category_levels(r[26]),
                "has_details": bool(r[25]),
                "observations": r[19],
                "min_price": r[20],

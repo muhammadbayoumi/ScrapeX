@@ -18,6 +18,11 @@ TRACKED_PRODUCT_FIELDS = (
     ("product_url", "product_url"),
     ("brand_raw", "brand_raw"),
     ("external_sku", "external_sku"),
+    # Classification is product identity the source states (owner ruling
+    # 2026-07-22): tracked like brand, so a product the site re-files under a
+    # new category records the move instead of silently forgetting the old one.
+    ("category_path", "category_path"),
+    ("category_external_id", "category_external_id"),
 )
 
 # Fields whose OLD value is an identity worth remembering (spec 14): if a site
