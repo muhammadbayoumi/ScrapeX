@@ -526,14 +526,26 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
     The append-only history has always contained this; it just had no reader.
     Bounded like every other read (A8).
     """
+    # The same lesson the Data page learned, applied to both ends of the range:
+    # one crawl stamps today's observed price AND the backfilled anchors with
+    # one observed_at, so ordering by it made "first" the first INSERT (today's
+    # price) and "current" the last INSERT (the oldest anchor). Egypt diesel
+    # read First 20.5 -> Current 15.5, change -24.4%, when the source itself
+    # states +32.3% over the year — every row's change inverted.
+    #   first   = the earliest KNOWN price by the date it was FOR, anchors
+    #             included: a First column that ignored the source's dated
+    #             claims would call this week "the beginning of history".
+    #   current = what we last SAW: observed outranks reported, then newest
+    #             business_date — identical to the Data page's rule.
     rows = conn.execute(
         "SELECT sp.source_name, so.region, po.currency, "
         "       MIN(po.effective_price) AS min_price, MAX(po.effective_price) AS max_price, "
         "       COUNT(*) AS observations, "
         "       (SELECT p2.effective_price FROM price_observation p2 WHERE p2.offer_id = so.offer_id "
-        "        ORDER BY p2.observed_at, p2.price_observation_id LIMIT 1) AS first_price, "
+        "        ORDER BY p2.business_date, p2.price_observation_id LIMIT 1) AS first_price, "
         "       (SELECT p3.effective_price FROM price_observation p3 WHERE p3.offer_id = so.offer_id "
-        "        ORDER BY p3.observed_at DESC, p3.price_observation_id DESC LIMIT 1) AS current_price "
+        "        ORDER BY (p3.provenance = 'observed') DESC, p3.business_date DESC, "
+        "                 p3.price_observation_id DESC LIMIT 1) AS current_price "
         "FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
@@ -541,7 +553,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "JOIN source_site ss ON ss.source_id = sp.source_id "
         "WHERE ss.source_key = ? GROUP BY so.offer_id "
         "ORDER BY sp.source_name, so.region LIMIT ?",
-        (source_key, max(1, min(limit, 500))),
+        (source_key, max(1, min(limit, 2000))),
     ).fetchall()
     out = []
     for r in rows:

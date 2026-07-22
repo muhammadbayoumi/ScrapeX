@@ -453,7 +453,7 @@ def create_app(
             return _page(request, "changes.html", "changes", source_key,
                          summary=change_summary(conn, source_key) if source_key else {},
                          changes=recent_changes(conn, source_key, limit=limit),
-                         extremes=price_extremes(conn, source_key) if source_key else [],
+                         extremes=price_extremes(conn, source_key, limit=2000) if source_key else [],
                          offers=_offers_with_history(conn, source_key) if source_key else [],
                          sources=[s.source_key for s in list_sources(conn)])
         finally:

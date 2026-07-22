@@ -336,3 +336,39 @@ def test_an_offer_tells_its_own_story_including_its_first_seen_events(conn):
     kinds = {c["change_type"] for c in story}
     assert "price_increase" in kinds
     assert "new" in kinds, "the offer's story starts at first seen, which is missing"
+
+
+def test_price_extremes_first_and_current_are_not_inverted(conn):
+    """The owner's screenshot: Egypt diesel First 20.5 -> Current 15.5,
+    change -24.4%, while the source itself states +32.3% over the year. Both
+    ends were insertion-order picks: 'first' was today's price (inserted
+    first) and 'current' was the year-ago anchor (inserted last)."""
+    from scrapex.reports import price_extremes
+
+    ingest_payloads(conn, _entry(), [_payload([CURRENT, ANCHOR_1M, ANCHOR_1Y])])
+
+    row = price_extremes(conn, "GPP_ENERGY")[0]
+    assert row["first_price"] == 15.5, "First is not the earliest KNOWN price"
+    assert row["current_price"] == 20.5, "Current is not what we last SAW"
+    assert row["min_price"] == 15.5 and row["max_price"] == 20.5
+    assert row["observations"] == 3
+    assert row["change_abs"] == 5.0
+    assert round(row["change_pct"], 1) == 32.3, "the site's own year figure"
+
+
+def test_a_new_record_appears_once_in_the_feed_not_twice(conn):
+    """Registering one record emits product AND variant events; for a source
+    without option labels the variant row repeats the product row with
+    nothing to add, so every new record showed twice. Collapsed on display;
+    both events stay stored."""
+    from scrapex.changes import recent_changes
+
+    ingest_payloads(conn, _entry(), [_payload([CURRENT])])
+
+    feed = recent_changes(conn, "GPP_ENERGY")
+    news = [c for c in feed if c["change_type"] == "new"]
+    assert len(news) == 1, [f"{c['field_key']}={c['display_new']}" for c in news]
+    assert news[0]["field_label"] == "record"
+    stored = conn.execute("SELECT COUNT(*) FROM change_event "
+                          "WHERE change_type='new'").fetchone()[0]
+    assert stored == 2, "the collapse deleted data instead of shaping display"

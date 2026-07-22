@@ -150,7 +150,32 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
                                   item.pop("basis_quantity", 1))
         _describe(item)
         out.append(item)
-    return out
+    return _collapse_new_pairs(out)
+
+
+def _collapse_new_pairs(items: list[dict]) -> list[dict]:
+    """Drop a first-seen VARIANT row that only repeats its product's row.
+
+    Registering one record emits two events — product and variant — and for a
+    source without option labels the variant one carries no name of its own, so
+    the feed showed every new record twice, one of the pair labelled `variant`
+    with nothing to add. Display-level only: both events stay stored. A variant
+    event WITH its own label (a shop's "Red / Large") names something the
+    product row does not, and stays.
+    """
+    said = {(item["source_product_id"], item.get("run_id"))
+            for item in items
+            if item.get("change_type") == "new"
+            and item.get("field_key") == "source_product"}
+    kept = []
+    for item in items:
+        if (item.get("change_type") == "new"
+                and item.get("field_key") == "source_variant"
+                and item.get("new_value") is None
+                and (item.get("source_product_id"), item.get("run_id")) in said):
+            continue
+        kept.append(item)
+    return kept
 
 
 # What each stored field_key is CALLED on screen. The feed used to print the
@@ -227,4 +252,5 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
                                   item.pop("basis_quantity", 1))
         _describe(item)
         out.append(item)
-    return out
+    # Same collapse as the feed: the panel and the Changes page must agree.
+    return _collapse_new_pairs(out)
