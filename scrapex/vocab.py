@@ -140,6 +140,11 @@ class JobStatus(StrEnum):
     CANCELLING = "cancelling"
     CANCELLED = "cancelled"
     COMPLETED = "completed"
+    # Every source ran, but at least one run degraded (partial ingest). Distinct
+    # from PARTIALLY_COMPLETED (a whole source failed) and from COMPLETED — a
+    # job that swallowed ingest errors used to finish 'completed' with the
+    # messages discarded, which is how a stranded run went unnoticed live.
+    COMPLETED_WITH_ERRORS = "completed_with_errors"
     PARTIALLY_COMPLETED = "partially_completed"
     FAILED = "failed"
     REQUIRES_REVIEW = "requires_review"
@@ -147,7 +152,7 @@ class JobStatus(StrEnum):
 
 # Statuses that mean "this job will never run again" — safe to ignore on restart.
 TERMINAL_JOB_STATUSES = frozenset({
-    JobStatus.CANCELLED, JobStatus.COMPLETED,
+    JobStatus.CANCELLED, JobStatus.COMPLETED, JobStatus.COMPLETED_WITH_ERRORS,
     JobStatus.PARTIALLY_COMPLETED, JobStatus.FAILED,
 })
 

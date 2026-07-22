@@ -113,6 +113,60 @@ def test_all_sources_failing_is_failed(conn):
     assert job["status"] == JobStatus.FAILED.value and "boom" in job["error_summary"]
 
 
+# ---- ingest errors surface at job level (the stranded-run incident) ----------
+
+def test_ingest_errors_finish_the_job_completed_with_errors(conn):
+    """Regression: the worker folded result.ingest.errors into a bare integer,
+    so a job whose only run degraded to PARTIAL finished 'completed' with
+    error_summary NULL and checkpoint errors [] — the message that explained a
+    live data loss was unrecoverable from anywhere."""
+    ref = create_job(conn, ["A"], RunMode.UPDATE)
+
+    def capture(c, entry, job_id=None):
+        return _result(entry.source_key, errors=("row 3: effective_price is empty",))
+
+    job = run_job_once(conn, ref, _FakeManifest(["A"]), capture=capture)
+    assert job["status"] == JobStatus.COMPLETED_WITH_ERRORS.value
+    assert "A: row 3: effective_price is empty" in job["error_summary"]
+    assert job["checkpoint"]["errors"] == ["A: row 3: effective_price is empty"]
+    warned = [e for e in job_logs(conn, ref) if e["level"] == "warning"]
+    assert any("row 3" in e["message"] and e["source_key"] == "A" for e in warned)
+
+
+def test_a_dead_source_still_outranks_completed_with_errors(conn):
+    """One source dies, the other merely degrades: the job is partially
+    completed — a whole source missing is the stronger statement."""
+    ref = create_job(conn, ["A", "B"], RunMode.UPDATE)
+
+    def capture(c, entry, job_id=None):
+        if entry.source_key == "A":
+            raise RuntimeError("site down")
+        return _result(entry.source_key, errors=("row 1: bad money",))
+
+    job = run_job_once(conn, ref, _FakeManifest(["A", "B"]), capture=capture)
+    assert job["status"] == JobStatus.PARTIALLY_COMPLETED.value
+    assert "A: site down" in job["error_summary"]
+    assert "B: row 1: bad money" in job["error_summary"]
+
+
+def test_contained_notes_warn_but_do_not_degrade_the_job(conn):
+    """A contained side-effect failure (tax evidence) is logged for the owner
+    and counted, but the run succeeded — so the job stays 'completed'."""
+    ref = create_job(conn, ["A"], RunMode.UPDATE)
+
+    def capture(c, entry, job_id=None):
+        result = _result(entry.source_key)
+        result.ingest.contained = ["tax evidence not recorded: disk I/O error"]
+        return result
+
+    job = run_job_once(conn, ref, _FakeManifest(["A"]), capture=capture)
+    assert job["status"] == JobStatus.COMPLETED.value
+    assert job["error_summary"] is None
+    assert job["counters"]["errors"] == 1             # visible, not fatal
+    warned = [e for e in job_logs(conn, ref) if e["level"] == "warning"]
+    assert any("tax evidence" in e["message"] for e in warned)
+
+
 # ---- pause / resume / cancel at safe boundaries ------------------------------
 
 def test_pause_stops_at_boundary_and_resume_skips_completed(conn):

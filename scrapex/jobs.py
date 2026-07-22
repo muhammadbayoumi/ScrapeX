@@ -162,7 +162,8 @@ def _control_of(conn: sqlite3.Connection, job_id: int) -> str:
 def _merge_counters(counters: dict, result: CaptureResult) -> dict:
     for field in _COUNTER_FIELDS:
         counters[field] = counters.get(field, 0) + getattr(result.ingest, field)
-    counters["errors"] = counters.get("errors", 0) + len(result.ingest.errors)
+    counters["errors"] = (counters.get("errors", 0)
+                          + len(result.ingest.errors) + len(result.ingest.contained))
     counters["requests"] = counters.get("requests", 0) + result.requests_count
     return counters
 
@@ -250,6 +251,20 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                        f"{result.ingest.observations} observations, "
                        f"{result.ingest.products} new products, {result.requests_count} requests",
                        source_key=source_key)
+            # Ingest errors used to be folded into a bare counter here, so the
+            # job finished 'completed' with error_summary NULL and the MESSAGE —
+            # the only thing that could explain a degraded run — was discarded.
+            # Each one is now a job-level error (it degrades the job's outcome)
+            # and a log line the owner can actually read.
+            for issue in result.ingest.errors:
+                errors.append(f"{source_key}: {issue}")
+                append_log(conn, job_id, issue, level=LogLevel.WARNING,
+                           source_key=source_key)
+            # Contained side-effect failures did not degrade the run and must
+            # not degrade the job — but silent is not an option either.
+            for note in result.ingest.contained:
+                append_log(conn, job_id, note, level=LogLevel.WARNING,
+                           source_key=source_key)
             # F6: a rotted connector fails QUIETLY — treat a volume breach as a
             # real failure, never a clean success.
             breach = canary_breach(entry, result.rows, previous)
@@ -271,6 +286,11 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
 
     if not errors:
         status = JobStatus.COMPLETED
+    elif succeeded == len(job["source_keys"]):
+        # Every source ran and passed its canary, yet a run degraded (partial
+        # ingest). That is not 'completed' — the owner has something to read —
+        # and not 'partially_completed' either, which means a whole source died.
+        status = JobStatus.COMPLETED_WITH_ERRORS
     elif succeeded:
         status = JobStatus.PARTIALLY_COMPLETED
     else:

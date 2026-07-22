@@ -72,6 +72,45 @@ def test_unknown_source_returns_404(client):
     assert r.status_code == 404
 
 
+def test_changes_page_offers_the_rebuild_control(client):
+    """The repair path for a stranded derived layer must be reachable from the
+    UI — offer.html's empty state sends the owner here to use it."""
+    r = client.get("/changes?source_key=ELSEWEDYSHOP")
+    assert r.status_code == 200
+    assert "Rebuild price history" in r.text
+    assert "/api/prices/rebuild" in r.text
+
+
+def test_rebuild_endpoint_repairs_a_stranded_derived_layer(client):
+    """End-to-end shape of the live incident: observations exist, offer_state
+    and price_period do not. One POST puts the derived layer back."""
+    # Strand the offer the way the incident did — evidence intact, layers gone.
+    # Both layers are mutable BY DESIGN (they are rebuildable); the evidence
+    # beneath them is trigger-protected and never touched.
+    db_path = client.app.state.db_path
+    conn = dbmod.connect(db_path)
+    try:
+        conn.execute("DELETE FROM price_period")
+        conn.execute("DELETE FROM offer_state")
+        conn.commit()
+        offers = conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0]
+        assert offers > 0
+    finally:
+        conn.close()
+
+    r = client.post("/api/prices/rebuild", json={"source_key": "ELSEWEDYSHOP"})
+    assert r.status_code == 200
+    assert r.json()["offers"] == offers
+
+    conn = dbmod.connect(db_path)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM offer_state").fetchone()[0] == offers
+        assert conn.execute(
+            "SELECT COUNT(DISTINCT offer_id) FROM price_period").fetchone()[0] == offers
+    finally:
+        conn.close()
+
+
 def test_empty_db_overview_has_hint(tmp_path: Path):
     db_path = tmp_path / "empty.db"
     conn = dbmod.connect(db_path)

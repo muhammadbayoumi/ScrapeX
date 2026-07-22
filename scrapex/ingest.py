@@ -39,7 +39,16 @@ class IngestResult:
     seen: dict = field(default_factory=dict)
     skipped_ignored: int = 0     # rows under an owner-ignored product
     rejected_out_of_scope: int = 0
+    # Two kinds of trouble, kept apart because they mean different things:
+    #   errors    — row/payload-level failures: some of the DATA did not land,
+    #               so the run genuinely is partial (or failed).
+    #   contained — side-effect failures that were isolated by design (e.g. tax
+    #               evidence not recorded). Every price landed; degrading the
+    #               run for one of these used to gate the whole derived price
+    #               layer off — 18 live offers ended up with observations but
+    #               no offer_state and no price_period over a contained note.
     errors: list[str] = field(default_factory=list)
+    contained: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> RunStatus:
@@ -437,7 +446,7 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     })
     result = IngestResult(source_key=entry.source_key, run_id=run_id)
     if result_note:
-        result.errors.append(result_note)
+        result.contained.append(result_note)
 
     for payload in payloads:
         if payload.source_key != entry.source_key:
@@ -461,6 +470,10 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
             except Exception as exc:  # noqa: BLE001 — isolate one bad row (Q3)
                 result.errors.append(f"row {i}: {exc}")
 
+    # The derived layers are rebuilt for EVERY offer the run touched, whatever
+    # the run's status ends up being: the observations are already appended, and
+    # leaving them underived strands them where timeline() cannot see them.
+    _derive_seen(conn, result)
     # Only a run that completed may claim it confirmed anything.
     if result.status is RunStatus.SUCCESS:
         _confirm_seen(conn, result)
@@ -469,7 +482,8 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
         "UPDATE crawl_run SET finished_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
         "status = ?, products_discovered = ?, variants_discovered = ?, errors_count = ?, "
         "rows_seen = ? WHERE run_id = ?",
-        (result.status.value, result.products, result.variants, len(result.errors),
+        (result.status.value, result.products, result.variants,
+         len(result.errors) + len(result.contained),
          sum(len(p.rows) for p in payloads), run_id),
     )
     return result
@@ -557,20 +571,33 @@ def _still_the_same_price(conn: sqlite3.Connection, offer_id: int, v: dict) -> b
                                pricekey.parse_fields(v["price_fields"]))
 
 
+def _derive_seen(conn: sqlite3.Connection, result: IngestResult) -> None:
+    """Rebuild the derived price layers for every offer this run touched.
+
+    UNCONDITIONAL — this runs whatever the run's status is. The derivation is
+    pure and idempotent (see rebuild_offer): it only reads observations that are
+    already appended, so a partial run derives exactly what it managed to land.
+    Gating it on SUCCESS was the incident: one contained error left every offer
+    of a run with an appended observation but no offer_state and no
+    price_period — and because ux_price_obs_dedupe blocks a same-day re-append,
+    re-running the crawl appended nothing and never repaired it.
+    """
+    from . import pricehistory
+
+    for offer_id in result.seen:
+        pricehistory.rebuild_offer(conn, offer_id)
+
+
 def _confirm_seen(conn: sqlite3.Connection, result: IngestResult) -> None:
     """Advance what a SUCCESSFUL run proved, and nothing more.
 
     The spec is explicit that a failed, partial or cancelled run must not advance
     last_confirmed_at: not seeing something proves nothing when the run did not
     finish. So confirmations are held in memory during the run and applied only
-    here, once the run's own status says they are earned.
+    here, once the run's own status says they are earned. The periods themselves
+    are already rebuilt by _derive_seen — this only stamps the confirmations.
     """
-    from . import pricehistory
-
     for offer_id, v in result.seen.items():
-        # Rebuild first: an appended observation may have opened a new period,
-        # and the derivation in pricehistory is the one tested implementation.
-        pricehistory.rebuild_offer(conn, offer_id)
         conn.execute(
             "UPDATE price_period SET last_confirmed_at = ? "
             "WHERE offer_id = ? AND closed_at IS NULL", (v["observed_at"], offer_id))

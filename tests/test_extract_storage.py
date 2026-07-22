@@ -113,7 +113,7 @@ def test_legacy_0014_remains_available_for_explicit_unified_sessions(tmp_path: P
     legacy = dbmod.connect(tmp_path / "legacy.db")
     try:
         dbmod.migrate(legacy)
-        assert dbmod.schema_version(legacy) == 19   # +0019 price provenance
+        assert dbmod.schema_version(legacy) == 20   # +0020 completed_with_errors
         for table in ("price_observation", "generic_record"):
             assert legacy.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",

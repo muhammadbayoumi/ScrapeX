@@ -201,6 +201,75 @@ def test_ingest_never_updates_price_observation(conn):
     assert prices == {1200.00, 1250.00}
 
 
+# ---- a degraded run must still derive the price layers ----------------------
+# Regression for the live SAMEHGABRIEL incident: one contained error degraded
+# the run to PARTIAL, the SUCCESS-gated finaliser skipped rebuild_offer for
+# every offer, and 18 offers were left with an append-only observation but no
+# offer_state and no price_period. ux_price_obs_dedupe then blocked the same-day
+# re-crawl from appending anything, so the damage could not self-heal.
+
+def test_partial_run_still_derives_offer_state_and_price_period(conn):
+    """An ingest run with a non-empty errors list must still leave every seen
+    offer with an offer_state and a price_period."""
+    from scrapex import pricehistory
+
+    good = one_row(external_product_id="1001", external_variant_id="5001")
+    bad = one_row(external_product_id="1002", external_variant_id="5002",
+                  effective_price="Call us")
+    result = ingest_payloads(conn, make_entry(), [make_payload([good, bad])])
+    assert result.errors and result.status.value == "partial"    # the trigger
+
+    assert len(result.seen) == 1
+    for offer_id in result.seen:
+        state = conn.execute(
+            "SELECT COUNT(*) FROM offer_state WHERE offer_id = ?", (offer_id,)).fetchone()[0]
+        periods = conn.execute(
+            "SELECT COUNT(*) FROM price_period WHERE offer_id = ?", (offer_id,)).fetchone()[0]
+        assert state == 1 and periods >= 1
+        assert pricehistory.timeline(conn, offer_id)             # readable, not []
+
+
+def test_partial_run_does_not_advance_confirmations(conn):
+    """Deriving is unconditional; CONFIRMING stays earned by success only. A
+    later partial run that saw the same price must not push last_confirmed_at."""
+    entry = make_entry()
+    ingest_payloads(conn, entry, [make_payload([one_row()])])
+    offer_id = conn.execute("SELECT offer_id FROM source_offer").fetchone()[0]
+    before = conn.execute("SELECT last_confirmed_at FROM offer_state "
+                          "WHERE offer_id = ?", (offer_id,)).fetchone()[0]
+
+    bad = one_row(external_product_id="1002", external_variant_id="5002",
+                  effective_price="Call us")
+    later = ingest_payloads(conn, entry, [make_payload(
+        [one_row(), bad], scraped_at="2026-07-17T10:00:00Z")])
+    # The unchanged price appended nothing, so errors + zero observations reads
+    # as failed here; either way it is NOT a success, which is what matters.
+    assert later.status.value != "success" and later.confirmed == 1
+    after = conn.execute("SELECT last_confirmed_at FROM offer_state "
+                         "WHERE offer_id = ?", (offer_id,)).fetchone()[0]
+    assert after == before      # an unfinished run proves nothing
+
+
+def test_contained_failure_does_not_degrade_the_run(conn, monkeypatch):
+    """A side-effect failure that ingest isolates (tax evidence) is reported,
+    but every price landed — the run is still a SUCCESS and still confirms."""
+    from scrapex import ingest as ingestmod
+
+    def boom(c, entry):
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(ingestmod.tax, "upsert_rules", boom)
+
+    result = ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
+    assert result.status.value == "success"
+    assert result.errors == []
+    assert any("tax evidence not recorded" in n for n in result.contained)
+    # ...but never silently: the run row still counts it.
+    run = conn.execute("SELECT status, errors_count FROM crawl_run").fetchone()
+    assert run["status"] == "success" and run["errors_count"] == 1
+    # And the SUCCESS path confirmed as usual.
+    assert conn.execute("SELECT COUNT(*) FROM offer_state").fetchone()[0] == 1
+
+
 def test_two_identical_rows_in_one_payload_are_still_counted_as_duplicates(conn):
     """The confirmation path cannot catch these: the period that would prove the
     price unchanged is only derived once the run finalizes, so within a single

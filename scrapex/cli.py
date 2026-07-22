@@ -258,6 +258,8 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
           f"{result.rejected_out_of_scope} out-of-scope, {len(result.errors)} errors")
     for err in result.errors[:10]:
         print(f"  ! {err}")
+    for note in result.contained:
+        print(f"  ~ {note} (contained — the run itself was not degraded)")
     if not args.keep:
         localinbox.clear(base, entry.source_key)
     return 0

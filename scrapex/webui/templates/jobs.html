@@ -15,7 +15,8 @@
         <td>{{ j.run_mode.replace("_", " ") }}</td>
         <td class="muted">{{ j.source_keys|join(", ") }}</td>
         <td><span class="badge {% if j.status == 'completed' %}ok
-          {% elif j.status in ('failed', 'cancelled') %}off{% endif %}">
+          {% elif j.status in ('failed', 'cancelled', 'completed_with_errors',
+                               'partially_completed') %}off{% endif %}">
           {{ j.status.replace("_", " ") }}</span></td>
         <td class="num">{{ j.progress.done }}/{{ j.progress.total }} ({{ j.progress.percent }}%)</td>
         <td class="num">{{ "{:,}".format(j.counters.get("observations", 0)) }}</td>

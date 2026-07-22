@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 19  # +0019 price provenance
+    assert dbmod.schema_version(conn) == 20  # +0020 completed_with_errors
 
 
 def test_all_owner_tables_exist(conn):
@@ -134,6 +134,51 @@ def test_curation_status_vocabulary_matches_vocab_enum(conn):
             "UPDATE source_product SET curation_status = 'not_a_status' WHERE source_product_id = ?",
             (ids["product_id"],),
         )
+
+
+def test_job_status_vocabulary_matches_vocab_enum(conn):
+    """Q1 again, for crawl_job — migration 0020 widened this CHECK, and the
+    rebuilt table must accept every JobStatus (completed_with_errors included)."""
+    from scrapex.vocab import JobStatus
+
+    conn.execute("INSERT INTO crawl_job (job_ref, run_mode, source_keys)"
+                 " VALUES ('job_t', 'update', '[\"A\"]')")
+    for status in JobStatus:
+        conn.execute("UPDATE crawl_job SET status = ? WHERE job_ref = 'job_t'",
+                     (status.value,))
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("UPDATE crawl_job SET status = 'not_a_status' WHERE job_ref = 'job_t'")
+
+
+def test_migration_0020_preserves_existing_jobs_and_their_log_references():
+    """The CHECK widening rebuilds crawl_job on a LIVE warehouse; rows, ids and
+    the job_log_entry references through job_id must survive the swap intact."""
+    upgrading = dbmod.connect(":memory:")
+    try:
+        for number, file in dbmod._migration_files():     # the pre-0020 warehouse
+            if number >= 20:
+                continue
+            upgrading.executescript(file.read_text(encoding="utf-8"))
+            upgrading.execute(f"PRAGMA user_version = {number}")
+        upgrading.execute("INSERT INTO crawl_job (job_ref, run_mode, status, source_keys)"
+                          " VALUES ('job_old', 'update', 'completed', '[\"A\"]')")
+        job_id = upgrading.execute("SELECT job_id FROM crawl_job").fetchone()[0]
+        upgrading.execute("INSERT INTO job_log_entry (job_id, message) VALUES (?, 'kept')",
+                          (job_id,))
+        upgrading.commit()
+
+        assert dbmod.migrate(upgrading) == [20]
+
+        joined = upgrading.execute(
+            "SELECT j.job_ref, j.status, l.message FROM job_log_entry l"
+            " JOIN crawl_job j ON j.job_id = l.job_id").fetchone()
+        assert (joined["job_ref"], joined["status"], joined["message"]) == (
+            "job_old", "completed", "kept")
+        # The FK is enforced against the REBUILT table, not silently dangling.
+        with pytest.raises(sqlite3.IntegrityError):
+            upgrading.execute("INSERT INTO job_log_entry (job_id, message) VALUES (999, 'x')")
+    finally:
+        upgrading.close()
 
 
 def test_review_status_vocabulary_matches_vocab_enum(conn):
