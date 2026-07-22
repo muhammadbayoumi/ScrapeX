@@ -44,6 +44,14 @@ class ScrapedTable:
     # Deliberately NOT in to_payload: this describes the RUN, not the data, and
     # the payload contract is frozen across engines.
     warnings: list[str] = field(default_factory=list)
+    # Resume checkpoint for a multi-page source: a filename-safe id
+    # ([A-Za-z0-9_-]) for the PAGE this table came from, empty when the
+    # connector is single-page. The job journal embeds it in the payload's
+    # FILENAME — never in the payload itself (same frozen-contract rule as
+    # warnings) — and hands the journaled tokens back to the connector as
+    # skip_tokens on resume, so a paused 400-page crawl re-fetches only what
+    # it has not already fetched.
+    page_token: str = ""
 
     def to_payload(self, client: PayloadClient = PayloadClient.CLI, run_ref: str | None = None) -> FunnelPayload:
         return FunnelPayload(
@@ -258,19 +266,19 @@ class HttpFetcher:
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
         robots = self._robots_for(url)
         if robots is not None and not robots.can_fetch(self._user_agent, url):
-            # Disclosed, not silently obeyed and not silently ignored: refusing
-            # outright could kill a source the owner relies on without a word,
-            # and ignoring it silently is the impolite crawler we refuse to be.
-            # ONE warning per host (a 400-page crawl must not write 400 lines);
-            # it reaches the job log and the owner sets policy.
+            # Owner policy (docs/robots-policy.md, 2026-07-22): Disallow is
+            # informational, NOT enforced — refusing outright could silently
+            # kill a source the owner relies on. Crawl-delay, by contrast, IS
+            # enforced (above). ONE warning per host (a 400-page crawl must
+            # not write 400 lines) keeps the fact visible in the job log.
             from urllib.parse import urlsplit
             host = urlsplit(url).netloc
             marker = f"{host}: robots.txt disallows"
             if not any(w.startswith(marker) for w in self.robots_warnings):
                 self.robots_warnings.append(
                     f"{marker} some of the paths we crawl (first: "
-                    f"{urlsplit(url).path}) — crawled anyway; consider honouring "
-                    "it or contacting the site")
+                    f"{urlsplit(url).path}) — crawled anyway per the robots "
+                    "policy: Disallow is informational, not enforced")
         if method == "GET":
             kwargs["headers"] = self._conditional_headers(url, kwargs.get("headers"))
         last_error: Exception | None = None

@@ -21,6 +21,24 @@ FX = Path(__file__).parent / "fixtures"
 def _read(name): return (FX / name).read_text(encoding="utf-8")
 
 
+class _Crawl:
+    """Aggregate view over the per-page tables fetch() now yields.
+
+    The connector went from one giant table to one table PER PAGE (per-page
+    journaling is what makes a paused crawl resumable), and these tests assert
+    on the crawl's TOTAL output — which is the concatenation. Consuming the
+    whole generator also keeps request-count assertions honest."""
+    def __init__(self, tables):
+        self.tables = tables
+        self.header = tables[0].header if tables else []
+        self.rows = [r for t in tables for r in t.rows]
+        self.warnings = [w for t in tables for w in t.warnings]
+
+
+def crawl(connector, entry) -> _Crawl:
+    return _Crawl(list(connector.fetch(entry)))
+
+
 class _Resp:
     def __init__(self, text): self.text = text
 
@@ -105,7 +123,7 @@ def test_gpp_fetches_diesel_and_maps_regions():
     the free history anchors as reported rows.
     """
     fetcher = _StubFetcher()
-    table = next(iter(GlobalPetrolPricesConnector(fetcher).fetch(make_entry())))
+    table = crawl(GlobalPetrolPricesConnector(fetcher), make_entry())
     assert fetcher.requests_count == 4          # 1 list + 3 country pages
     view = RowView(COMMODITY_PRICE, table.header)
     rows = [view.as_dict(r) for r in table.rows]
@@ -127,8 +145,8 @@ def test_gpp_fetches_diesel_and_maps_regions():
 def test_one_failing_page_does_not_kill_the_crawl():
     """Q3 resilience: the GASOLINE page 404s in the stub; the DIESEL rows still land."""
     fetcher = _StubFetcher()
-    table = next(iter(GlobalPetrolPricesConnector(fetcher).fetch(
-        make_entry(materials=("DIESEL", "GASOLINE")))))
+    table = crawl(GlobalPetrolPricesConnector(fetcher),
+                  make_entry(materials=("DIESEL", "GASOLINE")))
     assert fetcher.requests_count == 5       # both lists attempted + 3 country pages
     view = RowView(COMMODITY_PRICE, table.header)
     assert {view.as_dict(r)["region"] for r in table.rows} == {"EG", "SA", "US"}
@@ -148,8 +166,8 @@ def test_layout_drift_on_one_page_does_not_discard_the_others():
                 return _Resp(drift)
             return super().get(url, **kwargs)
 
-    table = next(iter(GlobalPetrolPricesConnector(_DriftFetcher()).fetch(
-        make_entry(materials=("DIESEL", "GASOLINE")))))
+    table = crawl(GlobalPetrolPricesConnector(_DriftFetcher()),
+                  make_entry(materials=("DIESEL", "GASOLINE")))
     view = RowView(COMMODITY_PRICE, table.header)
     assert {view.as_dict(r)["region"] for r in table.rows} == {"EG", "SA", "US"}
 
@@ -173,11 +191,11 @@ def test_contracted_material_without_a_page_is_skipped():
 
 def test_gpp_end_to_end_into_warehouse():
     entry = make_entry()
-    table = next(iter(GlobalPetrolPricesConnector(_StubFetcher()).fetch(entry)))
+    tables = list(GlobalPetrolPricesConnector(_StubFetcher()).fetch(entry))
     conn: sqlite3.Connection = dbmod.connect(":memory:")
     try:
         dbmod.migrate(conn)
-        result = ingest_payloads(conn, entry, [table.to_payload()])
+        result = ingest_payloads(conn, entry, [t.to_payload() for t in tables])
         offers = conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0]
     finally:
         conn.close()
@@ -262,14 +280,13 @@ def test_electricity_produces_rows_end_to_end():
     entry = make_entry(materials=("ELECTRICITY", "ELECTRICITY_BUSINESS"))
     fetcher = _FiveePageFetcher()
 
-    tables = list(GlobalPetrolPricesConnector(fetcher).fetch(entry))
+    out = crawl(GlobalPetrolPricesConnector(fetcher), entry)
 
-    rows = tables[0].rows
-    assert rows, "electricity produced no rows at all"
-    view = RowView(COMMODITY_PRICE, tables[0].header)
-    materials = {view.get(r, "material_key") for r in rows}
+    assert out.rows, "electricity produced no rows at all"
+    view = RowView(COMMODITY_PRICE, out.header)
+    materials = {view.get(r, "material_key") for r in out.rows}
     assert materials == {"ELECTRICITY", "ELECTRICITY_BUSINESS"}
-    assert tables[0].warnings == []
+    assert out.warnings == []
 
 
 def test_one_page_serving_two_materials_is_fetched_once():
@@ -288,10 +305,10 @@ def test_a_page_that_yields_nothing_is_reported_even_when_others_succeed():
     entry = make_entry(materials=("DIESEL", "ELECTRICITY"))
     fetcher = _FiveePageFetcher(break_electricity=True)
 
-    tables = list(GlobalPetrolPricesConnector(fetcher).fetch(entry))
+    out = crawl(GlobalPetrolPricesConnector(fetcher), entry)
 
-    assert tables[0].rows, "the healthy page must still be delivered"
-    assert any("ELECTRICITY" in w for w in tables[0].warnings), \
+    assert out.rows, "the healthy page must still be delivered"
+    assert any("ELECTRICITY" in w for w in out.warnings), \
         "a whole energy type produced nothing and the run said nothing"
 
 
@@ -339,7 +356,7 @@ def test_an_unmappable_country_is_reported_not_silently_dropped():
                 '</div></div>')
         def close(self): pass
 
-    table = next(iter(GlobalPetrolPricesConnector(_Fetcher()).fetch(entry)))
+    table = crawl(GlobalPetrolPricesConnector(_Fetcher()), entry)
 
     assert len(table.rows) == 1, "the mappable country must still be kept"
     assert any("Wakanda" in w for w in table.warnings), \
@@ -492,8 +509,7 @@ def test_a_fuel_country_whose_page_fails_gets_no_converted_stand_in():
                 raise RuntimeError("504 gateway timeout")
             return super().get(url, **kwargs)
 
-    table = next(iter(GlobalPetrolPricesConnector(_EgyptDownFetcher()).fetch(
-        make_entry())))
+    table = crawl(GlobalPetrolPricesConnector(_EgyptDownFetcher()), make_entry())
 
     view = RowView(COMMODITY_PRICE, table.header)
     rows = [view.as_dict(r) for r in table.rows]
@@ -561,7 +577,7 @@ def test_history_mode_lands_the_series_as_reported_rows():
     every one dated by the source and marked reported — never ours."""
     fetcher = _HistoryFetcher()
     connector = GlobalPetrolPricesConnector(fetcher, history=True)
-    table = next(iter(connector.fetch(make_entry())))
+    table = crawl(connector, make_entry())
 
     view = RowView(COMMODITY_PRICE, table.header)
     rows = [view.as_dict(r) for r in table.rows]
@@ -580,7 +596,7 @@ def test_the_weekly_crawl_does_not_touch_the_mirror():
     points per country would double the volume for data it already has."""
     fetcher = _HistoryFetcher()
     connector = GlobalPetrolPricesConnector(fetcher)          # history OFF
-    next(iter(connector.fetch(make_entry())))
+    crawl(connector, make_entry())
 
     assert fetcher.requests_count == 4      # 1 list + 3 countries, no ar. host
 
@@ -602,7 +618,7 @@ def test_a_series_that_cannot_be_anchored_is_skipped_not_stored():
             return super().get(url, **kwargs)
 
     connector = GlobalPetrolPricesConnector(_DriftMirror(), history=True)
-    table = next(iter(connector.fetch(make_entry())))
+    table = crawl(connector, make_entry())
 
     view = RowView(COMMODITY_PRICE, table.header)
     rows = [view.as_dict(r) for r in table.rows]
@@ -621,7 +637,7 @@ def test_a_dead_mirror_costs_a_warning_never_the_current_price():
             return super().get(url, **kwargs)
 
     connector = GlobalPetrolPricesConnector(_DeadMirror(), history=True)
-    table = next(iter(connector.fetch(make_entry())))
+    table = crawl(connector, make_entry())
 
     view = RowView(COMMODITY_PRICE, table.header)
     observed = [view.as_dict(r) for r in table.rows
@@ -644,14 +660,111 @@ def test_natural_gas_stays_on_the_list_because_its_country_pages_publish_nothing
                 return _Resp(_read("gpp_diesel.html"))   # same graphic layout
             raise RuntimeError("404 " + url)
 
-    table = next(iter(GlobalPetrolPricesConnector(_GasFetcher()).fetch(
-        make_entry(materials=("NATURAL_GAS",)))))
+    table = crawl(GlobalPetrolPricesConnector(_GasFetcher()),
+                  make_entry(materials=("NATURAL_GAS",)))
 
     view = RowView(COMMODITY_PRICE, table.header)
     rows = [view.as_dict(r) for r in table.rows]
     assert len(rows) == 3, "the list rows were lost again"
     assert all(r["price_basis"] == "converted" and r["currency"] == "USD"
                for r in rows)
+
+
+# ---- per-page resume: tokens are the checkpoint ------------------------------
+#
+# The owner's pause used to throw away every fetched page of a 400-page crawl.
+# fetch() now yields one tokenized table per page; the job journal keeps them,
+# and on resume hands the tokens back as skip_tokens.
+
+def test_every_country_page_is_tokenized_for_the_journal():
+    tables = list(GlobalPetrolPricesConnector(_StubFetcher()).fetch(make_entry()))
+
+    assert [t.page_token for t in tables if t.page_token] == \
+        ["DIESEL--EG", "DIESEL--SA", "DIESEL--US"]
+
+
+def test_skip_tokens_skip_the_request_itself_not_just_the_rows():
+    """A resume that refetched the page and merely dropped the rows would be
+    politeness theatre: the whole point is not re-asking the server."""
+    fetcher = _StubFetcher()
+    connector = GlobalPetrolPricesConnector(fetcher)
+    connector.skip_tokens = {"DIESEL--EG"}
+
+    out = crawl(connector, make_entry())
+
+    assert fetcher.requests_count == 3      # list (needed for links) + SA + US
+    assert [t.page_token for t in out.tables if t.page_token] == \
+        ["DIESEL--SA", "DIESEL--US"]
+
+
+def test_an_empty_country_page_is_tokenized_so_resume_never_reasks():
+    """A page that ANSWERED "no local price" is a fact for this week — carried
+    as an empty tokenized table so the warning has a carrier and the resume
+    does not ask again."""
+    class _EgyptEmptyFetcher(_StubFetcher):
+        def get(self, url, **kwargs):
+            if "/Egypt/" in url:
+                self.requests_count += 1
+                return _Resp("<html><body><h1>Egypt diesel</h1></body></html>")
+            return super().get(url, **kwargs)
+
+    tables = list(GlobalPetrolPricesConnector(_EgyptEmptyFetcher()).fetch(make_entry()))
+
+    empty = [t for t in tables if t.page_token == "DIESEL--EG"]
+    assert empty and empty[0].rows == []
+    assert any("published no local price" in w for w in empty[0].warnings)
+
+
+def test_a_failed_country_page_is_not_tokenized_so_resume_retries_it():
+    """A 504 is not an answer. Tokenizing it would turn one transient timeout
+    into a permanently skipped country."""
+    class _EgyptDown(_StubFetcher):
+        def get(self, url, **kwargs):
+            if "/Egypt/" in url:
+                self.requests_count += 1
+                raise RuntimeError("504 gateway timeout")
+            return super().get(url, **kwargs)
+
+    tables = list(GlobalPetrolPricesConnector(_EgyptDown()).fetch(make_entry()))
+
+    assert "DIESEL--EG" not in {t.page_token for t in tables}
+
+
+def test_a_list_only_material_is_tokenized_whole_and_skippable():
+    class _GasFetcher(_StubFetcher):
+        def get(self, url, **kwargs):
+            self.requests_count += 1
+            if url.endswith("/natural_gas_prices/"):
+                return _Resp(_read("gpp_diesel.html"))
+            raise RuntimeError("404 " + url)
+
+    fetcher = _GasFetcher()
+    connector = GlobalPetrolPricesConnector(fetcher)
+    connector.skip_tokens = {"NATURAL_GAS--LIST"}
+
+    out = crawl(connector, make_entry(materials=("NATURAL_GAS",)))
+
+    assert fetcher.requests_count == 0, "a journaled material was refetched"
+    assert out.rows == []
+
+
+def test_a_resume_whose_remaining_pages_all_fail_stays_quiet_not_loud():
+    """The every-page-failed alarm exists for total layout drift. On a resume
+    the journaled pages already SUCCEEDED — raising would turn one bad tail
+    into a failure that discards a mostly-complete crawl."""
+    class _AllCountriesDown(_StubFetcher):
+        def get(self, url, **kwargs):
+            path = url.split(".com", 1)[-1]
+            if path == "/diesel_prices/":
+                return _Resp(_read("gpp_diesel.html"))
+            raise RuntimeError("504 gateway timeout")
+
+    connector = GlobalPetrolPricesConnector(_AllCountriesDown())
+    connector.skip_tokens = {"DIESEL--EG"}
+
+    out = crawl(connector, make_entry())      # must NOT raise
+
+    assert any("504" in w for w in out.warnings)
 
 
 def test_the_official_source_attribution_is_read_and_germany_stays_empty():

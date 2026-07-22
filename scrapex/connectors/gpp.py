@@ -198,20 +198,34 @@ class GlobalPetrolPricesConnector:
         # grows by the point the weekly crawl already collects, so re-fetching
         # 500+ known points every week would double the volume for nothing.
         self._history = history
+        # Resume support (per-page checkpointing): the job journal hands back
+        # the page tokens it already holds, and fetch skips exactly those
+        # pages. Empty between pauses; only ever set by capture on a resume.
+        self.skip_tokens: set[str] = set()
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
+        """One ScrapedTable PER PAGE, tokenized, so the crawl is resumable.
+
+        A 400-page crawl used to materialise as one giant table at the end —
+        correct, but all-or-nothing: a pause at page 399 threw away every
+        fetched page. Yielding per page lets capture journal each one as it
+        arrives; the tokens are the checkpoint."""
         builder = RowBuilder(COMMODITY_PRICE)
         base = source.base_url.rstrip("/")
         currency = source.currency or "USD"
         vat = "1" if source.vat_mode.value == "incl" else "0"
         today = date.today()
-        rows: list[list[str]] = []
         page_errors: list[str] = []
         unmapped: set[str] = set()
+        failures = 0
+        emitted = False
 
         pages: dict[str, str] = {}   # slug -> html, so two materials on one page
         for material_key in _contracted_materials(source):            # fetch it once
             slug, unit, column, country_detail = _PAGES[material_key]
+            list_token = f"{material_key}--LIST"
+            if not country_detail and list_token in self.skip_tokens:
+                continue      # whole material journaled before the pause
             url = f"{base}/{slug}/"
             # The PARSE belongs inside the guard too: a layout drift on one fuel
             # page must not discard the four sibling pages already parsed (Q3).
@@ -229,6 +243,7 @@ class GlobalPetrolPricesConnector:
                 raise
             except Exception as exc:  # noqa: BLE001 — one page down never kills the crawl
                 page_errors.append(f"{material_key}: {exc}")
+                failures += 1
                 continue
 
             # For a material WITH country detail, the list page is the FRONTIER
@@ -239,6 +254,7 @@ class GlobalPetrolPricesConnector:
             # the record, honestly marked price_basis='converted'.
             links = parse_country_links(html) if country_detail else {}
 
+            list_rows: list[list[str]] = []
             for country, price in pairs:
                 region = _region(country)
                 if region is None:
@@ -254,8 +270,12 @@ class GlobalPetrolPricesConnector:
                     # converted figure is all there is, and the row says so.
                     row = _row(builder, material_key, region, price, currency, unit, vat)
                     if row is not None:
-                        rows.append(row)
+                        list_rows.append(row)
                     continue
+
+                token = f"{material_key}--{region}"
+                if token in self.skip_tokens:
+                    continue  # this page is already in the journal — never refetched
 
                 # NO converted fallback for a fuel country whose page fails.
                 # Currency is excluded from offer identity and the canonical
@@ -269,26 +289,55 @@ class GlobalPetrolPricesConnector:
                 except CrawlBlocked:
                     raise
                 except Exception as exc:  # noqa: BLE001 — isolate per country
+                    # Deliberately NOT tokenized: a page that FAILED must be
+                    # retried on resume, unlike one that answered "nothing".
                     page_errors.append(f"{material_key}/{region}: {exc}")
+                    failures += 1
                     continue
                 if not (detail.price and detail.currency):
-                    page_errors.append(
-                        f"{material_key}/{region}: country page published no "
-                        "local price — no row this week (never the conversion)")
+                    failures += 1
+                    # An EMPTY tokenized table: the warning needs a carrier and
+                    # the checkpoint needs the token — this week's page answered
+                    # "nothing", and re-asking on resume would not change that.
+                    yield ScrapedTable(
+                        source.source_key, COMMODITY_PRICE.kind, base + href,
+                        builder.header, [],
+                        warnings=[f"{material_key}/{region}: country page "
+                                  "published no local price — no row this week "
+                                  "(never the conversion)"],
+                        page_token=token)
                     continue
-                rows.extend(country_rows(builder, material_key, region, detail,
-                                         currency, unit, vat, today))
-
+                crows = country_rows(builder, material_key, region, detail,
+                                     currency, unit, vat, today)
+                notes: list[str] = []
                 if self._history:
-                    rows.extend(self._history_rows(
+                    crows.extend(self._history_rows(
                         builder, material_key, region, detail, base, href,
-                        currency, unit, vat, page_errors))
+                        currency, unit, vat, notes))
+                emitted = emitted or bool(crows)
+                yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind,
+                                   base + href, builder.header, crows,
+                                   warnings=notes, page_token=token)
+
+            if not country_detail:
+                emitted = emitted or bool(list_rows)
+                yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, url,
+                                   builder.header, list_rows,
+                                   page_token=list_token)
+            elif list_rows:
+                # Labels the list page did not link: the converted figures are
+                # all there is. No token — the resume refetches the list page
+                # anyway (it needs the links), and these re-parse from it.
+                emitted = True
+                yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, url,
+                                   builder.header, list_rows)
 
         # A total layout change still fails LOUD (Q4) — but only when nothing at
-        # all could be parsed, never when some pages succeeded.
-        if page_errors and not rows:
+        # all could be parsed, never when some pages succeeded, and never on a
+        # resume (the journaled pages already succeeded before the pause).
+        if failures and not emitted and not self.skip_tokens:
             raise ValueError("every contracted GPP page failed: " + "; ".join(page_errors))
-        return self._finish(source, base, builder, rows, page_errors, unmapped)
+        yield from self._finish(source, base, builder, page_errors, unmapped)
 
     def _history_rows(self, builder: RowBuilder, material_key: str, region: str,
                       detail: "CountryPrice", base: str, href: str,
@@ -345,16 +394,20 @@ class GlobalPetrolPricesConnector:
         return out
 
     def _finish(self, source: SourceEntry, base: str, builder: RowBuilder,
-                rows: list[list[str]], page_errors: list[str],
+                page_errors: list[str],
                 unmapped: set[str]) -> Iterable[ScrapedTable]:
+        """The run-level summary table: no rows, no token, only warnings.
 
+        Untokenized ON PURPOSE — its content is derived from this run's
+        failures and list parses, all of which a resume regenerates."""
         warnings = list(page_errors)
         if unmapped:
             warnings.append(
                 f"{len(unmapped)} country label(s) could not be mapped to an ISO "
                 f"code and their prices were dropped: {', '.join(sorted(unmapped))}")
-        yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, base,
-                           builder.header, rows, warnings=warnings)
+        if warnings:
+            yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, base,
+                               builder.header, [], warnings=warnings)
 
 
 def _row(builder: RowBuilder, material_key: str, region: str, price: str,

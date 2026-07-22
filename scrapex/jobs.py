@@ -246,13 +246,18 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                 append_log(conn, job_id, f"archived {archived} products before rebuild",
                            source_key=source_key)
             previous = previous_rows_seen(conn, source_key)
-            # The keyword travels only when the mode asks for it, so every
+            # Keywords travel only when the situation asks for them, so every
             # existing capture fake with the plain (conn, entry, job_id)
-            # signature keeps working untouched.
+            # signature keeps working untouched. `resume` fires for exactly
+            # the source a pause interrupted MID-fetch: its journaled pages
+            # are still on disk and the connector may skip them.
+            extras: dict = {}
             if job["run_mode"] == RunMode.HISTORY_BACKFILL.value:
-                result = capture(conn, entry, job_id, history=True)
-            else:
-                result = capture(conn, entry, job_id)
+                extras["history"] = True
+            if checkpoint.get("partial_source") == source_key:
+                extras["resume"] = True
+            result = (capture(conn, entry, job_id, **extras) if extras
+                      else capture(conn, entry, job_id))
             _merge_counters(counters, result)
             append_log(conn, job_id,
                        f"{result.ingest.observations} observations, "
@@ -297,19 +302,39 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                 append_log(conn, job_id, breach, level=LogLevel.WARNING, source_key=source_key)
         except CrawlInterrupted as stop:
             # The owner pressed the brakes MID-FETCH. Nothing was ingested for
-            # this source (fetch aborts before ingest), so on resume it simply
-            # restarts from the top — the fetch is idempotent and ingest
-            # dedupes. Say all of that rather than leaving a half-source to be
-            # guessed about.
-            append_log(conn, job_id,
-                       f"{stop.control} honoured mid-fetch — nothing from this "
-                       "source was ingested; it restarts from the top if resumed",
-                       source_key=source_key)
+            # this source (fetch aborts before ingest), but every fetched page
+            # is already in the job journal — a pause keeps it and marks this
+            # source in the checkpoint so the resume skips those pages; a
+            # cancel abandons the source and discards the journal, which would
+            # otherwise sit as stale state for a future job to trip over.
+            from . import localinbox
+            kept = len(localinbox.list_tokens(localinbox.JOURNAL_DIR, source_key))
             if stop.control == JobControl.CANCEL.value:
+                localinbox.clear(localinbox.JOURNAL_DIR, source_key)
+                append_log(conn, job_id,
+                           "cancel honoured mid-fetch — nothing from this source "
+                           "was ingested and the partial fetch was discarded",
+                           source_key=source_key)
                 _finish(conn, job_id, JobStatus.CANCELLED, None)
             else:
+                if kept:
+                    append_log(conn, job_id,
+                               f"pause honoured mid-fetch — {kept} fetched "
+                               "page(s) kept; resume continues with the "
+                               "remaining pages",
+                               source_key=source_key)
+                else:
+                    append_log(conn, job_id,
+                               "pause honoured mid-fetch — nothing from this "
+                               "source was ingested; it restarts from the top "
+                               "if resumed",
+                               source_key=source_key)
                 _update(conn, job_id, status=JobStatus.PAUSED.value,
                         control=JobControl.NONE.value, stage=None,
+                        checkpoint_json=json.dumps(
+                            {"completed_source_keys": done, "errors": errors,
+                             "succeeded": succeeded,
+                             "partial_source": source_key}),
                         last_heartbeat_at=utc_now_iso())
             conn.commit()
             return get_job(conn, job_ref)

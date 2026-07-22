@@ -121,7 +121,7 @@ class CaptureResult:
 def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                    job_id: int | None = None,
                    lock: Callable[[], AbstractContextManager] | None = None,
-                   history: bool = False) -> CaptureResult:
+                   history: bool = False, resume: bool = False) -> CaptureResult:
     """Fetch a source via its connector and ingest straight into harvest.db.
 
     `lock` (when given) wraps ONLY the ingest write. Holding the process-wide DB
@@ -130,7 +130,16 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
     a column, saving a view) is refused. The fetch touches no database at all, so
     it has no business holding a database lock.
 
+    A JOB capture journals every yielded table to disk as it arrives, so a
+    pause or crash at page 399 of 400 loses nothing: `resume=True` (passed by
+    the job loop only for the exact source that was paused mid-fetch) reuses
+    the journal and hands the connector the tokens it may skip. The journal is
+    a separate dir from the CLI inbox — a job clearing its own state must
+    never touch payloads the owner crawled and has not ingested yet.
+
     Connector/network errors propagate; per-row data errors are isolated (Q3)."""
+    from . import localinbox
+
     connector, fetcher = build_connector(entry, crawl_settings(conn))
     if history:
         # The panel gates this per source, but a job is data and data can be
@@ -143,6 +152,24 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                 f"history backfill is not supported for family "
                 f"{entry.family.value!r}")
         connector._history = True
+    journal = job_id is not None
+    if journal:
+        if resume:
+            # Untokenized entries (summary tables, list rows) are re-emitted
+            # by the re-run; keeping the paused attempt's copies would ingest
+            # them twice. Tokenized pages are the whole point: kept, skipped.
+            localinbox.clear_untokenized(localinbox.JOURNAL_DIR, entry.source_key)
+            tokens = localinbox.list_tokens(localinbox.JOURNAL_DIR, entry.source_key)
+            if tokens and hasattr(connector, "skip_tokens"):
+                connector.skip_tokens = tokens
+            elif tokens:
+                # A connector that cannot skip cannot resume: refetching whole
+                # while keeping the journal would double-ingest every page.
+                localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
+        else:
+            # Stale journal from a cancelled or crashed earlier job: pages
+            # fetched on a DIFFERENT day must never mix into this crawl.
+            localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
     if job_id is not None and hasattr(fetcher, "on_request"):
         # A long single-source fetch was INVISIBLE: the job's progress unit is
         # sources, so a 450-page country crawl sat at "0/1, 0 requests" with a
@@ -150,16 +177,53 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         # hang. The fetch holds no lock (see above), so these tiny job-row
         # writes are exactly the kind the lock design set out to keep flowing.
         fetcher.on_request = _job_progress(conn, job_id, entry.source_key)
+    tables: list = []
     try:
-        tables = list(connector.fetch(entry))       # network only — no DB involved
+        for t in connector.fetch(entry):            # network only — no DB involved
+            tables.append(t)
+            if journal:
+                # Journal AS FETCHED, not after: the whole point is surviving
+                # an interruption between here and the ingest.
+                localinbox.write_payload(localinbox.JOURNAL_DIR, t.to_payload(),
+                                         token=t.page_token)
         requests_count = fetcher.requests_count
+    except Exception as exc:
+        from .connectors.base import CrawlInterrupted
+        if journal and isinstance(exc, CrawlInterrupted):
+            # The journaled pages survive, but their warnings live only in
+            # memory (the payload contract carries none) — flush them to the
+            # job log now or the resume silently forgets e.g. which countries
+            # published nothing this week.
+            notes = ([w for t in tables for w in t.warnings]
+                     + list(getattr(fetcher, "robots_warnings", []) or []))
+            if notes:
+                from .jobs import append_log
+                from .vocab import LogLevel
+                for w in notes[:12]:
+                    append_log(conn, job_id, f"warning: {w}",
+                               level=LogLevel.WARNING, source_key=entry.source_key)
+                if len(notes) > 12:
+                    append_log(conn, job_id,
+                               f"...and {len(notes) - 12} more warning(s) from "
+                               "the interrupted fetch",
+                               level=LogLevel.WARNING, source_key=entry.source_key)
+        raise
     finally:
         fetcher.close()
-    payloads = [t.to_payload() for t in tables]
+    if journal:
+        # The journal holds this run's pages PLUS any kept from before the
+        # pause — reading it back is what makes the resumed ingest whole.
+        payloads = localinbox.read_payloads(localinbox.JOURNAL_DIR, entry.source_key)
+    else:
+        payloads = [t.to_payload() for t in tables]
     with (lock() if lock is not None else nullcontext()):
         _refuse_if_superseded(conn)
         result = ingest_payloads(conn, entry, payloads, job_id=job_id)
+    if journal:
+        localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
+    # rows/tables come from the PAYLOADS: on a resume the fetched tables are
+    # only the tail of the crawl, and the F6 volume canary must see the whole.
     return CaptureResult(ingest=result, requests_count=requests_count,
-                         tables=len(tables), rows=sum(len(t.rows) for t in tables),
+                         tables=len(payloads), rows=sum(len(p.rows) for p in payloads),
                          warnings=[w for t in tables for w in t.warnings]
                          + list(getattr(fetcher, "robots_warnings", []) or []))
