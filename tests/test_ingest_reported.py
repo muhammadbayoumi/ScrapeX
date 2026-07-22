@@ -468,3 +468,93 @@ def test_the_latest_pick_runs_on_the_index_not_a_sort(conn):
         f"EXPLAIN QUERY PLAN SELECT COUNT(*) {_LATEST_PER_OFFER}", ("GPP_ENERGY",)))
     assert "ix_price_obs_provenance" in plan, plan
     assert "USE TEMP B-TREE" not in plan, f"the pick sorts again:\n{plan}"
+
+
+# ---- change-only backfill + the publisher's implied rates --------------------
+
+def test_the_backfill_stores_change_points_not_weekly_repeats(conn):
+    """Owner rule extended to the backfill: a fixed price repeated weekly for
+    years says ONE thing. First point + each change carries it all — between
+    two kept points the price held, by construction. Egypt diesel measured
+    522 stored points holding 13 distinct levels before this."""
+    from datetime import date
+
+    from scrapex.connectors.gpp import GlobalPetrolPricesConnector
+    from scrapex.rowspec import COMMODITY_PRICE, RowBuilder, RowView
+
+    class _F:
+        requests_count = 0
+        def get(self, url, **kw):
+            class R:
+                status_code = 200
+                text = ('<script>data.addRows(['
+                        "[' يوم 01 شهر 08 سنة 2016',1.8],"
+                        "[' يوم 08 شهر 08 سنة 2016',1.8],"
+                        "[' يوم 15 شهر 08 سنة 2016',1.8],"
+                        "[' يوم 22 شهر 08 سنة 2016',2.1],"
+                        "[' يوم 29 شهر 08 سنة 2016',2.1],"
+                        "[' يوم 05 شهر 09 سنة 2016',20.5]]);</script>")
+                headers = {}
+            self.requests_count += 1
+            return R()
+        def close(self): pass
+
+    from scrapex.connectors.gpp import CountryPrice
+    connector = GlobalPetrolPricesConnector(_F(), history=True)
+    builder = RowBuilder(COMMODITY_PRICE)
+    detail = CountryPrice(price="20.5", currency="EGP", unit="liter")
+    rows = connector._history_rows(builder, "DIESEL", "EG", detail,
+                                   "https://www.globalpetrolprices.com",
+                                   "/Egypt/diesel_prices/", "EGP", "liter", "1", [])
+    view = RowView(COMMODITY_PRICE, builder.header)
+    kept = [(view.as_dict(r)["as_of_date"], view.as_dict(r)["effective_price"])
+            for r in rows]
+    assert kept == [("2016-08-01", "1.8"), ("2016-08-22", "2.1"),
+                    ("2016-09-05", "20.5")], kept
+
+
+def test_the_publishers_implied_rate_is_recorded_and_feeds_the_usd_column(conn):
+    """Egypt's 20.50 EGP beside the site's 0.40 USD implies 1 USD = 51.25 EGP
+    — the publisher's own arithmetic, read not asserted. It lands in
+    currency_rate and the Data page's USD column uses it, making 128
+    currencies rankable in one column."""
+    from scrapex.reports import table_payload
+
+    ingest_payloads(conn, _entry(), [_payload([
+        dict(effective_price="20.50", original_price="20.50",
+             converted_usd_price="0.40", source_date="2026-07-13"),
+    ])])
+
+    rate = conn.execute("SELECT currency, per_usd, as_of FROM currency_rate").fetchone()
+    assert rate["currency"] == "EGP"
+    assert abs(rate["per_usd"] - 51.25) < 1e-9
+    assert rate["as_of"] == "2026-07-13"
+
+    grid = table_payload(conn, "GPP_ENERGY")
+    row = grid["rows"][0]
+    assert row["usd_price"] == "0.40", row["usd_price"]
+
+
+def test_previous_and_change_read_the_move_before_the_current_price(conn):
+    """The Data page's Previous/Change columns and the Changes page's table
+    answer the same question: what did the price move FROM, and by how much —
+    not since the dawn of history."""
+    from scrapex.reports import price_extremes, table_payload
+
+    ingest_payloads(conn, _entry(), [_payload([
+        dict(effective_price="20.50"),
+        dict(effective_price="15.50", provenance="reported", as_of_date="2025-07-21"),
+        dict(effective_price="10.00", provenance="reported", as_of_date="2016-08-01"),
+    ])])
+
+    row = table_payload(conn, "GPP_ENERGY")["rows"][0]
+    assert row["previous_price"] == 15.5
+    assert row["price_change"] == "+5.00 (+32.3%)"
+    assert row["min_price"] == 10.0 and row["max_price"] == 20.5
+    assert row["observations"] == 3
+
+    ext = price_extremes(conn, "GPP_ENERGY")[0]
+    assert ext["first_price"] == 10.0        # context: the earliest known
+    assert ext["previous_price"] == 15.5
+    assert ext["current_price"] == 20.5
+    assert ext["change_pct"] == 32.26 or abs(ext["change_pct"] - 32.26) < 0.05

@@ -325,8 +325,19 @@ class GlobalPetrolPricesConnector:
                 f"{points[-1][1]!r} but the page publishes {detail.price!r} — "
                 "cannot prove the currency; series skipped, not guessed")
             return []
+        # CHANGE POINTS ONLY (owner rule: history is real changes, and the
+        # backfill must follow it too). The site samples weekly, so a fixed
+        # price repeats for years — Egypt diesel was 522 stored points holding
+        # 13 distinct price levels. The first point and each point whose price
+        # differs from the one before it carry ALL the information: between
+        # two kept points the price held, by construction. Measured across the
+        # whole backfill this drops 135,774 rows to 59,541.
         out: list[list[str]] = []
+        previous_value: str | None = None
         for as_of, value in points:
+            if previous_value is not None and value == previous_value:
+                continue
+            previous_value = value
             row = _row(builder, material_key, region, "", currency, unit, vat,
                        detail, as_of=as_of, provenance="reported", value=value)
             if row is not None:
@@ -378,6 +389,9 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
             source_date=country.source_date,
             price_basis="original",
         )
+        if provenance == "observed" and country.usd_price:
+            # Only the CURRENT price has the printed USD twin; anchors do not.
+            fields["converted_usd_price"] = country.usd_price
         if country.unit:
             fields["unit"] = country.unit
     if country:

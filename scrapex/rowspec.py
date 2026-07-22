@@ -149,13 +149,18 @@ COMMODITY_PRICE = RowSpec(
         # optional and an empty value means "not stated" — never invented.
         "official_source_name",
         "official_source_url",
+        # The site's OWN USD conversion, printed beside the local price. Kept
+        # because the pair IMPLIES the exchange rate the publisher used —
+        # local/usd — which feeds currency_rate and the ranked USD column.
+        "converted_usd_price",
     ),
     required=frozenset({"material_key", "region", "currency", "effective_price"}),
     additive=frozenset({"original_price", "original_currency", "price_basis",
                         "geo_region", "consumer_segment",
                         "tax_evidence", "tax_statement_url",
                         "provenance", "as_of_date", "source_date",
-                        "official_source_name", "official_source_url"}),
+                        "official_source_name", "official_source_url",
+                        "converted_usd_price"}),
 )
 
 _BY_KIND = {spec.kind: spec for spec in (PRODUCT_PRICES, COMMODITY_PRICE, ENRICHMENT)}

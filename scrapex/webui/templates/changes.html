@@ -54,14 +54,15 @@
   <p class="muted" style="font-size:.85rem">First, current, minimum and maximum — computed from
     our own append-only observations.</p>
   <div class="tablewrap"><table>
-    <thead><tr><th>Record</th><th>Country</th><th>First</th><th>Current</th>
-      <th>Min</th><th>Max</th><th>Change</th><th>Observations</th></tr></thead>
+    <thead><tr><th>Record</th><th>Country</th><th>First</th><th>Previous</th>
+      <th>Current</th><th>Min</th><th>Max</th><th>Change</th><th>Observations</th></tr></thead>
     <tbody>
     {% for e in extremes %}
       <tr>
         <td dir="auto">{{ e.source_name }}</td>
         <td>{{ e.region_name or e.region or "—" }}</td>
         <td class="num">{{ "%g"|format(e.first_price) }}</td>
+        <td class="num">{% if e.previous_price is not none %}{{ "%g"|format(e.previous_price) }}{% else %}—{% endif %}</td>
         <td class="num price">{{ "%g"|format(e.current_price) }} {{ e.currency }}</td>
         <td class="num">{{ "%g"|format(e.min_price) }}</td>
         <td class="num">{{ "%g"|format(e.max_price) }}</td>

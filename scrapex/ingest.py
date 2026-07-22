@@ -572,8 +572,37 @@ def _ingest_commodity_row(conn, entry, source_id, run_id, c, observed_at,
         result.rejected_out_of_scope += 1
         result.errors.append(f"out of scope: {reason}")
         return
+    _record_implied_rate(conn, entry, c)
     _persist_row(conn, source_id, run_id, _commodity_to_product_row(c), observed_at,
                  result, job_id)
+
+
+def _record_implied_rate(conn, entry, c: dict) -> None:
+    """The exchange rate the PUBLISHER used, read off the row's own pair.
+
+    A row carrying the local price and the site's printed USD conversion
+    implies the rate between them — Egypt's 20.50 EGP beside 0.40 USD says
+    1 USD = 51.25 EGP, in the site's own arithmetic. Recorded per (currency,
+    day, source) so the Data page can rank 128 currencies in one USD column;
+    never asserted where the pair is absent, and never for a USD row (a rate
+    of 1 is noise). Isolated: a malformed pair must not cost the price row.
+    """
+    try:
+        currency = (c.get("currency") or "").upper()
+        local = float(c.get("original_price") or 0)
+        usd = float(c.get("converted_usd_price") or 0)
+        if not currency or currency == "USD" or local <= 0 or usd <= 0:
+            return
+        from datetime import date as _date
+        as_of = (c.get("source_date") or "").strip() or _date.today().isoformat()
+        conn.execute(
+            "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
+            "VALUES (?,?,?,?) "
+            "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "
+            "  per_usd = excluded.per_usd",
+            (currency, local / usd, as_of, entry.source_key))
+    except (ValueError, TypeError, sqlite3.DatabaseError):
+        pass
 
 
 def _commodity_to_product_row(c: dict) -> dict:

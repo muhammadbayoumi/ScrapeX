@@ -165,6 +165,44 @@ def _discount_text(regular, effective) -> str:
     return f"{saved:+.2f} ({saved / float(regular) * 100:+.1f}%)"
 
 
+def _change_text(previous, current) -> str:
+    """The move from the PREVIOUS price to the current one: "+5.00 (+32.3%)".
+
+    Previous means the last value that DIFFERED — with change-only history the
+    point immediately before the current price took hold. Empty when the offer
+    has never moved: a zero would claim "checked, no move" in ink on every
+    static row."""
+    try:
+        before, now = float(previous), float(current)
+    except (TypeError, ValueError):
+        return ""
+    if not before:
+        return ""
+    return f"{now - before:+.2f} ({(now - before) / before * 100:+.1f}%)"
+
+
+def _usd_value(amount, currency, per_usd) -> str:
+    """The price in dollars via the publisher's own implied rate, or "".
+
+    Approximate by construction (the rate is the source's arithmetic, sampled
+    at crawl time) and exists to make 128 currencies RANKABLE in one column.
+    A USD row passes through unchanged; an unknown currency stays empty rather
+    than pretending."""
+    try:
+        value = float(amount)
+    except (TypeError, ValueError):
+        return ""
+    if (currency or "").upper() == "USD":
+        return f"{value:.2f}"
+    try:
+        rate = float(per_usd)
+    except (TypeError, ValueError):
+        return ""
+    if rate <= 0:
+        return ""
+    return f"{value / rate:.2f}"
+
+
 def region_name(region: str | None) -> str:
     """ISO alpha-2 -> English country name, for display only.
 
@@ -403,6 +441,10 @@ def history_counts(conn: sqlite3.Connection, offer_ids: list[int]) -> dict[int, 
 # "business_date" beside "price_changed_on" — and dataset_field then held two
 # names for the same fact, so the manage list showed each column twice and
 # hiding one did not hide the other. One vocabulary, one list, one meaning.
+# Logical order (owner's ruling): identity -> classification -> the price
+# block -> its history -> operational meta. The history block answers, left to
+# right, "what is it now, what would that be in dollars, what was it before,
+# how did it move, and what range has it lived in".
 BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("product_name", "Record"),
     ("region", "Country"),
@@ -411,11 +453,21 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("option_label", "Variant"),
     ("sku", "SKU"),
     ("effective_price", "Price"),
+    # Derived from currency_rate (the publisher's own implied rates) so 128
+    # currencies can be RANKED in one column. Approximate by nature and
+    # labelled so.
+    ("usd_price", "USD est."),
+    # The price that held immediately before the current one, and the move
+    # between them. Different questions from the DISCOUNT (which is within
+    # one listing, was -> sale) — this is across TIME.
+    ("previous_price", "Previous"),
+    ("price_change", "Change"),
+    ("min_price", "Min"),
+    ("max_price", "Max"),
+    ("observations", "Observations"),
     # The pre-discount price rides INSIDE the price cell, struck through beside
     # the current one (the owner's asked-for shape) — a separate Was column
-    # would state the same number twice. The computed discount keeps its own
-    # column: how much and what percent is a different question from what the
-    # price was.
+    # would state the same number twice.
     ("discount", "Discount"),
     ("unit", "Unit"),
     ("availability", "Status"),
@@ -476,6 +528,28 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         present.discard("details")
     if not details[1]:
         present.discard("category")
+    history = conn.execute(
+        "SELECT MAX(n), MAX(distinct_prices) FROM ("
+        "  SELECT COUNT(*) AS n, COUNT(DISTINCT po.effective_price) AS distinct_prices "
+        "  FROM price_observation po "
+        "  JOIN source_offer so ON so.offer_id = po.offer_id "
+        "  JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+        "  JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+        "  JOIN source_site ss ON ss.source_id = sp.source_id "
+        "  WHERE ss.source_key = ? GROUP BY po.offer_id)", (source_key,)).fetchone()
+    if not history[0] or history[0] < 2:
+        # One observation per offer: nothing to call Min/Max/Previous.
+        for column in ("previous_price", "price_change", "min_price",
+                       "max_price", "observations"):
+            present.discard(column)
+    elif not history[1] or history[1] < 2:
+        # Rows exist but every price identical — a range of one number.
+        present.discard("previous_price")
+        present.discard("price_change")
+    rate_known = conn.execute(
+        "SELECT COUNT(*) FROM currency_rate").fetchone()[0]
+    if not rate_known:
+        present.discard("usd_price")
     return present
 
 
@@ -585,7 +659,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
     #   current = what we last SAW: observed outranks reported, then newest
     #             business_date — identical to the Data page's rule.
     rows = conn.execute(
-        "SELECT sp.source_name, so.region, po.currency, "
+        "SELECT sp.source_name, so.region, po.currency, so.offer_id, "
         "       MIN(po.effective_price) AS min_price, MAX(po.effective_price) AS max_price, "
         "       COUNT(*) AS observations, "
         "       (SELECT p2.effective_price FROM price_observation p2 WHERE p2.offer_id = so.offer_id "
@@ -607,13 +681,39 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, max(1, min(limit, 2000))),
     ).fetchall()
+    previous_by_offer = {
+        r2[0]: r2[1] for r2 in conn.execute(
+            "SELECT so.offer_id, "
+            "  (SELECT ph.effective_price FROM price_observation ph "
+            "   WHERE ph.offer_id = so.offer_id AND ph.effective_price != ("
+            "     SELECT COALESCE("
+            "      (SELECT c1.effective_price FROM price_observation c1 "
+            "       WHERE c1.offer_id = so.offer_id AND c1.provenance = 'observed' "
+            "       ORDER BY c1.business_date DESC, c1.price_observation_id DESC LIMIT 1), "
+            "      (SELECT c2.effective_price FROM price_observation c2 "
+            "       WHERE c2.offer_id = so.offer_id AND c2.provenance = 'reported' "
+            "       ORDER BY c2.business_date DESC, c2.price_observation_id DESC LIMIT 1))) "
+            "   ORDER BY ph.business_date DESC, ph.price_observation_id DESC LIMIT 1) "
+            "FROM source_offer so "
+            "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+            "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ?", (source_key,))}
     out = []
     for r in rows:
         item = dict(r)
         item["region_name"] = region_name(item["region"])
         first, current = item["first_price"], item["current_price"]
-        item["change_abs"] = None if first is None else round(current - first, 6)
-        item["change_pct"] = (None if not first else round((current - first) / first * 100, 2))
+        # The Change column now answers the owner's question — the move from
+        # the PREVIOUS price to the current one, not from the dawn of history.
+        # First stays as context; with change-only storage, previous is the
+        # point immediately before the current price took hold.
+        previous = previous_by_offer.get(item.get("offer_id"))
+        item["previous_price"] = previous
+        item["change_abs"] = (None if previous is None
+                              else round(current - previous, 6))
+        item["change_pct"] = (None if not previous
+                              else round((current - previous) / previous * 100, 2))
         out.append(item)
     return out
 
@@ -806,6 +906,20 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         "       po.official_source_name, po.official_source_url, sp.brand_raw, "
+        "       (SELECT COUNT(*) FROM price_observation ph "
+        "        WHERE ph.offer_id = so.offer_id) AS observations, "
+        "       (SELECT MIN(ph2.effective_price) FROM price_observation ph2 "
+        "        WHERE ph2.offer_id = so.offer_id) AS min_price, "
+        "       (SELECT MAX(ph3.effective_price) FROM price_observation ph3 "
+        "        WHERE ph3.offer_id = so.offer_id) AS max_price, "
+        "       (SELECT ph4.effective_price FROM price_observation ph4 "
+        "        WHERE ph4.offer_id = so.offer_id "
+        "        AND ph4.effective_price != po.effective_price "
+        "        ORDER BY ph4.business_date DESC, ph4.price_observation_id DESC "
+        "        LIMIT 1) AS previous_price, "
+        "       (SELECT cr.per_usd FROM currency_rate cr "
+        "        WHERE cr.currency = po.currency "
+        "        ORDER BY cr.as_of DESC LIMIT 1) AS per_usd, "
         "       (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
         "        WHERE spa.source_product_id = sp.source_product_id "
         "        AND spa.attribute_code = 'category') AS category, "
@@ -839,8 +953,14 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "official_source": r[16] or "",
                "official_source_url": r[17] or "",
                "brand": r[18] or "",
-               "category": r[19] or "",
-               "has_details": bool(r[20]),
+               "category": r[24] or "",
+               "has_details": bool(r[25]),
+               "observations": r[19],
+               "min_price": r[20],
+               "max_price": r[21],
+               "previous_price": r[22] if r[22] is not None else "",
+               "price_change": _change_text(r[22], r[3]),
+               "usd_price": _usd_value(r[3], r[6], r[23]),
                "was_price": r[4] if _discounted(r[4], r[3]) else "",
                "discount": _discount_text(r[4], r[3]),
                "tax_ref": tax_ref(r[11] or "", r[0] or "")}

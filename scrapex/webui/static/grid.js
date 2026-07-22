@@ -854,6 +854,27 @@
         return badge;
       };
     }
+    if (key === "usd_price" || key === "previous_price" ||
+        key === "min_price" || key === "max_price") {
+      return (cell) => {
+        const span = document.createElement("span");
+        span.dir = "ltr";
+        span.textContent = formatMoney(cell.getValue());
+        return span;
+      };
+    }
+    if (key === "price_change") {
+      return (cell) => {
+        const span = document.createElement("span");
+        span.dir = "ltr";
+        // Server-computed "+5.00 (+32.3%)" re-rendered in the shop's own
+        // number convention.
+        span.textContent = String(cell.getValue() || "").replace(
+          /-?\d+\.\d+/g, (m) => formatMoney(m)).replace(/\((.*)\)/,
+          (m, inner) => "(" + inner.replace(".", ",") + ")");
+        return span;
+      };
+    }
     if (key === "discount") {
       return (cell) => {
         const row = cell.getRow().getData();
@@ -962,8 +983,18 @@
       // Numbers and dates read right-aligned; text reads from its own side.
       if (col.key === "effective_price") def.hozAlign = "right";
       if (col.key === "price_changed_on" || col.key === "last_confirmed_on" ||
-          col.key === "was_price" || col.key === "discount") {
+          col.key === "was_price" || col.key === "discount" ||
+          col.key === "usd_price" || col.key === "previous_price" ||
+          col.key === "price_change" || col.key === "min_price" ||
+          col.key === "max_price" || col.key === "observations") {
         def.hozAlign = "right";
+      }
+      // Numeric sort for the ranking columns: a string sort would put 9 above
+      // 11 and defeat the whole point of the USD column.
+      if (col.key === "usd_price" || col.key === "previous_price" ||
+          col.key === "min_price" || col.key === "max_price" ||
+          col.key === "observations") {
+        def.sorter = "number";
       }
       if (col.key === "details") {
         // An action, not data: nothing to sort, filter, menu or export.
