@@ -257,3 +257,67 @@ def test_frozen_entry_defaults_to_the_native_host():
 def test_manifest_path_is_per_platform(monkeypatch, tmp_path):
     assert manifest_path("linux").name == f"{HOST_NAME}.json"
     assert manifest_path("win32") != manifest_path("darwin")
+
+
+# ---- START_ENGINE: the button that removes the terminal ----------------------
+#
+# The panel is a page and the engine is a local server; a page cannot start a
+# process, but Chrome starts THIS host on demand — so the host is the hand that
+# reaches the machine. These drive the command through handle() and pin its
+# honesty: probe-based idempotence, and a reply that never claims more than a
+# probe confirmed.
+
+def test_start_engine_does_not_spawn_when_the_port_already_answers(conn, monkeypatch):
+    from scrapex import native
+
+    spawned = []
+    monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
+
+    r = handle(conn, {"command": "START_ENGINE", "request_id": "s1"})
+
+    assert r["ok"] and r["already_running"] and r["confirmed"]
+    assert spawned == [], "a second engine was spawned onto an occupied port"
+    assert r["request_id"] == "s1"
+
+
+def test_start_engine_spawns_and_confirms_when_the_port_comes_up(conn, monkeypatch):
+    from scrapex import native
+
+    spawned = []
+    answers = iter([False, True])          # down at the probe, up after the spawn
+    monkeypatch.setattr(native, "_engine_listening", lambda port: next(answers))
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
+
+    r = handle(conn, {"command": "START_ENGINE"})
+
+    assert spawned == [native.DEFAULT_ENGINE_PORT]
+    assert r["ok"] and r["started"] and r["confirmed"]
+
+
+def test_start_engine_that_cannot_be_confirmed_says_so(conn, monkeypatch):
+    """The extension's transport allows 5 seconds; a cold interpreter can need
+    more. The reply must say confirmed=False rather than claim success — the
+    panel's polling is the source of truth, not the button."""
+    from scrapex import native
+
+    monkeypatch.setattr(native, "_engine_listening", lambda port: False)
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
+    monkeypatch.setattr(native, "_START_CONFIRM_BUDGET_S", 0.05)
+
+    r = handle(conn, {"command": "START_ENGINE"})
+
+    assert r["ok"] and r["started"]
+    assert r["confirmed"] is False
+
+
+def test_start_engine_honours_a_requested_port(conn, monkeypatch):
+    from scrapex import native
+
+    seen = []
+    monkeypatch.setattr(native, "_engine_listening", lambda port: (seen.append(port), True)[1])
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
+
+    r = handle(conn, {"command": "START_ENGINE", "port": 8077})
+
+    assert seen == [8077] and r["port"] == 8077

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import struct
 import sys
+from pathlib import Path
 from typing import BinaryIO
 
 from . import __version__, db as dbmod
@@ -108,6 +109,14 @@ def _dispatch(conn, command, message: dict, manifest) -> dict:
         return {"ok": True, "app": "scrapex", "app_version": __version__,
                 "protocol_version": PROTOCOL_VERSION}
 
+    if command == "START_ENGINE":
+        # The one thing only THIS process can do for the extension. The panel
+        # is a page and the engine is a local server: a page cannot start a
+        # process, but Chrome starts this host on demand — so the host is the
+        # hand that reaches the machine. Without this the owner opens a
+        # terminal every session, which is the exact friction being removed.
+        return start_engine(message)
+
     if command == "GET_STATUS":
         active = list_jobs(conn, limit=5, active_only=True)
         return {"ok": True, "app_version": __version__,
@@ -195,6 +204,75 @@ def _dispatch(conn, command, message: dict, manifest) -> dict:
                 "changes": recent_changes(conn, source_key, limit=_page_size(message))}
 
     return _error("unknown_command", f"unknown command {command!r}")
+
+
+# How long START_ENGINE waits to CONFIRM the port answers before replying.
+# The extension's transport gives the whole exchange 5 seconds, so the host
+# must answer inside that; an engine that needs longer still comes up — the
+# reply just says confirmed=False and the panel's normal polling finds it.
+_START_CONFIRM_BUDGET_S = 3.5
+
+DEFAULT_ENGINE_PORT = 8000
+
+
+def _engine_listening(port: int) -> bool:
+    import socket
+
+    with socket.socket() as probe:
+        probe.settimeout(0.4)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _spawn_engine(port: int) -> None:
+    """The engine, detached: it must OUTLIVE this host by design.
+
+    Chrome tears the stdio host down right after the reply, so the engine is
+    started as its own process group with no console. pythonw where it exists,
+    because python.exe would flash a console window at the owner on every
+    start. Output goes to ~/.scrapex/engine.log — a detached process with no
+    log is undiagnosable the day it fails to come up.
+    """
+    import subprocess
+
+    interpreter = Path(sys.executable)
+    windowless = interpreter.with_name("pythonw.exe")
+    runner = str(windowless if windowless.exists() else interpreter)
+    log_home = Path.home() / ".scrapex"
+    log_home.mkdir(parents=True, exist_ok=True)
+    log = open(log_home / "engine.log", "ab")
+    flags = 0
+    if sys.platform == "win32":
+        flags = (subprocess.DETACHED_PROCESS |
+                 subprocess.CREATE_NEW_PROCESS_GROUP)
+    subprocess.Popen(
+        [runner, "-m", "scrapex.cli", "ui", "--port", str(port)],
+        cwd=str(Path(__file__).resolve().parent.parent),
+        stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+        creationflags=flags)
+
+
+def start_engine(message: dict) -> dict:
+    """Start the local engine if it is not already answering.
+
+    Idempotent by probe, not by bookkeeping: the truth about "is the engine
+    up" is whether the port answers, so that is the only thing consulted —
+    a stale pidfile can lie, a listening socket cannot.
+    """
+    import time
+
+    port = int(message.get("port") or DEFAULT_ENGINE_PORT)
+    if _engine_listening(port):
+        return {"ok": True, "already_running": True, "confirmed": True, "port": port}
+    _spawn_engine(port)
+    deadline = time.monotonic() + _START_CONFIRM_BUDGET_S
+    while time.monotonic() < deadline:
+        if _engine_listening(port):
+            return {"ok": True, "started": True, "confirmed": True, "port": port}
+        time.sleep(0.25)
+    # Started but not yet answering — normal on a cold interpreter. Saying
+    # "confirmed": False is honest; claiming success would teach the owner to
+    # distrust the button the first slow morning.
+    return {"ok": True, "started": True, "confirmed": False, "port": port}
 
 
 def _job_brief(job: dict) -> dict:

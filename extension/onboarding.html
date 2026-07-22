@@ -62,10 +62,20 @@
         <p>A one-click installer is coming; for now this pip command installs the engine.</p>
       </div></div>
       <div class="step"><div class="n">3</div><div class="body">
+        <h3>Register the launcher <span class="note">once, ever</span></h3>
+        <div class="cmd-row"><span class="cmd" id="cmd-host">python -m scrapex.cli install-native-host --extension-id …</span>
+          <button class="ghost" data-copy="cmd-host">Copy</button></div>
+        <p>This teaches Chrome to start the engine itself. The command is already
+           filled in with this extension's id — copy it exactly as shown. After
+           this step, a terminal is never needed again.</p>
+      </div></div>
+      <div class="step"><div class="n">4</div><div class="body">
         <h3>Start the engine</h3>
-        <div class="cmd-row"><span class="cmd" id="cmd-run">scrapex ui</span>
-          <button class="ghost" data-copy="cmd-run">Copy</button></div>
-        <p>Leave it running. This page detects it automatically — no need to refresh.</p>
+        <p style="margin-bottom:8px"><button id="start-engine">Start engine</button>
+          <span class="note" id="start-note" role="status" aria-live="polite"></span></p>
+        <p>Or from a terminal, if the launcher is not registered yet:
+          <span class="cmd" id="cmd-run">python -m scrapex.cli ui</span>
+          <button class="ghost" data-copy="cmd-run">Copy</button></p>
       </div></div>
     </div>
     <div class="actions">

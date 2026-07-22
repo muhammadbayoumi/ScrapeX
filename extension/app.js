@@ -8,6 +8,7 @@
 // markup goes through esc(), and content spans use unicode-bidi:plaintext so
 // Arabic renders right-to-left without disturbing the English chrome around it.
 import { checkEngine, getBackend, setBackend } from "./engine.js";
+import { startEngine } from "./transport.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
@@ -736,6 +737,36 @@ async function loadCurrentSite() {
   } catch (_) { box.classList.add("hidden"); }
 }
 
+// ---- starting the engine from the panel -------------------------------------
+// The reply can be "started but not yet answering" (a cold interpreter), so the
+// button's promise is not the source of truth — the poll below is. The button
+// only ever claims what a probe confirmed.
+async function startEngineFromPanel() {
+  const button = $("engine-start");
+  const note = $("engine-note");
+  button.disabled = true;
+  button.textContent = "Starting…";
+  try {
+    await startEngine();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const engine = await checkEngine();
+      if (engine.running) { await render(); return; }
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+    note.textContent = "The engine was started but is not answering yet — " +
+      "give it a moment, then Check again.";
+  } catch (err) {
+    // The host being absent is the ONE expected failure: nothing is installed
+    // to do the starting. The truthful next step is the setup page, which
+    // walks through the one-time install of exactly that host.
+    note.textContent = "The launcher is not installed on this machine yet — " +
+      "open Setup below for the one-time install. Until then: scrapex ui in a terminal.";
+  } finally {
+    button.disabled = false;
+    button.textContent = "Start engine";
+  }
+}
+
 // ---- shell ------------------------------------------------------------------
 async function render() {
   const engine = await checkEngine();
@@ -773,6 +804,7 @@ async function init() {
   });
   $("recheck").addEventListener("click", render);
   $("setup-recheck").addEventListener("click", render);
+  $("engine-start").addEventListener("click", startEngineFromPanel);
   $("diagnostics").addEventListener("click", async () => {
     $("diag-out").textContent = "Running diagnostics…";
     const engine = await checkEngine();
