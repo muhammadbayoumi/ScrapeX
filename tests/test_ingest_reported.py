@@ -454,3 +454,17 @@ def test_a_schedule_for_an_inactive_source_rearms_without_firing(conn):
     conn.commit()
     fired = fire_due(conn, manifest=_Manifest(active=True))
     assert len(fired) == 1, "the active source's schedule did not fire"
+
+
+def test_the_latest_pick_runs_on_the_index_not_a_sort(conn):
+    """The ten-year backfill froze every page: the latest-per-offer subquery
+    ordered by an EXPRESSION no index serves, so 136k observations each paid a
+    ~500-row sort (measured live: 6.3s -> 0.06s after the rewrite). The plan
+    itself is pinned — a regression to a temp-sort shape is a performance
+    cliff waiting for the next backfill."""
+    from scrapex.reports import _LATEST_PER_OFFER
+
+    plan = "\n".join(r[3] for r in conn.execute(
+        f"EXPLAIN QUERY PLAN SELECT COUNT(*) {_LATEST_PER_OFFER}", ("GPP_ENERGY",)))
+    assert "ix_price_obs_provenance" in plan, plan
+    assert "USE TEMP B-TREE" not in plan, f"the pick sorts again:\n{plan}"

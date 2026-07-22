@@ -105,20 +105,23 @@ _LATEST_PER_OFFER = (
     # must read as "not stated" and must never suppress the row.
     "LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id "
     "WHERE ss.source_key = ? "
-    "AND po.price_observation_id = ("
-    "  SELECT po2.price_observation_id FROM price_observation po2 "
-    # The offer's face is what WE saw, newest first. Ordering by observed_at
-    # alone made the current price a lottery: one crawl stamps every row with
-    # the same timestamp — today's observed price AND the source's backfilled
-    # year-ago anchors — and the id tiebreak then crowned the LAST INSERT,
-    # which for GPP was the oldest anchor. Diesel showed 15.5 EGP dated
-    # 2025 while the source said 20.5 today. Reported rows are the source's
-    # dated claims about the PAST; they may only speak for an offer that has
-    # no observation at all, and then the newest-dated claim speaks.
-    "  WHERE po2.offer_id = po.offer_id "
-    "  ORDER BY (po2.provenance = 'observed') DESC, po2.business_date DESC, "
-    "           po2.price_observation_id DESC LIMIT 1)"
+    # The offer's face is what WE saw, newest first; a reported claim speaks
+    # only for an offer with no observation at all. TWO indexed probes rather
+    # than one expression-ordered subquery: ORDER BY (provenance='observed')
+    # DESC is un-indexable, and the ten-year backfill made that lethal — 136k
+    # observations x a ~500-row sort each froze every page for seconds
+    # (measured live: 6.3s -> 0.06s for the identical result set). Each probe
+    # is a seek on ix_price_obs_provenance (offer_id, provenance,
+    # business_date DESC).
+    "AND po.price_observation_id = COALESCE("
+    "  (SELECT p2.price_observation_id FROM price_observation p2 "
+    "   WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed' "
+    "   ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1), "
+    "  (SELECT p3.price_observation_id FROM price_observation p3 "
+    "   WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported' "
+    "   ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))"
 )
+
 
 
 def price_unit(unit_code: str | None, basis_quantity: float | None = 1) -> str:
@@ -587,9 +590,14 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "       COUNT(*) AS observations, "
         "       (SELECT p2.effective_price FROM price_observation p2 WHERE p2.offer_id = so.offer_id "
         "        ORDER BY p2.business_date, p2.price_observation_id LIMIT 1) AS first_price, "
-        "       (SELECT p3.effective_price FROM price_observation p3 WHERE p3.offer_id = so.offer_id "
-        "        ORDER BY (p3.provenance = 'observed') DESC, p3.business_date DESC, "
-        "                 p3.price_observation_id DESC LIMIT 1) AS current_price "
+        "       COALESCE("
+        "        (SELECT p3.effective_price FROM price_observation p3 "
+        "         WHERE p3.offer_id = so.offer_id AND p3.provenance = 'observed' "
+        "         ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1), "
+        "        (SELECT p4.effective_price FROM price_observation p4 "
+        "         WHERE p4.offer_id = so.offer_id AND p4.provenance = 'reported' "
+        "         ORDER BY p4.business_date DESC, p4.price_observation_id DESC LIMIT 1)"
+        "       ) AS current_price "
         "FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
