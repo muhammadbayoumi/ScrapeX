@@ -251,8 +251,11 @@ def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_pa
 
     grid = table_payload(conn, "SAMEHGABRIEL")
     keys = [c["key"] for c in grid["columns"]]
-    for key in ("brand", "category", "was_price", "discount", "details"):
+    for key in ("brand", "category", "discount", "details"):
         assert key in keys, f"{key} missing from the columns"
+    # was_price is NOT a column: it rides inside the price cell, struck
+    # through beside the current price (the owner's asked-for shape).
+    assert "was_price" not in keys
 
     row = next(r for r in grid["rows"] if r["discount"])
     assert row["brand"] == "السويدي اليكتريك"

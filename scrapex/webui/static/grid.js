@@ -22,6 +22,19 @@
 
   const SOURCE = mount.dataset.source;
   const text = (v) => (v === null || v === undefined) ? "" : String(v);
+  // Money in the shop's own convention — dot for thousands, comma for the
+  // decimals ("1.433,39"), exactly how samehgabriel itself prints "3,8
+  // كيلوجرام". Stored precision is PRESERVED, never padded or cut: GPP's
+  // 0.404 must stay "0,404" — rounding it to two places would re-lose the
+  // precision the local-currency work exists to keep.
+  function formatMoney(raw) {
+    const s = text(raw);
+    if (!s || isNaN(Number(s))) return s;
+    const negative = s.startsWith("-");
+    const parts = (negative ? s.slice(1) : s).split(".");
+    const grouped = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    return (negative ? "-" : "") + grouped + (parts[1] ? "," + parts[1] : "");
+  }
   const GRID_MIN_COLUMN_WIDTH = 128;
   // v2 intentionally forgets column widths and sort state saved by the older
   // grid. Those values could leave a header too narrow for its controls and a
@@ -427,7 +440,7 @@
         const box = document.createElement("span");
         const price = document.createElement("span");
         price.className = "price";
-        price.textContent = text(cell.getValue()) + " " + text(row.currency);
+        price.textContent = formatMoney(cell.getValue()) + " " + text(row.currency);
         box.append(price);
         // A price may lose its column but never its unit.
         if (row.unit) {
@@ -435,6 +448,17 @@
           per.className = "per";
           per.textContent = " / " + row.unit;
           box.append(per);
+        }
+        // The price before the discount, struck through beside the current one
+        // — the owner's asked-for shape. <s> is structural, so a screen reader
+        // announces it as deleted text rather than relying on the strike line.
+        if (row.was_price) {
+          const was = document.createElement("s");
+          was.className = "muted";
+          was.dir = "ltr";
+          was.textContent = " " + formatMoney(row.was_price) + " " + text(row.currency);
+          was.title = "Price before the discount";
+          box.append(was);
         }
         return box;
       };
@@ -462,6 +486,20 @@
         badge.textContent = value === "in_stock" ? "In stock"
                           : value === "out_of_stock" ? "Out of stock" : "Unknown";
         return badge;
+      };
+    }
+    if (key === "discount") {
+      return (cell) => {
+        const row = cell.getRow().getData();
+        const was = parseFloat(row.was_price);
+        const now = parseFloat(row.effective_price);
+        if (!isFinite(was) || !isFinite(now) || was <= now) return "";
+        const saved = now - was;
+        const span = document.createElement("span");
+        span.dir = "ltr";
+        span.textContent = formatMoney(saved.toFixed(2)) + " (" +
+          (saved / was * 100).toFixed(1).replace(".", ",") + "%)";
+        return span;
       };
     }
     if (key === "details") {
@@ -738,7 +776,7 @@
 
   function money(amount, currency, unit) {
     const span = el("span", "", amount == null || amount === "" ? "—"
-      : text(amount) + (currency ? " " + currency : "") + (unit ? " / " + unit : ""));
+      : formatMoney(amount) + (currency ? " " + currency : "") + (unit ? " / " + unit : ""));
     span.dir = "ltr";
     return span;
   }

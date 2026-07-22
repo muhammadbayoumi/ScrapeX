@@ -408,10 +408,11 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("option_label", "Variant"),
     ("sku", "SKU"),
     ("effective_price", "Price"),
-    # The price BEFORE the discount, and the discount itself, computed — the
-    # table showed the correct post-discount price and no sign a discount
-    # existed at all (owner's report).
-    ("was_price", "Was"),
+    # The pre-discount price rides INSIDE the price cell, struck through beside
+    # the current one (the owner's asked-for shape) — a separate Was column
+    # would state the same number twice. The computed discount keeps its own
+    # column: how much and what percent is a different question from what the
+    # price was.
     ("discount", "Discount"),
     ("unit", "Unit"),
     ("availability", "Status"),
@@ -458,8 +459,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
     for column, count in (("option_label", row[0]), ("sku", row[1]),
                           ("region", row[2]), ("unit", row[3]),
                           ("availability", row[4]), ("official_source", row[5]),
-                          ("brand", row[6]), ("was_price", row[7]),
-                          ("discount", row[7])):
+                          ("brand", row[6]), ("discount", row[7])):
         if not count:
             present.discard(column)
     details = conn.execute(
