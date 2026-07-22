@@ -97,20 +97,20 @@ def test_unknown_cannot_carry_a_statement():
 # ---- resolution ---------------------------------------------------------------
 
 def test_a_country_uses_its_own_rule_when_it_has_one():
-    rules = {"*": tax.TaxState("general", "incl", None, "", "u", "*"),
-             "EG": tax.TaxState("stated", "incl", 14.0, "", "u2", "EG")}
+    rules = {("*", "*"): tax.TaxState("general", "incl", None, "", "u", "*"),
+             ("EG", "*"): tax.TaxState("stated", "incl", 14.0, "", "u2", "EG")}
     assert tax.resolve(rules, "EG").rate_pct == 14.0
 
 
 def test_a_country_without_a_rule_falls_back_to_the_source_statement():
-    rules = {"*": tax.TaxState("general", "incl", None, "", "u", "*")}
+    rules = {("*", "*"): tax.TaxState("general", "incl", None, "", "u", "*")}
     assert tax.resolve(rules, "NO").evidence == "general"
 
 
 def test_one_country_never_inherits_another_countrys_rate():
     """Norway's VAT says nothing about Egypt's. With no wildcard rule and no
     rule of its own, the answer is "we do not know"."""
-    rules = {"NO": tax.TaxState("stated", "incl", 25.0, "", "u", "NO")}
+    rules = {("NO", "*"): tax.TaxState("stated", "incl", 25.0, "", "u", "NO")}
 
     resolved = tax.resolve(rules, "EG")
 
@@ -228,9 +228,122 @@ def test_gpp_records_the_real_statement_and_claims_no_rate():
 
     rules = load_manifest().get("GPP_ENERGY").tax
 
-    assert len(rules) == 1
-    rule = rules[0]
-    assert rule.evidence == "general"
-    assert rule.rate_pct is None, "a rate was invented for 169 countries"
-    assert rule.statement_url.startswith("https://www.globalpetrolprices.com")
-    assert "retail price" in rule.statement_text
+    # One rule per ENERGY TYPE that makes a statement; natural gas makes none
+    # and therefore has none. Every rule is 'general' with NO rate: if any
+    # gains a rate_pct, someone invented one for 169 countries.
+    assert {r.material for r in rules} == {
+        "DIESEL", "GASOLINE", "LPG", "ELECTRICITY", "ELECTRICITY_BUSINESS"}
+    for rule in rules:
+        assert rule.evidence == "general"
+        assert rule.rate_pct is None, "a rate was invented for 169 countries"
+        assert rule.statement_url.startswith("https://www.globalpetrolprices.com")
+        assert rule.statement_text
+    # Each fuel's link is ITS page, not diesel's — the owner's exact report.
+    by_material = {r.material: r.statement_url for r in rules}
+    assert by_material["GASOLINE"].endswith("/gasoline_prices/")
+    assert by_material["ELECTRICITY"].endswith("/electricity_prices/")
+
+
+# ---- per-material rules: the owner's "all links come from the diesel page" ---
+
+def _gpp_like_entry():
+    from scrapex.config import SourceEntry
+    return SourceEntry.model_validate(dict(
+        source_key="GPP_ENERGY", source_name="GPP",
+        base_url="https://www.globalpetrolprices.com", family="static-html-table",
+        cadence="weekly", authority="aggregator", currency="USD", vat_mode="incl",
+        extract=[{"kind": "commodity_price", "materials": ["DIESEL"], "regions": ["*"]}],
+        tax=[
+            dict(region="*", material="DIESEL", vat_mode="incl", evidence="general",
+                 statement_text="taxes and subsidies for diesel",
+                 statement_url="https://www.globalpetrolprices.com/diesel_prices/"),
+            dict(region="*", material="ELECTRICITY", vat_mode="incl", evidence="general",
+                 statement_text="Final retail prices with all taxes and fees included.",
+                 statement_url="https://www.globalpetrolprices.com/electricity_prices/"),
+        ],
+    ))
+
+
+def test_each_materials_rows_link_to_their_own_pages_statement(conn):
+    """Keyed by region alone, every energy type wore the diesel page's link —
+    gasoline, electricity and natural gas included. Each material now resolves
+    to ITS page, and a material with no statement resolves to Unverified
+    rather than borrowing diesel's."""
+    entry = _gpp_like_entry()
+    tax.upsert_rules(conn, entry)
+    rules = tax.load_rules(conn, "GPP_ENERGY")
+
+    diesel = tax.resolve(rules, "EG", material="DIESEL")
+    power = tax.resolve(rules, "EG", material="ELECTRICITY")
+    gas = tax.resolve(rules, "EG", material="NATURAL_GAS")
+
+    assert diesel.statement_url.endswith("/diesel_prices/")
+    assert power.statement_url.endswith("/electricity_prices/")
+    assert power.statement_text.startswith("Final retail prices")
+    assert gas.evidence == "unknown", "natural gas borrowed another page's evidence"
+    assert not gas.statement_url
+
+
+def test_a_source_wide_rule_still_covers_every_material(conn):
+    """Product sources declare no material; their single '*' rule must keep
+    answering for every row exactly as before this dimension existed."""
+    from scrapex.config import SourceEntry
+    entry = SourceEntry.model_validate(dict(
+        source_key="MASDAR", source_name="مصدر", base_url="https://x.example",
+        family="hybris-occ", cadence="daily", authority="shop", currency="SAR",
+        vat_mode="incl",
+        extract=[{"kind": "product_prices"}],
+        tax=[dict(region="SA", vat_mode="incl", evidence="stated", rate_pct=15,
+                  statement_text="price equals priceWithTax; ratio 1.15",
+                  statement_url="https://api.example/search")],
+    ))
+    tax.upsert_rules(conn, entry)
+    rules = tax.load_rules(conn, "MASDAR")
+
+    state = tax.resolve(rules, "SA", material="SOME PRODUCT NAME")
+    assert state.rate_pct == 15 and state.evidence == "stated"
+
+
+def test_changing_one_materials_evidence_closes_only_that_rule(conn):
+    """Temporal semantics survive the new dimension: superseding the diesel
+    rule must not close electricity's."""
+    entry = _gpp_like_entry()
+    tax.upsert_rules(conn, entry)
+    entry.tax[0].statement_text = "reworded by the site"
+    tax.upsert_rules(conn, entry)
+
+    open_rules = conn.execute(
+        "SELECT material_key, COUNT(*) FROM tax_rule "
+        "WHERE source_key='GPP_ENERGY' AND valid_to IS NULL GROUP BY 1").fetchall()
+    assert dict(open_rules) == {"DIESEL": 1, "ELECTRICITY": 1}
+    closed = conn.execute(
+        "SELECT COUNT(*) FROM tax_rule WHERE source_key='GPP_ENERGY' "
+        "AND valid_to IS NOT NULL").fetchone()[0]
+    assert closed == 1, "the electricity rule was closed by a diesel change"
+
+
+def test_a_rule_the_manifest_no_longer_declares_is_closed_not_left_answering(conn):
+    """The live defect: GPP went per-material, the retired source-wide rule
+    stayed open, and natural gas — deliberately given no rule — kept wearing
+    the diesel page's link through the wildcard fallback. Undeclared open
+    rules close; nothing is deleted."""
+    from scrapex.config import SourceEntry
+
+    old = SourceEntry.model_validate(dict(
+        source_key="GPP_ENERGY", source_name="GPP",
+        base_url="https://www.globalpetrolprices.com", family="static-html-table",
+        cadence="weekly", authority="aggregator", currency="USD", vat_mode="incl",
+        extract=[{"kind": "commodity_price", "materials": ["DIESEL"], "regions": ["*"]}],
+        tax=[dict(region="*", vat_mode="incl", evidence="general",
+                  statement_text="one rule for everything",
+                  statement_url="https://www.globalpetrolprices.com/diesel_prices/")],
+    ))
+    tax.upsert_rules(conn, old)
+    tax.upsert_rules(conn, _gpp_like_entry())      # per-material, no '*' rule
+
+    gas = tax.resolve(tax.load_rules(conn, "GPP_ENERGY"), "EG", material="NATURAL_GAS")
+    assert gas.evidence == "unknown", "the retired source-wide rule still answers"
+    kept = conn.execute(
+        "SELECT COUNT(*) FROM tax_rule WHERE source_key='GPP_ENERGY' "
+        "AND material_key='*' AND valid_to IS NOT NULL").fetchone()[0]
+    assert kept == 1, "the old rule was deleted — history must keep it, closed"

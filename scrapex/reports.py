@@ -338,7 +338,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
          "unit": price_unit(r[14], r[15]),
          # Resolved per ROW because one source can hold a different tax position
          # per country. Rules are loaded once above, never queried per row.
-         **tax.resolve(tax_rules, r[12]).as_dict(),
+         **tax.resolve(tax_rules, r[12], material=r[0]).as_dict(),
          # The row's own identity. Its absence is why no screen has ever been
          # able to ask "what did THIS price do over time" — pricehistory.timeline
          # has been callable since migration 0016 and had no way to be reached,
@@ -465,7 +465,7 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     tax_rules = tax.load_rules(conn, source_key)
     table = []
     for r in rows:
-        state = tax.resolve(tax_rules, r[11])
+        state = tax.resolve(tax_rules, r[11], material=r[0])
         table.append(
             [r[0] or "", (r[11] or "") if r[11] != "*" else "", region_name(r[11]),
              r[1] or "", r[2] or "",
@@ -728,8 +728,18 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         (source_key, limit)).fetchall()
 
     tax_rules = tax.load_rules(conn, source_key)
-    regions = {r[11] or "" for r in rows}
-    tax_by_region = {region: tax.resolve(tax_rules, region).as_dict() for region in regions}
+    # One resolved state per DISTINCT (region, material) pair, sent once and
+    # referenced by index from each row. Keyed by region alone, gasoline and
+    # natural-gas rows wore the diesel page's link — the owner's exact report.
+    tax_states: list[dict] = []
+    tax_index: dict[tuple[str, str], int] = {}
+
+    def tax_ref(region: str, material: str) -> int:
+        key = (region, material)
+        if key not in tax_index:
+            tax_index[key] = len(tax_states)
+            tax_states.append(tax.resolve(tax_rules, region, material=material).as_dict())
+        return tax_index[key]
 
     shaped = [{"product_name": r[0], "option_label": r[1] or "", "sku": r[2] or "",
                "effective_price": r[3], "regular_price": r[4], "sale_price": r[5],
@@ -740,7 +750,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "last_confirmed_on": (r[12] or "")[:10],
                "unit": price_unit(r[13], r[14]), "offer_id": r[15],
                "official_source": r[16] or "",
-               "official_source_url": r[17] or ""}
+               "official_source_url": r[17] or "",
+               "tax_ref": tax_ref(r[11] or "", r[0] or "")}
               for r in rows]
 
     present = column_presence(conn, source_key)
@@ -755,7 +766,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "columns": [{"key": key, "label": label} for key, label in BROWSE_COLUMNS
                     if key in present and key in wanted],
         "rows": shaped,
-        "tax_by_region": tax_by_region,
+        "tax_states": tax_states,
         "total": total,
         "returned": len(shaped),
         # A prefix presented as the whole is the failure this flag exists to

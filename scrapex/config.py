@@ -86,6 +86,10 @@ class TaxEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     region: str = "*"
+    # '*' = the whole source; a material key scopes this evidence to ONE
+    # commodity. The site states its tax position per energy-type page, in
+    # different words, so one source legitimately holds several.
+    material: str = "*"
     vat_mode: VatMode | None = None       # defaults to the source's vat_mode
     evidence: Literal["stated", "general", "unknown"] = "unknown"
     rate_pct: float | None = Field(default=None, ge=0, le=100)

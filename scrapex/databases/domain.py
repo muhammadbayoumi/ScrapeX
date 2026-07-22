@@ -113,7 +113,7 @@ def _general_plan() -> tuple[Migration, ...]:
 # Listed rather than ranged: the unified chain and this one have diverged, so a
 # new price migration lands at the END of the legacy chain but in the middle of
 # this plan. A range would silently swallow whatever General adds next.
-_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22)
+_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23)
 
 # Where the identity migration sits in this stream. Everything before it is the
 # price history the unified warehouse already had; everything after is a price

@@ -41,6 +41,7 @@ class TaxState:
     statement_text: str
     statement_url: str
     region: str            # which rule matched: an ISO code, or '*'
+    material: str = "*"    # which commodity the rule speaks for, or '*'
 
     @property
     def verified(self) -> bool:
@@ -79,7 +80,7 @@ class TaxState:
                 "tax_short": self.short_label(), "tax_verified": self.verified}
 
 
-UNVERIFIED = TaxState("unknown", "unknown", None, "", "", WILDCARD)
+UNVERIFIED = TaxState("unknown", "unknown", None, "", "", WILDCARD, WILDCARD)
 
 
 def upsert_rules(conn: sqlite3.Connection, entry: SourceEntry) -> int:
@@ -93,11 +94,13 @@ def upsert_rules(conn: sqlite3.Connection, entry: SourceEntry) -> int:
     changed = 0
     for spec in entry.tax:
         region = (spec.region or WILDCARD).strip() or WILDCARD
+        material = (getattr(spec, "material", WILDCARD) or WILDCARD).strip() or WILDCARD
         mode = (spec.vat_mode or entry.vat_mode).value
         current = conn.execute(
             "SELECT tax_rule_id, vat_mode, rate_pct, evidence, statement_text, statement_url "
-            "FROM tax_rule WHERE source_key = ? AND region = ? AND valid_to IS NULL",
-            (entry.source_key, region)).fetchone()
+            "FROM tax_rule WHERE source_key = ? AND region = ? AND material_key = ? "
+            "AND valid_to IS NULL",
+            (entry.source_key, region, material)).fetchone()
         incoming = (mode, spec.rate_pct, spec.evidence,
                     spec.statement_text or None, spec.statement_url or None)
         if current is not None:
@@ -107,13 +110,30 @@ def upsert_rules(conn: sqlite3.Connection, entry: SourceEntry) -> int:
                 "UPDATE tax_rule SET valid_to = strftime('%Y-%m-%d','now') "
                 "WHERE tax_rule_id = ?", (current[0],))
         conn.execute(
-            "INSERT INTO tax_rule (source_key, region, vat_mode, rate_pct, evidence, "
-            "statement_text, statement_url, statement_lang, verified_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (entry.source_key, region, mode, spec.rate_pct, spec.evidence,
+            "INSERT INTO tax_rule (source_key, region, material_key, vat_mode, rate_pct, "
+            "evidence, statement_text, statement_url, statement_lang, verified_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (entry.source_key, region, material, mode, spec.rate_pct, spec.evidence,
              spec.statement_text, spec.statement_url, spec.statement_lang,
              spec.verified_at))
         changed += 1
+
+    # The manifest is the WHOLE current declaration. An open rule it no longer
+    # names is superseded and must close, or it keeps answering through the
+    # wildcard fallback: the retired source-wide rule stayed open when GPP went
+    # per-material, and natural gas — deliberately given no rule — kept wearing
+    # the diesel page's link through it. Closed, never deleted: every price
+    # recorded under the old rule keeps the tax position it was recorded under.
+    declared = {((s.region or WILDCARD).strip() or WILDCARD,
+                 (getattr(s, "material", WILDCARD) or WILDCARD).strip() or WILDCARD)
+                for s in entry.tax}
+    for rule_id, region, material in conn.execute(
+            "SELECT tax_rule_id, region, material_key FROM tax_rule "
+            "WHERE source_key = ? AND valid_to IS NULL", (entry.source_key,)).fetchall():
+        if (region, material) not in declared:
+            conn.execute("UPDATE tax_rule SET valid_to = strftime('%Y-%m-%d','now') "
+                         "WHERE tax_rule_id = ?", (rule_id,))
+            changed += 1
     return changed
 
 
@@ -126,25 +146,33 @@ def load_rules(conn: sqlite3.Connection, source_key: str) -> dict[str, TaxState]
     try:
         rows = conn.execute(
             "SELECT region, vat_mode, rate_pct, evidence, "
-            "       COALESCE(statement_text,''), COALESCE(statement_url,'') "
+            "       COALESCE(statement_text,''), COALESCE(statement_url,''), "
+            "       COALESCE(material_key,'*') "
             "FROM tax_rule WHERE source_key = ? AND valid_to IS NULL",
             (source_key,)).fetchall()
     except sqlite3.DatabaseError:
         # A database older than migration 0018 has no tax_rule. Reporting every
         # price as unverified is correct there — it is exactly what we know.
         return {}
-    return {r[0]: TaxState(evidence=r[3], vat_mode=r[1], rate_pct=r[2],
-                           statement_text=r[4], statement_url=r[5], region=r[0])
+    return {(r[0], r[6]): TaxState(evidence=r[3], vat_mode=r[1], rate_pct=r[2],
+                                   statement_text=r[4], statement_url=r[5],
+                                   region=r[0], material=r[6])
             for r in rows}
 
 
-def resolve(rules: dict[str, TaxState], region: str | None) -> TaxState:
-    """The rule for a region: its own if there is one, else the source-wide one.
+def resolve(rules: dict, region: str | None, material: str | None = None) -> TaxState:
+    """The most specific rule that speaks for this price.
 
-    A country with no rule of its own falls back to the general statement, and a
-    source with neither resolves to UNVERIFIED. It never falls back to a
-    DIFFERENT country's rate — Norway's VAT says nothing about Egypt's.
+    (region, material) -> (region, *) -> (*, material) -> (*, *) -> UNVERIFIED.
+    It never falls back to a DIFFERENT country's rate or a DIFFERENT
+    commodity's statement: Norway's VAT says nothing about Egypt's, and the
+    diesel page's sentence says nothing about natural gas — which is exactly
+    the owner's complaint this dimension exists to fix.
     """
-    if region and region != WILDCARD and region in rules:
-        return rules[region]
-    return rules.get(WILDCARD, UNVERIFIED)
+    reg = region if region and region != WILDCARD else WILDCARD
+    mat = (material or WILDCARD).strip() or WILDCARD
+    for key in ((reg, mat), (reg, WILDCARD), (WILDCARD, mat), (WILDCARD, WILDCARD)):
+        found = rules.get(key)
+        if found is not None:
+            return found
+    return UNVERIFIED

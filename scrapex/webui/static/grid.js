@@ -440,11 +440,11 @@
       };
     }
     if (key === "tax_label") {
-      // The verdict travels once per REGION, not per row — it is identical for
-      // every row sharing one, and sending it per row cost a third of the
-      // payload for nothing.
+      // The verdict travels once per distinct (region, material) pair and each
+      // row carries only an index. Keyed by region alone, gasoline and
+      // natural-gas rows wore the diesel page's link — the owner's report.
       return (cell) => {
-        const state = payload.tax_by_region[cell.getRow().getData().region] || {};
+        const state = (payload.tax_states || [])[cell.getRow().getData().tax_ref] || {};
         const span = document.createElement("span");
         span.textContent = state.tax_short || "—";
         span.title = state.tax_label || "";

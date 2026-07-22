@@ -214,16 +214,18 @@ sources:
     # Warehouse wiped + set for recrawl 2026-07-21 when this changed; the
     # pre-wipe backup sits beside marketlens.db.
     currency: USD
-    # Tax evidence, found by READING the live site on 2026-07-20, not assumed.
-    # The fuel list pages do state that these are retail prices whose differences
-    # come from taxes and subsidies — a real statement, but it names no rate, so
-    # this is 'general' and rate_pct stays empty.
-    # The electricity and natural gas pages say nothing about tax at all, and the
-    # "fuel price primer" they link to is a scanned PDF with no extractable text.
-    # Nothing on the site states a rate for any country, so no rate is recorded
-    # for any: inventing 169 of them is the assertion this field exists to prevent.
+    # Tax evidence, found by READING each energy type's own live page — first
+    # 2026-07-20, re-verified per page 2026-07-22 — never assumed. One rule per
+    # ENERGY TYPE, because that is how the site states it: with a single
+    # region-wide rule every gasoline and electricity row wore the diesel
+    # page's link, which the owner rightly reported as wrong. No page anywhere
+    # names a rate for any country, so rate_pct stays empty throughout:
+    # inventing 169 rates is the assertion this field exists to prevent.
+    # NATURAL_GAS deliberately has NO entry — its page makes no tax statement,
+    # and its rows must resolve to Unverified rather than borrow diesel's link.
     tax:
       - region: "*"
+        material: DIESEL
         vat_mode: incl
         evidence: general
         statement_text: >-
@@ -234,6 +236,48 @@ sources:
         statement_url: https://www.globalpetrolprices.com/diesel_prices/
         statement_lang: en
         verified_at: "2026-07-20"
+      - region: "*"
+        material: GASOLINE
+        vat_mode: incl
+        evidence: general
+        statement_text: >-
+          The differences in prices across countries are due to the various taxes
+          and subsidies for gasoline. All countries have access to the same
+          petroleum prices of international markets but then decide to impose
+          different taxes.
+        statement_url: https://www.globalpetrolprices.com/gasoline_prices/
+        statement_lang: en
+        verified_at: "2026-07-22"
+      - region: "*"
+        material: LPG
+        vat_mode: incl
+        evidence: general
+        statement_text: >-
+          The differences in prices across countries are due to the various taxes
+          and subsidies for LPG. All countries have access to the same natural gas
+          prices of international markets but then decide to impose different
+          taxes.
+        statement_url: https://www.globalpetrolprices.com/lpg_prices/
+        statement_lang: en
+        verified_at: "2026-07-22"
+      - region: "*"
+        material: ELECTRICITY
+        vat_mode: incl
+        evidence: general
+        statement_text: >-
+          Final retail prices with all taxes and fees included.
+        statement_url: https://www.globalpetrolprices.com/electricity_prices/
+        statement_lang: en
+        verified_at: "2026-07-22"
+      - region: "*"
+        material: ELECTRICITY_BUSINESS
+        vat_mode: incl
+        evidence: general
+        statement_text: >-
+          Final retail prices with all taxes and fees included.
+        statement_url: https://www.globalpetrolprices.com/electricity_prices/
+        statement_lang: en
+        verified_at: "2026-07-22"
     extract:
       - kind: commodity_price
         scope: latest_only     # owner decision: latest published price only,
