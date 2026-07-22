@@ -96,6 +96,21 @@ class CrawlBlocked(RuntimeError):
     """The site is refusing us repeatedly. Stop the run; do not keep pushing."""
 
 
+class CrawlInterrupted(CrawlBlocked):
+    """The OWNER asked this run to stop, mid-fetch.
+
+    Subclasses CrawlBlocked deliberately: every connector isolates per-page
+    errors with a broad except but re-raises CrawlBlocked explicitly, so the
+    interrupt inherits guaranteed propagation through all of them — a fresh
+    exception type would be swallowed by the first `except Exception` page
+    guard and the run would sail on for another quarter hour.
+    """
+
+    def __init__(self, control: str):
+        super().__init__(f"the owner asked to {control} this run")
+        self.control = control
+
+
 class HttpFetcher:
     """Shared polite HTTP transport (F5): rate-limited, retrying, one UA.
 
@@ -129,8 +144,13 @@ class HttpFetcher:
 
     # Refusals in a row before we accept that the answer is no.
     BLOCK_LIMIT = 5
-    # Never sleep longer than this for one retry, however large Retry-After is.
+    # Exponential-backoff ceiling for OUR OWN retries.
     MAX_BACKOFF_S = 120.0
+    # A server-named Retry-After is the site telling us its price; honouring
+    # two minutes of a requested hour is not honouring it. 15 minutes is the
+    # most a single retry will wait — beyond that the wait is noted and capped,
+    # not silently shrunk to 120s as before.
+    MAX_RETRY_AFTER_S = 900.0
     RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
     def __init__(
@@ -151,6 +171,13 @@ class HttpFetcher:
         self._max_attempts = max(1, max_attempts)
         self._jitter = max(0.0, min(jitter, 0.9))
         self._consecutive_refusals = 0
+        # host -> parsed robots.txt (None = fetched and unusable). Loaded
+        # lazily on the first request to each host. The manifest promised
+        # "robots crawl-delay 10s — honored" for ELBUROJ and NOTHING read
+        # robots.txt at all; a promise in a comment is not a mechanism.
+        self._robots: dict[str, object] = {}
+        self._user_agent = user_agent
+        self.robots_warnings: list[str] = []
         # url -> {"ETag": ..., "Last-Modified": ...}, replayed on the next visit.
         self._validators: dict[str, dict[str, str]] = {}
         self.requests_count = 0   # recorded into crawl_run (F5 accounting)
@@ -199,7 +226,51 @@ class HttpFetcher:
     def post(self, url: str, **kwargs) -> httpx.Response:
         return self._request("POST", url, **kwargs)
 
+    def _robots_for(self, url: str):
+        from urllib.parse import urlsplit
+        from urllib.robotparser import RobotFileParser
+
+        host = urlsplit(url).netloc
+        if host in self._robots:
+            return self._robots[host]
+        parser = None
+        try:
+            robots_url = f"{urlsplit(url).scheme}://{host}/robots.txt"
+            # The plain client, NOT self.get: a robots fetch inside _request
+            # would recurse, and it must not count as a crawl request either.
+            answer = self._client.get(robots_url)
+            if answer.status_code == 200:
+                parser = RobotFileParser()
+                parser.parse(answer.text.splitlines())
+        except Exception:  # noqa: BLE001 — no robots file is a normal state
+            parser = None
+        self._robots[host] = parser
+        if parser is not None:
+            delay = parser.crawl_delay(self._user_agent) or parser.crawl_delay("*")
+            if delay and float(delay) > self._min_interval_s:
+                # The site's own asked-for pace WINS over our default. Slowing
+                # down is never the wrong direction.
+                self._min_interval_s = float(delay)
+                self.robots_warnings.append(
+                    f"{host}: robots.txt asks for a {delay}s crawl delay — honoured")
+        return parser
+
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        robots = self._robots_for(url)
+        if robots is not None and not robots.can_fetch(self._user_agent, url):
+            # Disclosed, not silently obeyed and not silently ignored: refusing
+            # outright could kill a source the owner relies on without a word,
+            # and ignoring it silently is the impolite crawler we refuse to be.
+            # ONE warning per host (a 400-page crawl must not write 400 lines);
+            # it reaches the job log and the owner sets policy.
+            from urllib.parse import urlsplit
+            host = urlsplit(url).netloc
+            marker = f"{host}: robots.txt disallows"
+            if not any(w.startswith(marker) for w in self.robots_warnings):
+                self.robots_warnings.append(
+                    f"{marker} some of the paths we crawl (first: "
+                    f"{urlsplit(url).path}) — crawled anyway; consider honouring "
+                    "it or contacting the site")
         if method == "GET":
             kwargs["headers"] = self._conditional_headers(url, kwargs.get("headers"))
         last_error: Exception | None = None
@@ -219,6 +290,11 @@ class HttpFetcher:
             if self.on_request is not None:
                 try:
                     self.on_request(self.requests_count, url)
+                except CrawlBlocked:
+                    # The hook is also where the owner's Pause/Cancel arrives
+                    # (CrawlInterrupted). Swallowing THAT with the display
+                    # errors would make the brakes decorative.
+                    raise
                 except Exception:  # noqa: BLE001 — progress display only
                     pass
 
@@ -258,12 +334,23 @@ class HttpFetcher:
                 "slow the crawl down or spread it over more runs, and retry later.")
 
     def _sleep_backoff(self, attempt: int, response: httpx.Response | None = None) -> None:
-        """Retry-After when the server names a delay, else exponential backoff."""
+        """Retry-After when the server names a delay, else exponential backoff.
+
+        A server-named delay gets its own, much higher ceiling: silently
+        shrinking a requested hour to two minutes was the OPPOSITE of
+        honouring it, and re-knocking early is how a polite crawler stops
+        being welcome. When the cap does bite, it is recorded, not hidden.
+        """
         delay = min(self._min_interval_s * (2 ** attempt), self.MAX_BACKOFF_S)
         if response is not None:
             named = response.headers.get("Retry-After", "")
             try:
-                delay = min(float(named), self.MAX_BACKOFF_S)
+                asked = float(named)
+                delay = min(asked, self.MAX_RETRY_AFTER_S)
+                if asked > self.MAX_RETRY_AFTER_S:
+                    self.robots_warnings.append(
+                        f"server asked for Retry-After {asked:.0f}s; waited the "
+                        f"{self.MAX_RETRY_AFTER_S:.0f}s ceiling instead")
             except ValueError:
                 pass          # Retry-After may be an HTTP date; the default stands
         time.sleep(max(0.0, delay))

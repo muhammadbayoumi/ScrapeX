@@ -25,6 +25,10 @@ def fetcher_over(responses, **kwargs) -> tuple[HttpFetcher, list[httpx.Request]]
     queue = list(responses)
 
     def handler(request: httpx.Request) -> httpx.Response:
+        # robots.txt is now fetched once per host before page one. It answers
+        # out of band so the queued responses keep meaning what each test says.
+        if str(request.url).endswith("/robots.txt"):
+            return httpx.Response(404)
         seen.append(request)
         item = queue.pop(0) if queue else httpx.Response(200, text="last")
         if isinstance(item, Exception):
@@ -104,7 +108,11 @@ def test_an_absurd_retry_after_is_capped(monkeypatch):
 
     fetcher.get(URL)
 
-    assert max(slept) <= HttpFetcher.MAX_BACKOFF_S, "a day-long sleep hangs the crawl"
+    # The ceiling ROSE deliberately (120s -> 900s): waiting two minutes of a
+    # requested day and saying nothing was the opposite of honouring the
+    # server. The concern this test guards is unchanged — a day-long sleep
+    # must never hang the crawl.
+    assert max(slept) <= HttpFetcher.MAX_RETRY_AFTER_S, "a day-long sleep hangs the crawl"
 
 
 # ---- the circuit breaker ------------------------------------------------------
@@ -268,3 +276,92 @@ def test_a_broken_hook_never_breaks_the_crawl():
     response = fetcher.get(URL)
 
     assert response.status_code == 200, "a progress display took the crawl down"
+
+
+# ---- the brakes: the owner's cancel/pause arrives THROUGH the hook -----------
+
+def test_an_interrupt_raised_by_the_hook_is_not_swallowed_with_display_errors():
+    """The hook guard eats display exceptions by design. The owner's Cancel
+    arrives through the SAME hook — swallowing it would make the panel's
+    brakes decorative and a 15-minute crawl unstoppable, again."""
+    from scrapex.connectors.base import CrawlInterrupted
+
+    fetcher, _ = fetcher_over([httpx.Response(200, text="a")])
+    def brake(count, url):
+        raise CrawlInterrupted("cancel")
+    fetcher.on_request = brake
+
+    with pytest.raises(CrawlInterrupted) as caught:
+        fetcher.get(URL)
+    assert caught.value.control == "cancel"
+
+
+def test_the_interrupt_passes_every_connectors_page_isolation():
+    """CrawlInterrupted subclasses CrawlBlocked ON PURPOSE: every connector
+    re-raises CrawlBlocked through its broad per-page except, so the brakes
+    inherit guaranteed propagation. This pin fails if someone 'cleans up' the
+    inheritance."""
+    from scrapex.connectors.base import CrawlBlocked, CrawlInterrupted
+    assert issubclass(CrawlInterrupted, CrawlBlocked)
+
+
+# ---- robots.txt: the manifest's promise becomes a mechanism ------------------
+
+def _fetcher_with_robots(robots_text, page=httpx.Response(200, text="page")):
+    seen = []
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if str(request.url).endswith("/robots.txt"):
+            return (httpx.Response(200, text=robots_text)
+                    if robots_text is not None else httpx.Response(404))
+        return page
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler),
+                                   follow_redirects=True)
+    return fetcher, seen
+
+
+def test_a_robots_crawl_delay_slows_the_fetcher_down():
+    """ELBUROJ's manifest note said 'crawl-delay 10s — honored' and nothing
+    read robots.txt at all. The site's asked-for pace now WINS over our
+    default, and the honouring is stated in the run's warnings."""
+    fetcher, seen = _fetcher_with_robots("User-agent: *\nCrawl-delay: 10\n")
+    fetcher.get(URL)
+    assert fetcher._min_interval_s == 10.0
+    assert any("crawl delay" in w for w in fetcher.robots_warnings)
+    assert seen[0].endswith("/robots.txt"), "robots must be read before page one"
+
+
+def test_a_disallowed_path_is_disclosed_once_per_host_not_per_page():
+    fetcher, _ = _fetcher_with_robots("User-agent: *\nDisallow: /\n")
+    fetcher.get(URL)
+    fetcher.get(URL + "another/")
+    notes = [w for w in fetcher.robots_warnings if "disallows" in w]
+    assert len(notes) == 1, notes
+    assert "crawled anyway" in notes[0]
+
+
+def test_no_robots_file_means_no_constraints_and_no_noise():
+    fetcher, _ = _fetcher_with_robots(None)
+    fetcher.get(URL)
+    assert fetcher._min_interval_s == 0.0
+    assert fetcher.robots_warnings == []
+
+
+def test_a_huge_retry_after_is_capped_loudly_not_shrunk_silently():
+    """The server named its price; waiting 120s of a requested hour and
+    saying nothing was the opposite of honouring it. The ceiling is 15
+    minutes and hitting it is recorded."""
+    fetcher, _ = fetcher_over([
+        httpx.Response(429, headers={"Retry-After": "3600"}),
+        httpx.Response(200, text="ok")])
+    import time as _time
+    slept = []
+    original = _time.sleep
+    _time.sleep = lambda s: slept.append(s)
+    try:
+        fetcher.get(URL)
+    finally:
+        _time.sleep = original
+    assert 900.0 in slept, slept
+    assert any("Retry-After 3600" in w for w in fetcher.robots_warnings)

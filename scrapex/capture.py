@@ -81,6 +81,15 @@ def _job_progress(conn: sqlite3.Connection, job_id: int,
     def tick(count: int, url: str) -> None:
         if count % 10:
             return
+        # The owner's Pause/Cancel used to apply only BETWEEN sources, so a
+        # single 15-minute crawl had no brakes at all. The same tick that
+        # writes the heartbeat now reads the intent, and an interrupt rides
+        # the CrawlBlocked propagation path every connector already honours.
+        control = conn.execute(
+            "SELECT control FROM crawl_job WHERE job_id = ?", (job_id,)).fetchone()
+        if control and control[0] in ("cancel", "pause"):
+            from .connectors.base import CrawlInterrupted
+            raise CrawlInterrupted(control[0])
         conn.execute(
             "UPDATE crawl_job SET last_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
             "counters_json = json_set(COALESCE(NULLIF(counters_json,''),'{}'), "
@@ -152,4 +161,5 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         result = ingest_payloads(conn, entry, payloads, job_id=job_id)
     return CaptureResult(ingest=result, requests_count=requests_count,
                          tables=len(tables), rows=sum(len(t.rows) for t in tables),
-                         warnings=[w for t in tables for w in t.warnings])
+                         warnings=[w for t in tables for w in t.warnings]
+                         + list(getattr(fetcher, "robots_warnings", []) or []))

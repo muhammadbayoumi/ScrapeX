@@ -26,6 +26,7 @@ from typing import Callable, Iterable
 from . import db as dbmod
 from .archive import archive_source, backup_database
 from .capture import CaptureResult, capture_source
+from .connectors.base import CrawlInterrupted
 from .ingest import canary_breach, previous_rows_seen
 from .payload import utc_now_iso
 from .vocab import (
@@ -294,6 +295,24 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
             else:
                 errors.append(breach)
                 append_log(conn, job_id, breach, level=LogLevel.WARNING, source_key=source_key)
+        except CrawlInterrupted as stop:
+            # The owner pressed the brakes MID-FETCH. Nothing was ingested for
+            # this source (fetch aborts before ingest), so on resume it simply
+            # restarts from the top — the fetch is idempotent and ingest
+            # dedupes. Say all of that rather than leaving a half-source to be
+            # guessed about.
+            append_log(conn, job_id,
+                       f"{stop.control} honoured mid-fetch — nothing from this "
+                       "source was ingested; it restarts from the top if resumed",
+                       source_key=source_key)
+            if stop.control == JobControl.CANCEL.value:
+                _finish(conn, job_id, JobStatus.CANCELLED, None)
+            else:
+                _update(conn, job_id, status=JobStatus.PAUSED.value,
+                        control=JobControl.NONE.value, stage=None,
+                        last_heartbeat_at=utc_now_iso())
+            conn.commit()
+            return get_job(conn, job_ref)
         except Exception as exc:  # noqa: BLE001 — one bad source never kills the job (Q3)
             errors.append(f"{source_key}: {exc}")
             append_log(conn, job_id, f"failed: {exc}", level=LogLevel.ERROR, source_key=source_key)
