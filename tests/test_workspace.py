@@ -279,16 +279,20 @@ def test_the_schedules_page_is_the_full_editor(client):
     assert "not published by this site" in body
 
 
-def test_the_schedules_editor_is_scannable_before_advanced_options_open(client):
-    """The complete editor used to be seven anonymous controls repeated in one
-    long stream. The redesign keeps timing visible, moves policies behind a
-    native disclosure, and lets a large source list be searched or filtered."""
+def test_the_schedules_editor_uses_one_source_list_and_one_visible_panel(client):
+    """A source is selected from one compact list while its complete editor is
+    shown in a single detail panel; advanced policies remain folded initially."""
     body = client.get("/schedules").text
 
     assert 'id="schedule-search"' in body
     for state in ("all", "scheduled", "manual", "paused"):
         assert f'data-filter="{state}"' in body
-    assert 'class="schedule-card"' in body
+    assert 'class="schedule-source-list"' in body
+    assert 'data-source-choice=' in body and 'role="tab"' in body
+    assert 'class="schedule-editor"' in body and 'role="tabpanel"' in body
+    assert body.count('data-source-choice=') == body.count('role="tabpanel"')
+    assert 'aria-selected="true"' in body and 'tabindex="-1"' in body
+    assert "showSource" in body and '"ArrowDown"' in body
     assert 'class="schedule-advanced"' in body and "Run behavior" in body
     assert "Schedule summary" in body and "Showing ${shown}" in body
     assert "Frequency" in body and "Timezone" in body

@@ -27,27 +27,52 @@
   .schedule-engine-note strong{display:block;font-size:.85rem}
   .schedule-engine-note p{margin:.1rem 0 0;color:var(--muted);font-size:.78rem}
 
-  .schedule-toolbar{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;
-    padding:.75rem;border:1px solid var(--line);border-radius:14px;background:var(--surface);
-    box-shadow:var(--shadow)}
-  .schedule-search{display:flex;align-items:center;gap:.45rem;min-width:230px;flex:1;
+  .schedule-workspace{display:grid;grid-template-columns:minmax(15.5rem,18rem) minmax(0,1fr);
+    gap:1rem;align-items:start}
+  .schedule-browser{position:sticky;top:1rem;display:flex;min-width:0;max-height:calc(100vh - 2rem);
+    flex-direction:column;border:1px solid var(--line);border-radius:14px;background:var(--surface);
+    box-shadow:var(--shadow);overflow:hidden}
+  .schedule-browser-head{padding:1rem;border-bottom:1px solid var(--line)}
+  .schedule-browser-head h2{margin:0;font-size:.92rem}
+  .schedule-browser-head p{margin:.15rem 0 .75rem;color:var(--muted);font-size:.72rem}
+  .schedule-search{display:flex;align-items:center;gap:.45rem;
     padding:0 .7rem;border:1px solid var(--line);border-radius:9px;background:var(--bg);
     color:var(--muted)}
   .schedule-search:focus-within{border-color:var(--accent);outline:2px solid var(--accent-weak)}
   .schedule-search svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8}
   .schedule-search input{width:100%;padding:.5rem 0;border:0;outline:0;background:transparent}
-  .schedule-filters{display:flex;gap:.25rem;padding:.2rem;border-radius:9px;background:var(--bg)}
+  .schedule-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.25rem;
+    margin-top:.55rem;padding:.2rem;border-radius:9px;background:var(--bg)}
   .schedule-filter{border:0;background:transparent;color:var(--muted);padding:.42rem .7rem;
     border-radius:7px;font:inherit;font-size:.78rem;cursor:pointer}
   .schedule-filter:hover{background:var(--chip);filter:none}
   .schedule-filter[aria-pressed="true"]{background:var(--surface);color:var(--text);
     box-shadow:var(--shadow);font-weight:600}
-  .schedule-result-count{margin-inline-start:auto;color:var(--muted);font-size:.75rem;white-space:nowrap}
-
-  .schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28rem),1fr));
-    gap:1rem;align-items:start}
+  .schedule-result-count{display:block;margin-top:.65rem;color:var(--muted);font-size:.7rem}
+  .schedule-source-list{min-height:0;padding:.45rem;overflow-y:auto}
+  .schedule-source-choice{display:grid;grid-template-columns:minmax(0,1fr) auto;width:100%;gap:.3rem .65rem;
+    align-items:center;padding:.7rem;border:0;border-radius:9px;background:transparent;color:var(--text);
+    font:inherit;text-align:start;cursor:pointer}
+  .schedule-source-choice+.schedule-source-choice{margin-top:.15rem}
+  .schedule-source-choice:hover{background:var(--chip);filter:none}
+  .schedule-source-choice[aria-selected="true"]{background:var(--accent-weak);color:var(--accent-ink)}
+  .schedule-source-choice:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .schedule-choice-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:.8rem;font-weight:600}
+  .schedule-choice-key{grid-column:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
+    color:var(--muted);font-family:var(--mono,monospace);font-size:.64rem;white-space:nowrap}
+  .schedule-choice-state{grid-column:2;grid-row:1/3;align-self:center;display:inline-flex;
+    align-items:center;gap:.3rem;padding:.14rem .4rem;border-radius:999px;background:var(--chip);
+    color:var(--muted);font-size:.6rem;font-weight:600}
+  .schedule-choice-state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+  .schedule-choice-state[data-state="scheduled"]{background:var(--accent-weak);color:var(--accent-ink)}
+  .schedule-choice-state[data-state="paused"]{background:var(--amber-weak);color:var(--amber)}
+  .schedule-no-results{margin:.4rem;padding:1.25rem .75rem;text-align:center;
+    border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:.75rem}
+  .schedule-editor{min-width:0}
   .schedule-card{min-width:0;border:1px solid var(--line);border-radius:14px;
     background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+  .schedule-card[hidden]{display:none}
   .schedule-card[data-state="scheduled"]{border-inline-start:3px solid var(--accent)}
   .schedule-card.is-dirty{border-color:var(--accent)}
   .schedule-card-head{display:flex;justify-content:space-between;align-items:flex-start;
@@ -111,16 +136,13 @@
   .schedule-switch input:focus-visible+.schedule-switch-track{outline:2px solid var(--accent);outline-offset:2px}
   .schedule-save-status{min-width:0;color:var(--muted);font-size:.72rem;overflow-wrap:anywhere}
   .schedule-save{white-space:nowrap}
-  .schedule-no-results{grid-column:1/-1;margin:0;padding:2rem;text-align:center;
-    border:1px dashed var(--line);border-radius:14px;color:var(--muted)}
-
   @media(max-width:760px){
     .schedules-hero{grid-template-columns:1fr;align-items:start}
     .schedule-metrics{width:100%;min-width:0}
-    .schedule-toolbar{align-items:stretch}
-    .schedule-filters{order:3;width:100%;overflow-x:auto}
-    .schedule-filter{flex:1;white-space:nowrap}
-    .schedule-result-count{margin-inline-start:0;align-self:center}
+    .schedule-workspace{grid-template-columns:1fr}
+    .schedule-browser{position:static;max-height:none}
+    .schedule-source-list{display:flex;gap:.35rem;padding:.45rem;overflow-x:auto;overflow-y:hidden}
+    .schedule-source-choice{flex:0 0 min(14rem,78vw)}
   }
   @media(max-width:480px){
     .schedules-hero h1{font-size:1.45rem}
@@ -175,21 +197,49 @@
   {% if not rows %}
     <div class="empty">No implemented sources yet.</div>
   {% else %}
-  <div class="schedule-toolbar" aria-label="Find and filter schedules">
-    <label class="schedule-search">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
-      <input id="schedule-search" type="search" placeholder="Search sources" aria-label="Search sources">
-    </label>
-    <div class="schedule-filters" role="group" aria-label="Schedule status">
-      <button type="button" class="schedule-filter" data-filter="all" aria-pressed="true">All</button>
-      <button type="button" class="schedule-filter" data-filter="scheduled" aria-pressed="false">Scheduled</button>
-      <button type="button" class="schedule-filter" data-filter="manual" aria-pressed="false">Manual</button>
-      <button type="button" class="schedule-filter" data-filter="paused" aria-pressed="false">Paused</button>
-    </div>
-    <span id="schedule-result-count" class="schedule-result-count" role="status" aria-live="polite"></span>
-  </div>
+  <div class="schedule-workspace">
+    <aside class="schedule-browser" aria-label="Schedule sources">
+      <div class="schedule-browser-head">
+        <h2>Sources</h2>
+        <p>Select a source to edit its schedule.</p>
+        <label class="schedule-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+          <input id="schedule-search" type="search" placeholder="Search sources" aria-label="Search sources">
+        </label>
+        <div class="schedule-filters" role="group" aria-label="Schedule status">
+          <button type="button" class="schedule-filter" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" class="schedule-filter" data-filter="scheduled" aria-pressed="false">Scheduled</button>
+          <button type="button" class="schedule-filter" data-filter="manual" aria-pressed="false">Manual</button>
+          <button type="button" class="schedule-filter" data-filter="paused" aria-pressed="false">Paused</button>
+        </div>
+        <span id="schedule-result-count" class="schedule-result-count" role="status" aria-live="polite"></span>
+      </div>
+      <div class="schedule-source-list" role="tablist" aria-label="Choose a schedule" aria-orientation="vertical">
+        {% for r in rows %}
+        {% set s = r.sched %}
+        {% if s and (s.frequency or "manual") != "manual" and s.enabled %}
+          {% set state = "scheduled" %}
+        {% elif s and (s.frequency or "manual") != "manual" and not s.enabled %}
+          {% set state = "paused" %}
+        {% else %}
+          {% set state = "manual" %}
+        {% endif %}
+        <button type="button" class="schedule-source-choice" role="tab"
+                id="schedule-source-{{ loop.index0 }}" aria-controls="schedule-panel-{{ loop.index0 }}"
+                aria-selected="{{ 'true' if loop.first else 'false' }}"
+                tabindex="{{ '0' if loop.first else '-1' }}" data-source-choice="{{ r.source_key }}"
+                data-state="{{ state }}" data-search="{{ (r.source_name ~ ' ' ~ r.source_key)|lower }}">
+          <span class="schedule-choice-name" dir="auto">{{ r.source_name }}</span>
+          <span class="schedule-choice-key">{{ r.source_key }}</span>
+          <span class="schedule-choice-state" data-choice-state data-state="{{ state }}"
+                aria-label="{{ state|capitalize }}">{{ state|capitalize }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <p id="schedule-no-results" class="schedule-no-results" hidden>No sources match these filters.</p>
+    </aside>
 
-  <div class="schedule-grid" id="schedule-grid">
+    <section class="schedule-editor" aria-label="Selected schedule settings">
     {% for r in rows %}
     {% set s = r.sched %}
     {% if s and (s.frequency or "manual") != "manual" and s.enabled %}
@@ -199,8 +249,9 @@
     {% else %}
       {% set state = "manual" %}
     {% endif %}
-    <form class="schedule-card" data-sched="{{ r.source_key }}" data-state="{{ state }}"
-          data-search="{{ (r.source_name ~ ' ' ~ r.source_key)|lower }}" onsubmit="return false">
+    <form class="schedule-card" id="schedule-panel-{{ loop.index0 }}" role="tabpanel"
+          aria-labelledby="schedule-source-{{ loop.index0 }}" data-sched="{{ r.source_key }}"
+          data-state="{{ state }}" {% if not loop.first %}hidden{% endif %} onsubmit="return false">
       <header class="schedule-card-head">
         <div class="schedule-source">
           <span class="schedule-source-icon" aria-hidden="true">
@@ -312,20 +363,39 @@
       </div>
     </form>
     {% endfor %}
-    <p id="schedule-no-results" class="schedule-no-results" hidden>No sources match these filters.</p>
+    </section>
   </div>
 
   <script>
   (() => {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
     const rows = [...document.querySelectorAll(".schedule-card")];
+    const choices = [...document.querySelectorAll(".schedule-source-choice")];
+    const rowsBySource = new Map(rows.map((row) => [row.dataset.sched, row]));
     const search = document.getElementById("schedule-search");
     const filters = [...document.querySelectorAll(".schedule-filter")];
     const resultCount = document.getElementById("schedule-result-count");
     const noResults = document.getElementById("schedule-no-results");
     let activeFilter = "all";
+    let activeSource = null;
 
     function pick(row, role) { return row.querySelector(`[data-role="${role}"]`); }
+    function choiceFor(row) {
+      return choices.find((choice) => choice.dataset.sourceChoice === row.dataset.sched);
+    }
+    function showSource(source, updateUrl = true) {
+      const selectedRow = rowsBySource.get(source);
+      const selectedChoice = choices.find((choice) => choice.dataset.sourceChoice === source);
+      if (!selectedRow || !selectedChoice || selectedChoice.hidden) return;
+      activeSource = source;
+      rows.forEach((row) => { row.hidden = row !== selectedRow; });
+      choices.forEach((choice) => {
+        const selected = choice === selectedChoice;
+        choice.setAttribute("aria-selected", String(selected));
+        choice.tabIndex = selected ? 0 : -1;
+      });
+      if (updateUrl) history.replaceState(null, "", "#schedule-" + encodeURIComponent(source));
+    }
     function chosenText(select) { return select.options[select.selectedIndex].text.replace(/\s+—.*$/, ""); }
     function scheduleState(row) {
       if (pick(row, "freq").value === "manual") return "manual";
@@ -345,6 +415,12 @@
       const badge = pick(row, "state");
       badge.className = "schedule-state schedule-state-" + state;
       badge.textContent = state[0].toUpperCase() + state.slice(1);
+      const choice = choiceFor(row);
+      choice.dataset.state = state;
+      const choiceState = choice.querySelector("[data-choice-state]");
+      choiceState.dataset.state = state;
+      choiceState.textContent = state[0].toUpperCase() + state.slice(1);
+      choiceState.setAttribute("aria-label", state[0].toUpperCase() + state.slice(1));
     }
     function refreshMetrics() {
       for (const state of ["scheduled", "manual", "paused"]) {
@@ -355,14 +431,20 @@
     function applyFilters() {
       const query = search.value.trim().toLocaleLowerCase();
       let shown = 0;
-      rows.forEach((row) => {
-        const stateMatches = activeFilter === "all" || row.dataset.state === activeFilter;
-        const textMatches = !query || row.dataset.search.includes(query);
-        row.hidden = !(stateMatches && textMatches);
-        if (!row.hidden) shown += 1;
+      choices.forEach((choice) => {
+        const stateMatches = activeFilter === "all" || choice.dataset.state === activeFilter;
+        const textMatches = !query || choice.dataset.search.includes(query);
+        choice.hidden = !(stateMatches && textMatches);
+        if (!choice.hidden) shown += 1;
       });
       resultCount.textContent = `Showing ${shown} of ${rows.length} sources`;
       noResults.hidden = shown !== 0;
+      const currentChoice = choices.find((choice) => choice.dataset.sourceChoice === activeSource);
+      if (!currentChoice || currentChoice.hidden) {
+        const firstVisible = choices.find((choice) => !choice.hidden);
+        if (firstVisible) showSource(firstVisible.dataset.sourceChoice);
+        else rows.forEach((row) => { row.hidden = true; });
+      }
     }
     function markDirty(row) {
       row.classList.add("is-dirty");
@@ -419,6 +501,25 @@
       });
     });
 
+    choices.forEach((choice) => {
+      choice.addEventListener("click", () => showSource(choice.dataset.sourceChoice));
+      choice.addEventListener("keydown", (event) => {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const visible = choices.filter((item) => !item.hidden);
+        const current = visible.indexOf(choice);
+        let next = event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1
+          : event.key === "ArrowDown" ? (current + 1) % visible.length
+          : (current - 1 + visible.length) % visible.length;
+        visible[next].click();
+        visible[next].focus();
+      });
+    });
+
+    const hashPrefix = "#schedule-";
+    const requestedSource = location.hash.startsWith(hashPrefix)
+      ? decodeURIComponent(location.hash.slice(hashPrefix.length)) : "";
+    showSource(rowsBySource.has(requestedSource) ? requestedSource : rows[0].dataset.sched, false);
     search.addEventListener("input", applyFilters);
     filters.forEach((button) => button.addEventListener("click", () => {
       activeFilter = button.dataset.filter;
