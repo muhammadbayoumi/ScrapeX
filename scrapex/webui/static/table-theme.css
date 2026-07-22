@@ -76,7 +76,10 @@ tr:hover td { background: var(--table-hover-bg); }
   direction: ltr;
   margin-inline-start: .15rem;
 }
-.unverified { border-bottom: 1px dotted var(--amber); color: var(--amber); }
+/* NOT clickable, so no underline of any kind (owner rule: amber+underline is
+   the exclusive costume of clickable things). The word itself carries the
+   state; the colour only seconds it. */
+.unverified { color: var(--amber); font-style: italic; }
 td.nowrap,
 th.nowrap { white-space: nowrap; }
 .code {

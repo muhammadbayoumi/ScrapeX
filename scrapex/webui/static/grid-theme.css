@@ -377,3 +377,30 @@
 }
 .tabulator .tabulator-tableholder::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 .tabulator .tabulator-tableholder::-webkit-scrollbar-corner { background: transparent; }
+
+
+/* ---- the interaction signature (owner rule, 2026-07-22) -------------------
+ * Amber + underline means CLICKABLE, and nothing else may wear it. The rule
+ * exists because .unverified was amber with a dotted underline — the exact
+ * costume of a link on a thing that did nothing when pressed. Buttons with
+ * real button chrome (borders, backgrounds) keep their own affordance; this
+ * signature is for text-level controls living inside content. */
+.grid-action,
+.tabulator .grid-action,
+#offer-panel a,
+#offer-panel button.link {
+  color: var(--amber);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.grid-action:hover,
+#offer-panel a:hover,
+#offer-panel button.link:hover {
+  color: var(--amber);
+  text-decoration-thickness: 2px;
+}

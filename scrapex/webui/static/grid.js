@@ -469,6 +469,26 @@
       // natural-gas rows wore the diesel page's link — the owner's report.
       return (cell) => {
         const state = (payload.tax_states || [])[cell.getRow().getData().tax_ref] || {};
+        // A verdict WITH a statement is clickable — it opens the page the
+        // sentence lives on, wearing the amber-underline signature. A verdict
+        // with nothing to open is plain words: same colour family for the
+        // unverified state, but no underline, because underline means "press
+        // me" on this page and nothing may wear it idly (owner rule).
+        let safe = "";
+        try {
+          const parsed = new URL(state.tax_statement_url || "");
+          if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
+        } catch (err) { /* no statement to open */ }
+        if (safe) {
+          const link = document.createElement("a");
+          link.className = "grid-action";
+          link.href = safe;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = state.tax_short || "—";
+          link.title = (state.tax_label || "") + " — open the source's own statement";
+          return link;
+        }
         const span = document.createElement("span");
         span.textContent = state.tax_short || "—";
         span.title = state.tax_label || "";
@@ -510,7 +530,7 @@
         if (!data.has_details || !data.offer_id) return "";
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "link";
+        button.className = "grid-action";
         button.textContent = "Details";
         button.addEventListener("click", () => openOfferPanel(data.offer_id, "details"));
         return button;
@@ -537,6 +557,7 @@
           return span;
         }
         const link = document.createElement("a");
+        link.className = "grid-action";
         link.href = safe;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
@@ -616,6 +637,7 @@
         // that looks live and leads nowhere.
         if (!cell.getValue()) return "";
         const link = document.createElement("a");
+        link.className = "grid-action";
         link.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + cell.getValue();
         link.textContent = "History";
         link.title = "Every price this offer has had";
