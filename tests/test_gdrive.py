@@ -108,3 +108,7 @@ def test_export_source_table_shape():
     assert row["product_name"] == "LED 400W"
     assert row["effective_price"] == 1200.0        # numeric, not a string
     assert row["vat_included"] == "yes"
+    # The 2026-07-22 widening: identity completed and the discount made visible.
+    assert row["brand"] == "Elsewedy"
+    assert row["discount"] == "-250.00 (-17.2%)"
+    assert row["category"] == "" and row["official_source"] == ""

@@ -601,18 +601,26 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
 
 EXPORT_HEADER = [
     # region/country sit right after the name: for a commodity source they are
-    # what distinguishes one row from the next.
-    "product_name", "region", "country", "option_label", "sku", "effective_price",
+    # what distinguishes one row from the next. brand and category complete the
+    # identity block (owner-approved widening, 2026-07-22) — category is the
+    # full stated path when the source classifies in levels.
+    "product_name", "region", "country", "brand", "category",
+    "option_label", "sku", "effective_price",
     # The unit sits beside the price it qualifies. A column of bare numbers where
     # some are per tonne and some per bag is not a price list, it is a trap.
-    "unit", "regular_price", "sale_price", "currency", "availability",
+    "unit", "regular_price", "sale_price",
+    # The discount the effective price already includes ("-104.83 (-7.0%)"),
+    # empty when there is none — same rule and rendering as the Data page.
+    "discount", "currency", "availability",
     # vat_included alone was a claim with no source. The three columns beside it
     # say how well we actually know it, and where the owner can go and read it.
     "vat_included", "tax_evidence", "tax_rate_pct", "tax_statement_url",
     # price_changed_on is when the price last MOVED; last_confirmed_on is when a
     # completed run last saw it still true. They are different questions, and
     # publishing only the first made a confirmed price look stale.
-    "price_changed_on", "last_confirmed_on", "product_url",
+    "price_changed_on", "last_confirmed_on",
+    # The official body the source names for its figure, when it names one.
+    "official_source", "official_source_url", "product_url",
 ]
 
 
@@ -625,7 +633,12 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, "
         "       po.vat_included, po.business_date, sp.product_url, so.region, "
-        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity "
+        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, "
+        "       sp.brand_raw, sp.category_path, "
+        "       (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
+        "        WHERE spa.source_product_id = sp.source_product_id "
+        "        AND spa.attribute_code = 'category') AS category_flat, "
+        "       po.official_source_name, po.official_source_url "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit),
     ).fetchall()
@@ -635,15 +648,19 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         state = tax.resolve(tax_rules, r[11], material=r[0])
         table.append(
             [r[0] or "", (r[11] or "") if r[11] != "*" else "", region_name(r[11]),
+             r[15] or "", r[16] or r[17] or "",
              r[1] or "", r[2] or "",
              r[3] if r[3] is not None else "", price_unit(r[13], r[14]),
              r[4] if r[4] is not None else "",
-             r[5] if r[5] is not None else "", r[6] or "", r[7] or "",
+             r[5] if r[5] is not None else "",
+             _discount_text(r[4], r[3]),
+             r[6] or "", r[7] or "",
              "yes" if r[8] else "no",
              state.evidence,
              state.rate_pct if state.rate_pct is not None else "",
              state.statement_url,
-             r[9] or "", (r[12] or "")[:10], r[10] or ""])
+             r[9] or "", (r[12] or "")[:10],
+             r[18] or "", r[19] or "", r[10] or ""])
     return list(EXPORT_HEADER), table
 
 
