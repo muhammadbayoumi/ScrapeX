@@ -389,3 +389,25 @@ def test_a_heading_row_offers_no_link_to_a_record_it_does_not_have():
     /offer/undefined — a control that looks live and leads nowhere."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     assert "if (!cell.getValue()) return \"\";" in script
+
+
+def test_history_opens_inline_and_the_full_page_link_survives():
+    """The owner's ask: History must open UNDER the table, not navigate away —
+    and the real href must stay, so middle-click and scripting-off still reach
+    the full page. The interception is only ever a plain left-click."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+
+    assert 'id="offer-panel"' in page
+    assert "openOfferPanel" in script and "/api/offer/" in script
+    assert "event.preventDefault()" in script
+    assert "event.ctrlKey || event.metaKey" in script, \
+        "modified clicks must keep opening the full page"
+
+
+def test_the_panel_never_renders_scraped_values_as_html():
+    """Everything in the panel goes through textContent/createElement. One
+    innerHTML over API data and a scraped product name becomes live markup."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    panel = script.split("the History panel")[1].split("---- export")[0]
+    assert "innerHTML" not in panel, "the panel builds HTML from strings"

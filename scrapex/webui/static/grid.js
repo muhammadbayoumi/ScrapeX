@@ -557,6 +557,16 @@
         link.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + cell.getValue();
         link.textContent = "History";
         link.title = "Every price this offer has had";
+        // A plain left-click opens the story UNDER the table, so choosing a
+        // row never navigates away from the filtered view that found it. The
+        // href stays real: middle-click, ctrl-click and scripting-off all
+        // still reach the full page.
+        link.addEventListener("click", (event) => {
+          if (event.button !== 0 || event.ctrlKey || event.metaKey ||
+              event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          openOfferPanel(cell.getValue());
+        });
         return link;
       },
     });
@@ -666,6 +676,155 @@
         if (f) widths.set(f, c.getWidth());
       });
     } catch (err) { /* a rebuild mid-render is not worth failing over */ }
+  }
+
+  // ---- the History panel: one offer's story, under the table ----------------
+  //
+  // Everything scraped is set through textContent — a product name containing
+  // markup must render as text, never run. Numbers and dates get dir=ltr so an
+  // RTL page cannot mirror "20.5 -> 21.0" into "21.0 <- 20.5".
+  let openOfferId = null;
+
+  function el(tag, className, textValue) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (textValue !== undefined) node.textContent = textValue;
+    return node;
+  }
+
+  function miniTable(headers, rows) {
+    const wrap = el("div", "tablewrap");
+    const table = document.createElement("table");
+    const head = table.createTHead().insertRow();
+    headers.forEach((h) => head.appendChild(el("th", "", h)));
+    const body = table.createTBody();
+    rows.forEach((cells) => {
+      const row = body.insertRow();
+      cells.forEach((value) => {
+        const cell = row.insertCell();
+        if (value instanceof Node) { cell.appendChild(value); return; }
+        cell.textContent = text(value);
+        cell.dir = "auto";
+      });
+    });
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  function money(amount, currency, unit) {
+    const span = el("span", "", amount == null || amount === "" ? "—"
+      : text(amount) + (currency ? " " + currency : "") + (unit ? " / " + unit : ""));
+    span.dir = "ltr";
+    return span;
+  }
+
+  function openOfferPanel(offerId) {
+    const panel = document.getElementById("offer-panel");
+    if (!panel) return;
+    if (openOfferId === offerId && !panel.hidden) {  // same row again = close
+      closeOfferPanel();
+      return;
+    }
+    openOfferId = offerId;
+    panel.hidden = false;
+    panel.textContent = "";
+    panel.appendChild(el("p", "muted", "Loading the record's history…"));
+    fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + offerId)
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
+      .then((data) => renderOfferPanel(panel, data, offerId))
+      .catch((err) => {
+        panel.textContent = "";
+        panel.appendChild(el("p", "err",
+          "Couldn't load this record's history (" + err.message + ")."));
+      });
+    panel.scrollIntoView({behavior: "smooth", block: "nearest"});
+  }
+
+  function closeOfferPanel() {
+    const panel = document.getElementById("offer-panel");
+    if (!panel) return;
+    panel.hidden = true;
+    panel.textContent = "";
+    openOfferId = null;
+  }
+
+  function renderOfferPanel(panel, data, offerId) {
+    panel.textContent = "";
+    const offer = data.offer || {};
+
+    const head = el("div", "row");
+    const title = el("h2", "", "");
+    const name = el("span", "", text(offer.name || ""));
+    name.dir = "auto";
+    title.appendChild(name);
+    if (offer.region_name || offer.region) {
+      title.appendChild(el("span", "muted", " — " + (offer.region_name || offer.region)));
+    }
+    head.appendChild(title);
+    const full = el("a", "", "Open full page");
+    full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + offerId;
+    head.appendChild(full);
+    const close = el("button", "ghost", "Close");
+    close.type = "button";
+    close.addEventListener("click", closeOfferPanel);
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    // 1. The change-only timeline: the first price and each REAL move.
+    panel.appendChild(el("h3", "", "Price changes"));
+    const periods = data.periods || [];
+    if (!periods.length) {
+      panel.appendChild(el("p", "muted", "No derived history yet for this record."));
+    } else {
+      panel.appendChild(miniTable(
+        ["From", "Until", "Price", "Why it opened"],
+        periods.map((p) => [
+          (p.first_detected_at || "").slice(0, 10),
+          (p.closed_at || "").slice(0, 10) || "current",
+          money(p.effective_price, p.currency, offer.unit),
+          (p.opened_because || "").replace(/_/g, " "),
+        ])));
+    }
+
+    // 2. What the change feed recorded about THIS record — the same shaping
+    // the Changes page uses, so the two can never tell different stories.
+    panel.appendChild(el("h3", "", "Changes"));
+    const changes = data.changes || [];
+    if (!changes.length) {
+      panel.appendChild(el("p", "muted", "No change events recorded yet."));
+    } else {
+      panel.appendChild(miniTable(
+        ["Detected", "What", "Previous", "New", "Change"],
+        changes.map((c) => {
+          const when = el("span", "muted", (c.detected_at || "").slice(0, 16).replace("T", " "));
+          when.dir = "ltr";
+          return [
+            when,
+            c.field_label || "",
+            c.display_previous || "—",
+            (c.display_new || "—") + (c.unit && c.field_label === "price" ? " / " + c.unit : ""),
+            c.display_change || "—",
+          ];
+        })));
+    }
+
+    // 3. Every observation behind the story, provenance spelled out.
+    panel.appendChild(el("h3", "", "What was recorded"));
+    const observations = data.observations || [];
+    if (!observations.length) {
+      panel.appendChild(el("p", "muted", "No observations recorded yet."));
+    } else {
+      panel.appendChild(miniTable(
+        ["Date", "Price", "Where it came from"],
+        observations.map((o) => [
+          o.business_date || "",
+          money(o.effective_price, o.currency, offer.unit),
+          o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
+        ])));
+    }
+
+    panel.focus({preventScroll: true});
+    panel.scrollIntoView({behavior: "smooth", block: "nearest"});
   }
 
   // ---- export ---------------------------------------------------------------

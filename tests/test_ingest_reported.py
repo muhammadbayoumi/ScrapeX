@@ -290,3 +290,49 @@ def test_a_source_that_attributes_nothing_gets_no_source_column(conn):
 
     grid = table_payload(conn, "GPP_ENERGY")
     assert "official_source" not in [c["key"] for c in grid["columns"]]
+
+
+# ---- the change feed speaks human, and one offer can tell its story ----------
+
+def test_change_events_are_described_for_humans_not_in_schema_vocabulary(conn):
+    """The owner's report: the Changes list printed `source_variant` as a
+    field with None on both sides — two such rows per new record, saying
+    nothing. A 'new' event means "first seen", and it says so with the
+    record's name; a price move carries its percent."""
+    from scrapex.changes import recent_changes
+
+    ingest_payloads(conn, _entry(), [_payload([CURRENT])])
+    ingest_payloads(conn, _entry(), [_payload([dict(effective_price="22.55")])])
+
+    feed = recent_changes(conn, "GPP_ENERGY")
+    by_type = {c["change_type"]: c for c in feed}
+
+    news = [c for c in feed if c["change_type"] == "new"]
+    assert news, "no new events at all"
+    for event in news:
+        assert event["field_label"] in ("record", "variant"), event["field_key"]
+        assert event["display_change"] == "first seen"
+        assert "source_" not in event["field_label"]
+    assert any(c["display_new"] == "DIESEL" for c in news), \
+        "a first-seen event never names what was seen"
+
+    move = by_type["price_increase"]
+    assert move["field_label"] == "price"
+    assert move["display_previous"] == "20.5" and move["display_new"] == "22.55"
+    assert move["display_change"] == "+2.05 (+10.0%)"
+
+
+def test_an_offer_tells_its_own_story_including_its_first_seen_events(conn):
+    """changes_for_offer must include the parent record's 'first seen' events
+    even though they carry no offer_id — they were recorded before the offer
+    existed, and they are part of its story."""
+    from scrapex.changes import changes_for_offer
+
+    ingest_payloads(conn, _entry(), [_payload([CURRENT])])
+    ingest_payloads(conn, _entry(), [_payload([dict(effective_price="22.55")])])
+    offer_id = conn.execute("SELECT offer_id FROM source_offer").fetchone()[0]
+
+    story = changes_for_offer(conn, offer_id)
+    kinds = {c["change_type"] for c in story}
+    assert "price_increase" in kinds
+    assert "new" in kinds, "the offer's story starts at first seen, which is missing"

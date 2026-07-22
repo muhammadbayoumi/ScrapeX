@@ -289,6 +289,13 @@
     <div id="grid" class="tablewrap" data-source="{{ source_key }}"></div>
     <p id="grid-note" class="hint" role="status" aria-live="polite">Loading the table…</p>
 
+    {# The History panel opens HERE, under the table, so choosing a row never
+       navigates away from the filtered view that found it. The full page at
+       /source/.../offer/... still exists for bookmarks and middle-click —
+       grid.js only intercepts a plain left-click. #}
+    <section id="offer-panel" hidden aria-label="Price history for the selected record"
+             tabindex="-1"></section>
+
     {# "Page 3" alone does not say how far you are or how far there is to go.
        The row range and the page count both come from BrowsePage, which has
        carried them all along. #}

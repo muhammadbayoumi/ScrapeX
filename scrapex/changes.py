@@ -148,5 +148,83 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
         item["region_name"] = region_name(item["region"])
         item["unit"] = price_unit(item.pop("unit_code", None),
                                   item.pop("basis_quantity", 1))
+        _describe(item)
+        out.append(item)
+    return out
+
+
+# What each stored field_key is CALLED on screen. The feed used to print the
+# vocabulary raw — a reader met `source_variant` as a "field" with `None` on
+# both sides, which states nothing. The stored keys never change (they are the
+# vocabulary); only their names for humans live here.
+_FIELD_LABELS = {
+    "effective_price": "price",
+    "availability": "availability",
+    "source_product": "record",
+    "source_variant": "variant",
+}
+
+
+def _describe(item: dict) -> None:
+    """Attach display_* fields; the stored row is never altered.
+
+    A 'new' event's meaning is "this thing was first seen", not a value moving
+    from None to None — which is how the feed rendered it: two rows per new
+    record, field names straight from the schema, dashes for both values.
+    """
+    item["field_label"] = _FIELD_LABELS.get(
+        item.get("field_key") or "", (item.get("field_key") or "").replace("_", " "))
+    kind = item.get("change_type")
+    name = item.get("new_value") or item.get("product_name") or ""
+    if kind == "new":
+        item["display_previous"] = ""
+        item["display_new"] = name
+        item["display_change"] = "first seen"
+        return
+    previous, new = item.get("previous_value"), item.get("new_value")
+    item["display_previous"] = "" if previous is None else str(previous)
+    item["display_new"] = "" if new is None else str(new)
+    item["display_change"] = ""
+    try:
+        before, after = float(previous), float(new)
+        if before:
+            # Absolute AND percent: "+2.05 (+10.0%)". Either alone makes the
+            # reader compute the other in their head.
+            item["display_change"] = (f"{after - before:+.2f} "
+                                      f"({(after - before) / before * 100:+.1f}%)")
+    except (TypeError, ValueError):
+        pass                                    # words moved, not numbers
+
+
+def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
+                      limit: int = 100) -> list[dict]:
+    """Every change event that speaks about ONE offer, newest first (A8).
+
+    Includes the parent variant/product 'new' events: "first seen" is part of
+    this offer's story even though those rows carry no offer_id — they were
+    recorded before the offer existed.
+    """
+    from .reports import price_unit, region_name
+
+    rows = conn.execute(
+        "SELECT c.*, sp.source_name AS product_name, so2.region AS region, "
+        "       su.unit_code AS unit_code, so2.basis_quantity AS basis_quantity "
+        "FROM change_event c "
+        "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
+        "LEFT JOIN source_offer so2 ON so2.offer_id = c.offer_id "
+        "LEFT JOIN selling_unit su ON su.selling_unit_id = so2.selling_unit_id "
+        "WHERE c.offer_id = ? "
+        "   OR (c.offer_id IS NULL AND c.source_variant_id = "
+        "         (SELECT source_variant_id FROM source_offer WHERE offer_id = ?)) "
+        "ORDER BY c.change_event_id DESC LIMIT ?",
+        (offer_id, offer_id, max(1, min(limit, 500)))).fetchall()
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["region"] = item.get("region") or ""
+        item["region_name"] = region_name(item["region"])
+        item["unit"] = price_unit(item.pop("unit_code", None),
+                                  item.pop("basis_quantity", 1))
+        _describe(item)
         out.append(item)
     return out

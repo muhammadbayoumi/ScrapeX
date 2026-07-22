@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import db as dbmod
 from ..capture import capture_source
-from ..changes import change_summary, recent_changes
+from ..changes import change_summary, changes_for_offer, recent_changes
 from ..config import MANIFEST_FILE, SourceEntry, load_manifest
 from ..connectors.factory import _BUILDERS
 from ..databases import (
@@ -415,6 +415,28 @@ def create_app(
             request=request, name="offer.html",
             context={"tab": "data", "source_key": source_key, "offer": offer,
                      "periods": periods, "observations": observations})
+
+    @app.get("/api/offer/{source_key}/{offer_id}")
+    def api_offer(source_key: str, offer_id: int):
+        """One offer's story as JSON, for the panel the Data page opens INLINE.
+
+        The same ownership rule as the HTML page: an offer that is not this
+        source's answers 404 without confirming whether the id exists at all.
+        """
+        conn = read_conn()
+        try:
+            offer = offer_identity(conn, source_key, offer_id)
+            if offer is None:
+                raise HTTPException(status_code=404,
+                                    detail=f"no offer {offer_id} in {source_key}")
+            return {
+                "offer": offer,
+                "periods": pricehistory.timeline(conn, offer_id),
+                "observations": offer_observations(conn, offer_id),
+                "changes": changes_for_offer(conn, offer_id),
+            }
+        finally:
+            conn.close()
 
     # ---- Workspace tabs (spec 21) ------------------------------------------
     # Each tab is a thin render over logic that already exists and is tested;

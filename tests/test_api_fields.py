@@ -230,3 +230,33 @@ def test_start_fresh_resets_and_the_old_rows_survive_on_disk(client, db_path):
     kept = sqlite3.connect(sealed[0])
     assert kept.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] > 0
     kept.close()
+
+
+# ---- /api/offer: the inline History panel's data ----------------------------
+
+def test_the_offer_api_serves_identity_periods_observations_and_changes(client, db_path):
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    offer_id = conn.execute("SELECT offer_id FROM source_offer").fetchone()[0]
+    conn.close()
+
+    body = client.get(f"/api/offer/{SOURCE}/{offer_id}").json()
+    assert body["offer"]["offer_id"] == offer_id
+    assert body["offer"]["name"]
+    assert isinstance(body["periods"], list)
+    assert isinstance(body["observations"], list) and body["observations"]
+    assert isinstance(body["changes"], list)
+    for c in body["changes"]:
+        assert "field_label" in c and "display_change" in c, \
+            "the panel would render schema vocabulary raw"
+
+
+def test_the_offer_api_refuses_an_offer_belonging_to_another_source(client, db_path):
+    """Same boundary as the HTML page: /source/A/offer/<id> must not render
+    source B's offer to anyone who can count."""
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    offer_id = conn.execute("SELECT offer_id FROM source_offer").fetchone()[0]
+    conn.close()
+
+    assert client.get(f"/api/offer/GPP_ENERGY/{offer_id}").status_code == 404
