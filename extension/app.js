@@ -178,16 +178,52 @@ const MODES = {
     "Full rebuild archives the current catalogue and takes a database backup first. Nothing is deleted, and the backup is your rollback."],
 };
 
-function refreshMode() {
+function renderModeTexts(availabilityNote) {
   const [label, help, warn] = MODES[$("run-mode").value];
-  $("mode-help").textContent = help;
+  $("mode-help").textContent = help + (availabilityNote ? " " + availabilityNote : "");
   $("mode-warn").className = warn ? "card warn" : "hidden";
   $("mode-warn").innerHTML = warn ? `<span class="muted">${esc(warn)}</span>` : "";
   $("run").textContent = `Start ${label.toLowerCase()}`;
+}
+
+function refreshMode() {
+  renderModeTexts("");
   refreshRunButton();
 }
 
+// Which modes the SELECTED sites' data can honestly support. "Update existing
+// data" over a site with no data is not an update of anything, and a rebuild
+// has nothing to archive; equally, "Initial crawl" over sites that all have
+// data already happened. The option list states this instead of letting a
+// meaningless choice be made and quietly reinterpreted.
+function syncModeChoices() {
+  const chosen = state.sources.filter((s) => state.selected.has(s.source_key));
+  const withData = chosen.filter((s) => Number(s.observations) > 0).length;
+  const without = chosen.length - withData;
+  // Nothing selected: leave every mode open — the Run button is blocked anyway,
+  // and greying the whole list would read as a fault rather than a state.
+  const allow = chosen.length === 0
+    ? { update: true, initial_crawl: true, full_rebuild: true }
+    : { update: withData > 0, initial_crawl: without > 0, full_rebuild: withData > 0 };
+  const select = $("run-mode");
+  for (const option of select.options) option.disabled = !allow[option.value];
+  let note = "";
+  if (chosen.length > 0 && withData === 0) {
+    note = "The selected sites have no data yet, so this run is their first crawl.";
+  } else if (chosen.length > 0 && without === 0) {
+    note = "Every selected site already has data, so a first crawl is not on offer.";
+  }
+  if (!allow[select.value]) {
+    // The mode the owner had chosen stopped being meaningful for this
+    // selection. Switching silently would run something they did not pick, so
+    // the note above says what happened and why.
+    select.value = withData > 0 ? "update" : "initial_crawl";
+  }
+  renderModeTexts(note);
+}
+
 function refreshRunButton() {
+  syncModeChoices();
   const n = state.selected.size;
   $("sel-count").textContent = `${n} selected`;
   let blocked = "";
