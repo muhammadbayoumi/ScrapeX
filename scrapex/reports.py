@@ -496,6 +496,12 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
 
     A source that publishes no variants, no SKU and no unit should not be given
     three columns of em-dashes to read past.
+
+    INVARIANT (owner ruling 2026-07-22): every gate here asks THIS source's own
+    rows — never a global table. The engine is shared; the column state is per
+    source. The one global gate this function ever had (usd_price checked
+    whether currency_rate had ANY rows) put a fuel-implied USD estimate on
+    every shop's table the moment GPP landed its first rate.
     """
     row = conn.execute(
         "SELECT COUNT(NULLIF(TRIM(COALESCE(sv.option_label,'')),'')), "
@@ -508,7 +514,8 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')), "
         "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_raw,'')),'')), "
-        "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END) "
+        "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END), "
+        "       COUNT(DISTINCT po.currency) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("option_label", row[0]), ("sku", row[1]),
@@ -517,6 +524,21 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
                           ("brand", row[6]), ("discount", row[7])):
         if not count:
             present.discard(column)
+    # USD est. exists to make many currencies RANKABLE in one column. A source
+    # whose prices are all in ONE currency is already rankable by its own Price
+    # column — showing it a converted twin (through rates implied by a fuel
+    # site's arithmetic, no less) is exactly the cross-source leak the owner
+    # reported. Multi-currency alone is not enough either: without a single
+    # relevant rate the column would render empty on every non-USD row.
+    if (row[8] or 0) < 2:
+        present.discard("usd_price")
+    else:
+        relevant_rates = conn.execute(
+            "SELECT COUNT(*) FROM currency_rate WHERE currency IN ("
+            "  SELECT DISTINCT po.currency " + _LATEST_PER_OFFER + ")",
+            (source_key,)).fetchone()[0]
+        if not relevant_rates:
+            present.discard("usd_price")
     details = conn.execute(
         "SELECT COUNT(*), "
         "SUM(CASE WHEN spa.attribute_code = 'category' THEN 1 ELSE 0 END) "

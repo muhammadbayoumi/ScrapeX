@@ -143,3 +143,56 @@ def test_search_accepts_the_country_NAME_not_only_the_code(conn):
     assert browse_observations(conn, "GPP_ENERGY", search="Egypt").total == 1
     assert browse_observations(conn, "GPP_ENERGY", search="EG").total == 1
     assert browse_observations(conn, "GPP_ENERGY", search="Saudi Arabia").total == 1
+
+
+# ---- USD est. is per-source column state, never a global switch --------------
+#
+# The owner's report (2026-07-22): one GPP crawl landing one implied rate made
+# "USD est." appear on EVERY source, its values computed through a fuel site's
+# arithmetic. Column state belongs to each source — the engine is shared, the
+# gates are not (see the INVARIANT on column_presence).
+
+def _rate(conn, currency="EGP", per_usd=51.25):
+    conn.execute(
+        "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
+        "VALUES (?,?,?,?)", (currency, per_usd, "2026-07-13", "GPP_ENERGY"))
+
+
+def test_usd_est_never_leaks_onto_a_single_currency_source(conn):
+    from scrapex.reports import column_presence, table_payload
+
+    _rate(conn)
+    ingest_payloads(conn, make_entry(), [make_payload([one_row()])])   # EGP only
+
+    assert "usd_price" not in column_presence(conn, "ELSEWEDYSHOP")
+    grid = table_payload(conn, "ELSEWEDYSHOP")
+    assert "usd_price" not in {c["key"] for c in grid["columns"]}, \
+        "a one-currency shop got a USD twin of its own Price column"
+
+
+def test_a_multi_currency_source_with_a_relevant_rate_keeps_usd_est(conn):
+    from scrapex.reports import column_presence
+
+    _rate(conn)
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(),
+        one_row(external_product_id="1002", external_variant_id="5002",
+                external_sku="SKU2", currency="USD"),
+    ])])
+
+    assert "usd_price" in column_presence(conn, "ELSEWEDYSHOP"), \
+        "ranking across currencies is exactly what the column exists for"
+
+
+def test_multi_currency_without_any_relevant_rate_stays_without_usd_est(conn):
+    from scrapex.reports import column_presence
+
+    _rate(conn, currency="KWD")            # a rate exists — but for nobody here
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(),
+        one_row(external_product_id="1002", external_variant_id="5002",
+                external_sku="SKU2", currency="USD"),
+    ])])
+
+    assert "usd_price" not in column_presence(conn, "ELSEWEDYSHOP"), \
+        "a column that can only render empty cells was still offered"
