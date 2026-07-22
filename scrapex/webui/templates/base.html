@@ -31,7 +31,7 @@
       font-family:"Segoe UI",system-ui,-apple-system,"Noto Sans Arabic",sans-serif;line-height:1.5}
     a{color:inherit;text-decoration:none}
     .topbar{display:flex;align-items:baseline;gap:.6rem;padding:.85rem 1.2rem;
-      background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+      background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
     .brand{display:inline-flex;align-items:center;gap:.5rem;font-weight:600;font-size:1.15rem;color:var(--accent-ink)}
     .brand-logo{display:inline-block;width:22px;height:22px;background:var(--accent);
       -webkit-mask:url("/static/x-mark.png") center/contain no-repeat;
@@ -78,19 +78,60 @@
     .toolbar{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;
       font-size:.85rem;margin:.4rem 0 .8rem}
     button.chip{border:1px solid var(--line);cursor:pointer}
-    /* Workspace tabs (spec 21). Active is marked by weight + underline, never
-       colour alone, and carries aria-current for assistive tech. */
-    /* Deliberately NOT wrapping: a tab bar that gains a second line at narrow
-       widths changes its own height, and then no fixed offset for the sticky
-       table header can ever be correct. It scrolls sideways instead. */
-    .wstabs{display:flex;gap:.15rem;flex-wrap:nowrap;overflow-x:auto;
-      scrollbar-width:none;background:var(--surface);
-      border-bottom:1px solid var(--line);padding:0 1.2rem;position:sticky;
-      top:var(--sticky-tabs);z-index:4}
-    .wstabs a{padding:.6rem .8rem;font-size:.86rem;color:var(--muted);white-space:nowrap;
-      border-bottom:2px solid transparent}
-    .wstabs a:hover{color:var(--text)}
-    .wstabs a[aria-current=page]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
+    /* Workspace navigation: a quiet right rail keeps page navigation separate
+       from page actions. The active page is marked by weight, surface and a
+       right-edge rule, never colour alone, and still carries aria-current. */
+    .workspace-shell{max-width:1480px;min-height:calc(100vh - var(--sticky-tabs));margin:0 auto;
+      display:grid;grid-template-columns:minmax(0,1fr) 230px;align-items:stretch}
+    .workspace-shell>.wrap{grid-column:1;grid-row:1;width:100%;min-width:0}
+    .workspace-sidebar{grid-column:2;grid-row:1;align-self:start;position:sticky;
+      top:var(--sticky-tabs);height:calc(100vh - var(--sticky-tabs));overflow-y:auto;
+      border-inline-start:1px solid var(--line);background:var(--surface);z-index:4}
+    .workspace-sidebar-head{display:flex;align-items:center;justify-content:space-between;
+      gap:.6rem;padding:1.15rem 1rem .75rem}
+    .workspace-sidebar-title strong,.workspace-sidebar-title small{display:block}
+    .workspace-sidebar-title strong{font-size:.92rem}
+    .workspace-sidebar-title small{margin-top:.05rem;color:var(--muted);font-size:.72rem}
+    .sidebar-close{display:none;width:30px;height:30px;padding:0;place-items:center;
+      border:1px solid var(--line);background:transparent;color:var(--text);font-size:1.15rem}
+    .sidebar-toggle{display:none;align-items:center;gap:.4rem;padding:.34rem .62rem;
+      border:1px solid var(--line);background:transparent;color:var(--text);font-size:.8rem}
+    .sidebar-toggle svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;
+      stroke-linecap:round}
+    .wstabs{display:flex;flex-direction:column;gap:1rem;padding:.25rem .75rem 1rem}
+    .wsnav-group{min-width:0}
+    .wsnav-label{display:block;padding:.15rem .7rem .3rem;color:var(--muted);
+      font-size:.64rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+    .wsnav-links{display:flex;flex-direction:column;gap:.14rem}
+    .wstabs a{display:flex;align-items:center;min-height:38px;padding:.5rem .7rem;
+      border-radius:8px;color:var(--muted);font-size:.84rem}
+    .wstabs a:hover{background:var(--bg);color:var(--text)}
+    .wstabs a[aria-current=page]{background:var(--accent-weak);color:var(--accent-ink);
+      font-weight:600;box-shadow:inset -3px 0 var(--accent)}
+    .sidebar-backdrop{display:none}
+    @media(max-width:900px){
+      .topbar .sub{display:none}
+      .workspace-shell{display:block;max-width:none}
+      .workspace-shell>.wrap{width:auto}
+      .workspace-sidebar{position:static;width:auto;height:auto;border-inline-start:0;
+        border-bottom:1px solid var(--line)}
+      .sidebar-ready .sidebar-toggle{display:inline-flex}
+      .sidebar-ready .workspace-sidebar{position:fixed;inset-block:var(--sticky-tabs) 0;
+        inset-inline:auto 0;width:min(82vw,300px);height:auto;border-bottom:0;
+        border-inline-start:1px solid var(--line);box-shadow:-10px 0 30px rgba(0,0,0,.16);
+        transform:translateX(102%);transition:transform .18s ease;z-index:9}
+      .sidebar-ready .sidebar-close{display:grid}
+      .sidebar-ready.sidebar-open .workspace-sidebar{transform:translateX(0)}
+      .sidebar-ready .sidebar-backdrop{display:block;position:fixed;
+        inset:var(--sticky-tabs) 0 0;background:rgba(0,0,0,.36);opacity:0;
+        pointer-events:none;transition:opacity .18s ease;z-index:8}
+      .sidebar-ready.sidebar-open .sidebar-backdrop{opacity:1;pointer-events:auto}
+      .sidebar-ready.sidebar-open{overflow:hidden}
+    }
+    @media(max-width:480px){
+      .sidebar-toggle{padding:.34rem .5rem}
+      .sidebar-toggle span{display:none}
+    }
     .badge{font-size:.72rem;padding:.1rem .5rem;border-radius:6px}
     .ok{background:var(--accent-weak);color:var(--accent-ink)}
     .off{background:var(--amber-weak);color:var(--amber)}
@@ -229,7 +270,9 @@
       .settings-assurance{display:none}
       .sect-body>table tbody>tr>th:first-child{width:7.5rem}
     }
-    @media(prefers-reduced-motion:reduce){details.sect,details.sect>summary::after{transition:none}}
+    @media(prefers-reduced-motion:reduce){
+      details.sect,details.sect>summary::after,.workspace-sidebar,.sidebar-backdrop{transition:none}
+    }
     .tech{direction:ltr;font-family:ui-monospace,monospace;font-size:.85em}
     progress{width:100%;height:.6rem}
     .banner.promise{background:var(--accent-weak)}
@@ -258,27 +301,54 @@
         {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
       </a>
     {% endif %}
+    <button type="button" class="sidebar-toggle" aria-label="Open navigation"
+            aria-controls="workspace-sidebar" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+      <span>Navigate</span>
+    </button>
   </header>
   {# The dataset in view is carried across every tab (spec 21) so switching tabs
      never loses which source you were looking at. #}
   {% set ctx = ("?source_key=" ~ source_key) if source_key else "" %}
-  <nav class="wstabs" aria-label="Workspace">
-    {% for href, label, key in [
-        ("/", "Overview", "overview"),
-        ("/source/" ~ source_key if source_key else "/", "Data", "data"),
-        ("/changes" ~ ctx, "Changes", "changes"),
-        ("/history" ~ ctx, "Crawl history", "history"),
-        ("/review" ~ ctx, "Review queue", "review"),
-        ("/jobs", "Jobs", "jobs"),
-        ("/schedules", "Schedules", "schedules"),
-        ("/sync", "Sync", "sync"),
-        ("/exports", "Exports", "exports"),
-        ("/logs", "Logs", "logs"),
-        ("/settings", "Settings", "settings")] %}
-      <a href="{{ href }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
-    {% endfor %}
-  </nav>
-  <main class="wrap">
+  <div class="workspace-shell">
+    <aside class="workspace-sidebar" id="workspace-sidebar" aria-label="Workspace navigation">
+      <div class="workspace-sidebar-head">
+        <span class="workspace-sidebar-title">
+          <strong>Workspace</strong>
+          <small>Navigate ScrapeX</small>
+        </span>
+        <button type="button" class="sidebar-close" aria-label="Close navigation">&times;</button>
+      </div>
+      <nav class="wstabs" aria-label="Workspace">
+        {% for group, items in [
+          ("Browse", [
+            ("/", "Overview", "overview"),
+            ("/source/" ~ source_key if source_key else "/", "Data", "data"),
+            ("/changes" ~ ctx, "Changes", "changes"),
+            ("/history" ~ ctx, "Crawl history", "history"),
+            ("/review" ~ ctx, "Review queue", "review")]),
+          ("Automation", [
+            ("/jobs", "Jobs", "jobs"),
+            ("/schedules", "Schedules", "schedules")]),
+          ("Outputs", [
+            ("/sync", "Sync", "sync"),
+            ("/exports", "Exports", "exports")]),
+          ("System", [
+            ("/logs", "Logs", "logs"),
+            ("/settings", "Settings", "settings")])
+        ] %}
+          <div class="wsnav-group">
+            <span class="wsnav-label">{{ group }}</span>
+            <div class="wsnav-links">
+              {% for href, label, key in items %}
+                <a href="{{ href }}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
+      </nav>
+    </aside>
+    <main class="wrap">
     {# Stating the exact database, its status and the command that fixes it beats
        a page that fails halfway through a query and blames the query. #}
     {% if db_state and not db_state.ok %}
@@ -293,19 +363,18 @@
       </div>
     {% endif %}
     {% block content %}{% endblock %}
-  </main>
+    </main>
+  </div>
+  <div class="sidebar-backdrop" aria-hidden="true"></div>
   <script>
-  // The tab bar sticks directly below the topbar, and the topbar's height
-  // changes with the viewport and its own content — 60px wide, 139px at 800px.
-  // So it is measured, not assumed: the hardcoded 52px put the tab bar inside
-  // the topbar at every width where the title wrapped.
+  // The right rail starts directly below the topbar. The topbar's height changes
+  // with its own content, so the offset is measured rather than assumed.
   //
   // Progressive enhancement: the CSS defaults are sensible on their own, so a
   // page with scripting off gets a slightly imperfect offset, never a broken one.
   (function () {
     var root = document.documentElement;
     var topbar = document.querySelector('.topbar');
-    var tabs = document.querySelector('.wstabs');
     function measure() {
       var top = topbar ? topbar.getBoundingClientRect().height : 0;
       root.style.setProperty('--sticky-tabs', Math.round(top) + 'px');
@@ -316,6 +385,39 @@
       if (topbar) observer.observe(topbar);
     } else {
       window.addEventListener('resize', measure);
+    }
+
+    var body = document.body;
+    var toggle = document.querySelector('.sidebar-toggle');
+    var close = document.querySelector('.sidebar-close');
+    var backdrop = document.querySelector('.sidebar-backdrop');
+    var navigation = document.querySelector('.wstabs');
+    var sidebar = document.querySelector('.workspace-sidebar');
+    var narrow = window.matchMedia('(max-width: 900px)');
+    if (toggle && navigation && sidebar) {
+      body.classList.add('sidebar-ready');
+      function setSidebar(open) {
+        open = Boolean(open && narrow.matches);
+        body.classList.toggle('sidebar-open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+        sidebar.toggleAttribute('inert', narrow.matches && !open);
+        if (narrow.matches && !open) sidebar.setAttribute('aria-hidden', 'true');
+        else sidebar.removeAttribute('aria-hidden');
+        if (open) {
+          var current = navigation.querySelector('[aria-current="page"]') || navigation.querySelector('a');
+          if (current) current.focus();
+        }
+      }
+      toggle.addEventListener('click', function () { setSidebar(true); });
+      if (close) close.addEventListener('click', function () { setSidebar(false); toggle.focus(); });
+      if (backdrop) backdrop.addEventListener('click', function () { setSidebar(false); toggle.focus(); });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && body.classList.contains('sidebar-open')) {
+          setSidebar(false); toggle.focus();
+        }
+      });
+      if (narrow.addEventListener) narrow.addEventListener('change', function () { setSidebar(false); });
+      setSidebar(false);
     }
   })();
   </script>
