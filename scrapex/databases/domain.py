@@ -356,12 +356,46 @@ class DomainDatabase(Generic[T]):
             if migration.number <= current:
                 continue
             sql = migration.path.read_text(encoding="utf-8")
+            # SQLite's documented table-rebuild procedure, done by the RUNNER
+            # because a script cannot do it for itself: PRAGMA foreign_keys is
+            # a silent no-op inside an open transaction, so a migration that
+            # says OFF before dropping a parent table is not actually off in
+            # here — migration 18 rolled back on every database that had job
+            # history, while passing on every fresh test database that had
+            # none. Enforcement is suspended around the script and the honest
+            # compensator runs after: foreign_key_check over the whole file,
+            # failing the migration loudly if it left a single orphan.
+            # The runner must OWN the transaction, explicitly. In the sqlite3
+            # module's legacy isolation mode the connection auto-commits an
+            # open transaction before any non-DML statement — so the
+            # foreign_key_check below would first COMMIT the very damage it
+            # exists to veto. isolation_level None makes every BEGIN, COMMIT
+            # and ROLLBACK ours and only ours.
+            previous_isolation = conn.isolation_level
+            conn.isolation_level = None
+            conn.execute("PRAGMA foreign_keys = OFF")
             try:
-                conn.executescript(f"BEGIN IMMEDIATE;\n{sql}\nCOMMIT;")
+                # No COMMIT is appended: the transaction stays open so the
+                # check runs INSIDE it, and a failed check rolls the whole
+                # migration back. Checked after commit it would only report
+                # damage already made permanent. (No migration file carries
+                # its own COMMIT; the runner owns it.)
+                conn.executescript(f"BEGIN IMMEDIATE;\n{sql}")
+                broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+                if broken:
+                    raise DatabaseMigrationError(
+                        f"{self.kind} migration {migration.name} left "
+                        f"{len(broken)} row(s) pointing at nothing "
+                        f"(first: {tuple(broken[0])}); it was applied with "
+                        "enforcement suspended and must repair what it breaks")
+                conn.execute("COMMIT")
             except Exception:
                 if conn.in_transaction:
-                    conn.rollback()
+                    conn.execute("ROLLBACK")
                 raise
+            finally:
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.isolation_level = previous_isolation
             stamped = int(conn.execute("PRAGMA user_version").fetchone()[0])
             if stamped != migration.number:
                 # A file shared with the unified chain carries THAT chain's

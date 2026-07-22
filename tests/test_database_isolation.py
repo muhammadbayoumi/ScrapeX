@@ -318,3 +318,93 @@ def test_workspace_move_changes_only_marketlens_location(
     assert followed.general.path == original_general
     assert followed.marketlens.path == tmp_path / "moved" / "marketlens.db"
     assert followed.health()["marketlens"]["status"] == "Healthy"
+
+
+def test_migration_18_survives_a_database_with_job_history(tmp_path):
+    """The draft's blind spot, hit live on the owner's warehouse: every test
+    database was FRESH, so the crawl_job rebuild always dropped a parent with
+    no children. A real database has job_log_entry rows pointing at it — and
+    PRAGMA foreign_keys is a silent no-op inside the runner's transaction, so
+    the script's own OFF did nothing and init-db rolled back with
+    'FOREIGN KEY constraint failed'. The runner now suspends enforcement
+    around the script and foreign_key_check guards the commit."""
+    from scrapex.databases.domain import MarketLensDatabase
+
+    path = tmp_path / "marketlens.db"
+    db = MarketLensDatabase(path)
+    db.initialize()
+
+    conn = db.connect()
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys) "
+            "VALUES ('job_x', 'update', 'completed', '[\"GPP_ENERGY\"]')")
+        job_id = conn.execute("SELECT job_id FROM crawl_job").fetchone()[0]
+        conn.execute(
+            "INSERT INTO job_log_entry (job_id, level, message) "
+            "VALUES (?, 'info', 'a line that must survive the rebuild')", (job_id,))
+        conn.commit()
+        # The new status is writable — the whole point of migration 18 — and
+        # the child row still points at its job after the table rebuild.
+        conn.execute("UPDATE crawl_job SET status='completed_with_errors' "
+                     "WHERE job_id=?", (job_id,))
+        conn.commit()
+        kept = conn.execute(
+            "SELECT COUNT(*) FROM job_log_entry l JOIN crawl_job j "
+            "ON j.job_id = l.job_id").fetchone()[0]
+        assert kept == 1
+    finally:
+        conn.close()
+
+
+def test_a_migration_that_orphans_rows_is_rolled_back_not_committed(tmp_path):
+    """Enforcement is suspended around migration scripts, so the compensator
+    must have teeth: a rebuild that drops a parent WITHOUT restoring it may
+    not commit, and the database must come back exactly as it was."""
+    import pytest as _pytest
+
+    from scrapex.databases.domain import (
+        DatabaseMigrationError, GeneralDatabase, Migration,
+    )
+
+    good = tmp_path / "0001_base.sql"
+    good.write_text(
+        "PRAGMA application_id = 1398294350;\n"
+        "CREATE TABLE parent (id INTEGER PRIMARY KEY);\n"
+        "CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));\n"
+        "INSERT INTO parent VALUES (1);\nINSERT INTO child VALUES (1);\n"
+        "CREATE TABLE scrapex_meta (key TEXT PRIMARY KEY, value TEXT);\n"
+        "INSERT INTO scrapex_meta VALUES ('database_kind', 'general');\n"
+        # The runner's checksum audit writes here after every stream run.
+        "CREATE TABLE database_migration (\n"
+        "  migration_number INTEGER PRIMARY KEY, migration_name TEXT NOT NULL,\n"
+        "  sha256 TEXT NOT NULL,\n"
+        "  applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));\n"
+        "PRAGMA user_version = 1;\n", encoding="utf-8")
+    bad = tmp_path / "0002_orphan.sql"
+    bad.write_text("DROP TABLE parent;\nPRAGMA user_version = 2;\n", encoding="utf-8")
+
+    class _Base(GeneralDatabase):
+        def __init__(self, path):
+            super().__init__(path)
+            self._migrations = (Migration(1, good),)
+
+    class _Rig(GeneralDatabase):
+        def __init__(self, path):
+            super().__init__(path)
+            self._migrations = (Migration(1, good), Migration(2, bad))
+
+    # The database must EXIST first: a brand-new file that fails mid-creation
+    # is deliberately removed whole, which is a different (also correct)
+    # answer. The dangerous case is an owner's existing database.
+    _Base(tmp_path / "rig.db").initialize()
+
+    with _pytest.raises(DatabaseMigrationError, match="pointing at nothing"):
+        _Rig(tmp_path / "rig.db").initialize()
+
+    import sqlite3
+    conn = sqlite3.connect(tmp_path / "rig.db")
+    assert conn.execute("SELECT COUNT(*) FROM parent").fetchone()[0] == 1, \
+        "the orphaning migration committed anyway"
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    conn.close()
