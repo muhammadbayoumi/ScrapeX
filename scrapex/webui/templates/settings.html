@@ -8,12 +8,6 @@
     <p>Control the local runtime, collection rules, connected destinations, and
       data safeguards from one organized workspace.</p>
   </div>
-  <aside class="settings-assurance" aria-label="Saving behavior">
-    <span class="settings-assurance-mark" aria-hidden="true">✓</span>
-    <span><strong>Changes are explicit</strong>
-      <span>Nothing changes until you choose Save. Risky data actions explain
-        their effect before they run.</span></span>
-  </aside>
 </header>
 
 {# Spec 33/24: thirteen sections, every one closed by default. Progressive
@@ -21,9 +15,57 @@
    only controls in the product that can rewrite the warehouse, and they should
    take a deliberate act to reach, not scroll past under a thumb. #}
 
-<div class="settings">
+<div class="settings-shell">
+  <aside class="settings-sidebar" aria-label="Settings categories">
+    <div class="settings-sidebar-title">
+      <strong>Settings</strong>
+      <span>Choose a category</span>
+    </div>
+    <nav class="settings-nav" role="tablist" aria-orientation="vertical">
+      <button type="button" class="settings-nav-item is-active" role="tab"
+              id="settings-workspace-tab" data-settings-nav="workspace"
+              aria-controls="settings-workspace" aria-selected="true">
+        <span class="settings-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 5.5h16v13H4z"/><path d="M8 18.5v-13M4 9.5h4"/></svg>
+        </span>
+        <span class="settings-nav-copy"><strong>Workspace</strong><small>General, runtime, storage</small></span>
+      </button>
+      <button type="button" class="settings-nav-item" role="tab"
+              id="settings-collection-tab" data-settings-nav="collection"
+              aria-controls="settings-collection" aria-selected="false" tabindex="-1">
+        <span class="settings-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/><circle cx="8" cy="7" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="11" cy="17" r="1.5"/></svg>
+        </span>
+        <span class="settings-nav-copy"><strong>Collection</strong><small>Crawling, engines, schedules</small></span>
+      </button>
+      <button type="button" class="settings-nav-item" role="tab"
+              id="settings-connections-tab" data-settings-nav="connections"
+              aria-controls="settings-connections" aria-selected="false" tabindex="-1">
+        <span class="settings-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M8.5 15.5l7-7M7 10.5 4.5 13a4 4 0 0 0 5.5 5.5l2.5-2.5M17 13.5l2.5-2.5A4 4 0 0 0 14 5.5L11.5 8"/></svg>
+        </span>
+        <span class="settings-nav-copy"><strong>Connections</strong><small>Excel, Apps Script, Google</small></span>
+      </button>
+      <button type="button" class="settings-nav-item" role="tab"
+              id="settings-governance-tab" data-settings-nav="governance"
+              aria-controls="settings-governance" aria-selected="false" tabindex="-1">
+        <span class="settings-nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3.5 19 7v5c0 4.5-3 7-7 8.5C8 19 5 16.5 5 12V7z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
+        <span class="settings-nav-copy"><strong>Data &amp; trust</strong><small>History, privacy, diagnostics</small></span>
+      </button>
+    </nav>
+    <aside class="settings-assurance" aria-label="Saving behavior">
+      <span class="settings-assurance-mark" aria-hidden="true">✓</span>
+      <span><strong>Changes are explicit</strong>
+        <span>Nothing changes until you choose Save. Risky data actions explain their effect before they run.</span></span>
+    </aside>
+  </aside>
 
-<section class="settings-category" aria-labelledby="settings-workspace-heading">
+  <div class="settings-content">
+
+<section class="settings-category" id="settings-workspace" data-settings-panel="workspace"
+         role="tabpanel" aria-labelledby="settings-workspace-tab">
   <div class="settings-category-head">
     <h2 id="settings-workspace-heading">Workspace</h2>
     <p>Core preferences, runtime health, and where local data lives.</p>
@@ -81,7 +123,8 @@
   </div>
 </section>
 
-<section class="settings-category" aria-labelledby="settings-collection-heading">
+<section class="settings-category" id="settings-collection" data-settings-panel="collection"
+         role="tabpanel" aria-labelledby="settings-collection-tab" hidden>
   <div class="settings-category-head">
     <h2 id="settings-collection-heading">Collection</h2>
     <p>How sources are crawled, which engines run, and when jobs start.</p>
@@ -162,7 +205,8 @@
   </div>
 </section>
 
-<section class="settings-category" aria-labelledby="settings-connections-heading">
+<section class="settings-category" id="settings-connections" data-settings-panel="connections"
+         role="tabpanel" aria-labelledby="settings-connections-tab" hidden>
   <div class="settings-category-head">
     <h2 id="settings-connections-heading">Connections</h2>
     <p>Optional destinations that send or synchronize data outside ScrapeX.</p>
@@ -207,7 +251,8 @@
   </div>
 </section>
 
-<section class="settings-category" aria-labelledby="settings-governance-heading">
+<section class="settings-category" id="settings-governance" data-settings-panel="governance"
+         role="tabpanel" aria-labelledby="settings-governance-tab" hidden>
   <div class="settings-category-head">
     <h2 id="settings-governance-heading">Data &amp; trust</h2>
     <p>Retention, privacy, diagnostics, and build information.</p>
@@ -286,6 +331,7 @@
   </div>
 </section>
 
+  </div>
 </div>
 
 <script>
@@ -316,14 +362,55 @@ document.querySelectorAll("button[data-save]").forEach((button) => {
   });
 });
 
-// A section named in the address bar opens itself, so a link from the panel
-// lands on the thing it promised rather than on a wall of closed rows.
-if (location.hash) {
-  const target = document.querySelector(location.hash);
-  if (target && target.tagName === "DETAILS") {
-    target.open = true;
-    target.scrollIntoView({block: "start"});
+// Category navigation is presentation-only: it changes the visible pane while
+// preserving each setting form, endpoint, and explicit save action.
+const settingsTabs = [...document.querySelectorAll("[data-settings-nav]")];
+const settingsPanels = [...document.querySelectorAll("[data-settings-panel]")];
+
+function showSettingsCategory(name, updateAddress = false) {
+  const panel = settingsPanels.find((item) => item.dataset.settingsPanel === name);
+  if (!panel) return;
+  settingsPanels.forEach((item) => { item.hidden = item !== panel; });
+  settingsTabs.forEach((tab) => {
+    const active = tab.dataset.settingsNav === name;
+    tab.classList.toggle("is-active", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+  if (updateAddress) {
+    history.replaceState(null, "", `#${panel.id}`);
+    panel.scrollIntoView({block: "start"});
   }
 }
+
+function revealSettingsHash() {
+  if (!location.hash) return;
+  const target = document.querySelector(location.hash);
+  if (!target) return;
+  const panel = target.matches("[data-settings-panel]")
+    ? target : target.closest("[data-settings-panel]");
+  if (!panel) return;
+  showSettingsCategory(panel.dataset.settingsPanel);
+  if (target.tagName === "DETAILS") target.open = true;
+  requestAnimationFrame(() => target.scrollIntoView({block: "start"}));
+}
+
+settingsTabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => showSettingsCategory(tab.dataset.settingsNav, true));
+  tab.addEventListener("keydown", (event) => {
+    let next = null;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") next = (index + 1) % settingsTabs.length;
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") next = (index - 1 + settingsTabs.length) % settingsTabs.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = settingsTabs.length - 1;
+    if (next === null) return;
+    event.preventDefault();
+    settingsTabs[next].focus();
+    settingsTabs[next].click();
+  });
+});
+
+window.addEventListener("hashchange", revealSettingsHash);
+revealSettingsHash();
 </script>
 {% endblock %}
