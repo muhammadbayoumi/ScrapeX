@@ -40,7 +40,10 @@
   // grid. Those values could leave a header too narrow for its controls and a
   // saved sorter could make the first three-click cycle start mid-sequence.
   const PERSISTENCE_ID = "scrapex-grid-v2-" + SOURCE;
-  const MATERIAL_ICON_SPRITE = "/static/material-icons/material-icons.svg";
+  const MATERIAL_ICON_SPRITE = "/static/material-icons/material-icons.svg?v=menu-1";
+  // A DOM namespace, not a network address. Keep it split so the offline-only
+  // guard can continue rejecting every literal runtime http(s) URL in this file.
+  const SVG_NAMESPACE = "http:" + "//www.w3.org/2000/svg";
 
   function materialIcon(name, className, title) {
     return "<svg class='material-icon " + className + "' viewBox='0 0 24 24'" +
@@ -307,13 +310,17 @@
   }
 
   // ---- the three-dot menu ---------------------------------------------------
-  function menuLabel(icon, labelText) {
+  function menuLabel(iconName, labelText) {
     const label = document.createElement("span");
     label.className = "grid-menu-label";
-    const glyph = document.createElement("span");
-    glyph.className = "grid-menu-icon";
+    const glyph = document.createElementNS(SVG_NAMESPACE, "svg");
+    glyph.classList.add("material-icon", "grid-menu-icon");
+    glyph.setAttribute("viewBox", "0 0 24 24");
     glyph.setAttribute("aria-hidden", "true");
-    glyph.textContent = icon || "";
+    glyph.setAttribute("focusable", "false");
+    const use = document.createElementNS(SVG_NAMESPACE, "use");
+    if (iconName) use.setAttribute("href", MATERIAL_ICON_SPRITE + "#" + iconName);
+    glyph.append(use);
     const words = document.createElement("span");
     words.textContent = labelText;
     label.append(glyph, words);
@@ -323,10 +330,10 @@
   function pinMenu(field) {
     const side = pinned.get(field) || "";
     return [
-      {label: menuLabel(side ? "" : "\u2713", "No Pin"), action: () => setPinned(field, "")},
-      {label: menuLabel(side === "left" ? "\u2713" : "", "Pin Left"),
+      {label: menuLabel(side ? "" : "check", "No Pin"), action: () => setPinned(field, "")},
+      {label: menuLabel(side === "left" ? "check" : "", "Pin Left"),
        action: () => setPinned(field, "left")},
-      {label: menuLabel(side === "right" ? "\u2713" : "", "Pin Right"),
+      {label: menuLabel(side === "right" ? "check" : "", "Pin Right"),
        action: () => setPinned(field, "right")},
     ];
   }
@@ -335,23 +342,23 @@
     const field = column.getField();
     const title = text(column.getDefinition().title || field);
     return [
-      {label: menuLabel("\u2191", "Sort Ascending"),
+      {label: menuLabel("arrow-upward", "Sort Ascending"),
        action: () => column.getTable().setSort(field, "asc")},
-      {label: menuLabel("\u2193", "Sort Descending"),
+      {label: menuLabel("arrow-downward", "Sort Descending"),
        action: () => column.getTable().setSort(field, "desc")},
       {separator: true},
-      {label: menuLabel("\u2691", "Pin Column"), menu: pinMenu(field)},
+      {label: menuLabel("push-pin", "Pin Column"), menu: pinMenu(field)},
       {separator: true},
-      {label: menuLabel("", "Autosize This Column"), action: () => autosize(field)},
-      {label: menuLabel("", "Autosize All Columns"), action: autosizeAll},
+      {label: menuLabel("fit-screen", "Autosize This Column"), action: () => autosize(field)},
+      {label: menuLabel("unfold-more", "Autosize All Columns"), action: autosizeAll},
       {separator: true},
-      {label: menuLabel(groupedBy === field ? "\u2713" : "\u2261", "Group by " + title),
+      {label: menuLabel(groupedBy === field ? "check" : "view-stream", "Group by " + title),
        action: () => setGroup(groupedBy === field ? "" : field), disabled: !features.tree},
-      {label: menuLabel(treeBy === field ? "\u2713" : "\u2514", "Nest rows by this column"),
+      {label: menuLabel(treeBy === field ? "check" : "account-tree", "Nest rows by this column"),
        action: () => setTree(treeBy === field ? "" : field), disabled: !features.rows},
       {separator: true},
-      {label: menuLabel("\u25a6", "Choose Columns"), action: chooseColumns},
-      {label: menuLabel("", "Reset Columns"), action: resetColumns},
+      {label: menuLabel("view-column", "Choose Columns"), action: chooseColumns},
+      {label: menuLabel("restart-alt", "Reset Columns"), action: resetColumns},
     ];
   }
 

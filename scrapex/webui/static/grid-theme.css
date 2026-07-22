@@ -200,11 +200,10 @@
   gap: .65rem;
   min-width: 0;
 }
-.grid-menu-icon {
-  width: 1rem;
-  flex: 0 0 1rem;
-  text-align: center;
-  font-weight: 700;
+.material-icon.grid-menu-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 1.1rem;
 }
 
 /* ---- chrome: scrollers, resize guides, edit inputs ---- */

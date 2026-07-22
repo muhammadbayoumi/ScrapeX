@@ -92,8 +92,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert '/static/grid.js?v=grid-menu-1' in page
-    assert '/static/grid-theme.css?v=grid-menu-1' in page
+    assert '/static/grid.js?v=material-icons-1' in page
+    assert '/static/grid-theme.css?v=material-icons-1' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -102,11 +102,17 @@ def test_material_header_icons_are_local_and_dry():
     sprite = (MATERIAL_ICONS / "material-icons.svg").read_text(encoding="utf-8")
     licence = (MATERIAL_ICONS / "material-icons.LICENSE.txt").read_text(encoding="utf-8")
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
-    expected_symbols = {'id="filter-list"', 'id="more-vert"', 'id="arrow-upward"'}
+    expected_symbols = {
+        'id="filter-list"', 'id="more-vert"', 'id="arrow-upward"',
+        'id="arrow-downward"', 'id="check"', 'id="push-pin"',
+        'id="fit-screen"', 'id="unfold-more"', 'id="view-stream"',
+        'id="account-tree"', 'id="view-column"', 'id="restart-alt"',
+    }
 
     assert all(token in sprite for token in expected_symbols)
     assert "Apache License" in licence and "Version 2.0" in licence
     assert "material-icons.svg" in script
+    assert "material-icons.svg?v=menu-1" in script
     assert not list(MATERIAL_ICONS.glob("*_*.svg")), "use the single SVG sprite"
 
 
@@ -358,6 +364,10 @@ def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
                   "Autosize All Columns", "Choose Columns", "Reset Columns"):
         assert label in script
     assert "menu: pinMenu(field)" in script
+    assert 'menuLabel("push-pin", "Pin Column")' in script
+    assert 'menuLabel("fit-screen", "Autosize This Column")' in script
+    assert 'menuLabel("view-column", "Choose Columns")' in script
+    assert 'menuLabel("restart-alt", "Reset Columns")' in script
     assert "column.setWidth(true)" in script
     assert 'layout: "fitColumns"' in script
     assert "persistence: pinned.size ? false" in script
