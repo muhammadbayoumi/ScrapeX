@@ -40,7 +40,7 @@
   // grid. Those values could leave a header too narrow for its controls and a
   // saved sorter could make the first three-click cycle start mid-sequence.
   const PERSISTENCE_ID = "scrapex-grid-v2-" + SOURCE;
-  const MATERIAL_ICON_SPRITE = "/static/material-icons/material-icons.svg?v=menu-1";
+  const MATERIAL_ICON_SPRITE = "/static/material-icons/material-icons.svg?v=columns-2";
   // A DOM namespace, not a network address. Keep it split so the offline-only
   // guard can continue rejecting every literal runtime http(s) URL in this file.
   const SVG_NAMESPACE = "http:" + "//www.w3.org/2000/svg";
@@ -77,18 +77,28 @@
   const DEFAULT_FEATURES = {tree: true, rows: true, select: true, totals: false,
                             rownum: false, compact: false, wrap: false, stripe: false};
   let features = Object.assign({}, DEFAULT_FEATURES);
-  // WHICH column groups the table. Per source and per column, because the right
-  // grouping for a fuel table (by material) is not the right one for a shop.
-  // A global on/off switch could never express that, which is why it moved out
-  // of the features panel and onto the column itself.
+  // WHICH columns group the table, from outermost to innermost. Per source,
+  // because the useful hierarchy for a fuel table (material, then country) is
+  // not the useful hierarchy for a shop. The older preference was one plain
+  // string; read it as a one-level group so the upgrade does not discard it.
   const GROUP_KEY = "scrapex-groupby-" + (mount.dataset.source || "");
   const TREE_KEY = "scrapex-treeby-" + (mount.dataset.source || "");
-  let groupedBy = "";
+  let groupedBy = [];
   let treeBy = "";
+  function readGroups(raw) {
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return [...new Set(parsed.filter((field) => typeof field === "string" && field))];
+      }
+    } catch (err) { /* the old value was deliberately not JSON */ }
+    return [raw];
+  }
   try {
-    groupedBy = localStorage.getItem(GROUP_KEY) || "";
+    groupedBy = readGroups(localStorage.getItem(GROUP_KEY) || "");
     treeBy = localStorage.getItem(TREE_KEY) || "";
-  } catch (err) { groupedBy = ""; treeBy = ""; }
+  } catch (err) { groupedBy = []; treeBy = ""; }
   try {
     const saved = JSON.parse(localStorage.getItem(FEATURE_KEY) || "null");
     if (saved) features = Object.assign(features, saved);
@@ -101,19 +111,28 @@
     } catch (err) { /* private mode: it still works, it just forgets */ }
   }
 
+  function rememberGroups() {
+    remember_(GROUP_KEY, groupedBy.length ? JSON.stringify(groupedBy) : "");
+  }
+
   function setGroup(field) {
-    groupedBy = field || "";
+    if (!field) groupedBy = [];
+    else if (groupedBy.includes(field)) {
+      groupedBy = groupedBy.filter((groupField) => groupField !== field);
+    } else {
+      groupedBy = groupedBy.concat(field);
+    }
     // A grouped tree would show synthetic bands over rows that are already
     // nested — two hierarchies stacked, neither readable. Choosing one turns
     // the other off, visibly, rather than rendering the collision.
-    if (groupedBy) { treeBy = ""; remember_(TREE_KEY, ""); }
-    remember_(GROUP_KEY, groupedBy);
+    if (groupedBy.length) { treeBy = ""; remember_(TREE_KEY, ""); }
+    rememberGroups();
     build();
   }
 
   function setTree(field) {
     treeBy = field || "";
-    if (treeBy) { groupedBy = ""; remember_(GROUP_KEY, ""); }
+    if (treeBy) { groupedBy = []; rememberGroups(); }
     remember_(TREE_KEY, treeBy);
     build();
   }
@@ -310,20 +329,25 @@
   }
 
   // ---- the three-dot menu ---------------------------------------------------
-  function menuLabel(iconName, labelText) {
-    const label = document.createElement("span");
-    label.className = "grid-menu-label";
+  function materialIconElement(iconName, className) {
     const glyph = document.createElementNS(SVG_NAMESPACE, "svg");
-    glyph.classList.add("material-icon", "grid-menu-icon");
+    glyph.classList.add("material-icon");
+    if (className) glyph.classList.add(className);
     glyph.setAttribute("viewBox", "0 0 24 24");
     glyph.setAttribute("aria-hidden", "true");
     glyph.setAttribute("focusable", "false");
     const use = document.createElementNS(SVG_NAMESPACE, "use");
     if (iconName) use.setAttribute("href", MATERIAL_ICON_SPRITE + "#" + iconName);
     glyph.append(use);
+    return glyph;
+  }
+
+  function menuLabel(iconName, labelText) {
+    const label = document.createElement("span");
+    label.className = "grid-menu-label";
     const words = document.createElement("span");
     words.textContent = labelText;
-    label.append(glyph, words);
+    label.append(materialIconElement(iconName, "grid-menu-icon"), words);
     return label;
   }
 
@@ -341,7 +365,13 @@
   function columnMenu(event, column) {
     const field = column.getField();
     const title = text(column.getDefinition().title || field);
-    return [
+    const groupLevel = groupedBy.indexOf(field);
+    const groupLabel = groupLevel >= 0
+      ? "Remove " + title + " from Row Groups"
+      : groupedBy.length
+        ? "Add " + title + " as Group Level " + (groupedBy.length + 1)
+        : "Group by " + title;
+    const menu = [
       {label: menuLabel("arrow-upward", "Sort Ascending"),
        action: () => column.getTable().setSort(field, "asc")},
       {label: menuLabel("arrow-downward", "Sort Descending"),
@@ -352,14 +382,40 @@
       {label: menuLabel("fit-screen", "Autosize This Column"), action: () => autosize(field)},
       {label: menuLabel("unfold-more", "Autosize All Columns"), action: autosizeAll},
       {separator: true},
-      {label: menuLabel(groupedBy === field ? "check" : "view-stream", "Group by " + title),
-       action: () => setGroup(groupedBy === field ? "" : field), disabled: !features.tree},
+      {label: menuLabel(groupLevel >= 0 ? "check" : "view-stream", groupLabel),
+       action: () => setGroup(field), disabled: !features.tree},
+    ];
+    if (groupedBy.length) {
+      menu.push({label: menuLabel("view-stream", "Un-Group All"),
+                 action: () => setGroup("")});
+    }
+    menu.push(
       {label: menuLabel(treeBy === field ? "check" : "account-tree", "Nest rows by this column"),
        action: () => setTree(treeBy === field ? "" : field), disabled: !features.rows},
       {separator: true},
-      {label: menuLabel("view-column", "Choose Columns"), action: chooseColumns},
-      {label: menuLabel("restart-alt", "Reset Columns"), action: resetColumns},
-    ];
+      {label: menuLabel("view-column", "Choose Columns"), action: openColumnChooser},
+      {label: menuLabel("restart-alt", "Reset Columns"), action: resetColumns}
+    );
+    if (groupedBy.length) {
+      menu.push(
+        {label: menuLabel("unfold-more", "Expand All Row Groups"),
+         action: () => setAllGroupsOpen(true)},
+        {label: menuLabel("unfold-less", "Collapse All Row Groups"),
+         action: () => setAllGroupsOpen(false)}
+      );
+    }
+    return menu;
+  }
+
+  function setAllGroupsOpen(open) {
+    if (!table) return;
+    function visit(group) {
+      const children = typeof group.getSubGroups === "function" ? group.getSubGroups() : [];
+      if (open) group.show();
+      children.forEach(visit);
+      if (!open) group.hide();
+    }
+    table.getGroups().forEach(visit);
   }
 
   // Pinning is fixed at construction time. A map keeps left and right distinct;
@@ -396,16 +452,262 @@
     table.redraw(true);
   }
 
-  function chooseColumns() {
-    const url = new URL(location.href);
-    url.searchParams.set("edit", "1");
-    location.assign(url);
+  let chooserSaveQueue = Promise.resolve();
+  let chooserSaveError = null;
+
+  function updateFields(body) {
+    chooserSaveQueue = chooserSaveQueue.catch(() => {}).then(async () => {
+      const response = await fetch("/api/fields/" + encodeURIComponent(SOURCE), {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      chooserSaveError = null;
+      return response.json();
+    }).catch((error) => {
+      chooserSaveError = error;
+      throw error;
+    });
+    return chooserSaveQueue;
+  }
+
+  function openColumnChooser() {
+    const existing = document.querySelector(".column-chooser-backdrop");
+    if (existing) {
+      const search = existing.querySelector("input[type=search]");
+      if (search) search.focus();
+      return;
+    }
+
+    let fields = [];
+    let draggedKey = "";
+    let dirty = false;
+    let closing = false;
+    chooserSaveQueue = Promise.resolve();
+    chooserSaveError = null;
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "column-chooser-backdrop";
+    const panel = document.createElement("aside");
+    panel.className = "column-chooser";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-labelledby", "column-chooser-title");
+
+    const header = document.createElement("header");
+    header.className = "column-chooser-header";
+    const heading = document.createElement("h2");
+    heading.id = "column-chooser-title";
+    heading.textContent = "Choose Columns";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "column-chooser-close";
+    closeButton.setAttribute("aria-label", "Close column chooser");
+    closeButton.append(materialIconElement("close", "column-chooser-icon"));
+    header.append(heading, closeButton);
+
+    const controls = document.createElement("div");
+    controls.className = "column-chooser-controls";
+    const selectAll = document.createElement("input");
+    selectAll.type = "checkbox";
+    selectAll.setAttribute("aria-label", "Show all columns");
+    const searchBox = document.createElement("label");
+    searchBox.className = "column-chooser-search";
+    searchBox.append(materialIconElement("search", "column-chooser-icon"));
+    const search = document.createElement("input");
+    search.type = "search";
+    search.placeholder = "Search columns";
+    search.setAttribute("aria-label", "Search columns");
+    searchBox.append(search);
+    controls.append(selectAll, searchBox);
+
+    const list = document.createElement("div");
+    list.className = "column-chooser-list";
+    list.setAttribute("role", "list");
+    const status = document.createElement("p");
+    status.className = "column-chooser-status muted";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    status.textContent = "Loading columns…";
+    panel.append(header, controls, list, status);
+    backdrop.append(panel);
+    document.body.append(backdrop);
+
+    function fieldLabel(field) {
+      const tableColumn = payload.columns.find((column) => column.key === field.field_key);
+      const raw = text(field.display_name || (tableColumn && tableColumn.label) ||
+                       field.label || field.original_name || field.field_key);
+      // Hidden columns are absent from payload.columns, and many connectors use
+      // machine keys as their original names. Humanise only that fallback; an
+      // explicit display name remains exactly what the owner wrote.
+      if (field.display_name || tableColumn) return raw;
+      return raw.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    }
+
+    function syncMasterCheckbox() {
+      const visible = fields.filter((field) => !field.is_hidden).length;
+      selectAll.checked = fields.length > 0 && visible === fields.length;
+      selectAll.indeterminate = visible > 0 && visible < fields.length;
+    }
+
+    function saySaving(promise) {
+      status.textContent = "Saving…";
+      promise.then(() => {
+        if (!chooserSaveError) status.textContent = "Saved. Close to refresh the grid.";
+      }).catch(() => {
+        status.textContent = "Could not save the column changes. Try again.";
+      });
+    }
+
+    function saveOrder() {
+      dirty = true;
+      saySaving(updateFields({order: fields.map((field) => field.field_key)}));
+    }
+
+    function moveField(key, targetKey, after) {
+      if (!key || key === targetKey) return;
+      const from = fields.findIndex((field) => field.field_key === key);
+      if (from < 0) return;
+      const moved = fields.splice(from, 1)[0];
+      let to = fields.findIndex((field) => field.field_key === targetKey);
+      if (to < 0) { fields.splice(from, 0, moved); return; }
+      if (after) to += 1;
+      fields.splice(to, 0, moved);
+      saveOrder();
+      render();
+    }
+
+    function render() {
+      const query = search.value.trim().toLocaleLowerCase();
+      list.replaceChildren();
+      const matching = fields.filter((field) =>
+        !query || fieldLabel(field).toLocaleLowerCase().includes(query));
+      matching.forEach((field) => {
+        const row = document.createElement("div");
+        row.className = "column-chooser-row";
+        row.dataset.field = field.field_key;
+        row.draggable = true;
+        row.setAttribute("role", "listitem");
+
+        const visible = document.createElement("input");
+        visible.type = "checkbox";
+        visible.checked = !field.is_hidden;
+        visible.setAttribute("aria-label", "Show " + fieldLabel(field));
+        visible.addEventListener("change", () => {
+          field.is_hidden = !visible.checked;
+          dirty = true;
+          syncMasterCheckbox();
+          saySaving(updateFields({field_key: field.field_key, hidden: field.is_hidden}));
+        });
+
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = "column-chooser-handle";
+        handle.setAttribute("aria-label", "Move " + fieldLabel(field));
+        handle.title = "Drag to reorder. Use Arrow Up or Arrow Down from the keyboard.";
+        handle.append(materialIconElement("drag-indicator", "column-chooser-icon"));
+        handle.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          const at = fields.indexOf(field);
+          const target = fields[at + (event.key === "ArrowUp" ? -1 : 1)];
+          if (!target) return;
+          moveField(field.field_key, target.field_key, event.key === "ArrowDown");
+          const movedHandle = [...list.querySelectorAll(".column-chooser-row")]
+            .find((item) => item.dataset.field === field.field_key)?.querySelector("button");
+          if (movedHandle) movedHandle.focus();
+        });
+
+        const name = document.createElement("span");
+        name.className = "column-chooser-name";
+        name.textContent = fieldLabel(field);
+        row.append(visible, handle, name);
+        row.addEventListener("dragstart", (event) => {
+          draggedKey = field.field_key;
+          row.classList.add("is-dragging");
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", draggedKey);
+        });
+        row.addEventListener("dragover", (event) => {
+          if (!draggedKey || draggedKey === field.field_key) return;
+          event.preventDefault();
+          row.classList.toggle("drop-after", event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2);
+          row.classList.toggle("drop-before", !row.classList.contains("drop-after"));
+        });
+        row.addEventListener("dragleave", () => row.classList.remove("drop-before", "drop-after"));
+        row.addEventListener("drop", (event) => {
+          event.preventDefault();
+          const after = event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+          moveField(draggedKey, field.field_key, after);
+          draggedKey = "";
+        });
+        row.addEventListener("dragend", () => {
+          draggedKey = "";
+          list.querySelectorAll(".column-chooser-row").forEach((item) =>
+            item.classList.remove("is-dragging", "drop-before", "drop-after"));
+        });
+        list.append(row);
+      });
+      if (!matching.length) {
+        const empty = document.createElement("p");
+        empty.className = "column-chooser-empty muted";
+        empty.textContent = "No columns match this search.";
+        list.append(empty);
+      }
+      syncMasterCheckbox();
+    }
+
+    async function closeChooser() {
+      if (closing) return;
+      closing = true;
+      closeButton.disabled = true;
+      if (dirty) status.textContent = "Finishing changes…";
+      try { await chooserSaveQueue; } catch (error) {
+        closing = false;
+        closeButton.disabled = false;
+        status.textContent = "Could not save the column changes. Try again.";
+        return;
+      }
+      document.removeEventListener("keydown", escapeChooser);
+      if (dirty) location.reload();
+      else backdrop.remove();
+    }
+
+    function escapeChooser(event) {
+      if (event.key === "Escape") closeChooser();
+    }
+    closeButton.addEventListener("click", closeChooser);
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) closeChooser();
+    });
+    document.addEventListener("keydown", escapeChooser);
+    search.addEventListener("input", render);
+    selectAll.addEventListener("change", () => {
+      const hidden = !selectAll.checked;
+      fields.filter((field) => field.is_hidden !== hidden).forEach((field) => {
+        field.is_hidden = hidden;
+        dirty = true;
+        saySaving(updateFields({field_key: field.field_key, hidden: hidden}));
+      });
+      render();
+    });
+
+    fetch("/api/fields/" + encodeURIComponent(SOURCE))
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("HTTP " + response.status)))
+      .then((data) => {
+        if (!document.body.contains(panel)) return;
+        fields = (data.fields || []).map((field) => Object.assign({}, field));
+        status.textContent = fields.length ? "Drag columns to reorder them." : "No columns are available.";
+        render();
+        search.focus();
+      })
+      .catch(() => { status.textContent = "Could not load the columns. Try again."; });
   }
 
   function resetColumns() {
     pinned.clear();
     widths.clear();
-    groupedBy = "";
+    groupedBy = [];
     treeBy = "";
     // Clear the BROWSER's memory too. A reset that only wrote to the server is
     // how a hidden column became unrecoverable in the first place.
@@ -628,6 +930,17 @@
   function build() {
     if (table) { widthsFromTable(); table.destroy(); table = null; }
 
+    // A column can be hidden from Choose Columns while it is part of a saved
+    // hierarchy. Drop only unavailable levels; the remaining levels keep their
+    // order and still form a valid group rather than making Tabulator group by
+    // a field that is no longer in the table.
+    const availableFields = new Set(payload.columns.map((column) => column.key));
+    const validGroups = groupedBy.filter((field) => availableFields.has(field));
+    if (validGroups.length !== groupedBy.length) {
+      groupedBy = validGroups;
+      rememberGroups();
+    }
+
     const columns = payload.columns.map((col) => {
       const def = {
         title: col.label,
@@ -801,11 +1114,11 @@
     // the column decides what it groups by. The server used to supply a guess
     // here, which meant switching the feature on silently grouped the table by
     // a column nobody chose — the switch appeared to do two things at once.
-    if (features.tree && groupedBy) {
-      options.groupBy = groupedBy;
+    if (features.tree && groupedBy.length) {
+      options.groupBy = groupedBy.slice();
       options.groupStartOpen = false;
-      options.groupHeader = (value, count) =>
-        text(value) + " <span class='muted'>(" + count + ")</span>";
+      options.groupHeader = groupedBy.map(() => (value, count) =>
+        text(value) + " <span class='muted'>(" + count + ")</span>");
     }
 
     // TREE: not grouping. There is no extra band — the parent IS a row of the
@@ -1084,7 +1397,10 @@
         // These two switches say whether the capability is OFFERED, and nothing
         // more. Turning one off must therefore also drop a choice made while it
         // was on, or the table would stay grouped by a control that is now off.
-        if (name === "tree" && !box.checked && groupedBy) { groupedBy = ""; remember_(GROUP_KEY, ""); }
+        if (name === "tree" && !box.checked && groupedBy.length) {
+          groupedBy = [];
+          rememberGroups();
+        }
         if (name === "rows" && !box.checked && treeBy) { treeBy = ""; remember_(TREE_KEY, ""); }
         saveFeatures();
         build();

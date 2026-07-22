@@ -92,8 +92,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert '/static/grid.js?v=material-icons-1' in page
-    assert '/static/grid-theme.css?v=material-icons-1' in page
+    assert '/static/grid.js?v=column-tools-2' in page
+    assert '/static/grid-theme.css?v=column-tools-2' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -107,12 +107,14 @@ def test_material_header_icons_are_local_and_dry():
         'id="arrow-downward"', 'id="check"', 'id="push-pin"',
         'id="fit-screen"', 'id="unfold-more"', 'id="view-stream"',
         'id="account-tree"', 'id="view-column"', 'id="restart-alt"',
+        'id="unfold-less"', 'id="close"', 'id="search"',
+        'id="drag-indicator"',
     }
 
     assert all(token in sprite for token in expected_symbols)
     assert "Apache License" in licence and "Version 2.0" in licence
     assert "material-icons.svg" in script
-    assert "material-icons.svg?v=menu-1" in script
+    assert "material-icons.svg?v=columns-2" in script
     assert not list(MATERIAL_ICONS.glob("*_*.svg")), "use the single SVG sprite"
 
 
@@ -341,7 +343,7 @@ def test_a_capability_switch_does_not_also_choose_the_column():
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     assert "payload.tree && payload.tree.by" not in script, (
         "the server's guess is back — switching the feature on will silently group")
-    assert "if (features.tree && groupedBy)" in script
+    assert "if (features.tree && groupedBy.length)" in script
 
 
 def test_grouping_and_nesting_are_separate_capabilities():
@@ -354,6 +356,34 @@ def test_grouping_and_nesting_are_separate_capabilities():
     assert 'data-feature="rows"' in page, "no switch for nested rows"
     assert "dataTree" in script and "dataTreeChildField" in script
     assert "Nest rows by this column" in script and '"Group by " + title' in script
+
+
+def test_row_grouping_supports_ordered_multiple_levels_and_group_controls():
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+
+    assert "groupedBy = groupedBy.concat(field)" in script
+    assert "options.groupBy = groupedBy.slice()" in script
+    assert "options.groupHeader = groupedBy.map" in script
+    assert "as Group Level " in script
+    for label in ("Remove ", "Un-Group All", "Expand All Row Groups",
+                  "Collapse All Row Groups"):
+        assert label in script
+    assert "getSubGroups" in script and "table.getGroups().forEach(visit)" in script
+
+
+def test_choose_columns_is_an_inline_searchable_reorderable_tool_panel():
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    css = THEME.read_text(encoding="utf-8")
+
+    assert "function openColumnChooser()" in script
+    assert 'fetch("/api/fields/"' in script
+    assert 'search.type = "search"' in script
+    assert "row.draggable = true" in script
+    assert 'event.key !== "ArrowUp"' in script
+    assert "hidden: field.is_hidden" in script
+    assert "order: fields.map" in script
+    assert "location.assign(url)" not in script
+    assert ".column-chooser" in css and ".column-chooser-row" in css
 
 
 def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
@@ -377,8 +407,8 @@ def test_the_two_hierarchies_cannot_be_on_at_once():
     """Bands above rows that are themselves nested is two hierarchies stacked;
     neither reads. Choosing one clears the other rather than rendering both."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
-    assert 'if (groupedBy) { treeBy = ""' in script
-    assert 'if (treeBy) { groupedBy = ""' in script
+    assert 'if (groupedBy.length) { treeBy = ""' in script
+    assert 'if (treeBy) { groupedBy = []' in script
 
 
 def test_no_colour_the_library_chose_survives_into_the_table():
