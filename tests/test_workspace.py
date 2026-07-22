@@ -277,3 +277,18 @@ def test_the_schedules_page_is_the_full_editor(client):
     assert "Monday" in body                       # 0=Monday, server convention
     # The capability gate reaches this face too.
     assert "not published by this site" in body
+
+
+def test_the_schedules_editor_is_scannable_before_advanced_options_open(client):
+    """The complete editor used to be seven anonymous controls repeated in one
+    long stream. The redesign keeps timing visible, moves policies behind a
+    native disclosure, and lets a large source list be searched or filtered."""
+    body = client.get("/schedules").text
+
+    assert 'id="schedule-search"' in body
+    for state in ("all", "scheduled", "manual", "paused"):
+        assert f'data-filter="{state}"' in body
+    assert 'class="schedule-card"' in body
+    assert 'class="schedule-advanced"' in body and "Run behavior" in body
+    assert "Schedule summary" in body and "Showing ${shown}" in body
+    assert "Frequency" in body and "Timezone" in body

@@ -1,119 +1,434 @@
 {% extends "base.html" %}
 {% block title %}Schedules — ScrapeX{% endblock %}
 {% block content %}
-<h1>Schedules</h1>
-<div class="banner">Schedules only fire while the ScrapeX engine is running. Nothing —
-  not this app and not a browser alarm — can wake a sleeping or powered-off machine.
-  A slot missed while it was off follows the source's missed-run policy.</div>
+<style>
+  .schedules-page{display:flex;flex-direction:column;gap:1rem}
+  .schedules-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1.5rem;
+    align-items:end;padding:.35rem 0 1.2rem;border-bottom:1px solid var(--line)}
+  .schedules-eyebrow{display:block;margin-bottom:.35rem;color:var(--accent-ink);
+    font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+  .schedules-hero h1{margin:0 0 .35rem;font-size:1.7rem;line-height:1.2}
+  .schedules-hero p{max-width:650px;margin:0;color:var(--muted)}
+  .schedule-metrics{display:grid;grid-template-columns:repeat(3,minmax(5rem,1fr));
+    min-width:290px;border:1px solid var(--line);border-radius:14px;background:var(--surface);
+    box-shadow:var(--shadow);overflow:hidden}
+  .schedule-metric{padding:.7rem .85rem}
+  .schedule-metric+.schedule-metric{border-inline-start:1px solid var(--line)}
+  .schedule-metric strong{display:block;font-size:1.15rem;font-variant-numeric:tabular-nums}
+  .schedule-metric span{display:block;color:var(--muted);font-size:.7rem}
 
-{% if not rows %}
-  <div class="empty">No implemented sources yet.</div>
-{% else %}
-  {# THE central editor (owner's ruling): every knob the schedule model has,
-     editable HERE. Each save posts the whole row through the same
-     /api/schedules endpoint the panel uses, so the two faces cannot drift. #}
-  {% for r in rows %}
+  .schedule-engine-note{display:grid;grid-template-columns:34px minmax(0,1fr);gap:.75rem;
+    align-items:start;padding:.8rem .9rem;border:1px solid var(--line);border-radius:12px;
+    background:var(--amber-weak)}
+  .schedule-engine-icon{width:34px;height:34px;display:grid;place-items:center;
+    border-radius:9px;background:var(--surface);color:var(--amber)}
+  .schedule-engine-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;
+    stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .schedule-engine-note strong{display:block;font-size:.85rem}
+  .schedule-engine-note p{margin:.1rem 0 0;color:var(--muted);font-size:.78rem}
+
+  .schedule-toolbar{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;
+    padding:.75rem;border:1px solid var(--line);border-radius:14px;background:var(--surface);
+    box-shadow:var(--shadow)}
+  .schedule-search{display:flex;align-items:center;gap:.45rem;min-width:230px;flex:1;
+    padding:0 .7rem;border:1px solid var(--line);border-radius:9px;background:var(--bg);
+    color:var(--muted)}
+  .schedule-search:focus-within{border-color:var(--accent);outline:2px solid var(--accent-weak)}
+  .schedule-search svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8}
+  .schedule-search input{width:100%;padding:.5rem 0;border:0;outline:0;background:transparent}
+  .schedule-filters{display:flex;gap:.25rem;padding:.2rem;border-radius:9px;background:var(--bg)}
+  .schedule-filter{border:0;background:transparent;color:var(--muted);padding:.42rem .7rem;
+    border-radius:7px;font:inherit;font-size:.78rem;cursor:pointer}
+  .schedule-filter:hover{background:var(--chip);filter:none}
+  .schedule-filter[aria-pressed="true"]{background:var(--surface);color:var(--text);
+    box-shadow:var(--shadow);font-weight:600}
+  .schedule-result-count{margin-inline-start:auto;color:var(--muted);font-size:.75rem;white-space:nowrap}
+
+  .schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,28rem),1fr));
+    gap:1rem;align-items:start}
+  .schedule-card{min-width:0;border:1px solid var(--line);border-radius:14px;
+    background:var(--surface);box-shadow:var(--shadow);overflow:hidden}
+  .schedule-card[data-state="scheduled"]{border-inline-start:3px solid var(--accent)}
+  .schedule-card.is-dirty{border-color:var(--accent)}
+  .schedule-card-head{display:flex;justify-content:space-between;align-items:flex-start;
+    gap:1rem;padding:1rem 1rem .85rem;border-bottom:1px solid var(--line)}
+  .schedule-source{display:flex;align-items:flex-start;gap:.7rem;min-width:0}
+  .schedule-source-icon{width:36px;height:36px;flex:none;display:grid;place-items:center;
+    border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--muted)}
+  .schedule-source-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;
+    stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+  .schedule-source h2{margin:0;font-size:.98rem;line-height:1.35}
+  .schedule-source code{display:block;margin-top:.12rem;color:var(--muted);font-size:.68rem}
+  .schedule-card-state{flex:none;text-align:right}
+  .schedule-state{display:inline-flex;align-items:center;gap:.35rem;padding:.18rem .55rem;
+    border-radius:999px;background:var(--chip);color:var(--muted);font-size:.7rem;font-weight:600}
+  .schedule-state::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+  .schedule-state-scheduled{background:var(--accent-weak);color:var(--accent-ink)}
+  .schedule-state-paused{background:var(--amber-weak);color:var(--amber)}
+  .schedule-next{display:block;max-width:13rem;margin-top:.3rem;color:var(--muted);
+    font-size:.7rem;white-space:normal}
+
+  .schedule-card-body{display:flex;flex-direction:column;gap:.9rem;padding:1rem}
+  .schedule-section-title h3{margin:0;font-size:.82rem}
+  .schedule-section-title p{margin:.1rem 0 0;color:var(--muted);font-size:.72rem}
+  .schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem}
+  .schedule-field{display:flex;flex-direction:column;gap:.28rem;min-width:0}
+  .schedule-field[hidden]{display:none}
+  .schedule-field>span{color:var(--muted);font-size:.7rem;font-weight:600}
+  .schedule-field select,.schedule-field input{width:100%;min-width:0}
+  .schedule-field-wide{grid-column:1/-1}
+
+  .schedule-advanced{border:1px solid var(--line);border-radius:10px;background:var(--bg);overflow:hidden}
+  .schedule-advanced>summary{display:grid;grid-template-columns:minmax(0,1fr) auto;
+    align-items:center;gap:.75rem;padding:.68rem .75rem;cursor:pointer;list-style:none}
+  .schedule-advanced>summary::-webkit-details-marker{display:none}
+  .schedule-advanced>summary::after{content:"›";color:var(--muted);font-size:1.1rem;
+    line-height:1;transition:transform .15s}
+  .schedule-advanced[open]>summary::after{transform:rotate(90deg);color:var(--accent-ink)}
+  .schedule-advanced>summary:hover{background:var(--chip)}
+  .schedule-advanced>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .schedule-advanced-title{display:block;font-size:.78rem;font-weight:600}
+  .schedule-behavior-summary{display:block;margin-top:.08rem;color:var(--muted);
+    font-size:.68rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .schedule-advanced-body{padding:.75rem;border-top:1px solid var(--line)}
+  .schedule-advanced-body .schedule-fields{grid-template-columns:1fr}
+
+  .schedule-gate{display:flex;gap:.5rem;align-items:flex-start;padding:.6rem .7rem;
+    border-radius:9px;background:var(--amber-weak);color:var(--muted);font-size:.72rem}
+  .schedule-gate strong{color:var(--text)}
+  .schedule-gate-mark{color:var(--amber);font-weight:700}
+  .schedule-card-footer{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
+    align-items:center;gap:.75rem;padding-top:.85rem;border-top:1px solid var(--line)}
+  .schedule-switch{position:relative;display:inline-flex;align-items:center;gap:.45rem;
+    cursor:pointer;font-size:.78rem;font-weight:600}
+  .schedule-switch input{position:absolute;opacity:0;pointer-events:none}
+  .schedule-switch-track{position:relative;width:34px;height:20px;border-radius:999px;
+    background:var(--chip);border:1px solid var(--line);transition:background .15s}
+  .schedule-switch-track::after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;
+    border-radius:50%;background:var(--muted);transition:transform .15s,background .15s}
+  .schedule-switch input:checked+.schedule-switch-track{background:var(--accent-weak);border-color:var(--accent)}
+  .schedule-switch input:checked+.schedule-switch-track::after{transform:translateX(14px);background:var(--accent)}
+  .schedule-switch input:focus-visible+.schedule-switch-track{outline:2px solid var(--accent);outline-offset:2px}
+  .schedule-save-status{min-width:0;color:var(--muted);font-size:.72rem;overflow-wrap:anywhere}
+  .schedule-save{white-space:nowrap}
+  .schedule-no-results{grid-column:1/-1;margin:0;padding:2rem;text-align:center;
+    border:1px dashed var(--line);border-radius:14px;color:var(--muted)}
+
+  @media(max-width:760px){
+    .schedules-hero{grid-template-columns:1fr;align-items:start}
+    .schedule-metrics{width:100%;min-width:0}
+    .schedule-toolbar{align-items:stretch}
+    .schedule-filters{order:3;width:100%;overflow-x:auto}
+    .schedule-filter{flex:1;white-space:nowrap}
+    .schedule-result-count{margin-inline-start:0;align-self:center}
+  }
+  @media(max-width:480px){
+    .schedules-hero h1{font-size:1.45rem}
+    .schedule-card-head{align-items:flex-start}
+    .schedule-source-icon{display:none}
+    .schedule-fields{grid-template-columns:1fr}
+    .schedule-field-wide{grid-column:auto}
+    .schedule-card-footer{grid-template-columns:1fr auto}
+    .schedule-save-status{grid-column:1/-1;grid-row:2}
+  }
+  @media(prefers-reduced-motion:reduce){
+    .schedule-advanced>summary::after,.schedule-switch-track,.schedule-switch-track::after{transition:none}
+  }
+</style>
+
+{% set totals = namespace(scheduled=0, paused=0, manual=0) %}
+{% for r in rows %}
   {% set s = r.sched %}
-  <form class="stack sched-row" data-sched="{{ r.source_key }}" onsubmit="return false"
-        style="padding:.8rem 0;border-bottom:1px solid var(--line)">
-    <div class="row" style="justify-content:space-between;align-items:baseline">
-      <b dir="auto">{{ r.source_name }}</b>
-      <span class="muted" data-role="next">
-        {% if s and s.enabled and s.next_run_at %}next {{ s.next_run_at[:16].replace("T", " ") }} UTC
-        {% elif s and not s.enabled %}paused
-        {% elif not s %}no schedule yet{% endif %}
-      </span>
-    </div>
-    <div class="row" style="gap:.5rem;flex-wrap:wrap">
-      <select data-role="freq" aria-label="Frequency for {{ r.source_name }}">
-        {% for f in ("manual", "daily", "weekly") %}
-          <option value="{{ f }}" {% if (s.frequency or "manual") == f %}selected{% endif %}>{{ f }}</option>
-        {% endfor %}
-      </select>
-      <select data-role="weekday" aria-label="Weekday"
-              {% if (s.frequency or "manual") != "weekly" %}hidden{% endif %}>
-        {% for day in ("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday") %}
-          <option value="{{ loop.index0 }}"
-            {% if (s.weekday if s.weekday is not none else 0) == loop.index0 %}selected{% endif %}>{{ day }}</option>
-        {% endfor %}
-      </select>
-      <input type="time" data-role="time" value="{{ s.run_at or "09:00" }}" aria-label="Run time"
-             {% if (s.frequency or "manual") == "manual" %}disabled{% endif %}>
-      <input data-role="tz" dir="ltr" spellcheck="false" style="width:11rem"
-             value="{{ s.timezone or "" }}" placeholder="Africa/Cairo" aria-label="Timezone">
-    </div>
-    <div class="row" style="gap:.5rem;flex-wrap:wrap">
-      <select data-role="mode" aria-label="Run mode">
-        <option value="update" {% if (s.run_mode or "update") == "update" %}selected{% endif %}>Update existing data</option>
-        <option value="full_rebuild" {% if s.run_mode == "full_rebuild" %}selected{% endif %}>Full rebuild (archives first)</option>
-        <option value="history_backfill" {% if s.run_mode == "history_backfill" %}selected{% endif %}
-          {% if not r.supports_history %}disabled{% endif %}>History backfill{% if not r.supports_history %} — not published by this site{% endif %}</option>
-      </select>
-      <select data-role="missed" aria-label="Missed run policy"
-              title="What to do about a slot that passed while the machine was off">
-        <option value="run_when_available" {% if (s.missed_run_policy or "run_when_available") == "run_when_available" %}selected{% endif %}>If missed: run when back</option>
-        <option value="skip" {% if s.missed_run_policy == "skip" %}selected{% endif %}>If missed: skip that slot</option>
-      </select>
-      <select data-role="overlap" aria-label="Overlap policy"
-              title="What to do when the previous run is still going">
-        <option value="queue" {% if (s.overlap_policy or "queue") == "queue" %}selected{% endif %}>If overlapping: queue behind</option>
-        <option value="skip" {% if s.overlap_policy == "skip" %}selected{% endif %}>If overlapping: skip this one</option>
-      </select>
-      <label style="display:flex;align-items:center;gap:.35rem">
-        <input type="checkbox" data-role="enabled" {% if not s or s.enabled %}checked{% endif %}>
-        Enabled</label>
-      <button data-role="save">Save</button>
-      <span class="hint" data-role="status" role="status" aria-live="polite">
-        {% if not r.active %}Auto is off for this site, so this will not fire — turn it on from the panel.{% endif %}</span>
-    </div>
-  </form>
-  {% endfor %}
+  {% if s and (s.frequency or "manual") != "manual" and s.enabled %}
+    {% set totals.scheduled = totals.scheduled + 1 %}
+  {% elif s and (s.frequency or "manual") != "manual" and not s.enabled %}
+    {% set totals.paused = totals.paused + 1 %}
+  {% else %}
+    {% set totals.manual = totals.manual + 1 %}
+  {% endif %}
+{% endfor %}
 
-<script>
-(() => {
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  document.querySelectorAll(".sched-row").forEach((row) => {
-    const pick = (role) => row.querySelector(`[data-role="${role}"]`);
-    if (!pick("tz").value) pick("tz").value = zone;
-    pick("freq").addEventListener("change", () => {
-      pick("weekday").hidden = pick("freq").value !== "weekly";
-      pick("time").disabled = pick("freq").value === "manual";
-    });
-    pick("save").addEventListener("click", async () => {
-      const status = pick("status");
-      pick("save").disabled = true;
-      status.textContent = "Saving…";
-      try {
-        const body = {
-          frequency: pick("freq").value,
-          run_at: pick("time").value || "09:00",
-          timezone: pick("tz").value.trim() || "UTC",
-          run_mode: pick("mode").value,
-          missed_run_policy: pick("missed").value,
-          overlap_policy: pick("overlap").value,
-          enabled: pick("enabled").checked,
-        };
-        if (body.frequency === "weekly") body.weekday = Number(pick("weekday").value);
-        const res = await fetch("/api/schedules/" + encodeURIComponent(row.dataset.sched), {
-          method: "POST", headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(body)});
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        status.textContent = !body.enabled ? "Saved — paused."
-          : data.next_run_at
-            ? "Saved — next " + String(data.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
-            : "Saved.";
-        pick("next").textContent = data.next_run_at && body.enabled
-          ? "next " + String(data.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
-          : (body.enabled ? "" : "paused");
-      } catch (err) {
-        status.textContent = "Couldn't save: " + err.message;
-      } finally {
-        pick("save").disabled = false;
+<div class="schedules-page">
+  <section class="schedules-hero">
+    <div>
+      <span class="schedules-eyebrow">Automation</span>
+      <h1>Schedules</h1>
+      <p>Choose when each source runs and how ScrapeX should handle missed or overlapping work.</p>
+    </div>
+    <div class="schedule-metrics" aria-label="Schedule summary">
+      <div class="schedule-metric"><strong id="schedule-metric-scheduled">{{ totals.scheduled }}</strong><span>Scheduled</span></div>
+      <div class="schedule-metric"><strong id="schedule-metric-manual">{{ totals.manual }}</strong><span>Manual</span></div>
+      <div class="schedule-metric"><strong id="schedule-metric-paused">{{ totals.paused }}</strong><span>Paused</span></div>
+    </div>
+  </section>
+
+  <aside class="schedule-engine-note" role="note">
+    <span class="schedule-engine-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2M8 3.5 6.5 5M16 3.5 17.5 5"/></svg>
+    </span>
+    <div>
+      <strong>The engine must be running</strong>
+      <p>Schedules only fire while the ScrapeX engine is running. Nothing — not this app and not a browser alarm — can wake a sleeping or powered-off machine. A slot missed while it was off follows the source's missed-run policy.</p>
+    </div>
+  </aside>
+
+  {% if not rows %}
+    <div class="empty">No implemented sources yet.</div>
+  {% else %}
+  <div class="schedule-toolbar" aria-label="Find and filter schedules">
+    <label class="schedule-search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
+      <input id="schedule-search" type="search" placeholder="Search sources" aria-label="Search sources">
+    </label>
+    <div class="schedule-filters" role="group" aria-label="Schedule status">
+      <button type="button" class="schedule-filter" data-filter="all" aria-pressed="true">All</button>
+      <button type="button" class="schedule-filter" data-filter="scheduled" aria-pressed="false">Scheduled</button>
+      <button type="button" class="schedule-filter" data-filter="manual" aria-pressed="false">Manual</button>
+      <button type="button" class="schedule-filter" data-filter="paused" aria-pressed="false">Paused</button>
+    </div>
+    <span id="schedule-result-count" class="schedule-result-count" role="status" aria-live="polite"></span>
+  </div>
+
+  <div class="schedule-grid" id="schedule-grid">
+    {% for r in rows %}
+    {% set s = r.sched %}
+    {% if s and (s.frequency or "manual") != "manual" and s.enabled %}
+      {% set state = "scheduled" %}
+    {% elif s and (s.frequency or "manual") != "manual" and not s.enabled %}
+      {% set state = "paused" %}
+    {% else %}
+      {% set state = "manual" %}
+    {% endif %}
+    <form class="schedule-card" data-sched="{{ r.source_key }}" data-state="{{ state }}"
+          data-search="{{ (r.source_name ~ ' ' ~ r.source_key)|lower }}" onsubmit="return false">
+      <header class="schedule-card-head">
+        <div class="schedule-source">
+          <span class="schedule-source-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 9.5h17M8 13h3M13 13h3M8 16.5h3"/></svg>
+          </span>
+          <div>
+            <h2 dir="auto">{{ r.source_name }}</h2>
+            <code>{{ r.source_key }}</code>
+          </div>
+        </div>
+        <div class="schedule-card-state">
+          <span class="schedule-state schedule-state-{{ state }}" data-role="state">{{ state|capitalize }}</span>
+          <span class="schedule-next" data-role="next">
+            {% if s and s.enabled and s.next_run_at %}Next {{ s.next_run_at[:16].replace("T", " ") }} UTC
+            {% elif s and not s.enabled %}Schedule paused
+            {% elif not s %}no schedule yet{% else %}Runs manually{% endif %}
+          </span>
+        </div>
+      </header>
+
+      <div class="schedule-card-body">
+        <div class="schedule-section-title">
+          <h3>Timing</h3>
+          <p>Set the cadence in the source's local timezone.</p>
+        </div>
+        <div class="schedule-fields">
+          <label class="schedule-field">
+            <span>Frequency</span>
+            <select data-role="freq" aria-label="Frequency for {{ r.source_name }}">
+              {% for f in ("manual", "daily", "weekly") %}
+                <option value="{{ f }}" {% if (s.frequency or "manual") == f %}selected{% endif %}>{{ f|capitalize }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="schedule-field" data-role="weekday-field"
+                 {% if (s.frequency or "manual") != "weekly" %}hidden{% endif %}>
+            <span>Weekday</span>
+            <select data-role="weekday" aria-label="Weekday for {{ r.source_name }}">
+              {% for day in ("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday") %}
+                <option value="{{ loop.index0 }}"
+                  {% if (s.weekday if s.weekday is not none else 0) == loop.index0 %}selected{% endif %}>{{ day }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="schedule-field">
+            <span>Run time</span>
+            <input type="time" data-role="time" value="{{ s.run_at or "09:00" }}" aria-label="Run time for {{ r.source_name }}"
+                   {% if (s.frequency or "manual") == "manual" %}disabled{% endif %}>
+          </label>
+          <label class="schedule-field">
+            <span>Timezone</span>
+            <input data-role="tz" dir="ltr" spellcheck="false" value="{{ s.timezone or "" }}"
+                   placeholder="Africa/Cairo" aria-label="Timezone for {{ r.source_name }}">
+          </label>
+        </div>
+
+        <details class="schedule-advanced">
+          <summary>
+            <span>
+              <span class="schedule-advanced-title">Run behavior</span>
+              <span class="schedule-behavior-summary" data-role="behavior-summary"></span>
+            </span>
+          </summary>
+          <div class="schedule-advanced-body">
+            <div class="schedule-fields">
+              <label class="schedule-field schedule-field-wide">
+                <span>Run mode</span>
+                <select data-role="mode" aria-label="Run mode for {{ r.source_name }}">
+                  <option value="update" {% if (s.run_mode or "update") == "update" %}selected{% endif %}>Update existing data</option>
+                  <option value="full_rebuild" {% if s.run_mode == "full_rebuild" %}selected{% endif %}>Full rebuild (archives first)</option>
+                  <option value="history_backfill" {% if s.run_mode == "history_backfill" %}selected{% endif %}
+                    {% if not r.supports_history %}disabled{% endif %}>History backfill{% if not r.supports_history %} — not published by this site{% endif %}</option>
+                </select>
+              </label>
+              <label class="schedule-field">
+                <span>When a run was missed</span>
+                <select data-role="missed" aria-label="Missed run policy for {{ r.source_name }}">
+                  <option value="run_when_available" {% if (s.missed_run_policy or "run_when_available") == "run_when_available" %}selected{% endif %}>Run when the engine is back</option>
+                  <option value="skip" {% if s.missed_run_policy == "skip" %}selected{% endif %}>Skip that slot</option>
+                </select>
+              </label>
+              <label class="schedule-field">
+                <span>When the previous run overlaps</span>
+                <select data-role="overlap" aria-label="Overlap policy for {{ r.source_name }}">
+                  <option value="queue" {% if (s.overlap_policy or "queue") == "queue" %}selected{% endif %}>Queue behind it</option>
+                  <option value="skip" {% if s.overlap_policy == "skip" %}selected{% endif %}>Skip this run</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        {% if not r.active %}
+        <div class="schedule-gate">
+          <span class="schedule-gate-mark" aria-hidden="true">!</span>
+          <span><strong>Auto is off for this source.</strong> This schedule will not fire until Auto is enabled from the extension.</span>
+        </div>
+        {% endif %}
+
+        <footer class="schedule-card-footer">
+          <label class="schedule-switch">
+            <input type="checkbox" data-role="enabled" {% if not s or s.enabled %}checked{% endif %}>
+            <span class="schedule-switch-track" aria-hidden="true"></span>
+            <span>Enabled</span>
+          </label>
+          <span class="schedule-save-status" data-role="status" role="status" aria-live="polite"></span>
+          <button type="button" class="schedule-save" data-role="save">Save schedule</button>
+        </footer>
+      </div>
+    </form>
+    {% endfor %}
+    <p id="schedule-no-results" class="schedule-no-results" hidden>No sources match these filters.</p>
+  </div>
+
+  <script>
+  (() => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const rows = [...document.querySelectorAll(".schedule-card")];
+    const search = document.getElementById("schedule-search");
+    const filters = [...document.querySelectorAll(".schedule-filter")];
+    const resultCount = document.getElementById("schedule-result-count");
+    const noResults = document.getElementById("schedule-no-results");
+    let activeFilter = "all";
+
+    function pick(row, role) { return row.querySelector(`[data-role="${role}"]`); }
+    function chosenText(select) { return select.options[select.selectedIndex].text.replace(/\s+—.*$/, ""); }
+    function scheduleState(row) {
+      if (pick(row, "freq").value === "manual") return "manual";
+      return pick(row, "enabled").checked ? "scheduled" : "paused";
+    }
+    function syncControls(row) {
+      const manual = pick(row, "freq").value === "manual";
+      pick(row, "weekday-field").hidden = pick(row, "freq").value !== "weekly";
+      pick(row, "time").disabled = manual;
+      pick(row, "behavior-summary").textContent = [
+        chosenText(pick(row, "mode")), chosenText(pick(row, "missed")),
+        chosenText(pick(row, "overlap"))].join(" · ");
+    }
+    function syncState(row) {
+      const state = scheduleState(row);
+      row.dataset.state = state;
+      const badge = pick(row, "state");
+      badge.className = "schedule-state schedule-state-" + state;
+      badge.textContent = state[0].toUpperCase() + state.slice(1);
+    }
+    function refreshMetrics() {
+      for (const state of ["scheduled", "manual", "paused"]) {
+        document.getElementById("schedule-metric-" + state).textContent =
+          rows.filter((row) => row.dataset.state === state).length;
       }
+    }
+    function applyFilters() {
+      const query = search.value.trim().toLocaleLowerCase();
+      let shown = 0;
+      rows.forEach((row) => {
+        const stateMatches = activeFilter === "all" || row.dataset.state === activeFilter;
+        const textMatches = !query || row.dataset.search.includes(query);
+        row.hidden = !(stateMatches && textMatches);
+        if (!row.hidden) shown += 1;
+      });
+      resultCount.textContent = `Showing ${shown} of ${rows.length} sources`;
+      noResults.hidden = shown !== 0;
+    }
+    function markDirty(row) {
+      row.classList.add("is-dirty");
+      pick(row, "save").textContent = "Save changes";
+      pick(row, "status").textContent = "Unsaved changes";
+      syncControls(row);
+    }
+
+    rows.forEach((row) => {
+      if (!pick(row, "tz").value) pick(row, "tz").value = zone;
+      syncControls(row);
+      ["freq", "weekday", "time", "tz", "mode", "missed", "overlap", "enabled"]
+        .forEach((role) => pick(row, role).addEventListener("change", () => markDirty(row)));
+      pick(row, "tz").addEventListener("input", () => markDirty(row));
+
+      pick(row, "save").addEventListener("click", async () => {
+        const status = pick(row, "status");
+        const save = pick(row, "save");
+        save.disabled = true;
+        status.textContent = "Saving…";
+        try {
+          const body = {
+            frequency: pick(row, "freq").value,
+            run_at: pick(row, "time").value || "09:00",
+            timezone: pick(row, "tz").value.trim() || "UTC",
+            run_mode: pick(row, "mode").value,
+            missed_run_policy: pick(row, "missed").value,
+            overlap_policy: pick(row, "overlap").value,
+            enabled: pick(row, "enabled").checked,
+          };
+          if (body.frequency === "weekly") body.weekday = Number(pick(row, "weekday").value);
+          const res = await fetch("/api/schedules/" + encodeURIComponent(row.dataset.sched), {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body)});
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+          status.textContent = !body.enabled ? "Saved — paused."
+            : data.next_run_at
+              ? "Saved — next run updated."
+              : "Saved.";
+          pick(row, "next").textContent = data.next_run_at && body.enabled
+            ? "Next " + String(data.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
+            : (body.enabled && body.frequency === "manual" ? "Runs manually" : "Schedule paused");
+          row.classList.remove("is-dirty");
+          save.textContent = "Save schedule";
+          syncState(row);
+          refreshMetrics();
+          applyFilters();
+        } catch (err) {
+          status.textContent = "Couldn't save: " + err.message;
+        } finally {
+          save.disabled = false;
+        }
+      });
     });
-  });
-})();
-</script>
-{% endif %}
+
+    search.addEventListener("input", applyFilters);
+    filters.forEach((button) => button.addEventListener("click", () => {
+      activeFilter = button.dataset.filter;
+      filters.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+      applyFilters();
+    }));
+    refreshMetrics();
+    applyFilters();
+  })();
+  </script>
+  {% endif %}
+</div>
 {% endblock %}
