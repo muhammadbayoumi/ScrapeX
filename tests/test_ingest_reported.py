@@ -220,3 +220,39 @@ def test_what_a_connector_could_not_collect_reaches_the_job_log(conn):
     assert ("warning", "NATURAL_GAS/EG: country page published no local price") in [
         (lvl.lower(), msg) for lvl, msg in lines], \
         "the connector's warning never reached the job log"
+
+
+# ---- the current price is what WE saw, not what was last inserted ------------
+
+def test_the_offers_face_is_the_observed_price_not_the_last_inserted_anchor(conn):
+    """The defect the owner photographed: one crawl lands today's observed
+    20.50 and then the source's backfilled anchors, all stamped with the same
+    observed_at. Ordering by observed_at with an id tiebreak crowned the LAST
+    INSERT — the year-ago 15.5 anchor — so the Data page showed diesel at 15.5
+    EGP dated a year back while the source said 20.5 today."""
+    from scrapex.reports import browse_observations, table_payload
+
+    ingest_payloads(conn, _entry(), [_payload([CURRENT, ANCHOR_1M, ANCHOR_1Y])])
+
+    page = browse_observations(conn, "GPP_ENERGY")
+    assert len(page.rows) == 1
+    assert float(page.rows[0]["effective_price"]) == 20.50
+    assert page.rows[0]["business_date"] != "2025-07-21"
+
+    grid = table_payload(conn, "GPP_ENERGY")
+    assert float(grid["rows"][0]["effective_price"]) == 20.50
+    assert grid["rows"][0]["price_changed_on"] != "2025-07-21"
+
+
+def test_a_pure_backfill_offer_speaks_with_its_newest_dated_claim(conn):
+    """--history can land before any live crawl. An offer with only reported
+    rows has no observation to show; the newest-dated claim is then honestly
+    the best known price — not the oldest, and not nothing."""
+    from scrapex.reports import browse_observations
+
+    ingest_payloads(conn, _entry(), [_payload([ANCHOR_1Y, ANCHOR_1M])])
+
+    page = browse_observations(conn, "GPP_ENERGY")
+    assert len(page.rows) == 1
+    assert float(page.rows[0]["effective_price"]) == 20.50   # the 1M claim, newest
+    assert page.rows[0]["business_date"] == "2026-06-21"

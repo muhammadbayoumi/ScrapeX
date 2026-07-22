@@ -107,11 +107,17 @@ _LATEST_PER_OFFER = (
     "WHERE ss.source_key = ? "
     "AND po.price_observation_id = ("
     "  SELECT po2.price_observation_id FROM price_observation po2 "
-    # price_observation_id breaks observed_at ties toward the NEWEST row. Ties are
-    # structural, not rare: one crawl stamps every chunk with the same scraped_at,
-    # so a same-day price change would otherwise publish the superseded price.
+    # The offer's face is what WE saw, newest first. Ordering by observed_at
+    # alone made the current price a lottery: one crawl stamps every row with
+    # the same timestamp — today's observed price AND the source's backfilled
+    # year-ago anchors — and the id tiebreak then crowned the LAST INSERT,
+    # which for GPP was the oldest anchor. Diesel showed 15.5 EGP dated
+    # 2025 while the source said 20.5 today. Reported rows are the source's
+    # dated claims about the PAST; they may only speak for an offer that has
+    # no observation at all, and then the newest-dated claim speaks.
     "  WHERE po2.offer_id = po.offer_id "
-    "  ORDER BY po2.observed_at DESC, po2.price_observation_id DESC LIMIT 1)"
+    "  ORDER BY (po2.provenance = 'observed') DESC, po2.business_date DESC, "
+    "           po2.price_observation_id DESC LIMIT 1)"
 )
 
 
