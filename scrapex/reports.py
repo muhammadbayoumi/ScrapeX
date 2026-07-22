@@ -390,6 +390,10 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("tax_label", "Tax"),
     ("price_changed_on", "Price changed"),
     ("last_confirmed_on", "Last confirmed"),
+    # The official body the source names for its figure. Only sources that
+    # actually attribute (GPP country pages) populate it; the presence sweep
+    # hides it everywhere else.
+    ("official_source", "Source"),
     ("curation_status", "Curation"),
 ]
 
@@ -416,12 +420,13 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         # 'unknown' is a non-empty string that states nothing. Counting it as
         # present gave GPP a Status column reading "Unknown" on all 721 rows —
         # a column of noise. No information is not information.
-        "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')) "
+        "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')), "
+        "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("option_label", row[0]), ("sku", row[1]),
                           ("region", row[2]), ("unit", row[3]),
-                          ("availability", row[4])):
+                          ("availability", row[4]), ("official_source", row[5])):
         if not count:
             present.discard(column)
     return present
@@ -717,7 +722,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, "
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
-        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id "
+        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
+        "       po.official_source_name, po.official_source_url "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -732,7 +738,9 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "curation_status": r[10], "region": r[11] or "",
                "region_name": region_name(r[11]),
                "last_confirmed_on": (r[12] or "")[:10],
-               "unit": price_unit(r[13], r[14]), "offer_id": r[15]}
+               "unit": price_unit(r[13], r[14]), "offer_id": r[15],
+               "official_source": r[16] or "",
+               "official_source_url": r[17] or ""}
               for r in rows]
 
     present = column_presence(conn, source_key)

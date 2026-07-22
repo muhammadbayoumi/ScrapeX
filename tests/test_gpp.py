@@ -652,3 +652,31 @@ def test_natural_gas_stays_on_the_list_because_its_country_pages_publish_nothing
     assert len(rows) == 3, "the list rows were lost again"
     assert all(r["price_basis"] == "converted" and r["currency"] == "USD"
                for r in rows)
+
+
+def test_the_official_source_attribution_is_read_and_germany_stays_empty():
+    """"Source: Ministry of Petroleum and Mineral Resources" sits in a bare div
+    OUTSIDE every table — the strongest provenance signal on the page, thrown
+    away because the parser only ever looked at tables. Germany names none:
+    absence must come back empty, never invented."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    egypt = parse_country_page(_read("gpp_country_egypt_diesel.html"))
+    assert egypt.source_name == "Ministry of Petroleum and Mineral Resources"
+    assert egypt.source_url.startswith("https://www.petroleum.gov.eg/")
+
+
+def test_the_attribution_rides_every_row_of_its_page():
+    from scrapex.connectors.gpp import country_rows, parse_country_page
+    from scrapex.rowspec import COMMODITY_PRICE, RowBuilder, RowView
+    from datetime import date
+
+    page = parse_country_page(_read("gpp_country_egypt_diesel.html"))
+    builder = RowBuilder(COMMODITY_PRICE)
+    rows = country_rows(builder, "DIESEL", "EG", page, "USD", "liter", "1",
+                        date(2026, 7, 21))
+    view = RowView(COMMODITY_PRICE, builder.header)
+    parsed = [view.as_dict(r) for r in rows]
+    assert parsed, "no rows came back at all"
+    assert all(p["official_source_name"] == "Ministry of Petroleum and Mineral Resources"
+               for p in parsed), "an anchor lost the attribution its page stated"

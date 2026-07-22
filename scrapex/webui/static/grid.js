@@ -464,6 +464,36 @@
         return badge;
       };
     }
+    if (key === "official_source") {
+      // The official body the SOURCE names for its figure — scraped content,
+      // so it is set as textContent (never HTML) and the URL becomes a link
+      // only when it parses as http(s); anything else renders as plain text.
+      return (cell) => {
+        const name = text(cell.getValue());
+        if (!name) return "";
+        const data = cell.getRow().getData();
+        const url = text(data.official_source_url);
+        let safe = "";
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
+        } catch (err) { /* not a URL — show the name without a link */ }
+        if (!safe) {
+          const span = document.createElement("span");
+          span.dir = "auto";
+          span.textContent = name;
+          return span;
+        }
+        const link = document.createElement("a");
+        link.href = safe;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.dir = "auto";
+        link.textContent = name;
+        link.title = safe;
+        return link;
+      };
+    }
     return undefined;
   }
 

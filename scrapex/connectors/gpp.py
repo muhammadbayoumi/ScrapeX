@@ -380,6 +380,12 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
         )
         if country.unit:
             fields["unit"] = country.unit
+    if country:
+        # Rides every row of the page it was read from, anchors included: the
+        # attribution belongs to the page's figures as a set, and an absent one
+        # stays empty — "not stated" is an answer, invention is not.
+        fields.update(official_source_name=country.source_name,
+                      official_source_url=country.source_url)
     return builder.row(**fields)
 
 
@@ -468,6 +474,11 @@ class CountryPrice:
     frequency: str = ""
     history: tuple[tuple[int, str], ...] = ()   # (days ago, price)
     analytics: tuple[tuple[str, str], ...] = ()
+    # "Source: Ministry of Petroleum and Mineral Resources" + link — the
+    # official body the page names for its figure. Absent on some countries
+    # (Germany names none): empty means "not stated", never invented.
+    source_name: str = ""
+    source_url: str = ""
 
 
 def _rows_of(table) -> list[list[str]]:
@@ -512,10 +523,24 @@ def parse_country_page(html: str) -> CountryPrice:
         if "analytics" in header:
             analytics.extend((r[0], r[1]) for r in rows[1:] if len(r) >= 2)
 
+    # The official attribution is NOT in any table: it is a bare div right
+    # after the metadata table — `Source: <a href>Ministry of ...</a>`. It is
+    # the strongest provenance signal on the page and was thrown away for
+    # exactly that reason: the parser only ever looked at tables. Germany's
+    # page names none; absence stays empty rather than being invented.
+    source_name = source_url = ""
+    marker = soup.find(string=re.compile(r"^\s*Source:\s*$|^\s*Source:"))
+    if marker is not None and marker.parent is not None:
+        link = marker.parent.find("a")
+        if link is not None and link.get_text(strip=True):
+            source_name = link.get_text(" ", strip=True)
+            source_url = (link.get("href") or "").strip()
+
     return CountryPrice(price=price, currency=currency, unit=unit, usd_price=usd,
                         source_date=source_date, available_from=available,
                         frequency=frequency, history=tuple(history),
-                        analytics=tuple(analytics))
+                        analytics=tuple(analytics),
+                        source_name=source_name, source_url=source_url)
 
 
 # The Arabic mirror's inline chart data. The English page renders the full

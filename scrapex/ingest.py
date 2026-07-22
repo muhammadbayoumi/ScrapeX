@@ -545,6 +545,10 @@ def _commodity_to_product_row(c: dict) -> dict:
         # reported rows on their own path.
         "provenance": c.get("provenance", ""),
         "as_of_date": c.get("as_of_date", ""),
+        # Who states this figure, per the page it came from. Optional — a page
+        # that names no source stays empty rather than being invented.
+        "official_source_name": c.get("official_source_name", ""),
+        "official_source_url": c.get("official_source_url", ""),
     })
     return row
 
@@ -650,12 +654,14 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
             "INSERT OR IGNORE INTO price_observation "
             "(offer_id, observed_at, business_date, regular_price, sale_price, "
             " effective_price, currency, vat_included, availability, stock_quantity, "
-            " run_id, record_hash, price_hash, price_fields, provenance) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'reported')",
+            " run_id, record_hash, price_hash, price_fields, provenance, "
+            " official_source_name, official_source_url) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'reported',?,?)",
             (offer_id, v["observed_at"], r["as_of_date"], v["regular_price"],
              v["sale_price"], v["effective_price"], v["currency"], v["vat_included"],
              v["availability"], v["stock_quantity"], run_id, v["record_hash"],
-             v["price_hash"], v["price_fields"]),
+             v["price_hash"], v["price_fields"],
+             r.get("official_source_name", ""), r.get("official_source_url", "")),
         )
         if cur.rowcount == 1:
             result.observations += 1
@@ -686,12 +692,13 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
         "INSERT OR IGNORE INTO price_observation "
         "(offer_id, observed_at, business_date, regular_price, sale_price, effective_price, "
         " currency, vat_included, availability, stock_quantity, run_id, record_hash, "
-        "price_hash, price_fields, provenance) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'observed')",
+        "price_hash, price_fields, provenance, official_source_name, official_source_url) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'observed',?,?)",
         (offer_id, v["observed_at"], v["business_date"], v["regular_price"], v["sale_price"],
          v["effective_price"], v["currency"], v["vat_included"], v["availability"],
          v["stock_quantity"], run_id, v["record_hash"],
-         v["price_hash"], v["price_fields"]),
+         v["price_hash"], v["price_fields"],
+         r.get("official_source_name", ""), r.get("official_source_url", "")),
     )
     if cur.rowcount == 1:
         result.observations += 1

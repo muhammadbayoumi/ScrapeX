@@ -64,7 +64,9 @@ def test_adapter_maps_commodity_row_onto_every_product_column():
     # outside the product columns deliberately: putting them into PRODUCT_PRICES
     # would widen every product connector's contract to carry what only
     # commodity history uses.
-    assert set(r) == set(PRODUCT_PRICES.columns) | {"provenance", "as_of_date"}
+    assert set(r) == set(PRODUCT_PRICES.columns) | {"provenance", "as_of_date",
+                                                "official_source_name",
+                                                "official_source_url"}
     assert r["external_product_id"] == "DIESEL" and r["product_name"] == "DIESEL"
     # The unit goes to its own column and nowhere else. It used to be stuffed
     # into option_label, where a unit was indistinguishable from a variant

@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 21  # +0021 latest-is-observed view
+    assert dbmod.schema_version(conn) == 22  # +0022 official source attribution
 
 
 def test_all_owner_tables_exist(conn):
@@ -167,7 +167,7 @@ def test_migration_0020_preserves_existing_jobs_and_their_log_references():
                           (job_id,))
         upgrading.commit()
 
-        assert dbmod.migrate(upgrading) == [20, 21]
+        assert dbmod.migrate(upgrading) == [20, 21, 22]
 
         joined = upgrading.execute(
             "SELECT j.job_ref, j.status, l.message FROM job_log_entry l"

@@ -256,3 +256,37 @@ def test_a_pure_backfill_offer_speaks_with_its_newest_dated_claim(conn):
     assert len(page.rows) == 1
     assert float(page.rows[0]["effective_price"]) == 20.50   # the 1M claim, newest
     assert page.rows[0]["business_date"] == "2026-06-21"
+
+
+def test_the_official_source_lands_on_the_observation_and_reaches_the_grid(conn):
+    """The attribution's whole journey: connector row -> ingest -> the payload
+    the Data page grid actually reads. Germany's absent attribution stays
+    empty at every step."""
+    from scrapex.reports import table_payload
+
+    ingest_payloads(conn, _entry(), [_payload([
+        dict(effective_price="20.50",
+             official_source_name="Ministry of Petroleum and Mineral Resources",
+             official_source_url="https://www.petroleum.gov.eg/ar-eg/Pages/HomePage.aspx"),
+    ])])
+
+    stored = conn.execute(
+        "SELECT official_source_name, official_source_url FROM price_observation").fetchone()
+    assert stored["official_source_name"] == "Ministry of Petroleum and Mineral Resources"
+
+    grid = table_payload(conn, "GPP_ENERGY")
+    assert [c["key"] for c in grid["columns"]].count("official_source") == 1
+    row = grid["rows"][0]
+    assert row["official_source"] == "Ministry of Petroleum and Mineral Resources"
+    assert row["official_source_url"].startswith("https://www.petroleum.gov.eg/")
+
+
+def test_a_source_that_attributes_nothing_gets_no_source_column(conn):
+    """Column presence follows the data: a shop with no attributions must not
+    grow a column of blanks."""
+    from scrapex.reports import table_payload
+
+    ingest_payloads(conn, _entry(), [_payload([CURRENT])])
+
+    grid = table_payload(conn, "GPP_ENERGY")
+    assert "official_source" not in [c["key"] for c in grid["columns"]]

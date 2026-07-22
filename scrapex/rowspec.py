@@ -142,12 +142,20 @@ COMMODITY_PRICE = RowSpec(
         "provenance",            # 'observed' | 'reported'
         "as_of_date",            # 'YYYY-MM-DD' the price refers to; blank = today
         "source_date",           # the date the SOURCE stamps on its own figure
+        # --- added 2026-07-22 -----------------------------------------------
+        # The official body the page names for its figure ("Source: Ministry of
+        # Petroleum and Mineral Resources" + link). The strongest provenance
+        # signal on the page; absent on some countries (Germany), so both are
+        # optional and an empty value means "not stated" — never invented.
+        "official_source_name",
+        "official_source_url",
     ),
     required=frozenset({"material_key", "region", "currency", "effective_price"}),
     additive=frozenset({"original_price", "original_currency", "price_basis",
                         "geo_region", "consumer_segment",
                         "tax_evidence", "tax_statement_url",
-                        "provenance", "as_of_date", "source_date"}),
+                        "provenance", "as_of_date", "source_date",
+                        "official_source_name", "official_source_url"}),
 )
 
 _BY_KIND = {spec.kind: spec for spec in (PRODUCT_PRICES, COMMODITY_PRICE, ENRICHMENT)}
