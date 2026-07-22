@@ -487,7 +487,7 @@ class JobRunner:
                     conn.commit()
                     # The local runtime IS the scheduler (spec 26) — browser
                     # alarms cannot be relied on to wake anything.
-                    fire_due(conn)
+                    fire_due(conn, manifest=self._manifest_provider())
                     job_ref = self._next_queued(conn)
                     if job_ref is None:
                         continue

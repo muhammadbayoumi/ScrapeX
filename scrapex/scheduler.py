@@ -155,16 +155,31 @@ def _source_is_busy(conn: sqlite3.Connection, source_key: str) -> bool:
                for job in list_jobs(conn, limit=200, active_only=True))
 
 
-def fire_due(conn: sqlite3.Connection, now: datetime | None = None) -> list[str]:
+def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
+             manifest=None) -> list[str]:
     """Queue a job for every due schedule. Returns the job_refs created.
 
     Applies both policies at the moment of firing: a slot missed while the
     machine was off obeys missed_run_policy, and a source whose previous run is
     still going obeys overlap_policy.
+
+    With a manifest given, `active` finally MEANS something: a schedule for an
+    inactive source re-arms without firing. The flag was documentation until
+    now — the owner flipped it and nothing changed, which is the emptiest kind
+    of switch. Manual runs from the panel are untouched: active gates the
+    AUTOMATION, not the owner's hand.
     """
     now = now or utcnow()
     created: list[str] = []
     for schedule in due_schedules(conn, now):
+        if manifest is not None:
+            try:
+                entry = manifest.get(schedule["source_key"])
+            except KeyError:
+                entry = None                     # removed from the manifest
+            if entry is None or not entry.active:
+                _rearm(conn, schedule, now, fired=False)
+                continue
         due_at = _parse_iso(schedule["next_run_at"])
         overdue = due_at is not None and (now - due_at) > timedelta(minutes=1)
 

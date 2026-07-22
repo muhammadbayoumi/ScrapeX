@@ -79,3 +79,49 @@ def add_source(entry: SourceEntry, path: Path | str = MANIFEST_FILE) -> None:
     except Exception:
         path.write_text(original, encoding="utf-8")  # roll back a bad write
         raise
+
+
+def set_active(source_key: str, active: bool, path: Path | str = MANIFEST_FILE) -> bool:
+    """Flip ONE source's active flag in place. Returns True when the file changed.
+
+    Surgical by the same rule as add_source: the manifest is hand-commented and
+    those comments are the owner's records, so the file is edited line-wise —
+    only the one `active:` line inside the one source's block — never re-dumped.
+    The result must still parse and validate; a write that breaks the manifest
+    is rolled back whole. Validation is also what refuses activating a
+    TBD-probe placeholder, with pydantic's own message.
+    """
+    import re
+
+    path = Path(path)
+    original = path.read_text(encoding="utf-8")
+    lines = original.splitlines(keepends=True)
+
+    start = None
+    for i, line in enumerate(lines):
+        if re.match(rf"^  - source_key:\s*{re.escape(source_key)}\s*$", line):
+            start = i
+            break
+    if start is None:
+        raise KeyError(source_key)
+    end = next((j for j in range(start + 1, len(lines))
+                if re.match(r"^  - source_key:", lines[j])), len(lines))
+
+    for j in range(start, end):
+        found = re.match(r"^(\s+active:\s*)(true|false)\s*$", lines[j])
+        if found:
+            replacement = f"{found.group(1)}{'true' if active else 'false'}\n"
+            if lines[j] == replacement:
+                return False                      # already in the asked state
+            lines[j] = replacement
+            break
+    else:
+        raise ValueError(f"{source_key} has no active line to flip")
+
+    path.write_text("".join(lines), encoding="utf-8")
+    try:
+        load_manifest(path)
+    except Exception:
+        path.write_text(original, encoding="utf-8")   # never a corrupted manifest
+        raise
+    return True

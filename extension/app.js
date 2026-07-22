@@ -113,6 +113,12 @@ function renderSites() {
       const checked = state.selected.has(s.source_key) ? "checked" : "";
       const reason = ready ? "" :
         `<span class="chip off" title="No connector has shipped for this platform yet">Not supported yet</span>`;
+      // The automation switch. Words carry the state, never colour alone; the
+      // title says exactly what the switch gates — schedules, not your hand.
+      const auto = ready ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
+            data-auto="${esc(s.source_key)}" aria-pressed="${s.active ? "true" : "false"}"
+            title="Scheduled runs fire only while this is on. Running manually from this panel always works.">Auto: ${
+              s.active ? "on" : "off"}</button>` : "";
       return `<div class="srow ${ready ? "" : "off"}">
         <label>
           <input type="checkbox" data-key="${esc(s.source_key)}" ${checked} ${ready ? "" : "disabled"}>
@@ -122,7 +128,7 @@ function renderSites() {
             <span class="n" style="display:block">${Number(s.observations || 0).toLocaleString()} prices${
               s.changes ? " · " + esc(s.changes) : ""}</span>
           </span>
-        </label>${reason}
+        </label>${auto}${reason}
       </div>`;
     }).join("");
     box.querySelectorAll("input[data-key]").forEach((cb) =>
@@ -130,6 +136,22 @@ function renderSites() {
         cb.checked ? state.selected.add(cb.dataset.key) : state.selected.delete(cb.dataset.key);
         renderSelected();
         refreshRunButton();
+      }));
+    box.querySelectorAll("button[data-auto]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const key = button.dataset.auto;
+        const source = state.sources.find((s) => s.source_key === key);
+        if (!source) return;
+        button.disabled = true;
+        try {
+          await post("/api/sources/" + encodeURIComponent(key) + "/active",
+                     { active: !source.active });
+          await loadSources();               // re-render from the server's truth
+        } catch (e) {
+          button.disabled = false;
+          button.textContent = "Auto: failed";
+          button.title = e.message;          // e.g. a placeholder that refuses activation
+        }
       }));
   }
   renderSelected();

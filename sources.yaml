@@ -206,7 +206,7 @@ sources:
     family: static-html-table
     cadence: weekly
     authority: aggregator
-    active: false
+    active: true
     # FALLBACK currency only — it now covers just the electricity rank-table
     # rows, which are the site's own USD conversions, honestly marked
     # price_basis=converted. Fuel rows carry the currency each country page

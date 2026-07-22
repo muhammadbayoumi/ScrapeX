@@ -420,3 +420,37 @@ def test_the_sources_api_declares_who_supports_history():
 
     assert supports_history(ConnectorFamily.STATIC_HTML_TABLE) is True
     assert supports_history(ConnectorFamily.SHOPIFY_JSON) is False
+
+
+def test_a_schedule_for_an_inactive_source_rearms_without_firing(conn):
+    """`active` finally MEANS something: it gates the AUTOMATION. A due
+    schedule for an inactive source re-arms silently; flipping the source
+    active lets the same schedule fire on the next tick. Manual runs were
+    never gated — the flag governs schedules, not the owner's hand."""
+    from datetime import timedelta
+
+    from scrapex.jobs import list_jobs
+    from scrapex.scheduler import fire_due, upsert_schedule, utcnow
+
+    class _Manifest:
+        def __init__(self, active): self._active = active
+        def get(self, key):
+            entry = _entry()
+            object.__setattr__(entry, "active", self._active) if False else None
+            entry = entry.model_copy(update={"active": self._active})
+            return entry
+
+    upsert_schedule(conn, "GPP_ENERGY", frequency="daily", run_at="00:00")
+    conn.execute("UPDATE schedule SET next_run_at = ? WHERE source_key = 'GPP_ENERGY'",
+                 ((utcnow() - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
+    conn.commit()
+
+    fired = fire_due(conn, manifest=_Manifest(active=False))
+    assert fired == [], "an inactive source's schedule fired anyway"
+    assert list_jobs(conn) == []
+
+    conn.execute("UPDATE schedule SET next_run_at = ? WHERE source_key = 'GPP_ENERGY'",
+                 ((utcnow() - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
+    conn.commit()
+    fired = fire_due(conn, manifest=_Manifest(active=True))
+    assert len(fired) == 1, "the active source's schedule did not fire"

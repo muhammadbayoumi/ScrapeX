@@ -36,7 +36,7 @@ from ..fields import (
 )
 from ..features import manifest as feature_manifest
 from ..extract.api import create_extraction_router
-from ..manifest_io import DuplicateSourceError, add_source
+from ..manifest_io import DuplicateSourceError, add_source, set_active
 from ..matching import (
     ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
 )
@@ -648,6 +648,26 @@ def create_app(
         if not url:
             raise HTTPException(status_code=400, detail="url is required")
         return probe_url(url).to_json()
+
+    @app.post("/api/sources/{source_key}/active")
+    def api_set_active(source_key: str, body: dict):
+        """Flip one source's automation switch, from the panel.
+
+        Writes the manifest surgically (comments survive) and reloads it, so
+        the runner's next scheduler tick sees the new truth. Manual runs are
+        never gated by this — active means "may run WITHOUT me".
+        """
+        wanted = bool((body or {}).get("active"))
+        try:
+            set_active(source_key, wanted, app.state.manifest_path)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception as exc:  # pydantic refusals (e.g. a TBD-probe placeholder)
+            raise HTTPException(status_code=400, detail=str(exc))
+        app.state.manifest = load_manifest(app.state.manifest_path)
+        return {"source_key": source_key, "active": wanted}
 
     @app.post("/api/sources")
     def api_add_source(body: dict):

@@ -260,3 +260,38 @@ def test_the_offer_api_refuses_an_offer_belonging_to_another_source(client, db_p
     conn.close()
 
     assert client.get(f"/api/offer/GPP_ENERGY/{offer_id}").status_code == 404
+
+
+# ---- activation from the interface -------------------------------------------
+
+def test_flipping_active_changes_one_line_and_keeps_every_comment(client, tmp_path):
+    """The manifest is hand-commented and those comments are the owner's
+    records. The flip must be surgical: one line changes, every other byte
+    survives."""
+    manifest = tmp_path / "sources.yaml"
+    before = manifest.read_text(encoding="utf-8")
+
+    r = client.post(f"/api/sources/{SOURCE}/active", json={"active": True})
+    assert r.status_code == 200 and r.json()["active"] is True
+
+    after = manifest.read_text(encoding="utf-8")
+    diff = [(a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b]
+    assert len(diff) == 1, f"more than one line changed: {diff[:3]}"
+    assert diff[0][0].strip() == "active: false"
+    assert diff[0][1].strip() == "active: true"
+    # And the engine's own view reloaded: the API now reports it active.
+    listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+    assert listed[SOURCE]["active"] is True
+
+
+def test_a_probe_placeholder_refuses_activation_with_the_reason(client):
+    """ARAMCO is family TBD-probe: pydantic refuses an active placeholder, and
+    the refusal must reach the panel as a message, not corrupt the manifest."""
+    r = client.post("/api/sources/ARAMCO_FUEL_SA/active", json={"active": True})
+    assert r.status_code == 400
+    listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+    assert listed["ARAMCO_FUEL_SA"]["active"] is False, "the bad write survived"
+
+
+def test_activating_an_unknown_source_is_404(client):
+    assert client.post("/api/sources/GHOST/active", json={"active": True}).status_code == 404
