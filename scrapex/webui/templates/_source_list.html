@@ -51,7 +51,9 @@
     {% endif %}
 
     {% if not sources and not pending %}
-      <p class="dataset-no-results" data-dataset-placeholder>Loading datasets…</p>
+      {# Server-rendered: "Loading…" with nothing left to load was a permanent
+         lie on a zero-source install (merge-review finding). #}
+      <p class="dataset-no-results" data-dataset-placeholder>No datasets configured yet.</p>
     {% endif %}
   </nav>
   <p class="dataset-no-results" data-dataset-empty hidden>No datasets match your search.</p>

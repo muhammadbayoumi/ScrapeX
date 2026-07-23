@@ -291,3 +291,38 @@ def test_the_schedules_editor_uses_one_source_list_and_one_visible_panel(client)
     assert 'class="schedule-advanced"' in body and "Run behavior" in body
     assert "Schedule summary" in body and "Showing ${shown}" in body
     assert "Frequency" in body and "Timezone" in body
+
+
+def test_saved_views_are_reachable_from_the_page_again(client):
+    """The merge that removed the old workspace-tools panel orphaned
+    POST /api/views — a feature no user could reach. The Views popover is its
+    restored caller: save from the page, see it listed, open it."""
+    page = client.get(f"/source/{SOURCE}").text
+    assert "Saved views" in page
+    assert "/api/views/" in page, "the save form lost its endpoint"
+
+    saved = client.post(f"/api/views/{SOURCE}",
+                        json={"view_name": "غالي فقط",
+                              "config": {"filters": {"effective_price": "gte:120"},
+                                         "q": "", "sort": "", "direction": "",
+                                         "per_page": ""}})
+    assert saved.status_code == 200
+
+    page = client.get(f"/source/{SOURCE}").text
+    assert "غالي فقط" in page, "a saved view must be listed where it was saved"
+
+
+def test_a_view_naming_a_vanished_filter_says_so_on_the_page(client):
+    """A view whose filter key no longer exists must SAY it was widened —
+    the review found the old warning deleted and its test too weak to notice."""
+    saved = client.post(f"/api/views/{SOURCE}",
+                        json={"view_name": "قديم",
+                              "config": {"filters": {"ghost_column": "has:x"},
+                                         "q": "", "sort": "", "direction": "",
+                                         "per_page": ""}}).json()
+    view_id = saved["saved_view_id"] if "saved_view_id" in saved else \
+        next(v["saved_view_id"] for v in saved.get("views", []) if v["view_name"] == "قديم")
+
+    page = client.get(f"/source/{SOURCE}?view_id={view_id}").text
+    assert "were ignored" in page, "the view widened silently"
+    assert "ghost_column" in page, "the dropped filter must be NAMED"

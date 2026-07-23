@@ -187,6 +187,17 @@
           <p>Arrange columns, group rows, and inspect records without changing the source data.</p>
         </div>
       </header>
+      {% if dropped_from_view %}
+      {# A view naming vanished columns must SAY it was widened — silently
+         showing more than the view promised is the failure this line kills. #}
+      <div class="data-grid-context">
+        <p class="answer">
+          <span class="muted">This saved view names filters that no longer
+            exist, so they were ignored:</span>
+          {% for name in dropped_from_view %}<span class="chip pill" dir="auto">{{ name }}</span>{% endfor %}
+        </p>
+      </div>
+      {% endif %}
       {% if filters %}
       <div class="data-grid-context">
         <p class="answer">
@@ -210,6 +221,39 @@
             {{ icon("expand-more", "dataset-menu-chevron") }}
           </summary>
           {% include "_source_list.html" %}
+        </details>
+        {# Saved views: the arrangement affordance the old workspace panel
+           carried. Without it POST /api/views has no caller and the feature
+           exists only for hand-typed URLs (merge-review requirement). #}
+        <details class="dataset-menu" id="saved-views">
+          <summary class="data-grid-command"
+                   aria-controls="saved-views-list" aria-expanded="false">
+            {{ icon("tune") }}
+            <span>Views</span>
+            {{ icon("expand-more", "dataset-menu-chevron") }}
+          </summary>
+          <div class="dataset-popover" id="saved-views-list">
+            <header><strong>Saved views</strong>
+              <span>Arrangements of {{ source_key }} — a view holds no data</span></header>
+            {% if views %}
+            <ul class="dataset-items">
+              {% for v in views %}
+              <li><a href="/source/{{ source_key }}?view_id={{ v.saved_view_id }}"
+                     {% if view_id == v.saved_view_id %}aria-current="page"{% endif %}
+                     ><span dir="auto">{{ v.view_name }}</span></a></li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="muted">No saved views yet — filter and sort the table,
+              then save the arrangement here.</p>
+            {% endif %}
+            <form id="save-view-form" class="field">
+              <input id="save-view-name" placeholder="Name this view" dir="auto"
+                     autocomplete="off">
+              <button type="submit" class="ghost">Save current view</button>
+            </form>
+            <p id="save-view-note" class="muted" aria-live="polite"></p>
+          </div>
         </details>
         {# Native details keeps the popup keyboard-operable without a custom menu widget. #}
         <details id="grid-features">
@@ -296,5 +340,37 @@
 {% endif %}
 </section>
 </div>
+
+<script>
+// Saving a view captures the CURRENT arrangement — the URL already carries it
+// (filters, search, sort, page size), so the config is read off the address
+// bar, never reconstructed from widgets. Same payload shape the API has had
+// all along; this form is its restored caller (merge-review requirement).
+(function () {
+  const form = document.getElementById("save-view-form");
+  if (!form) return;
+  const note = document.getElementById("save-view-note");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = document.getElementById("save-view-name").value.trim();
+    if (!name) { note.textContent = "Give the view a name first."; return; }
+    const params = new URLSearchParams(location.search);
+    const filters = {};
+    for (const [key, value] of params)
+      if (key.startsWith("f.")) filters[key.slice(2)] = value;
+    const config = {filters,
+                    q: params.get("q") || "", sort: params.get("sort") || "",
+                    direction: params.get("direction") || "",
+                    per_page: params.get("per_page") || ""};
+    const source = document.getElementById("grid").dataset.source;
+    fetch(`/api/views/${encodeURIComponent(source)}`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({view_name: name, config}),
+    }).then(r => r.ok ? location.reload()
+                      : (note.textContent = `Could not save the view: ${r.status}`))
+      .catch(e => note.textContent = `Could not save the view: ${e.message}`);
+  });
+})();
+</script>
 
 {% endblock %}
