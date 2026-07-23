@@ -877,7 +877,17 @@ def create_app(
             # Without this, hiding a column UPDATEd zero rows and returned 404,
             # which the grid then reloaded straight past. Additive by design, so
             # calling it here cannot disturb an existing view.
-            ensure_fields(conn, source_key, [key for key, _ in BROWSE_COLUMNS])
+            #
+            # PRESENCE-GATED like the GET path, and for the same reason: seeding
+            # every BROWSE_COLUMNS key registered columns the source does not
+            # publish (Category L1-L4 on a flat-label shop), and they then sat
+            # in the manage list forever. The one key the caller is actually
+            # touching is included even when absent, so hiding a column that
+            # just lost its data still works.
+            present = column_presence(conn, source_key)
+            wanted = [key for key, _ in BROWSE_COLUMNS
+                      if key in present or key == body.get("field_key")]
+            ensure_fields(conn, source_key, wanted)
             if "reset" in body:
                 reset_view(conn, source_key)
             if "display_name" in body:

@@ -336,3 +336,19 @@ def test_a_disabled_schedule_keeps_its_settings_and_computes_no_next_run(client)
     assert saved["enabled"] == 0 or saved["enabled"] is False
     assert saved["next_run_at"] is None, "a paused schedule still promises a firing"
     assert saved["run_at"] == "07:30", "pausing lost the settings"
+
+
+def test_hiding_a_column_never_registers_absent_ones(client):
+    """The POST path seeded EVERY browse column, so touching one column on a
+    flat-label shop registered Category L1-L4 forever (ensure_fields is
+    additive; nothing de-registers). Presence-gated now, like the GET path —
+    except the one key actually being touched, which must keep working even
+    when its data just vanished (adversarial review finding)."""
+    answer = client.post(f"/api/fields/{SOURCE}",
+                         json={"field_key": "sku", "hidden": True})
+    assert answer.status_code == 200
+
+    keys = [f["field_key"] for f in client.get(f"/api/fields/{SOURCE}").json()["fields"]]
+    assert "category_l1" not in keys and "category_l4" not in keys, \
+        "columns this source never publishes were registered by a POST"
+    assert "sku" in keys
