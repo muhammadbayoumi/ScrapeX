@@ -567,9 +567,34 @@
     searchBox.append(search);
     controls.append(selectAll, searchBox);
 
+    // TWO zones, because the owner's question about a field is not "is it
+    // ticked" but "where does it live": in the table, or in the record's
+    // details. Dragging between them IS the move (and the checkbox stays as
+    // its keyboard-and-screen-reader equivalent, never a second mechanism —
+    // both write the same is_hidden through the same endpoint).
     const list = document.createElement("div");
     list.className = "column-chooser-list";
     list.setAttribute("role", "list");
+    const zones = {};
+    for (const [zone, title, hint] of [
+      ["table", "In the table", "Columns of the grid, in this order."],
+      ["details", "In the details", "Shown under the table when a row is selected."],
+    ]) {
+      const section = document.createElement("section");
+      section.className = "column-chooser-zone";
+      section.dataset.zone = zone;
+      const label = document.createElement("h3");
+      label.textContent = title;
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = hint;
+      const body = document.createElement("div");
+      body.className = "column-chooser-zone-body";
+      body.dataset.zoneBody = zone;
+      section.append(label, note, body);
+      list.append(section);
+      zones[zone] = body;
+    }
     const status = document.createElement("p");
     status.className = "column-chooser-status muted";
     status.setAttribute("role", "status");
@@ -623,9 +648,21 @@
       render();
     }
 
+    function moveToZone(key, zone) {
+      const field = fields.find((item) => item.field_key === key);
+      if (!field) return;
+      const hidden = zone === "details";
+      if (field.is_hidden === hidden) return;
+      field.is_hidden = hidden;
+      dirty = true;
+      syncMasterCheckbox();
+      saySaving(updateFields({field_key: key, hidden}));
+      render();
+    }
+
     function render() {
       const query = search.value.trim().toLocaleLowerCase();
-      list.replaceChildren();
+      Object.values(zones).forEach((body) => body.replaceChildren());
       const matching = fields.filter((field) =>
         !query || fieldLabel(field).toLocaleLowerCase().includes(query));
       matching.forEach((field) => {
@@ -638,21 +675,25 @@
         const visible = document.createElement("input");
         visible.type = "checkbox";
         visible.checked = !field.is_hidden;
-        visible.setAttribute("aria-label", "Show " + fieldLabel(field));
-        visible.addEventListener("change", () => {
-          field.is_hidden = !visible.checked;
-          dirty = true;
-          syncMasterCheckbox();
-          saySaving(updateFields({field_key: field.field_key, hidden: field.is_hidden}));
-        });
+        visible.setAttribute("aria-label", "Keep " + fieldLabel(field) + " in the table");
+        visible.addEventListener("change", () =>
+          moveToZone(field.field_key, visible.checked ? "table" : "details"));
 
         const handle = document.createElement("button");
         handle.type = "button";
         handle.className = "column-chooser-handle";
         handle.setAttribute("aria-label", "Move " + fieldLabel(field));
-        handle.title = "Drag to reorder. Use Arrow Up or Arrow Down from the keyboard.";
+        handle.title = "Drag to reorder, or between the two lists to move this "
+          + "field. Keyboard: Arrow Up/Down to reorder, Arrow Left/Right to move.";
         handle.append(materialIconElement("drag-indicator", "column-chooser-icon"));
         handle.addEventListener("keydown", (event) => {
+          // Across the zones with Left/Right — the same move the drag makes,
+          // for a keyboard. A control only a mouse can reach is not a control.
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            event.preventDefault();
+            moveToZone(field.field_key, event.key === "ArrowLeft" ? "table" : "details");
+            return;
+          }
           if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
           event.preventDefault();
           const at = fields.indexOf(field);
@@ -684,23 +725,51 @@
         row.addEventListener("drop", (event) => {
           event.preventDefault();
           const after = event.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
-          moveField(draggedKey, field.field_key, after);
+          const dragged = fields.find((item) => item.field_key === draggedKey);
+          const key = draggedKey;
           draggedKey = "";
+          if (dragged && dragged.is_hidden !== field.is_hidden) {
+            // Dropped among the OTHER zone's rows: that is the move, and the
+            // position within the zone follows from the order save below.
+            moveToZone(key, field.is_hidden ? "details" : "table");
+          }
+          moveField(key, field.field_key, after);
         });
         row.addEventListener("dragend", () => {
           draggedKey = "";
           list.querySelectorAll(".column-chooser-row").forEach((item) =>
             item.classList.remove("is-dragging", "drop-before", "drop-after"));
         });
-        list.append(row);
+        zones[field.is_hidden ? "details" : "table"].append(row);
       });
-      if (!matching.length) {
+      for (const [zone, body] of Object.entries(zones)) {
+        if (body.children.length) continue;
         const empty = document.createElement("p");
         empty.className = "column-chooser-empty muted";
-        empty.textContent = "No columns match this search.";
-        list.append(empty);
+        empty.textContent = query ? "No columns match this search."
+          : zone === "details" ? "Drag a column here to move it out of the table."
+          : "Every column is in the details.";
+        body.append(empty);
       }
       syncMasterCheckbox();
+    }
+
+    // Dropping on the ZONE (not on a row) is how an empty list — and the space
+    // below the last row — accepts a field.
+    for (const [zone, body] of Object.entries(zones)) {
+      body.addEventListener("dragover", (event) => {
+        if (!draggedKey) return;
+        event.preventDefault();
+        body.classList.add("is-drop-target");
+      });
+      body.addEventListener("dragleave", () => body.classList.remove("is-drop-target"));
+      body.addEventListener("drop", (event) => {
+        event.preventDefault();
+        body.classList.remove("is-drop-target");
+        const key = draggedKey;
+        draggedKey = "";
+        moveToZone(key, zone);
+      });
     }
 
     async function closeChooser() {

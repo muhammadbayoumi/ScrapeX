@@ -96,8 +96,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-3: menuLabel learned that "" means no icon — the strict
     # validator threw on pinMenu's blank states and killed the whole
     # three-dot menu (owner-reported live).
-    assert '/static/grid.js?v=design-system-8' in page
-    assert '/static/grid-theme.css?v=design-system-8' in page
+    assert '/static/grid.js?v=design-system-9' in page
+    assert '/static/grid-theme.css?v=design-system-9' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -440,7 +440,11 @@ def test_choose_columns_is_an_inline_searchable_reorderable_tool_panel():
     assert 'search.type = "search"' in script
     assert "row.draggable = true" in script
     assert 'event.key !== "ArrowUp"' in script
-    assert "hidden: field.is_hidden" in script
+    # The hide write moved into moveToZone: one function now serves the
+    # checkbox, the drag between zones and the keyboard, so the endpoint is
+    # called from ONE place instead of three (the mechanism the owner's
+    # "move a field to the details" ask is built on).
+    assert "moveToZone" in script and "updateFields({field_key: key, hidden})" in script
     assert "order: fields.map" in script
     assert "location.assign(url)" not in script
     assert ".column-chooser" in css and ".column-chooser-row" in css

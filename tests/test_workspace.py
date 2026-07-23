@@ -137,10 +137,14 @@ def test_export_and_sync_tabs_are_real_controls_now(client):
     assert "Send a test row" in sync and "Push to Drive" in sync
 
 
-def test_the_sync_tab_still_admits_what_the_transport_does_not_do(client):
-    """Having built the screen does not license implying more than it does:
-    request signing and adaptive batching remain unbuilt and are named as such."""
-    assert "NOT implemented" in client.get("/sync").text
+def test_the_sync_tab_states_the_transport_exactly(client):
+    """This asserted the words "NOT implemented" while request signing and
+    adaptive batching were unbuilt. A9 built them, so the page now has to state
+    what they do AND where they stop — the softness that keeps a sheet running
+    an older script working is the part an owner would otherwise never guess."""
+    sync = client.get("/sync").text
+    assert "HMAC-SHA256" in sync and "FUNNEL_REQUIRE_SIGNATURE" in sync
+    assert "halved and resent" in sync
 
 
 def test_empty_states_are_designed_not_blank(client, tmp_path):
@@ -346,3 +350,15 @@ def test_api_ui_serves_the_same_contract_the_sidebar_renders(client):
             f"sidebar lost {destination['label']} that /api/ui still promises"
 
     assert client.get("/api/ui?source_key=NOPE").status_code == 404
+
+
+def test_choose_columns_offers_two_places_a_field_can_live(client):
+    """The owner asked to MOVE fields between the table and the details, by
+    hand. The chooser is two drop zones now — dragging between them writes the
+    same is_hidden the checkbox does, through the same endpoint (one
+    mechanism, two gestures), and a keyboard can do it with Left/Right."""
+    grid = (Path("scrapex/webui/static/grid.js")).read_text(encoding="utf-8")
+    assert '"In the table"' in grid and '"In the details"' in grid
+    assert "moveToZone" in grid
+    assert "ArrowLeft" in grid and "ArrowRight" in grid, \
+        "a control only a mouse can reach is not a control"

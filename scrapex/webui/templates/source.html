@@ -7,14 +7,14 @@
    the owner is offline. See static/vendor/README.md. #}
   <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
   {# Loaded AFTER the library so the project's own table appearance wins. #}
-  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-8">
+  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-9">
   <link rel="stylesheet" href="/static/pages/data-workspace.css?v=design-system-3">
   <script src="/static/vendor/tabulator.min.js" defer></script>
   <script src="/static/datasets-browser.js?v=design-system-2" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-  <script src="/static/grid.js?v=design-system-8" defer></script>
+  <script src="/static/grid.js?v=design-system-9" defer></script>
 {% endblock %}
 {% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they

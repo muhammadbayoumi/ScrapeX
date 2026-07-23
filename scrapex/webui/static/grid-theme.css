@@ -764,3 +764,24 @@
   border-radius: var(--radius-sm, 4px);
   padding: .25rem;
 }
+
+/* Choose Columns is two places a field can live, not a list of ticks: the
+   zones are visibly separate so "move it out of the table" is a gesture with
+   somewhere to land, and an empty zone still shows its target area. */
+.column-chooser-zone { margin-bottom: var(--sp-3, .75rem); }
+.column-chooser-zone > h3 {
+  margin: 0 0 .1rem;
+  font-size: var(--fs-sm, .875rem);
+}
+.column-chooser-zone > p { margin: 0 0 var(--sp-1, .25rem); font-size: var(--fs-xs, .75rem); }
+.column-chooser-zone-body {
+  min-height: 3rem;
+  border: 1px dashed var(--border, #d8dee9);
+  border-radius: var(--radius-sm, 4px);
+  padding: var(--sp-1, .25rem);
+}
+.column-chooser-zone-body.is-drop-target {
+  border-style: solid;
+  border-color: var(--accent, #b8860b);
+  background: var(--surface-2, #f6f7f9);
+}
