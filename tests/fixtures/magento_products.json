@@ -173,7 +173,34 @@
                                 }
                             ]
                         }
-                    ]
+                    ],
+                    "custom_attributesV2": {
+                        "items": [
+                            {
+                                "code": "manufacturer",
+                                "value": "اسمنت الرياض"
+                            },
+                            {
+                                "code": "country_of_manufacture",
+                                "value": "المملكة العربية السعودية"
+                            },
+                            {
+                                "code": "size",
+                                "value": "50 Kg"
+                            },
+                            {
+                                "code": "grade",
+                                "selected_options": [
+                                    {
+                                        "label": "A500"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "short_description": {
+                        "html": "<p>توفر شركة أسمنت الرياض مجموعة متنوعة</p>"
+                    }
                 }
             ]
         }

@@ -44,8 +44,15 @@ _QUERY_TEMPLATE = """query($pageSize:Int!,$currentPage:Int!){{
 }}"""
 
 _QUERY = _QUERY_TEMPLATE.format(extra="")
+# custom_attributesV2 IS the site's "More information" panel (verified live
+# 2026-07-23: manufacturer, country_of_manufacture, origin, size, material
+# type, coating, grade — the owner's list, code for code). Dropdown values
+# arrive as selected_options, text values as value; both fragments cover it.
 _QUERY_ENRICHED = _QUERY_TEMPLATE.format(
-    extra="description{html} short_description{html}")
+    extra="description{html} short_description{html} "
+          "custom_attributesV2(filters:{is_visible_on_front:true}){items{"
+          "code ... on AttributeValue{value} "
+          "... on AttributeSelectedOptions{selected_options{label}}}}")
 
 # The en_SA store view returns English names for the same uids (verified
 # live: "اسمنت الرياض" -> "Riyadh Cement"). uid + name ONLY — the bilingual
@@ -416,7 +423,9 @@ def _enrichment_rows(builder: RowBuilder, product: dict) -> list:
     def add(code, label, value, *, numeric="", unit=""):
         if not value:
             return
-        group = "Description" if "desc" in code else "Measurements"
+        group = ("Description" if "desc" in code
+                 else "Measurements" if code == "weight"
+                 else "More information")
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,
@@ -426,6 +435,15 @@ def _enrichment_rows(builder: RowBuilder, product: dict) -> list:
         _clean(((product.get("description") or {}).get("html")) or ""))
     add("short_description", "Summary",
         _clean(((product.get("short_description") or {}).get("html")) or ""))
+    # The "More information" panel, one row per stated fact — manufacturer,
+    # origin, grade, coating... — in the site's own values.
+    for attribute in ((product.get("custom_attributesV2") or {}).get("items")) or []:
+        code = str(attribute.get("code") or "")
+        value = attribute.get("value") or ", ".join(
+            str(o.get("label") or "")
+            for o in attribute.get("selected_options") or [] if o.get("label"))
+        if code:
+            add(code, code, value)
     for v in product.get("variants") or []:
         child = v.get("product") or {}
         weight = child.get("weight")

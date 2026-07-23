@@ -338,6 +338,34 @@ def test_enrichment_stays_dormant_until_the_manifest_asks():
     assert len(tables) == 1, "enrichment emitted without a manifest declaration"
 
 
+def test_the_more_information_panel_lands_as_enrichment_when_asked():
+    """manufacturer / origin / size / grade — the site's "المزيد من المعلومات"
+    panel, verified live via custom_attributesV2 (2026-07-23). Dropdowns
+    arrive as selected_options; both value shapes land as stated facts."""
+    from scrapex.rowspec import ENRICHMENT
+
+    entry = SourceEntry.model_validate(dict(
+        source_key="MADAR", source_name="المدار", base_url="https://www.madar.com",
+        family="magento-graphql", currency="SAR", default_region="SA", vat_mode="excl",
+        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS),
+                 ExtractSpec(kind=ExtractKind.ENRICHMENT, scope=ExtractScope.CENSUS)],
+    ))
+    tables = list(MagentoGraphqlConnector(_StubFetcher()).fetch(entry))
+    assert len(tables) == 2, "the manifest asked and no enrichment came"
+
+    view = RowView(ENRICHMENT, tables[1].header)
+    rows = [view.as_dict(r) for r in tables[1].rows]
+    by_code = {r["attribute_code"]: r for r in rows if r["external_product_id"] == "Q0VNMg=="}
+    assert by_code["manufacturer"]["raw_value"] == "اسمنت الرياض"
+    assert by_code["grade"]["raw_value"] == "A500"          # dropdown -> label
+    assert by_code["size"]["raw_value"] == "50 Kg"
+    assert by_code["manufacturer"]["attribute_group"] == "More information"
+    assert "توفر شركة" in by_code["short_description"]["raw_value"]
+    # The plywood piece-mass rides as a weight measurement (not a unit).
+    weights = [r for r in rows if r["attribute_code"] == "weight"]
+    assert weights and all(r["unit_raw"] == "kg" for r in weights)
+
+
 def test_the_deeper_home_wins_over_a_longer_shallow_name():
     """'Deepest wins' means LEVELS, not characters: a one-level promo bucket
     with a long Arabic name must never beat a stated three-level home
