@@ -230,6 +230,15 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         )
     if found is not None:
         _touch_last_seen(conn, "source_variant", "source_variant_id", found)
+        if r["option_label"]:
+            # The label is the site's CURRENT wording for which variant this
+            # is — when a connector learns to say it better (axis names came
+            # 2026-07-23), the next crawl rewrites it. Identity never moves:
+            # the fingerprint and external id stay untouched.
+            conn.execute(
+                "UPDATE source_variant SET option_label = ? "
+                "WHERE source_variant_id = ? AND COALESCE(option_label,'') != ?",
+                (r["option_label"], found, r["option_label"]))
         status = conn.execute(
             "SELECT status FROM source_variant WHERE source_variant_id = ?",
             (found,)).fetchone()[0]

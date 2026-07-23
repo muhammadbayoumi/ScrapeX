@@ -1022,6 +1022,11 @@
         // The third click removes the sorter. With no active sorter Tabulator
         // renders the rows in the payload's original order again.
         headerSortTristate: true,
+        // Empties sort LAST in both directions, on every column. Without this
+        // a sparse column (Unit holds 89 values across 3,398 madar rows)
+        // floods the first screens with blanks on ascending sort — the owner
+        // read that, reasonably, as "sorting does not work".
+        sorterParams: {alignEmptyValues: "bottom"},
         // A ceiling as well as a floor: without one, fitColumns hands a short
         // column like Unit the same share as a long one like Record.
         widthGrow: col.key === "product_name" || col.key === "region" ? 2 : 1,
