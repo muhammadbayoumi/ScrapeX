@@ -176,6 +176,53 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+def _process_started_at(pid: int) -> str:
+    """A stamp identifying THIS run of a pid, or "" when unknowable.
+
+    Liveness alone cannot own a lock: Windows recycles pids aggressively, so a
+    crashed holder's number is soon a live unrelated process — and the lock is
+    then never reclaimed, bricking every crawl until someone deletes a file by
+    hand. The creation time makes the identity unambiguous.
+    """
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return ""
+        try:
+            created = wintypes.FILETIME()
+            rest = (wintypes.FILETIME(), wintypes.FILETIME(), wintypes.FILETIME())
+            if kernel32.GetProcessTimes(handle, ctypes.byref(created),
+                                        ctypes.byref(rest[0]), ctypes.byref(rest[1]),
+                                        ctypes.byref(rest[2])):
+                return f"{created.dwHighDateTime}{created.dwLowDateTime}"
+            return ""
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii") as handle:
+            return handle.read().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return ""
+
+
+def _lock_owner(text: str) -> tuple[int, str]:
+    """(pid, start stamp) from a lock file. Old single-pid files still parse.
+
+    A pid that is not a number returns 0 — and the caller treats 0 as
+    "unreadable, leave it alone" rather than as a dead owner: guessing at a
+    file we cannot read is how a live holder gets robbed."""
+    pid_text, _, stamp = text.strip().partition(":")
+    try:
+        return int(pid_text or 0), stamp
+    except ValueError:
+        return 0, ""
+
+
 def _reclaim_if_stale(lock_path: Path) -> bool:
     """Remove a lock whose owning process is gone. Returns True if reclaimed.
 
@@ -184,11 +231,17 @@ def _reclaim_if_stale(lock_path: Path) -> bool:
     recovered from everywhere else.
     """
     try:
-        owner = int(lock_path.read_text(encoding="ascii").strip() or 0)
-    except (OSError, ValueError):
+        owner, stamp = _lock_owner(lock_path.read_text(encoding="ascii"))
+    except OSError:
+        return False                           # unreadable: leave it alone
+    if owner <= 0:
         return False                           # unreadable: leave it alone
     if _pid_is_alive(owner):
-        return False
+        # Alive is not enough: the pid may have been RECYCLED since the lock
+        # was written. A stamp that disagrees means the holder is long gone.
+        current = _process_started_at(owner)
+        if not stamp or not current or stamp == current:
+            return False
     try:
         lock_path.unlink()
         return True
@@ -217,14 +270,15 @@ def write_lock(db_path: Path | str = DEFAULT_DB_PATH, timeout_s: float = 10.0):
             if _reclaim_if_stale(lock_path):
                 continue                       # dead owner: retry immediately
             if time.monotonic() >= deadline:
-                owner = lock_path.read_text(encoding="ascii", errors="replace").strip()
+                owner, _ = _lock_owner(
+                    lock_path.read_text(encoding="ascii", errors="replace"))
                 raise DbLockedError(
                     f"another scrapex process (pid {owner}) is writing to the database; "
                     "wait for its crawl to finish and retry"
                 ) from None
             time.sleep(0.2)
     try:
-        os.write(fd, str(os.getpid()).encode("ascii"))
+        os.write(fd, f"{os.getpid()}:{_process_started_at(os.getpid())}".encode("ascii"))
         os.close(fd)
         yield
     finally:

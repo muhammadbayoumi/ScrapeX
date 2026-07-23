@@ -63,6 +63,13 @@ class ApiConfig(BaseModel):
 
     base_url: str | None = None   # API host root, e.g. https://api.masdaronline.com
     base_site: str | None = None  # OCC baseSite id (Hybris)
+    # An API that publishes prices NET of a tax the storefront shows included.
+    # Verified live on madar 2026-07-23: GraphQL says 194.9, the page charges
+    # 224.14 (x1.15) and states «الأسعار تشمل ضريبة القيمة المضافة 15%». The
+    # rate is declared here so the connector converts to what a buyer pays
+    # instead of quietly storing a number the site never shows. Absent for
+    # every API whose figures already match the storefront.
+    prices_exclude_tax_pct: float | None = None
 
 
 class TaxEvidence(BaseModel):

@@ -127,7 +127,8 @@ class CaptureResult:
 def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                    job_id: int | None = None,
                    lock: Callable[[], AbstractContextManager] | None = None,
-                   history: bool = False, resume: bool = False) -> CaptureResult:
+                   history: bool = False, resume: bool = False,
+                   archive_first: bool = False) -> CaptureResult:
     """Fetch a source via its connector and ingest straight into harvest.db.
 
     `lock` (when given) wraps ONLY the ingest write. Holding the process-wide DB
@@ -225,6 +226,19 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         payloads = [t.to_payload() for t in tables]
     with (lock() if lock is not None else nullcontext()):
         _refuse_if_superseded(conn)
+        if archive_first:
+            # A FULL REBUILD archives inside the same lock that writes the new
+            # rows — atomically, and only once writing is actually possible.
+            # Archiving earlier (as the job loop did) meant a lock conflict
+            # left the catalogue archived and NOTHING re-crawled: the owner's
+            # sika run lost 87 products to a five-word error message.
+            from .archive import archive_source
+            archived = archive_source(conn, entry.source_key)
+            if job_id is not None:
+                from .jobs import append_log
+                append_log(conn, job_id,
+                           f"archived {archived} products before rebuild",
+                           source_key=entry.source_key)
         result = ingest_payloads(conn, entry, payloads, job_id=job_id)
     if journal:
         localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)

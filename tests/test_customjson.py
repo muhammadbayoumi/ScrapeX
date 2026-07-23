@@ -72,14 +72,18 @@ def fetch_rows(fetcher):
 
 # ---- price semantics, verified against all 87 live products ------------------
 
-def test_specail_price_is_the_discount():
-    """Verified live: 78 of 87 products carry specail_price below price."""
-    assert _prices({"price": 325, "specail_price": 206.25}) == ("325", "206.25", "206.25")
+def test_specail_price_is_NOT_proof_of_a_live_discount():
+    """CORRECTED 2026-07-23 against the shop's own rendered page: product 235
+    still publishes specail_price 939.38 while the storefront charges 1252.50.
+    The field is a standing column the shop keeps, not a price it charges —
+    honouring it invented a discount, and because the field never changed, no
+    update, rebuild or wipe could ever clear it (the owner's exact report)."""
+    assert _prices({"price": 325, "specail_price": 206.25}) == ("325", "", "325")
 
 
-def test_a_flash_sale_price_outranks_the_standing_discount():
-    """flash_sale_price is a nullable NUMBER, not the boolean flag this
-    connector used to assume. It is null on all 87 products today."""
+def test_a_flash_sale_IS_the_price_because_it_is_live():
+    """flash_sale_price is dated and live (its siblings carry the window), so
+    it is what the customer actually pays — unlike the standing special."""
     assert _prices({"price": 325, "specail_price": 206.25,
                     "flash_sale_price": 150}) == ("325", "150", "150")
 
@@ -87,6 +91,7 @@ def test_a_flash_sale_price_outranks_the_standing_discount():
 def test_zero_or_null_discount_means_no_sale():
     assert _prices({"price": 120, "specail_price": 0}) == ("120", "", "120")
     assert _prices({"price": 120, "specail_price": None, "sale_price": None}) == ("120", "", "120")
+    assert _prices({"price": 120, "flash_sale_price": 0}) == ("120", "", "120")
 
 
 def test_unpriced_is_empty():
@@ -114,8 +119,9 @@ def test_the_real_response_envelope_is_read():
     assert first["external_product_id"] == "256"
     assert first["product_name"] == "سيكا فيوم 5 كيلو"      # Arabic name preferred
     assert first["regular_price"] == "325"
-    assert first["sale_price"] == "206.25"
-    assert first["effective_price"] == "206.25"
+    # No live flash sale -> the shop charges its listing price, and so do we.
+    assert first["sale_price"] == ""
+    assert first["effective_price"] == "325"
     assert first["currency"] == "EGP" and first["vat_included"] == "1"
     assert first["availability"] == "in_stock"
     # /products/{id} verified live; /product/{id} returns 404.

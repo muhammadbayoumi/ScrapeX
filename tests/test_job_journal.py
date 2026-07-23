@@ -19,6 +19,7 @@ from scrapex import localinbox
 from scrapex.capture import capture_source
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.base import CrawlInterrupted, ScrapedTable
+from scrapex.ingest import ingest_payloads
 from scrapex.jobs import create_job, get_job, job_logs, run_job_once
 from scrapex.rowspec import COMMODITY_PRICE, RowBuilder
 from scrapex.vocab import ExtractKind, ExtractScope, JobStatus
@@ -276,3 +277,33 @@ def test_cancel_mid_fetch_discards_the_journal(conn, journal, monkeypatch):
         "a cancelled job left stale journal state behind"
     messages = [entry["message"] for entry in job_logs(conn, ref)]
     assert any("partial fetch was discarded" in m for m in messages)
+
+
+def test_a_rebuild_that_cannot_write_archives_NOTHING(conn, journal, monkeypatch):
+    """The owner's sika loss: the job archived 87 products, THEN hit a held
+    write lock and died — catalogue gone, nothing re-crawled. The archive now
+    runs inside the same lock as the ingest, so a lock it cannot take means
+    nothing was touched."""
+    from contextlib import contextmanager
+
+    from scrapex import db as dbmod
+
+    _with_connector(monkeypatch, _PagedConnector())
+    _, job_id = _job(conn)
+    entry = make_entry()
+    ingest_payloads(conn, entry, [_page("", "EG", "1.00").to_payload()])
+    before = conn.execute("SELECT COUNT(*) FROM source_product "
+                          "WHERE status = 'active'").fetchone()[0]
+    assert before
+
+    @contextmanager
+    def held_lock():
+        raise dbmod.DbLockedError("another scrapex process (pid 1) is writing")
+        yield  # pragma: no cover
+
+    with pytest.raises(dbmod.DbLockedError):
+        capture_source(conn, entry, job_id, lock=held_lock, archive_first=True)
+
+    after = conn.execute("SELECT COUNT(*) FROM source_product "
+                         "WHERE status = 'active'").fetchone()[0]
+    assert after == before, "a rebuild that could not write still archived"

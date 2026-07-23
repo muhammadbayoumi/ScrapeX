@@ -75,7 +75,8 @@ def test_stale_lock_from_a_dead_process_is_reclaimed(tmp_path: Path):
 
     with dbmod.write_lock(db, timeout_s=2.0):
         assert lock.exists()                            # we now own it
-        assert lock.read_text(encoding="ascii").strip() == str(os.getpid())
+        # pid:start-stamp — the stamp is what makes a RECYCLED pid detectable.
+        assert lock.read_text(encoding="ascii").split(":")[0] == str(os.getpid())
     assert not lock.exists()
 
 
@@ -96,6 +97,34 @@ def test_unreadable_lock_is_left_alone(tmp_path: Path):
     lock = Path(str(db) + ".lock")
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text("not-a-pid", encoding="ascii")
+    with pytest.raises(dbmod.DbLockedError):
+        with dbmod.write_lock(db, timeout_s=0.5):
+            pass
+
+
+def test_a_recycled_pid_does_not_keep_a_dead_holders_lock(tmp_path: Path):
+    """The outage the owner hit: the lock names a pid, Windows recycles pids,
+    and a live UNRELATED process wearing that number made the lock immortal —
+    every crawl refused until a file was deleted by hand. The start stamp
+    settles identity: same pid, different run, reclaim."""
+    db = tmp_path / "h.db"
+    lock = Path(str(db) + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    # OUR pid (certainly alive) with a stamp from a different run.
+    lock.write_text(f"{os.getpid()}:000000000000", encoding="ascii")
+
+    with dbmod.write_lock(db, timeout_s=2.0):
+        assert lock.read_text(encoding="ascii").split(":")[0] == str(os.getpid())
+    assert not lock.exists()
+
+
+def test_the_live_holders_own_lock_is_still_never_stolen(tmp_path: Path):
+    """The other half: a stamp that MATCHES is a genuinely live holder."""
+    db = tmp_path / "h.db"
+    lock = Path(str(db) + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(f"{os.getpid()}:{dbmod._process_started_at(os.getpid())}",
+                    encoding="ascii")
     with pytest.raises(dbmod.DbLockedError):
         with dbmod.write_lock(db, timeout_s=0.5):
             pass

@@ -18,7 +18,8 @@ zero times, and the crawl printed "0 rows" as a success. That is why the source
 looked broken while the site was up the whole time.
 
 PRICE SEMANTICS — verified across all 87 live products, no longer assumed:
-`price` is the list price (never null, never 0). `specail_price` (the store's
+`price` is the list price (never null, never 0) AND what the storefront
+charges. `specail_price` (the store's
 own spelling) is the discounted price and is set on 78 of 87. `sale_price`
 exists in the schema but is null on every product. `flash_sale_price` is a
 nullable NUMBER, not the boolean flag this file used to assume — it is null on
@@ -55,21 +56,27 @@ def _fmt(n: float | None) -> str:
 
 
 def _prices(product: dict) -> tuple[str, str, str]:
-    """(regular, sale, effective) as strings — see PRICE SEMANTICS in the docstring."""
+    """(regular, sale, effective) as strings — see PRICE SEMANTICS in the docstring.
+
+    CORRECTED 2026-07-23 against the live storefront. `specail_price` is a
+    STANDING COLUMN, not proof of a live discount: product 235 still publishes
+    specail_price 939.38 while the shop's own page renders 1252.50 — the
+    listing price — so honouring it invented a discount the shop does not
+    offer, and no re-crawl could clear it because the field never changed.
+
+    A flash sale IS dated and live, so `flash_sale_price` (with its sibling
+    fields) remains the discount. The standing special travels to enrichment
+    as what it is: a number the shop keeps, not a price it charges.
+    """
     regular = _num(product.get("price"))
-    special = _num(product.get("specail_price")) or _num(product.get("sale_price"))
-    # A flash sale, when one is running, is what the customer actually pays, so
-    # it outranks the standing discount.
     flash = _num(product.get("flash_sale_price"))
-    discounted = flash if flash is not None else special
-    if regular is None:               # a discount alone can still be the effective price
-        regular = discounted
-    on_sale = discounted is not None and (regular is None or discounted < regular)
-    effective = discounted if on_sale else regular
-    if effective is None:
+    if regular is None:               # a flash price alone can still be the price
+        regular = flash
+    if regular is None:
         return "", "", ""
-    sale = effective if (regular is not None and effective < regular) else None
-    return _fmt(regular), _fmt(sale), _fmt(effective)
+    on_sale = flash is not None and flash < regular
+    effective = flash if on_sale else regular
+    return _fmt(regular), _fmt(effective if on_sale else None), _fmt(effective)
 
 
 def _availability(product: dict) -> str:

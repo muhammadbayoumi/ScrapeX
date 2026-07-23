@@ -263,10 +263,12 @@ def test_rerunning_a_terminal_job_is_a_no_op(conn):
 
 def test_full_rebuild_backs_up_and_archives_before_crawling(conn):
     order: list[str] = []
+    asked: list[bool] = []
     ref = create_job(conn, ["A"], RunMode.FULL_REBUILD)
 
-    def capture(c, entry, job_id=None):
+    def capture(c, entry, job_id=None, **kw):
         order.append("crawl")
+        asked.append(kw.get("archive_first", False))
         return _result(entry.source_key)
 
     job = run_job_once(conn, ref, _FakeManifest(["A"]), capture=capture,
@@ -274,14 +276,22 @@ def test_full_rebuild_backs_up_and_archives_before_crawling(conn):
     assert job["status"] == JobStatus.COMPLETED.value
     assert order == ["backup", "crawl"]          # backup happens FIRST
     assert any("backup created" in e["message"] for e in job_logs(conn, ref))
-    assert any("archived" in e["message"] for e in job_logs(conn, ref))
+    # The archive itself travels INTO the capture, to run inside the same
+    # write lock as the ingest: doing it here left the catalogue archived and
+    # nothing re-crawled when the lock was held (the owner's sika run).
+    assert asked == [True]
 
 
-def test_full_rebuild_without_a_backup_hook_still_archives(conn):
-    ref = create_job(conn, ["A"], RunMode.FULL_REBUILD)
-    job = run_job_once(conn, ref, _FakeManifest(["A"]), capture=_capture_ok([]))
-    assert job["status"] == JobStatus.COMPLETED.value
-    assert any("archived" in e["message"] for e in job_logs(conn, ref))
+def test_only_a_rebuild_asks_capture_to_archive(conn):
+    asked: list[dict] = []
+    ref = create_job(conn, ["A"], RunMode.UPDATE)
+
+    def capture(c, entry, job_id=None, **kw):
+        asked.append(kw)
+        return _result(entry.source_key)
+
+    run_job_once(conn, ref, _FakeManifest(["A"]), capture=capture)
+    assert asked == [{}], "an ordinary update must never archive"
 
 
 # ---- unknown source is isolated, not fatal ----------------------------------

@@ -21,7 +21,13 @@ sources:
     active: false
     currency: SAR
     default_region: SA
-    vat_mode: excl
+    # The STOREFRONT states «الأسعار تشمل ضريبة القيمة المضافة 15%» and charges
+    # 224.14 where GraphQL answers 194.9 — so what we store is tax-inclusive,
+    # and the API's net figure is converted below rather than shown as if it
+    # were the price (verified live 2026-07-23).
+    vat_mode: incl
+    api:
+      prices_exclude_tax_pct: 15
     extract:
       - kind: product_prices
         scope: census          # first crawl is a full census; owner will replace
@@ -182,7 +188,7 @@ sources:
     family: woocommerce-storeapi
     cadence: daily
     authority: shop
-    active: false
+    active: true
     currency: EGP
     default_region: EG
     vat_mode: incl
@@ -321,7 +327,7 @@ sources:
     family: aramco-fuel-page
     cadence: monthly
     authority: official
-    active: false
+    active: true
     currency: SAR
     default_region: SA
     vat_mode: incl             # pump prices are the final at-the-pump figures

@@ -239,12 +239,6 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
         conn.commit()
         try:
             entry = manifest.get(source_key)
-            if rebuilding:
-                # Past the boundary check, so a cancel never leaves a catalogue
-                # archived for a crawl that then never ran.
-                archived = archive_source(conn, source_key)
-                append_log(conn, job_id, f"archived {archived} products before rebuild",
-                           source_key=source_key)
             previous = previous_rows_seen(conn, source_key)
             # Keywords travel only when the situation asks for them, so every
             # existing capture fake with the plain (conn, entry, job_id)
@@ -252,6 +246,11 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
             # the source a pause interrupted MID-fetch: its journaled pages
             # are still on disk and the connector may skip them.
             extras: dict = {}
+            if rebuilding:
+                # The archive travels WITH the write, into the same lock —
+                # doing it here meant a failed capture (a held lock, a dead
+                # site) left the catalogue archived and nothing re-crawled.
+                extras["archive_first"] = True
             if job["run_mode"] == RunMode.HISTORY_BACKFILL.value:
                 extras["history"] = True
             if checkpoint.get("partial_source") == source_key:

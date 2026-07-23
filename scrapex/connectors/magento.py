@@ -176,10 +176,28 @@ def _availability(stock_status: str | None) -> str:
     return Availability.UNKNOWN.value
 
 
-def _prices(node: dict) -> tuple[float | None, float | None]:
+def _prices(node: dict, tax_pct: float | None = None) -> tuple[float | None, float | None]:
+    """The prices a BUYER sees. Magento's GraphQL publishes them net of tax on
+    a store that displays them inclusive (verified live on madar: 194.9 here,
+    224.14 on the page), so the manifest's declared rate is applied — rounded
+    to the currency's two places, exactly as the storefront prints it."""
     mp = ((node.get("price_range") or {}).get("minimum_price")) or {}
     regular = (mp.get("regular_price") or {}).get("value")
     final = (mp.get("final_price") or {}).get("value")
+    if tax_pct:
+        from decimal import Decimal, ROUND_HALF_UP
+
+        factor = Decimal(1) + Decimal(str(tax_pct)) / 100
+        def taxed(value):
+            if value is None:
+                return None
+            # HALF_UP, not Python's bankers rounding: 194.9 x 1.15 = 224.135,
+            # and the storefront prints 224.14 — money rounds the way the shop
+            # rounds it or the row disagrees with the page by a piastre.
+            money = (Decimal(str(value)) * factor).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP)
+            return float(money)
+        regular, final = taxed(regular), taxed(final)
     return regular, final
 
 
@@ -198,6 +216,8 @@ class MagentoGraphqlConnector:
             "currency": source.currency or "UNKNOWN",
             "vat": "1" if source.vat_mode.value == "incl" else "0",
             "region": source.default_region,
+            # The storefront's own figure, when the API publishes a net one.
+            "tax_pct": (source.api.prices_exclude_tax_pct if source.api else None),
         }
         notes: list[str] = []
         ctx["paths"] = self._category_map(endpoint, source, notes)
@@ -392,18 +412,25 @@ class MagentoGraphqlConnector:
             for v in variants:
                 child = v.get("product") or {}
                 attrs = [a for a in (v.get("attributes") or []) if a.get("code")]
-                reg, fin = _prices(child)
+                reg, fin = _prices(child, ctx.get("tax_pct"))
                 # The basis the site itself states (weight + "50كجم" in the
                 # name agreeing) rides the row; a piece's mass does not.
                 basis, unit = selling_unit_from(child.get("name") or "",
                                                 child.get("weight"))
+                # The PRODUCT's name, never the child's: madar's child name is
+                # its internal SKU string ("054010 FLOOR BACK BOX POPUP ALU
+                # 3MOD LEGRAND", identical in both stores) while the product
+                # carries the real localized name — «علب أرضية منبثقة من
+                # ليجراند» / "Legrand Pop-up Floor Box Kit". Storing the SKU
+                # string put an English code where the page shows Arabic and
+                # contradicted the row's own variant label (owner-reported).
                 row(product.get("uid"), child.get("uid"), child.get("sku"),
-                    child.get("name") or product.get("name"), reg, fin, child.get("stock_status"),
+                    product.get("name") or child.get("name"), reg, fin, child.get("stock_status"),
                     label=_option_text(attrs, option_labels),
                     fp=option_fingerprint({a["code"]: a.get("label", "") for a in attrs}) if attrs else "",
                     basis=basis, unit=unit)
         else:
-            reg, fin = _prices(product)
+            reg, fin = _prices(product, ctx.get("tax_pct"))
             row(product.get("uid"), product.get("uid"), product.get("sku"),
                 product.get("name"), reg, fin, product.get("stock_status"))
         return out

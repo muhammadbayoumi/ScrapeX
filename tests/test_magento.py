@@ -392,3 +392,50 @@ def test_the_deeper_home_wins_over_a_longer_shallow_name():
     row = RowView(PRODUCT_PRICES, builder.header).as_dict(rows[0])
     assert row["category_path"] == "مواد > معادن > حديد"
     assert row["category_external_id"] == "C3"
+
+
+def test_the_price_is_what_the_storefront_charges_not_the_apis_net_figure():
+    """Verified live 2026-07-23: GraphQL answers 194.9 for the Legrand box
+    while the page charges 224.14 and states «الأسعار تشمل ضريبة القيمة
+    المضافة 15%». Storing the net number showed a price the site never
+    displays (owner-reported)."""
+    from scrapex.connectors.magento import _prices
+
+    node = {"price_range": {"minimum_price": {"regular_price": {"value": 194.9},
+                                              "final_price": {"value": 194.9}}}}
+    assert _prices(node) == (194.9, 194.9)              # no declaration: untouched
+    assert _prices(node, 15) == (224.14, 224.14)        # the storefront's figure
+
+
+def test_the_row_carries_the_products_localized_name_never_the_child_sku_string():
+    """madar's variant child is named by its internal SKU string, identical in
+    both stores, while the product carries the real localized name. Storing the
+    child's put an English code where the page shows Arabic and contradicted
+    the row's own variant label."""
+    from scrapex.connectors.magento import MagentoGraphqlConnector
+    from scrapex.rowspec import RowBuilder
+
+    builder = RowBuilder(PRODUCT_PRICES)
+    product = {
+        "uid": "P1", "sku": "kit", "name": "علب أرضية منبثقة من ليجراند",
+        "url_key": "legrand-pop-up-floor-box-kit", "stock_status": "IN_STOCK",
+        "configurable_options": [{"attribute_code": "color", "label": "اللون"}],
+        "variants": [{"product": {"uid": "V1", "sku": "054010",
+                                  "name": "054010 FLOOR BACK BOX POPUP ALU 3MOD LEGRAND",
+                                  "stock_status": "IN_STOCK",
+                                  "price_range": {"minimum_price": {
+                                      "regular_price": {"value": 194.9},
+                                      "final_price": {"value": 194.9}}}},
+                      "attributes": [{"code": "color", "label": "Aluminium"}]}],
+    }
+    ctx = {"base": "https://www.madar.com", "currency": "SAR", "vat": "1",
+           "region": "SA", "tax_pct": 15,
+           "names_en": {"P1": "Legrand Pop-up Floor Box Kit"}}
+
+    row = RowView(PRODUCT_PRICES, builder.header).as_dict(
+        MagentoGraphqlConnector._product_rows(builder, product, ctx)[0])
+
+    assert row["product_name"] == "علب أرضية منبثقة من ليجراند"
+    assert row["product_name_en"] == "Legrand Pop-up Floor Box Kit"
+    assert row["option_label"] == "اللون: Aluminium"
+    assert row["effective_price"] == "224.14"
