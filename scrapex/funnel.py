@@ -91,6 +91,22 @@ class FunnelClient:
             delivered += 1
         return delivered, pending
 
+    def call_action(self, action: str, **fields) -> dict:
+        """POST one non-chunk action and return the funnel's whole answer.
+
+        Unlike a chunk, the ANSWER is the point: staging_sync returns what the
+        sheet actually wrote or refused. Failures come back as {ok: False}
+        rather than raising — an older deployed script or a hiccup is a state
+        to REPORT in the sync UI, never a delivery failure to retry."""
+        body = {"action": action, "token": self._token, **fields}
+        try:
+            response = httpx.post(self._endpoint, json=body,
+                                  timeout=self._timeout_s, follow_redirects=True)
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:  # noqa: BLE001 — reported, not raised
+            return {"ok": False, "error": f"unreachable: {exc!r}"}
+
     def outbox_count(self) -> int:
         return len(list(self._outbox.glob("*.json"))) if self._outbox.is_dir() else 0
 

@@ -63,6 +63,7 @@ function doPost(e) {
 
     if (request.action === "staging_chunk") return handleChunk(request.payload);
     if (request.action === "run_log") return handleRunLog(request);
+    if (request.action === "staging_sync") return handleSyncNow();
     return jsonReply({ ok: false, error: "unknown action: " + request.action });
   } catch (error) {
     return jsonReply({ ok: false, error: String(error && error.message || error) });
@@ -154,6 +155,18 @@ function onOpen() {
     .addItem("Sync automatically every 15 minutes", "installSyncTrigger")
     .addItem("Stop syncing automatically", "removeSyncTrigger")
     .addToUi();
+}
+
+/* Assemble now and SAY what happened. The Python side calls this right after
+ * the last chunk and surfaces the reply in its sync UI — closing the loop
+ * that used to end at "delivered": a delivery the assembler then refused
+ * looked like success while the table sat stale. */
+function handleSyncNow() {
+  try {
+    return jsonReply({ ok: true, report: syncTables() });
+  } catch (error) {
+    return jsonReply({ ok: false, error: String(error && error.message || error) });
+  }
 }
 
 /* Rebuild every source's tab. Safe to run at any time, as often as you like. */

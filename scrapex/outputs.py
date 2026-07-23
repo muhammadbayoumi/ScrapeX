@@ -268,9 +268,35 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
         return _record(conn, "apps_script_last", RunResult(
             ok=False, rows=len(rows),
             detail=f"Delivery failed and the batch is kept in the outbox: {exc}"))
+    # Delivery is only HALF the story: the assembler on the sheet side can
+    # still refuse the batch (ragged row, size cap, mixed chunks), and until
+    # now that refusal was invisible here — "delivered" read as success while
+    # the table sat stale or short. Ask the sheet to sync NOW and repeat its
+    # answer verbatim; an older deployed script that lacks the action degrades
+    # to an honest "not confirmed" with the way to fix it.
+    answer = (client.call_action("staging_sync")
+              if hasattr(client, "call_action") else {})
+    report = (answer or {}).get("report") or {}
+    written = next((w for w in report.get("written") or []
+                    if w.get("source") == source_key), None)
+    refused = next((s2 for s2 in report.get("skipped") or []
+                    if s2.get("source") == source_key), None)
+    if written:
+        return _record(conn, "apps_script_last", RunResult(
+            ok=True, rows=len(rows),
+            detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s); the sheet "
+                    f"wrote {written.get('rows')} row(s) to {source_key}.")))
+    if refused:
+        return _record(conn, "apps_script_last", RunResult(
+            ok=False, rows=len(rows),
+            detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s), but the "
+                    f"sheet REFUSED to write {source_key}: {refused.get('reason')}")))
     return _record(conn, "apps_script_last", RunResult(
         ok=True, rows=len(rows),
-        detail=f"Delivered {len(rows)} rows in {chunks} chunk(s)."))
+        detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s). The sheet did "
+                "not confirm writing — update the pasted script (Copy Script) to "
+                "get write confirmations, or run Rebuild tables from the sheet's "
+                "ScrapeX menu.")))
 
 
 # =============================================================================

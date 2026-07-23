@@ -374,3 +374,34 @@ def test_the_status_describes_the_arrangement_actually_configured(conn):
     assert "NEW dated tab" in status["update_behaviour"]
     assert "grows with every run" in status["update_behaviour"], \
         "the cost of keeping every snapshot must be stated, not discovered"
+
+
+def test_the_sheets_own_answer_reaches_the_sync_ui(conn):
+    """Delivery is half the story: the sheet-side assembler's answer now rides
+    back into the run result, so 'delivered' can no longer mask a stale tab."""
+    class _Confirming(FakeFunnel):
+        def call_action(self, action, **fields):
+            assert action == "staging_sync"
+            return {"ok": True, "report": {"written": [{"source": SOURCE, "rows": 1}],
+                                           "skipped": []}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_Confirming())
+    assert result.ok is True
+    assert "wrote 1 row(s)" in result.detail
+
+
+def test_a_sheet_refusal_is_a_failure_with_the_reason_verbatim(conn):
+    class _Refusing(FakeFunnel):
+        def call_action(self, action, **fields):
+            return {"ok": True, "report": {"written": [], "skipped": [
+                {"source": SOURCE, "reason": "row 7 has 22 cells, header has 23"}]}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_Refusing())
+    assert result.ok is False
+    assert "REFUSED" in result.detail and "row 7 has 22 cells" in result.detail
+
+
+def test_an_older_script_degrades_to_an_honest_not_confirmed(conn):
+    result = outputs.apps_script_send(conn, SOURCE, client=FakeFunnel())
+    assert result.ok is True
+    assert "did not confirm" in result.detail and "Copy Script" in result.detail
