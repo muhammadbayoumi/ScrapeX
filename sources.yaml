@@ -32,6 +32,12 @@ sources:
       - kind: product_prices
         scope: census          # first crawl is a full census; owner will replace
                                # with targeted categories after apply-decisions
+      # The «المزيد من المعلومات» panel — manufacturer, country of manufacture,
+      # origin, size, material type, coating, grade — arrives in the SAME
+      # census response via custom_attributesV2 (verified live 2026-07-23).
+      # The connector could read it all along; nothing asked for it.
+      - kind: enrichment
+        scope: census
     min_expected_rows: 50
     max_drop_pct: 50
     notes: >

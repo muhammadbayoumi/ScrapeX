@@ -17,7 +17,7 @@ from typing import Iterable
 
 from ..config import SourceEntry
 from ..rowspec import PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability
+from ..vocab import Availability, ExtractKind
 from .base import HttpFetcher, ScrapedTable
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
 # generic; the /p{id} id scheme below is the salla-specific part.
@@ -64,6 +64,7 @@ class SallaConnector:
         base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
         rows: list[list[str]] = []
+        seen_products: list[tuple[dict, str]] = []   # kept for enrichment
         priceless = 0
         unparsed = 0
 
@@ -76,6 +77,7 @@ class SallaConnector:
             if not node:
                 unparsed += 1
                 continue
+            seen_products.append((node, url))
             row = self._row(builder, node, url, source, vat)
             if row is None:
                 priceless += 1
@@ -98,6 +100,16 @@ class SallaConnector:
                          "JSON-LD at all")
         yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
                            builder.header, rows, warnings=notes)
+        # The pictures and descriptions the SAME pages already carried. Only
+        # when the manifest asks (same gate every connector uses).
+        if any(spec.kind == ExtractKind.ENRICHMENT for spec in source.extract):
+            extra = RowBuilder(ENRICHMENT)
+            attribute_rows: list[list[str]] = []
+            for node, url in seen_products:
+                attribute_rows.extend(enrichment_rows(extra, node, url))
+            if attribute_rows:
+                yield ScrapedTable(source.source_key, ENRICHMENT.kind, base,
+                                   extra.header, attribute_rows)
 
     def _product_urls(self, sitemap_url: str) -> list[str]:
         try:
@@ -128,3 +140,33 @@ class SallaConnector:
             regular_price=price, sale_price="", effective_price=price,
             availability=Availability.IN_STOCK.value if in_stock else Availability.UNKNOWN.value,
         )
+
+
+def enrichment_rows(builder: RowBuilder, node: dict, url: str) -> list[list[str]]:
+    """The pictures and prose the product page's JSON-LD already carried."""
+    from .salla import _PRODUCT_ID  # local: keeps the module's import list flat
+
+    found = _PRODUCT_ID.search(url)
+    pid = found.group(1) if found else str(node.get("sku") or url)
+    rows: list[list[str]] = []
+
+    def add(code, label, value, *, url_value="", group=""):
+        if not value:
+            return
+        rows.append(builder.row(
+            external_product_id=pid, attribute_code=code, attribute_label=label,
+            raw_value=str(value)[:2000], numeric_value="", unit_raw="",
+            value_url=url_value, lang="", attribute_group=group))
+
+    images = node.get("image")
+    if isinstance(images, str):
+        images = [images]
+    for position, href in enumerate(images or []):
+        if not isinstance(href, str) or not href.startswith("http"):
+            continue
+        add(f"image_{position}" if position else "image", "Image",
+            href.rsplit("/", 1)[-1], url_value=href, group="Media")
+
+    add("description", "Description", node.get("description"), group="Description")
+    add("sku", "SKU", node.get("sku"), group="Specs")
+    return rows

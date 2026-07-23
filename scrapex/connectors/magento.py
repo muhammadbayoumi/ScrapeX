@@ -206,6 +206,7 @@ class MagentoGraphqlConnector:
 
     def __init__(self, fetcher: HttpFetcher) -> None:
         self._fetcher = fetcher
+        self.skip_tokens: set[str] = set()      # resume: pages already journaled
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
         builder = RowBuilder(PRODUCT_PRICES)
@@ -230,10 +231,10 @@ class MagentoGraphqlConnector:
         wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
                                for spec in source.extract)
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
-        rows: list[list[str]] = []
         fetched: list[dict] = []      # kept so enrichment needs no second fetch
         page = 1
         while True:
+            token = f"page-{page}"
             body = {"query": query, "variables": {"pageSize": PAGE_SIZE, "currentPage": page}}
             products = (((self._fetcher.post(endpoint, json=body).json() or {})
                          .get("data") or {}).get("products")) or {}
@@ -242,18 +243,22 @@ class MagentoGraphqlConnector:
                 break
             if wants_enrichment:
                 fetched.extend(items)
-            for product in items:
-                rows.extend(self._product_rows(builder, product, ctx))
+            if token not in self.skip_tokens:
+                page_rows: list[list[str]] = []
+                for product in items:
+                    page_rows.extend(self._product_rows(builder, product, ctx))
+                # One table per page: a pause keeps every page already fetched
+                # and the resume asks only for the rest.
+                yield ScrapedTable(
+                    source_key=source.source_key, kind=PRODUCT_PRICES.kind,
+                    source_url=f"{endpoint}#page={page}", header=builder.header,
+                    rows=page_rows, warnings=notes if page == 1 else [],
+                    page_token=token,
+                )
             total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
             if page >= total_pages:
                 break
             page += 1
-
-        yield ScrapedTable(
-            source_key=source.source_key, kind=PRODUCT_PRICES.kind,
-            source_url=endpoint, header=builder.header, rows=rows,
-            warnings=notes,
-        )
         # The details the same responses already carried — descriptions and
         # per-variant weights — cost no extra request. Only when the manifest
         # asks (same gate as the woo connector).
@@ -486,16 +491,27 @@ def _enrichment_rows(builder: RowBuilder, product: dict) -> list:
         return []
     rows: list = []
 
-    def add(code, label, value, *, numeric="", unit=""):
+    def add(code, label, value, *, numeric="", unit="", url=""):
         if not value:
             return
-        group = ("Description" if "desc" in code
+        group = ("Media" if code.startswith("image")
+                 else "Description" if "desc" in code
                  else "Measurements" if code == "weight"
                  else "More information")
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,
-            value_url="", lang="", attribute_group=group))
+            value_url=url, lang="", attribute_group=group))
+
+    # The product's pictures, primary first. A placeholder is the site saying
+    # "no image" — storing it would put a grey box where a product belongs.
+    for position, media in enumerate([product.get("image") or {},
+                                      *(product.get("media_gallery") or [])]):
+        href = str(media.get("url") or "")
+        if not href or "placeholder" in href.lower():
+            continue
+        add(f"image_{position}" if position else "image", "Image",
+            str(media.get("label") or "") or href.rsplit("/", 1)[-1], url=href)
 
     add("description", "Description",
         _clean(((product.get("description") or {}).get("html")) or ""))

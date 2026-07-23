@@ -746,3 +746,21 @@
   color: var(--amber);
   text-decoration-thickness: 2px;
 }
+
+/* The record panel's picture gallery: thumbnails that open the full image.
+   Sized in rem so a long gallery wraps instead of pushing the panel wide. */
+.detail-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2, .5rem);
+  margin: var(--sp-1, .25rem) 0 var(--sp-3, .75rem);
+}
+.detail-image {
+  width: 7.5rem;
+  height: 7.5rem;
+  object-fit: contain;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d8dee9);
+  border-radius: var(--radius-sm, 4px);
+  padding: .25rem;
+}

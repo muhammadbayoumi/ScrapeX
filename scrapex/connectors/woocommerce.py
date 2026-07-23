@@ -82,6 +82,9 @@ class WooCommerceConnector:
 
     def __init__(self, fetcher: HttpFetcher) -> None:
         self._fetcher = fetcher
+        # Resume support: the job journal hands back the page tokens it holds
+        # and this crawl skips exactly those (same contract GPP established).
+        self.skip_tokens: set[str] = set()
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
         builder = RowBuilder(PRODUCT_PRICES)
@@ -94,21 +97,29 @@ class WooCommerceConnector:
 
         page = 1
         while True:
+            token = f"page-{page}"
+            if token in self.skip_tokens:
+                page += 1
+                continue      # already journaled — never re-asked
             products = self._fetcher.get(endpoint, params={"per_page": PER_PAGE, "page": page}).json()
             if not isinstance(products, list) or not products:
                 break
             fetched.extend(products)
+            page_rows: list[list[str]] = []
             for p in products:
-                rows.extend(self._product_rows(builder, p, source, vat, endpoint, notes))
+                page_rows.extend(self._product_rows(builder, p, source, vat, endpoint, notes))
+            rows.extend(page_rows)
+            # One table PER PAGE so a pause keeps what it fetched: the journal
+            # stores each as it arrives and the resume starts at the tail.
+            yield ScrapedTable(
+                source_key=source.source_key, kind=PRODUCT_PRICES.kind,
+                source_url=f"{endpoint}?page={page}", header=builder.header,
+                rows=page_rows, warnings=notes if page == 1 else [],
+                page_token=token,
+            )
             if len(products) < PER_PAGE:
                 break
             page += 1
-
-        yield ScrapedTable(
-            source_key=source.source_key, kind=PRODUCT_PRICES.kind,
-            source_url=endpoint, header=builder.header, rows=rows,
-            warnings=notes,
-        )
         # A SECOND table from the SAME fetch. The attributes, categories, tags,
         # description and measurements were all in the responses already read;
         # emitting them costs no extra request. Only when the manifest asks for

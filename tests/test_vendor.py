@@ -96,8 +96,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-3: menuLabel learned that "" means no icon — the strict
     # validator threw on pinMenu's blank states and killed the whole
     # three-dot menu (owner-reported live).
-    assert '/static/grid.js?v=design-system-7' in page
-    assert '/static/grid-theme.css?v=design-system-2' in page
+    assert '/static/grid.js?v=design-system-8' in page
+    assert '/static/grid-theme.css?v=design-system-8' in page
 
 
 def test_material_header_icons_are_local_and_dry():

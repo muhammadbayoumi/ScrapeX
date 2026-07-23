@@ -1474,6 +1474,39 @@
       });
       groups.forEach((items, groupName) => {
         panel.appendChild(el("h4", "muted", groupName));
+        // Pictures are shown as PICTURES. A gallery of file names was the
+        // owner's report: the site offers images, the panel offered links.
+        // Only http(s) URLs are rendered — scraped content is untrusted, and
+        // a data: or javascript: "image" is not an image (spec 34).
+        if (groupName === "Media") {
+          const gallery = el("div", "detail-gallery");
+          let shown = 0;
+          items.forEach((d) => {
+            let safe = "";
+            try {
+              const parsed = new URL(d.url);
+              if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
+            } catch (err) { /* not a URL — falls through to the table below */ }
+            if (!safe) return;
+            const frame = document.createElement("a");
+            frame.href = safe;
+            frame.target = "_blank";
+            frame.rel = "noopener noreferrer";
+            frame.title = text(d.value || "");
+            const picture = document.createElement("img");
+            picture.src = safe;
+            picture.alt = text(d.value || "");
+            picture.loading = "lazy";
+            picture.className = "detail-image";
+            frame.appendChild(picture);
+            gallery.appendChild(frame);
+            shown += 1;
+          });
+          if (shown) {
+            panel.appendChild(gallery);
+            return;                       // the pictures ARE the section
+          }
+        }
         panel.appendChild(miniTable(
           ["Attribute", "Value"],
           items.map((d) => {
