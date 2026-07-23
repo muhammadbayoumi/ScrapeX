@@ -210,6 +210,20 @@ const MODES = {
     null],
 };
 
+// The copy above ships BUILT-IN so the panel works with the engine down; when
+// the engine answers, the shared UI contract (/api/ui — the same module the
+// workspace sidebar renders from) overlays it, so the two surfaces can never
+// hold two drifting wordings of the same mode.
+async function adoptUiContract() {
+  try {
+    const manifest = await api("/api/ui");
+    for (const mode of manifest.run_modes || []) {
+      if (MODES[mode.key]) MODES[mode.key] = [mode.label, mode.detail, mode.warning || null];
+    }
+    refreshMode();
+  } catch (_) { /* engine down or older — the built-ins stand */ }
+}
+
 function renderModeTexts(availabilityNote) {
   const [label, help, warn] = MODES[$("run-mode").value];
   $("mode-help").textContent = help + (availabilityNote ? " " + availabilityNote : "");
@@ -1043,6 +1057,7 @@ async function render() {
 async function init() {
   $("backend").value = await getBackend();
   renderAutostart();
+  adoptUiContract();
 
   const tabs = [...document.querySelectorAll("nav.tabs button")];
   tabs.forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));

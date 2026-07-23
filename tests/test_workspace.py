@@ -326,3 +326,23 @@ def test_a_view_naming_a_vanished_filter_says_so_on_the_page(client):
     page = client.get(f"/source/{SOURCE}?view_id={view_id}").text
     assert "were ignored" in page, "the view widened silently"
     assert "ghost_column" in page, "the dropped filter must be NAMED"
+
+
+def test_api_ui_serves_the_same_contract_the_sidebar_renders(client):
+    """One module, two consumers: the endpoint's navigation must be exactly
+    what the sidebar shows, source-scoped links included, and an unknown
+    source must 404 instead of minting links to nowhere."""
+    manifest = client.get(f"/api/ui?source_key={SOURCE}").json()
+    keys = [d["key"] for d in manifest["navigation"]]
+    assert keys[0] == "overview" and "settings" in keys
+    data = next(d for d in manifest["navigation"] if d["key"] == "data")
+    assert data["path"] == f"/source/{SOURCE}"
+    assert {m["key"] for m in manifest["run_modes"]} == \
+        {"update", "initial_crawl", "full_rebuild", "history_backfill"}
+
+    page = client.get(f"/source/{SOURCE}").text
+    for destination in manifest["navigation"]:
+        assert destination["label"] in page, \
+            f"sidebar lost {destination['label']} that /api/ui still promises"
+
+    assert client.get("/api/ui?source_key=NOPE").status_code == 404

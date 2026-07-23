@@ -52,23 +52,10 @@
         <span class="workspace-sidebar-sub">Collect. Analyze. Grow.</span>
       </div>
       <nav class="wstabs" aria-label="Workspace">
-        {% for group, items in [
-          ("Browse", [
-            ("/", "Overview", "overview", "dashboard"),
-            ("/source/" ~ source_key if source_key else "/data", "Data", "data", "storage"),
-            ("/changes" ~ ctx, "Changes", "changes", "trending-up"),
-            ("/history" ~ ctx, "Crawl history", "history", "history"),
-            ("/review" ~ ctx, "Review queue", "review", "check")]),
-          ("Automation", [
-            ("/jobs", "Jobs", "jobs", "play-circle"),
-            ("/schedules", "Schedules", "schedules", "schedule")]),
-          ("Outputs", [
-            ("/sync", "Sync", "sync", "sync"),
-            ("/exports", "Exports", "exports", "file-download")]),
-          ("System", [
-            ("/logs", "Logs", "logs", "description"),
-            ("/settings", "Settings", "settings", "settings")])
-        ] %}
+        {# The sidebar is DATA (scrapex/ui_manifest.py): one contract feeds
+           this loop and /api/ui, so the workspace and the panel cannot drift.
+           The tuple shape is the same one this template used to inline. #}
+        {% for group, items in workspace_navigation_groups(source_key) %}
           <div class="wsnav-group">
             <span class="wsnav-label">{{ group }}</span>
             <div class="wsnav-links">

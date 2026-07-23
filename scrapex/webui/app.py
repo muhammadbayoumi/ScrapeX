@@ -56,6 +56,7 @@ from ..storage import (
 )
 from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
+from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..reports import (
     BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
@@ -105,6 +106,9 @@ def database_state(request: Request) -> dict:
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"),
                             context_processors=[database_state])
+# The sidebar renders from the shared UI contract (scrapex/ui_manifest.py) —
+# the same module /api/ui serves to the panel, so the surfaces cannot drift.
+TEMPLATES.env.globals["workspace_navigation_groups"] = workspace_navigation_groups
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
@@ -635,6 +639,21 @@ def create_app(
             conn.close()
 
     # ---- JSON API (the Chrome extension) -----------------------------------
+
+    @app.get("/api/ui")
+    def api_ui(source_key: str | None = None):
+        """Shared presentation metadata for the workspace and the Chrome panel.
+
+        One contract (scrapex/ui_manifest.py) feeds the sidebar AND this
+        endpoint; the panel overlays its run-mode copy from here and falls
+        back to its built-ins when the engine is unreachable."""
+        if source_key:
+            try:
+                app.state.manifest.get(source_key)
+            except KeyError:
+                raise HTTPException(status_code=404,
+                                    detail=f"unknown source_key {source_key!r}")
+        return ui_manifest(source_key)
 
     @app.get("/api/health")
     def api_health():

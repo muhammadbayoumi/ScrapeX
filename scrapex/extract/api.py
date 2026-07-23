@@ -31,6 +31,10 @@ PageLimit = Annotated[int, Query(ge=1, le=MAX_RECORD_PAGE_SIZE)]
 TEMPLATES = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent.parent / "webui" / "templates")
 )
+# This second environment renders the SAME base.html, whose sidebar now comes
+# from the shared UI contract — a template global every environment must carry.
+from ..ui_manifest import workspace_navigation_groups  # noqa: E402
+TEMPLATES.env.globals["workspace_navigation_groups"] = workspace_navigation_groups
 
 
 def create_extraction_router(
