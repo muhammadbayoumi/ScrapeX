@@ -7,6 +7,11 @@
 # with tests (ENGINEERING.md T1/T2); the owner flips the flag from the panel's
 # Auto switch (or here). active gates SCHEDULED runs only — manual runs from
 # the panel always work.
+#
+# A source is named twice: source_name as the site names itself, and
+# source_name_en for the same site in English. A name is a fact about the
+# source, not a scraped value, so it is stated here — the dataset lists and the
+# page headings then read in both languages, as the table already does.
 # Validation: scrapex validate-manifest (same check runs in CI — S5).
 # ============================================================================
 
@@ -14,6 +19,7 @@ sources:
   # ---- probed 2026-07-16: Magento 2 + Hyvä; GraphQL open; SSR fallback ----
   - source_key: MADAR
     source_name: المدار
+    source_name_en: Madar
     base_url: https://www.madar.com
     family: magento-graphql
     cadence: daily
@@ -48,6 +54,7 @@ sources:
   # ---- probed: Salla; SSR + JSON-LD; numeric /p{ID} ids. This is "السويد" ----
   - source_key: ALSWEED
     source_name: السويد
+    source_name_en: Alsweed
     base_url: https://alsweed.sa
     family: salla-html
     cadence: daily
@@ -68,6 +75,7 @@ sources:
 
   - source_key: ELBUROJ
     source_name: البروج
+    source_name_en: Elburoj
     base_url: https://elburoj.com
     family: salla-html
     cadence: daily
@@ -86,6 +94,7 @@ sources:
   # ---- probed: Zid platform; SSR + JSON-LD; UUID ids; needs browser UA ----
   - source_key: ADVANCEDCASTLE
     source_name: القلعة المتقدمة
+    source_name_en: Advanced Castle
     base_url: https://advancedcastle.com
     family: zid-html
     cadence: daily
@@ -110,6 +119,7 @@ sources:
   # ---- probed: Shopify; products.json OPEN ----
   - source_key: ELSEWEDYSHOP
     source_name: السويدي شوب
+    source_name_en: Elsewedy Shop
     base_url: https://elsewedyshop.com
     family: shopify-json
     cadence: daily
@@ -128,6 +138,7 @@ sources:
   # ---- probed: SAP Hybris OCC v2 REST open; real EAN/GTIN ----
   - source_key: MASDAR
     source_name: مصدر
+    source_name_en: Masdar
     base_url: https://www.masdaronline.com
     family: hybris-occ
     cadence: daily
@@ -169,6 +180,7 @@ sources:
   # ---- probed: custom Next.js shop with open unauthenticated JSON API ----
   - source_key: SIKAEGSHOP
     source_name: سيكا مصر شوب
+    source_name_en: Sika Egypt Shop
     base_url: https://www.sikaegshop.com
     family: custom-json-api
     cadence: daily
@@ -202,13 +214,22 @@ sources:
     min_expected_rows: 30
     max_drop_pct: 50
     notes: >
-      /api/products (87 products, ar/en names). Connector reads price as list,
-      specail_price as the discount when positive, flash_sale as a boolean flag —
-      these semantics need ONE manual owner verification before activation.
+      /api/products (87 products, ar/en names). PRICE SEMANTICS SETTLED
+      2026-07-23 from the storefront's own JS bundle plus a live browser check,
+      so the "needs one manual verification" caveat is discharged: `price` is
+      the public price and what we record; `specail_price` (78/87) is a
+      TRADE-TIER price the shop charges only to a logged-in customer whose
+      customerTypeId is 2 — anonymous and customerTypeId 1 both render `price`
+      — so it is carried as enrichment, never as a discount; `flash_sale_price`
+      is a nullable NUMBER (not a boolean) that binds every visitor when
+      positive, and is null on all 87 today. There is no date window and no
+      activation flag: no settings/config/flash-sale endpoint exists and
+      created_at/updated_at are empty objects.
 
   # ---- probed: WooCommerce Store API open, variations included ----
   - source_key: SAMEHGABRIEL
     source_name: سامح جبرائيل
+    source_name_en: Sameh Gabriel
     base_url: https://samehgabriel.com
     family: woocommerce-storeapi
     cadence: daily
@@ -235,6 +256,7 @@ sources:
   # ---- probed: data publisher; LATEST PRICE ONLY (owner license decision) ----
   - source_key: GPP_ENERGY
     source_name: أسعار الطاقة العالمية
+    source_name_en: Global Petrol Prices
     base_url: https://www.globalpetrolprices.com
     family: static-html-table
     cadence: weekly
@@ -332,6 +354,7 @@ sources:
   # ---- probed: Sika Egypt corporate (AEM) — enrichment only, no prices ----
   - source_key: SIKA_EGYPT_DATASHEETS
     source_name: سيكا مصر (نشرات فنية)
+    source_name_en: Sika Egypt datasheets
     base_url: https://egy.sika.com
     family: datasheet-enrichment
     cadence: monthly
@@ -348,6 +371,7 @@ sources:
   # ---- probed live 2026-07-23: official monthly prices as heading + pairs ----
   - source_key: ARAMCO_FUEL_SA
     source_name: أرامكو السعودية
+    source_name_en: Saudi Aramco
     base_url: https://www.aramco.com
     family: aramco-fuel-page
     cadence: monthly
@@ -374,6 +398,7 @@ sources:
 
   - source_key: TABLER
     source_name: tabler.io
+    source_name_en: Tabler
     base_url: https://tabler.io/icons
     family: TBD-probe
     cadence: manual

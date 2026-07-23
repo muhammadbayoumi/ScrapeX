@@ -154,6 +154,11 @@ class SourceEntry(BaseModel):
 
     source_key: str
     source_name: str
+    # The site's own English name, when it publishes one. Stored BESIDE the
+    # primary name, never instead of it — the rule 0033 set for every bilingual
+    # field: the warehouse remembers both, the display layer chooses. Optional,
+    # so a source that answers in one language only stays valid.
+    source_name_en: str = ""
     base_url: str
     family: ConnectorFamily
     cadence: Cadence = Cadence.MANUAL

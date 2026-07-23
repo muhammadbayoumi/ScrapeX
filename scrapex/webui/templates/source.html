@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
   {# Loaded AFTER the library so the project's own table appearance wins. #}
   <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-8">
-  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=design-system-2">
+  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=design-system-3">
   <script src="/static/vendor/tabulator.min.js" defer></script>
   <script src="/static/datasets-browser.js?v=design-system-2" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
@@ -31,6 +31,8 @@
     <div class="dataset-identity">
       {% set pending_source = pending | selectattr("source_key", "equalto", source_key) | first %}
       <h1 dir="auto">{{ (pending_source.source_name if pending_source else "") or source_key.replace("_", " ") }}</h1>
+      {% set pending_name_en = (pending_source.source_name_en if pending_source else "") %}
+      {% if pending_name_en %}<p class="dataset-local-name" dir="ltr">{{ pending_name_en }}</p>{% endif %}
       <p class="dataset-local-name tech">{{ source_key }}</p>
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
@@ -61,6 +63,9 @@
   <div class="idblock">
     <div class="dataset-identity">
       <h1 dir="auto">{{ summary.source_name or summary.source_key.replace("_", " ") }}</h1>
+      {# The site's English name, under the name it leads with — the heading now
+         reads in both languages, like the table below it. #}
+      {% if summary.source_name_en %}<p class="dataset-local-name" dir="ltr">{{ summary.source_name_en }}</p>{% endif %}
       <p class="dataset-local-name tech">{{ summary.source_key }}</p>
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"

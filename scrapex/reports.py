@@ -16,6 +16,11 @@ from . import fields, tax
 class SourceSummary:
     source_key: str
     source_name: str
+    # The same name in English when the site has one (0035). Carried here so a
+    # listing or a heading shows both without a second query — empty for a
+    # source that answers in one language, which the templates read as "nothing
+    # to add" rather than an empty line.
+    source_name_en: str = ""
     # source-local layer (raw)
     products: int = 0
     variants: int = 0
@@ -30,12 +35,14 @@ class SourceSummary:
 
 def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary | None:
     row = conn.execute(
-        "SELECT source_id, source_name FROM source_site WHERE source_key = ?", (source_key,)
+        "SELECT source_id, source_name, source_name_en FROM source_site WHERE source_key = ?",
+        (source_key,)
     ).fetchone()
     if row is None:
         return None
     source_id, source_name = row[0], row[1]
-    s = SourceSummary(source_key=source_key, source_name=source_name)
+    s = SourceSummary(source_key=source_key, source_name=source_name,
+                      source_name_en=row[2] or "")
 
     s.products = _scalar(conn, "SELECT COUNT(*) FROM source_product WHERE source_id = ?", (source_id,))
     s.variants = _scalar(conn,

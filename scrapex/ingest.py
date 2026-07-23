@@ -138,12 +138,25 @@ def _touch_last_seen(conn: sqlite3.Connection, table: str, id_col: str, row_id: 
 # ---- entity resolution (get-or-create; each returns an explicit `created`) ---
 
 def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
-    found = _find_id(conn, "SELECT source_id FROM source_site WHERE source_key = ?", (entry.source_key,))
-    if found is not None:
-        return found
+    row = conn.execute(
+        "SELECT source_id, source_name_en FROM source_site WHERE source_key = ?",
+        (entry.source_key,)).fetchone()
+    if row is not None:
+        source_id = int(row[0])
+        # A registered source keeps whatever it was first stored with — that is
+        # why this row is not re-written wholesale. The English name is the one
+        # exception, and it has to be: it arrived with 0035, so every source we
+        # already crawl carries '' until the manifest value is copied over, and
+        # the listings would stay Arabic-only for exactly the sites with data.
+        # Narrow on purpose — only the column the manifest just answered for.
+        if (row[1] or "") != entry.source_name_en:
+            conn.execute("UPDATE source_site SET source_name_en = ? WHERE source_id = ?",
+                         (entry.source_name_en, source_id))
+        return source_id
     return _insert(conn, "source_site", {
         "source_key": entry.source_key,
         "source_name": entry.source_name,
+        "source_name_en": entry.source_name_en,
         "base_url": entry.base_url,
         "platform": entry.family.value,
         "currency": currency,

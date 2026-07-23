@@ -222,7 +222,12 @@ def create_app(
                         for entry in app.state.manifest.sources}
         known = {source.source_key for source in sources}
         pending = [
+            # A source with no warehouse row yet has only the manifest to be
+            # named from, so its English name comes from there too — otherwise
+            # the "never run" half of the list would read Arabic-only while the
+            # half above it reads both.
             {"source_key": key, "source_name": entry.source_name,
+             "source_name_en": entry.source_name_en,
              "base_url": entry.base_url,
              "family": entry.family.value, "active": entry.active}
             for entry in sorted(app.state.manifest.sources, key=lambda item: item.source_key)
