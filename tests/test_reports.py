@@ -119,7 +119,10 @@ def test_export_carries_region_and_country(conn):
     _commodity_rows(conn)
     header, table = export_source_table(conn, "GPP_ENERGY")
     assert header == EXPORT_HEADER
-    assert header[1] == "region" and header[2] == "country"
+    # product_name_en follows the name (the standing bilingual rule), so the
+    # geography moved one place right — asserted by NAME, not by index, so
+    # the next widening cannot break a test that is about the country.
+    assert "region" in header and "country" in header
     assert {row[1] for row in table} == {"EG", "SA"}
     assert {row[2] for row in table} == {"Egypt", "Saudi Arabia"}
 

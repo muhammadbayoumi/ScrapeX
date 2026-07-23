@@ -21,6 +21,12 @@ from ..rowspec import COMMODITY_PRICE, RowBuilder
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PRICES_PATH = "/ar/what-we-do/energy-products/retail-fuels"
+# The SAME page in English — one extra request for the second half of the
+# owner's standing bilingual rule (the Arabic page was read and only
+# English machine keys were kept).
+PRICES_PATH_EN = "/en/what-we-do/energy-products/retail-fuels"
+# Verified live 2026-07-23: "Prices for the month of July 2026 (﷼ /liter)".
+_HEADING_EN = "Prices for the month of"
 
 _HEADING = "أسعار المنتجات لشهر"
 _NUMBER = re.compile(r"^\d+(?:\.\d+)?$")
@@ -31,6 +37,15 @@ _MONTHS = {"يناير": 1, "فبراير": 2, "مارس": 3, "أبريل": 4, "
 
 # The labels the page prints, mapped to material keys. An unmapped label is a
 # warning, never a silent drop — that is how Turkey vanished from GPP.
+# The English edition's labels, lowercased — the same five materials.
+_MATERIALS_EN = {
+    "gasoline 91": "GASOLINE_91",
+    "gasoline 95": "GASOLINE_95",
+    "gasoline 98": "GASOLINE_98",
+    "diesel": "DIESEL",
+    "kerosene": "KEROSENE",
+}
+
 _MATERIALS = {
     "بنزين 91": "GASOLINE_91",
     "بنزين 95": "GASOLINE_95",
@@ -101,8 +116,9 @@ class AramcoFuelConnector:
                 f"heading «{_HEADING}» — layout change, nothing parsed") from None
         month = parse_month(lines[start])
         vat = "1" if source.vat_mode.value == "incl" else "0"
+        english = self._english_labels(source, warnings_out := [])
         rows: list[list[str]] = []
-        warnings: list[str] = []
+        warnings: list[str] = list(warnings_out)
         for price, label in parse_pairs(lines, start):
             material = _MATERIALS.get(label)
             if material is None:
@@ -111,6 +127,10 @@ class AramcoFuelConnector:
                     "dropped OUT LOUD; extend the label map if it is a fuel")
                 continue
             rows.append(builder.row(
+                # The site's own words, in both languages: «بنزين 91» here and
+                # "Gasoline 91" from the English edition of the same page.
+                material_label=label,
+                material_label_en=english.get(material, ""),
                 material_key=material, region=source.default_region or "SA",
                 currency=source.currency or "SAR", unit="liter",
                 vat_included=vat, effective_price=price,
@@ -122,3 +142,26 @@ class AramcoFuelConnector:
             ))
         yield ScrapedTable(source.source_key, COMMODITY_PRICE.kind, url,
                            builder.header, rows, warnings=warnings)
+
+    def _english_labels(self, source: SourceEntry, warnings: list) -> dict:
+        """material key -> the English page's own label. {} when unavailable.
+
+        Same page, same value/label rhythm, English words: the mapping is by
+        PRICE, because the two editions publish the same figures in the same
+        order and the price is the one thing that cannot be translated."""
+        try:
+            html = self._fetcher.get(source.base_url.rstrip("/") + PRICES_PATH_EN).text
+            lines = page_lines(html)
+            start = next(i for i, line in enumerate(lines) if _HEADING_EN in line)
+            labels = {}
+            for price, label in parse_pairs(lines, start):
+                material = _MATERIALS_EN.get(label.strip().lower())
+                if material:
+                    labels[material] = label.strip()
+            return labels
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — the Arabic prices are the point
+            warnings.append(f"english edition unavailable — labels stay "
+                            f"Arabic-only this run: {exc}")
+            return {}

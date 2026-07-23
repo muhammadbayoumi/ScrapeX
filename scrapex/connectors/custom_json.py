@@ -31,8 +31,8 @@ from __future__ import annotations
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..rowspec import PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability
+from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
+from ..vocab import Availability, ExtractKind
 from .base import HttpFetcher, ScrapedTable
 
 # A page is 12 products; 8 pages today. This cap is a runaway guard, not a
@@ -167,6 +167,17 @@ class CustomJsonConnector:
             rows.append(row)
 
         yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, endpoint, builder.header, rows)
+        # A SECOND table from the SAME responses: descriptions, keywords,
+        # weights and image attachments were all read already, so emitting
+        # them costs nothing. Only when the manifest declares enrichment.
+        if any(spec.kind == ExtractKind.ENRICHMENT for spec in source.extract):
+            extra = RowBuilder(ENRICHMENT)
+            attribute_rows: list[list[str]] = []
+            for product in products:
+                attribute_rows.extend(enrichment_rows(extra, product, base))
+            if attribute_rows:
+                yield ScrapedTable(source.source_key, ENRICHMENT.kind, endpoint,
+                                   extra.header, attribute_rows)
 
     @staticmethod
     def _row(builder: RowBuilder, product: dict, base: str, currency: str, vat: str, region: str):
@@ -206,3 +217,57 @@ class CustomJsonConnector:
             regular_price=regular, sale_price=sale, effective_price=effective,
             availability=_availability(product),
         )
+
+
+# ---- enrichment: the details the same responses already carried --------------
+#
+# Verified live 2026-07-23: every product carries short_description_ar/_en,
+# keywords in both languages, a weight, its category in both languages and an
+# attachments list whose entries are the product's images. The owner asked for
+# description, specs, attachments and images; this is all of it, and none of it
+# costs a request the price crawl did not already make.
+
+def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[str]]:
+    """One row per stated fact about one product, both languages kept apart."""
+    pid = str(product.get("product_id") or product.get("id") or "")
+    if not pid:
+        return []
+    rows: list[list[str]] = []
+
+    def add(code, label, value, *, lang="", url="", group="", numeric="", unit=""):
+        if not value:
+            return
+        rows.append(builder.row(
+            external_product_id=pid, attribute_code=code, attribute_label=label,
+            raw_value=str(value).strip(), numeric_value=str(numeric),
+            unit_raw=unit, value_url=url, lang=lang, attribute_group=group))
+
+    add("description", "Description", product.get("short_description_ar"),
+        lang="ar", group="Description")
+    add("description_en", "Description (EN)", product.get("short_description_en"),
+        lang="en", group="Description")
+    add("keywords", "Keywords", product.get("keywords_ar"), lang="ar",
+        group="Description")
+    add("keywords_en", "Keywords (EN)", product.get("keywords_en"), lang="en",
+        group="Description")
+    add("sku", "SKU", product.get("sku"), group="Specs")
+    add("weight", "Weight", product.get("weight"), numeric=product.get("weight"),
+        unit="kg", group="Specs")
+    add("stock_quantity", "Stock quantity", product.get("stock_quantity"),
+        numeric=product.get("stock_quantity"), group="Specs")
+    # The shop keeps a standing "special price" column its storefront does not
+    # charge (proven live). Recorded as the fact it is — a number the shop
+    # holds — so nothing is lost and no row calls it a discount.
+    add("standing_special_price", "Standing special price (not charged)",
+        product.get("specail_price"), numeric=product.get("specail_price"),
+        group="Specs")
+
+    for attachment in product.get("attachments") or product.get("product_attachments") or []:
+        href = str(attachment.get("file_url") or "")
+        if href and not href.startswith("http"):
+            href = base.rstrip("/") + "/" + href.lstrip("/")
+        kind = str(attachment.get("file_type") or "")
+        add("image" if kind.startswith("image/") else "attachment",
+            "Image" if kind.startswith("image/") else "Attachment",
+            attachment.get("file_name"), url=href, group="Media")
+    return rows

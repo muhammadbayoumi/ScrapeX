@@ -251,8 +251,14 @@ def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_pa
 
     grid = table_payload(conn, "SAMEHGABRIEL")
     keys = [c["key"] for c in grid["columns"]]
-    for key in ("brand", "category", "discount", "details"):
+    for key in ("brand", "category", "discount"):
         assert key in keys, f"{key} missing from the columns"
+    # A Details COLUMN is gone (owner ruling 2026-07-23): selecting a row
+    # opens one container under the table with the details first and the
+    # history below, so a column was a second door to the same room. What
+    # replaced it is the arrow that opens the record on the site.
+    assert "details" not in keys
+    assert "open" in keys
     # was_price is NOT a column: it rides inside the price cell, struck
     # through beside the current price (the owner's asked-for shape).
     assert "was_price" not in keys

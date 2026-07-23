@@ -144,7 +144,9 @@ def test_excel_export_writes_one_tab_per_source(conn):
     sink = FakeSink()
     result = outputs.excel_export(conn, [SOURCE], sink=sink)
     assert result.ok and result.rows == 1
-    assert list(sink.tabs) == [SOURCE]
+    # The prices tab, plus the history tab publish_source now writes
+    # beside it (details is skipped — this fixture has no attributes).
+    assert list(sink.tabs) == [SOURCE, f"{SOURCE} — history"]
     header, rows = sink.tabs[SOURCE]
     assert "country" in header and len(rows) == 1
 
@@ -363,8 +365,12 @@ def test_the_snapshot_behaviour_keeps_the_previous_export_instead_of_replacing_i
     sink = FakeSink()
     outputs.excel_export(conn, [SOURCE], sink=sink)
     tabs = list(sink.tabs)
-    assert len(tabs) == 1 and tabs[0].startswith(SOURCE) and tabs[0] != SOURCE, \
+    # The dated prices tab, and the history tab that now rides beside it —
+    # a snapshot keeps the WHOLE picture of that run, not a third of it.
+    prices = [t for t in tabs if "history" not in t and "details" not in t]
+    assert len(prices) == 1 and prices[0].startswith(SOURCE) and prices[0] != SOURCE, \
         "a snapshot tab carries its date"
+    assert all(t.startswith(SOURCE) for t in tabs)
 
 
 def test_the_status_describes_the_arrangement_actually_configured(conn):

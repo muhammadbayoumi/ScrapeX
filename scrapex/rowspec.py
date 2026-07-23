@@ -120,6 +120,11 @@ COMMODITY_PRICE = RowSpec(
         "vat_included",
         "effective_price",
         "observed_label",        # the date string printed on the page
+        # What the SITE calls this material, in its own words — «بنزين 91»
+        # — and in English when it publishes both (standing bilingual
+        # rule). The material_key stays the machine identity.
+        "material_label",
+        "material_label_en",
         # --- added 2026-07-20 -----------------------------------------------
         # globalpetrolprices renders BOTH the currency and the unit from user
         # dropdowns (156 currencies, 4 units), so `effective_price` above is a
@@ -162,7 +167,8 @@ COMMODITY_PRICE = RowSpec(
                         "tax_evidence", "tax_statement_url",
                         "provenance", "as_of_date", "source_date",
                         "official_source_name", "official_source_url",
-                        "converted_usd_price"}),
+                        "converted_usd_price",
+                        "material_label", "material_label_en"}),
 )
 
 _BY_KIND = {spec.kind: spec for spec in (PRODUCT_PRICES, COMMODITY_PRICE, ENRICHMENT)}

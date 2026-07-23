@@ -699,7 +699,11 @@ def _commodity_to_product_row(c: dict) -> dict:
     row = {col: "" for col in PRODUCT_PRICES.columns}
     row.update({
         "external_product_id": c["material_key"],
-        "product_name": c["material_key"],
+        # The site's own word for the material when it published one; the key
+        # otherwise. A machine identity is not a name (owner's report on
+        # ARAMCO: the Arabic page was read and only English keys were kept).
+        "product_name": c.get("material_label") or c["material_key"],
+        "product_name_en": c.get("material_label_en", ""),
         "region": c["region"],
         "currency": c["currency"],
         "vat_included": c.get("vat_included", ""),

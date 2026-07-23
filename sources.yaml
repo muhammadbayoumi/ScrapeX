@@ -170,9 +170,28 @@ sources:
     active: false
     currency: EGP
     default_region: EG
-    vat_mode: incl
+    # CORRECTED 2026-07-23 (owner's cart check): the listed price is NET —
+    # adding a product and opening the cart adds 14% VAT. The listing is what
+    # we store, and this says what it is rather than claiming it includes a
+    # tax it does not.
+    vat_mode: excl
+    tax:
+      - region: EG
+        vat_mode: excl
+        evidence: stated
+        rate_pct: 14
+        statement_text: >-
+          The listed price is net; the cart adds 14% VAT at checkout
+          (owner-verified in the shop's own cart, 2026-07-23).
+        statement_url: https://www.sikaegshop.com/cart
+        statement_lang: ar
+        verified_at: "2026-07-23"
     extract:
       - kind: product_prices
+        scope: census
+      # The same responses already carry descriptions, keywords, weights and
+      # image attachments — emitting them costs no extra request.
+      - kind: enrichment
         scope: census
     min_expected_rows: 30
     max_drop_pct: 50

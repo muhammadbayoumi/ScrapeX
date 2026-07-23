@@ -935,6 +935,21 @@
         return span;
       };
     }
+    if (key === "open") {
+      // The arrow the owner missed: straight to the record on the site.
+      return (cell) => {
+        const url = cell.getRow().getData().product_url;
+        if (!url) return "";
+        const link = document.createElement("a");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.className = "grid-action";
+        link.title = "Open this record on the site";
+        link.insertAdjacentHTML("beforeend", materialIcon("open-in-new", "inline-icon"));
+        return link;
+      };
+    }
     if (key === "details") {
       // Its own action, separated from History (the owner's ask): History is
       // the price story, Details is what the product IS.
@@ -1046,6 +1061,14 @@
           col.key === "min_price" || col.key === "max_price" ||
           col.key === "observations") {
         def.sorter = "number";
+      }
+      if (col.key === "open") {
+        def.headerSort = false;
+        def.download = false;
+        def.headerMenu = undefined;
+        def.headerPopup = undefined;
+        def.width = 56;
+        def.resizable = false;
       }
       if (col.key === "details") {
         // An action, not data: nothing to sort, filter, menu or export.
@@ -1239,7 +1262,16 @@
       requestAnimationFrame(() => { try { table.redraw(true); } catch (err) {} });
     });
     table.on("dataFiltered", () => { describe(); updateFooter(); });
-    table.on("rowSelectionChanged", updateFooter);
+    table.on("rowSelectionChanged", (data, rows) => {
+      updateFooter();
+      // ONE container under the table, opened by SELECTING a row (the owner's
+      // ruling): Details first — they are what the record IS and barely move —
+      // then the history, which only grows. Deselecting closes it, so the
+      // panel always describes the row that is actually chosen.
+      const chosen = rows.length ? rows[rows.length - 1].getData() : null;
+      if (!chosen || !chosen.offer_id) { closeOfferPanel(); return; }
+      openOfferPanel(chosen.offer_id, "record", chosen);
+    });
   }
 
   // ---- AR | EN: which NAME column is on show --------------------------------
@@ -1347,11 +1379,15 @@
     return span;
   }
 
-  function openOfferPanel(offerId, mode) {
+  let openOfferRow = null;
+
+  function openOfferPanel(offerId, mode, rowData) {
     const panel = document.getElementById("offer-panel");
     if (!panel) return;
     mode = mode || "history";
+    openOfferRow = rowData || null;
     if (openOfferId === offerId && openOfferMode === mode && !panel.hidden) {
+      if (mode === "record") return;           // re-selecting the same row
       closeOfferPanel();                       // same row, same ask = close
       return;
     }
@@ -1383,7 +1419,9 @@
     // The owner separated the two asks: History is the price story (periods,
     // changes, observations); Details is what the product IS (attributes,
     // classification, measurements). One panel, one ask at a time.
+    // "record" is the whole story in the owner's order: Details, then history.
     const showHistory = mode !== "details";
+    const showDetails = mode !== "history";
     panel.textContent = "";
     const offer = data.offer || {};
 
@@ -1404,6 +1442,61 @@
     close.addEventListener("click", closeOfferPanel);
     head.appendChild(close);
     panel.appendChild(head);
+
+    // The details the source printed for this product — colours, lengths,
+    // categories, warranties — grouped as the page grouped them. Scraped
+    // content throughout: names as text, URLs linked only when they parse.
+    const details = showDetails ? (data.details || []) : [];
+    // Fields the owner moved OUT of the table (Choose Columns -> hide) are
+    // shown here instead, so nothing is ever lost by tidying the grid: hide
+    // moves a field into the details, show moves it back.
+    const moved = showDetails ? (payload.moved_to_details || []) : [];
+    if (moved.length && openOfferRow) {
+      panel.appendChild(el("h3", "", "Fields moved to details"));
+      panel.appendChild(miniTable(
+        ["Field", "Value"],
+        moved.map((column) => {
+          const value = el("span", "", text(openOfferRow[column.key]));
+          value.dir = "auto";
+          return [column.label || column.key, value];
+        })));
+    }
+    if (showDetails && !details.length && !moved.length) {
+      panel.appendChild(el("p", "muted", "No details recorded for this record."));
+    }
+    if (details.length) {
+      panel.appendChild(el("h3", "", "Details"));
+      const groups = new Map();
+      details.forEach((d) => {
+        const key = d.group || "Details";
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(d);
+      });
+      groups.forEach((items, groupName) => {
+        panel.appendChild(el("h4", "muted", groupName));
+        panel.appendChild(miniTable(
+          ["Attribute", "Value"],
+          items.map((d) => {
+            let valueNode;
+            let safe = "";
+            try {
+              const parsed = new URL(d.url);
+              if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
+            } catch (err) { /* no link — plain text */ }
+            if (safe) {
+              valueNode = document.createElement("a");
+              valueNode.href = safe;
+              valueNode.target = "_blank";
+              valueNode.rel = "noopener noreferrer";
+              valueNode.textContent = text(d.value);
+            } else {
+              valueNode = el("span", "", text(d.value));
+            }
+            valueNode.dir = "auto";
+            return [d.label || "", valueNode];
+          })));
+      });
+    }
 
     if (showHistory) {
     // 1. The change-only timeline: the first price and each REAL move.
@@ -1444,47 +1537,6 @@
         })));
     }
 
-    }
-
-    // The details the source printed for this product — colours, lengths,
-    // categories, warranties — grouped as the page grouped them. Scraped
-    // content throughout: names as text, URLs linked only when they parse.
-    const details = mode === "details" ? (data.details || []) : [];
-    if (mode === "details" && !details.length) {
-      panel.appendChild(el("p", "muted", "No details recorded for this record."));
-    }
-    if (details.length) {
-      panel.appendChild(el("h3", "", "Details"));
-      const groups = new Map();
-      details.forEach((d) => {
-        const key = d.group || "Details";
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(d);
-      });
-      groups.forEach((items, groupName) => {
-        panel.appendChild(el("h4", "muted", groupName));
-        panel.appendChild(miniTable(
-          ["Attribute", "Value"],
-          items.map((d) => {
-            let valueNode;
-            let safe = "";
-            try {
-              const parsed = new URL(d.url);
-              if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
-            } catch (err) { /* no link — plain text */ }
-            if (safe) {
-              valueNode = document.createElement("a");
-              valueNode.href = safe;
-              valueNode.target = "_blank";
-              valueNode.rel = "noopener noreferrer";
-              valueNode.textContent = text(d.value);
-            } else {
-              valueNode = el("span", "", text(d.value));
-            }
-            valueNode.dir = "auto";
-            return [d.label || "", valueNode];
-          })));
-      });
     }
 
     if (showHistory) {

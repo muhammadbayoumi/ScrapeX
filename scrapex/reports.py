@@ -501,8 +501,12 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # actually attribute (GPP country pages) populate it; the presence sweep
     # hides it everywhere else.
     ("official_source", "Source"),
-    ("details", "Details"),
     ("curation_status", "Curation"),
+    # Last, and narrow: the arrow that opens the record on the site itself.
+    # It replaced a Details column — the details now open UNDER the table
+    # when a row is selected, so a column for them was a second door to a
+    # room the row already opens (owner's ruling).
+    ("open", ""),
 ]
 
 # The bilingual pairs, declared ONCE (owner's standing rule: a site that
@@ -578,6 +582,10 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
             (source_key,)).fetchone()[0]
         if not relevant_rates:
             present.discard("usd_price")
+    if not conn.execute(
+            "SELECT COUNT(NULLIF(TRIM(COALESCE(sp.product_url,'')),'')) "
+            f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()[0]:
+        present.discard("open")
     details = conn.execute(
         "SELECT COUNT(*), "
         "SUM(CASE WHEN spa.attribute_code = 'category' THEN 1 ELSE 0 END) "
@@ -585,8 +593,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
         "WHERE ss.source_key = ?", (source_key,)).fetchone()
-    if not details[0]:
-        present.discard("details")
+
     # Classification depth is per source, from its own products (the same
     # invariant as usd_price): a source whose deepest path is two levels gets
     # exactly L1 and L2, a flat-label shop gets the single Category column, a
@@ -642,7 +649,8 @@ EXPORT_HEADER = [
     # what distinguishes one row from the next. brand and category complete the
     # identity block (owner-approved widening, 2026-07-22) — category is the
     # full stated path when the source classifies in levels.
-    "product_name", "region", "country", "brand", "category",
+    "product_name", "product_name_en", "region", "country", "brand",
+    "category", "category_en",
     "option_label", "sku", "effective_price",
     # The unit sits beside the price it qualifies. A column of bare numbers where
     # some are per tonne and some per bag is not a price list, it is a trap.
@@ -676,7 +684,8 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         "       (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
         "        WHERE spa.source_product_id = sp.source_product_id "
         "        AND spa.attribute_code = 'category') AS category_flat, "
-        "       po.official_source_name, po.official_source_url "
+        "       po.official_source_name, po.official_source_url, "
+        "       sp.source_name_en, sp.category_path_en "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit),
     ).fetchall()
@@ -686,7 +695,7 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         state = tax.resolve(tax_rules, r[11], material=r[0])
         table.append(
             [r[0] or "", (r[11] or "") if r[11] != "*" else "", region_name(r[11]),
-             r[15] or "", r[16] or r[17] or "",
+             r[20] or "", r[15] or "", r[16] or r[17] or "", r[21] or "",
              r[1] or "", r[2] or "",
              r[3] if r[3] is not None else "", price_unit(r[13], r[14]),
              r[4] if r[4] is not None else "",
@@ -700,6 +709,58 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
              r[9] or "", (r[12] or "")[:10],
              r[18] or "", r[19] or "", r[10] or ""])
     return list(EXPORT_HEADER), table
+
+
+DETAILS_HEADER = ["product_name", "region", "sku", "group", "attribute",
+                  "value", "value_url", "last_seen_on"]
+HISTORY_HEADER = ["product_name", "region", "sku", "business_date",
+                  "effective_price", "currency", "provenance"]
+
+
+def export_details_table(conn: sqlite3.Connection, source_key: str,
+                         limit: int = 40_000) -> tuple[list[str], list[list]]:
+    """Every detail this source published, one row per stated fact.
+
+    The owner's report: an export carried the price table and NOTHING of the
+    details or the history, so the spreadsheet held a third of what the page
+    showed. Same bounded rule as every other read (A8)."""
+    rows = conn.execute(
+        "SELECT sp.source_name, so.region, sv.external_sku, "
+        "       spa.attribute_group, COALESCE(spa.attribute_label, spa.attribute_code), "
+        "       spa.raw_value, spa.value_url, spa.last_seen_at "
+        "FROM source_product_attribute spa "
+        "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "JOIN source_variant sv ON sv.source_product_id = sp.source_product_id "
+        "JOIN source_offer so ON so.source_variant_id = sv.source_variant_id "
+        "WHERE ss.source_key = ? AND sv.status = 'active' "
+        "GROUP BY spa.source_product_attribute_id "
+        "ORDER BY sp.source_name, spa.attribute_group, spa.attribute_label LIMIT ?",
+        (source_key, limit)).fetchall()
+    return list(DETAILS_HEADER), [
+        [r[0] or "", (r[1] or "") if r[1] != "*" else "", r[2] or "",
+         r[3] or "Details", r[4] or "", r[5] or "", r[6] or "", (r[7] or "")[:10]]
+        for r in rows]
+
+
+def export_history_table(conn: sqlite3.Connection, source_key: str,
+                         limit: int = 40_000) -> tuple[list[str], list[list]]:
+    """Every price this source has published, oldest first per record."""
+    rows = conn.execute(
+        "SELECT sp.source_name, so.region, sv.external_sku, po.business_date, "
+        "       po.effective_price, po.currency, po.provenance "
+        "FROM price_observation po "
+        "JOIN source_offer so ON so.offer_id = po.offer_id "
+        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+        "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND sv.status = 'active' "
+        "ORDER BY sp.source_name, so.region, po.business_date LIMIT ?",
+        (source_key, limit)).fetchall()
+    return list(HISTORY_HEADER), [
+        [r[0] or "", (r[1] or "") if r[1] != "*" else "", r[2] or "",
+         r[3] or "", r[4] if r[4] is not None else "", r[5] or "", r[6] or "observed"]
+        for r in rows]
 
 
 def recent_observations(conn: sqlite3.Connection, source_key: str, limit: int = 10) -> list[dict]:
@@ -1137,6 +1198,13 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # toggle flips exactly these, so it never hardcodes a field list.
         "bilingual": {ar: en for ar, en in BILINGUAL_COLUMNS.items()
                       if ar in present and en in present},
+        # Columns this source HAS but the owner moved out of the table. They
+        # are not lost: the record panel lists them under Details, so hiding a
+        # column is "move it to the details" and showing it is "move it back"
+        # — the owner's ask, using the mechanism that already exists.
+        "moved_to_details": [{"key": key, "label": label}
+                             for key, label in BROWSE_COLUMNS
+                             if key in present and key in hidden and key != "open"],
     }
 
 

@@ -11,7 +11,7 @@ import sqlite3
 from typing import Protocol
 
 from .fields import ORIGINAL_SCHEMA, apply_schema
-from .reports import export_source_table
+from .reports import export_details_table, export_history_table, export_source_table
 
 
 class SheetSink(Protocol):
@@ -46,6 +46,15 @@ def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
     header, rows = apply_schema(conn, source_key, header, rows, schema)
     handle = sink.ensure_workbook(folder, workbook)
     sink.write_tab(handle, tab or source_key, header, rows)
+    # The details and the history ride along as their own tabs — the owner
+    # opened a published sheet and found a third of what the page shows.
+    # Empty ones are skipped rather than written as a header nobody can use.
+    for suffix, table in (("details", export_details_table(conn, source_key)),
+                          ("history", export_history_table(conn, source_key))):
+        extra_header, extra_rows = table
+        if extra_rows:
+            sink.write_tab(handle, f"{tab or source_key} — {suffix}",
+                           extra_header, extra_rows)
     return len(rows), sink.location(handle)
 
 
