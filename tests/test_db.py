@@ -27,12 +27,12 @@ def test_migrate_is_idempotent(tmp_path: Path):
         second = dbmod.migrate(conn)
     finally:
         conn.close()
-    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33]
+    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]
     assert second == []  # T4: running again applies nothing
 
 
 def test_latest_schema_version_matches_the_migration_chain():
-    assert dbmod.latest_schema_version() == 33   # +0033 bilingual names
+    assert dbmod.latest_schema_version() == 34   # +0034 bilingual classification
 
 
 def test_foreign_keys_actually_enforced(tmp_path: Path):

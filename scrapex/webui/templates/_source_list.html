@@ -27,8 +27,11 @@
       <a class="dataset-choice" href="/source/{{ s.source_key }}"
          data-dataset-choice data-search="{{ (s.source_name ~ ' ' ~ s.source_key)|lower }}"
          {% if s.source_key == source_key %}aria-current="page"{% endif %}>
-        <span class="dataset-choice-name">{{ s.source_key.replace("_", " ") }}</span>
-        <span class="dataset-choice-local" dir="auto">{{ s.source_name }}</span>
+        {# The NAME leads, the key follows: a list headed by MADAR / GPP
+           ENERGY made the owner read machine keys where the site has a
+           name. One rule for every listing (owner-reported). #}
+        <span class="dataset-choice-name" dir="auto">{{ s.source_name or s.source_key.replace("_", " ") }}</span>
+        <span class="dataset-choice-local tech">{{ s.source_key }}</span>
         <span class="dataset-choice-meta">{{ "{:,}".format(s.observations) }} prices</span>
       </a>
       {% endfor %}
@@ -42,8 +45,8 @@
       <a class="dataset-choice dataset-choice-pending" href="/source/{{ p.source_key }}"
          data-dataset-choice data-search="{{ (p.source_name ~ ' ' ~ p.source_key)|lower }}"
          {% if p.source_key == source_key %}aria-current="page"{% endif %}>
-        <span class="dataset-choice-name">{{ p.source_key.replace("_", " ") }}</span>
-        <span class="dataset-choice-local" dir="auto">{{ p.source_name }}</span>
+        <span class="dataset-choice-name" dir="auto">{{ p.source_name or p.source_key.replace("_", " ") }}</span>
+        <span class="dataset-choice-local tech">{{ p.source_key }}</span>
         <span class="dataset-choice-meta">Never run</span>
       </a>
       {% endfor %}

@@ -190,6 +190,7 @@ class CustomJsonConnector:
             categories = categories[0] if categories else {}
         category = str(categories.get("category_arname")
                        or categories.get("category_enname") or "").strip()
+        category_en = str(categories.get("category_enname") or "").strip()
         category_id = str(categories.get("category_id")
                           or product.get("category_id") or "")
         return builder.row(
@@ -198,6 +199,7 @@ class CustomJsonConnector:
             product_name_en=english if english != name else "",
             lang="ar" if arabic and name == arabic else ("en" if name == english else ""),
             category_path=category,
+            category_path_en=category_en if category_en != category else "",
             category_external_id=category_id if category else "",
             brand_raw=str(product.get("brand") or ""), product_url=url,
             region=region, currency=currency, vat_included=vat,

@@ -76,11 +76,13 @@ PRODUCT_PRICES = RowSpec(
         "product_name_en",       # the English name, kept SEPARATE, never merged
         "lang",                  # which language `product_name` is in: ar | en
         "category_path",         # "Concrete additives" or "Cables > Low voltage"
+        "category_path_en",      # the SAME path in English, when the site publishes it
         "category_external_id",  # the site's own id for that category, when it has one
     ),
     required=frozenset({"external_product_id", "region", "currency", "vat_included", "effective_price"}),
     additive=frozenset({"unit", "basis_quantity", "product_name_en", "lang",
-                        "category_path", "category_external_id"}),
+                        "category_path", "category_path_en",
+                        "category_external_id"}),
 )
 
 # ---- enrichment: the open-ended attribute bag, one ROW per attribute ---------

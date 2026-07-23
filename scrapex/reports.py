@@ -455,6 +455,11 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # languages extracted once, the reader flips without re-extracting).
     # Presence-gated: a monolingual source never sees this column.
     ("product_name_en", "Record (EN)"),
+    ("category_en", "Category (EN)"),
+    ("category_en_l1", "Category L1 (EN)"),
+    ("category_en_l2", "Category L2 (EN)"),
+    ("category_en_l3", "Category L3 (EN)"),
+    ("category_en_l4", "Category L4 (EN)"),
     ("region", "Country"),
     ("brand", "Brand"),
     # Classification (owner ruling 2026-07-22): part of the MAIN table, with
@@ -499,6 +504,20 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("details", "Details"),
     ("curation_status", "Curation"),
 ]
+
+# The bilingual pairs, declared ONCE (owner's standing rule: a site that
+# publishes both languages is captured in both). Everything downstream reads
+# this map — the presence gates, the payload keys and the grid's AR|EN
+# toggle — so adding a bilingual field is one line, not five edits.
+BILINGUAL_COLUMNS: dict[str, str] = {
+    "product_name": "product_name_en",
+    "category": "category_en",
+    "category_l1": "category_en_l1",
+    "category_l2": "category_en_l2",
+    "category_l3": "category_en_l3",
+    "category_l4": "category_en_l4",
+}
+
 
 # Never hidden by the emptiness sweep: without them a row cannot be identified
 # or is not a price at all.
@@ -572,11 +591,20 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
     # invariant as usd_price): a source whose deepest path is two levels gets
     # exactly L1 and L2, a flat-label shop gets the single Category column, a
     # source that classifies nothing gets none of them.
-    depth = conn.execute(
-        "SELECT MAX(LENGTH(category_path) - LENGTH(REPLACE(category_path, '>', '')) + 1) "
-        "FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND TRIM(COALESCE(category_path,'')) <> ''",
-        (source_key,)).fetchone()[0] or 0
+    def _depth_of(column: str) -> int:
+        return conn.execute(
+            f"SELECT MAX(LENGTH({column}) - LENGTH(REPLACE({column}, '>', '')) + 1) "
+            "FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id "
+            f"WHERE ss.source_key = ? AND TRIM(COALESCE({column},'')) <> ''",
+            (source_key,)).fetchone()[0] or 0
+
+    depth = _depth_of("category_path")
+    depth_en = _depth_of("category_path_en")
+    if not depth_en:
+        present.discard("category_en")
+    for level in (1, 2, 3, 4):
+        if depth_en < level or (level == 1 and depth_en < 2):
+            present.discard(f"category_en_l{level}")
     if not details[1] and not depth:
         present.discard("category")
     for level in (1, 2, 3, 4):
@@ -968,7 +996,7 @@ def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7)
     return result
 
 
-def _category_levels(path: str | None) -> dict[str, str]:
+def _category_levels(path: str | None, prefix: str = "category_l") -> dict[str, str]:
     """Split "Cables > Low voltage > Copper" into category_l1..l4.
 
     Always all four keys, so every row has the same shape (a grid that meets a
@@ -976,7 +1004,7 @@ def _category_levels(path: str | None) -> dict[str, str]:
     full-path Category column rather than being lost; the presence gate hides
     the level columns a source never reaches."""
     segments = [s.strip() for s in (path or "").split(">") if s.strip()]
-    return {f"category_l{i}": (segments[i - 1] if i <= len(segments) else "")
+    return {f"{prefix}{i}": (segments[i - 1] if i <= len(segments) else "")
             for i in (1, 2, 3, 4)}
 
 
@@ -1036,7 +1064,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "        AND spa.attribute_code = 'category') AS category, "
         "       EXISTS(SELECT 1 FROM source_product_attribute spa2 "
         "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details, "
-        "       sp.category_path, sp.source_name_en "
+        "       sp.category_path, sp.source_name_en, sp.category_path_en "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1070,6 +1098,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                # so any layer can be sorted or grouped on its own.
                "category": r[26] or r[24] or "",
                **_category_levels(r[26]),
+               "category_en": r[28] or "",
+               **_category_levels(r[28], prefix="category_en_l"),
                "product_name_en": r[27] or "",
                "has_details": bool(r[25]),
                "observations": r[19],
@@ -1103,6 +1133,10 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # prevent; the page states it rather than looking complete.
         "truncated": total > len(shaped),
         "tree": _tree_shape(shaped),
+        # The pairs actually on offer for THIS source: the grid's AR|EN
+        # toggle flips exactly these, so it never hardcodes a field list.
+        "bilingual": {ar: en for ar, en in BILINGUAL_COLUMNS.items()
+                      if ar in present and en in present},
     }
 
 

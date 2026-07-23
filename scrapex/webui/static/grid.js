@@ -1249,7 +1249,11 @@
   // filter and export each keep working on exactly the column they name.
   const LANG_KEY = "scrapex-name-lang-" + (mount.dataset.source || "");
   function wireLanguageToggle() {
-    if (!payload.columns.some((c) => c.key === "product_name_en")) return;
+    // The server declares which columns pair (reports.BILINGUAL_COLUMNS), so
+    // this flips names, category and every level at once and never carries a
+    // field list of its own.
+    const pairs = Object.entries(payload.bilingual || {});
+    if (!pairs.length) return;
     if (document.getElementById("grid-lang-toggle")) return;
     let lang = "ar";
     try { lang = localStorage.getItem(LANG_KEY) || "ar"; } catch (err) {}
@@ -1278,11 +1282,12 @@
     function apply(code, save) {
       lang = code;
       if (save) { try { localStorage.setItem(LANG_KEY, code); } catch (err) {} }
-      for (const [key, on] of [["product_name", code === "ar"],
-                               ["product_name_en", code === "en"]]) {
-        const column = table.getColumn(key);
-        if (!column) continue;
-        try { on ? column.show() : column.hide(); } catch (err) {}
+      for (const [arabic, english] of pairs) {
+        for (const [key, on] of [[arabic, code === "ar"], [english, code === "en"]]) {
+          const column = table.getColumn(key);
+          if (!column) continue;
+          try { on ? column.show() : column.hide(); } catch (err) {}
+        }
       }
       for (const [c, b] of Object.entries(buttons)) {
         b.setAttribute("aria-pressed", String(c === lang));

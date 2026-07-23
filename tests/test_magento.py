@@ -439,3 +439,47 @@ def test_the_row_carries_the_products_localized_name_never_the_child_sku_string(
     assert row["product_name_en"] == "Legrand Pop-up Floor Box Kit"
     assert row["option_label"] == "اللون: Aluminium"
     assert row["effective_price"] == "224.14"
+
+
+def test_the_english_tree_relabels_every_walked_path_for_one_query():
+    """The standing bilingual rule, cheaply: leaf uids are store-independent,
+    so ONE extra categoryList query in en_SA relabels every path the Arabic
+    walk already found — no second product listing, no second crawl."""
+    class _Bilingual(_CensusBlindFetcher):
+        TREE_EN = {"data": {"categoryList": [{"children": [
+            {"uid": "Mw==", "name": "Metals & structural steel", "children": [
+                {"uid": "NA==", "name": "Rebar & mesh", "children": []}]},
+            {"uid": "MTg=", "name": "Building materials", "children": [
+                {"uid": "MjA=", "name": "Cement & gypsum", "children": []}]},
+        ]}]}}
+
+        def post(self, url, json=None, **kwargs):
+            store = (kwargs.get("headers") or {}).get("Store")
+            query = (json or {}).get("query", "")
+            if store == "en_SA" and "categoryList" in query:
+                self.requests_count += 1
+                return _StubResponse(self.TREE_EN)
+            return super().post(url, json=json, **kwargs)
+
+    table = next(iter(MagentoGraphqlConnector(_Bilingual()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+    row = view.as_dict(table.rows[0])
+
+    assert row["category_path"] == "المعادن والحديد الإنشائي > حديد التسليح والشبك"
+    assert row["category_path_en"] == "Metals & structural steel > Rebar & mesh"
+
+
+def test_a_missing_english_tree_costs_a_note_never_the_classification():
+    class _NoEnglishTree(_CensusBlindFetcher):
+        def post(self, url, json=None, **kwargs):
+            if (kwargs.get("headers") or {}).get("Store") == "en_SA" \
+                    and "categoryList" in (json or {}).get("query", ""):
+                self.requests_count += 1
+                raise RuntimeError("503 service unavailable")
+            return super().post(url, json=json, **kwargs)
+
+    table = next(iter(MagentoGraphqlConnector(_NoEnglishTree()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    assert view.as_dict(table.rows[0])["category_path"], "the Arabic path must survive"
+    assert any("english category tree" in w for w in table.warnings)

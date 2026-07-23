@@ -204,3 +204,13 @@ def test_both_languages_and_the_classification_ride_every_row():
     assert first["lang"] == "ar"
     assert first["category_path"] == "إضافات الخرسانه"      # tab stripped
     assert first["category_external_id"] == "20"
+
+
+def test_the_classification_lands_in_BOTH_languages(conn=None):
+    """The owner's standing rule: a site publishing both languages is captured
+    in both. sika states category_arname AND category_enname per product."""
+    table, view = fetch_rows(_StubFetcher())
+    first = view.as_dict(table.rows[0])
+
+    assert first["category_path"] == "إضافات الخرسانه"
+    assert first["category_path_en"] == "Concrete additives"

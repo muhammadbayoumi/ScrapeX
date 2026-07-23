@@ -14,7 +14,7 @@
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-  <script src="/static/grid.js?v=design-system-5" defer></script>
+  <script src="/static/grid.js?v=design-system-6" defer></script>
 {% endblock %}
 {% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they
@@ -29,9 +29,9 @@
      overview had. #}
   <div class="idblock">
     <div class="dataset-identity">
-      <h1>{{ source_key.replace("_", " ") }}</h1>
       {% set pending_source = pending | selectattr("source_key", "equalto", source_key) | first %}
-      {% if pending_source %}<p class="dataset-local-name" dir="auto">{{ pending_source.source_name }}</p>{% endif %}
+      <h1 dir="auto">{{ (pending_source.source_name if pending_source else "") or source_key.replace("_", " ") }}</h1>
+      <p class="dataset-local-name tech">{{ source_key }}</p>
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
            rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
@@ -60,8 +60,8 @@
      or ran a month ago. #}
   <div class="idblock">
     <div class="dataset-identity">
-      <h1>{{ summary.source_key.replace("_", " ") }}</h1>
-      <p class="dataset-local-name" dir="auto">{{ summary.source_name }}</p>
+      <h1 dir="auto">{{ summary.source_name or summary.source_key.replace("_", " ") }}</h1>
+      <p class="dataset-local-name tech">{{ summary.source_key }}</p>
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
            rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>

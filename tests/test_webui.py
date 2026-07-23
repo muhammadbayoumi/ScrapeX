@@ -88,13 +88,17 @@ def test_data_canvas_stays_centered_and_the_dataset_menu_is_a_popover():
     assert styles.count("var(--data-canvas-width)") >= 1
 
 
-def test_dataset_identity_leads_with_english_and_links_the_website(client):
+def test_dataset_identity_leads_with_the_sources_NAME_and_links_the_website(client):
+    """CORRECTED 2026-07-23 on the owner's report: the page led with the
+    machine key (ELSEWEDYSHOP) and put the site's actual name underneath, so
+    every listing read as keys. The name leads; the key stays visible as the
+    technical identifier the URL and the API use."""
     selected = client.get("/source/ELSEWEDYSHOP").text
 
-    english = selected.index("<h1>ELSEWEDYSHOP</h1>")
-    arabic = selected.index("السويدي شوب", english)
-    assert english < arabic
-    assert 'class="dataset-local-name"' in selected
+    name = selected.index("السويدي شوب")
+    key = selected.index("ELSEWEDYSHOP", name)
+    assert name < key
+    assert 'class="dataset-local-name tech"' in selected
     assert 'class="dataset-site-link" href="https://elsewedyshop.com"' in selected
     assert 'target="_blank"' in selected and 'rel="noopener noreferrer"' in selected
 

@@ -221,6 +221,11 @@ class MagentoGraphqlConnector:
         }
         notes: list[str] = []
         ctx["paths"] = self._category_map(endpoint, source, notes)
+        # The SAME tree, read in English: leaf uids are store-independent, so
+        # one extra categoryList query relabels every path the walk already
+        # found — no second product listing, no second crawl (owner's standing
+        # bilingual rule).
+        ctx["paths_en"] = self._category_labels(endpoint, notes)
         ctx["names_en"] = self._english_names(endpoint, notes)
         wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
                                for spec in source.extract)
@@ -303,6 +308,35 @@ class MagentoGraphqlConnector:
             return {}
         return names
 
+    def _category_labels(self, endpoint: str, notes: list) -> dict:
+        """leaf uid -> English path, from the en_SA tree. {} when unavailable."""
+        labels: dict[str, str] = {}
+        try:
+            answer = (self._fetcher.post(endpoint, json={"query": _TREE_QUERY},
+                                         headers={"Store": _ENGLISH_STORE})
+                      .json() or {})
+            roots = (((answer.get("data") or {}).get("categoryList") or [{}])[0]
+                     .get("children")) or []
+
+            def walk(node: dict, trail: list) -> None:
+                name = str(node.get("name") or "").strip()
+                uid = str(node.get("uid") or "")
+                if not name or not uid:
+                    return
+                here = [*trail, name]
+                labels[uid] = " > ".join(here)
+                for child in node.get("children") or []:
+                    walk(child, here)
+
+            for root in roots:
+                walk(root, [])
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — the Arabic path still stands
+            notes.append(f"english category tree unavailable — classification "
+                         f"stays Arabic-only this run: {exc}")
+        return labels
+
     def _category_map(self, endpoint: str, source: SourceEntry,
                       notes: list[str]) -> dict[str, tuple[str, str]]:
         """product uid -> (category_path, leaf uid), from walking the tree.
@@ -384,6 +418,10 @@ class MagentoGraphqlConnector:
             category_path, category_id = walked_path, walked_id
         else:
             category_path, category_id = stated_path, stated_id
+        # The leaf's uid is the join: the same filing, said in English.
+        category_path_en = (ctx.get("paths_en") or {}).get(category_id, "")
+        if category_path_en == category_path:
+            category_path_en = ""      # a monolingual tree repeats itself
         out: list[list[str]] = []
 
         names_en = ctx.get("names_en") or {}
@@ -405,7 +443,8 @@ class MagentoGraphqlConnector:
                 regular_price=reg if reg is not None else effective,
                 sale_price=fin if (reg is not None and fin is not None and reg != fin) else "",
                 effective_price=effective, availability=_availability(stock),
-                category_path=category_path, category_external_id=category_id,
+                category_path=category_path, category_path_en=category_path_en,
+                category_external_id=category_id,
             ))
 
         if variants:

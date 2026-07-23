@@ -22,6 +22,7 @@ TRACKED_PRODUCT_FIELDS = (
     # 2026-07-22): tracked like brand, so a product the site re-files under a
     # new category records the move instead of silently forgetting the old one.
     ("category_path", "category_path"),
+    ("category_path_en", "category_path_en"),
     ("category_external_id", "category_external_id"),
     # The English name, tracked like the primary one — a bilingual site
     # renaming in either language is a recorded change, not a silent drift.
