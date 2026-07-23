@@ -87,6 +87,31 @@ def test_salla_crawls_sitemap_and_maps_products():
     assert plywood["effective_price"] == "120"  # AggregateOffer lowPrice fallback
 
 
+def test_a_priceless_variant_product_is_skipped_OUT_LOUD():
+    """Verified live on alsweed 2026-07-23: a variant-priced page publishes
+    price:0 with no lowPrice, no meta amount, no inline figure — nothing to
+    read. Skipping is right; skipping SILENTLY was the GPP lesson again."""
+    class _WithPriceless(_StubFetcher):
+        ROUTES = {**_StubFetcher.ROUTES,
+                  "/p1506395199": "salla_product_priceless.html"}
+        SITEMAP_EXTRA = "https://alsweed.sa/ar/tank/p1506395199"
+
+        def get(self, url, **kwargs):
+            if url.endswith("/ar/sitemap-products.xml"):
+                self.requests_count += 1
+                base = _read("salla_subsitemap.xml")
+                return _Resp(base.replace(
+                    "</urlset>",
+                    f"<url><loc>{self.SITEMAP_EXTRA}</loc></url></urlset>"))
+            return super().get(url, **kwargs)
+
+    table = next(iter(SallaConnector(_WithPriceless()).fetch(make_entry())))
+
+    assert len(table.rows) == 2, "the priceless product must be skipped, not guessed"
+    assert any("no usable price" in w for w in table.warnings),         "a skipped product left no trace in the run's warnings"
+    assert any("1 product(s)" in w for w in table.warnings)
+
+
 def test_salla_end_to_end_into_warehouse():
     entry = make_entry()
     table = next(iter(SallaConnector(_StubFetcher()).fetch(entry)))

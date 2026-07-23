@@ -64,6 +64,8 @@ class SallaConnector:
         base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
         rows: list[list[str]] = []
+        priceless = 0
+        unparsed = 0
 
         for url in self._product_urls(f"{base}/ar/sitemap.xml"):
             try:
@@ -72,12 +74,30 @@ class SallaConnector:
                 continue
             node = parse_product_jsonld(html)
             if not node:
+                unparsed += 1
                 continue
             row = self._row(builder, node, url, source, vat)
-            if row is not None:
-                rows.append(row)
+            if row is None:
+                priceless += 1
+                continue
+            rows.append(row)
 
-        yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base, builder.header, rows)
+        # The skips were SILENT — a crawl that quietly lands fewer products
+        # than the site sells is the GPP lesson again. Verified live on
+        # alsweed 2026-07-23: a variant-priced page publishes price:0 with no
+        # lowPrice, no meta amount, no inline figure — there is genuinely
+        # nothing to read, so the skip is right and saying it is mandatory.
+        notes: list[str] = []
+        if priceless:
+            notes.append(
+                f"{priceless} product(s) publish no usable price in their "
+                "JSON-LD (variant-priced) — skipped, never guessed; their real "
+                "prices need the extension's session capture")
+        if unparsed:
+            notes.append(f"{unparsed} product page(s) carried no Product "
+                         "JSON-LD at all")
+        yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
+                           builder.header, rows, warnings=notes)
 
     def _product_urls(self, sitemap_url: str) -> list[str]:
         try:
