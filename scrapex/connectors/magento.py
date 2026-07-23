@@ -139,10 +139,17 @@ def _option_text(attrs: list[dict], option_labels: dict[str, str]) -> str:
 
 def _clean(html: str) -> str:
     """Tag-stripped text: scraped content is untrusted (spec 34), and the text
-    carries the meaning anyway — same rationale as the woo connector."""
+    carries the meaning anyway — same rationale as the woo connector.
+
+    Entities are unescaped FIRST: madar returns its description already
+    escaped (`&lt;article lang="ar"&gt;…`), so stripping tags before
+    unescaping left the markup sitting in the value as literal text."""
     if not html:
         return ""
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
+    import html as html_module
+
+    text = html_module.unescape(html)
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()
 
 
 def _classification(product: dict) -> tuple[str, str]:
@@ -441,7 +448,12 @@ class MagentoGraphqlConnector:
             out.append(builder.row(
                 external_product_id=pid, external_variant_id=vid, external_sku=sku or "",
                 product_name=name or "",
-                product_name_en=names_en.get(str(vid)) or names_en.get(str(pid)) or "",
+                # The PRODUCT's English name, never the child's — madar names
+                # its variant children by internal SKU string in BOTH stores,
+                # so asking the child first put "618097 1 GANG RJ11 SOCKET
+                # WHITE ELOE LEGRAND" where the page says "Legrand Eloe
+                # telephone and data sockets". Same rule as the Arabic name.
+                product_name_en=names_en.get(str(pid)) or names_en.get(str(vid)) or "",
                 option_label=label, option_fingerprint=fp,
                 basis_quantity=basis, unit=unit,
                 product_url=url, region=ctx["region"], currency=ctx["currency"], vat_included=ctx["vat"],

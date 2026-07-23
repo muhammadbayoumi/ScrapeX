@@ -295,10 +295,14 @@ def test_english_names_ride_every_row_when_the_store_answers():
     table = next(iter(MagentoGraphqlConnector(_BilingualFetcher()).fetch(make_entry())))
     view = RowView(PRODUCT_PRICES, table.header)
 
+    # The PRODUCT's English name, not the child's — madar names its variant
+    # children by internal SKU string in both stores, so asking the child
+    # first put a part number where the page shows a product name
+    # (owner-reported after the first bilingual crawl).
     v12 = view.as_dict(table.rows[0])
-    assert v12["product_name_en"] == "Fire Retardant Plywood - 12mm"
+    assert v12["product_name_en"] == "Fire Retardant Plywood"
     cement = view.as_dict(table.rows[3])
-    assert cement["product_name_en"] == "White Cement - 50kg"
+    assert cement["product_name_en"] == "Madar Cement"
 
     conn: sqlite3.Connection = dbmod.connect(":memory:")
     try:
@@ -308,9 +312,7 @@ def test_english_names_ride_every_row_when_the_store_answers():
         stored = conn.execute(
             "SELECT source_name_en FROM source_product "
             "WHERE external_product_id = 'Q0VNMg=='").fetchone()[0]
-        # The product is named from the first row seen — the variant's row —
-        # exactly how the primary (Arabic) name behaves. Consistency, not loss.
-        assert stored == "White Cement - 50kg"
+        assert stored == "Madar Cement"
 
         from scrapex.reports import table_payload
         grid = table_payload(conn, "MADAR")
