@@ -134,6 +134,26 @@
       </details>
     </header>
     <div class="empty">No matching records.</div>
+    {# The empty state is exactly where "was this ever crawled?" matters most —
+       an empty table with no run status reads as broken when it may simply be
+       new (merge-review leftover, restored). #}
+    <div class="dataset-run-footer" aria-label="Dataset freshness">
+      <div class="dataset-run-status">
+        {{ icon("history") }}
+        {% if not summary.last_run %}
+          <span class="chip amber">Never run</span>
+        {% elif summary.last_status == "success" %}
+          <span class="chip accent">Last run completed</span>
+          <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+        {% else %}
+          <span class="chip amber">Last run {{ summary.last_status or "did not finish" }}</span>
+          <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+        {% endif %}
+      </div>
+      <a class="icon-label" href="/history?source_key={{ summary.source_key }}">
+        Crawl history {{ icon("chevron-right", "inline-icon") }}
+      </a>
+    </div>
   {% else %}
     {# The form the header controls belong to. It sits OUTSIDE the table because
        a <form> cannot legally wrap <tr>s; form="browse" on each control is how
