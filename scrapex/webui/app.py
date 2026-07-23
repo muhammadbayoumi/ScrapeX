@@ -72,7 +72,7 @@ from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
 
 def database_state(request: Request) -> dict:
-    """Database status for every page, derived from the request's own app.
+    """Runtime status for every page, derived from the request's own app.
 
     A context processor rather than a template global: the state is read from
     `request.app.state`, so two apps in one test process cannot report each
@@ -82,15 +82,25 @@ def database_state(request: Request) -> dict:
     status the owner has to go looking for is a status they find out about from
     a failure instead.
     """
+    runner = getattr(request.app.state, "runner", None)
+    try:
+        engine_connected = bool(runner and runner.is_alive)
+    except Exception:  # noqa: BLE001 - runtime status must never break a page
+        engine_connected = False
+    runtime = {"engine_state": {"connected": engine_connected}}
+
     registry = getattr(request.app.state, "databases", None)
     if registry is None:
-        return {"db_state": None}
+        return {**runtime, "db_state": None}
     try:
         states = registry.health()
     except Exception:  # noqa: BLE001 - a status widget must never break a page
-        return {"db_state": None}
+        return {**runtime, "db_state": None}
     failed = {kind: item for kind, item in states.items() if not item["ok"]}
-    return {"db_state": {"ok": not failed, "all": states, "failed": failed}}
+    return {
+        **runtime,
+        "db_state": {"ok": not failed, "all": states, "failed": failed},
+    }
 
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"),
@@ -658,8 +668,14 @@ def create_app(
                 }
             except Exception:  # noqa: BLE001 - health must not take health down
                 databases = {"ok": False, "detail": "status unavailable"}
+        runner = getattr(app.state, "runner", None)
+        try:
+            worker_alive = bool(runner and runner.is_alive)
+        except Exception:  # noqa: BLE001 - health must survive worker state reads
+            worker_alive = False
         return {"ok": True, "app": "scrapex", "version": __version__,
-                "sources_with_data": n, "databases": databases}
+                "sources_with_data": n, "worker_alive": worker_alive,
+                "databases": databases}
 
     @app.get("/api/features")
     def api_features():

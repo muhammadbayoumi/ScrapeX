@@ -1,20 +1,18 @@
-<aside class="dataset-browser" data-dataset-browser aria-label="Datasets">
+{% from "_icons.html" import icon %}
+<div class="dataset-menu-popover" data-dataset-browser aria-label="Datasets">
   <header class="dataset-browser-head">
     <div class="dataset-browser-title">
-      <h2>Datasets</h2>
-      <span class="dataset-browser-actions">
-        <a class="dataset-icon-button dataset-manage" href="/manage"
-           title="Add or manage sources" aria-label="Add or manage sources">+</a>
-        <button type="button" class="dataset-icon-button dataset-toggle" data-dataset-toggle
-                aria-label="Collapse dataset list" title="Collapse dataset list"
-                aria-controls="dataset-list" aria-expanded="true">
-          <svg aria-hidden="true"><use href="/static/material-icons/material-icons.svg#view-column"></use></svg>
-        </button>
-      </span>
+      <div>
+        <h2>Datasets</h2>
+        <p>Select a dataset to browse its records.</p>
+      </div>
+      <a class="dataset-icon-button dataset-manage" href="/manage"
+         title="Add or manage sources" aria-label="Add or manage sources">
+        {{ icon("add") }}
+      </a>
     </div>
-    <p>Select a dataset to browse its records.</p>
     <label class="dataset-search-wrap">
-      <svg aria-hidden="true"><use href="/static/material-icons/material-icons.svg#search"></use></svg>
+      {{ icon("search") }}
       <input class="dataset-search" type="search" placeholder="Search datasets"
              aria-label="Search datasets" data-dataset-search>
     </label>
@@ -57,4 +55,4 @@
     {% endif %}
   </nav>
   <p class="dataset-no-results" data-dataset-empty hidden>No datasets match your search.</p>
-</aside>
+</div>

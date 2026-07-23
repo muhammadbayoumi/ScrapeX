@@ -1,19 +1,27 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Data — ScrapeX{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="/static/pages/data-workspace.css">
-  <script src="/static/datasets-browser.js" defer></script>
+  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=design-system-2">
+  <script src="/static/datasets-browser.js?v=design-system-2" defer></script>
 {% endblock %}
 {% block content %}
 <div class="data-workspace">
-  {% include "_source_list.html" %}
-
   <section class="data-view">
     <div class="data-landing">
       <span class="data-landing-eyebrow">Data workspace</span>
       <h1>Browse your datasets</h1>
       <p>Select a dataset from the list to inspect its records, filter the grid,
         manage columns, and open price history without leaving the Data workspace.</p>
+
+      <details class="dataset-menu data-landing-dataset-menu">
+        <summary class="dataset-menu-trigger" aria-controls="dataset-list" aria-expanded="false">
+          {{ icon("storage") }}
+          <span>Datasets</span>
+          {{ icon("expand-more", "dataset-menu-chevron") }}
+        </summary>
+        {% include "_source_list.html" %}
+      </details>
 
       <div class="data-overview-metrics" aria-label="Data overview">
         <div class="data-overview-metric">

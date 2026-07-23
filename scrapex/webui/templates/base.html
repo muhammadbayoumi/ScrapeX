@@ -23,14 +23,22 @@
       <span class="brand-logo" aria-hidden="true"></span>
       <span>ScrapeX</span>
     </a>
-    {# Database status belongs on every page, because the database is what every
-       page is made of. The chip states it in words — never colour alone — and
-       links to the section that acts on it. #}
-    {% if db_state %}
-      <a class="chip dbchip {{ 'accent' if db_state.ok else 'amber' }}" href="/settings#s-storage">
-        {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
-      </a>
-    {% endif %}
+    <div class="runtime-status" aria-label="Runtime status">
+      {% if engine_state %}
+        <a class="chip runtime-chip {{ 'accent' if engine_state.connected else 'amber' }}"
+           href="/jobs">
+          {{ icon("play-circle", "sm") }}
+          {{ "Engine connected" if engine_state.connected else "Engine stopped" }}
+        </a>
+      {% endif %}
+      {% if db_state %}
+        <a class="chip dbchip {{ 'accent' if db_state.ok else 'amber' }}"
+           href="/settings#s-storage">
+          {{ icon("storage", "sm") }}
+          {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
+        </a>
+      {% endif %}
+    </div>
   </header>
   {# The dataset in view is carried across every tab (spec 21) so switching tabs
      never loses which source you were looking at. #}
@@ -75,7 +83,8 @@
         {% endfor %}
       </nav>
     </aside>
-    <main class="wrap{% if wide_page %} wrap-wide{% endif %}">
+    <div class="workspace-main">
+      <main class="wrap{% if wide_page %} wrap-wide{% endif %}">
     {# Stating the exact database, its status and the command that fixes it beats
        a page that fails halfway through a query and blames the query. #}
     {% if db_state and not db_state.ok %}
@@ -90,7 +99,31 @@
       </div>
     {% endif %}
     {% block content %}{% endblock %}
-    </main>
+      </main>
+      <footer class="workspace-footer">
+        <div class="workspace-footer-copy">
+          <span class="brand-logo" aria-hidden="true"></span>
+          <span><strong>ScrapeX</strong><small>Local-first data workspace</small></span>
+        </div>
+        <nav class="workspace-footer-links" aria-label="Footer">
+          <a href="/">Overview</a>
+          <a href="/data">Data</a>
+          <a href="/settings">Settings</a>
+        </nav>
+        <div class="workspace-footer-health">
+          {% if engine_state %}
+            <span class="{{ 'ok-text' if engine_state.connected else 'muted' }}">
+              {{ "Engine online" if engine_state.connected else "Engine offline" }}
+            </span>
+          {% endif %}
+          {% if db_state %}
+            <span class="{{ 'ok-text' if db_state.ok else 'err' }}">
+              {{ "Database connected" if db_state.ok else "Database attention needed" }}
+            </span>
+          {% endif %}
+        </div>
+      </footer>
+    </div>
   </div>
   <div class="sidebar-backdrop" aria-hidden="true"></div>
 </body>

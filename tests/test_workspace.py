@@ -229,40 +229,35 @@ def test_the_column_controls_live_on_the_columns(client):
     assert 'id="grid"' in body and f'data-source="{SOURCE}"' in body
 
 
-def test_edit_mode_is_a_link_so_it_survives_without_scripting(client):
-    """Everything else on this page keeps its state in the URL; edit mode does
-    too, rather than being a JavaScript-only toggle."""
+def test_workspace_tools_panel_is_removed_in_favour_of_the_grid_chooser(client):
     body = client.get(f"/source/{SOURCE}").text
-    assert "edit=1" in body
+    grid_script = client.get("/static/grid.js").text
+    assert "Workspace tools" not in body
+    assert 'class="data-controls"' not in body
+    assert "Choose Columns" in grid_script
 
 
-def test_hiding_is_stated_to_be_reversible_where_the_control_is(client):
-    """The reassurance has to be where the action is. It used to live in the
-    panel that no longer exists."""
-    body = client.get(f"/source/{SOURCE}?edit=1").text
-    assert "Nothing is deleted" in body
-    assert "keeps its data" in body
-
-
-def test_a_hidden_column_can_be_restored_from_where_it_went(client):
-    """A hidden column leaves a chip. Without it the only way back was to
-    remember the panel existed and go looking for the row."""
+def test_a_hidden_column_can_be_restored_from_the_grid_column_chooser(client):
     client.get(f"/source/{SOURCE}")
     client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
 
-    body = client.get(f"/source/{SOURCE}").text
+    fields = client.get(f"/api/fields/{SOURCE}").json()["fields"]
+    hidden = next(field for field in fields if field["field_key"] == "sku")
+    grid_script = client.get("/static/grid.js").text
 
-    assert "data-show=" in body and "Hidden:" in body
+    assert hidden["is_hidden"] is True
+    assert "Show all columns" in grid_script
+    assert '"/api/fields/"' in grid_script
 
 
-def test_hiding_a_column_through_the_api_is_reflected_on_the_page(client):
+def test_hiding_a_column_through_the_api_is_reflected_in_the_grid_payload(client):
     client.get(f"/source/{SOURCE}")                     # registers the fields
     r = client.post(f"/api/fields/{SOURCE}", json={"field_key": "sku", "hidden": True})
     assert r.status_code == 200
-    body = client.get(f"/source/{SOURCE}").text
-    assert "Hidden" in body                              # the word, not a colour
-    # ...and the field is still listed, because hiding is a view operation.
-    assert "sku" in body
+    payload = client.get(f"/api/table/{SOURCE}").json()
+    assert "sku" not in {column["key"] for column in payload["columns"]}
+    fields = client.get(f"/api/fields/{SOURCE}").json()["fields"]
+    assert any(field["field_key"] == "sku" and field["is_hidden"] for field in fields)
 
 
 def test_the_schedules_page_is_the_full_editor(client):

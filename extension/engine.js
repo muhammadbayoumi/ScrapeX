@@ -13,17 +13,23 @@ export async function setBackend(url) {
   await chrome.storage.local.set({ backend: (url || "").trim() || DEFAULT_BACKEND });
 }
 
-// Returns { running, version, sources, backend }. running=false means the local
-// Python engine is not installed OR not started — the UI treats both as "set up".
+// `running` means the background worker is alive, not merely that something
+// answered on port 8000. `reachable` lets the UI distinguish those states.
 export async function checkEngine() {
   const backend = await getBackend();
   try {
     const res = await fetch(backend + "/api/health", { signal: AbortSignal.timeout(2500) });
-    if (!res.ok) return { running: false, backend };
+    if (!res.ok) return { running: false, reachable: true, backend };
     const h = await res.json();
-    return { running: true, version: h.version, sources: h.sources_with_data,
-             databases: h.databases || null, backend };
+    return {
+      running: h.worker_alive !== false,
+      reachable: true,
+      version: h.version,
+      sources: h.sources_with_data,
+      databases: h.databases || null,
+      backend,
+    };
   } catch (_) {
-    return { running: false, backend };
+    return { running: false, reachable: false, backend };
   }
 }
