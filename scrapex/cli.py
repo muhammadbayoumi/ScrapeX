@@ -465,9 +465,36 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_autostart(args) -> int:
+    """One file in the Startup folder decides it; these three verbs manage it."""
+    from . import autostart
+
+    if args.action == "install":
+        path = autostart.install(args.port)
+        print(f"installed — the engine now starts with Windows: {path}")
+    elif args.action == "remove":
+        if autostart.remove():
+            print("removed — the engine no longer starts with Windows")
+        else:
+            print("nothing to remove: autostart was not installed")
+    else:
+        state = autostart.status()
+        word = "installed" if state["installed"] else "not installed"
+        print(f"autostart {word}: {state['path']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="scrapex", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser(
+        "autostart",
+        help="start the engine with Windows at logon (no terminal, ever)")
+    p.add_argument("action", choices=["install", "remove", "status"])
+    p.add_argument("--port", type=int, default=8000,
+                   help="the port the boot-time engine serves on")
+    p.set_defaults(func=_cmd_autostart)
 
     p = sub.add_parser("init-db", help="create/upgrade both isolated databases")
     p.add_argument(

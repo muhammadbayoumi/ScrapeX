@@ -340,6 +340,7 @@
         </div>
         <button id="engine-start">Start engine</button>
         <button id="setup-recheck" class="ghost">Check again</button>
+        <button id="setup-autostart" class="ghost hidden" type="button">Always start with Windows</button>
       </div>
 
       <div id="current" class="card hi hidden"></div>
@@ -753,6 +754,11 @@
                 <button id="save" class="ghost">Save</button></div>
               <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)">
                 Your data stays on this machine. Nothing is sent to any server.</div>
+              <div class="field" style="margin-top:var(--sp-2)">
+                <span id="autostart-state" class="muted"
+                      style="font-size:var(--fs-xs)">Start with Windows: checking…</span>
+                <button id="autostart-toggle" class="ghost hidden" type="button"></button>
+              </div>
             </div>
           </article>
           <article class="settings-item">

@@ -76,6 +76,17 @@ export function nativeStatus() {
   return nativeAvailable === null ? "unknown" : nativeAvailable ? "connected" : "unavailable";
 }
 
+// The "start with Windows" launcher is a file on the machine; only the native
+// host can read or write it. Native-only like startEngine — absence of the
+// host throws, and the caller turns that into "run the one-time installer".
+export function autostartStatus() {
+  return sendNative({ command: "AUTOSTART_STATUS" }).then(unwrap);
+}
+
+export function setAutostart(enabled) {
+  return sendNative({ command: "SET_AUTOSTART", enabled: !!enabled }).then(unwrap);
+}
+
 // Starting the engine is NATIVE-ONLY on purpose: the HTTP fallback IS the
 // engine, so when it is down there is nothing to fall back to. This either
 // reaches the installed host or throws — and the caller turns that throw into

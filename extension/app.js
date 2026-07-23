@@ -8,7 +8,7 @@
 // markup goes through esc(), and content spans use unicode-bidi:plaintext so
 // Arabic renders right-to-left without disturbing the English chrome around it.
 import { checkEngine, getBackend, setBackend } from "./engine.js";
-import { startEngine } from "./transport.js";
+import { autostartStatus, setAutostart, startEngine } from "./transport.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
@@ -982,6 +982,43 @@ async function startEngineFromPanel() {
   }
 }
 
+// ---- start with Windows ------------------------------------------------------
+// One launcher file on the machine decides it; the native host is the only
+// hand that reaches it, so without the host the control honestly says why it
+// cannot help instead of pretending a toggle exists.
+async function renderAutostart() {
+  const state = $("autostart-state");
+  const toggle = $("autostart-toggle");
+  const offer = $("setup-autostart");
+  try {
+    const s = await autostartStatus();
+    state.textContent = s.installed
+      ? "Start with Windows: on — the engine comes up at logon."
+      : "Start with Windows: off — after a reboot the engine waits for you.";
+    toggle.textContent = s.installed ? "Turn off" : "Turn on";
+    toggle.classList.remove("hidden");
+    toggle.onclick = async () => {
+      toggle.disabled = true;
+      try { await setAutostart(!s.installed); } finally { toggle.disabled = false; }
+      renderAutostart();
+    };
+    if (offer) {
+      offer.classList.toggle("hidden", s.installed);
+      offer.onclick = async () => {
+        offer.disabled = true;
+        try { await setAutostart(true); } finally { offer.disabled = false; }
+        renderAutostart();
+      };
+    }
+  } catch (_) {
+    // No native host installed: nothing here can write the launcher.
+    state.textContent =
+      "Start with Windows: needs the one-time launcher install (Setup).";
+    toggle.classList.add("hidden");
+    if (offer) offer.classList.add("hidden");
+  }
+}
+
 // ---- shell ------------------------------------------------------------------
 async function render() {
   const engine = await checkEngine();
@@ -999,6 +1036,7 @@ async function render() {
 
 async function init() {
   $("backend").value = await getBackend();
+  renderAutostart();
 
   document.querySelectorAll("nav.tabs button").forEach((b) =>
     b.addEventListener("click", () => showView(b.dataset.view)));

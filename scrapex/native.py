@@ -203,6 +203,22 @@ def _dispatch(conn, command, message: dict, manifest) -> dict:
                 "summary": change_summary(conn, source_key) if source_key else {},
                 "changes": recent_changes(conn, source_key, limit=_page_size(message))}
 
+    if command == "AUTOSTART_STATUS":
+        from . import autostart
+        return {"ok": True, **autostart.status()}
+
+    if command == "SET_AUTOSTART":
+        # The panel's "Start with Windows" toggle. Native-only like
+        # START_ENGINE: the launcher lives on the machine, and this host is
+        # the extension's only hand that reaches it.
+        from . import autostart
+        if message.get("enabled"):
+            path = autostart.install(int(message.get("port") or DEFAULT_ENGINE_PORT))
+            return {"ok": True, "installed": True, "path": str(path)}
+        autostart.remove()
+        return {"ok": True, "installed": False,
+                "path": str(autostart.launcher_path())}
+
     return _error("unknown_command", f"unknown command {command!r}")
 
 
