@@ -345,7 +345,16 @@
     label.className = "grid-menu-label";
     const words = document.createElement("span");
     words.textContent = labelText;
-    label.append(materialIconElement(iconName, "grid-menu-icon"), words);
+    // "" means "no icon here" — pinMenu marks the ACTIVE pin state with a
+    // check and leaves the others blank. The strict icon validator rightly
+    // rejects an empty NAME, but rejecting it here threw inside columnMenu
+    // and took the whole three-dot menu down with it, on every column. A
+    // spacer keeps the blank rows aligned with their iconed siblings.
+    const glyph = iconName
+      ? materialIconElement(iconName, "grid-menu-icon")
+      : Object.assign(document.createElement("span"),
+                      {className: "sx-icon material-icon grid-menu-icon"});
+    label.append(glyph, words);
     return label;
   }
 

@@ -93,7 +93,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert '/static/grid.js?v=design-system-2' in page
+    # design-system-3: menuLabel learned that "" means no icon — the strict
+    # validator threw on pinMenu's blank states and killed the whole
+    # three-dot menu (owner-reported live).
+    assert '/static/grid.js?v=design-system-3' in page
     assert '/static/grid-theme.css?v=design-system-2' in page
 
 
