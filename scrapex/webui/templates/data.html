@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Data — ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/data-workspace.css">
+  <script src="/static/datasets-browser.js" defer></script>
+{% endblock %}
+{% block content %}
+<div class="data-workspace">
+  {% include "_source_list.html" %}
+
+  <section class="data-view">
+    <div class="data-landing">
+      <span class="data-landing-eyebrow">Data workspace</span>
+      <h1>Browse your datasets</h1>
+      <p>Select a dataset from the list to inspect its records, filter the grid,
+        manage columns, and open price history without leaving the Data workspace.</p>
+
+      <div class="data-overview-metrics" aria-label="Data overview">
+        <div class="data-overview-metric">
+          <strong>{{ sources|length }}</strong><span>Datasets with data</span>
+        </div>
+        <div class="data-overview-metric">
+          <strong>{{ "{:,}".format(sources|sum(attribute="observations")) }}</strong>
+          <span>Price observations</span>
+        </div>
+        <div class="data-overview-metric">
+          <strong>{{ pending|length }}</strong><span>Not run yet</span>
+        </div>
+      </div>
+
+      {% if pending and not sources %}
+        <p class="data-landing-note">None of your configured datasets has run yet.
+          Select one from the list to see its next step, or run
+          <code>python -m scrapex.cli crawl {{ pending[0].source_key }}</code>.</p>
+      {% elif not sources and not pending %}
+        <p class="data-landing-note">No configured datasets yet.
+          <a href="/manage">Add a source</a> to begin collecting data.</p>
+      {% else %}
+        <p class="data-landing-note">The grid shows source-local data exactly as collected.
+          Curated and matched records remain available through the same dataset view.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

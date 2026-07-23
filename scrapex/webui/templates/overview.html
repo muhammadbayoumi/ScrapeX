@@ -1,44 +1,184 @@
 {% extends "base.html" %}
-{% block title %}Data — ScrapeX{% endblock %}
+{% from "_icons.html" import icon %}
+{% block title %}Overview — ScrapeX{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="/static/pages/data-workspace.css">
+  <link rel="stylesheet" href="/static/pages/overview.css">
 {% endblock %}
 {% block content %}
-<div class="data-workspace">
-  {% include "_source_list.html" %}
-
-  <section class="data-view">
-    <div class="data-landing">
-      <span class="data-landing-eyebrow">Data workspace</span>
-      <h1>Browse your datasets</h1>
-      <p>Select a dataset from the list to inspect its records, filter the grid,
-        manage columns, and open price history without leaving the Data workspace.</p>
-
-      <div class="data-overview-metrics" aria-label="Data overview">
-        <div class="data-overview-metric">
-          <strong>{{ sources|length }}</strong><span>Datasets with data</span>
-        </div>
-        <div class="data-overview-metric">
-          <strong>{{ "{:,}".format(sources|sum(attribute="observations")) }}</strong>
-          <span>Price observations</span>
-        </div>
-        <div class="data-overview-metric">
-          <strong>{{ pending|length }}</strong><span>Not run yet</span>
-        </div>
-      </div>
-
-      {% if pending and not sources %}
-        <p class="data-landing-note">None of your configured datasets has run yet.
-          Select one from the list to see its next step, or run
-          <code>python -m scrapex.cli crawl {{ pending[0].source_key }}</code>.</p>
-      {% elif not sources and not pending %}
-        <p class="data-landing-note">No configured datasets yet.
-          <a href="/manage">Add a source</a> to begin collecting data.</p>
-      {% else %}
-        <p class="data-landing-note">The grid shows source-local data exactly as collected.
-          Curated and matched records remain available through the same dataset view.</p>
-      {% endif %}
+<div class="overview-page">
+  <header class="page-header overview-hero">
+    <div class="page-heading">
+      <span class="page-eyebrow">Workspace overview</span>
+      <h1 class="page-title">Everything at a glance</h1>
+      <p class="page-description">Monitor collected data, recent changes, review work,
+        automation, and output readiness from one starting point.</p>
     </div>
+    <div class="page-actions">
+      <a class="button ghost icon-label" href="/data">{{ icon("storage", "sm") }} Browse data</a>
+      <a class="button icon-label" href="/jobs">{{ icon("play-circle", "sm") }} View jobs</a>
+    </div>
+  </header>
+
+  <section class="overview-kpis" aria-label="Workspace totals">
+    <a class="overview-kpi" href="/data">
+      <span class="overview-kpi-icon">{{ icon("storage") }}</span>
+      <span><strong>{{ totals.configured }}</strong><small>Configured datasets</small></span>
+      <span class="overview-kpi-detail">{{ totals.ready }} with collected data</span>
+    </a>
+    <a class="overview-kpi" href="/data">
+      <span class="overview-kpi-icon">{{ icon("view-stream") }}</span>
+      <span><strong>{{ "{:,}".format(totals.observations) }}</strong><small>Price observations</small></span>
+      <span class="overview-kpi-detail">{{ "{:,}".format(totals.products) }} products ·
+        {{ "{:,}".format(totals.variants) }} variants</span>
+    </a>
+    <a class="overview-kpi" href="/review">
+      <span class="overview-kpi-icon">{{ icon("check") }}</span>
+      <span><strong>{{ totals.reviews }}{% if totals.reviews_capped %}+{% endif %}</strong><small>Awaiting review</small></span>
+      <span class="overview-kpi-detail">{{ "{:,}".format(totals.matched) }} approved matches</span>
+    </a>
+    <a class="overview-kpi" href="/schedules">
+      <span class="overview-kpi-icon">{{ icon("schedule") }}</span>
+      <span><strong>{{ totals.scheduled }}</strong><small>Active schedules</small></span>
+      <span class="overview-kpi-detail">{{ totals.active_jobs }} jobs in progress</span>
+    </a>
   </section>
+
+  <div class="overview-grid">
+    <section class="overview-panel overview-data" aria-labelledby="overview-data-title">
+      <header class="section-header">
+        <div>
+          <span class="page-eyebrow">Coverage</span>
+          <h2 id="overview-data-title">Datasets</h2>
+        </div>
+        <a class="icon-label" href="/data">Open data {{ icon("chevron-right", "sm") }}</a>
+      </header>
+      {% if not sources and not pending %}
+        <div class="empty">No datasets are configured yet. <a href="/manage">Add a source</a>.</div>
+      {% else %}
+        <div class="overview-source-list">
+          {% for source in shown_sources %}
+            <a class="overview-source" href="/source/{{ source.source_key }}"
+               data-overview-source="{{ source.source_key }}">
+              <span class="overview-source-status {{ 'is-ok' if source.last_status == 'success' else 'is-attention' }}"
+                    aria-hidden="true"></span>
+              <span class="overview-source-copy">
+                <strong>{{ source.source_key.replace("_", " ") }}</strong>
+                <small dir="auto">{{ source.source_name }}</small>
+              </span>
+              <span class="overview-source-meta">
+                <strong>{{ "{:,}".format(source.observations) }}</strong>
+                <small>{{ "Last run completed" if source.last_status == "success" else "Needs attention" }}</small>
+              </span>
+            </a>
+          {% endfor %}
+          {% for source in shown_pending %}
+            <a class="overview-source" href="/source/{{ source.source_key }}"
+               data-overview-source="{{ source.source_key }}">
+              <span class="overview-source-status is-pending" aria-hidden="true"></span>
+              <span class="overview-source-copy">
+                <strong>{{ source.source_key.replace("_", " ") }}</strong>
+                <small dir="auto">{{ source.source_name }}</small>
+              </span>
+              <span class="overview-source-meta"><strong>Never run</strong><small>Configured</small></span>
+            </a>
+          {% endfor %}
+          {% if remaining_datasets %}
+            <a class="overview-source-more" href="/data">
+              View {{ remaining_datasets }} more dataset{{ "" if remaining_datasets == 1 else "s" }}
+              {{ icon("chevron-right", "sm") }}
+            </a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="overview-panel" aria-labelledby="overview-areas-title">
+      <header class="section-header">
+        <div>
+          <span class="page-eyebrow">Navigate</span>
+          <h2 id="overview-areas-title">Workspace areas</h2>
+        </div>
+      </header>
+      <div class="overview-areas">
+        {% for href, label, description, icon_name, count in [
+          ("/changes", "Changes", "Compare new observations with previous values.", "trending-up", none),
+          ("/history", "Crawl history", "Inspect run results and collection errors.", "history", none),
+          ("/review", "Review queue", "Resolve suggested record matches.", "check", totals.reviews),
+          ("/jobs", "Jobs", "Follow active and completed collection work.", "play-circle", totals.active_jobs),
+          ("/sync", "Sync", "Send selected data to connected destinations.", "sync", none),
+          ("/exports", "Exports", "Create local Excel workbooks from your data.", "file-download", none)
+        ] %}
+          <a class="overview-area" href="{{ href }}">
+            <span class="overview-area-icon">{{ icon(icon_name) }}</span>
+            <span><strong>{{ label }}</strong><small>{{ description }}</small></span>
+            {% if count is not none %}<span class="overview-area-count">{{ count }}</span>{% endif %}
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="overview-panel" aria-labelledby="overview-changes-title">
+      <header class="section-header">
+        <div>
+          <span class="page-eyebrow">Latest activity</span>
+          <h2 id="overview-changes-title">Recent changes</h2>
+        </div>
+        <a class="icon-label" href="/changes">View all {{ icon("chevron-right", "sm") }}</a>
+      </header>
+      {% if not recent_changes %}
+        <div class="empty">No changes recorded yet. A second crawl creates the first comparison.</div>
+      {% else %}
+        <div class="overview-feed">
+          {% for change in recent_changes %}
+            <article class="overview-feed-item">
+              <span class="overview-feed-icon">{{ icon("trending-up") }}</span>
+              <div>
+                <strong dir="auto">{{ change.product_name or "Unnamed record" }}</strong>
+                <p>{{ change.change_type.replace("_", " ") }}
+                  {% if change.display_change %} · {{ change.display_change }}{% endif %}
+                  {% if change.region_name %} · {{ change.region_name }}{% endif %}</p>
+              </div>
+              <time datetime="{{ change.detected_at }}">{{ change.detected_at[:10] }}</time>
+            </article>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="overview-panel" aria-labelledby="overview-operations-title">
+      <header class="section-header">
+        <div>
+          <span class="page-eyebrow">Operations</span>
+          <h2 id="overview-operations-title">Recent jobs</h2>
+        </div>
+        <a class="icon-label" href="/jobs">View all {{ icon("chevron-right", "sm") }}</a>
+      </header>
+      {% if not recent_jobs %}
+        <div class="empty">No jobs yet. Start a run from the ScrapeX side panel.</div>
+      {% else %}
+        <div class="overview-feed">
+          {% for job in recent_jobs %}
+            <article class="overview-feed-item">
+              <span class="overview-feed-icon">{{ icon("play-circle") }}</span>
+              <div>
+                <strong>{{ job.source_keys|join(", ") }}</strong>
+                <p>{{ job.run_mode.replace("_", " ") }} · {{ job.progress.percent }}% complete</p>
+              </div>
+              <span class="badge {% if job.status == 'completed' %}ok{% elif job.status in ('failed', 'cancelled', 'completed_with_errors', 'partially_completed') %}off{% endif %}">
+                {{ job.status.replace("_", " ") }}</span>
+            </article>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </section>
+  </div>
+
+  {% if totals.attention %}
+    <aside class="overview-attention" role="status">
+      {{ icon("info") }}
+      <span><strong>{{ totals.attention }} dataset{{ "" if totals.attention == 1 else "s" }} need a first or successful run.</strong>
+        Open <a href="/data">Data</a> to inspect the affected datasets.</span>
+    </aside>
+  {% endif %}
 </div>
 {% endblock %}

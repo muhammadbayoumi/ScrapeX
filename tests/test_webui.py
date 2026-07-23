@@ -31,23 +31,35 @@ def client(tmp_path: Path) -> TestClient:
 
 
 def test_data_landing_lists_the_source(client):
-    r = client.get("/")
+    r = client.get("/data")
     assert r.status_code == 200
     assert "ELSEWEDYSHOP" in r.text and "السويدي شوب" in r.text
 
 
-def test_overview_is_merged_into_the_data_workspace(client):
-    landing = client.get("/").text
+def test_overview_summarizes_the_workspace_and_data_keeps_its_browser(client):
+    overview = client.get("/").text
+    landing = client.get("/data").text
     selected = client.get("/source/ELSEWEDYSHOP").text
 
+    assert 'class="overview-page"' in overview
+    assert "Everything at a glance" in overview
+    assert 'href="/" title="Overview" aria-current="page"' in overview
+    assert "Price observations" in overview
+    assert 'data-overview-source="ELSEWEDYSHOP"' in overview
+    assert overview.count("data-overview-source=") <= 6
+    assert "more datasets" in overview
     assert 'class="data-workspace"' in landing
     assert 'class="dataset-browser"' in landing
     assert 'data-dataset-choice' in landing
     assert 'data-dataset-toggle' in landing
-    assert '>Overview<' not in landing
+    assert '/static/datasets-browser.js' in landing
     assert 'aria-current="page"' in selected
     assert 'aria-label="Selected dataset"' in selected
     assert 'class="wrap wrap-wide"' in selected
+    assert '/static/datasets-browser.js' in selected
+    assert 'data-grid-datasets-toggle' in selected
+    assert '<span>Datasets</span>' in selected
+    assert selected.index('data-grid-datasets-toggle') < selected.index('id="grid-features"')
     for region in ("data-source-overview", "data-controls", "data-records"):
         assert f'class="{region}"' in selected
     assert "Workspace tools" in selected
@@ -163,7 +175,7 @@ def test_empty_db_overview_has_hint(tmp_path: Path):
     dbmod.migrate(conn)
     conn.close()
     client = TestClient(create_app(db_path))
-    r = client.get("/")
+    r = client.get("/data")
     assert r.status_code == 200
     # An empty warehouse no longer means an empty page: the configured sources
     # are listed as "never run", each with the command that would run it. The

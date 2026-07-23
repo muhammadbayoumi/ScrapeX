@@ -437,7 +437,7 @@
  * These classes are created by grid.js or occur only beside a Tabulator grid.
  * Keeping them here means base.html has no knowledge of this renderer. */
 #grid-features { position: relative; flex: none; margin: 0; }
-#grid-features > summary {
+.data-grid-command {
   display: inline-flex;
   align-items: center;
   gap: .45rem;
@@ -453,12 +453,13 @@
   list-style: none;
 }
 #grid-features > summary::-webkit-details-marker { display: none; }
-#grid-features > summary:hover { border-color: var(--accent); }
-#grid-features > summary:focus-visible {
+.data-grid-command:hover,
+.data-grid-command.is-active { border-color: var(--accent); filter: none; }
+.data-grid-command:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-#grid-features > summary svg { width: 1.05rem; height: 1.05rem; fill: currentColor; }
+.data-grid-command svg { width: 1.05rem; height: 1.05rem; fill: currentColor; }
 
 .data-grid-commandbar {
   position: relative;
@@ -559,7 +560,7 @@
 
 @media (max-width: 680px) {
   .data-grid-frame-head { align-items: flex-start; }
-  .data-grid-commandbar { align-items: flex-start; flex-direction: column; }
+  .data-grid-commandbar { align-items: flex-start; flex-wrap: wrap; }
   .featuregrid { grid-template-columns: 1fr; }
   .grid-feature-section { grid-column: auto; }
 }

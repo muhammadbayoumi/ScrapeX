@@ -5,10 +5,15 @@
   <link rel="stylesheet" href="/static/pages/manage.css">
 {% endblock %}
 {% block content %}
-<p class="muted back-link"><a class="icon-label" href="/">{{ icon("arrow-back", "sm") }} All sources</a></p>
-<h1>Add a source</h1>
-
-
+<p class="muted back-link"><a class="icon-label" href="/data">{{ icon("arrow-back", "sm") }} All datasets</a></p>
+<header class="page-header">
+  <div class="page-heading">
+    <span class="page-eyebrow">Data setup</span>
+    <h1 class="page-title">Add a source</h1>
+    <p class="page-description">Test a site, define its collection contract,
+      and register it as a reusable dataset.</p>
+  </div>
+</header>
 
 <div class="card">
   <b>1. Test the URL first (optional)</b>

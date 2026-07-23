@@ -76,6 +76,7 @@ PAGES = [
     ("settings-storage", "/settings#s-storage"),
     ("settings-retention", "/settings#s-data"),
     ("overview", "/"),
+    ("data-landing", "/data"),
     ("data", "/source/ELSEWEDYSHOP"),
     ("changes", "/changes?source_key=ELSEWEDYSHOP"),
     ("history", "/history"),

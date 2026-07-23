@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Logs — ScrapeX{% endblock %}
 {% block content %}
-<h1>Logs</h1>
-<p class="muted text-sm">The engine keeps the full technical log; this is the
-  most recent 200 entries for one job (spec 25).</p>
+<header class="page-header">
+  <div class="page-heading">
+    <span class="page-eyebrow">System</span>
+    <h1 class="page-title">Logs</h1>
+    <p class="page-description">Inspect the most recent 200 technical events for one job.
+      The engine keeps the complete local log.</p>
+  </div>
+</header>
 
 <form class="filters" method="get">
   <select name="job_ref" onchange="this.form.submit()">

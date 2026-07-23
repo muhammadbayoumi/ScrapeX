@@ -7,6 +7,9 @@
   <symbol id="menu-open" viewBox="0 0 24 24">
     <path d="M3 18h13v-2H3v2zm0-5h10v-2H3v2zm0-7v2h13V6H3zm15.59 1.41L17.17 6l-5 5 5 5 1.41-1.41L15 11l3.59-3.59z"/>
   </symbol>
+  <symbol id="dashboard" viewBox="0 0 24 24">
+    <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+  </symbol>
   <symbol id="storage" viewBox="0 0 24 24">
     <path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/>
   </symbol>

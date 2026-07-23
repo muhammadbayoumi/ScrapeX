@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Sync — ScrapeX{% endblock %}
 {% block content %}
-<h1>Sync to Google Sheets</h1>
-<p class="muted small">Two independent routes to the same place. Apps Script pushes
-  batches into a sheet you deploy yourself; Drive signs in with Google and writes
-  the spreadsheet directly. Setting up one does not affect the other.</p>
+<header class="page-header">
+  <div class="page-heading">
+    <span class="page-eyebrow">Outputs</span>
+    <h1 class="page-title">Sync to Google Sheets</h1>
+    <p class="page-description">Use Apps Script to push batches or connect Drive
+      to write directly. Each route is configured independently.</p>
+  </div>
+</header>
 
 <!-- ==================== Apps Script funnel (spec 22) ==================== -->
 <h2>Apps Script funnel</h2>

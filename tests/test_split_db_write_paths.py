@@ -92,7 +92,7 @@ def test_a_fresh_install_shows_every_configured_source(split_client):
     problem, it simply did not exist."""
     body = split_client.get("/").text
 
-    assert "Configured, never run" in body
+    assert "Workspace overview" in body
     assert "GPP_ENERGY" in body and "ELSEWEDYSHOP" in body
     assert "Never run" in body, "the status must be stated in words"
 
@@ -105,10 +105,9 @@ def test_a_source_that_has_run_is_not_listed_as_never_run(split_client):
 
     import re
 
-    section = body.split("Configured, never run")[-1]
-    # Count dataset choices, not visible names: the English label is humanised
-    # (GPP ENERGY), while the route keeps the canonical source key.
-    cards = re.findall(r'href="/source/([A-Z_]+)"\s+data-dataset-choice', section)
+    # Count overview source cards, not visible names: the English label is
+    # humanised (GPP ENERGY), while the attribute keeps the canonical key.
+    cards = re.findall(r'data-overview-source="([A-Z_]+)"', body)
     assert cards.count("GPP_ENERGY") == 1, f"listed more than once: {cards}"
 
 

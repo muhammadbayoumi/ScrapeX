@@ -134,6 +134,7 @@
       justify-self:stretch}
     .dataset-browser{position:static;max-height:none}
     .dataset-toggle{display:none}
+    .data-workspace:has([data-grid-datasets-toggle]).datasets-collapsed .dataset-browser{display:none}
     .dataset-list{display:flex;gap:.3rem;overflow-x:auto;overflow-y:hidden}
     .dataset-group{display:contents}
     .dataset-group-label{display:none}

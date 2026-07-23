@@ -221,12 +221,63 @@ def create_app(
     def overview(request: Request):
         conn = read_conn()
         try:
-            sources, pending, source_sites = _source_catalog(conn)
+            sources, pending, _ = _source_catalog(conn)
+            review_items = pending_reviews(conn, None, limit=200)
+            schedules = list_schedules(conn)
+            recent_jobs = [_job_view(job) for job in list_jobs(conn, limit=6)]
+            active_jobs = [_job_view(job) for job in list_jobs(
+                conn, limit=20, active_only=True)]
+            changes = recent_changes(conn, None, limit=6)
         finally:
             conn.close()
+        scheduled = [
+            item for item in schedules
+            if item.get("enabled")
+            and (item.get("frequency") or "manual") != "manual"
+        ]
+        attention_sources = [
+            source for source in sources
+            if not source.last_run or source.last_status != "success"
+        ]
+        totals = {
+            "configured": len(sources) + len(pending),
+            "ready": len(sources),
+            "products": sum(source.products for source in sources),
+            "variants": sum(source.variants for source in sources),
+            "observations": sum(source.observations for source in sources),
+            "matched": sum(source.matched_variants for source in sources),
+            "reviews": len(review_items),
+            "reviews_capped": len(review_items) == 200,
+            "scheduled": len(scheduled),
+            "active_jobs": len(active_jobs),
+            "attention": len(attention_sources) + len(pending),
+        }
+        shown_sources = sources[:6]
+        shown_pending = pending[:max(0, 6 - len(shown_sources))]
         return TEMPLATES.TemplateResponse(request=request, name="overview.html",
                                           context={"sources": sources, "pending": pending,
-                                                   "source_sites": source_sites,
+                                                   "totals": totals,
+                                                   "shown_sources": shown_sources,
+                                                   "shown_pending": shown_pending,
+                                                   "remaining_datasets": (
+                                                       totals["configured"]
+                                                       - len(shown_sources)
+                                                       - len(shown_pending)),
+                                                   "recent_changes": changes,
+                                                   "recent_jobs": recent_jobs,
+                                                   "tab": "overview",
+                                                   "source_key": None})
+
+    @app.get("/data", response_class=HTMLResponse)
+    def data_landing(request: Request):
+        """Dataset selection remains a first-class workspace below Overview."""
+        conn = read_conn()
+        try:
+            sources, pending, _ = _source_catalog(conn)
+        finally:
+            conn.close()
+        return TEMPLATES.TemplateResponse(request=request, name="data.html",
+                                          context={"sources": sources, "pending": pending,
                                                    "tab": "data", "source_key": None,
                                                    "wide_page": True})
 

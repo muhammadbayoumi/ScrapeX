@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-1">
   <link rel="stylesheet" href="/static/pages/data-workspace.css">
   <script src="/static/vendor/tabulator.min.js" defer></script>
+  <script src="/static/datasets-browser.js" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
@@ -288,9 +289,14 @@
       </div>
       {% endif %}
       <div class="data-grid-commandbar">
+        <button type="button" class="data-grid-command" data-grid-datasets-toggle
+                aria-controls="dataset-list" aria-expanded="true">
+          {{ icon("storage") }}
+          <span>Datasets</span>
+        </button>
         {# Native details keeps the popup keyboard-operable without a custom menu widget. #}
         <details id="grid-features">
-          <summary>
+          <summary class="data-grid-command">
             {{ icon("settings") }}
             <span>Grid Features</span>
           </summary>

@@ -1,7 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Excel export — ScrapeX{% endblock %}
 {% block content %}
-<h1>Excel export</h1>
+<header class="page-header">
+  <div class="page-heading">
+    <span class="page-eyebrow">Outputs</span>
+    <h1 class="page-title">Excel export</h1>
+    <p class="page-description">Create a local workbook from the full schema or
+      the visible columns in your current data view.</p>
+  </div>
+</header>
 
 {% with label=status.label, ready=status.ready, blocker=status.blocker %}
   {% include "_destination.html" %}

@@ -46,7 +46,8 @@
       <nav class="wstabs" aria-label="Workspace">
         {% for group, items in [
           ("Browse", [
-            ("/source/" ~ source_key if source_key else "/", "Data", "data", "storage"),
+            ("/", "Overview", "overview", "dashboard"),
+            ("/source/" ~ source_key if source_key else "/data", "Data", "data", "storage"),
             ("/changes" ~ ctx, "Changes", "changes", "trending-up"),
             ("/history" ~ ctx, "Crawl history", "history", "history"),
             ("/review" ~ ctx, "Review queue", "review", "check")]),

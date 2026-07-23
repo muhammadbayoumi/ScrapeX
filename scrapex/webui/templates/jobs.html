@@ -2,7 +2,13 @@
 {% from "_icons.html" import icon %}
 {% block title %}Jobs — ScrapeX{% endblock %}
 {% block content %}
-<h1>Jobs</h1>
+<header class="page-header">
+  <div class="page-heading">
+    <span class="page-eyebrow">Automation</span>
+    <h1 class="page-title">Jobs</h1>
+    <p class="page-description">Follow queued, active, paused, and completed collection work.</p>
+  </div>
+</header>
 {% if not jobs %}
   <div class="empty">No jobs yet. Start one from the side panel.</div>
 {% else %}

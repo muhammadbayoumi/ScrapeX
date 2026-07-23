@@ -1,7 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Crawl history — ScrapeX{% endblock %}
 {% block content %}
-<h1>Crawl history</h1>
+<header class="page-header">
+  <div class="page-heading">
+    <span class="page-eyebrow">Operations</span>
+    <h1 class="page-title">Crawl history</h1>
+    <p class="page-description">Inspect each collection run, the rows it found,
+      and any errors that need attention.</p>
+  </div>
+</header>
 {% include "_picker.html" %}
 {% if not runs %}
   <div class="empty">No crawls recorded yet.</div>
