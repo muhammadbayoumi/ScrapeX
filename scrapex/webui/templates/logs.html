@@ -38,4 +38,43 @@
     </tbody>
   </table></div>
 {% endif %}
+<script>
+// A running job's log TAILS itself: same endpoints the panel polls (spec 25),
+// the tbody repainted whole each tick — entries only ever append server-side,
+// so a whole repaint can never reorder or lose one. The first tick asks the
+// job's status and the loop stops on its own once the job is terminal.
+(() => {
+  const jobRef = {{ job_ref|tojson }};
+  if (!jobRef) return;
+  const TERMINAL = new Set(["completed", "completed_with_errors",
+                            "partially_completed", "failed", "cancelled"]);
+  const tbody = document.querySelector("table tbody");
+  if (!tbody) return;
+  const paint = (entries) => {
+    tbody.replaceChildren();
+    for (const e of entries) {
+      const tr = document.createElement("tr");
+      const cells = [e.logged_at || "", e.level || "", e.source_key || "—", e.message || ""];
+      cells.forEach((value, i) => {
+        const td = document.createElement("td");
+        td.textContent = String(value);
+        if (i === 3) td.dir = "auto";
+        if (i === 0) td.className = "num muted";
+        tr.append(td);
+      });
+      tbody.append(tr);
+    }
+  };
+  const tick = async () => {
+    try {
+      const job = await (await fetch(`/api/jobs/${encodeURIComponent(jobRef)}`)).json();
+      const status = (job.job || job).status;
+      const answer = await (await fetch(`/api/jobs/${encodeURIComponent(jobRef)}/logs?limit=200`)).json();
+      paint(answer.entries || []);
+      if (!TERMINAL.has(status)) setTimeout(tick, 4000);
+    } catch (err) { setTimeout(tick, 8000); }
+  };
+  tick();
+})();
+</script>
 {% endblock %}
