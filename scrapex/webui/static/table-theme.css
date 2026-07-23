@@ -11,11 +11,11 @@
   --table-text: var(--text);
   --table-header-text: var(--muted);
   --table-rule: 1px solid var(--line);
-  --table-radius: 12px;
-  --table-cell-padding: .6rem .7rem;
-  --table-font-size: .9rem;
-  --table-header-font-size: .78rem;
-  --table-header-weight: 500;
+  --table-radius: var(--radius-lg);
+  --table-cell-padding: var(--sp-2) var(--sp-3);
+  --table-font-size: var(--fs);
+  --table-header-font-size: var(--fs-xs);
+  --table-header-weight: var(--fw-medium);
   --table-hover-bg: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
@@ -72,9 +72,9 @@ tr:hover td { background: var(--table-hover-bg); }
 }
 .per {
   color: var(--muted);
-  font-size: .85em;
+  font-size: var(--fs-sm);
   direction: ltr;
-  margin-inline-start: .15rem;
+  margin-inline-start: var(--sp-1);
 }
 /* NOT clickable, so no underline of any kind (owner rule: amber+underline is
    the exclusive costume of clickable things). The word itself carries the
@@ -84,18 +84,18 @@ td.nowrap,
 th.nowrap { white-space: nowrap; }
 .code {
   color: var(--muted);
-  font-size: .78em;
+  font-size: var(--fs-xs);
   direction: ltr;
   font-variant-numeric: tabular-nums;
-  margin-inline-start: .3rem;
+  margin-inline-start: var(--sp-1);
 }
 .strike {
   color: var(--muted);
   text-decoration: line-through;
   font-weight: 400;
-  margin-inline-start: .4rem;
-  font-size: .82rem;
+  margin-inline-start: var(--sp-2);
+  font-size: var(--fs-sm);
 }
 .num { direction: ltr; font-variant-numeric: tabular-nums; }
 
-.sect-body table { margin: .3rem 0; }
+.sect-body table { margin: var(--sp-1) 0; }

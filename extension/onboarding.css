@@ -1,0 +1,33 @@
+:root { --brand-mark: url("icons/x-mark.png"); }
+
+body { line-height: var(--lh-relaxed); }
+  .wrap { max-width: 42.5rem; margin: 0 auto; padding: var(--sp-7) 1.3rem var(--sp-8); }
+  h1 { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-2xl);
+    font-weight: var(--fw-bold); margin: .2rem 0; }
+  .lead { color: var(--muted); margin: .3rem 0 var(--sp-5); }
+  .status { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);
+    border-radius: var(--radius-lg); border: 1px solid var(--line); margin-bottom: var(--sp-5);
+    font-weight: var(--fw-medium); }
+  .status .dot { width: var(--sp-3); height: var(--sp-3); flex: none; }
+  .status.checking { background: var(--chip); } .status.checking .dot { background: var(--muted); }
+  .status.down { background: var(--red-weak); } .status.down .dot { background: var(--red); }
+  .status.up { background: var(--accent-weak); color: var(--accent-ink); } .status.up .dot { background: var(--accent); }
+  .status .sub { font-weight: 400; color: var(--muted); font-size: var(--fs-sm); margin-inline-start: auto; }
+  .card { margin-bottom: var(--sp-4); padding: var(--sp-4) var(--sp-5); }
+  .step { display: flex; gap: var(--sp-4); padding: var(--sp-2) 0; }
+  .step .n { flex: none; width: 1.625rem; height: 1.625rem; border-radius: 50%; background: var(--accent-weak);
+    color: var(--accent-ink); display: grid; place-items: center; font-weight: var(--fw-bold); font-size: var(--fs-sm); }
+  .step h3 { margin: .1rem 0 .2rem; font-size: var(--fs-md); font-weight: var(--fw-bold); }
+  .step p { margin: .1rem 0; color: var(--muted); font-size: var(--fs); }
+  .cmd-row { display: flex; gap: var(--sp-2); align-items: center; margin: var(--sp-1) 0; }
+  .cmd-row .cmd { flex: 1; padding: var(--sp-2) var(--sp-3); overflow-x: auto; white-space: nowrap;
+    font-family: var(--font-mono); background: var(--chip); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
+  .actions { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-4); }
+  .note { font-size: var(--fs-sm); color: var(--muted); margin-top: var(--sp-5); }
+  .inline-note { margin: 0; }
+  .step-action { margin-bottom: var(--sp-2) !important; }
+  .ready-title { display: flex; align-items: center; gap: var(--sp-2); margin-top: 0; }
+  .ready-title .sx-icon { color: var(--accent-ink); }
+  .ready { display: none; }
+  body.connected .setup { display: none; }
+  body.connected .ready { display: block; }

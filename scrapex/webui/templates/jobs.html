@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Jobs — ScrapeX{% endblock %}
 {% block content %}
 <h1>Jobs</h1>
@@ -22,10 +23,10 @@
         <td class="num">{{ "{:,}".format(j.counters.get("observations", 0)) }}</td>
         <td class="num muted">{{ j.started_at or "—" }}</td>
         <td class="num muted">{{ j.finished_at or "—" }}</td>
-        <td><a href="/logs?job_ref={{ j.job_ref }}">Logs →</a></td>
+        <td><a href="/logs?job_ref={{ j.job_ref }}">Logs {{ icon("chevron-right", "inline-icon") }}</a></td>
       </tr>
       {% if j.error_summary %}
-        <tr><td colspan="9" class="muted" style="font-size:.82rem">{{ j.error_summary }}</td></tr>
+        <tr><td colspan="9" class="muted text-sm">{{ j.error_summary }}</td></tr>
       {% endif %}
     {% endfor %}
     </tbody>

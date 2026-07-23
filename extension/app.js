@@ -13,6 +13,10 @@ import { autostartStatus, setAutostart, startEngine } from "./transport.js";
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ICON_SPRITE = "icons/material-icons.svg";
+const icon = (name, className = "") =>
+  `<svg class="sx-icon ${className}" aria-hidden="true">` +
+  `<use href="${ICON_SPRITE}#${name}"></use></svg>`;
 
 async function api(path, options) {
   const res = await fetch((await getBackend()) + path, options);
@@ -46,7 +50,10 @@ const VIEWS = ["source", "run", "data", "settings"];
 function showView(name) {
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
   document.querySelectorAll("nav.tabs button").forEach((b) => {
-    if (b.dataset.view === name) b.setAttribute("aria-current", "page");
+    const selected = b.dataset.view === name;
+    b.setAttribute("aria-selected", String(selected));
+    b.tabIndex = selected ? 0 : -1;
+    if (selected) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   });
   if (name === "data") loadDatasets();
@@ -125,7 +132,7 @@ function renderSites() {
           <span>
             <span class="tech">${esc(hostOf(s.base_url))}</span>
             <span class="name muted"> (${esc(s.source_name)})</span>
-            <span class="n" style="display:block">${Number(s.observations || 0).toLocaleString()} prices${
+            <span class="n text-block">${Number(s.observations || 0).toLocaleString()} prices${
               s.changes ? " · " + esc(s.changes) : ""}</span>
           </span>
         </label>${auto}${reason}
@@ -407,7 +414,7 @@ async function loadDatasets() {
           <div class="n">${Number(s.observations).toLocaleString()} prices · ${
             Number(s.products || 0).toLocaleString()} products</div>
           <div class="n">${esc(s.changes || "no recorded changes yet")}</div></div>
-        <button data-open="${esc(s.source_key)}">Open in Workspace ↗</button>
+        <button data-open="${esc(s.source_key)}">Open in Workspace ${icon("open-in-new", "sm")}</button>
       </div>`).join("");
     box.querySelectorAll("button[data-open]").forEach((b) =>
       b.addEventListener("click", () => openDataset(b.dataset.open)));
@@ -497,14 +504,13 @@ async function loadSchedules() {
       // 320px panel is not wallpapered with forms. This section is THE
       // central control for automation (owner's ruling): nothing about a
       // schedule is decided anywhere else.
-      return `<details class="sched-row" data-sched="${esc(s.source_key)}"
-                  style="padding:var(--sp-2) 0;border-bottom:1px solid var(--line)">
-        <summary class="row" style="justify-content:space-between;cursor:pointer;list-style:none">
+      return `<details class="sched-row" data-sched="${esc(s.source_key)}">
+        <summary class="row sched-summary">
           <b class="name content">${esc(s.source_name)}</b>
           <span class="muted" data-role="next">${esc(summary)}${next ? " · " + next : ""}</span>
         </summary>
-        <div class="stack" style="margin-top:var(--sp-2)">
-          <div class="row" style="gap:var(--sp-2)">
+        <div class="stack sched-body">
+          <div class="row sched-fields">
             <select data-role="freq" aria-label="Frequency for ${esc(s.source_name)}">
               ${["manual", "daily", "weekly"].map((f) =>
                 `<option value="${f}" ${f === freq ? "selected" : ""}>${f}</option>`).join("")}
@@ -616,7 +622,7 @@ function renderSelected() {
     return `<div class="card">
       <div class="row">
         <span><b class="name content">${esc(s.source_name)}</b>
-          <span class="n" style="display:block">${esc(hostOf(s.base_url))}</span></span>
+          <span class="n text-block">${esc(hostOf(s.base_url))}</span></span>
         <button class="ghost" data-drop="${esc(s.source_key)}"
                 title="Remove from this run — the saved site is kept">Remove</button>
       </div>${detail}
@@ -645,7 +651,7 @@ async function loadOutputs() {
         : "";
       return `<div class="out">
         <span>${esc(o.label)}${o.ready ? "" :
-          `<span class="hint muted" style="display:block">${esc(o.blocker || o.detail)}</span>`}
+          `<span class="hint muted text-block">${esc(o.blocker || o.detail)}</span>`}
           ${setup}</span>
         <span class="chip ${o.ready ? "" : "off"}">${esc(state_)}</span>
       </div>`;
@@ -918,10 +924,10 @@ async function addSite() {
     const r = await post("/api/sources", payload);
     await loadSources();
     showView("run");
-    out("cap-out", `✓ Added ${esc(r.source_key)}`, "ok");
+    out("add-out", `${icon("check", "sm")} Added ${esc(r.source_key)}`, "ok icon-label");
     $("url").value = ""; $("add-form").classList.add("hidden");
   } catch (e) {
-    out("add-out", "✗ " + esc(e.message), "err");
+    out("add-out", `${icon("close", "sm")} ${esc(e.message)}`, "err icon-label");
   } finally { btn.disabled = false; btn.textContent = "Add site"; }
 }
 
@@ -1038,8 +1044,19 @@ async function init() {
   $("backend").value = await getBackend();
   renderAutostart();
 
-  document.querySelectorAll("nav.tabs button").forEach((b) =>
-    b.addEventListener("click", () => showView(b.dataset.view)));
+  const tabs = [...document.querySelectorAll("nav.tabs button")];
+  tabs.forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+  document.querySelector("nav.tabs").addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = tabs.indexOf(document.activeElement);
+    let next = current < 0 ? 0 : current;
+    if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    else next = (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus();
+    showView(tabs[next].dataset.view);
+  });
   // `[data-sect]` is load-bearing: other buttons borrow the `.sect` LOOK (the
   // Advanced-settings toggle does), and without the attribute filter they get
   // this handler too and blow up on a null target.

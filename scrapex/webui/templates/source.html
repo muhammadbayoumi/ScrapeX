@@ -1,20 +1,23 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}{{ source_key }} — ScrapeX{% endblock %}
-{% block content %}
+{% block head %}
 {# The grid is served from OUR origin, never a CDN: this tool must work with no
    internet, and a page that quietly fetched a library would fail exactly when
    the owner is offline. See static/vendor/README.md. #}
-<link rel="stylesheet" href="/static/vendor/tabulator.min.css">
-{# Loaded AFTER the library so the project's own table appearance wins. #}
-<link rel="stylesheet" href="/static/grid-theme.css?v=stable-grid-6">
-<script src="/static/vendor/tabulator.min.js"></script>
+  <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
+  {# Loaded AFTER the library so the project's own table appearance wins. #}
+  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-1">
+  <link rel="stylesheet" href="/static/pages/data-workspace.css">
+  <script src="/static/vendor/tabulator.min.js" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-<script src="/static/grid.js?v=stable-grid-6" defer></script>
+  <script src="/static/grid.js?v=design-system-1" defer></script>
+{% endblock %}
+{% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they
    carry dir="auto" so Arabic product names render RTL inside an LTR page. #}
-{% include "_data_workspace_styles.html" %}
 <div class="data-workspace">
   {% include "_source_list.html" %}
   <section class="data-view" aria-label="Selected dataset">
@@ -31,7 +34,7 @@
       {% if pending_source %}<p class="dataset-local-name" dir="auto">{{ pending_source.source_name }}</p>{% endif %}
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
-           rel="noopener noreferrer">Visit website <span aria-hidden="true">↗</span></a>
+           rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
       {% endif %}
     </div>
     <p class="runline"><span class="chip amber">Never run</span></p>
@@ -54,7 +57,7 @@
       <p class="dataset-local-name" dir="auto">{{ summary.source_name }}</p>
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
-           rel="noopener noreferrer">Visit website <span aria-hidden="true">↗</span></a>
+           rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
       {% endif %}
     </div>
     <p class="runline">
@@ -85,7 +88,7 @@
       {% if count %}
         <a class="tile" href="{{ href }}">
           <span class="n">{{ "{:,}".format(count) }}</span>
-          <span class="l">{{ label }}{% if elsewhere %} →{% endif %}</span></a>
+          <span class="l">{{ label }}{% if elsewhere %} {{ icon("chevron-right", "inline-icon") }}{% endif %}</span></a>
       {% else %}
         <span class="tile zero"><span class="n">0</span>
           <span class="l">{{ zero_text }}</span></span>
@@ -139,8 +142,10 @@
      is in the URL like everything else here. #}
   <p class="toolbar">
     {% if edit %}
-      <a class="chip accent" href="{{ query(edit='') }}" aria-pressed="true">✓ Editing columns</a>
-      <span class="muted">Use ✕ to hide a column, ◀ ▶ to move it. Nothing is deleted.</span>
+      <a class="chip accent icon-label" href="{{ query(edit='') }}" aria-pressed="true">
+        {{ icon("check", "sm") }} Editing columns
+      </a>
+      <span class="muted">Use the close and arrow controls to hide or move a column. Nothing is deleted.</span>
     {% else %}
       <a class="chip" href="{{ query(edit=1) }}" aria-pressed="false">Edit columns</a>
     {% endif %}
@@ -149,8 +154,10 @@
       <span class="muted">Hidden:</span>
       {% for f in hidden_fields %}
         {# Restoring is a click on the thing itself, not a hunt through a panel. #}
-        <button class="chip" type="button" data-show="{{ f.field_key }}"
-                title="Show this column again">{{ f.display_name or f.original_name }} ↩</button>
+        <button class="chip icon-label" type="button" data-show="{{ f.field_key }}"
+                title="Show this column again">{{ f.display_name or f.original_name }}
+          {{ icon("restart-alt", "sm") }}
+        </button>
       {% endfor %}
     {% endif %}
     {% if absent_columns %}
@@ -240,7 +247,7 @@
     {% macro sortlink(key, label) %}
       {% set nextdir = "desc" if (sort == key and direction == "asc") else "asc" %}
       <a href="{{ query(sort=key, direction=nextdir) }}">{{ label }}{%
-        if sort == key %} {{ "▲" if direction == "asc" else "▼" }}{% endif %}</a>
+        if sort == key %} {{ icon("arrow-upward" if direction == "asc" else "arrow-downward", "inline-icon") }}{% endif %}</a>
     {% endmacro %}
     {# The grid. Tabulator, served from our own origin — see static/vendor.
 
@@ -273,7 +280,8 @@
           {% for key, spec in filters.items() %}
             <a class="chip pill" href="{{ query(**{('f.' ~ key): ''}) }}"
                title="Remove filter: {{ key }} {{ spec[0] }} {{ spec[1] }}"
-               >{{ key }} {{ spec[0] }} <span dir="auto">{{ spec[1] }}</span> ✕</a>
+               >{{ key }} {{ spec[0] }} <span dir="auto">{{ spec[1] }}</span>
+               {{ icon("close", "inline-icon") }}</a>
           {% endfor %}
           <a href="/source/{{ source_key }}">Clear all</a>
         </p>
@@ -283,7 +291,7 @@
         {# Native details keeps the popup keyboard-operable without a custom menu widget. #}
         <details id="grid-features">
           <summary>
-            <svg aria-hidden="true"><use href="/static/material-icons/material-icons.svg#settings"></use></svg>
+            {{ icon("settings") }}
             <span>Grid Features</span>
           </summary>
           <div class="grid-feature-popover">

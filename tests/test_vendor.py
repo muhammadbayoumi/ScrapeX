@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
-VENDOR = Path(__file__).resolve().parent.parent / "scrapex" / "webui" / "static" / "vendor"
-TEMPLATES = Path(__file__).resolve().parent.parent / "scrapex" / "webui" / "templates"
+ROOT = Path(__file__).resolve().parent.parent
+VENDOR = ROOT / "scrapex" / "webui" / "static" / "vendor"
+TEMPLATES = ROOT / "scrapex" / "webui" / "templates"
 MATERIAL_ICONS = VENDOR.parent / "material-icons"
 
 # name -> (minimum plausible size, a string that must appear in it)
@@ -92,8 +93,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert '/static/grid.js?v=stable-grid-6' in page
-    assert '/static/grid-theme.css?v=stable-grid-6' in page
+    assert '/static/grid.js?v=design-system-1' in page
+    assert '/static/grid-theme.css?v=design-system-1' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -102,6 +103,7 @@ def test_material_header_icons_are_local_and_dry():
     sprite = (MATERIAL_ICONS / "material-icons.svg").read_text(encoding="utf-8")
     licence = (MATERIAL_ICONS / "material-icons.LICENSE.txt").read_text(encoding="utf-8")
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    ui = (VENDOR.parent / "ui.js").read_text(encoding="utf-8")
     expected_symbols = {
         'id="filter-list"', 'id="more-vert"', 'id="arrow-upward"',
         'id="arrow-downward"', 'id="check"', 'id="push-pin"',
@@ -113,8 +115,8 @@ def test_material_header_icons_are_local_and_dry():
 
     assert all(token in sprite for token in expected_symbols)
     assert "Apache License" in licence and "Version 2.0" in licence
-    assert "material-icons.svg" in script
-    assert "material-icons.svg?v=columns-2" in script
+    assert "window.ScrapeXUI.icon" in script
+    assert "material-icons.svg" in ui
     assert not list(MATERIAL_ICONS.glob("*_*.svg")), "use the single SVG sprite"
 
 
@@ -280,8 +282,11 @@ def test_header_is_one_and_a_quarter_normal_rows_with_bold_white_text():
     row = float(re.search(r"--grid-row-height:\s*([\d.]+)rem", css).group(1))
     header = float(re.search(r"--grid-header-height:\s*([\d.]+)rem", css).group(1))
     assert header == pytest.approx(row * 1.25)
-    assert "--grid-header-weight: 700" in css
-    assert "--grid-header-text: white" in css
+    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
+    assert "--grid-header-weight: var(--fw-heavy)" in css
+    assert "--fw-heavy: 700" in tokens
+    assert "--grid-header-text: var(--surface)" in css
+    assert "--grid-header-text: var(--text)" in css
     assert ".tabulator:not(.compact):not(.wrap)" in css
     assert "min-height: var(--grid-header-height)" in css
 

@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Data — ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/data-workspace.css">
+{% endblock %}
 {% block content %}
-{% include "_data_workspace_styles.html" %}
-
 <div class="data-workspace">
   {% include "_source_list.html" %}
 

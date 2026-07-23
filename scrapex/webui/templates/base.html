@@ -1,3 +1,4 @@
+{% from "_icons.html" import icon %}
 <!doctype html>
 <html lang="en" dir="ltr">
 <head>
@@ -5,299 +6,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ScrapeX{% endblock %}</title>
   <link rel="icon" href="/static/x-mark.png">
-  <style>
-    :root{
-      --bg:#f6f7f9; --surface:#fff; --line:#e4e7eb; --text:#1a1d21; --muted:#6b7280;
-      --accent:#00adb5; --accent-ink:#007a80; --accent-weak:#d9f6f7;
-      --button-bg:#eeeeee; --button-text:#0f1216;
-      --amber:#b7791f; --amber-weak:#fdf6e3;
-      --red:#c0392b; --chip:#eef1f4; --shadow:0 1px 3px rgba(0,0,0,.06);
-      /* Where the tab bar sticks: directly below the topbar. A starting value
-         only — the script at the end of the page MEASURES the topbar and
-         overwrites it, because the topbar's height changes with the viewport
-         (60px wide, 139px at 800px) and every fixed guess is wrong somewhere. */
-      --sticky-tabs:52px;
-    }
-    @media (prefers-color-scheme:dark){
-      :root{
-        --bg:#0f1216; --surface:#171b21; --line:#2a2f37; --text:#e6e9ee; --muted:#9aa4b2;
-        --accent:#00adb5; --accent-ink:#50d5da; --accent-weak:#063b3f;
-        --amber:#e0b25a; --amber-weak:#2a2312;
-        --red:#e07a6f; --chip:#222831; --shadow:none;
-      }
-    }
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);
-      font-family:"Segoe UI",system-ui,-apple-system,"Noto Sans Arabic",sans-serif;line-height:1.5}
-    a{color:inherit;text-decoration:none}
-    .topbar{display:flex;align-items:center;gap:.6rem;min-height:58px;padding:.65rem 1rem;
-      background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
-    .brand{display:inline-flex;align-items:center;gap:.5rem;font-weight:600;font-size:1.15rem;color:var(--accent-ink)}
-    .brand-logo{display:inline-block;width:22px;height:22px;background:var(--accent);
-      -webkit-mask:url("/static/x-mark.png") center/contain no-repeat;
-      mask:url("/static/x-mark.png") center/contain no-repeat}
-    .topbar .sub{color:var(--muted);font-size:.85rem}
-    .wrap{max-width:1200px;margin:0 auto;padding:1.4rem 1.2rem}
-    .wrap-wide{max-width:none;padding:1rem clamp(.75rem,1.4vw,1.35rem)}
-    h1{font-size:1.3rem;font-weight:600;margin:.2rem 0 1rem}
-    h2{font-size:1.05rem;font-weight:600;margin:1.4rem 0 .6rem}
-    .muted{color:var(--muted)}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem}
-    .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;
-      padding:1rem 1.1rem;box-shadow:var(--shadow);display:block;transition:border-color .15s}
-    a.card:hover{border-color:var(--accent)}
-    .card .name{font-weight:600;font-size:1.05rem}
-    .card .key{color:var(--muted);font-size:.78rem;direction:ltr;text-align:right}
-    .metrics{display:flex;gap:1.1rem;margin:.7rem 0 .5rem;flex-wrap:wrap}
-    .metric .n{font-size:1.35rem;font-weight:600;font-variant-numeric:tabular-nums}
-    .metric .l{font-size:.72rem;color:var(--muted)}
-    .chip{display:inline-block;background:var(--chip);border-radius:999px;
-      padding:.12rem .6rem;font-size:.74rem;color:var(--muted);direction:ltr}
-    .chip.accent{background:var(--accent-weak);color:var(--accent-ink)}
-    .chip.amber{background:var(--amber-weak);color:var(--amber)}
-    .banner{background:var(--amber-weak);border:1px solid var(--line);border-radius:10px;
-      padding:.7rem .9rem;font-size:.86rem;color:var(--text);margin:.4rem 0 1.1rem}
-    /* Identity on the left, "is this current?" on the right. */
-    .idblock{display:flex;align-items:flex-start;justify-content:space-between;
-      gap:1rem;flex-wrap:wrap}
-    .runline{margin:.2rem 0 1rem;display:flex;align-items:center;gap:.5rem;
-      flex-wrap:wrap;font-size:.85rem}
-    /* The answer line: how many rows, and which questions produced them. */
-    .answer{font-size:.85rem;margin:.4rem 0 .8rem;display:flex;align-items:center;
-      gap:.4rem;flex-wrap:wrap}
-    .chip.pill{background:var(--accent-weak);color:var(--accent-ink);cursor:pointer}
-    .chip.pill:hover{filter:brightness(.95)}
-    /* The watch strip. A zero tile is greyed and NOT a link, but it is still
-       there and still says what it counts — in words, never by colour alone. */
-    .watch{display:flex;gap:.6rem;flex-wrap:wrap;margin:.2rem 0 1rem}
-    .tile{display:flex;flex-direction:column;gap:.1rem;background:var(--surface);
-      border:1px solid var(--line);border-radius:10px;padding:.5rem .8rem;min-width:8rem}
-    a.tile:hover{border-color:var(--accent)}
-    .tile .n{font-size:1.2rem;font-weight:600;font-variant-numeric:tabular-nums}
-    .tile .l{font-size:.72rem;color:var(--muted)}
-    .tile.zero{opacity:.6}
-    .toolbar{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;
-      font-size:.85rem;margin:.4rem 0 .8rem}
-    button.chip{border:1px solid var(--line);cursor:pointer}
-    /* Workspace navigation: an edge-to-edge left rail separates wayfinding
-       from page actions. It can disappear completely without leaving a dead
-       gutter, and the content then reclaims the whole viewport. */
-    .workspace-shell{min-height:calc(100vh - var(--sticky-tabs));display:grid;
-      grid-template-columns:284px minmax(0,1fr);align-items:stretch;
-      transition:grid-template-columns .2s ease}
-    .workspace-shell>.wrap{grid-column:2;grid-row:1;width:100%;min-width:0}
-    .workspace-sidebar{grid-column:1;grid-row:1;align-self:start;position:sticky;
-      top:var(--sticky-tabs);height:calc(100vh - var(--sticky-tabs));overflow-y:auto;
-      border-inline-end:1px solid var(--line);background:var(--surface);z-index:4;
-      transition:transform .2s ease,opacity .16s ease}
-    .workspace-sidebar-head{padding:1rem 1.05rem .9rem;border-bottom:1px solid var(--line)}
-    .workspace-sidebar-brand{display:inline-flex;align-items:center;gap:.55rem;
-      color:var(--accent-ink);font-size:1.08rem;font-weight:600}
-    .workspace-sidebar-brand .brand-logo{width:21px;height:21px}
-    .workspace-sidebar-sub{display:block;margin:.22rem 0 0 1.75rem;color:var(--muted);font-size:.72rem}
-    .sidebar-toggle{display:grid;width:34px;height:34px;padding:0;place-items:center;
-      border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--text)}
-    .sidebar-toggle:hover:not(:disabled){background:var(--accent-weak);color:var(--accent-ink);filter:none}
-    .sidebar-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;
-      stroke-linecap:round;stroke-linejoin:round}
-    .wstabs{display:flex;flex-direction:column;gap:1rem;padding:.85rem .9rem 1rem}
-    .wsnav-group{min-width:0}
-    .wsnav-label{display:block;padding:.15rem .7rem .3rem;color:var(--muted);
-      font-size:.64rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
-    .wsnav-links{display:flex;flex-direction:column;gap:.14rem}
-    .wstabs a{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;
-      gap:.65rem;min-height:40px;padding:.52rem .7rem;border-radius:9px;
-      color:var(--muted);font-size:.84rem}
-    .wsnav-icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.75;
-      stroke-linecap:round;stroke-linejoin:round}
-    .wsnav-symbols{position:absolute;width:0;height:0;overflow:hidden}
-    .wstabs a:hover{background:var(--bg);color:var(--text)}
-    .wstabs a[aria-current=page]{background:var(--accent-weak);color:var(--accent-ink);
-      font-weight:600;box-shadow:inset 3px 0 var(--accent)}
-    @media(min-width:901px){
-      .sidebar-hidden .workspace-shell{grid-template-columns:0 minmax(0,1fr)}
-      .sidebar-hidden .workspace-sidebar{transform:translateX(-102%);opacity:0;pointer-events:none}
-    }
-    .sidebar-backdrop{display:none}
-    @media(max-width:900px){
-      .topbar .sub{display:none}
-      .workspace-shell{display:block}
-      .workspace-shell>.wrap{width:auto}
-      .workspace-sidebar{position:static;width:auto;height:auto;border-inline-end:0;
-        border-bottom:1px solid var(--line)}
-      .sidebar-ready .workspace-sidebar{position:fixed;inset-block:var(--sticky-tabs) 0;
-        inset-inline:0 auto;width:min(88vw,324px);height:auto;border-bottom:0;
-        border-inline-end:1px solid var(--line);box-shadow:10px 0 30px rgba(0,0,0,.16);
-        transform:translateX(-102%);transition:transform .18s ease;z-index:9}
-      .sidebar-ready.sidebar-open .workspace-sidebar{transform:translateX(0)}
-      .sidebar-ready .sidebar-backdrop{display:block;position:fixed;
-        inset:var(--sticky-tabs) 0 0;background:rgba(0,0,0,.36);opacity:0;
-        pointer-events:none;transition:opacity .18s ease;z-index:8}
-      .sidebar-ready.sidebar-open .sidebar-backdrop{opacity:1;pointer-events:auto}
-      .sidebar-ready.sidebar-open{overflow:hidden}
-    }
-    .badge{font-size:.72rem;padding:.1rem .5rem;border-radius:6px}
-    .ok{background:var(--accent-weak);color:var(--accent-ink)}
-    .off{background:var(--amber-weak);color:var(--amber)}
-    .filters{display:flex;gap:.6rem;flex-wrap:wrap;margin:.4rem 0 1rem}
-    input,select{font:inherit;padding:.45rem .7rem;border:1px solid var(--line);
-      border-radius:8px;background:var(--surface);color:var(--text)}
-    input[type=search]{min-width:240px}
-    button{font:inherit;padding:.45rem 1rem;border:1px solid var(--button-bg);background:var(--button-bg);
-      color:var(--button-text);border-radius:8px;cursor:pointer}
-    button:hover:not(:disabled){filter:brightness(.96)}
-    button:disabled{opacity:.5;cursor:default}
-    button.ghost{background:transparent;border-color:var(--line);color:var(--text)}
-    button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{
-      outline:2px solid var(--accent);outline-offset:2px}
-    .empty{text-align:center;color:var(--muted);padding:3rem 1rem}
-    /* Integration pages (spec 21-23): a destination, its settings, its actions. */
-    .dest{background:var(--surface);border:1px solid var(--line);border-radius:12px;
-      padding:.9rem 1.1rem;margin:.4rem 0 1rem}
-    .dest-head{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
-    .dest-name{font-weight:600}
-    .blocker{margin:.5rem 0 0;color:var(--muted);font-size:.88rem}
-    .stack{display:flex;flex-direction:column;gap:.9rem;background:var(--surface);
-      border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem}
-    .field{display:flex;flex-direction:column;gap:.25rem}
-    .field label{font-size:.82rem;font-weight:600}
-    .field input,.field select,.field textarea{width:100%}
-    .hint{color:var(--muted);font-size:.82rem}
-    .hint.err{color:var(--red)}
-    .small{font-size:.85rem}
-    .row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
-    .picklist{border:1px solid var(--line);border-radius:10px;padding:.6rem .8rem;margin:0}
-    .pickrow{display:flex;align-items:center;gap:.7rem;padding:.35rem 0;cursor:pointer}
-    .pickrow+.pickrow{border-top:1px solid var(--line)}
-    /* Unqualified `input{width:100%}` above would stretch a checkbox into a bar. */
-    .pickrow input[type=checkbox]{width:auto;flex:none}
-    /* Arabic data must read right-to-left WITHOUT flipping the English row it
-       sits in. `unicode-bidi:plaintext` resolves direction from the text itself
-       while the box stays left-aligned; `dir="auto"` would also right-align the
-       cell and push the row's own labels to the wrong side. */
-    .pickname{flex:1;min-width:0;unicode-bidi:plaintext;text-align:left}
-    .steps{counter-reset:step;display:flex;flex-direction:column;gap:.9rem;margin:.6rem 0}
-    .step{display:flex;gap:.8rem}
-    .step-n{flex:none;width:24px;height:24px;border-radius:50%;background:var(--accent-weak);
-      color:var(--accent-ink);display:grid;place-items:center;font-size:.78rem;font-weight:600}
-    .step-body{min-width:0;flex:1}
-    .step-body h3{margin:.1rem 0 .3rem;font-size:.95rem;font-weight:600}
-    pre.script{direction:ltr;max-height:260px;overflow:auto;background:var(--chip);
-      border-radius:10px;padding:.8rem;font-size:.8rem;margin:.5rem 0}
-    /* Settings sections (spec 33): a compact, app-like two-pane workspace.
-       Navigation changes only what is visible; the forms and their explicit
-       save behavior stay exactly where their backend contracts expect them. */
-    .settings-hero{padding:.35rem 0 1.25rem;border-bottom:1px solid var(--line)}
-    .settings-eyebrow{display:block;margin-bottom:.35rem;color:var(--accent-ink);
-      font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
-    .settings-hero h1{margin:0 0 .35rem;font-size:1.7rem;line-height:1.2}
-    .settings-hero p{max-width:650px;margin:0;color:var(--muted)}
-    .settings-shell{display:grid;grid-template-columns:230px minmax(0,1fr);gap:1.25rem;
-      align-items:start;margin-top:1.25rem}
-    .settings-sidebar{position:sticky;top:calc(var(--sticky-tabs) + 1rem);padding:.7rem;
-      border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:var(--shadow)}
-    .settings-sidebar-title{padding:.35rem .45rem .65rem}
-    .settings-sidebar-title strong{display:block;font-size:.9rem}
-    .settings-sidebar-title span{display:block;color:var(--muted);font-size:.75rem}
-    .settings-nav{display:flex;flex-direction:column;gap:.2rem}
-    .settings-nav-item{width:100%;display:grid;grid-template-columns:32px minmax(0,1fr);
-      gap:.65rem;align-items:center;padding:.62rem;border:0;border-radius:9px;background:transparent;
-      color:var(--text);font:inherit;text-align:left;cursor:pointer}
-    .settings-nav-item:hover{background:var(--chip)}
-    .settings-nav-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-    .settings-nav-item.is-active{background:var(--accent-weak);color:var(--accent-ink)}
-    .settings-nav-icon{width:32px;height:32px;display:grid;place-items:center;border:1px solid var(--line);
-      border-radius:9px;background:var(--surface);color:var(--muted)}
-    .settings-nav-item.is-active .settings-nav-icon{border-color:transparent;color:var(--accent-ink)}
-    .settings-nav-icon svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;
-      stroke-linecap:round;stroke-linejoin:round}
-    .settings-nav-copy{min-width:0}
-    .settings-nav-copy strong,.settings-nav-copy small{display:block}
-    .settings-nav-copy strong{font-size:.84rem;font-weight:600}
-    .settings-nav-copy small{margin-top:.05rem;color:var(--muted);font-size:.7rem;line-height:1.3}
-    .settings-nav-item.is-active .settings-nav-copy small{color:var(--accent-ink);opacity:.82}
-    .settings-assurance{display:flex;gap:.55rem;align-items:flex-start;margin-top:.75rem;padding:.75rem .45rem .25rem;
-      border-top:1px solid var(--line)}
-    .settings-assurance-mark{width:24px;height:24px;flex:none;display:grid;place-items:center;
-      border-radius:7px;background:var(--accent-weak);color:var(--accent-ink);font-weight:600}
-    .settings-assurance strong{display:block;font-size:.78rem}
-    .settings-assurance span:last-child{display:block;color:var(--muted);font-size:.69rem;line-height:1.4}
-    .settings-content{min-width:0}
-    .settings-category[hidden]{display:none}
-    .settings-category-head{margin:0 0 .8rem;padding:.1rem .15rem}
-    .settings-category-head h2{margin:0 0 .2rem;font-size:1.08rem}
-    .settings-category-head p{margin:0;color:var(--muted);font-size:.82rem}
-    .settings-list{overflow:hidden;border:1px solid var(--line);border-radius:14px;
-      background:var(--surface);box-shadow:var(--shadow)}
-    /* The topbar and tab bar are both sticky, so an anchor jump lands the target
-       UNDER them. Reserving their combined height means a link to a section
-       shows that section instead of the row above it. */
-    details.sect{min-width:0;background:var(--surface);border:0;border-bottom:1px solid var(--line);
-      border-radius:0;scroll-margin-top:110px;transition:background .15s}
-    details.sect:last-child{border-bottom:0}
-    details.sect[open]{background:var(--surface)}
-    details.sect>summary{display:grid;grid-template-columns:minmax(0,1fr) auto;
-      grid-template-rows:auto auto;column-gap:.8rem;align-items:center;min-height:72px;
-      padding:.82rem 1rem;cursor:pointer;list-style:none}
-    details.sect>summary::-webkit-details-marker{display:none}
-    details.sect>summary:focus{outline:none}
-    details.sect>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-    details.sect>summary::after{content:"›";grid-column:2;grid-row:1/-1;align-self:center;
-      color:var(--muted);font-size:1.25rem;line-height:1;transition:transform .15s}
-    details.sect>summary:hover{background:var(--bg);color:var(--accent-ink)}
-    details.sect[open]>summary{border-bottom:1px solid var(--line)}
-    details.sect[open]>summary::after{transform:rotate(90deg);color:var(--accent-ink)}
-    .sect-name{grid-column:1;font-weight:600}
-    .sect-sub{grid-column:1;color:var(--muted);font-size:.8rem}
-    .sect-body{padding:.6rem 1.1rem 1.1rem}
-    .sect-body>table{table-layout:fixed}
-    .sect-body>table td,.sect-body code,.sect-body .tech{overflow-wrap:anywhere;word-break:break-word}
-    .sect-body h3{font-size:.95rem;font-weight:600;margin:1.2rem 0 .5rem}
-    @media(max-width:900px){
-      .settings-shell{grid-template-columns:1fr;gap:1rem}
-      .settings-sidebar{position:static}
-      .settings-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
-      .settings-nav-item{grid-template-columns:1fr;justify-items:center;text-align:center}
-    }
-    @media(max-width:640px){
-      .settings-hero h1{font-size:1.45rem}
-      .settings-sidebar{padding:.5rem}
-      .settings-sidebar-title{display:none}
-      .settings-nav{display:flex;flex-direction:row;overflow-x:auto;padding:.1rem}
-      .settings-nav-item{flex:0 0 auto;width:auto;grid-template-columns:28px auto;padding:.5rem .65rem;text-align:left}
-      .settings-nav-icon{width:28px;height:28px}
-      .settings-nav-copy small{display:none}
-      .settings-assurance{display:none}
-      .sect-body>table tbody>tr>th:first-child{width:7.5rem}
-    }
-    @media(prefers-reduced-motion:reduce){
-      details.sect,details.sect>summary::after,.workspace-sidebar,.sidebar-backdrop{transition:none}
-    }
-    .tech{direction:ltr;font-family:ui-monospace,monospace;font-size:.85em}
-    progress{width:100%;height:.6rem}
-    .banner.promise{background:var(--accent-weak)}
-    /* Database status, carried in the topbar on every page. */
-    .dbchip{margin-inline-start:auto;flex:none}
-    .dbchip:hover{filter:brightness(.95)}
-    .dblist{margin:.4rem 0 0;padding-inline-start:1.2rem}
-    .dblist li+li{margin-top:.3rem}
-    .dblist .tech{display:block;color:var(--muted);font-size:.85em}
-    textarea{font:inherit;padding:.45rem .7rem;border:1px solid var(--line);
-      border-radius:8px;background:var(--surface);color:var(--text)}
-    code{direction:ltr;font-family:ui-monospace,monospace;background:var(--chip);
-      padding:.1rem .35rem;border-radius:5px;font-size:.85em}
-  </style>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/components.css">
+  <link rel="stylesheet" href="/static/webui.css">
   <link rel="stylesheet" href="/static/table-theme.css">
-  </head>
+  <script src="/static/ui.js"></script>
+  {% block head %}{% endblock %}
+</head>
 <body>
   <header class="topbar">
-    <button type="button" class="sidebar-toggle" aria-label="Hide navigation"
+    <button type="button" class="sidebar-toggle icon-button ghost" aria-label="Hide navigation"
             aria-controls="workspace-sidebar" aria-expanded="true">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="3.5" y="4" width="17" height="16" rx="3"/>
-        <path d="M9 4v16"/>
-      </svg>
+      {{ icon("menu-open") }}
     </button>
+    <a href="/" class="brand topbar-brand">
+      <span class="brand-logo" aria-hidden="true"></span>
+      <span>ScrapeX</span>
+    </a>
     {# Database status belongs on every page, because the database is what every
        page is made of. The chip states it in words — never colour alone — and
        links to the section that acts on it. #}
@@ -312,18 +37,6 @@
   {% set ctx = ("?source_key=" ~ source_key) if source_key else "" %}
   <div class="workspace-shell">
     <aside class="workspace-sidebar" id="workspace-sidebar" aria-label="Workspace navigation">
-      <svg class="wsnav-symbols" aria-hidden="true">
-        <symbol id="wsnav-data" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/></symbol>
-        <symbol id="wsnav-changes" viewBox="0 0 24 24"><path d="m4 17 5-5 4 4 7-8"/><path d="M15 8h5v5"/></symbol>
-        <symbol id="wsnav-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
-        <symbol id="wsnav-review" viewBox="0 0 24 24"><path d="M4.5 12.5 9 17l10.5-11"/></symbol>
-        <symbol id="wsnav-jobs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></symbol>
-        <symbol id="wsnav-schedules" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M8 3v4M16 3v4M3.5 9.5h17M8 13h3M13 13h3M8 16.5h3"/></symbol>
-        <symbol id="wsnav-sync" viewBox="0 0 24 24"><path d="M20 7h-6l2.5-2.5M14 7l2.5 2.5M4 17h6l-2.5 2.5M10 17l-2.5-2.5"/><path d="M18.5 11A7 7 0 0 1 7 17M5.5 13A7 7 0 0 1 17 7"/></symbol>
-        <symbol id="wsnav-exports" viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4.5 20h15"/></symbol>
-        <symbol id="wsnav-logs" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M9 12h6M9 16h6"/></symbol>
-        <symbol id="wsnav-settings" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h3M11 12h9M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></symbol>
-      </svg>
       <div class="workspace-sidebar-head">
         <a href="/" class="workspace-sidebar-brand">
           <span class="brand-logo" aria-hidden="true"></span>ScrapeX
@@ -333,26 +46,26 @@
       <nav class="wstabs" aria-label="Workspace">
         {% for group, items in [
           ("Browse", [
-            ("/source/" ~ source_key if source_key else "/", "Data", "data"),
-            ("/changes" ~ ctx, "Changes", "changes"),
-            ("/history" ~ ctx, "Crawl history", "history"),
-            ("/review" ~ ctx, "Review queue", "review")]),
+            ("/source/" ~ source_key if source_key else "/", "Data", "data", "storage"),
+            ("/changes" ~ ctx, "Changes", "changes", "trending-up"),
+            ("/history" ~ ctx, "Crawl history", "history", "history"),
+            ("/review" ~ ctx, "Review queue", "review", "check")]),
           ("Automation", [
-            ("/jobs", "Jobs", "jobs"),
-            ("/schedules", "Schedules", "schedules")]),
+            ("/jobs", "Jobs", "jobs", "play-circle"),
+            ("/schedules", "Schedules", "schedules", "schedule")]),
           ("Outputs", [
-            ("/sync", "Sync", "sync"),
-            ("/exports", "Exports", "exports")]),
+            ("/sync", "Sync", "sync", "sync"),
+            ("/exports", "Exports", "exports", "file-download")]),
           ("System", [
-            ("/logs", "Logs", "logs"),
-            ("/settings", "Settings", "settings")])
+            ("/logs", "Logs", "logs", "description"),
+            ("/settings", "Settings", "settings", "settings")])
         ] %}
           <div class="wsnav-group">
             <span class="wsnav-label">{{ group }}</span>
             <div class="wsnav-links">
-              {% for href, label, key in items %}
+              {% for href, label, key, icon_name in items %}
                 <a href="{{ href }}" title="{{ label }}"{% if tab == key %} aria-current="page"{% endif %}>
-                  <svg class="wsnav-icon" aria-hidden="true"><use href="#wsnav-{{ key }}"></use></svg>
+                  {{ icon(icon_name, "wsnav-icon") }}
                   <span>{{ label }}</span>
                 </a>
               {% endfor %}
@@ -379,78 +92,5 @@
     </main>
   </div>
   <div class="sidebar-backdrop" aria-hidden="true"></div>
-  <script>
-  // The left rail starts directly below the topbar. The topbar's height changes
-  // with its own content, so the offset is measured rather than assumed.
-  //
-  // Progressive enhancement: the CSS defaults are sensible on their own, so a
-  // page with scripting off gets a slightly imperfect offset, never a broken one.
-  (function () {
-    var root = document.documentElement;
-    var topbar = document.querySelector('.topbar');
-    function measure() {
-      var top = topbar ? topbar.getBoundingClientRect().height : 0;
-      root.style.setProperty('--sticky-tabs', Math.round(top) + 'px');
-    }
-    measure();
-    if (window.ResizeObserver) {
-      var observer = new ResizeObserver(measure);
-      if (topbar) observer.observe(topbar);
-    } else {
-      window.addEventListener('resize', measure);
-    }
-
-    var body = document.body;
-    var toggle = document.querySelector('.sidebar-toggle');
-    var backdrop = document.querySelector('.sidebar-backdrop');
-    var navigation = document.querySelector('.wstabs');
-    var sidebar = document.querySelector('.workspace-sidebar');
-    var narrow = window.matchMedia('(max-width: 900px)');
-    if (toggle && navigation && sidebar) {
-      body.classList.add('sidebar-ready');
-      var sidebarPreference = 'scrapex-navigation-hidden';
-      function desktopPreference() {
-        try { return window.localStorage.getItem(sidebarPreference) !== 'true'; }
-        catch (error) { return true; }
-      }
-      function rememberDesktop(open) {
-        try { window.localStorage.setItem(sidebarPreference, String(!open)); }
-        catch (error) { /* A blocked preference must never block navigation. */ }
-      }
-      function setSidebar(open, remember) {
-        body.classList.toggle('sidebar-open', narrow.matches && open);
-        body.classList.toggle('sidebar-hidden', !narrow.matches && !open);
-        toggle.setAttribute('aria-expanded', String(open));
-        toggle.setAttribute('aria-label', open ? 'Hide navigation' : 'Show navigation');
-        toggle.setAttribute('title', open ? 'Hide navigation' : 'Show navigation');
-        sidebar.toggleAttribute('inert', !open);
-        if (!open) sidebar.setAttribute('aria-hidden', 'true');
-        else sidebar.removeAttribute('aria-hidden');
-        if (remember && !narrow.matches) rememberDesktop(open);
-        if (open && narrow.matches) {
-          var current = navigation.querySelector('[aria-current="page"]') || navigation.querySelector('a');
-          if (current) current.focus();
-        }
-      }
-      toggle.addEventListener('click', function () {
-        var open = narrow.matches
-          ? !body.classList.contains('sidebar-open')
-          : body.classList.contains('sidebar-hidden');
-        setSidebar(open, true);
-      });
-      if (backdrop) backdrop.addEventListener('click', function () { setSidebar(false, false); toggle.focus(); });
-      document.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape' && body.classList.contains('sidebar-open')) {
-          setSidebar(false, false); toggle.focus();
-        }
-      });
-      function syncSidebarMode() {
-        setSidebar(narrow.matches ? false : desktopPreference(), false);
-      }
-      if (narrow.addEventListener) narrow.addEventListener('change', syncSidebarMode);
-      syncSidebarMode();
-    }
-  })();
-  </script>
 </body>
 </html>

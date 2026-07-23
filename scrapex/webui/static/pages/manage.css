@@ -1,0 +1,9 @@
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.7rem;margin:.6rem 0}
+  .field{display:flex;flex-direction:column;gap:.25rem}
+  .field label{font-size:.78rem;color:var(--muted)}
+  .field .hint{font-size:.7rem;color:var(--muted)}
+  .probe-row{display:flex;gap:.5rem;align-items:center;margin:.4rem 0}
+  .probe-row input{flex:1}
+  #evidence{font-size:.85rem;margin:.4rem 0}
+  .ev{color:var(--muted)}
+  .ok{color:var(--accent)}.err{color:var(--red)}

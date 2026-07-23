@@ -151,9 +151,20 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # Drop the module <script src>: file:// blocks module loads by CORS, and the
     # real app.js is inlined below anyway.
     body = re.sub(r'<script type="module".*?</script>', "", body, flags=re.S)
-    style = _embed_icons(html.split("<style>", 1)[1].split("</style>", 1)[0])
+    style = _embed_icons((EXT / "app.css").read_text(encoding="utf-8"))
     tokens_css = (EXT / "tokens.css").read_text(encoding="utf-8")
     components_css = _embed_icons((EXT / "components.css").read_text(encoding="utf-8"))
+    # External SVG fragments work on the extension origin but not reliably from
+    # the harness's file:// document. Inline the exact same generated sprite and
+    # point every <use> at the local symbols for deterministic visual tests.
+    sprite = (EXT / "icons" / "material-icons.svg").read_text(encoding="utf-8")
+    sprite_body = re.sub(r"^<svg[^>]*>|</svg>\s*$", "", sprite, flags=re.S)
+    body = re.sub(r'href=(["\'])icons/material-icons\.svg#', r'href=\1#', body)
+    body = (
+        "<svg aria-hidden='true' width='0' height='0' "
+        "style='position:absolute;overflow:hidden'>"
+        f"{sprite_body}</svg>{body}"
+    )
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
 

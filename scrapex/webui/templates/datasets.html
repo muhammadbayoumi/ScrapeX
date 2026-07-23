@@ -1,50 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Generic datasets · ScrapeX{% endblock %}
-{% block content %}
+{% block head %}
 {# Tabulator is served from OUR origin, never a CDN. ScrapeX has to work on a
    machine with no internet, and a page that quietly fetches a library would
    fail exactly when the owner is offline. See static/vendor/README.md. #}
-<link rel="stylesheet" href="/static/vendor/tabulator.min.css">
-{# Loaded AFTER the library so the project's own table appearance wins. #}
-<link rel="stylesheet" href="/static/grid-theme.css">
-<script src="/static/vendor/tabulator.min.js" defer></script>
-<style>
-  .dataset-workflow{display:grid;gap:1rem}
-  .dataset-workflow section{background:var(--surface);border:1px solid var(--line);
-    border-radius:12px;padding:1rem 1.1rem;box-shadow:var(--shadow)}
-  .dataset-workflow h2{margin:.1rem 0 .5rem}
-  .state{border:1px solid var(--line);border-radius:9px;padding:.65rem .75rem;
-    margin:.75rem 0;font-size:.88rem}
-  .state[hidden]{display:none}
-  .state.failure{border-inline-start:4px solid var(--red)}
-  .state.success{border-inline-start:4px solid var(--accent)}
-  .state.loading{border-inline-start:4px solid var(--amber)}
-  .snapshot-form textarea{min-height:12rem;width:100%;direction:ltr;
-    font-family:ui-monospace,monospace;resize:vertical}
-  .candidate-list,.dataset-list{display:grid;gap:.75rem}
-  .candidate{border:1px solid var(--line);border-radius:10px;padding:.85rem}
-  .candidate h3{margin:0;font-size:1rem}
-  .candidate-meta{display:flex;gap:.5rem;flex-wrap:wrap;margin:.4rem 0}
-  .warnings{margin:.5rem 0;padding-inline-start:1.2rem}
-  .warnings li{margin:.2rem 0}
-  .schema-form{display:grid;gap:.75rem;margin-top:.8rem}
-  .schema-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.7rem}
-  .field-editor input,.field-editor select{min-width:9rem;width:100%}
-  .field-editor input[type=checkbox]{width:auto;min-width:0}
-  .candidate-preview,.records-table{max-height:28rem;overflow:auto}
-  .candidate-preview thead th,.records-table thead th{top:0}
-  .dataset-item{display:flex;align-items:center;justify-content:space-between;gap:.8rem;
-    border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem}
-  .dataset-title{font-weight:600;unicode-bidi:plaintext}
-  .dataset-sub{font-size:.8rem;color:var(--muted)}
-  .value{unicode-bidi:plaintext;text-align:left;white-space:pre-wrap}
-  .approval-note{font-size:.82rem;color:var(--muted);margin:.35rem 0}
-  details.approval{border-top:1px solid var(--line);margin-top:.8rem;padding-top:.65rem}
-  details.approval summary{cursor:pointer;font-weight:600}
-  .toolbar{display:flex;align-items:center;justify-content:space-between;gap:.7rem;
-    flex-wrap:wrap;margin:.6rem 0}
-  @media (max-width:700px){.schema-grid{grid-template-columns:1fr}}
-</style>
+  <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
+  {# Loaded AFTER the library so the project's own table appearance wins. #}
+  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-1">
+  <link rel="stylesheet" href="/static/pages/datasets.css">
+  <script src="/static/vendor/tabulator.min.js" defer></script>
+{% endblock %}
+{% block content %}
+
 
 <div class="dataset-workflow">
   <header>

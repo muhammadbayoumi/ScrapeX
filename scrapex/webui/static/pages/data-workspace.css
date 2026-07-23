@@ -1,5 +1,4 @@
-<style>
-  .wrap:has(.data-workspace){max-width:none;padding:1rem clamp(.75rem,1.4vw,1.35rem)}
+.wrap:has(.data-workspace){max-width:none;padding:1rem clamp(.75rem,1.4vw,1.35rem)}
   .wrap:has(.data-workspace){overflow-x:auto;scrollbar-gutter:stable}
   .data-workspace{--data-canvas-width:82rem;display:grid;width:100%;min-width:0;
     grid-template-columns:15.25rem minmax(0,1fr);gap:1rem;align-items:start}
@@ -152,4 +151,3 @@
   @media(prefers-reduced-motion:reduce){
     .data-control-secondary>summary::after{transition:none}
   }
-</style>

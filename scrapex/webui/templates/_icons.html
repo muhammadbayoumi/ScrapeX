@@ -1,0 +1,7 @@
+{% macro icon(name, class_name="", label="") -%}
+<svg class="sx-icon{% if class_name %} {{ class_name }}{% endif %}"
+     {% if label %}role="img" aria-label="{{ label }}"{% else %}aria-hidden="true"{% endif %}
+     focusable="false">
+  <use href="/static/material-icons/material-icons.svg#{{ name }}"></use>
+</svg>
+{%- endmacro %}

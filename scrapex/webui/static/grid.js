@@ -41,20 +41,12 @@
   // grid. Those values could leave a header too narrow for its controls and a
   // saved sorter could make the first three-click cycle start mid-sequence.
   const PERSISTENCE_ID = "scrapex-grid-v2-" + SOURCE;
-  const MATERIAL_ICON_SPRITE = "/static/material-icons/material-icons.svg?v=columns-2";
-  // A DOM namespace, not a network address. Keep it split so the offline-only
-  // guard can continue rejecting every literal runtime http(s) URL in this file.
-  const SVG_NAMESPACE = "http:" + "//www.w3.org/2000/svg";
+  const materialIcon = window.ScrapeXUI.icon;
+  const materialIconElement = window.ScrapeXUI.iconNode;
 
-  function materialIcon(name, className, title) {
-    return "<svg class='material-icon " + className + "' viewBox='0 0 24 24'" +
-      " aria-hidden='true' focusable='false' title='" + title + "'>" +
-      "<use href='" + MATERIAL_ICON_SPRITE + "#" + name + "'></use></svg>";
-  }
-
-  const FILTER_ICON = materialIcon("filter-list", "material-filter-icon", "Filter this column");
-  const MENU_ICON = materialIcon("more-vert", "material-menu-icon", "Column menu");
-  const SORT_ICON = materialIcon("arrow-upward", "material-sort-icon", "Sort direction");
+  const FILTER_ICON = materialIcon("filter-list", "material-filter-icon");
+  const MENU_ICON = materialIcon("more-vert", "material-menu-icon");
+  const SORT_ICON = materialIcon("arrow-upward", "material-sort-icon");
 
   // ---- active filters, and the line that reports them ----------------------
   // Kept here rather than inside Tabulator so the page can SAY what is being
@@ -236,8 +228,11 @@
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "chip pill";
-      chip.textContent = column + ": " +
-        (f.values ? f.values.length + " selected" : "contains " + f.text) + " ✕";
+      const label = document.createElement("span");
+      label.textContent = column + ": " +
+        (f.values ? f.values.length + " selected" : "contains " + f.text);
+      chip.append(label);
+      chip.insertAdjacentHTML("beforeend", materialIcon("close", "inline-icon"));
       chip.title = "Remove this filter";
       chip.addEventListener("click", () => { active.delete(field); applyFilters(); });
       bar.append(chip);
@@ -345,19 +340,6 @@
   }
 
   // ---- the three-dot menu ---------------------------------------------------
-  function materialIconElement(iconName, className) {
-    const glyph = document.createElementNS(SVG_NAMESPACE, "svg");
-    glyph.classList.add("material-icon");
-    if (className) glyph.classList.add(className);
-    glyph.setAttribute("viewBox", "0 0 24 24");
-    glyph.setAttribute("aria-hidden", "true");
-    glyph.setAttribute("focusable", "false");
-    const use = document.createElementNS(SVG_NAMESPACE, "use");
-    if (iconName) use.setAttribute("href", MATERIAL_ICON_SPRITE + "#" + iconName);
-    glyph.append(use);
-    return glyph;
-  }
-
   function menuLabel(iconName, labelText) {
     const label = document.createElement("span");
     label.className = "grid-menu-label";

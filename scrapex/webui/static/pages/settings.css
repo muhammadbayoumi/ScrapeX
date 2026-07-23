@@ -1,0 +1,86 @@
+/* Settings sections (spec 33): a compact, app-like two-pane workspace.
+       Navigation changes only what is visible; the forms and their explicit
+       save behavior stay exactly where their backend contracts expect them. */
+    .settings-hero{padding:var(--sp-1) 0 var(--sp-5);border-bottom:1px solid var(--line)}
+    .settings-eyebrow{display:block;margin-bottom:var(--sp-1);color:var(--accent-ink);
+      font-size:var(--fs-xs);font-weight:var(--fw-bold);letter-spacing:.08em;text-transform:uppercase}
+    .settings-hero h1{margin:0 0 var(--sp-1);font-size:var(--fs-2xl);line-height:var(--lh-tight)}
+    .settings-hero p{max-width:40.625rem;margin:0;color:var(--muted)}
+    .settings-shell{display:grid;grid-template-columns:14.375rem minmax(0,1fr);gap:var(--sp-5);
+      align-items:start;margin-top:var(--sp-5)}
+    .settings-sidebar{position:sticky;top:calc(var(--sticky-tabs) + var(--sp-4));padding:var(--sp-3);
+      border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface);box-shadow:var(--shadow-sm)}
+    .settings-sidebar-title{padding:.35rem .45rem .65rem}
+    .settings-sidebar-title strong{display:block;font-size:.9rem}
+    .settings-sidebar-title span{display:block;color:var(--muted);font-size:.75rem}
+    .settings-nav{display:flex;flex-direction:column;gap:.2rem}
+    .settings-nav-item{width:100%;display:grid;grid-template-columns:2rem minmax(0,1fr);
+      gap:var(--sp-3);align-items:center;min-height:3.25rem;padding:var(--sp-2);border:0;border-radius:var(--radius);background:transparent;
+      color:var(--text);font:inherit;text-align:left;cursor:pointer}
+    .settings-nav-item:hover{background:var(--control-hover)}
+    .settings-nav-item.is-active{background:var(--accent-weak);color:var(--accent-ink)}
+    .settings-nav-icon{width:2rem;height:2rem;display:grid;place-items:center;border:1px solid var(--line);
+      border-radius:var(--radius);background:var(--surface);color:var(--muted)}
+    .settings-nav-item.is-active .settings-nav-icon{border-color:transparent;color:var(--accent-ink)}
+    .settings-nav-icon svg{width:1.0625rem;height:1.0625rem;fill:currentColor}
+    .settings-nav-copy{min-width:0}
+    .settings-nav-copy strong,.settings-nav-copy small{display:block}
+    .settings-nav-copy strong{font-size:.84rem;font-weight:600}
+    .settings-nav-copy small{margin-top:.05rem;color:var(--muted);font-size:.7rem;line-height:1.3}
+    .settings-nav-item.is-active .settings-nav-copy small{color:var(--accent-ink);opacity:.82}
+    .settings-assurance{display:flex;gap:.55rem;align-items:flex-start;margin-top:.75rem;padding:.75rem .45rem .25rem;
+      border-top:1px solid var(--line)}
+    .settings-assurance-mark{width:24px;height:24px;flex:none;display:grid;place-items:center;
+      border-radius:7px;background:var(--accent-weak);color:var(--accent-ink);font-weight:600}
+    .settings-assurance strong{display:block;font-size:.78rem}
+    .settings-assurance span:last-child{display:block;color:var(--muted);font-size:.69rem;line-height:1.4}
+    .settings-content{min-width:0}
+    .settings-category[hidden]{display:none}
+    .settings-category-head{margin:0 0 .8rem;padding:.1rem .15rem}
+    .settings-category-head h2{margin:0 0 .2rem;font-size:1.08rem}
+    .settings-category-head p{margin:0;color:var(--muted);font-size:.82rem}
+    .settings-list{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius-xl);
+      background:var(--surface);box-shadow:var(--shadow-sm)}
+    /* The topbar and tab bar are both sticky, so an anchor jump lands the target
+       UNDER them. Reserving their combined height means a link to a section
+       shows that section instead of the row above it. */
+    details.sect{min-width:0;background:var(--surface);border:0;border-bottom:1px solid var(--line);
+      border-radius:0;scroll-margin-top:6.875rem;transition:background var(--dur-fast)}
+    details.sect:last-child{border-bottom:0}
+    details.sect[open]{background:var(--surface)}
+    details.sect>summary{display:grid;grid-template-columns:minmax(0,1fr) auto;
+      grid-template-rows:auto auto;column-gap:var(--sp-3);align-items:center;min-height:4.5rem;
+      padding:var(--sp-3) var(--sp-4);cursor:pointer;list-style:none}
+    details.sect>summary::-webkit-details-marker{display:none}
+    details.sect>summary:focus{outline:none}
+    details.sect>summary::after{content:"›";grid-column:2;grid-row:1/-1;align-self:center;
+      color:var(--muted);font-size:var(--fs-xl);line-height:1;transition:transform var(--dur)}
+    details.sect>summary:hover{background:var(--surface-subtle);color:var(--accent-ink)}
+    details.sect[open]>summary{border-bottom:1px solid var(--line)}
+    details.sect[open]>summary::after{transform:rotate(90deg);color:var(--accent-ink)}
+    .sect-name{grid-column:1;font-weight:600}
+    .sect-sub{grid-column:1;color:var(--muted);font-size:.8rem}
+    .sect-body{padding:.6rem 1.1rem 1.1rem}
+    .sect-body>table{table-layout:fixed}
+    .sect-body>table td,.sect-body code,.sect-body .tech{overflow-wrap:anywhere;word-break:break-word}
+    .sect-body h3{font-size:.95rem;font-weight:600;margin:1.2rem 0 .5rem}
+    @media(max-width:900px){
+      .settings-shell{grid-template-columns:1fr;gap:1rem}
+      .settings-sidebar{position:static}
+      .settings-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+      .settings-nav-item{grid-template-columns:1fr;justify-items:center;text-align:center}
+    }
+    @media(max-width:640px){
+      .settings-hero h1{font-size:1.45rem}
+      .settings-sidebar{padding:.5rem}
+      .settings-sidebar-title{display:none}
+      .settings-nav{display:flex;flex-direction:row;overflow-x:auto;padding:.1rem}
+      .settings-nav-item{flex:0 0 auto;width:auto;grid-template-columns:28px auto;padding:.5rem .65rem;text-align:left}
+      .settings-nav-icon{width:28px;height:28px}
+      .settings-nav-copy small{display:none}
+      .settings-assurance{display:none}
+      .sect-body>table tbody>tr>th:first-child{width:7.5rem}
+    }
+    @media(prefers-reduced-motion:reduce){
+      details.sect,details.sect>summary::after,.workspace-sidebar,.sidebar-backdrop{transition:none}
+    }

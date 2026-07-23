@@ -1,0 +1,300 @@
+:root { --brand-mark: url("icons/x-mark.png"); }
+
+/* Page layout only — primitives and tokens live in the shared sheets. */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow-x: hidden; }
+
+  /* Nothing may widen the panel: it can be as narrow as 320px. */
+  * { min-width: 0; }
+  .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
+
+  .sx-header { position: sticky; top: 0; z-index: var(--z-sticky);
+               display: flex; align-items: center; justify-content: space-between;
+               min-height: 3.5rem; padding: var(--sp-2) var(--sp-4);
+               border-bottom: 1px solid var(--line); background: var(--surface);
+               box-shadow: var(--shadow-xs); }
+  .estat { font-size: var(--fs-sm); color: var(--muted); display: flex;
+           align-items: center; gap: var(--sp-1); cursor: pointer;
+           min-height: var(--control-height-sm); background: none; border: 0;
+           padding: var(--sp-1); font-weight: var(--fw-regular); }
+  .estat:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
+  .chev { transition: transform var(--dur) var(--ease); }
+  .chev.open { transform: rotate(90deg); }
+
+  main { flex: 1; overflow-y: auto; padding: var(--sp-4);
+         display: flex; flex-direction: column; gap: var(--sp-4); }
+  h2 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
+       color: var(--muted); margin: var(--sp-1) 0; }
+  .field { display: flex; gap: var(--sp-2); }
+  .field input, .field select { flex: 1; }
+  .links { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+  .steps code { background: var(--chip); }
+
+  /* Sites checklist — fixed height so the list can never push the run button off
+     screen, however many sites are registered. Rows reuse the shared `.srow`
+     primitive rather than reinventing one; only the stacking is page-specific. */
+  .checklist { max-height: 11.875rem; overflow-y: auto; display: flex; flex-direction: column;
+               gap: var(--sp-1); padding: var(--sp-1) var(--sp-1) var(--sp-3); }
+  /* A row cut mid-height at the scroll edge reads as a broken layout. Fading the
+     last few pixels makes it read as "there is more below" instead. The extra
+     bottom padding means the fade lands on empty space when nothing overflows. */
+  .checklist { mask-image: linear-gradient(to bottom, var(--text) calc(100% - var(--sp-4)), transparent); }
+  .checklist .srow { align-items: flex-start; }
+  .checklist .srow.off { opacity: .6; }
+  .checklist label { display: flex; gap: var(--sp-2); align-items: flex-start; flex: 1;
+                     cursor: pointer; }
+  .checklist .srow.off label { cursor: not-allowed; }
+  .toolbar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+             font-size: var(--fs-xs); }
+  .toolbar .spacer { flex: 1; }
+  .sched-row { padding: var(--sp-2) 0; border-bottom: 1px solid var(--line); }
+  .sched-summary { justify-content: space-between; cursor: pointer; list-style: none; }
+  .sched-summary::-webkit-details-marker { display: none; }
+  .sched-body { margin-top: var(--sp-2); }
+  .sched-fields { gap: var(--sp-2); }
+
+  /* Small layout primitives, declared once instead of repeated as inline styles. */
+  .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .flush { margin-top: 0; }
+  .setup-title { margin-bottom: var(--sp-1); font-weight: var(--fw-bold); }
+  .hint { font-size: var(--fs-xs); margin-top: var(--sp-1); }
+  .hint:empty { display: none; }
+  .block { width: 100%; }
+  .mt-1 { margin-top: var(--sp-1); }
+  .mt-2 { margin-top: var(--sp-2); }
+  .mt-3 { margin-top: var(--sp-3); }
+  .mb-2 { margin-bottom: var(--sp-2); }
+  .my-2 { margin-block: var(--sp-2); }
+  .toolbar-spaced { margin-block: var(--sp-2); }
+  #adv-toggle[aria-expanded="true"] .sx-icon { transform: rotate(90deg); }
+  /* Each task tab has one visible purpose, followed by clearly separated
+     sections. The side panel is too narrow for a flat stream of unrelated
+     cards: hierarchy has to come from spacing and headings, not extra chrome. */
+  #view-run, #view-data, #view-settings { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .view-heading { display: flex; flex-direction: column; gap: 2px; }
+  .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+  .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
+  .section-head { display: flex; align-items: flex-start; gap: var(--sp-2);
+                  margin-bottom: var(--sp-3); }
+  .section-head h2 { margin: 0; }
+  .section-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+  .step-number { width: 20px; height: 20px; flex: none; display: grid; place-items: center;
+                 border-radius: 50%; background: var(--accent-weak); color: var(--accent-ink);
+                 font-size: var(--fs-xs); font-weight: var(--fw-bold); }
+  .run-action { margin-top: var(--sp-3); padding-top: var(--sp-3);
+                border-top: 1px solid var(--line); }
+  .dataset-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .dataset-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .dataset-card button { width: 100%; }
+  .output-groups { display: flex; flex-direction: column; gap: var(--sp-4); }
+  .output-group + .output-group { border-top: 1px solid var(--line); padding-top: var(--sp-4); }
+  .output-group-head { margin-bottom: var(--sp-2); }
+  .output-group-head h3 { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .output-group-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+  /* Settings is an information architecture, not a stack of identical cards.
+     Related controls share one surface and the disclosure rows explain what is
+     behind them before the owner commits to opening a long form. */
+  .settings-principle { display: flex; align-items: flex-start; gap: var(--sp-2);
+                        padding: var(--sp-3); border: 1px solid var(--line);
+                        border-radius: var(--radius-lg); background: var(--accent-weak); }
+  .settings-principle .dot { margin-top: 5px; background: var(--accent); flex: none; }
+  .settings-principle strong { display: block; color: var(--accent-ink);
+                               font-size: var(--fs-sm); }
+  .settings-principle p { margin: 1px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+  .settings-group { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .settings-group-head { display: flex; align-items: baseline; justify-content: space-between;
+                         gap: var(--sp-2); padding: 0 var(--sp-1); }
+  .settings-group-head h2 { margin: 0; }
+  .settings-group-head p { margin: 0; color: var(--muted); font-size: var(--fs-xs);
+                           text-align: right; }
+  .settings-list { overflow: hidden; border: 1px solid var(--line);
+                   border-radius: var(--radius-lg); background: var(--surface); }
+  .settings-item + .settings-item { border-top: 1px solid var(--line); }
+  #view-settings .settings-toggle { display: grid; grid-template-columns: 1.5rem minmax(0,1fr) auto;
+                                    align-items: center; gap: var(--sp-3); width: 100%;
+                                    min-height: 3.75rem; padding: var(--sp-3) var(--sp-4); }
+  .settings-index { width: 1.5rem; height: 1.5rem; display: grid; place-items: center;
+                    border-radius: var(--radius-sm); background: var(--chip); color: var(--muted);
+                    font-size: var(--fs-2xs); font-variant-numeric: tabular-nums; }
+  .settings-toggle-copy { display: flex; flex-direction: column; gap: 1px; }
+  .settings-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .settings-description { color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+  .settings-chevron { width: 1.125rem; height: 1.125rem; color: var(--muted);
+                      transition: transform var(--dur); }
+  #view-settings .settings-toggle:hover .settings-index,
+  #view-settings .settings-toggle[aria-expanded="true"] .settings-index {
+    background: var(--accent-weak); color: var(--accent-ink);
+  }
+  #view-settings .settings-toggle[aria-expanded="true"] .settings-chevron {
+    transform: rotate(90deg); color: var(--accent-ink);
+  }
+  .settings-panel { padding: var(--sp-3) var(--sp-4) var(--sp-4);
+                    border-top: 1px solid var(--line); background: var(--bg); }
+  .settings-panel > :first-child { margin-top: 0; }
+  .fieldset { display: flex; flex-direction: column; gap: var(--sp-1); }
+  .fieldset > label { font-size: var(--fs-xs); color: var(--muted); }
+  /* Two columns only when there is room; one column at 320px. */
+  .two { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
+  @media (min-width: 360px) { .two { grid-template-columns: 1fr 1fr; } }
+  .check { display: flex; gap: var(--sp-2); align-items: flex-start;
+           font-size: var(--fs-sm); cursor: pointer; }
+  .check .hint { display: block; }
+  /* Output destination row: label + state, state spelled out not colour-coded. */
+  .out { display: flex; justify-content: space-between; gap: var(--sp-2);
+         align-items: baseline; padding: var(--sp-1) 0; }
+  .out + .out { border-top: 1px solid var(--line); }
+
+  /* Source picker. Each choice is a radio whose panel opens when checked, so
+     only one set of controls is ever on screen at 320px. */
+  .source-picker { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .source-picker-title { margin: var(--sp-1) 0; color: var(--muted);
+                         font-size: var(--fs-xs); font-weight: var(--fw-bold);
+                         letter-spacing: .04em; text-transform: uppercase; }
+  .source-choice { position: relative; border: 1px solid var(--line);
+                   border-radius: var(--radius-lg); background: var(--surface);
+                   overflow: hidden;
+                   transition: border-color var(--dur), background-color var(--dur); }
+  .source-choice:has(.source-radio:checked) { border-color: var(--accent); }
+  .source-radio { position: absolute; opacity: 0; pointer-events: none; }
+  .source-choice-label { display: grid; grid-template-columns: 1.0625rem minmax(0, 1fr);
+                         align-items: center; column-gap: var(--sp-3); min-height: 4rem;
+                         padding: var(--sp-3) var(--sp-4); cursor: pointer;
+                         transition: min-height var(--dur-slow) var(--ease),
+                                     padding var(--dur-slow) var(--ease); }
+  .source-choice:has(.source-radio:checked) .source-choice-label {
+    min-height: 2.875rem; padding-block: var(--sp-2);
+  }
+  .source-choice:hover { border-color: var(--accent); }
+  .source-choice:has(.source-radio:focus-visible) { outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
+                                                    outline-offset: 2px; }
+  .source-choice-icon, .source-choice-check { width: 1.0625rem; height: 1.0625rem; flex: none;
+                                              grid-column: 1; grid-row: 1;
+                                              display: grid; place-items: center;
+                                              transition: opacity var(--dur), transform var(--dur); }
+  .source-choice-check { border-radius: 50%; background: var(--accent);
+                         color: var(--accent-contrast); font-weight: var(--fw-bold);
+                         opacity: 0; transform: scale(.65); }
+  .source-choice-check .sx-icon { width: .75rem; height: .75rem; }
+  .source-choice:has(.source-radio:checked) .source-choice-icon {
+    opacity: 0; transform: scale(.65);
+  }
+  .source-choice:has(.source-radio:checked) .source-choice-check {
+    opacity: 1; transform: scale(1);
+  }
+  .source-choice-copy { grid-column: 2; display: flex; flex-direction: column; gap: 2px; }
+  .source-choice-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .source-choice-description { color: var(--muted); font-size: var(--fs-xs); }
+  .source-choice:has(.source-radio:checked) .source-choice-description { display: none; }
+  .source-choice-panel { display: grid; grid-template-rows: 0fr; opacity: 0;
+                         visibility: hidden; margin: 0 var(--sp-4); padding-bottom: 0;
+                         transition: grid-template-rows var(--dur-slow) var(--ease),
+                                     opacity var(--dur) ease, padding-bottom var(--dur-slow) var(--ease),
+                                     visibility 0s linear var(--dur-slow); }
+  .source-choice-panel-inner { min-height: 0; overflow: hidden; padding-top: 0;
+                               border-top: 1px solid transparent;
+                               transition: padding-top var(--dur-slow) var(--ease),
+                                           border-color var(--dur) ease; }
+  .source-choice:has(.source-radio:checked) .source-choice-panel {
+    grid-template-rows: 1fr; opacity: 1; visibility: visible;
+    padding-bottom: var(--sp-3); transition-delay: 0s;
+  }
+  .source-choice:has(.source-radio:checked) .source-choice-panel-inner {
+    padding-top: var(--sp-3); border-top-color: var(--line);
+  }
+  /* The Add Site panel holds the full settings form. Capping it keeps the other
+     choices reachable without scrolling past every field. */
+  .source-choice-addsite .source-choice-panel-inner { max-height: 60vh; overflow-y: auto; }
+  .source-current-preview { display: flex; align-items: flex-start; gap: var(--sp-3); }
+  .source-preview-icon { width: 1.0625rem; height: 1.0625rem; flex: none; margin-top: .125rem; }
+  .source-preview-copy { display: flex; flex-direction: column; gap: 2px; }
+  .source-preview-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .source-preview-url { color: var(--muted); font-size: var(--fs-xs); }
+  .source-url-box { display: block; width: 100%; min-height: 14rem; resize: vertical;
+                    border: 1px solid var(--line); border-radius: var(--radius);
+                    background: var(--bg);
+                    padding: var(--sp-3); color: var(--text); line-height: 1.7; }
+  .source-or { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-3) 0;
+               color: var(--muted); font-size: var(--fs-xs); text-transform: uppercase; }
+  .source-or::before, .source-or::after { content: ""; height: 1px; flex: 1; background: var(--line); }
+  .source-import { width: 100%; display: inline-flex; align-items: center; justify-content: center;
+                   gap: var(--sp-2); }
+  .source-import svg { width: 1rem; height: 1rem; }
+  .source-limit { display: flex; align-items: center; gap: var(--sp-1);
+                  margin-top: var(--sp-3); color: var(--muted); font-size: var(--fs-xs); }
+  .source-info { width: 13px; height: 13px; border-radius: 50%; background: var(--muted);
+                 color: var(--bg); display: inline-grid; place-items: center;
+                 font-size: 9px; font-weight: var(--fw-bold); }
+  .source-dropzone { min-height: 140px; padding: var(--sp-3); border: 1px dashed var(--muted);
+                     border-radius: var(--radius); display: flex; flex-direction: column;
+                     justify-content: space-between; gap: var(--sp-3); }
+  .source-drop-copy { flex: 1; display: flex; align-items: center; justify-content: center;
+                      gap: var(--sp-1); color: var(--muted); font-size: var(--fs-sm);
+                      text-align: center; }
+  .source-file-actions { display: flex; gap: var(--sp-2); }
+  .source-file-actions button { flex: 1; display: inline-flex; align-items: center;
+                                justify-content: center; gap: var(--sp-2); }
+  .source-file-actions svg { width: 1rem; height: 1rem; flex: none; }
+
+  /* Technical values stay LTR even inside an RTL-ish neighbourhood. */
+  .tech { direction: ltr; unicode-bidi: isolate; font-family: var(--font-mono);
+          font-size: var(--fs-xs); }
+  .content { unicode-bidi: plaintext; }   /* scraped/user text picks its own side */
+
+  .kv { display: flex; justify-content: space-between; gap: var(--sp-2);
+        font-size: var(--fs-sm); padding: 2px 0; }
+  .kv span:last-child { text-align: right; }
+
+  .bar { height: .375rem; border-radius: var(--radius-pill); background: var(--chip); overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; background: currentColor; transition: width var(--dur-slow) ease; }
+
+  /* Activity log: a bounded, scrollable tail — never the whole log. */
+  .logbox { max-height: 160px; overflow-y: auto; border: 1px solid var(--line);
+            border-radius: var(--radius); padding: var(--sp-2); }
+  .logline { display: flex; gap: var(--sp-2); padding: 1px 0; }
+  .logline .lvl { flex: none; width: 4.5em; }
+
+  /* The active crawl rests as a compact status bar. Native <details> supplies
+     mouse + keyboard open/close behaviour without putting crawl state in the
+     panel: the engine still owns the job and this remains only its controller. */
+  .sx-mini { position: sticky; bottom: 0; z-index: 6; border-top: 1px solid var(--line);
+             background: var(--bg); }
+  .mini-statusbar { display: flex; flex-direction: column; gap: var(--sp-2);
+                    padding: var(--sp-2) var(--sp-4); list-style: none;
+                    cursor: pointer; user-select: none; }
+  .mini-statusbar::-webkit-details-marker { display: none; }
+  .mini-statusbar:hover { background: var(--surface); }
+  .mini-status-line { display: grid; grid-template-columns: minmax(0, 1fr) auto 1.125rem;
+                      align-items: center; gap: var(--sp-2); }
+  .mini-status-line .name { overflow: hidden; text-overflow: ellipsis;
+                            white-space: nowrap; }
+  .mini-toggle { width: 1rem; height: 1rem; justify-self: end;
+                 color: var(--muted); transform: rotate(90deg);
+                 transition: transform var(--dur); }
+  .sx-mini[open] .mini-toggle { transform: rotate(270deg); }
+  .mini-progress, .mini-progress .bar-fill { display: block; }
+  .mini-progress { width: 100%; height: .1875rem; }
+  .mini-body { display: flex; flex-direction: column; gap: var(--sp-2);
+               padding: var(--sp-2) var(--sp-4) var(--sp-3);
+               border-top: 1px solid var(--line); }
+  .mini-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+  /* Bottom navigation. The active tab is marked by weight + a rule, never colour
+     alone, and carries aria-current for assistive tech. */
+  nav.tabs { display: flex; border-top: 1px solid var(--line); background: var(--bg); }
+  nav.tabs button { flex: 1; border: 0; border-top: 2px solid transparent; border-radius: 0;
+                    min-height: 3rem; background: none; color: var(--muted);
+                    padding: var(--sp-3) var(--sp-1);
+                    font-size: var(--fs-xs); color: var(--muted); }
+  nav.tabs button:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
+  @media (min-width: 360px) { nav.tabs button { font-size: var(--fs-sm); } }
+  nav.tabs button[aria-current="page"] { color: var(--text); font-weight: var(--fw-bold);
+                                         border-top-color: currentColor; }
+
+  .skeleton { height: var(--sp-3); border-radius: var(--radius-xs); background: var(--chip);
+              animation: pulse 1.4s ease-in-out infinite; margin: var(--sp-2) 0; }
+  @keyframes pulse { 0%,100% { opacity: .45 } 50% { opacity: .9 } }
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
+    .source-choice, .source-choice-label, .source-choice-icon, .source-choice-check,
+    .source-choice-panel, .source-choice-panel-inner, .settings-chevron { transition: none; }
+  }

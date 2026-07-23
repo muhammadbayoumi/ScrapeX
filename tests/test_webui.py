@@ -59,8 +59,8 @@ def test_overview_is_merged_into_the_data_workspace(client):
 
 
 def test_data_canvas_stays_centered_without_overlapping_the_dataset_toggle():
-    styles = (Path(__file__).parents[1] / "scrapex" / "webui" / "templates" /
-              "_data_workspace_styles.html").read_text(encoding="utf-8")
+    styles = (Path(__file__).parents[1] / "scrapex" / "webui" / "static" /
+              "pages" / "data-workspace.css").read_text(encoding="utf-8")
 
     assert "--data-canvas-width:82rem" in styles
     assert "justify-self:safe center" in styles

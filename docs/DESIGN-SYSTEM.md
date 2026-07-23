@@ -1,70 +1,97 @@
 # ScrapeX Design System
 
-Single source of visual truth. Tokens live in `extension/tokens.css`; shared
-component primitives in `extension/components.css`. Every UI surface (the
-extension now, the TS product later, the Python web UI) consumes these — no
-hardcoded colors/spacing anywhere (DRY).
+ScrapeX has one authored visual system shared by the browser extension and the
+local web workspace. The canonical files are:
+
+- `design/tokens.css` — semantic colour, type, spacing, shape, elevation,
+  control, motion, and layering tokens.
+- `design/components.css` — reusable controls, cards, banners, lists, badges,
+  layout helpers, icon sizing, focus treatment, and accessibility utilities.
+- `design/material-icons.svg` — the curated Google Material Icons sprite.
+
+The extension and the Python package need physical copies of these files
+because they ship independently. Never edit those generated copies directly:
+
+```powershell
+python tools/sync_design_assets.py
+python tools/sync_design_assets.py --check
+```
 
 ## Principles
-1. **Consistency over creativity** — one token set, one component set.
-2. **Theme-aware by default** — every token has a light + dark value (`prefers-color-scheme`).
-3. **English UI, any-language content** — chrome is English; content cells use
-   `unicode-bidi:plaintext` / `dir="auto"` so Arabic names render RTL correctly.
-4. **Accessible** — visible focus rings, AA contrast, ≥ touch sizing.
 
-## Tokens
+1. **Semantic tokens first.** Components consume `--surface`, `--text`,
+   `--accent`, `--control-height`, and similar intent-based values rather than
+   page-specific colour literals.
+2. **Shared behavior is a component concern.** Hover, active, focus-visible,
+   invalid, and disabled states live in `components.css`. A page stylesheet
+   should normally contain layout only.
+3. **Theme-aware by default.** Light, dark, increased-contrast, reduced-motion,
+   forced-colour, touch, and keyboard states are part of the core system.
+4. **English chrome, any-language data.** Scraped values use `.content`,
+   `.name`, or `dir="auto"` so bidirectional text is isolated correctly.
+5. **Use native semantics first.** Real buttons, links, labels, fieldsets,
+   tables, tabs, and dialogs are preferred; ARIA augments them only where the
+   native element cannot express the interaction.
+6. **One icon source.** Reuse a symbol from the Material sprite instead of
+   embedding an SVG path or drawing a replacement.
 
-| Group | Tokens | Notes |
-|---|---|---|
-| Surfaces | `--bg` `--surface` `--line` `--text` `--muted` `--chip` | neutral ramp |
-| Accent (brand/success) | `--accent` `--accent-ink` `--accent-weak` | brand, accessible accent text, subtle backgrounds |
-| Buttons | `--button-bg` `--button-text` | filled-action background and label |
-| Amber (warning/soon) | `--amber` `--amber-weak` | "coming soon", cautions |
-| Red (error/danger) | `--red` `--red-weak` | errors, engine-down |
-| Spacing (4px base) | `--sp-1`…`--sp-5` | .25 → 1.5rem |
-| Radius | `--radius-sm` `--radius` `--radius-lg` `--radius-pill` | 6 / 9 / 12 / pill |
-| Type | `--font` `--font-mono` `--fs-xs`…`--fs-lg` `--fw-regular` `--fw-bold` | Segoe UI + Noto Sans Arabic |
-| Motion | `--dur` | .15s |
+## Token groups
 
-Every token ships a dark-mode value; nothing else is themed.
-
-## Components
-
-### Button
-| Variant | Use when |
+| Group | Examples |
 |---|---|
-| primary (`button`) | the main action in a context |
-| ghost (`button.ghost`) | secondary/inline actions using the same neutral control palette |
+| Surfaces and text | `--bg`, `--surface`, `--surface-raised`, `--line`, `--text`, `--muted` |
+| Brand and status | `--accent`, `--accent-ink`, `--amber`, `--red`, `--focus` |
+| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height` |
+| Spacing | `--sp-0` through `--sp-8` on a 4 px base |
+| Shape and elevation | `--radius-xs` through `--radius-pill`, `--shadow-xs` through `--shadow-lg` |
+| Typography | `--font`, `--font-mono`, `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
+| Motion and layering | duration/easing tokens and `--z-sticky`, `--z-overlay`, `--z-modal` |
 
-| State | Visual | Behavior |
-|---|---|---|
-| default | `--button-bg` fill with `--button-text` label | — |
-| hover | `brightness(.96)` | — |
-| disabled | `opacity:.5` | non-interactive (`:disabled`) |
-| focus | 2px accent outline, 2px offset | keyboard-visible (`:focus-visible`) |
-| loading | caller sets text `…` + `disabled` | (capture buttons) |
+If a recurring need cannot be represented by an existing token, add one
+semantic token to the canonical file. Do not create a page-local colour system.
 
-**A11y:** real `<button>` elements (keyboard + role free); focus ring always visible.
+## Reusable primitives
 
-### Card — `default` · `hi` (accent border) · `warn` (danger bg)
-Container for a grouped block. `hi` = "you're on a known site"; `warn` = engine down.
+- Buttons: default primary, `.ghost`, `.danger`, `.link`, `.icon-button`,
+  `.compact`, and `.sect`.
+- Inputs: text controls, selects, textareas, checkboxes, radios, invalid and
+  disabled states.
+- Containers: `.card`, `.banner`, `.empty`, `.stack`, `.cluster`, and `.grid`.
+- Status and data: `.chip`, `.badge`, `.dot`, `.source-row`, `.content`, and
+  `.num`.
+- Accessibility: `.visually-hidden`, consistent `:focus-visible`, coarse
+  pointer sizing, reduced-motion fallbacks, and forced-colour fallbacks.
 
-### Chip / badge — `chip` · `chip.off`
-Small status pill. `off` (amber) = "support coming soon".
+Tables use `static/table-theme.css`. Tabulator maps to the same table vocabulary
+through `static/grid-theme.css`; renderer-specific overrides stay there.
 
-### Status dot — `dot` · `dot.on` · `dot.off`
-Engine connection indicator in the header (green = connected, red = not running).
+## Material icons
 
-### Input
-Full-width; token-styled border/radius; inherits focus ring.
+The sprite is sourced from
+[`google/material-design-icons`](https://github.com/google/material-design-icons)
+and retains its Apache 2.0 notice in
+`scrapex/webui/static/material-icons/LICENSE.txt`.
 
-### Source row — `srow`
-One site: name (`.name`, bidi-plaintext) + price count (`.n`, tabular-nums) + action.
+Use an icon decoratively with an adjacent visible label:
 
-## Do / Don't
-| ✅ Do | ❌ Don't |
-|---|---|
-| use `var(--token)` for every color/space | hardcode hex or px |
-| add new semantic tokens if a real need appears | invent one-off colors in a page |
-| keep page `<style>` to layout only | re-declare primitives per page |
-| wrap content cells in `.name` / `dir="auto"` | assume LTR for scraped text |
+```html
+<svg class="material-icon" aria-hidden="true">
+  <use href="/static/material-icons/material-icons.svg#settings"></use>
+</svg>
+```
+
+An icon-only button must also have an `aria-label`. Add a symbol to the
+canonical sprite only when the repository contains no suitable symbol already.
+
+## File ownership
+
+- Shared visual values and interaction states: `design/`.
+- Web application shell: `scrapex/webui/static/webui.css`.
+- One web page's layout: `scrapex/webui/static/pages/`.
+- Native and Tabulator tables: `table-theme.css` and `grid-theme.css`.
+- Extension panel and onboarding layout: `extension/app.css` and
+  `extension/onboarding.css`.
+
+The guard in `tests/test_design_system.py` rejects stale generated assets,
+inline style attributes, embedded SVG paths, and a missing Material icon
+license.

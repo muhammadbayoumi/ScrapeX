@@ -39,7 +39,18 @@ scrapex = "scrapex.cli:main"
 include = ["scrapex*"]
 
 [tool.setuptools.package-data]
-"scrapex.webui" = ["templates/*.html", "static/*.png"]
+"scrapex.webui" = [
+    "templates/*.html",
+    "static/*.css",
+    "static/*.js",
+    "static/*.png",
+    "static/pages/*.css",
+    "static/material-icons/*.svg",
+    "static/material-icons/*.txt",
+    "static/vendor/*.css",
+    "static/vendor/*.js",
+    "static/vendor/*.txt",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Database unavailable — ScrapeX{% endblock %}
 {# The banner in base.html already names each database, its state and the command
    that fixes it. This page adds what that page-level banner cannot: why THIS
@@ -9,7 +10,7 @@
     serve this page again as soon as the database below is usable.</p>
   <div class="stack">
     <div>
-      <h2 style="margin-top:0">What stopped the request</h2>
+      <h2 class="mt-0">What stopped the request</h2>
       <p class="tech">{{ detail }}</p>
     </div>
     {% if db_state %}
@@ -20,7 +21,7 @@
           <tbody>
             {% for kind, s in db_state.all.items() %}
               <tr>
-                <th>{{ s.kind }}<span class="tech" style="display:block">{{ s.path }}</span></th>
+                <th>{{ s.kind }}<span class="tech text-block">{{ s.path }}</span></th>
                 <td>{{ s.status }}</td>
                 <td class="num">{{ s.schema_version if s.schema_version is not none else "—" }}</td>
                 <td>{{ s.action }}</td>
@@ -37,7 +38,7 @@
         <li>The database is behind this build — run
           <code>python -m scrapex.cli init-db</code>, then reload.</li>
         <li>The file was replaced or moved — point ScrapeX at the right one in
-          <a href="/settings#s-storage">Settings → Storage</a>.</li>
+          <a href="/settings#s-storage">Settings {{ icon("chevron-right", "inline-icon") }} Storage</a>.</li>
       </ul>
     </div>
   </div>

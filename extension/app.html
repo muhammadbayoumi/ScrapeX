@@ -7,301 +7,7 @@
 <link rel="icon" href="icons/x-mark.png">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
-<style>
-  /* Page layout only — primitives and tokens live in the shared sheets. */
-  html, body { height: 100%; }
-  body { display: flex; flex-direction: column; overflow-x: hidden; }
-
-  /* Nothing may widen the panel: it can be as narrow as 320px. */
-  * { min-width: 0; }
-  .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
-
-  .sx-header { position: sticky; top: 0; z-index: 5; }
-  .estat { font-size: var(--fs-sm); color: var(--muted); display: flex;
-           align-items: center; gap: var(--sp-1); cursor: pointer;
-           background: none; border: 0; padding: var(--sp-1); }
-  .chev { transition: transform .15s ease; }
-  .chev.open { transform: rotate(90deg); }
-
-  main { flex: 1; overflow-y: auto; padding: var(--sp-4);
-         display: flex; flex-direction: column; gap: var(--sp-4); }
-  h2 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
-       color: var(--muted); margin: var(--sp-1) 0; }
-  .field { display: flex; gap: var(--sp-2); }
-  .field input, .field select { flex: 1; }
-  .links { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-  .steps code { background: var(--chip); }
-
-  /* Sites checklist — fixed height so the list can never push the run button off
-     screen, however many sites are registered. Rows reuse the shared `.srow`
-     primitive rather than reinventing one; only the stacking is page-specific. */
-  .checklist { max-height: 190px; overflow-y: auto; display: flex; flex-direction: column;
-               gap: var(--sp-1); padding: var(--sp-1) var(--sp-1) var(--sp-3); }
-  /* A row cut mid-height at the scroll edge reads as a broken layout. Fading the
-     last few pixels makes it read as "there is more below" instead. The extra
-     bottom padding means the fade lands on empty space when nothing overflows. */
-  .checklist { mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent); }
-  .checklist .srow { align-items: flex-start; }
-  .checklist .srow.off { opacity: .6; }
-  .checklist label { display: flex; gap: var(--sp-2); align-items: flex-start; flex: 1;
-                     cursor: pointer; }
-  .checklist .srow.off label { cursor: not-allowed; }
-  .toolbar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
-             font-size: var(--fs-xs); }
-  .toolbar .spacer { flex: 1; }
-
-  /* Small layout primitives, declared once instead of repeated as inline styles. */
-  .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .flush { margin-top: 0; }
-  .hint { font-size: var(--fs-xs); margin-top: var(--sp-1); }
-  .hint:empty { display: none; }
-  .block { width: 100%; }
-  /* Each task tab has one visible purpose, followed by clearly separated
-     sections. The side panel is too narrow for a flat stream of unrelated
-     cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-data, #view-settings { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .view-heading { display: flex; flex-direction: column; gap: 2px; }
-  .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
-  .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
-  .section-head { display: flex; align-items: flex-start; gap: var(--sp-2);
-                  margin-bottom: var(--sp-3); }
-  .section-head h2 { margin: 0; }
-  .section-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
-  .step-number { width: 20px; height: 20px; flex: none; display: grid; place-items: center;
-                 border-radius: 50%; background: var(--accent-weak); color: var(--accent-ink);
-                 font-size: var(--fs-xs); font-weight: var(--fw-bold); }
-  .run-action { margin-top: var(--sp-3); padding-top: var(--sp-3);
-                border-top: 1px solid var(--line); }
-  .dataset-list { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .dataset-card { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .dataset-card button { width: 100%; }
-  .output-groups { display: flex; flex-direction: column; gap: var(--sp-4); }
-  .output-group + .output-group { border-top: 1px solid var(--line); padding-top: var(--sp-4); }
-  .output-group-head { margin-bottom: var(--sp-2); }
-  .output-group-head h3 { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); }
-  .output-group-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
-  /* Settings is an information architecture, not a stack of identical cards.
-     Related controls share one surface and the disclosure rows explain what is
-     behind them before the owner commits to opening a long form. */
-  .settings-principle { display: flex; align-items: flex-start; gap: var(--sp-2);
-                        padding: var(--sp-3); border: 1px solid var(--line);
-                        border-radius: var(--radius-lg); background: var(--accent-weak); }
-  .settings-principle .dot { margin-top: 5px; background: var(--accent); flex: none; }
-  .settings-principle strong { display: block; color: var(--accent-ink);
-                               font-size: var(--fs-sm); }
-  .settings-principle p { margin: 1px 0 0; color: var(--muted); font-size: var(--fs-xs); }
-  .settings-group { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .settings-group-head { display: flex; align-items: baseline; justify-content: space-between;
-                         gap: var(--sp-2); padding: 0 var(--sp-1); }
-  .settings-group-head h2 { margin: 0; }
-  .settings-group-head p { margin: 0; color: var(--muted); font-size: var(--fs-xs);
-                           text-align: right; }
-  .settings-list { overflow: hidden; border: 1px solid var(--line);
-                   border-radius: var(--radius-lg); background: var(--surface); }
-  .settings-item + .settings-item { border-top: 1px solid var(--line); }
-  #view-settings .settings-toggle { display: grid; grid-template-columns: 24px minmax(0,1fr) auto;
-                                    align-items: center; gap: var(--sp-3); width: 100%;
-                                    padding: var(--sp-3) var(--sp-4); }
-  .settings-index { width: 24px; height: 24px; display: grid; place-items: center;
-                    border-radius: var(--radius-sm); background: var(--chip); color: var(--muted);
-                    font-size: 10px; font-variant-numeric: tabular-nums; }
-  .settings-toggle-copy { display: flex; flex-direction: column; gap: 1px; }
-  .settings-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
-  .settings-description { color: var(--muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
-  .settings-chevron { color: var(--muted); font-size: var(--fs-lg); line-height: 1;
-                      transition: transform var(--dur); }
-  #view-settings .settings-toggle:hover .settings-index,
-  #view-settings .settings-toggle[aria-expanded="true"] .settings-index {
-    background: var(--accent-weak); color: var(--accent-ink);
-  }
-  #view-settings .settings-toggle[aria-expanded="true"] .settings-chevron {
-    transform: rotate(90deg); color: var(--accent-ink);
-  }
-  .settings-panel { padding: var(--sp-3) var(--sp-4) var(--sp-4);
-                    border-top: 1px solid var(--line); background: var(--bg); }
-  .settings-panel > :first-child { margin-top: 0; }
-  .fieldset { display: flex; flex-direction: column; gap: var(--sp-1); }
-  .fieldset > label { font-size: var(--fs-xs); color: var(--muted); }
-  /* Two columns only when there is room; one column at 320px. */
-  .two { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
-  @media (min-width: 360px) { .two { grid-template-columns: 1fr 1fr; } }
-  .check { display: flex; gap: var(--sp-2); align-items: flex-start;
-           font-size: var(--fs-sm); cursor: pointer; }
-  .check .hint { display: block; }
-  /* Output destination row: label + state, state spelled out not colour-coded. */
-  .out { display: flex; justify-content: space-between; gap: var(--sp-2);
-         align-items: baseline; padding: var(--sp-1) 0; }
-  .out + .out { border-top: 1px solid var(--line); }
-
-  /* Source picker. Each choice is a radio whose panel opens when checked, so
-     only one set of controls is ever on screen at 320px. */
-  .source-picker { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .source-picker-title { margin: var(--sp-1) 0; color: var(--muted);
-                         font-size: var(--fs-xs); font-weight: var(--fw-bold);
-                         letter-spacing: .04em; text-transform: uppercase; }
-  .source-choice { position: relative; border: 1px solid var(--line);
-                   border-radius: var(--radius-lg); background: var(--surface);
-                   overflow: hidden;
-                   transition: border-color var(--dur), background-color var(--dur); }
-  .source-choice:has(.source-radio:checked) { border-color: var(--accent); }
-  .source-radio { position: absolute; opacity: 0; pointer-events: none; }
-  .source-choice-label { display: grid; grid-template-columns: 17px minmax(0, 1fr);
-                         align-items: center; column-gap: var(--sp-3); min-height: 64px;
-                         padding: var(--sp-3) var(--sp-4); cursor: pointer;
-                         transition: min-height .26s cubic-bezier(.2,.8,.2,1),
-                                     padding .26s cubic-bezier(.2,.8,.2,1); }
-  .source-choice:has(.source-radio:checked) .source-choice-label {
-    min-height: 46px; padding-block: var(--sp-2);
-  }
-  .source-choice:hover { border-color: var(--accent); }
-  .source-choice:has(.source-radio:focus-visible) { outline: 2px solid var(--accent);
-                                                    outline-offset: 2px; }
-  .source-choice-icon, .source-choice-check { width: 17px; height: 17px; flex: none;
-                                              grid-column: 1; grid-row: 1;
-                                              display: grid; place-items: center;
-                                              transition: opacity var(--dur), transform var(--dur); }
-  .source-choice-icon, .source-preview-icon {
-    background: currentColor; -webkit-mask-position: center; mask-position: center;
-    -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-    -webkit-mask-size: contain; mask-size: contain;
-  }
-  .source-icon-browser { -webkit-mask-image: url("icons/browser.png");
-                         mask-image: url("icons/browser.png"); }
-  .source-icon-link { -webkit-mask-image: url("icons/link.png");
-                      mask-image: url("icons/link.png"); }
-  .source-icon-file { -webkit-mask-image: url("icons/file.png");
-                      mask-image: url("icons/file.png"); }
-  .source-icon-cart { -webkit-mask-image: url("icons/shopping-cart.png");
-                      mask-image: url("icons/shopping-cart.png"); }
-  .source-choice-check { border-radius: 50%; background: var(--accent);
-                         color: var(--button-text); font-size: 11px; font-weight: var(--fw-bold);
-                         opacity: 0; transform: scale(.65); }
-  .source-choice:has(.source-radio:checked) .source-choice-icon {
-    opacity: 0; transform: scale(.65);
-  }
-  .source-choice:has(.source-radio:checked) .source-choice-check {
-    opacity: 1; transform: scale(1);
-  }
-  .source-choice-copy { grid-column: 2; display: flex; flex-direction: column; gap: 2px; }
-  .source-choice-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
-  .source-choice-description { color: var(--muted); font-size: var(--fs-xs); }
-  .source-choice:has(.source-radio:checked) .source-choice-description { display: none; }
-  .source-choice-panel { display: grid; grid-template-rows: 0fr; opacity: 0;
-                         visibility: hidden; margin: 0 var(--sp-4); padding-bottom: 0;
-                         transition: grid-template-rows .28s cubic-bezier(.2,.8,.2,1),
-                                     opacity .18s ease, padding-bottom .28s cubic-bezier(.2,.8,.2,1),
-                                     visibility 0s linear .28s; }
-  .source-choice-panel-inner { min-height: 0; overflow: hidden; padding-top: 0;
-                               border-top: 1px solid transparent;
-                               transition: padding-top .28s cubic-bezier(.2,.8,.2,1),
-                                           border-color .18s ease; }
-  .source-choice:has(.source-radio:checked) .source-choice-panel {
-    grid-template-rows: 1fr; opacity: 1; visibility: visible;
-    padding-bottom: var(--sp-3); transition-delay: 0s;
-  }
-  .source-choice:has(.source-radio:checked) .source-choice-panel-inner {
-    padding-top: var(--sp-3); border-top-color: var(--line);
-  }
-  /* The Add Site panel holds the full settings form. Capping it keeps the other
-     choices reachable without scrolling past every field. */
-  .source-choice-addsite .source-choice-panel-inner { max-height: 60vh; overflow-y: auto; }
-  .source-current-preview { display: flex; align-items: flex-start; gap: var(--sp-3); }
-  .source-preview-icon { width: 17px; height: 17px; flex: none; margin-top: 2px; }
-  .source-preview-copy { display: flex; flex-direction: column; gap: 2px; }
-  .source-preview-title { color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
-  .source-preview-url { color: var(--muted); font-size: var(--fs-xs); }
-  .source-url-box { display: block; width: 100%; min-height: 225px; resize: vertical;
-                    border: 1px solid var(--line); border-radius: var(--radius);
-                    background: var(--bg);
-                    padding: var(--sp-3); color: var(--text); line-height: 1.7; }
-  .source-or { display: flex; align-items: center; gap: var(--sp-3); margin: var(--sp-3) 0;
-               color: var(--muted); font-size: var(--fs-xs); text-transform: uppercase; }
-  .source-or::before, .source-or::after { content: ""; height: 1px; flex: 1; background: var(--line); }
-  .source-import { width: 100%; display: inline-flex; align-items: center; justify-content: center;
-                   gap: var(--sp-2); }
-  .source-import svg { width: 16px; height: 16px; }
-  .source-limit { display: flex; align-items: center; gap: var(--sp-1);
-                  margin-top: var(--sp-3); color: var(--muted); font-size: var(--fs-xs); }
-  .source-info { width: 13px; height: 13px; border-radius: 50%; background: var(--muted);
-                 color: var(--bg); display: inline-grid; place-items: center;
-                 font-size: 9px; font-weight: var(--fw-bold); }
-  .source-dropzone { min-height: 140px; padding: var(--sp-3); border: 1px dashed var(--muted);
-                     border-radius: var(--radius); display: flex; flex-direction: column;
-                     justify-content: space-between; gap: var(--sp-3); }
-  .source-drop-copy { flex: 1; display: flex; align-items: center; justify-content: center;
-                      gap: var(--sp-1); color: var(--muted); font-size: var(--fs-sm);
-                      text-align: center; }
-  .source-file-actions { display: flex; gap: var(--sp-2); }
-  .source-file-actions button { flex: 1; display: inline-flex; align-items: center;
-                                justify-content: center; gap: var(--sp-2); }
-  .source-file-actions svg { width: 16px; height: 16px; flex: none; }
-
-  /* Technical values stay LTR even inside an RTL-ish neighbourhood. */
-  .tech { direction: ltr; unicode-bidi: isolate; font-family: var(--mono, monospace);
-          font-size: var(--fs-xs); }
-  .content { unicode-bidi: plaintext; }   /* scraped/user text picks its own side */
-
-  .kv { display: flex; justify-content: space-between; gap: var(--sp-2);
-        font-size: var(--fs-sm); padding: 2px 0; }
-  .kv span:last-child { text-align: right; }
-
-  .bar { height: 6px; border-radius: 999px; background: var(--chip); overflow: hidden; }
-  .bar-fill { height: 100%; width: 0; background: currentColor; transition: width .3s ease; }
-
-  /* Activity log: a bounded, scrollable tail — never the whole log. */
-  .logbox { max-height: 160px; overflow-y: auto; border: 1px solid var(--line);
-            border-radius: var(--radius); padding: var(--sp-2); }
-  .logline { display: flex; gap: var(--sp-2); padding: 1px 0; }
-  .logline .lvl { flex: none; width: 4.5em; }
-
-  /* The active crawl rests as a compact status bar. Native <details> supplies
-     mouse + keyboard open/close behaviour without putting crawl state in the
-     panel: the engine still owns the job and this remains only its controller. */
-  .sx-mini { position: sticky; bottom: 0; z-index: 6; border-top: 1px solid var(--line);
-             background: var(--bg); }
-  .mini-statusbar { display: flex; flex-direction: column; gap: var(--sp-2);
-                    padding: var(--sp-2) var(--sp-4); list-style: none;
-                    cursor: pointer; user-select: none; }
-  .mini-statusbar::-webkit-details-marker { display: none; }
-  .mini-statusbar:hover { background: var(--surface); }
-  .mini-statusbar:focus-visible { outline: 2px solid var(--accent);
-                                  outline-offset: -2px; }
-  .mini-status-line { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px;
-                      align-items: center; gap: var(--sp-2); }
-  .mini-status-line .name { overflow: hidden; text-overflow: ellipsis;
-                            white-space: nowrap; }
-  .mini-toggle { width: 8px; height: 8px; justify-self: end;
-                 border-inline-end: 2px solid currentColor;
-                 border-bottom: 2px solid currentColor;
-                 color: var(--muted); transform: rotate(45deg);
-                 transition: transform var(--dur); }
-  .sx-mini[open] .mini-toggle { transform: rotate(225deg); }
-  .mini-progress, .mini-progress .bar-fill { display: block; }
-  .mini-progress { width: 100%; height: 3px; }
-  .mini-body { display: flex; flex-direction: column; gap: var(--sp-2);
-               padding: var(--sp-2) var(--sp-4) var(--sp-3);
-               border-top: 1px solid var(--line); }
-  .mini-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-
-  /* Bottom navigation. The active tab is marked by weight + a rule, never colour
-     alone, and carries aria-current for assistive tech. */
-  nav.tabs { display: flex; border-top: 1px solid var(--line); background: var(--bg); }
-  nav.tabs button { flex: 1; border: 0; border-top: 2px solid transparent; border-radius: 0;
-                    background: none; padding: var(--sp-3) var(--sp-1);
-                    font-size: var(--fs-xs); color: var(--muted); }
-  @media (min-width: 360px) { nav.tabs button { font-size: var(--fs-sm); } }
-  nav.tabs button[aria-current="page"] { color: var(--text); font-weight: var(--fw-bold);
-                                         border-top-color: currentColor; }
-
-  .skeleton { height: 12px; border-radius: 4px; background: var(--chip);
-              animation: pulse 1.4s ease-in-out infinite; margin: var(--sp-2) 0; }
-  @keyframes pulse { 0%,100% { opacity: .45 } 50% { opacity: .9 } }
-  @media (prefers-reduced-motion: reduce) {
-    .skeleton { animation: none; }
-    .source-choice, .source-choice-label, .source-choice-icon, .source-choice-check,
-    .source-choice-panel, .source-choice-panel-inner, .settings-chevron { transition: none; }
-  }
-</style>
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
   <header class="sx-header">
@@ -309,32 +15,34 @@
     <button id="estat" class="estat" aria-expanded="false" aria-controls="runtime-details"
             title="Local runtime status">
       <span id="dot" class="dot"></span><span id="estat-text">Checking…</span>
-      <span class="chev" id="chev" aria-hidden="true">›</span>
+      <svg class="chev sx-icon sm" id="chev" aria-hidden="true">
+        <use href="icons/material-icons.svg#chevron-right"></use>
+      </svg>
     </button>
   </header>
 
   <main>
     <!-- Runtime detail, opened from the status row ------------------------- -->
     <section id="runtime-details" class="card hidden">
-      <h2 style="margin-top:0">Local runtime</h2>
+      <h2 class="flush">Local runtime</h2>
       <div id="components"></div>
-      <div class="links" style="margin-top:var(--sp-2)">
+      <div class="links mt-2">
         <button id="recheck" class="ghost">Recheck status</button>
         <button id="diagnostics" class="ghost">Run diagnostics</button>
       </div>
-      <div id="diag-out" class="muted" style="font-size:var(--fs-xs)"></div>
+      <div id="diag-out" class="muted text-xs"></div>
     </section>
 
     <!-- ============================ RUN ============================ -->
-    <section id="view-run" class="hidden">
+    <section id="view-run" class="hidden" role="tabpanel" aria-labelledby="tab-run" tabindex="0">
       <header class="view-heading">
         <h1>Run</h1>
         <p>Choose the sites to crawl, then set how this run should update their data.</p>
       </header>
 
       <div id="setup" class="card warn hidden">
-        <div style="font-weight:var(--fw-bold);margin-bottom:var(--sp-1)">Engine not running</div>
-        <div class="muted steps" style="margin-bottom:var(--sp-2)">
+        <div class="setup-title">Engine not running</div>
+        <div class="muted steps mb-2">
           <span id="engine-note">Start it from here — no terminal needed.</span>
           First time? <button type="button" class="link" id="how">Open setup</button>.
         </div>
@@ -355,7 +63,7 @@
         </div>
         <input id="site-search" type="search" placeholder="Search by name or URL..."
                aria-label="Search sites">
-        <div class="toolbar" style="margin:var(--sp-2) 0">
+        <div class="toolbar toolbar-spaced">
           <button id="select-all" class="ghost">Select all</button>
           <button id="clear-sel" class="ghost">Clear</button>
           <span class="spacer"></span>
@@ -385,8 +93,8 @@
             <option value="history_backfill">History backfill</option>
           </select>
         </div>
-        <div id="mode-help" class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)"></div>
-        <div id="mode-warn" class="hidden" style="margin-top:var(--sp-2)"></div>
+        <div id="mode-help" class="muted text-xs mt-1"></div>
+        <div id="mode-warn" class="hidden mt-2"></div>
         <div class="run-action">
           <button id="run" class="block">Start update</button>
           <div id="run-blocked" class="muted hint"></div>
@@ -395,17 +103,17 @@
 
       <!-- ACTIVITY: why a run is slow, stuck, or failed --------------------- -->
       <section id="activity" class="card hidden">
-        <div class="row"><h2 style="margin:0">Activity</h2>
+        <div class="row"><h2 class="flush">Activity</h2>
           <span id="act-elapsed" class="muted tech"></span></div>
         <div id="act-state" class="kv"></div>
-        <div class="bar" style="margin:var(--sp-2) 0"><div id="act-bar" class="bar-fill"></div></div>
+        <div class="bar my-2"><div id="act-bar" class="bar-fill"></div></div>
         <div id="act-counters"></div>
-        <div class="row" style="margin-top:var(--sp-2)">
-          <span class="muted" style="font-size:var(--fs-xs)">Last 200 log entries</span>
+        <div class="row mt-2">
+          <span class="muted text-xs">Last 200 log entries</span>
           <button id="autoscroll" class="ghost">Pause auto-scroll</button>
         </div>
         <div id="logbox" class="logbox tech"></div>
-        <div class="links" style="margin-top:var(--sp-2)">
+        <div class="links mt-2">
           <button id="copy-logs" class="ghost">Copy visible logs</button>
           <button id="dl-logs" class="ghost">Download full logs</button>
         </div>
@@ -413,7 +121,7 @@
     </section>
 
     <!-- =========================== SOURCE =========================== -->
-    <section id="view-source">
+    <section id="view-source" role="tabpanel" aria-labelledby="tab-source" tabindex="0">
       <!-- Two different jobs live on this screen, and the split is deliberate.
            ADD SITE registers a product site for PRICE TRACKING: a stable source
            with a connector, a currency, a region and a schedule, whose history
@@ -432,8 +140,12 @@
         <article class="source-choice">
           <input class="source-radio" type="radio" name="data-source" id="source-current" checked>
           <label class="source-choice-label" for="source-current">
-            <span class="source-choice-check" aria-hidden="true">✓</span>
-            <span class="source-choice-icon source-icon-browser" aria-hidden="true"></span>
+            <span class="source-choice-check" aria-hidden="true">
+              <svg class="sx-icon sm"><use href="icons/material-icons.svg#check"></use></svg>
+            </span>
+            <svg class="source-choice-icon sx-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#language"></use>
+            </svg>
             <span class="source-choice-copy">
               <span class="source-choice-title">Current Page</span>
               <span class="source-choice-description">Check the tab you are on.</span>
@@ -442,13 +154,15 @@
           <div class="source-choice-panel">
             <div class="source-choice-panel-inner">
               <div class="source-current-preview">
-                <span class="source-preview-icon source-icon-browser" aria-hidden="true"></span>
+                <svg class="source-preview-icon sx-icon" aria-hidden="true">
+                  <use href="icons/material-icons.svg#language"></use>
+                </svg>
                 <span class="source-preview-copy">
                   <span class="source-preview-title" id="cur-title">Reading the active tab…</span>
                   <span class="source-preview-url tech" id="cur-url"></span>
                 </span>
               </div>
-              <div class="row" style="margin-top:var(--sp-3)">
+              <div class="row mt-3">
                 <button id="cur-use" disabled>Use this page</button>
                 <span id="cur-out" class="hint" role="status" aria-live="polite"></span>
               </div>
@@ -459,8 +173,12 @@
         <article class="source-choice">
           <input class="source-radio" type="radio" name="data-source" id="source-urls">
           <label class="source-choice-label" for="source-urls">
-            <span class="source-choice-check" aria-hidden="true">✓</span>
-            <span class="source-choice-icon source-icon-link" aria-hidden="true"></span>
+            <span class="source-choice-check" aria-hidden="true">
+              <svg class="sx-icon sm"><use href="icons/material-icons.svg#check"></use></svg>
+            </span>
+            <svg class="source-choice-icon sx-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#link"></use>
+            </svg>
             <span class="source-choice-copy">
               <span class="source-choice-title">URLs</span>
               <span class="source-choice-description">Check several addresses at once.</span>
@@ -470,11 +188,11 @@
             <div class="source-choice-panel-inner">
               <textarea id="urls-box" class="source-url-box" aria-label="Site addresses"
                 placeholder="One address per line.&#10;https://shop.example.com&#10;https://another-store.example"></textarea>
-              <div class="row" style="margin-top:var(--sp-2)">
+              <div class="row mt-2">
                 <button id="urls-check">Check these sites</button>
                 <span id="urls-out" class="hint" role="status" aria-live="polite"></span>
               </div>
-              <div id="urls-results" class="list hidden" style="margin-top:var(--sp-2)"></div>
+              <div id="urls-results" class="list hidden mt-2"></div>
               <!-- Says what this does, not what a bigger product might do: one
                    site per line, registered after you review what was detected. -->
               <div class="source-limit">Each address is tested on its own; you review
@@ -486,8 +204,12 @@
         <article class="source-choice source-choice-file">
           <input class="source-radio" type="radio" name="data-source" id="source-file">
           <label class="source-choice-label" for="source-file">
-            <span class="source-choice-check" aria-hidden="true">✓</span>
-            <span class="source-choice-icon source-icon-file" aria-hidden="true"></span>
+            <span class="source-choice-check" aria-hidden="true">
+              <svg class="sx-icon sm"><use href="icons/material-icons.svg#check"></use></svg>
+            </span>
+            <svg class="source-choice-icon sx-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#insert-drive-file"></use>
+            </svg>
             <span class="source-choice-copy">
               <span class="source-choice-title">File &amp; Image</span>
               <span class="source-choice-description">Not built yet.</span>
@@ -504,16 +226,14 @@
                 </div>
                 <div class="source-file-actions">
                   <button type="button" disabled data-integration="file-upload">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                      <path d="M12 16V4M7 9l5-5 5 5"></path>
-                      <path d="M5 15v4h14v-4"></path>
+                    <svg class="sx-icon sm" aria-hidden="true">
+                      <use href="icons/material-icons.svg#file-upload"></use>
                     </svg>
                     Upload
                   </button>
                   <button type="button" disabled data-integration="screenshot-capture">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-                      <circle cx="12" cy="12" r="3"></circle>
-                      <path d="M4 7h3l2-2h6l2 2h3v11H4z"></path>
+                    <svg class="sx-icon sm" aria-hidden="true">
+                      <use href="icons/material-icons.svg#photo-camera"></use>
                     </svg>
                     Screenshot
                   </button>
@@ -531,8 +251,12 @@
         <article class="source-choice source-choice-addsite">
           <input class="source-radio" type="radio" name="data-source" id="source-addsite">
           <label class="source-choice-label" for="source-addsite">
-            <span class="source-choice-check" aria-hidden="true">✓</span>
-            <span class="source-choice-icon source-icon-cart" aria-hidden="true"></span>
+            <span class="source-choice-check" aria-hidden="true">
+              <svg class="sx-icon sm"><use href="icons/material-icons.svg#check"></use></svg>
+            </span>
+            <svg class="source-choice-icon sx-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#shopping-cart"></use>
+            </svg>
             <span class="source-choice-copy">
               <span class="source-choice-title">Add Site — price tracking</span>
               <span class="source-choice-description">Register a product site and keep
@@ -625,8 +349,13 @@
             <span class="hint muted">Recorded, never bypassed — the run reports it.</span></span></label>
 
         <div>
-          <button class="link sect" id="adv-toggle" aria-expanded="false">Advanced settings ›</button>
-          <div id="adv" class="hidden stack" style="margin-top:var(--sp-2)">
+          <button class="link sect" id="adv-toggle" aria-expanded="false">
+            <span>Advanced settings</span>
+            <svg class="sx-icon sm" aria-hidden="true">
+              <use href="icons/material-icons.svg#chevron-right"></use>
+            </svg>
+          </button>
+          <div id="adv" class="hidden stack mt-2">
             <div class="hint muted">Identity rules decide how a record is recognised on the
               next crawl. The defaults are automatic — leave them alone unless a
               site re-issues its ids.</div>
@@ -676,7 +405,7 @@
     </section>
 
     <!-- ============================ DATA ============================ -->
-    <section id="view-data" class="hidden">
+    <section id="view-data" class="hidden" role="tabpanel" aria-labelledby="tab-data" tabindex="0">
       <header class="view-heading">
         <h1>Data</h1>
         <p>Open stored datasets directly in the full Workspace.</p>
@@ -698,10 +427,20 @@
              view is no longer part of the visible navigation. -->
       <section id="dataset-detail" class="hidden">
         <div class="row">
-          <button id="data-back" class="ghost">← All datasets</button>
-          <button id="open-workspace" class="ghost">Open in Workspace ↗</button>
+          <button id="data-back" class="ghost">
+            <svg class="sx-icon sm" aria-hidden="true">
+              <use href="icons/material-icons.svg#arrow-back"></use>
+            </svg>
+            All datasets
+          </button>
+          <button id="open-workspace" class="ghost">
+            Open in Workspace
+            <svg class="sx-icon sm" aria-hidden="true">
+              <use href="icons/material-icons.svg#open-in-new"></use>
+            </svg>
+          </button>
         </div>
-        <div class="field" style="margin:var(--sp-2) 0">
+        <div class="field my-2">
           <input id="rec-search" type="search" placeholder="Search records..."
                  aria-label="Search records">
           <select id="rec-avail" aria-label="Availability filter">
@@ -719,7 +458,7 @@
     </section>
 
     <!-- ========================== SETTINGS ========================== -->
-    <section id="view-settings" class="hidden">
+    <section id="view-settings" class="hidden" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
       <header class="view-heading">
         <h1>Settings</h1>
         <p>Configure how ScrapeX runs, stores data, and sends results.</p>
@@ -746,17 +485,18 @@
                 <span class="settings-title">Engine connection</span>
                 <span class="settings-description">Local runtime URL and privacy</span>
               </span>
-              <span class="settings-chevron" aria-hidden="true">›</span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
             </button>
             <div id="s-engine" class="settings-panel hidden">
-              <label class="muted" for="backend" style="font-size:var(--fs-xs)">Engine URL</label>
+              <label class="muted text-xs" for="backend">Engine URL</label>
               <div class="field"><input id="backend" placeholder="http://127.0.0.1:8000" class="tech">
                 <button id="save" class="ghost">Save</button></div>
-              <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-1)">
+              <div class="muted text-xs mt-1">
                 Your data stays on this machine. Nothing is sent to any server.</div>
-              <div class="field" style="margin-top:var(--sp-2)">
-                <span id="autostart-state" class="muted"
-                      style="font-size:var(--fs-xs)">Start with Windows: checking…</span>
+              <div class="field mt-2">
+                <span id="autostart-state" class="muted text-xs">Start with Windows: checking…</span>
                 <button id="autostart-toggle" class="ghost hidden" type="button"></button>
               </div>
             </div>
@@ -768,17 +508,34 @@
                 <span class="settings-title">Storage</span>
                 <span class="settings-description">Database health, backups, and source management</span>
               </span>
-              <span class="settings-chevron" aria-hidden="true">›</span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
             </button>
             <div id="s-storage" class="settings-panel hidden">
               <!-- Read-only on purpose. Every control that can rewrite the database
                    lives in the workspace, so a destructive action is never one
                    stray tap away in a panel used while browsing. -->
-              <div id="storage-info" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
+              <div id="storage-info" class="muted text-sm">Loading…</div>
               <div class="links">
-                <button type="button" class="link" id="open-storage">Manage storage ↗</button>
-                <button type="button" class="link" id="open-browse">Browse all data ↗</button>
-                <button type="button" class="link" id="open-manage">Manage sources ↗</button>
+                <button type="button" class="link" id="open-storage">
+                  Manage storage
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#open-in-new"></use>
+                  </svg>
+                </button>
+                <button type="button" class="link" id="open-browse">
+                  Browse all data
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#open-in-new"></use>
+                  </svg>
+                </button>
+                <button type="button" class="link" id="open-manage">
+                  Manage sources
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#open-in-new"></use>
+                  </svg>
+                </button>
               </div>
             </div>
           </article>
@@ -798,11 +555,13 @@
                 <span class="settings-title">Jobs and scheduling</span>
                 <span class="settings-description">Run cadence and worker availability</span>
               </span>
-              <span class="settings-chevron" aria-hidden="true">›</span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
             </button>
             <div id="s-sched" class="settings-panel hidden">
-              <div id="schedules" class="muted" style="font-size:var(--fs-sm)">Loading…</div>
-              <div class="muted" style="font-size:var(--fs-xs);margin-top:var(--sp-2)" id="sched-note"></div>
+              <div id="schedules" class="muted text-sm">Loading…</div>
+              <div class="muted text-xs mt-2" id="sched-note"></div>
             </div>
           </article>
           <article class="settings-item">
@@ -812,7 +571,9 @@
                 <span class="settings-title">Data output settings</span>
                 <span class="settings-description">Local exports and external sync</span>
               </span>
-              <span class="settings-chevron" aria-hidden="true">›</span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
             </button>
             <div id="s-output" class="settings-panel hidden">
               <p class="muted hint">
@@ -836,9 +597,11 @@
                 <span class="settings-title">About</span>
                 <span class="settings-description">Version and product details</span>
               </span>
-              <span class="settings-chevron" aria-hidden="true">›</span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
             </button>
-            <div id="s-about" class="settings-panel hidden muted" style="font-size:var(--fs-sm)">
+            <div id="s-about" class="settings-panel hidden muted text-sm">
               ScrapeX — local-first price tracking.
               Engine <span id="about-version" class="tech">—</span>
             </div>
@@ -855,14 +618,16 @@
       <span class="mini-status-line" role="status" aria-live="polite">
         <span id="mini-title" class="name content"></span>
         <span id="mini-pct" class="n tech"></span>
-        <span class="mini-toggle" aria-hidden="true"></span>
+        <svg class="mini-toggle sx-icon sm" aria-hidden="true">
+          <use href="icons/material-icons.svg#chevron-right"></use>
+        </svg>
       </span>
       <span class="bar mini-progress" aria-hidden="true">
         <span id="mini-bar" class="bar-fill"></span>
       </span>
     </summary>
     <div class="mini-body">
-      <div id="mini-sub" class="muted" style="font-size:var(--fs-xs)"></div>
+      <div id="mini-sub" class="muted text-xs"></div>
       <div class="mini-actions">
         <button id="mini-view" class="ghost">View job</button>
         <button id="mini-pause" class="ghost">Pause</button>
@@ -871,11 +636,15 @@
     </div>
   </details>
 
-  <nav class="tabs" role="tablist">
-    <button data-view="source" aria-controls="view-source" aria-current="page">Source</button>
-    <button data-view="run" aria-controls="view-run">Run</button>
-    <button data-view="data" aria-controls="view-data">Data</button>
-    <button data-view="settings" aria-controls="view-settings">Settings</button>
+  <nav class="tabs" role="tablist" aria-label="ScrapeX sections">
+    <button id="tab-source" role="tab" data-view="source" aria-controls="view-source"
+            aria-selected="true" aria-current="page">Source</button>
+    <button id="tab-run" role="tab" data-view="run" aria-controls="view-run"
+            aria-selected="false" tabindex="-1">Run</button>
+    <button id="tab-data" role="tab" data-view="data" aria-controls="view-data"
+            aria-selected="false" tabindex="-1">Data</button>
+    <button id="tab-settings" role="tab" data-view="settings" aria-controls="view-settings"
+            aria-selected="false" tabindex="-1">Settings</button>
   </nav>
 
   <script type="module" src="app.js"></script>

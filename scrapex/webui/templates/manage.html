@@ -1,20 +1,14 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Manage sources — ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/manage.css">
+{% endblock %}
 {% block content %}
-<p class="muted" style="margin:0 0 .4rem"><a href="/">← All sources</a></p>
+<p class="muted back-link"><a class="icon-label" href="/">{{ icon("arrow-back", "sm") }} All sources</a></p>
 <h1>Add a source</h1>
 
-<style>
-  .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.7rem;margin:.6rem 0}
-  .field{display:flex;flex-direction:column;gap:.25rem}
-  .field label{font-size:.78rem;color:var(--muted)}
-  .field .hint{font-size:.7rem;color:var(--muted)}
-  .probe-row{display:flex;gap:.5rem;align-items:center;margin:.4rem 0}
-  .probe-row input{flex:1}
-  #evidence{font-size:.85rem;margin:.4rem 0}
-  .ev{color:var(--muted)}
-  .ok{color:var(--accent)}.err{color:var(--red)}
-</style>
+
 
 <div class="card">
   <b>1. Test the URL first (optional)</b>
@@ -25,7 +19,7 @@
   <div id="evidence" class="ev"></div>
 </div>
 
-<div class="card" style="margin-top:1rem">
+<div class="card mt-4">
   <b>2. Source details</b>
   <form id="add-form" onsubmit="return false">
     <div class="form-grid">
@@ -57,12 +51,12 @@
       </div>
       <div class="field"><label>Materials (optional, comma separated)</label><input name="materials" placeholder="DIESEL, GASOLINE"></div>
       <div class="field"><label>Regions (optional, comma separated)</label><input name="regions" placeholder="SA, EG"></div>
-      <div class="field" style="flex-direction:row;align-items:center;gap:.5rem">
-        <input type="checkbox" name="active" id="active" style="width:auto"><label for="active">Active now</label>
+      <div class="field field-inline">
+        <input type="checkbox" name="active" id="active"><label for="active">Active now</label>
       </div>
     </div>
     <button id="add-btn" type="submit">Add source</button>
-    <span id="add-result" style="margin-inline-start:.8rem"></span>
+    <span id="add-result" class="ms-3"></span>
   </form>
 </div>
 
@@ -72,7 +66,7 @@
   <tbody>
   {% for r in rows %}
     <tr>
-      <td dir="auto">{{ r.entry.source_name }} <span class="key" style="font-size:.75rem">{{ r.entry.source_key }}</span></td>
+      <td dir="auto">{{ r.entry.source_name }} <span class="key text-xs">{{ r.entry.source_key }}</span></td>
       <td class="muted"><code>{{ r.entry.family.value }}</code></td>
       <td class="num">{{ "{:,}".format(r.observations) }}</td>
       <td>{% if r.implemented %}<span class="badge ok">Ready</span>{% else %}<span class="badge off">Not supported yet</span>{% endif %}</td>
@@ -84,6 +78,7 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
+const statusIcon = (name) => window.ScrapeXUI.icon(name, "inline-icon");
 function setField(name, value){ const el = $(`[name="${name}"]`); if(el && value!=null && value!=="") el.value = value; }
 
 $("#probe-btn").addEventListener("click", async () => {
@@ -113,10 +108,10 @@ $("#add-form").addEventListener("submit", async () => {
   try{
     const res = await fetch("/api/sources", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
     const r = await res.json();
-    if(!res.ok){ out.innerHTML = `<span class="err">✗ ${r.detail||"Failed"}</span>`; return; }
-    out.innerHTML = `<span class="ok">✓ Added ${r.source_key}${r.implemented?" — ready to crawl":""}</span>`;
+    if(!res.ok){ out.innerHTML = `<span class="err">${statusIcon("close")} ${r.detail||"Failed"}</span>`; return; }
+    out.innerHTML = `<span class="ok">${statusIcon("check")} Added ${r.source_key}${r.implemented?" — ready to crawl":""}</span>`;
     setTimeout(() => location.reload(), 900);
-  }catch(e){ out.innerHTML = `<span class="err">✗ Couldn't reach the engine</span>`; }
+  }catch(e){ out.innerHTML = `<span class="err">${statusIcon("close")} Couldn't reach the engine</span>`; }
 });
 </script>
 {% endblock %}

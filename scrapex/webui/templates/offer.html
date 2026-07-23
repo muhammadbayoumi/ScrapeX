@@ -1,19 +1,20 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Price history — {{ source_key }} — ScrapeX{% endblock %}
 {% block content %}
 {# One offer's price story. A real page at a real URL rather than a dialog, so
    it can be linked, bookmarked and read with scripting off. #}
-<p class="muted" style="margin:0 0 .4rem">
-  <a href="/source/{{ source_key }}">← Back to {{ source_key }}</a></p>
+<p class="muted back-link">
+  <a class="icon-label" href="/source/{{ source_key }}">{{ icon("arrow-back", "sm") }} Back to {{ source_key }}</a></p>
 
 <h1 dir="auto">{{ offer.name }}</h1>
-<p class="muted" style="margin:-.6rem 0 1rem">
+<p class="muted context-line">
   {% if offer.region_name %}{{ offer.region_name }}<span class="code">{{ offer.region }}</span> · {% endif %}
   {% if offer.option_label %}<span dir="auto">{{ offer.option_label }}</span> · {% endif %}
   {% if offer.sku %}<span class="tech">{{ offer.sku }}</span> · {% endif %}
   prices in {{ offer.currency }}{% if offer.unit %} per {{ offer.unit }}{% endif %}
   {% if offer.product_url %}
-    · <a href="{{ offer.product_url }}" target="_blank" rel="noopener">Open on the site ↗</a>
+    · <a href="{{ offer.product_url }}" target="_blank" rel="noopener">Open on the site {{ icon("open-in-new", "inline-icon") }}</a>
   {% endif %}
 </p>
 
@@ -59,7 +60,7 @@
 
 {# ---- what was RECORDED, including what we did not see ourselves --------- #}
 <h2>What was recorded</h2>
-<p class="muted" style="font-size:.85rem">
+<p class="muted text-sm">
   The list above shows changes. This shows every observation behind them —
   including prices the source <em>reported</em> for an earlier date, which are
   not ones we watched happen.</p>
