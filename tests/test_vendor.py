@@ -93,8 +93,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert '/static/grid.js?v=design-system-2' in page
-    assert '/static/grid-theme.css?v=design-system-2' in page
+    assert '/static/grid.js?v=design-system-3' in page
+    assert '/static/grid-theme.css?v=design-system-3' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -455,6 +455,11 @@ def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
     assert 'menuLabel("fit-screen", "Autosize This Column")' in script
     assert 'menuLabel("view-column", "Choose Columns")' in script
     assert 'menuLabel("restart-alt", "Reset Columns")' in script
+    assert "if (iconName)" in script
+    assert "grid-menu-icon-placeholder" in script
+    assert "function makeHeaderPopupButtonsAccessible()" in script
+    assert '"Open menu" : "Open filter"' in script
+    assert 'event.key !== "Enter"' in script
     assert "column.setWidth(true)" in script
     assert "requestAnimationFrame(() => requestAnimationFrame(() =>" in script
     assert "column.setWidth(measured)" in script

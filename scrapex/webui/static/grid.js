@@ -345,7 +345,18 @@
     label.className = "grid-menu-label";
     const words = document.createElement("span");
     words.textContent = labelText;
-    label.append(materialIconElement(iconName, "grid-menu-icon"), words);
+    if (iconName) {
+      label.append(materialIconElement(iconName, "grid-menu-icon"));
+    } else {
+      // Unselected radio-like menu items intentionally have no glyph. Passing
+      // an empty name to the central icon factory throws before Tabulator can
+      // render any menu, which made every three-dot button appear dead.
+      const spacer = document.createElement("span");
+      spacer.className = "grid-menu-icon grid-menu-icon-placeholder";
+      spacer.setAttribute("aria-hidden", "true");
+      label.append(spacer);
+    }
+    label.append(words);
     return label;
   }
 
@@ -403,6 +414,27 @@
       );
     }
     return menu;
+  }
+
+  function makeHeaderPopupButtonsAccessible() {
+    mount.querySelectorAll(".tabulator-header-popup-button").forEach((control) => {
+      const header = control.closest(".tabulator-col");
+      const label = header?.querySelector(".grid-header-label")?.textContent?.trim() || "column";
+      const isMenu = !!control.querySelector(".material-menu-icon");
+      control.setAttribute("role", "button");
+      control.setAttribute("tabindex", "0");
+      control.setAttribute(
+        "aria-label",
+        `${isMenu ? "Open menu" : "Open filter"} for ${label}`
+      );
+      if (control.dataset.keyboardReady) return;
+      control.dataset.keyboardReady = "true";
+      control.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        control.click();
+      });
+    });
   }
 
   function setAllGroupsOpen(open) {
@@ -1214,6 +1246,7 @@
 
     table = new Tabulator(mount, options);
     table.on("tableBuilt", () => {
+      makeHeaderPopupButtonsAccessible();
       applyFilters();
       describe();
       updateFooter();
