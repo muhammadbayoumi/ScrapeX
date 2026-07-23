@@ -110,8 +110,9 @@
 {% endif %}
 
 <table>
-  <tr><th>Batch limit</th><td>{{ "{:,}".format(funnel.max_rows) }} rows per send.
-      A larger source is refused before sending rather than timing out inside Apps Script.</td></tr>
+  <tr><th>Batch size</th><td>{{ "{:,}".format(funnel.max_rows) }} rows is the comfortable
+      size for one send. A larger source is still sent: chunks that Apps Script chokes on
+      are halved and resent, and the batch stays in the outbox until every piece is acked.</td></tr>
   <tr><th>Undelivered batches</th>
       <td class="num">{{ funnel.outbox_pending }}
         <span class="muted">of {{ funnel.outbox_threshold }} before an alarm</span>
@@ -119,7 +120,7 @@
           <div class="muted small">Kept in <code>{{ funnel.outbox_dir }}</code> and retried on
             the next send — nothing is lost when a delivery fails.</div>
         {% endif %}</td></tr>
-  <tr><th>Not implemented</th><td>{{ funnel.limits }}</td></tr>
+  <tr><th>Transport</th><td>{{ funnel.limits }}</td></tr>
 </table>
 
 {% if funnel.last %}

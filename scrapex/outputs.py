@@ -34,9 +34,13 @@ EXCEL = "excel"
 APPS_SCRIPT = "apps_script"
 GOOGLE = "google_drive"
 
-# Spec 22: the funnel accepts a batch at a time. The Apps Script side has a
-# 6-minute execution budget, so a batch that is too large fails as a timeout
-# rather than as an error anyone can read.
+# Spec 22: the funnel accepts a batch at a time, and the Apps Script side has a
+# 6-minute execution budget. This is the size a send is COMFORTABLE at — it is
+# no longer a door slammed before trying (A9): the transport now discovers what
+# one execution can swallow by halving a chunk it choked on, so a bigger batch
+# is delivered rather than refused. What stays true past this line is the
+# sheet's own table rebuild cap (SYNC_MAX_ROWS in the pasted script), and
+# apps_script_send says so instead of pretending the limit is here.
 FUNNEL_MAX_ROWS = 20_000
 
 
@@ -175,11 +179,25 @@ def apps_script_status(conn: sqlite3.Connection) -> dict:
         "outbox_pending": pending,
         "outbox_threshold": OUTBOX_ALARM_THRESHOLD,
         "max_rows": FUNNEL_MAX_ROWS,
-        # Stated here so no screen can imply a guarantee the transport does not give.
-        "limits": ("Batches are signed with a shared token over HTTPS. Request "
-                   "signing (HMAC) and adaptive batch sizing described in the "
-                   "product spec are NOT implemented — a batch that exceeds the "
-                   "Apps Script time budget is refused up front instead."),
+        # Stated here so no screen can imply a guarantee the transport does not
+        # give — and, now that both were built, so no screen keeps confessing to
+        # a gap that is closed (A9).
+        "limits": ("Every request travels over HTTPS and is SIGNED: HMAC-SHA256 "
+                   "over the request body, keyed with the shared token below, so "
+                   "the rows cannot be rewritten in flight. The pasted script "
+                   "verifies a signature whenever it sees one, and refuses an "
+                   "UNSIGNED request only after you set its FUNNEL_REQUIRE_SIGNATURE "
+                   "script property — a sheet still running an older copy of the "
+                   "script keeps accepting sends instead of locking you out with "
+                   "an unexplained 'unauthorized'. It is integrity, NOT replay "
+                   "protection: no timestamp or nonce travels with a request, so a "
+                   "captured one could be sent again — it would land as a duplicate "
+                   "chunk, which the sheet's assembler discards. Batch size ADAPTS: a chunk the "
+                   "funnel chokes on (timeout, or a run that burns its 6-minute "
+                   "budget) is re-planned into halves and resent, down to one row "
+                   "per chunk, and the batch leaves the outbox only once every "
+                   "piece is acked. A single row that still cannot be delivered "
+                   "fails loudly rather than being dropped."),
         "last": settings.get_state(conn, "apps_script_last"),
     }
 
@@ -251,10 +269,17 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
     if not rows:
         raise NotConfiguredError(
             f"Nothing to send for {source_key} — crawl and ingest it first.")
-    if len(rows) > FUNNEL_MAX_ROWS:
-        raise NotConfiguredError(
-            f"{len(rows)} rows exceeds the {FUNNEL_MAX_ROWS}-row batch limit. Export "
-            "to Excel instead, or narrow the source.")
+    # A9: a big source used to be refused right here, on the theory that Apps
+    # Script would time out on it. The transport no longer needs that theory —
+    # it halves a chunk the funnel chokes on and resends (funnel._deliver) — so
+    # the honest move is to TRY, and to say what is still true past this size:
+    # the sheet caps its own table rebuild, and the rows land in _INBOX either
+    # way, which is what Python ingests.
+    oversized = ("" if len(rows) <= FUNNEL_MAX_ROWS else
+                 f" This is over the {FUNNEL_MAX_ROWS:,}-row comfortable batch size: "
+                 "delivery shrinks its chunks as needed, but the sheet still refuses "
+                 "to rebuild a tab past its own SYNC_MAX_ROWS cap. The rows are in "
+                 "_INBOX regardless.")
 
     client = client if client is not None else _funnel_client(conn)
     payload = FunnelPayload(
@@ -267,7 +292,8 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
     except (FunnelDeliveryError, OutboxAlarm) as exc:
         return _record(conn, "apps_script_last", RunResult(
             ok=False, rows=len(rows),
-            detail=f"Delivery failed and the batch is kept in the outbox: {exc}"))
+            detail=f"Delivery failed and the batch is kept in the outbox: {exc}"
+                   f"{oversized}"))
     # Delivery is only HALF the story: the assembler on the sheet side can
     # still refuse the batch (ragged row, size cap, mixed chunks), and until
     # now that refusal was invisible here — "delivered" read as success while
@@ -285,18 +311,19 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
         return _record(conn, "apps_script_last", RunResult(
             ok=True, rows=len(rows),
             detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s); the sheet "
-                    f"wrote {written.get('rows')} row(s) to {source_key}.")))
+                    f"wrote {written.get('rows')} row(s) to {source_key}.{oversized}")))
     if refused:
         return _record(conn, "apps_script_last", RunResult(
             ok=False, rows=len(rows),
             detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s), but the "
-                    f"sheet REFUSED to write {source_key}: {refused.get('reason')}")))
+                    f"sheet REFUSED to write {source_key}: {refused.get('reason')}"
+                    f"{oversized}")))
     return _record(conn, "apps_script_last", RunResult(
         ok=True, rows=len(rows),
         detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s). The sheet did "
                 "not confirm writing — update the pasted script (Copy Script) to "
                 "get write confirmations, or run Rebuild tables from the sheet's "
-                "ScrapeX menu.")))
+                f"ScrapeX menu.{oversized}")))
 
 
 # =============================================================================

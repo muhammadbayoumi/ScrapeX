@@ -186,10 +186,21 @@ def test_funnel_is_not_ready_until_both_url_and_token_exist(conn, monkeypatch):
     assert outputs.apps_script_status(conn)["ready"] is True
 
 
-def test_the_funnel_page_admits_what_the_transport_does_not_do(conn):
-    """Signing and adaptive batching are in the product spec and not built. The
-    status says so, so no screen can imply a guarantee that does not exist."""
-    assert "NOT implemented" in outputs.apps_script_status(conn)["limits"]
+def test_the_funnel_page_states_what_the_transport_actually_does(conn):
+    """This test used to assert the words "NOT implemented", because signing and
+    adaptive batching were in the product spec and missing from the transport.
+    A9 built both, so keeping that assertion would make the suite defend a claim
+    that is no longer true — the screen owes the owner the same honesty in the
+    other direction. What it must still never do is overstate: the softness that
+    keeps an un-repasted script working has to be on the page too.
+    """
+    limits = outputs.apps_script_status(conn)["limits"]
+    assert "HMAC-SHA256" in limits
+    assert "FUNNEL_REQUIRE_SIGNATURE" in limits, \
+        "the page must say that an UNSIGNED request is still accepted until the owner says otherwise"
+    assert "NOT replay protection" in limits, \
+        "a signature is integrity only; the page must not let it read as more than that"
+    assert "halves" in limits and "one row per chunk" in limits
 
 
 def test_rotating_the_token_returns_it_once_and_then_only_a_hint(conn):
@@ -220,10 +231,18 @@ def test_a_refused_delivery_is_reported_and_the_batch_is_not_lost(conn):
     assert "outbox" in result.detail and "bad token" in result.detail
 
 
-def test_an_oversized_batch_is_refused_before_sending(conn, monkeypatch):
+def test_an_oversized_batch_is_delivered_with_the_sheet_cap_named(conn, monkeypatch):
+    """This test used to assert that an oversized batch was REFUSED before
+    sending. That refusal existed because the transport could not survive a
+    batch Apps Script choked on; now it halves the chunk and retries (A9), so
+    refusing up front would be turning down work that would have gone through.
+    The one limit that is still real past this size belongs to the sheet, not to
+    the transport, and the run result has to say which is which."""
     monkeypatch.setattr(outputs, "FUNNEL_MAX_ROWS", 0)
-    with pytest.raises(outputs.NotConfiguredError, match="row batch limit"):
-        outputs.apps_script_send(conn, SOURCE, client=FakeFunnel())
+    client = FakeFunnel()
+    result = outputs.apps_script_send(conn, SOURCE, client=client)
+    assert len(client.sent) == 1, "the batch was sent rather than refused"
+    assert "SYNC_MAX_ROWS" in result.detail and "_INBOX" in result.detail
 
 
 def test_sending_a_source_with_no_data_is_refused_with_the_next_step(conn):
@@ -233,6 +252,18 @@ def test_sending_a_source_with_no_data_is_refused_with_the_next_step(conn):
 
 def test_the_script_to_paste_is_available_to_copy():
     assert "function" in outputs.apps_script_script_text()
+
+
+def test_the_script_to_paste_verifies_signatures_without_locking_anyone_out():
+    """The half of A9 that lives on the sheet. Both halves are load-bearing:
+    the verifier (or signing is decoration), and the fact that it only demands a
+    signature once FUNNEL_REQUIRE_SIGNATURE is set (or an owner who pastes this
+    script while running any older producer gets an unexplained 'unauthorized'
+    and no way to see why)."""
+    script = outputs.apps_script_script_text()
+    assert "computeHmacSha256Signature" in script and "canonicalJson_" in script
+    assert "FUNNEL_REQUIRE_SIGNATURE" in script
+    assert "constantTimeEquals_" in script
 
 
 # ---- Google (spec 23) --------------------------------------------------------

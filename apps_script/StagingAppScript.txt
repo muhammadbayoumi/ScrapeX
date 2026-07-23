@@ -2,8 +2,10 @@
  * ScrapeX — Staging Funnel (Apps Script, bound to the "ScrapeX Staging" sheet)
  * ----------------------------------------------------------------------------
  * ENGINEERING.md S1: "GAS stays dumb."
- *   - doPost = token check + append ONE chunk row + ack. Zero parsing, zero
- *     reassembly (reassembly happens in Python at ingest, where it's testable).
+ *   - doPost = token check + signature check + append ONE chunk row + ack. Zero
+ *     parsing, zero reassembly (that happens in Python at ingest, where it's
+ *     testable). See "REQUEST SIGNING" below for why unsigned senders still
+ *     work until the owner says otherwise.
  *   - LockService around every append (30 concurrent-execution safety).
  *   - Chunks arrive <= 40,000 chars (client-enforced), safely under the 50,000
  *     char per-cell limit.
@@ -14,9 +16,13 @@
  * it does not weaken S1: doPost is untouched and still appends verbatim. The
  * sync only ever READS _INBOX and writes derived, disposable tabs. If it has a
  * bug the raw inbox — the thing Python ingests — is unharmed, and rerunning it
- * repairs the tabs. It mirrors payload.reassemble_chunks() exactly: group by
+ * repairs the tabs. It follows payload.reassemble_chunks(): group by
  * (source_key, scraped_at), order by chunk.index, and REFUSE an incomplete
- * batch rather than publish a table missing rows.
+ * batch rather than publish a table missing rows. It is stricter about one
+ * thing than that function and looser about another, because it reads a real
+ * mailbox rather than one caller's list: chunks are separated by delivery
+ * attempt (chunk.total), and a repeated chunk index is the resend it always is,
+ * not a fatal contradiction. Both are marked at the functions concerned.
  *
  * COMPLETELY SEPARATE from the license/telemetry script: different script,
  * different spreadsheet, different token — zero LockService contention with
@@ -35,6 +41,10 @@
  *   5. Locally: set SCRAPEX_FUNNEL_URL + SCRAPEX_FUNNEL_TOKEN, run: scrapex funnel-test
  *   6. Reload the spreadsheet once: a "ScrapeX" menu appears, with
  *      "Rebuild tables from _INBOX" and the automatic-sync switches.
+ *   7. OPTIONAL, once every producer you use is on a build that signs (any
+ *      ScrapeX new enough to have pasted THIS file): Script Properties ->
+ *      FUNNEL_REQUIRE_SIGNATURE = yes. See "REQUEST SIGNING" below for what
+ *      that turns on and why it is not the default.
  * ========================================================================== */
 
 const INBOX_SHEET = "_INBOX";
@@ -57,9 +67,11 @@ function doPost(e) {
     }
     const request = JSON.parse(e.postData.contents);
     const expected = PropertiesService.getScriptProperties().getProperty("FUNNEL_TOKEN");
-    if (!expected || request.token !== expected) {
+    if (!expected || !constantTimeEquals_(String(request.token || ""), expected)) {
       return jsonReply({ ok: false, error: "unauthorized" });
     }
+    const signatureProblem = signatureProblem_(request, expected);
+    if (signatureProblem) return jsonReply({ ok: false, error: signatureProblem });
 
     if (request.action === "staging_chunk") return handleChunk(request.payload);
     if (request.action === "run_log") return handleRunLog(request);
@@ -70,6 +82,108 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ============================================================================
+ * REQUEST SIGNING
+ *
+ * Every request ScrapeX sends carries `signature` = HMAC-SHA256, in lowercase
+ * hex, over the canonical form of the request body with the signature field
+ * removed, keyed with the SAME shared token (scrapex/funnel.py: canonical_body
+ * + sign_body). The token still travels in the body and is still the thing that
+ * authenticates; the signature proves the rows were not rewritten in flight.
+ *
+ * TWO deliberate softnesses, both about not failing shut:
+ *
+ *   1. A request WITHOUT a signature is accepted, unless the owner sets the
+ *      script property FUNNEL_REQUIRE_SIGNATURE = yes. An owner running an
+ *      older ScrapeX build (or an older copy of this script somewhere) must not
+ *      have their sends start answering "unauthorized" with no explanation.
+ *      Turn the property on once every producer is current; from then on an
+ *      unsigned request is refused in words that say exactly that.
+ *   2. A request WITH a signature is always verified, property or not — if the
+ *      client bothered to prove itself, a mismatch is never waved through.
+ *
+ * What this is NOT: replay protection. No timestamp or nonce rides along, so a
+ * captured request could be posted again — it arrives as a duplicate chunk,
+ * which the assembler below drops (reassemble_ keeps the last copy per index).
+ * Nothing here ever writes, echoes or returns the token or the signature: the
+ * replies say "signature mismatch", never what was expected or received.
+ * ========================================================================== */
+
+const REQUIRE_SIGNATURE_PROPERTY = "FUNNEL_REQUIRE_SIGNATURE";
+
+/* "" when the request may proceed, otherwise the refusal to send back. */
+function signatureProblem_(request, token) {
+  const required = String(PropertiesService.getScriptProperties()
+    .getProperty(REQUIRE_SIGNATURE_PROPERTY) || "").toLowerCase() === "yes";
+  const provided = request && request.signature ? String(request.signature) : "";
+  if (!provided) {
+    return required
+      ? "signature required (FUNNEL_REQUIRE_SIGNATURE is on; update the sender)"
+      : "";
+  }
+  const unsigned = {};
+  Object.keys(request).forEach(function (key) {
+    if (key !== "signature") unsigned[key] = request[key];
+  });
+  const expected = hexHmacSha256_(canonicalJson_(unsigned), token);
+  return constantTimeEquals_(provided, expected) ? "" : "signature mismatch";
+}
+
+function hexHmacSha256_(text, key) {
+  const bytes = Utilities.computeHmacSha256Signature(text, key);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) {
+    hex += ("0" + (bytes[i] & 0xff).toString(16)).slice(-2);
+  }
+  return hex;
+}
+
+/* The GAS half of funnel.canonical_body(): keys sorted, no whitespace, pure
+ * ASCII. Written out rather than handed to JSON.stringify because stringify
+ * keeps insertion order (which no transport preserves) and emits non-ASCII
+ * verbatim (which would make the hashed bytes depend on a charset guess).
+ *
+ * The payload contract carries strings, small integers and null only, so this
+ * mirrors Python's json.dumps(sort_keys=True, separators=(",", ":"),
+ * ensure_ascii=True) exactly for everything that can actually arrive. */
+function canonicalJson_(value) {
+  if (value === null || typeof value !== "object") return asciiJson_(value);
+  if (Array.isArray(value)) {
+    const items = [];
+    for (let i = 0; i < value.length; i++) items.push(canonicalJson_(value[i]));
+    return "[" + items.join(",") + "]";
+  }
+  const keys = Object.keys(value).sort();
+  const parts = [];
+  for (let k = 0; k < keys.length; k++) {
+    parts.push(asciiJson_(keys[k]) + ":" + canonicalJson_(value[keys[k]]));
+  }
+  return "{" + parts.join(",") + "}";
+}
+
+/* JSON.stringify already escapes exactly what Python escapes for ASCII input
+ * (quote, backslash, the control characters); the replace finishes the job for
+ * U+007F and up, which Python's ensure_ascii=True escapes and stringify does
+ * not. Lowercase hex, four digits, surrogate pairs left as two escapes —
+ * byte-for-byte what Python produces. */
+function asciiJson_(value) {
+  return JSON.stringify(value).replace(/[\u007f-\uffff]/g, function (ch) {
+    return "\\u" + ("0000" + ch.charCodeAt(0).toString(16)).slice(-4);
+  });
+}
+
+/* Compare every character, never short-circuit: a wrong signature must not be
+ * discoverable one character at a time from how fast this answers. Apps Script
+ * has no real constant-time primitive and the length is compared up front (all
+ * signatures are the same length anyway), hence "-ish" — it closes the obvious
+ * leak, it is not a hardware-grade guarantee. */
+function constantTimeEquals_(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 /* Append one chunk row to _INBOX. Dumb by design: the payload cell is stored
@@ -221,7 +335,15 @@ function rebuildTables_() {
 }
 
 /* Read _INBOX once and group the chunks by (source_key, scraped_at) — the same
- * batch identity payload.reassemble_chunks() enforces.
+ * batch identity payload.reassemble_chunks() enforces — and then once more, by
+ * chunk.total.
+ *
+ * That third level is one delivery ATTEMPT. When a batch is too large for a
+ * single Apps Script execution the client re-plans it into smaller chunks and
+ * resends the whole sequence (funnel.FunnelClient._deliver), so _INBOX can
+ * legitimately hold an abandoned 3-chunk attempt beside the complete 6-chunk
+ * one that followed it. Reassembling those together would count 8 chunks where
+ * the envelope promises 6 and refuse a batch that did arrive whole.
  *
  * The envelope COLUMNS are for human eyes only; every value used here is read
  * back out of payload_json, because Sheets may re-type a cell (an ISO date in
@@ -242,9 +364,11 @@ function collectBatches_(inbox) {
     const chunk = payload.chunk || { index: 1, total: 1 };
     const sourceKey = String(payload.source_key);
     const batchKey = String(payload.scraped_at || "");
+    const attemptKey = String(Number(chunk.total || 1));
     if (!bySource[sourceKey]) bySource[sourceKey] = {};
-    if (!bySource[sourceKey][batchKey]) bySource[sourceKey][batchKey] = [];
-    bySource[sourceKey][batchKey].push({
+    if (!bySource[sourceKey][batchKey]) bySource[sourceKey][batchKey] = {};
+    if (!bySource[sourceKey][batchKey][attemptKey]) bySource[sourceKey][batchKey][attemptKey] = [];
+    bySource[sourceKey][batchKey][attemptKey].push({
       index: Number(chunk.index || 1),
       total: Number(chunk.total || 1),
       version: Number(payload.payload_version),
@@ -267,35 +391,61 @@ function newestCompleteBatch_(batchesForSource) {
   const keys = Object.keys(batchesForSource).sort().reverse();  // ISO8601 sorts chronologically
   const problems = [];
   for (let k = 0; k < keys.length; k++) {
-    const chunks = batchesForSource[keys[k]];
-    try {
-      return reassemble_(chunks);
-    } catch (error) {
-      problems.push(keys[k] + ": " + String(error && error.message || error));
+    const attempts = batchesForSource[keys[k]];
+    // Newest ATTEMPT first, by the last inbox row it wrote: when a batch was
+    // re-planned smaller, the attempt that finished is the one whose chunks
+    // landed last. An abandoned earlier attempt is then just inbox history.
+    const totals = Object.keys(attempts).sort(function (a, b) {
+      return lastInboxRow_(attempts[b]) - lastInboxRow_(attempts[a]);
+    });
+    for (let t = 0; t < totals.length; t++) {
+      try {
+        return reassemble_(attempts[totals[t]]);
+      } catch (error) {
+        problems.push(keys[k] + " (" + totals[t] + " chunks): " +
+                      String(error && error.message || error));
+      }
     }
   }
   throw new Error("no complete batch (" + problems.join("; ") + ")");
 }
 
+function lastInboxRow_(chunks) {
+  let last = 0;
+  for (let i = 0; i < chunks.length; i++) last = Math.max(last, chunks[i].row);
+  return last;
+}
+
 /* The GAS mirror of payload.reassemble_chunks(). Deliberately as strict:
- * a missing or duplicated chunk is a loud error, never silently-partial data. */
+ * a MISSING chunk is a loud error, never silently-partial data.
+ *
+ * A REPEATED chunk is different, and is not an error: a delivery whose ack was
+ * lost, or a spooled batch retried on a later run, sends the same index again
+ * (funnel.py keeps the outbox entry until every piece is acked, so a resend is
+ * the normal shape of recovery). The last copy to arrive wins, and the batch
+ * publishes instead of sitting forever at "have 5, expected 3". */
 function reassemble_(chunks) {
   const total = chunks[0].total;
   if (chunks[0].version !== SYNC_PAYLOAD_VERSION) {
     throw new Error("payload_version " + chunks[0].version + "; this script speaks " +
                     SYNC_PAYLOAD_VERSION);
   }
-  if (chunks.length !== total) {
-    throw new Error("expected " + total + " chunks, have " + chunks.length);
+  const byIndex = {};
+  for (let i = 0; i < chunks.length; i++) {
+    if (chunks[i].total !== total) {
+      throw new Error("chunks disagree on total (" + chunks[i].total + " vs " + total + ")");
+    }
+    byIndex[String(chunks[i].index)] = chunks[i];  // later inbox row overwrites
   }
-  const ordered = chunks.slice().sort(function (a, b) { return a.index - b.index; });
+  const ordered = Object.keys(byIndex).map(function (key) { return byIndex[key]; })
+    .sort(function (a, b) { return a.index - b.index; });
+  if (ordered.length !== total) {
+    throw new Error("expected " + total + " chunks, have " + ordered.length);
+  }
   let rows = [];
   for (let i = 0; i < ordered.length; i++) {
     if (ordered[i].index !== i + 1) {
       throw new Error("chunk sequence broken: expected " + (i + 1) + ", got " + ordered[i].index);
-    }
-    if (ordered[i].total !== total) {
-      throw new Error("chunks disagree on total (" + ordered[i].total + " vs " + total + ")");
     }
     rows = rows.concat(ordered[i].rows);
   }

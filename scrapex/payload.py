@@ -108,13 +108,26 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def split_into_chunks(payload: FunnelPayload) -> list[FunnelPayload]:
+def split_into_chunks(
+    payload: FunnelPayload,
+    *,
+    max_rows: int | None = None,
+) -> list[FunnelPayload]:
     """Split a payload into wire chunks whose serialized size fits CHUNK_MAX_CHARS.
 
     Rows are never split across chunks. A payload that already fits is returned
     as a single element (with chunk 1/1 stamped so the consumer sees a uniform
     envelope).
+
+    `max_rows` is the ADAPTIVE knob (A9): the character budget protects the
+    50,000-char cell, but nothing here can know how many rows one Apps Script
+    execution manages inside its 6-minute budget — only a failed delivery knows
+    that. The client re-plans with a smaller `max_rows` when the funnel chokes
+    (funnel.FunnelClient._deliver), so the size that works is DISCOVERED rather
+    than guessed at in a constant.
     """
+    if max_rows is not None and max_rows < 1:
+        raise ValueError(f"max_rows must be at least 1, got {max_rows}")
     envelope_probe = payload.model_copy(update={"rows": [], "chunk": FunnelChunk(index=1, total=1)})
     envelope_chars = len(envelope_probe.model_dump_json())
     budget = CHUNK_MAX_CHARS - envelope_chars
@@ -131,7 +144,8 @@ def split_into_chunks(payload: FunnelPayload) -> list[FunnelPayload]:
                 f"single row of {row_chars} chars exceeds chunk budget {budget}; "
                 "connector must not emit megarows (S1)"
             )
-        if current and used + row_chars > budget:
+        full = used + row_chars > budget or (max_rows is not None and len(current) >= max_rows)
+        if current and full:
             groups.append(current)
             current, used = [], 0
         current.append(row)
