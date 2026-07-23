@@ -171,12 +171,27 @@ class CustomJsonConnector:
         url = str(product.get("url") or "") or f"{base}/products/{pid}"
         if not url.startswith("http"):
             url = f"{base}/{url.lstrip('/')}"
-        name = (product.get("product_arname") or product.get("name_ar")
-                or product.get("product_enname") or product.get("name")
-                or product.get("name_en") or "")
+        arabic = str(product.get("product_arname") or product.get("name_ar") or "").strip()
+        english = str(product.get("product_enname") or product.get("name_en") or "").strip()
+        name = arabic or english or str(product.get("name") or "").strip()
+        # The API states the classification per product — both languages and
+        # the site's own id (verified live 2026-07-23: product_categories is
+        # one object; the arname arrives with stray whitespace). Arabic label
+        # first, same preference as the name.
+        categories = product.get("product_categories") or {}
+        if isinstance(categories, list):
+            categories = categories[0] if categories else {}
+        category = str(categories.get("category_arname")
+                       or categories.get("category_enname") or "").strip()
+        category_id = str(categories.get("category_id")
+                          or product.get("category_id") or "")
         return builder.row(
             external_product_id=pid, external_variant_id=pid,
-            external_sku=str(product.get("sku") or ""), product_name=str(name).strip(),
+            external_sku=str(product.get("sku") or ""), product_name=name,
+            product_name_en=english if english != name else "",
+            lang="ar" if arabic and name == arabic else ("en" if name == english else ""),
+            category_path=category,
+            category_external_id=category_id if category else "",
             brand_raw=str(product.get("brand") or ""), product_url=url,
             region=region, currency=currency, vat_included=vat,
             regular_price=regular, sale_price=sale, effective_price=effective,

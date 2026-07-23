@@ -183,3 +183,18 @@ def test_customjson_end_to_end_into_warehouse():
     finally:
         conn.close()
     assert result.observations == 6 and not result.errors
+
+
+def test_both_languages_and_the_classification_ride_every_row():
+    """The API states two names and a bilingual category per product and the
+    connector dropped ALL of it — sika crawled with no categories and no
+    English names (owner-reported). The live arname arrives with stray
+    whitespace; it must not survive into the path."""
+    table, view = fetch_rows(_StubFetcher())
+    first = view.as_dict(table.rows[0])
+
+    assert first["product_name"] == "سيكا فيوم 5 كيلو"
+    assert first["product_name_en"] == "Sika Fume® 5 KG"
+    assert first["lang"] == "ar"
+    assert first["category_path"] == "إضافات الخرسانه"      # tab stripped
+    assert first["category_external_id"] == "20"
