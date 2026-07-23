@@ -30,10 +30,56 @@ def client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(db_path))
 
 
-def test_overview_lists_the_source(client):
+def test_data_landing_lists_the_source(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "ELSEWEDYSHOP" in r.text and "السويدي شوب" in r.text
+
+
+def test_overview_is_merged_into_the_data_workspace(client):
+    landing = client.get("/").text
+    selected = client.get("/source/ELSEWEDYSHOP").text
+
+    assert 'class="data-workspace"' in landing
+    assert 'class="dataset-browser"' in landing
+    assert 'data-dataset-choice' in landing
+    assert 'data-dataset-toggle' in landing
+    assert '>Overview<' not in landing
+    assert 'aria-current="page"' in selected
+    assert 'aria-label="Selected dataset"' in selected
+    assert 'class="wrap wrap-wide"' in selected
+    for region in ("data-source-overview", "data-controls", "data-records"):
+        assert f'class="{region}"' in selected
+    assert "Workspace tools" in selected
+    assert 'class="data-grid-frame-head"' in selected
+    assert 'class="data-grid-count"' not in selected
+    assert 'class="data-grid-exportbar"' in selected
+    assert 'class="data-control-primary"' not in selected
+    assert '<form class="filters"' not in selected
+
+
+def test_data_canvas_stays_centered_without_overlapping_the_dataset_toggle():
+    styles = (Path(__file__).parents[1] / "scrapex" / "webui" / "templates" /
+              "_data_workspace_styles.html").read_text(encoding="utf-8")
+
+    assert "--data-canvas-width:82rem" in styles
+    assert "justify-self:safe center" in styles
+    assert "grid-template-columns:3.25rem minmax(0,1fr) 3.25rem" in styles
+    assert '.data-workspace.datasets-collapsed::after{content:"";grid-column:3}' in styles
+    assert "translateX(-2.125rem)" not in styles
+    assert "overflow-x:auto" in styles
+    assert styles.count("var(--data-canvas-width)") >= 2
+
+
+def test_dataset_identity_leads_with_english_and_links_the_website(client):
+    selected = client.get("/source/ELSEWEDYSHOP").text
+
+    english = selected.index("<h1>ELSEWEDYSHOP</h1>")
+    arabic = selected.index("السويدي شوب", english)
+    assert english < arabic
+    assert 'class="dataset-local-name"' in selected
+    assert 'class="dataset-site-link" href="https://elsewedyshop.com"' in selected
+    assert 'target="_blank"' in selected and 'rel="noopener noreferrer"' in selected
 
 
 # The rows are rendered by the grid in the browser now, so asserting product

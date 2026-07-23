@@ -1,0 +1,177 @@
+<aside class="dataset-browser" data-dataset-browser aria-label="Datasets">
+  <header class="dataset-browser-head">
+    <div class="dataset-browser-title">
+      <h2>Datasets</h2>
+      <span class="dataset-browser-actions">
+        <a class="dataset-icon-button dataset-manage" href="/manage"
+           title="Add or manage sources" aria-label="Add or manage sources">+</a>
+        <button type="button" class="dataset-icon-button dataset-toggle" data-dataset-toggle
+                aria-label="Collapse dataset list" title="Collapse dataset list"
+                aria-controls="dataset-list" aria-expanded="true">
+          <svg aria-hidden="true"><use href="/static/material-icons/material-icons.svg#view-column"></use></svg>
+        </button>
+      </span>
+    </div>
+    <p>Select a dataset to browse its records.</p>
+    <label class="dataset-search-wrap">
+      <svg aria-hidden="true"><use href="/static/material-icons/material-icons.svg#search"></use></svg>
+      <input class="dataset-search" type="search" placeholder="Search datasets"
+             aria-label="Search datasets" data-dataset-search>
+    </label>
+    <span class="dataset-result-count" data-dataset-count role="status" aria-live="polite"></span>
+  </header>
+
+  <nav class="dataset-list" id="dataset-list" data-dataset-list aria-label="Choose a dataset">
+    {% if sources %}
+    <section class="dataset-group" data-dataset-group>
+      <span class="dataset-group-label">Available data</span>
+      {% for s in sources %}
+      <a class="dataset-choice" href="/source/{{ s.source_key }}"
+         data-dataset-choice data-search="{{ (s.source_name ~ ' ' ~ s.source_key)|lower }}"
+         {% if s.source_key == source_key %}aria-current="page"{% endif %}>
+        <span class="dataset-choice-name">{{ s.source_key.replace("_", " ") }}</span>
+        <span class="dataset-choice-local" dir="auto">{{ s.source_name }}</span>
+        <span class="dataset-choice-meta">{{ "{:,}".format(s.observations) }} prices</span>
+      </a>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if pending %}
+    <section class="dataset-group" data-dataset-group>
+      <span class="dataset-group-label">Configured, never run</span>
+      {% for p in pending %}
+      <a class="dataset-choice dataset-choice-pending" href="/source/{{ p.source_key }}"
+         data-dataset-choice data-search="{{ (p.source_name ~ ' ' ~ p.source_key)|lower }}"
+         {% if p.source_key == source_key %}aria-current="page"{% endif %}>
+        <span class="dataset-choice-name">{{ p.source_key.replace("_", " ") }}</span>
+        <span class="dataset-choice-local" dir="auto">{{ p.source_name }}</span>
+        <span class="dataset-choice-meta">Never run</span>
+      </a>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if not sources and not pending %}
+      <p class="dataset-no-results" data-dataset-placeholder>Loading datasets…</p>
+    {% endif %}
+  </nav>
+  <p class="dataset-no-results" data-dataset-empty hidden>No datasets match your search.</p>
+</aside>
+
+<script>
+(() => {
+  const browser = document.querySelector("[data-dataset-browser]");
+  if (!browser) return;
+  const workspace = browser.closest(".data-workspace");
+  const search = browser.querySelector("[data-dataset-search]");
+  const list = browser.querySelector("[data-dataset-list]");
+  const count = browser.querySelector("[data-dataset-count]");
+  const empty = browser.querySelector("[data-dataset-empty]");
+  const toggle = browser.querySelector("[data-dataset-toggle]");
+  let choices = [...browser.querySelectorAll("[data-dataset-choice]")];
+  let groups = [...browser.querySelectorAll("[data-dataset-group]")];
+
+  function filterDatasets() {
+    const query = search.value.trim().toLocaleLowerCase();
+    let shown = 0;
+    choices.forEach((choice) => {
+      choice.hidden = Boolean(query) && !choice.dataset.search.includes(query);
+      if (!choice.hidden) shown += 1;
+    });
+    groups.forEach((group) => {
+      group.hidden = !group.querySelector("[data-dataset-choice]:not([hidden])");
+    });
+    count.textContent = `Showing ${shown} of ${choices.length} datasets`;
+    empty.hidden = shown !== 0 || choices.length === 0;
+  }
+
+  function makeChoice(item) {
+    const choice = document.createElement("a");
+    choice.className = "dataset-choice" + (item.observations ? "" : " dataset-choice-pending");
+    choice.href = "/source/" + encodeURIComponent(item.source_key);
+    choice.dataset.datasetChoice = "";
+    choice.dataset.search = `${item.source_name} ${item.source_key}`.toLocaleLowerCase();
+    if (location.pathname === choice.pathname) choice.setAttribute("aria-current", "page");
+
+    const name = document.createElement("span");
+    name.className = "dataset-choice-name";
+    name.textContent = item.source_key.replaceAll("_", " ");
+    const localName = document.createElement("span");
+    localName.className = "dataset-choice-local";
+    localName.dir = "auto";
+    localName.textContent = item.source_name;
+    const meta = document.createElement("span");
+    meta.className = "dataset-choice-meta";
+    meta.textContent = item.observations
+      ? `${Number(item.observations).toLocaleString()} prices` : "No records";
+    choice.append(name, localName, meta);
+    return choice;
+  }
+
+  function makeGroup(label, items) {
+    if (!items.length) return null;
+    const group = document.createElement("section");
+    group.className = "dataset-group";
+    group.dataset.datasetGroup = "";
+    const heading = document.createElement("span");
+    heading.className = "dataset-group-label";
+    heading.textContent = label;
+    group.append(heading, ...items.map(makeChoice));
+    return group;
+  }
+
+  async function hydrateDatasets() {
+    const placeholder = browser.querySelector("[data-dataset-placeholder]");
+    try {
+      const response = await fetch("/api/sources");
+      if (!response.ok) throw new Error(String(response.status));
+      const items = (await response.json()).sources || [];
+      if (!items.length) {
+        if (placeholder) placeholder.textContent = "No configured datasets yet.";
+        filterDatasets();
+        return;
+      }
+      const available = items.filter((item) => Number(item.observations) > 0);
+      const configured = items.filter((item) => Number(item.observations) === 0);
+      const nextGroups = [makeGroup("Available data", available),
+                          makeGroup("Configured sources", configured)].filter(Boolean);
+      list.replaceChildren(...nextGroups);
+      choices = [...browser.querySelectorAll("[data-dataset-choice]")];
+      groups = [...browser.querySelectorAll("[data-dataset-group]")];
+      filterDatasets();
+      const hydratedSelected = browser.querySelector('[data-dataset-choice][aria-current="page"]');
+      if (hydratedSelected) {
+        list.scrollTop = Math.max(0, hydratedSelected.offsetTop - list.clientHeight / 2);
+      }
+    } catch (error) {
+      if (placeholder) placeholder.textContent = "Could not load datasets. Refresh to retry.";
+      count.textContent = "Dataset list unavailable";
+    }
+  }
+
+  function setCollapsed(collapsed, remember = false) {
+    workspace.classList.toggle("datasets-collapsed", collapsed);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute("aria-label", collapsed ? "Expand dataset list" : "Collapse dataset list");
+    toggle.title = collapsed ? "Expand dataset list" : "Collapse dataset list";
+    if (remember) {
+      try { localStorage.setItem("scrapex-datasets-collapsed", String(collapsed)); }
+      catch (error) { /* A blocked preference must never block the list. */ }
+    }
+  }
+
+  search.addEventListener("input", filterDatasets);
+  toggle.addEventListener("click", () =>
+    setCollapsed(!workspace.classList.contains("datasets-collapsed"), true));
+  let startsCollapsed = false;
+  try { startsCollapsed = localStorage.getItem("scrapex-datasets-collapsed") === "true"; }
+  catch (error) { /* Use the open default. */ }
+  setCollapsed(startsCollapsed);
+
+  if (choices.length) filterDatasets();
+  else hydrateDatasets();
+  const selected = browser.querySelector('[data-dataset-choice][aria-current="page"]');
+  if (selected) list.scrollTop = Math.max(0, selected.offsetTop - list.clientHeight / 2);
+})();
+</script>

@@ -106,9 +106,9 @@ def test_a_source_that_has_run_is_not_listed_as_never_run(split_client):
     import re
 
     section = body.split("Configured, never run")[-1]
-    # Count CARDS, not string occurrences: a card names its source twice, once
-    # as the key and once inside the suggested crawl command.
-    cards = re.findall(r'class="key">([A-Z_]+)</div>', section)
+    # Count dataset choices, not visible names: the English label is humanised
+    # (GPP ENERGY), while the route keeps the canonical source key.
+    cards = re.findall(r'href="/source/([A-Z_]+)"\s+data-dataset-choice', section)
     assert cards.count("GPP_ENERGY") == 1, f"listed more than once: {cards}"
 
 

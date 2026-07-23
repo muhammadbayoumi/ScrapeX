@@ -36,8 +36,64 @@
  * rounded outline instead of ending as three unrelated rectangles. */
 #grid.tablewrap,
 #grid.tabulator {
+  width: 100%;
+  max-width: 100%;
   border-radius: var(--table-radius);
 }
+
+/* Reserve one stable, bounded surface before Tabulator is constructed. The
+ * grid can scroll inside it, but it cannot resize the Data workspace around
+ * whichever columns happen to finish measuring first. */
+.data-grid-frame {
+  --data-grid-height: clamp(36rem, 72vh, 42rem);
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--table-radius) + 4px);
+  background: var(--surface);
+  contain: inline-size;
+}
+.data-grid-frame-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .9rem 1.1rem .8rem;
+  border-bottom: 1px solid var(--line);
+}
+.data-grid-heading { min-width: 0; }
+.data-grid-eyebrow {
+  display: block;
+  margin-bottom: .1rem;
+  color: var(--accent-ink);
+  font-size: .58rem;
+  font-weight: 750;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.data-grid-heading h2 { margin: 0; font-size: 1.08rem; }
+.data-grid-heading p { max-width: 42rem; margin: .14rem 0 0; color: var(--muted); font-size: .72rem; }
+.data-grid-context {
+  min-height: 2.55rem;
+  padding: .55rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.data-grid-context .answer { margin: 0; }
+.data-grid-viewport {
+  width: calc(100% - 1.5rem);
+  min-width: 0;
+  max-width: calc(100% - 1.5rem);
+  height: var(--data-grid-height);
+  min-height: 36rem;
+  max-height: 42rem;
+  margin: .75rem .75rem 0;
+  overflow: hidden;
+  border-radius: var(--table-radius);
+}
+.data-grid-viewport #grid { height: 100%; }
 
 @media (prefers-color-scheme: dark) {
   .tabulator { --grid-header-surface: var(--line); }
@@ -339,8 +395,30 @@
 
 /* ---- chrome: scrollers, resize guides, edit inputs ---- */
 .tabulator .tabulator-tableholder:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
-.tabulator-col-resize-handle { opacity: 0; }
-.tabulator-col-resize-handle:hover { opacity: 1; background: var(--accent); }
+.tabulator-col-resize-handle {
+  width: 9px;
+  opacity: 1;
+  background: transparent;
+  cursor: col-resize;
+}
+.tabulator .tabulator-header .tabulator-col-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset-block: .72rem;
+  inset-inline-start: 50%;
+  width: 1px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: .48;
+  transform: translateX(-50%);
+  transition: width .12s ease,background-color .12s ease,opacity .12s ease;
+}
+.tabulator .tabulator-header .tabulator-col-resize-handle:hover::after,
+.tabulator .tabulator-header .tabulator-col-resize-handle:active::after {
+  width: 5px;
+  background: var(--accent);
+  opacity: 1;
+}
 .tabulator .tabulator-row-resize-guide,
 .tabulator .tabulator-col-resize-guide { background-color: var(--accent); }
 .tabulator input, .tabulator select {
@@ -352,24 +430,130 @@
 /* ---- grid-owned controls --------------------------------------------------
  * These classes are created by grid.js or occur only beside a Tabulator grid.
  * Keeping them here means base.html has no knowledge of this renderer. */
-#grid-features { margin: .4rem 0 .8rem; }
-#grid-features > summary { cursor: pointer; font-weight: 600; }
-#grid-features > p { font-size: .85rem; }
+#grid-features { position: relative; flex: none; margin: 0; }
+#grid-features > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 2.35rem;
+  padding: .45rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--accent-weak);
+  color: var(--accent-ink);
+  cursor: pointer;
+  font-size: .8rem;
+  font-weight: 700;
+  list-style: none;
+}
+#grid-features > summary::-webkit-details-marker { display: none; }
+#grid-features > summary:hover { border-color: var(--accent); }
+#grid-features > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#grid-features > summary svg { width: 1.05rem; height: 1.05rem; fill: currentColor; }
+
+.data-grid-commandbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: .75rem;
+  min-width: 0;
+  min-height: 3.15rem;
+  padding: .5rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+.data-grid-frame > #grid-chips { min-height: 0; margin: 0; padding: 0 1.1rem; }
+.data-grid-frame > #grid-chips:not(:empty) { padding-top: .55rem; }
+
+.data-grid-exportbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: .75rem;
+  padding: .7rem 1rem;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 calc(var(--table-radius) + 3px) calc(var(--table-radius) + 3px);
+  background: var(--bg);
+}
+.data-grid-export-copy { min-width: 0; }
+.data-grid-export-copy strong { display: block; font-size: .76rem; }
+.data-grid-export-copy span { display: block; margin-top: .08rem; color: var(--muted); font-size: .64rem; }
+.data-grid-exportbar #grid-toolbar { flex: none; justify-content: flex-end; margin: 0; }
+
+@media (max-width: 640px) {
+  .data-grid-exportbar { align-items: flex-start; flex-direction: column; }
+  .data-grid-exportbar #grid-toolbar { justify-content: flex-start; }
+}
+
+.grid-feature-popover {
+  position: absolute;
+  z-index: 100;
+  inset-inline-start: 0;
+  top: calc(100% + .4rem);
+  width: min(30rem, calc(100vw - 3rem));
+  max-height: min(32rem, calc(100vh - 8rem));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.grid-feature-popover > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .75rem .85rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.grid-feature-popover > header strong { font-size: .83rem; }
+.grid-feature-popover > header span { color: var(--muted); font-size: .62rem; }
 
 .featuregrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
-  gap: .3rem .8rem;
-  margin-top: .5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .08rem;
+  padding: .45rem;
 }
 .featuregrid label {
   display: flex;
   align-items: center;
-  gap: .4rem;
-  font-size: .85rem;
+  gap: .5rem;
+  min-height: 2rem;
+  padding: .35rem .45rem;
+  border-radius: 7px;
+  font-size: .78rem;
   cursor: pointer;
 }
-.featuregrid input { width: auto; flex: none; }
+.featuregrid label:hover { background: var(--accent-weak); }
+.featuregrid label.is-planned { color: var(--muted); cursor: not-allowed; }
+.featuregrid label.is-planned:hover { background: transparent; }
+.featuregrid input { width: auto; flex: none; margin: 0; accent-color: var(--accent); }
+.featuregrid input:disabled { opacity: .58; }
+.featuregrid label small { margin-inline-start: auto; color: var(--muted); font-size: .58rem; }
+.grid-feature-section {
+  grid-column: 1 / -1;
+  padding: .55rem .45rem .25rem;
+  color: var(--muted);
+  font-size: .58rem;
+  font-weight: 750;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 680px) {
+  .data-grid-frame-head { align-items: flex-start; }
+  .data-grid-commandbar { align-items: flex-start; flex-direction: column; }
+  .featuregrid { grid-template-columns: 1fr; }
+  .grid-feature-section { grid-column: auto; }
+}
 
 /* Tabulator has no set filter, so grid.js supplies this popup. */
 .setfilter { min-width: 15rem; max-width: 20rem; padding: .5rem; }

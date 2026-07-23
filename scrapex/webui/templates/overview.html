@@ -1,79 +1,43 @@
 {% extends "base.html" %}
-{% block title %}ScrapeX — Sources{% endblock %}
+{% block title %}Data — ScrapeX{% endblock %}
 {% block content %}
-{# Interface language is English only (spec 1); source_name is scraped DATA and
-   carries dir="auto" so Arabic names render RTL inside this LTR page. #}
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem">
-  <h1 style="margin:0">Sources</h1>
-  <a href="/manage"><button>+ Add / manage sources</button></a>
-</div>
+{% include "_data_workspace_styles.html" %}
 
-{% if not sources and not pending %}
-  <div class="empty">
-    No data yet.<br>
-    Run: <code>python -m scrapex.cli crawl ELSEWEDYSHOP</code> then
-    <code>python -m scrapex.cli ingest ELSEWEDYSHOP</code>
-  </div>
-{% elif not sources %}
-  <div class="banner">
-    None of your configured sources has run yet. Pick one below and press
-    <b>Run</b> in the side panel, or use
-    <code>python -m scrapex.cli crawl &lt;SOURCE&gt;</code>.
-  </div>
-{% endif %}
-{% if sources %}
-  <div class="banner">
-    The warehouse has two layers: <b>source-local</b> (raw, exactly as scraped) and
-    <b>unified</b> (fills only after curation and matching).
-    The numbers below are the source-local layer — the prices that actually exist.
-  </div>
-  <div class="grid">
-    {% for s in sources %}
-    <a class="card" href="/source/{{ s.source_key }}">
-      <div class="name" dir="auto">{{ s.source_name }}</div>
-      <div class="key">{{ s.source_key }}</div>
-      <div class="metrics">
-        <div class="metric"><div class="n">{{ "{:,}".format(s.products) }}</div><div class="l">Products</div></div>
-        <div class="metric"><div class="n">{{ "{:,}".format(s.variants) }}</div><div class="l">Variants</div></div>
-        <div class="metric"><div class="n">{{ "{:,}".format(s.observations) }}</div><div class="l">Prices</div></div>
+<div class="data-workspace">
+  {% include "_source_list.html" %}
+
+  <section class="data-view">
+    <div class="data-landing">
+      <span class="data-landing-eyebrow">Data workspace</span>
+      <h1>Browse your datasets</h1>
+      <p>Select a dataset from the list to inspect its records, filter the grid,
+        manage columns, and open price history without leaving the Data workspace.</p>
+
+      <div class="data-overview-metrics" aria-label="Data overview">
+        <div class="data-overview-metric">
+          <strong>{{ sources|length }}</strong><span>Datasets with data</span>
+        </div>
+        <div class="data-overview-metric">
+          <strong>{{ "{:,}".format(sources|sum(attribute="observations")) }}</strong>
+          <span>Price observations</span>
+        </div>
+        <div class="data-overview-metric">
+          <strong>{{ pending|length }}</strong><span>Not run yet</span>
+        </div>
       </div>
-      {% if s.curation %}
-        {% for status, n in s.curation.items() %}<span class="chip">{{ n }} {{ status }}</span> {% endfor %}
+
+      {% if pending and not sources %}
+        <p class="data-landing-note">None of your configured datasets has run yet.
+          Select one from the list to see its next step, or run
+          <code>python -m scrapex.cli crawl {{ pending[0].source_key }}</code>.</p>
+      {% elif not sources and not pending %}
+        <p class="data-landing-note">No configured datasets yet.
+          <a href="/manage">Add a source</a> to begin collecting data.</p>
+      {% else %}
+        <p class="data-landing-note">The grid shows source-local data exactly as collected.
+          Curated and matched records remain available through the same dataset view.</p>
       {% endif %}
-      <div style="margin-top:.6rem">
-        <span class="chip accent">Matched: {{ s.matched_variants }}</span>
-        <span class="chip amber">Published: {{ s.published_rows }}</span>
-      </div>
-      <div class="muted" style="font-size:.76rem;margin-top:.6rem">
-        Last run: {{ s.last_run or "—" }}{% if s.last_status %} ({{ s.last_status }}){% endif %}
-      </div>
-    </a>
-    {% endfor %}
-  </div>
-{% endif %}
-
-{% if pending %}
-  {# Configured but never run. These used to be invisible: the overview read the
-     database, which only knows a source once it has ingested something, so a
-     source that had never run did not look like a problem — it did not exist. #}
-  <h2>Configured, never run</h2>
-  <p class="muted" style="font-size:.85rem">These are in your manifest and have
-    produced no data yet. "Never run" is a status, not an error.</p>
-  <div class="grid">
-    {% for p in pending %}
-      <div class="card">
-        <div class="name" dir="auto">{{ p.source_name }}</div>
-        <div class="key">{{ p.source_key }}</div>
-        <div style="margin-top:.6rem">
-          <span class="chip">Never run</span>
-          <span class="chip">{{ p.family }}</span>
-          {% if not p.active %}<span class="chip amber">Not enabled</span>{% endif %}
-        </div>
-        <div class="muted" style="font-size:.76rem;margin-top:.6rem">
-          <code>python -m scrapex.cli crawl {{ p.source_key }}</code>
-        </div>
-      </div>
-    {% endfor %}
-  </div>
-{% endif %}
+    </div>
+  </section>
+</div>
 {% endblock %}

@@ -38,6 +38,7 @@
       mask:url("/static/x-mark.png") center/contain no-repeat}
     .topbar .sub{color:var(--muted);font-size:.85rem}
     .wrap{max-width:1200px;margin:0 auto;padding:1.4rem 1.2rem}
+    .wrap-wide{max-width:none;padding:1rem clamp(.75rem,1.4vw,1.35rem)}
     h1{font-size:1.3rem;font-weight:600;margin:.2rem 0 1rem}
     h2{font-size:1.05rem;font-weight:600;margin:1.4rem 0 .6rem}
     .muted{color:var(--muted)}
@@ -312,7 +313,6 @@
   <div class="workspace-shell">
     <aside class="workspace-sidebar" id="workspace-sidebar" aria-label="Workspace navigation">
       <svg class="wsnav-symbols" aria-hidden="true">
-        <symbol id="wsnav-overview" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><rect x="13.5" y="13.5" width="7" height="7" rx="1"/></symbol>
         <symbol id="wsnav-data" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/></symbol>
         <symbol id="wsnav-changes" viewBox="0 0 24 24"><path d="m4 17 5-5 4 4 7-8"/><path d="M15 8h5v5"/></symbol>
         <symbol id="wsnav-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
@@ -333,7 +333,6 @@
       <nav class="wstabs" aria-label="Workspace">
         {% for group, items in [
           ("Browse", [
-            ("/", "Overview", "overview"),
             ("/source/" ~ source_key if source_key else "/", "Data", "data"),
             ("/changes" ~ ctx, "Changes", "changes"),
             ("/history" ~ ctx, "Crawl history", "history"),
@@ -362,7 +361,7 @@
         {% endfor %}
       </nav>
     </aside>
-    <main class="wrap">
+    <main class="wrap{% if wide_page %} wrap-wide{% endif %}">
     {# Stating the exact database, its status and the command that fixes it beats
        a page that fails halfway through a query and blames the query. #}
     {% if db_state and not db_state.ok %}

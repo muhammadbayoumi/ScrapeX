@@ -18,6 +18,7 @@
   const mount = document.getElementById("grid");
   const note = document.getElementById("grid-note");
   const toolbar = document.getElementById("grid-toolbar");
+  const viewport = mount && mount.closest("[data-grid-viewport]");
   if (!mount || typeof Tabulator !== "function") return;
 
   const SOURCE = mount.dataset.source;
@@ -62,6 +63,20 @@
   const active = new Map();
   let table = null;
   let payload = null;
+  let viewportResizeTimer = null;
+  let lastViewportWidth = 0;
+  if (viewport && typeof ResizeObserver === "function") {
+    const viewportObserver = new ResizeObserver((entries) => {
+      const nextWidth = Math.round(entries[0].contentRect.width);
+      clearTimeout(viewportResizeTimer);
+      viewportResizeTimer = setTimeout(() => {
+        if (!table || nextWidth < 1 || nextWidth === lastViewportWidth) return;
+        lastViewportWidth = nextWidth;
+        try { table.redraw(true); } catch (err) { /* a destroyed grid needs no redraw */ }
+      }, 140);
+    });
+    viewportObserver.observe(viewport);
+  }
 
   // Which features are on, per SOURCE. A commodity table and a shop table do
   // not want the same shape, so one global preference would be wrong for one of
@@ -74,8 +89,9 @@
   // Defaults chosen to leave the table looking EXACTLY as it did: no stripes,
   // no extra columns, standard spacing. Grouping is the one thing on by
   // default, and only where the server found something to group.
-  const DEFAULT_FEATURES = {tree: true, rows: true, select: true, totals: false,
-                            rownum: false, compact: false, wrap: false, stripe: false};
+  const DEFAULT_FEATURES = {tree: true, rows: true, select: true, statusbar: true,
+                            totals: false, rownum: false, compact: false,
+                            wrap: false, stripe: false};
   let features = Object.assign({}, DEFAULT_FEATURES);
   // WHICH columns group the table, from outermost to innermost. Per source,
   // because the useful hierarchy for a fuel table (material, then country) is
@@ -423,33 +439,72 @@
   // frozen columns after it as right, so build() orders those three bands.
   const pinned = new Map();
   const widths = new Map();
+  let autosizeRequest = 0;
 
   function setPinned(field, side) {
     side ? pinned.set(field, side) : pinned.delete(field);
     build();
   }
 
-  // `setWidth(true)` asks Tabulator to measure rendered header and cell content.
-  // Deleting a remembered width and rebuilding did not autosize: build() saved
-  // the old width again before destruction, making the menu command a no-op.
-  function autosize(field) {
-    const column = table && table.getColumn(field);
-    if (!column) return;
-    widths.delete(field);
-    column.setWidth(true);
-    widths.set(field, column.getWidth());
-    table.redraw(true);
+  // Tabulator's fit-to-data calculation only considers the cells reliably. A
+  // short column with a long title can therefore end up with an ellipsised
+  // header after autosize. Measure the title and all of its visible controls as
+  // flex items, including the gaps and the header padding, so the result fits
+  // whichever is wider: the data or the complete header.
+  function measureHeaderWidth(column) {
+    const header = column.getElement && column.getElement();
+    if (!header) return 0;
+    const content = header.querySelector(".tabulator-col-content");
+    const titleHolder = header.querySelector(".tabulator-col-title-holder");
+    const label = header.querySelector(".grid-header-label");
+    if (!content || !titleHolder || !label) return 0;
+
+    const contentStyle = getComputedStyle(content);
+    const holderStyle = getComputedStyle(titleHolder);
+    const padding = (parseFloat(contentStyle.paddingInlineStart) || 0) +
+                    (parseFloat(contentStyle.paddingInlineEnd) || 0);
+    const gap = parseFloat(holderStyle.columnGap || holderStyle.gap) || 0;
+    const items = Array.from(titleHolder.querySelectorAll(
+      ":scope > .tabulator-col-title > *, :scope > .tabulator-col-sorter"
+    ));
+    const itemWidth = items.reduce((total, item) => {
+      if (item === label) return total + Math.max(label.scrollWidth, label.getBoundingClientRect().width);
+      return total + item.getBoundingClientRect().width;
+    }, 0);
+    return Math.ceil(padding + itemWidth + gap * Math.max(0, items.length - 1));
   }
+
+  // Autosize must run after BOTH Tabulator and the browser have painted the
+  // stable viewport. Measuring synchronously sometimes caught the old width;
+  // fitColumns then immediately redistributed that provisional value and made
+  // the command look random. The measured number is applied again explicitly,
+  // so later fitColumns passes treat it as an owner's width rather than flex.
+  function autosizeColumns(fields) {
+    if (!table) return;
+    const request = ++autosizeRequest;
+    fields.forEach((field) => widths.delete(field));
+    table.redraw(true);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!table || request !== autosizeRequest) return;
+      fields.forEach((field) => {
+        const column = table.getColumn(field);
+        if (!column || column.getDefinition().resizable === false) return;
+        column.setWidth(true);
+        const measured = Math.max(
+          GRID_MIN_COLUMN_WIDTH,
+          Math.ceil(column.getWidth()),
+          measureHeaderWidth(column)
+        );
+        column.setWidth(measured);
+        widths.set(field, measured);
+      });
+      table.redraw(false);
+    }));
+  }
+  function autosize(field) { autosizeColumns([field]); }
   function autosizeAll() {
     if (!table) return;
-    widths.clear();
-    table.getColumns().forEach((column) => {
-      if (column.getDefinition().resizable === false) return;
-      column.setWidth(true);
-      const field = column.getField();
-      if (field) widths.set(field, column.getWidth());
-    });
-    table.redraw(true);
+    autosizeColumns(table.getColumns().map((column) => column.getField()).filter(Boolean));
   }
 
   let chooserSaveQueue = Promise.resolve();
@@ -1120,9 +1175,9 @@
       // the gutter exists is cheaper than fighting the layout afterwards.
       renderVerticalBuffer: 300,
       movableColumns: true,        // drag a header to build the table you want
-      height: "34rem",             // virtual rendering keeps thousands smooth
+      height: "100%",              // the stable frame owns the visible row area
       placeholder: "No rows match these filters.",
-      footerElement: footer,
+      footerElement: features.statusbar ? footer : undefined,
       selectableRows: !!features.select,
       selectableRowsRangeMode: "click",
       selectableRowsPersistence: false,
@@ -1436,6 +1491,17 @@
         saveFeatures();
         build();
       });
+    });
+    // Behave like a compact tool popup: Escape and an outside click close it,
+    // while the native summary remains the only open/close control.
+    panel.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        panel.removeAttribute("open");
+        panel.querySelector("summary").focus();
+      }
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (panel.open && !panel.contains(event.target)) panel.removeAttribute("open");
     });
   }
 

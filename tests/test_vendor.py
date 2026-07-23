@@ -92,8 +92,8 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    assert '/static/grid.js?v=column-tools-2' in page
-    assert '/static/grid-theme.css?v=column-tools-2' in page
+    assert '/static/grid.js?v=stable-grid-6' in page
+    assert '/static/grid-theme.css?v=stable-grid-6' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -108,7 +108,7 @@ def test_material_header_icons_are_local_and_dry():
         'id="fit-screen"', 'id="unfold-more"', 'id="view-stream"',
         'id="account-tree"', 'id="view-column"', 'id="restart-alt"',
         'id="unfold-less"', 'id="close"', 'id="search"',
-        'id="drag-indicator"',
+        'id="drag-indicator"', 'id="settings"',
     }
 
     assert all(token in sprite for token in expected_symbols)
@@ -126,6 +126,45 @@ def test_the_grid_features_panel_is_keyboard_operable_by_construction():
 
     assert "<details id=\"grid-features\"" in page
     assert page.count('type="checkbox" data-feature=') >= 6
+
+
+def test_status_bar_is_a_real_feature_and_owns_the_row_total():
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+
+    assert 'data-feature="statusbar"' in page
+    assert "statusbar: true" in script
+    assert "footerElement: features.statusbar ? footer : undefined" in script
+    assert 'class="data-grid-count"' not in page
+
+
+def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+
+    assert 'class="data-grid-exportbar"' in page
+    assert page.index('class="data-grid-viewport"') < page.index('class="data-grid-exportbar"')
+
+
+def test_unimplemented_grid_features_are_visible_but_disabled():
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+
+    for label in ("Advanced Filter", "Column Groups", "Pagination", "Row Drag",
+                  "Row Pinning", "Show Integrated Chart Popup"):
+        assert f'"{label}"' in page
+    assert 'class="is-planned"' in page
+    assert '<input type="checkbox" disabled> {{ feature }}' in page
+
+
+def test_grid_has_a_stable_reserved_viewport():
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+    css = THEME.read_text(encoding="utf-8")
+
+    assert 'class="data-grid-frame"' in page
+    assert 'class="data-grid-viewport" data-grid-viewport' in page
+    assert ".data-grid-viewport" in css
+    assert "--data-grid-height: clamp(36rem, 72vh, 42rem)" in css
+    assert 'height: "100%"' in (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    assert "contain: inline-size" in css
 
 
 def test_row_selection_is_an_explicit_feature_and_zero_is_not_noise():
@@ -307,6 +346,19 @@ def test_data_grid_edges_are_rounded_without_changing_other_tables():
     assert "overflow: hidden" in css
 
 
+def test_column_resize_boundary_is_visible_and_highlights_while_dragging():
+    css = THEME.read_text(encoding="utf-8")
+
+    header_handle = ".tabulator .tabulator-header .tabulator-col-resize-handle"
+    assert f"{header_handle}::after" in css
+    assert "\n.tabulator-col-resize-handle::after" not in css
+    assert "background: var(--muted)" in css
+    assert f"{header_handle}:hover::after" in css
+    assert f"{header_handle}:active::after" in css
+    assert "background: var(--accent)" in css
+    assert "cursor: col-resize" in css
+
+
 def test_every_hardcoded_row_colour_the_library_sets_is_overridden():
     """Named explicitly, because a library update that adds one more will show
     through, and the failure is silent — it just looks wrong."""
@@ -399,6 +451,12 @@ def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
     assert 'menuLabel("view-column", "Choose Columns")' in script
     assert 'menuLabel("restart-alt", "Reset Columns")' in script
     assert "column.setWidth(true)" in script
+    assert "requestAnimationFrame(() => requestAnimationFrame(() =>" in script
+    assert "column.setWidth(measured)" in script
+    assert "function measureHeaderWidth(column)" in script
+    assert "label.scrollWidth" in script
+    assert 'titleHolder.querySelectorAll(' in script
+    assert "measureHeaderWidth(column)" in script
     assert 'layout: "fitColumns"' in script
     assert "persistence: pinned.size ? false" in script
 

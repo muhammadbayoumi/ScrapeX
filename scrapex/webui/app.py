@@ -201,29 +201,34 @@ def create_app(
 
     # ---- HTML browse UI ----------------------------------------------------
 
+    def _source_catalog(conn):
+        """Every configured source, split by whether it has warehouse data."""
+        sources = list_sources(conn)
+        source_sites = {entry.source_key: entry.base_url
+                        for entry in app.state.manifest.sources}
+        known = {source.source_key for source in sources}
+        pending = [
+            {"source_key": key, "source_name": entry.source_name,
+             "base_url": entry.base_url,
+             "family": entry.family.value, "active": entry.active}
+            for entry in sorted(app.state.manifest.sources, key=lambda item: item.source_key)
+            for key in [entry.source_key]
+            if key not in known
+        ]
+        return sources, pending, source_sites
+
     @app.get("/", response_class=HTMLResponse)
     def overview(request: Request):
         conn = read_conn()
         try:
-            sources = list_sources(conn)
+            sources, pending, source_sites = _source_catalog(conn)
         finally:
             conn.close()
-        # The manifest is the list of sources the owner CONFIGURED; the database
-        # only knows the ones that have run. Reading the database alone meant a
-        # fresh install showed "No data yet" and none of the 12 configured
-        # sources — a source that had never run did not appear as a problem, it
-        # simply did not exist. Never-run sources are appended, clearly marked.
-        known = {s.source_key for s in sources}
-        pending = [
-            {"source_key": key, "source_name": entry.source_name,
-             "family": entry.family.value, "active": entry.active}
-            for entry in sorted(app.state.manifest.sources, key=lambda e: e.source_key)
-            for key in [entry.source_key]
-            if key not in known
-        ]
         return TEMPLATES.TemplateResponse(request=request, name="overview.html",
                                           context={"sources": sources, "pending": pending,
-                                                   "tab": "overview", "source_key": None})
+                                                   "source_sites": source_sites,
+                                                   "tab": "data", "source_key": None,
+                                                   "wide_page": True})
 
     def _view_defaults(source_key: str, view_id: int) -> dict:
         """A saved view as query parameters. Unknown keys never reach SQL.
@@ -312,6 +317,7 @@ def create_app(
             state["view_id"] = view_id
         conn = read_conn()
         try:
+            sources, pending, source_sites = _source_catalog(conn)
             summary = source_summary(conn, source_key)
             page_data, fields, views, columns = None, [], [], []
             changes_by_offer, facets, watch_counts = {}, {}, {}
@@ -359,6 +365,10 @@ def create_app(
         return TEMPLATES.TemplateResponse(
             request=request, name="source.html",
             context={"summary": summary, "page_data": page_data, "source_key": source_key,
+                     "sources": sources, "pending": pending,
+                     "source_sites": source_sites,
+                     "source_site": source_sites.get(source_key, ""),
+                     "wide_page": True,
                      "q": q, "availability": availability, "page": page, "tab": "data",
                      "sort": sort or "name", "direction": direction,
                      "sortable": list(SORTABLE), "fields": fields, "views": views,
@@ -648,7 +658,7 @@ def create_app(
             rows.append({"entry": entry, "implemented": entry.family in _BUILDERS,
                          "observations": s.observations if s else 0})
         return TEMPLATES.TemplateResponse(request=request, name="manage.html", context={
-            "rows": rows, "tab": "overview", "source_key": None,
+            "rows": rows, "tab": "data", "source_key": None,
             "families": [f.value for f in ConnectorFamily],
             "cadences": [c.value for c in Cadence],
             "authorities": [a.value for a in Authority],
