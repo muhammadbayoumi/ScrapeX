@@ -21,7 +21,7 @@ from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.custom_json import CustomJsonConnector, _availability, _prices
 from scrapex.ingest import ingest_payloads
-from scrapex.rowspec import PRODUCT_PRICES, RowView
+from scrapex.rowspec import PRODUCT_PRICES, RowBuilder, RowView
 from scrapex.vocab import ExtractKind, ExtractScope
 
 FX = Path(__file__).parent / "fixtures"
@@ -72,20 +72,81 @@ def fetch_rows(fetcher):
 
 # ---- price semantics, verified against all 87 live products ------------------
 
-def test_specail_price_is_NOT_proof_of_a_live_discount():
-    """CORRECTED 2026-07-23 against the shop's own rendered page: product 235
-    still publishes specail_price 939.38 while the storefront charges 1252.50.
-    The field is a standing column the shop keeps, not a price it charges —
-    honouring it invented a discount, and because the field never changed, no
-    update, rebuild or wipe could ever clear it (the owner's exact report)."""
+def test_specail_price_is_a_TRADE_TIER_price_the_public_is_never_charged():
+    """SETTLED 2026-07-23 from the storefront's own bundle + a live browser.
+
+    The shop's rule (905ebab0162dcb89.js, identical in the grid and home cards)
+    charges `specail_price` only when `2 === Number(user.customerTypeId)`.
+    Proven on product 235 (price 1252.5, specail_price 939.38): anonymous and
+    customerTypeId 1 both render 1252.50 with no badge; only customerTypeId 2
+    renders 939.38 with the "سعر خاص" badge and 1252.50 struck through.
+
+    ScrapeX crawls anonymously, so this branch is unreachable BY CONSTRUCTION —
+    not "until a date". Honouring specail_price invented a discount the public
+    is never offered, and because the field never changes no re-crawl, rebuild
+    or wipe could clear it (the owner's exact report)."""
     assert _prices({"price": 325, "specail_price": 206.25}) == ("325", "", "325")
+    # the real product-235 numbers, not a stand-in
+    assert _prices({"price": 1252.5, "specail_price": 939.38}) == ("1252.5", "", "1252.5")
 
 
-def test_a_flash_sale_IS_the_price_because_it_is_live():
-    """flash_sale_price is dated and live (its siblings carry the window), so
-    it is what the customer actually pays — unlike the standing special."""
+def test_a_LIVE_flash_sale_IS_the_price_because_it_binds_every_visitor():
+    """Branch (1) of the same rule: a positive flash_sale_price is returned
+    before the customer type is even consulted, so it is what ANY visitor pays.
+    Null on all 87 products today; this pins the shape for the day it runs."""
     assert _prices({"price": 325, "specail_price": 206.25,
                     "flash_sale_price": 150}) == ("325", "150", "150")
+
+
+def test_a_flash_sale_beats_a_trade_price_even_when_the_trade_price_is_lower():
+    """Order matters and is not ours to choose: the bundle returns the flash
+    price FIRST, without comparing it to specail_price. A dormant trade price
+    below a live flash price must not leak into what we report."""
+    assert _prices({"price": 1000, "specail_price": 600,
+                    "flash_sale_price": 800}) == ("1000", "800", "800")
+
+
+def test_a_flash_price_at_or_above_list_is_charged_but_is_not_called_a_discount():
+    """The shop honours any positive flash_sale_price — it never checks that the
+    flash price is lower. We charge what it charges, but `sale_price` stays
+    empty so a mispriced flash cannot be reported as a discount it is not."""
+    assert _prices({"price": 100, "flash_sale_price": 120}) == ("100", "", "120")
+    assert _prices({"price": 100, "flash_sale_price": 100}) == ("100", "", "100")
+
+
+def test_the_trade_price_is_kept_as_enrichment_named_for_what_it_is():
+    """Nothing is lost by refusing to charge it: specail_price still travels,
+    labelled as the customer-type-2 price rather than as a discount."""
+    from scrapex.connectors.custom_json import enrichment_rows
+    from scrapex.rowspec import ENRICHMENT
+
+    builder = RowBuilder(ENRICHMENT)
+    view = RowView(ENRICHMENT, builder.header)
+    rows = [view.as_dict(r) for r in enrichment_rows(
+        builder, {"product_id": 235, "price": 1252.5, "specail_price": 939.38},
+        "https://www.sikaegshop.com")]
+
+    trade = [r for r in rows if r["attribute_code"] == "trade_tier_price"]
+    assert len(trade) == 1
+    assert trade[0]["raw_value"] == "939.38"
+    assert "customer type 2" in trade[0]["attribute_label"]
+    # and it is never mistaken for a price row
+    assert not any(r["attribute_code"] in ("sale_price", "effective_price") for r in rows)
+
+
+def test_a_product_without_a_trade_price_emits_no_trade_row():
+    """9 of the 87 live products carry no specail_price at all — they must not
+    acquire an empty one."""
+    from scrapex.connectors.custom_json import enrichment_rows
+    from scrapex.rowspec import ENRICHMENT
+
+    builder = RowBuilder(ENRICHMENT)
+    view = RowView(ENRICHMENT, builder.header)
+    rows = [view.as_dict(r) for r in enrichment_rows(
+        builder, {"product_id": 285, "price": 1600, "specail_price": None},
+        "https://www.sikaegshop.com")]
+
+    assert not any(r["attribute_code"] == "trade_tier_price" for r in rows)
 
 
 def test_zero_or_null_discount_means_no_sale():

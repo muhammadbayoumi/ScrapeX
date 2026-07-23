@@ -17,14 +17,24 @@ The result was not an error. `data.get("products")` returned None, the loop ran
 zero times, and the crawl printed "0 rows" as a success. That is why the source
 looked broken while the site was up the whole time.
 
-PRICE SEMANTICS — verified across all 87 live products, no longer assumed:
-`price` is the list price (never null, never 0) AND what the storefront
-charges. `specail_price` (the store's
-own spelling) is the discounted price and is set on 78 of 87. `sale_price`
-exists in the schema but is null on every product. `flash_sale_price` is a
-nullable NUMBER, not the boolean flag this file used to assume — it is null on
-all 87 today, so it is read as the effective price when present and cannot be
-verified further until the store actually runs a flash sale.
+PRICE SEMANTICS — SETTLED 2026-07-23 from the storefront's OWN source, no
+longer inferred. `specail_price` (the store's own spelling) is not a dormant
+discount and not a dated promotion: it is a CUSTOMER-GROUP (trade/B2B) price,
+shown only to a logged-in customer whose `customerTypeId` is 2. See `_prices`
+for the rule verbatim and the evidence that pins it.
+
+Field census over all 87 live products (2026-07-23):
+  price                87/87 non-null   list price, what the public is charged
+  specail_price        78/87 non-null   trade-tier price, always 15-40% below
+                                        `price`, never equal, never above
+  sale_price            0/87            null on every product
+  flash_sale_price      0/87            null today; a live flash sale fills it
+  flash_sale_discount   0/87            null today; percent off, badge only
+  flash_sale_info       0/87            null today; carries `min_quantity`
+  flash_sale_products   0/87            empty list on every product
+
+ScrapeX crawls anonymously, so the trade tier is unreachable BY CONSTRUCTION —
+not "until some date". The public price is `price`, unless a flash sale is live.
 """
 from __future__ import annotations
 
@@ -56,17 +66,43 @@ def _fmt(n: float | None) -> str:
 
 
 def _prices(product: dict) -> tuple[str, str, str]:
-    """(regular, sale, effective) as strings — see PRICE SEMANTICS in the docstring.
+    """(regular, sale, effective) as strings — the storefront's OWN pricing rule.
 
-    CORRECTED 2026-07-23 against the live storefront. `specail_price` is a
-    STANDING COLUMN, not proof of a live discount: product 235 still publishes
-    specail_price 939.38 while the shop's own page renders 1252.50 — the
-    listing price — so honouring it invented a discount the shop does not
-    offer, and no re-crawl could clear it because the field never changed.
+    SETTLED 2026-07-23 by reading the shop's client bundle and confirming both
+    branches in a live browser. The rule below is transcribed from
+    /_next/static/chunks/905ebab0162dcb89.js (and appears byte-identically in
+    7f1bf18251165d5e.js and da86854718ac79a7.js — product page, grid card and
+    home card, at every price site: headline, strikethrough, "you save",
+    add-to-cart and cart total):
 
-    A flash sale IS dated and live, so `flash_sale_price` (with its sibling
-    fields) remains the discount. The standing special travels to enrichment
-    as what it is: a number the shop keeps, not a price it charges.
+        if (flash_sale_price != null && Number(flash_sale_price) > 0)
+            return flash_sale_price;                 # (1) a live flash sale
+        if (2 === Number(user?.customerTypeId) && Number(specail_price) > 0)
+            return specail_price;                    # (2) TRADE TIER ONLY
+        return Number(price || 0);                   # (3) everyone else
+
+    `specail_price` is therefore a CUSTOMER-GROUP price, not a dormant discount.
+    Branch (2) is gated on the logged-in customer's type, which the shop reads
+    from localStorage['sika-user'] (populated by POST /api/auth/login).
+    Self-registration assigns customerTypeId 1; type 2 is staff-assigned.
+
+    Proven live on product 235 (API: price 1252.5, specail_price 939.38):
+      - anonymous          -> "1252.50 جنيه", no badge, no strikethrough
+      - customerTypeId 1   -> "1252.50 جنيه", no badge          (so it is not
+                                                                 "any login")
+      - customerTypeId 2   -> "سعر خاص" badge, "939.38 جنيه", 1252.50 struck
+                              through, "توفر 313.12 جنيه" (= 1252.5 - 939.38)
+
+    There is no date window and no is_active flag anywhere in this: the API has
+    no such field (created_at/updated_at are empty objects `{}`), and there is
+    no settings/config/flash-sale endpoint (/api/settings, /api/config,
+    /api/flash-sale, /api/home all 404; only /api/categories, /api/banners and
+    /api/products{,/id} exist). The day the owner "saw discounts" was a session
+    holding a type-2 identity, not a promotion that has since expired.
+
+    ScrapeX crawls anonymously and MUST stay on branch (3)/(1): we record what
+    the public is charged. `specail_price` travels to enrichment as the
+    trade-tier fact it is, so nothing is lost and no row calls it a discount.
     """
     regular = _num(product.get("price"))
     flash = _num(product.get("flash_sale_price"))
@@ -74,9 +110,13 @@ def _prices(product: dict) -> tuple[str, str, str]:
         regular = flash
     if regular is None:
         return "", "", ""
-    on_sale = flash is not None and flash < regular
-    effective = flash if on_sale else regular
-    return _fmt(regular), _fmt(effective if on_sale else None), _fmt(effective)
+    # Branch (1): the shop honours ANY positive flash_sale_price — it does not
+    # check that the flash price is lower. We charge what it charges; we only
+    # call it a `sale_price` when it genuinely undercuts the list price, so a
+    # mispriced flash can never be reported as a discount it is not.
+    effective = flash if flash is not None else regular
+    # Branch (2) is deliberately absent: unreachable for an anonymous crawl.
+    return _fmt(regular), _fmt(effective if effective < regular else None), _fmt(effective)
 
 
 def _availability(product: dict) -> str:
@@ -255,10 +295,11 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         unit="kg", group="Specs")
     add("stock_quantity", "Stock quantity", product.get("stock_quantity"),
         numeric=product.get("stock_quantity"), group="Specs")
-    # The shop keeps a standing "special price" column its storefront does not
-    # charge (proven live). Recorded as the fact it is — a number the shop
-    # holds — so nothing is lost and no row calls it a discount.
-    add("standing_special_price", "Standing special price (not charged)",
+    # `specail_price` is the TRADE-TIER price: the storefront charges it only to
+    # a logged-in customer whose customerTypeId is 2 (rule + live proof in
+    # _prices). Recorded as exactly that fact — a price for a group we are not —
+    # so nothing is lost and no row calls it a public discount.
+    add("trade_tier_price", "Trade-tier price (customer type 2 only)",
         product.get("specail_price"), numeric=product.get("specail_price"),
         group="Specs")
 
