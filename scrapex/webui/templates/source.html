@@ -7,20 +7,19 @@
    the owner is offline. See static/vendor/README.md. #}
   <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
   {# Loaded AFTER the library so the project's own table appearance wins. #}
-  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-1">
-  <link rel="stylesheet" href="/static/pages/data-workspace.css">
+  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-2">
+  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=design-system-2">
   <script src="/static/vendor/tabulator.min.js" defer></script>
-  <script src="/static/datasets-browser.js" defer></script>
+  <script src="/static/datasets-browser.js?v=design-system-2" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-  <script src="/static/grid.js?v=design-system-1" defer></script>
+  <script src="/static/grid.js?v=design-system-2" defer></script>
 {% endblock %}
 {% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they
    carry dir="auto" so Arabic product names render RTL inside an LTR page. #}
 <div class="data-workspace">
-  {% include "_source_list.html" %}
   <section class="data-view" aria-label="Selected dataset">
 
 {% if summary is none %}
@@ -38,8 +37,15 @@
            rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
       {% endif %}
     </div>
-    <p class="runline"><span class="chip amber">Never run</span></p>
   </div>
+  <details class="dataset-menu data-empty-dataset-menu">
+    <summary class="dataset-menu-trigger" aria-controls="dataset-list" aria-expanded="false">
+      {{ icon("storage") }}
+      <span>Datasets</span>
+      {{ icon("expand-more", "dataset-menu-chevron") }}
+    </summary>
+    {% include "_source_list.html" %}
+  </details>
   <div class="empty">
     No data for <code>{{ source_key }}</code> yet.<br>
     <span class="muted">Run it from the side panel, or:
@@ -61,18 +67,6 @@
            rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
       {% endif %}
     </div>
-    <p class="runline">
-      {% if not summary.last_run %}
-        <span class="chip amber">Never run</span>
-      {% elif summary.last_status == "success" %}
-        <span class="chip accent">Last run completed</span>
-        <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
-      {% else %}
-        <span class="chip amber">Last run {{ summary.last_status or "did not finish" }}</span>
-        <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
-      {% endif %}
-      <a href="/history?source_key={{ summary.source_key }}">Crawl history</a>
-    </p>
   </div>
   {# The watch strip: what needs you, before what exists. Every tile is a plain
      <a> to the filtered table, so one mechanism does the filtering, the link is
@@ -123,95 +117,6 @@
   </div>
 
   </section>
-  <section class="data-controls" aria-label="Data controls">
-    <details class="data-control-secondary">
-      <summary>
-        <span><strong>Workspace tools</strong><small>Columns and saved views</small></span>
-      </summary>
-      <div class="data-control-secondary-body">
-
-  {# ---- Columns (spec 22) ------------------------------------------------
-     The controls live ON the thing they control. They used to sit in a
-     collapsed <details> holding a second table of checkboxes: to hide a column
-     you opened a panel, found its row, unticked a box — and the table did not
-     change, because the panel only affected a later export.
-
-     Edit mode is a toggle rather than always-on controls, for one honest
-     reason: three extra controls per column would put 4xN stops in the resting
-     tab order, and reading the table is the common case. Pressed, it is a link
-     that reloads with ?edit=1 — so it works with scripting off, and the state
-     is in the URL like everything else here. #}
-  <p class="toolbar">
-    {% if edit %}
-      <a class="chip accent icon-label" href="{{ query(edit='') }}" aria-pressed="true">
-        {{ icon("check", "sm") }} Editing columns
-      </a>
-      <span class="muted">Use the close and arrow controls to hide or move a column. Nothing is deleted.</span>
-    {% else %}
-      <a class="chip" href="{{ query(edit=1) }}" aria-pressed="false">Edit columns</a>
-    {% endif %}
-    {% set hidden_fields = fields | selectattr("is_hidden") | list %}
-    {% if hidden_fields %}
-      <span class="muted">Hidden:</span>
-      {% for f in hidden_fields %}
-        {# Restoring is a click on the thing itself, not a hunt through a panel. #}
-        <button class="chip icon-label" type="button" data-show="{{ f.field_key }}"
-                title="Show this column again">{{ f.display_name or f.original_name }}
-          {{ icon("restart-alt", "sm") }}
-        </button>
-      {% endfor %}
-    {% endif %}
-    {% if absent_columns %}
-      {# A column that vanished because the source stopped publishing it is not
-         the same as one you hid. Saying which is which stops the owner hunting
-         for a control that was never there. #}
-      <span class="muted" title="{{ absent_columns|join(', ') }}">
-        {{ absent_columns|length }} column{{ "s" if absent_columns|length != 1 else "" }}
-        not published by this source</span>
-    {% endif %}
-    {# Rendered by the SERVER, so the confirmation exists when the page is
-       parsed. Announcing into a live region and then reloading destroys the
-       region before a screen reader reaches it — the message would be written
-       and never heard. #}
-    <span id="field-out" class="muted" role="status" aria-live="polite"
-          tabindex="-1">{{ said }}</span>
-  </p>
-
-  {# Saved views. They have been storable since migration 0008 and NOTHING ever
-     read config_json back — a view was a blob with no consumer, and the chip's
-     only working control was its delete ×.
-
-     A view saves the QUESTION, not just the columns: the search, the filters,
-     the sort. "Egyptian diesel" is a question; a column list is not. #}
-  <p class="toolbar">
-    <span class="muted">Views:</span>
-    {% for v in views %}
-      <a class="chip {{ 'accent' if v.saved_view_id == view_id else '' }}"
-         href="{{ query(view_id=v.saved_view_id) }}"
-         title="Open this saved question">{{ v.view_name }}</a>
-    {% else %}
-      <span class="muted">none saved yet</span>
-    {% endfor %}
-    {% if view_id %}
-      <a class="chip" href="/source/{{ source_key }}">Clear view</a>
-    {% endif %}
-    <input id="view-name" placeholder="Name this view" aria-label="Name for the saved view"
-           size="16">
-    <button id="save-view" type="button">Save current view</button>
-  </p>
-      </div>
-    </details>
-  {% if dropped_from_view %}
-    {# A dropped FILTER shows more rows than the view asks for. Silence here
-       would make the answer bigger than the question with nothing to say so. #}
-    <p class="hint err" role="status">
-      {{ dropped_from_view|length }} part{{ "s" if dropped_from_view|length != 1 else "" }}
-      of this view no longer applies here:
-      <span class="tech">{{ dropped_from_view|join(", ") }}</span>
-      — this shows more rows than the view asks for.</p>
-  {% endif %}
-  </section>
-
   <section class="data-records" aria-label="Records">
   {% if page_data.total == 0 %}
     <header class="data-records-head">
@@ -219,6 +124,14 @@
         <h2>Records</h2>
         <p class="muted">Browse, filter, arrange, and export this dataset.</p>
       </div>
+      <details class="dataset-menu">
+        <summary class="dataset-menu-trigger" aria-controls="dataset-list" aria-expanded="false">
+          {{ icon("storage") }}
+          <span>Datasets</span>
+          {{ icon("expand-more", "dataset-menu-chevron") }}
+        </summary>
+        {% include "_source_list.html" %}
+      </details>
     </header>
     <div class="empty">No matching records.</div>
   {% else %}
@@ -289,11 +202,15 @@
       </div>
       {% endif %}
       <div class="data-grid-commandbar">
-        <button type="button" class="data-grid-command" data-grid-datasets-toggle
-                aria-controls="dataset-list" aria-expanded="true">
-          {{ icon("storage") }}
-          <span>Datasets</span>
-        </button>
+        <details class="dataset-menu">
+          <summary class="data-grid-command dataset-menu-trigger"
+                   aria-controls="dataset-list" aria-expanded="false">
+            {{ icon("storage") }}
+            <span>Datasets</span>
+            {{ icon("expand-more", "dataset-menu-chevron") }}
+          </summary>
+          {% include "_source_list.html" %}
+        </details>
         {# Native details keeps the popup keyboard-operable without a custom menu widget. #}
         <details id="grid-features">
           <summary class="data-grid-command">
@@ -347,6 +264,23 @@
           <button type="button" class="chip" data-export="json">JSON</button>
         </p>
       </footer>
+      <div class="dataset-run-footer" aria-label="Dataset freshness">
+        <div class="dataset-run-status">
+          {{ icon("history") }}
+          {% if not summary.last_run %}
+            <span class="chip amber">Never run</span>
+          {% elif summary.last_status == "success" %}
+            <span class="chip accent">Last run completed</span>
+            <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+          {% else %}
+            <span class="chip amber">Last run {{ summary.last_status or "did not finish" }}</span>
+            <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+          {% endif %}
+        </div>
+        <a class="icon-label" href="/history?source_key={{ summary.source_key }}">
+          Crawl history {{ icon("chevron-right", "inline-icon") }}
+        </a>
+      </div>
     </section>
     <p id="grid-note" class="hint" role="status" aria-live="polite">Loading the table…</p>
 
@@ -363,100 +297,4 @@
 </section>
 </div>
 
-<script>
-// Column edits go to the SAME /api/fields endpoint the extension uses — one
-// implementation of the rules, two surfaces, zero new routes.
-//
-// Each edit is a POST then a reload. That is deliberate: the column set decides
-// what the server SELECTs, so re-rendering client-side would show a table the
-// server did not produce. It also means the result is a normal page with a
-// normal URL, and the status line below survives the navigation because it is
-// rendered by the server, not injected into a region that the reload destroys.
-(() => {
-  const SOURCE = {{ source_key|tojson }};
-  const ORDER = {{ (columns | map(attribute="key") | list) | tojson }};
-  const out = document.getElementById("field-out");
-  if (!out) return;
-
-  async function send(body, said) {
-    out.textContent = "Saving…";
-    try {
-      const res = await fetch(`/api/fields/${encodeURIComponent(SOURCE)}`, {
-        method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(body),
-      });
-      if (res.status === 409) {
-        // fields.py refuses an edit while a crawl is writing. Saying so beats a
-        // silent no-op that looks like the click missed.
-        out.textContent = "A crawl is running — try again when it finishes.";
-        return;
-      }
-      if (!res.ok) { out.textContent = `Could not save: ${res.status}`; return; }
-      // ?said= is read back by the server and rendered into the status line, so
-      // the confirmation exists at parse time instead of being announced into a
-      // live region that the reload is about to destroy.
-      const url = new URL(location.href);
-      url.searchParams.set("said", said);
-      location.replace(url);
-    } catch (err) {
-      out.textContent = `Could not save: ${err.message}`;
-    }
-  }
-
-  document.querySelectorAll("[data-hide]").forEach(btn =>
-    btn.addEventListener("click", () =>
-      send({field_key: btn.dataset.hide, hidden: true},
-           `${btn.dataset.hide} hidden. It keeps its data.`)));
-
-  document.querySelectorAll("[data-show]").forEach(btn =>
-    btn.addEventListener("click", () =>
-      send({field_key: btn.dataset.show, hidden: false},
-           `${btn.dataset.show} shown again.`)));
-
-  document.querySelectorAll("[data-move]").forEach(btn =>
-    btn.addEventListener("click", () => {
-      const key = btn.dataset.move;
-      const at = ORDER.indexOf(key);
-      const to = btn.dataset.dir === "left" ? at - 1 : at + 1;
-      if (at < 0 || to < 0 || to >= ORDER.length) return;
-      const next = ORDER.slice();
-      next.splice(to, 0, next.splice(at, 1)[0]);
-      // ?focus= puts the cursor back on the same button after the reload.
-      // Without it every reorder drops focus to the top of the document, and a
-      // keyboard user has to tab back for each step.
-      const url = new URL(location.href);
-      url.searchParams.set("focus", key);
-      history.replaceState({}, "", url);
-      send({order: next}, `${key} moved ${btn.dataset.dir}.`);
-    }));
-
-  const saveBtn = document.getElementById("save-view");
-  if (saveBtn) saveBtn.addEventListener("click", () => {
-    const name = (document.getElementById("view-name").value || "").trim();
-    if (!name) { out.textContent = "Name the view first."; return; }
-    // The whole QUESTION: which columns, and which rows. Saving only the column
-    // list is what made a saved view worth nothing to open.
-    const params = new URLSearchParams(location.search);
-    const filters = {};
-    for (const [k, v] of params) if (k.startsWith("f.")) filters[k.slice(2)] = v;
-    const config = {columns: ORDER, filters,
-                    q: params.get("q") || "", sort: params.get("sort") || "",
-                    direction: params.get("direction") || "",
-                    per_page: params.get("per_page") || ""};
-    fetch(`/api/views/${encodeURIComponent(SOURCE)}`, {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({view_name: name, config}),
-    }).then(r => r.ok ? location.reload()
-                      : (out.textContent = `Could not save the view: ${r.status}`))
-      .catch(e => out.textContent = `Could not save the view: ${e.message}`);
-  });
-
-  // Restore focus to the control the owner was using.
-  const focusKey = new URLSearchParams(location.search).get("focus");
-  if (focusKey) {
-    const target = document.querySelector(`[data-move="${CSS.escape(focusKey)}"]`);
-    if (target) target.focus({preventScroll: true});
-  }
-})();
-</script>
 {% endblock %}

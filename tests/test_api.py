@@ -46,6 +46,7 @@ def client(db_path, manifest_copy) -> TestClient:
 def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.json()["worker_alive"] is False
 
 
 def test_feature_manifest_is_honest_about_the_generic_roadmap(client):

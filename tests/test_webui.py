@@ -36,7 +36,7 @@ def test_data_landing_lists_the_source(client):
     assert "ELSEWEDYSHOP" in r.text and "السويدي شوب" in r.text
 
 
-def test_overview_summarizes_the_workspace_and_data_keeps_its_browser(client):
+def test_overview_summarizes_the_workspace_and_data_uses_one_dropdown(client):
     overview = client.get("/").text
     landing = client.get("/data").text
     selected = client.get("/source/ELSEWEDYSHOP").text
@@ -49,38 +49,43 @@ def test_overview_summarizes_the_workspace_and_data_keeps_its_browser(client):
     assert overview.count("data-overview-source=") <= 6
     assert "more datasets" in overview
     assert 'class="data-workspace"' in landing
-    assert 'class="dataset-browser"' in landing
+    assert 'class="dataset-menu data-landing-dataset-menu"' in landing
+    assert 'class="dataset-menu-popover"' in landing
     assert 'data-dataset-choice' in landing
-    assert 'data-dataset-toggle' in landing
+    assert 'data-dataset-toggle' not in landing
     assert '/static/datasets-browser.js' in landing
     assert 'aria-current="page"' in selected
     assert 'aria-label="Selected dataset"' in selected
     assert 'class="wrap wrap-wide"' in selected
     assert '/static/datasets-browser.js' in selected
-    assert 'data-grid-datasets-toggle' in selected
+    assert 'data-grid-datasets-toggle' not in selected
     assert '<span>Datasets</span>' in selected
-    assert selected.index('data-grid-datasets-toggle') < selected.index('id="grid-features"')
-    for region in ("data-source-overview", "data-controls", "data-records"):
+    assert selected.index('class="dataset-menu"') < selected.index('id="grid-features"')
+    for region in ("data-source-overview", "data-records"):
         assert f'class="{region}"' in selected
-    assert "Workspace tools" in selected
+    assert "Workspace tools" not in selected
+    assert 'class="data-controls"' not in selected
     assert 'class="data-grid-frame-head"' in selected
     assert 'class="data-grid-count"' not in selected
     assert 'class="data-grid-exportbar"' in selected
+    assert 'class="dataset-run-footer"' in selected
+    assert selected.index('class="data-grid-exportbar"') < selected.index(
+        'class="dataset-run-footer"')
+    assert 'class="workspace-footer"' in selected
     assert 'class="data-control-primary"' not in selected
     assert '<form class="filters"' not in selected
 
 
-def test_data_canvas_stays_centered_without_overlapping_the_dataset_toggle():
+def test_data_canvas_stays_centered_and_the_dataset_menu_is_a_popover():
     styles = (Path(__file__).parents[1] / "scrapex" / "webui" / "static" /
               "pages" / "data-workspace.css").read_text(encoding="utf-8")
 
     assert "--data-canvas-width:82rem" in styles
-    assert "justify-self:safe center" in styles
-    assert "grid-template-columns:3.25rem minmax(0,1fr) 3.25rem" in styles
-    assert '.data-workspace.datasets-collapsed::after{content:"";grid-column:3}' in styles
-    assert "translateX(-2.125rem)" not in styles
-    assert "overflow-x:auto" in styles
-    assert styles.count("var(--data-canvas-width)") >= 2
+    assert "width:min(100%,var(--data-canvas-width))" in styles
+    assert ".dataset-menu-popover{position:absolute" in styles
+    assert "datasets-collapsed" not in styles
+    assert "grid-template-columns:15.25rem" not in styles
+    assert styles.count("var(--data-canvas-width)") >= 1
 
 
 def test_dataset_identity_leads_with_english_and_links_the_website(client):

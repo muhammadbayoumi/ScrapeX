@@ -1,7 +1,9 @@
 (function () {
   "use strict";
 
-  const ICON_SPRITE = "/static/material-icons/material-icons.svg";
+  // The version is intentional: the sprite is expanded centrally and browsers
+  // otherwise keep an older symbol set, leaving newly added icons blank.
+  const ICON_SPRITE = "/static/material-icons/material-icons.svg?v=design-system-2";
 
   function escapeAttribute(value) {
     return String(value)

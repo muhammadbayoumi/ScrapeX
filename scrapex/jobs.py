@@ -468,6 +468,15 @@ class JobRunner:
         self._thread = threading.Thread(target=self._loop, name="scrapex-jobs", daemon=True)
         self._thread.start()
 
+    @property
+    def is_alive(self) -> bool:
+        """Whether the crawl worker, not merely the HTTP process, is running."""
+        return bool(
+            self._thread is not None
+            and self._thread.is_alive()
+            and not self._stop.is_set()
+        )
+
     def stop(self, timeout_s: float = 5.0) -> None:
         self._stop.set()
         if self._thread is not None:
