@@ -181,7 +181,10 @@ For user-added sites, make the volume canary (`min_expected_rows`/`max_drop_pct`
 ### 4.5 Operate (scheduling)
 
 - **Default: an in-app asyncio cadence loop** inside `scrapex ui` — fires `/api/capture` for sources whose cadence is due (`last_run` from `crawl_run` vs interval; ingest is append-only + idempotent). Dependency-free, cross-platform, ships first. Drives a per-site "Check: Manually / Daily / Weekly" dropdown writing `cadence` via `set_cadence`. **Honest caveat: runs only while the app is open — do not market it as "set and forget."**
-- **Upgrade: `scrapex schedule install`** registers a per-user OS task (Windows Task Scheduler first; cron/launchd later) running `scrapex run-all` while the app is closed. Platform-specific surface with permission cost — deliberately deferred past first release.
+- **Upgrade — BUILT (`scrapex schedule install`):** a per-user Windows Scheduled Task named **ScrapeX schedules** that ticks every 15 minutes whether or not the app is open, closing the caveat above. Three verbs mirror `autostart`: `scrapex schedule install [--interval N] | remove | status`.
+  - **`scrapex/osschedule.py`** shells out to `schtasks /Create /TN "ScrapeX schedules" /TR "<pythonw> -m scrapex.cli run-due" /SC MINUTE /MO 15 /RL LIMITED /F`. `/RL LIMITED` and no `/RU` keep it unelevated and inside the owner's own task store; `/F` makes re-installing replace rather than stack. `pythonw` (never `python`, never a `cmd` wrapper) is what stops a console blinking every quarter hour. If `schtasks` is missing or refuses, the message it gave — plus the exact command — is printed verbatim; there is no silent success to mistake for one.
+  - **`scrapex run-due`** is the tick, and it is internal. If the engine is already answering on its port it does nothing (the worker loop calls `fire_due` twice a second, so firing again would race it into two jobs for one slot). If the port is closed it takes the A10 write lock, calls `scheduler.fire_due` with the manifest, prints what it queued, and then starts the engine so the queued jobs have a worker. A held lock is a normal state on a clock: it says so and exits **0** rather than painting the task red for the next tick to handle.
+  - Still Windows-only; cron/launchd remain demand-driven. Turning it off is one command (`scrapex schedule remove`) or deleting one visible task in `taskschd.msc`.
 - The owner GitHub Actions cron stays as an advanced self-host option in the dev repo, never the public default.
 
 ---
@@ -255,7 +258,7 @@ The honest gap: **1 of 9 families implemented.** A Shopify-only public release m
 - **Realistic public-release point: end of F, gated on A + B + C(first two connectors) + E.** Not before. Releasing today would ship an Arabic UI, the owner's supplier list, one connector, and a `git clone`+`pip`+`uvicorn`+sideload install — none of reqs 1–6 would hold for a stranger.
 
 ### Deferred (post-F, demand-driven)
-- OS-level scheduler (`scrapex schedule install`), published Google OAuth client, funnel "relay" opt-in mode, engine #2, extension DOM-capture for JS/login sites.
+- Published Google OAuth client, funnel "relay" opt-in mode, engine #2, extension DOM-capture for JS/login sites. (The OS-level scheduler landed early — see 4.5; only its cron/launchd half is still deferred.)
 
 ---
 

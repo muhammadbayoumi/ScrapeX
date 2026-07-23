@@ -484,6 +484,111 @@ def _cmd_autostart(args) -> int:
     return 0
 
 
+def _cmd_schedule(args) -> int:
+    """One per-user Scheduled Task decides it; these three verbs manage it."""
+    from . import osschedule
+
+    try:
+        if args.action == "install":
+            name = osschedule.install(args.interval)
+            print(f"installed — Windows now checks your schedules every "
+                  f"{args.interval} minutes, whether ScrapeX is open or not: {name}")
+        elif args.action == "remove":
+            if osschedule.remove():
+                print("removed — Windows no longer checks your schedules; they "
+                      "fire only while the engine is running")
+            else:
+                print("nothing to remove: the schedule task was not installed")
+        else:
+            state = osschedule.status()
+            word = "installed" if state["installed"] else "not installed"
+            every = f", every {state['interval']} minutes" if state["interval"] else ""
+            print(f"schedule task {word}: {state['path_or_name']}{every}")
+    except osschedule.ScheduleTaskError as exc:
+        # Printed verbatim, including the command that failed: a refusal the
+        # owner cannot reproduce is a refusal they cannot fix.
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+# How long `run-due` waits for the write lock before deciding this tick is not
+# its turn. Short on purpose — a task on a 15-minute clock has somewhere to be.
+RUN_DUE_LOCK_TIMEOUT_S = 3.0
+RUN_DUE_LOG = Path.home() / ".scrapex" / "engine.log"
+
+
+def _bind_log_streams() -> None:
+    """pythonw hands a process NO stdout at all — give this run somewhere to talk.
+
+    The Scheduled Task runs under the windowless interpreter precisely so
+    nothing flashes, and the price is that the first print() would die on None
+    and the whole run would vanish without a trace. Both streams go to the same
+    ~/.scrapex/engine.log autostart appends to; run it from a terminal and this
+    does nothing at all.
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    RUN_DUE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    stream = open(RUN_DUE_LOG, "a", encoding="utf-8", buffering=1)
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+
+
+def _cmd_run_due(args) -> int:
+    """The verb the Scheduled Task fires. Not for humans, and never noisy-red.
+
+    Two shapes, decided by one honest question — is the engine answering?
+      * Yes — its worker loop already calls fire_due twice a second. Firing
+        again from here would race it and queue the same slot twice, so we say
+        so and stop.
+      * No — nothing else on this machine can act, so we fire the due schedules
+        ourselves and then start the engine to run what we queued. Queueing into
+        a database no worker is draining is the worst outcome available
+        (jobs.worker_is_alive exists to refuse exactly that), so the engine
+        start is not optional once something has been queued.
+    """
+    from . import native
+    from .scheduler import fire_due
+
+    _bind_log_streams()
+    port = int(getattr(args, "port", None) or native.DEFAULT_ENGINE_PORT)
+    # Module attribute, not a from-import: the probe and the spawn stay ONE
+    # definition shared with the panel's START_ENGINE button (and one seam the
+    # tests already stub).
+    if native._engine_listening(port):
+        print(f"the engine is already running on port {port} — it checks due "
+              "schedules on its own; nothing to do")
+        return 0
+
+    db_path = _marketlens_path(args)
+    if not Path(db_path).exists():
+        print(f"no database at {db_path} — nothing to fire", file=sys.stderr)
+        return 1
+    try:
+        with dbmod.write_lock(db_path, timeout_s=RUN_DUE_LOCK_TIMEOUT_S):
+            conn = dbmod.connect(db_path)
+            try:
+                fired = fire_due(conn, manifest=load_manifest())
+            finally:
+                conn.close()
+    except dbmod.DbLockedError as exc:
+        # Contention is a NORMAL state for something on a clock: another scrapex
+        # is mid-write, and whatever is due stays due for the next tick. Exiting
+        # non-zero would paint the task red in taskschd.msc over nothing.
+        print(f"skipped this tick — {exc}")
+        return 0
+    if not fired:
+        print("no schedules were due")
+        return 0
+    print(f"queued {len(fired)} job(s) for due schedules: {', '.join(fired)}")
+    native._spawn_engine(port)
+    print(f"started the engine on port {port} to run them")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="scrapex", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -495,6 +600,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=8000,
                    help="the port the boot-time engine serves on")
     p.set_defaults(func=_cmd_autostart)
+
+    p = sub.add_parser(
+        "schedule",
+        help="let Windows check your schedules even when ScrapeX is closed")
+    p.add_argument("action", choices=["install", "remove", "status"])
+    p.add_argument("--interval", type=int, default=15,
+                   help="minutes between checks (default: 15)")
+    p.set_defaults(func=_cmd_schedule)
+
+    p = sub.add_parser(
+        "run-due",
+        help="internal: the Scheduled Task's tick — fire whatever is due")
+    p.add_argument("--port", type=int, default=8000,
+                   help="the port the engine serves on")
+    p.add_argument("--db", help="database path")
+    p.set_defaults(func=_cmd_run_due)
 
     p = sub.add_parser("init-db", help="create/upgrade both isolated databases")
     p.add_argument(
