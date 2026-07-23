@@ -1228,6 +1228,7 @@
 
     table = new Tabulator(mount, options);
     table.on("tableBuilt", () => {
+      wireLanguageToggle();
       applyFilters();
       describe();
       updateFooter();
@@ -1239,6 +1240,56 @@
     });
     table.on("dataFiltered", () => { describe(); updateFooter(); });
     table.on("rowSelectionChanged", updateFooter);
+  }
+
+  // ---- AR | EN: which NAME column is on show --------------------------------
+  // A bilingual source stores BOTH names (the owner's rule: extracted once,
+  // flipped without re-extracting). The toggle swaps VISIBILITY between the
+  // two name columns rather than rewriting one column's contents, so sort,
+  // filter and export each keep working on exactly the column they name.
+  const LANG_KEY = "scrapex-name-lang-" + (mount.dataset.source || "");
+  function wireLanguageToggle() {
+    if (!payload.columns.some((c) => c.key === "product_name_en")) return;
+    if (document.getElementById("grid-lang-toggle")) return;
+    let lang = "ar";
+    try { lang = localStorage.getItem(LANG_KEY) || "ar"; } catch (err) {}
+    const host = document.querySelector(".data-grid-commandbar");
+    if (!host) return;
+    const wrap = document.createElement("div");
+    wrap.id = "grid-lang-toggle";
+    wrap.className = "grid-lang-toggle";
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", "Record name language");
+    const note = document.createElement("span");
+    note.className = "muted";
+    note.textContent = "Names:";
+    wrap.append(note);
+    const buttons = {};
+    for (const [code, label] of [["ar", "AR"], ["en", "EN"]]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = label;
+      b.addEventListener("click", () => apply(code, true));
+      buttons[code] = b;
+      wrap.append(b);
+    }
+    host.append(wrap);
+    function apply(code, save) {
+      lang = code;
+      if (save) { try { localStorage.setItem(LANG_KEY, code); } catch (err) {} }
+      for (const [key, on] of [["product_name", code === "ar"],
+                               ["product_name_en", code === "en"]]) {
+        const column = table.getColumn(key);
+        if (!column) continue;
+        try { on ? column.show() : column.hide(); } catch (err) {}
+      }
+      for (const [c, b] of Object.entries(buttons)) {
+        b.setAttribute("aria-pressed", String(c === lang));
+        b.classList.toggle("pill", c === lang);
+      }
+    }
+    apply(lang, false);
   }
 
   function widthsFromTable() {
