@@ -23,6 +23,10 @@ TRACKED_PRODUCT_FIELDS = (
     # new category records the move instead of silently forgetting the old one.
     ("category_path", "category_path"),
     ("category_external_id", "category_external_id"),
+    # The English name, tracked like the primary one — a bilingual site
+    # renaming in either language is a recorded change, not a silent drift.
+    ("source_name_en", "product_name_en"),
+    ("name_lang", "lang"),
 )
 
 # Fields whose OLD value is an identity worth remembering (spec 14): if a site

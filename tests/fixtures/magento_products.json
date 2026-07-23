@@ -38,7 +38,8 @@
                                             "value": 112.5
                                         }
                                     }
-                                }
+                                },
+                                "weight": 6.72
                             },
                             "attributes": [
                                 {
@@ -62,7 +63,8 @@
                                             "value": 168.78
                                         }
                                     }
-                                }
+                                },
+                                "weight": 6.72
                             },
                             "attributes": [
                                 {
@@ -90,6 +92,12 @@
                                 }
                             ]
                         }
+                    ],
+                    "configurable_options": [
+                        {
+                            "attribute_code": "thickness_mm",
+                            "label": "السماكة (مم)"
+                        }
                     ]
                 },
                 {
@@ -113,6 +121,57 @@
                             "uid": "Q0FULTc=",
                             "name": "أسمنت",
                             "breadcrumbs": []
+                        }
+                    ]
+                },
+                {
+                    "uid": "Q0VNMg==",
+                    "sku": "70502001",
+                    "name": "أسمنت المدار",
+                    "url_key": "madar-cement",
+                    "stock_status": "IN_STOCK",
+                    "categories": [],
+                    "price_range": {
+                        "minimum_price": {
+                            "regular_price": {
+                                "value": 14.5
+                            },
+                            "final_price": {
+                                "value": 14.5
+                            }
+                        }
+                    },
+                    "configurable_options": [
+                        {
+                            "attribute_code": "cement_type",
+                            "label": "نوع الأسمنت"
+                        }
+                    ],
+                    "variants": [
+                        {
+                            "product": {
+                                "uid": "Q0VNMy==",
+                                "sku": "70502001-W",
+                                "name": "اسمنت ابيض - 50كجم - أسمنت المدار",
+                                "stock_status": "IN_STOCK",
+                                "weight": 50,
+                                "price_range": {
+                                    "minimum_price": {
+                                        "regular_price": {
+                                            "value": 14.5
+                                        },
+                                        "final_price": {
+                                            "value": 14.5
+                                        }
+                                    }
+                                }
+                            },
+                            "attributes": [
+                                {
+                                    "code": "cement_type",
+                                    "label": "اسمنت ابيض"
+                                }
+                            ]
                         }
                     ]
                 }

@@ -28,6 +28,10 @@ class _StubFetcher:
     def __init__(self): self.requests_count = 0
     def post(self, url, json=None, **kwargs):
         self.requests_count += 1
+        if (kwargs.get("headers") or {}).get("Store"):
+            # the en_SA pass: this stub models a monolingual store
+            return _StubResponse({"data": {"products": {
+                "items": [], "page_info": {"total_pages": 1}}}})
         query = (json or {}).get("query", "")
         if "categoryList" in query:
             return _StubResponse({"data": {"categoryList": [{"children": []}]}})
@@ -57,6 +61,9 @@ class _CensusBlindFetcher(_StubFetcher):
 
     def post(self, url, json=None, **kwargs):
         self.requests_count += 1
+        if (kwargs.get("headers") or {}).get("Store"):
+            return _StubResponse({"data": {"products": {
+                "items": [], "page_info": {"total_pages": 1}}}})
         query = (json or {}).get("query", "")
         variables = (json or {}).get("variables", {})
         if "categoryList" in query:
@@ -86,7 +93,7 @@ def make_entry() -> SourceEntry:
 def test_magento_maps_variants_and_simple():
     table = next(iter(MagentoGraphqlConnector(_StubFetcher()).fetch(make_entry())))
     assert table.header == list(PRODUCT_PRICES.columns)
-    assert len(table.rows) == 3  # 2 variants + 1 simple product
+    assert len(table.rows) == 4  # 2 variants + 1 simple + 1 cement variant
 
     view = RowView(PRODUCT_PRICES, table.header)
     v12 = view.as_dict(table.rows[0])
@@ -115,7 +122,7 @@ def test_magento_end_to_end_into_warehouse():
         result = ingest_payloads(conn, entry, [table.to_payload()])
     finally:
         conn.close()
-    assert result.observations == 3 and result.products == 2 and result.variants == 3
+    assert result.observations == 4 and result.products == 3 and result.variants == 4
     assert not result.errors
 
 
@@ -177,7 +184,9 @@ def test_a_product_the_site_refiles_records_the_move():
         ingest_payloads(conn, entry, [table.to_payload()])
 
         moved = json.loads(json.dumps(FIXTURE))          # deep copy, then re-file
-        moved["data"]["products"]["items"][-1]["categories"] = [
+        target = next(i for i in moved["data"]["products"]["items"]
+                      if i["uid"] == "Q0VNQg==")
+        target["categories"] = [
             {"uid": "Q0FULTg=", "name": "مواد لاصقة",
              "breadcrumbs": [{"category_name": "مواد البناء"}]}]
 
@@ -230,8 +239,103 @@ def test_a_dead_tree_walk_costs_a_note_never_the_price_crawl():
 
     table = next(iter(MagentoGraphqlConnector(_TreeDownFetcher()).fetch(make_entry())))
 
-    assert len(table.rows) == 3, "the prices must survive a dead tree walk"
+    assert len(table.rows) == 4, "the prices must survive a dead tree walk"
     assert any("category tree walk failed" in w for w in table.warnings)
+
+
+# ---- selling units, option meaning, both languages (owner memo 2026-07-23) ---
+
+def test_variant_axes_carry_their_names_not_bare_numbers():
+    """"2.2, 24, 24, 6000" was unreadable; configurable_options carries the
+    site's own label per axis, and the option label says both."""
+    table = next(iter(MagentoGraphqlConnector(_StubFetcher()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    v12 = view.as_dict(table.rows[0])
+    assert v12["option_label"] == "السماكة (مم): 12"
+
+
+def test_the_stated_basis_rides_the_price_and_a_piece_mass_does_not():
+    """Riyadh-cement shape: weight 50 AND "50كجم" in the name agree — the
+    price is per 50 kg, from the source's own statement. The plywood's 6.72
+    is the PIECE's mass with no stated quantity: inventing "per 6.72 kg"
+    is exactly the guess the rule refuses."""
+    table = next(iter(MagentoGraphqlConnector(_StubFetcher()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    cement = view.as_dict(table.rows[3])
+    assert cement["unit"] == "kg" and cement["basis_quantity"] == "50"
+    assert cement["option_label"] == "نوع الأسمنت: اسمنت ابيض"
+
+    plywood = view.as_dict(table.rows[0])
+    assert plywood["unit"] == "" and plywood["basis_quantity"] == ""
+
+
+def test_english_names_ride_every_row_when_the_store_answers():
+    """Both languages, one crawl (owner ruling): the en_SA pass maps uids to
+    English names and the rows carry them beside the primary name."""
+    class _BilingualFetcher(_StubFetcher):
+        def post(self, url, json=None, **kwargs):
+            if (kwargs.get("headers") or {}).get("Store") == "en_SA":
+                self.requests_count += 1
+                return _StubResponse({"data": {"products": {
+                    "items": [
+                        {"uid": "NDY3Mg==", "name": "Fire Retardant Plywood",
+                         "variants": [
+                             {"product": {"uid": "NDY3MA==",
+                                          "name": "Fire Retardant Plywood - 12mm"}}]},
+                        {"uid": "Q0VNMg==", "name": "Madar Cement",
+                         "variants": [
+                             {"product": {"uid": "Q0VNMy==",
+                                          "name": "White Cement - 50kg"}}]},
+                    ],
+                    "page_info": {"total_pages": 1}}}})
+            return super().post(url, json=json, **kwargs)
+
+    table = next(iter(MagentoGraphqlConnector(_BilingualFetcher()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    v12 = view.as_dict(table.rows[0])
+    assert v12["product_name_en"] == "Fire Retardant Plywood - 12mm"
+    cement = view.as_dict(table.rows[3])
+    assert cement["product_name_en"] == "White Cement - 50kg"
+
+    conn: sqlite3.Connection = dbmod.connect(":memory:")
+    try:
+        dbmod.migrate(conn)
+        table2 = next(iter(MagentoGraphqlConnector(_BilingualFetcher()).fetch(make_entry())))
+        ingest_payloads(conn, make_entry(), [table2.to_payload()])
+        stored = conn.execute(
+            "SELECT source_name_en FROM source_product "
+            "WHERE external_product_id = 'Q0VNMg=='").fetchone()[0]
+        # The product is named from the first row seen — the variant's row —
+        # exactly how the primary (Arabic) name behaves. Consistency, not loss.
+        assert stored == "White Cement - 50kg"
+
+        from scrapex.reports import table_payload
+        grid = table_payload(conn, "MADAR")
+        assert "product_name_en" in {c["key"] for c in grid["columns"]},             "a bilingual source must offer the Record (EN) column"
+    finally:
+        conn.close()
+
+
+def test_a_monolingual_source_never_sees_the_english_column():
+    conn: sqlite3.Connection = dbmod.connect(":memory:")
+    try:
+        dbmod.migrate(conn)
+        table = next(iter(MagentoGraphqlConnector(_StubFetcher()).fetch(make_entry())))
+        ingest_payloads(conn, make_entry(), [table.to_payload()])
+
+        from scrapex.reports import table_payload
+        grid = table_payload(conn, "MADAR")
+        assert "product_name_en" not in {c["key"] for c in grid["columns"]}
+    finally:
+        conn.close()
+
+
+def test_enrichment_stays_dormant_until_the_manifest_asks():
+    tables = list(MagentoGraphqlConnector(_StubFetcher()).fetch(make_entry()))
+    assert len(tables) == 1, "enrichment emitted without a manifest declaration"
 
 
 def test_the_deeper_home_wins_over_a_longer_shallow_name():

@@ -162,7 +162,8 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
     """
     row = conn.execute(
         "SELECT source_product_id, curation_status, source_name, product_url, brand_raw, "
-        "       external_sku, status, category_path, category_external_id "
+        "       external_sku, status, category_path, category_external_id, "
+        "       source_name_en, name_lang "
         "FROM source_product WHERE source_id = ? AND external_product_id = ?",
         (source_id, r["external_product_id"]),
     ).fetchone()
@@ -196,6 +197,8 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
         # payloads predate the contract widening that added them.
         "category_path": r.get("category_path") or "",
         "category_external_id": r.get("category_external_id") or "",
+        "source_name_en": r.get("product_name_en") or "",
+        "name_lang": r.get("lang") or "",
         "has_variants": 1 if r["external_variant_id"] or r["option_fingerprint"] else 0,
         "curation_status": CurationStatus.INVENTORIED.value,
     })

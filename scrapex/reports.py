@@ -451,6 +451,10 @@ def history_counts(conn: sqlite3.Connection, offer_ids: list[int]) -> dict[int, 
 # how did it move, and what range has it lived in".
 BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("product_name", "Record"),
+    # The English name a bilingual source publishes (owner ruling: both
+    # languages extracted once, the reader flips without re-extracting).
+    # Presence-gated: a monolingual source never sees this column.
+    ("product_name_en", "Record (EN)"),
     ("region", "Country"),
     ("brand", "Brand"),
     # Classification (owner ruling 2026-07-22): part of the MAIN table, with
@@ -529,13 +533,15 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_raw,'')),'')), "
         "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END), "
-        "       COUNT(DISTINCT po.currency) "
+        "       COUNT(DISTINCT po.currency), "
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.source_name_en,'')),'')) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("option_label", row[0]), ("sku", row[1]),
                           ("region", row[2]), ("unit", row[3]),
                           ("availability", row[4]), ("official_source", row[5]),
-                          ("brand", row[6]), ("discount", row[7])):
+                          ("brand", row[6]), ("discount", row[7]),
+                          ("product_name_en", row[9])):
         if not count:
             present.discard(column)
     # USD est. exists to make many currencies RANKABLE in one column. A source
@@ -1030,7 +1036,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "        AND spa.attribute_code = 'category') AS category, "
         "       EXISTS(SELECT 1 FROM source_product_attribute spa2 "
         "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details, "
-        "       sp.category_path "
+        "       sp.category_path, sp.source_name_en "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1064,6 +1070,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                # so any layer can be sorted or grouped on its own.
                "category": r[26] or r[24] or "",
                **_category_levels(r[26]),
+               "product_name_en": r[27] or "",
                "has_details": bool(r[25]),
                "observations": r[19],
                "min_price": r[20],
