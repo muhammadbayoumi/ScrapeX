@@ -88,6 +88,7 @@ class ConnectorFamily(StrEnum):
     SALLA_HTML = "salla-html"
     ZID_HTML = "zid-html"
     STATIC_HTML_TABLE = "static-html-table"
+    ARAMCO_FUEL_PAGE = "aramco-fuel-page"
     DATASHEET_ENRICHMENT = "datasheet-enrichment"
     TBD_PROBE = "TBD-probe"  # placeholder until `scrapex probe` classifies the site
 

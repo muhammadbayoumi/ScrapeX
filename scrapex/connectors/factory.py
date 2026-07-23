@@ -9,6 +9,7 @@ from ..config import SourceEntry
 from ..vocab import ConnectorFamily
 from .base import HttpFetcher, SiteConnector, resolve_fetcher
 from .custom_json import CustomJsonConnector
+from .aramco import AramcoFuelConnector
 from .gpp import GlobalPetrolPricesConnector
 from .hybris import HybrisOccConnector
 from .magento import MagentoGraphqlConnector
@@ -37,6 +38,7 @@ _BUILDERS = {
     ConnectorFamily.ZID_HTML: lambda fetcher: ZidConnector(fetcher),
     ConnectorFamily.CUSTOM_JSON_API: lambda fetcher: CustomJsonConnector(fetcher),
     ConnectorFamily.STATIC_HTML_TABLE: lambda fetcher: GlobalPetrolPricesConnector(fetcher),
+    ConnectorFamily.ARAMCO_FUEL_PAGE: lambda fetcher: AramcoFuelConnector(fetcher),
 }
 
 

@@ -28,8 +28,10 @@ def test_committed_manifest_is_valid():
     # The owner's license decision is contract, not comment (T6 will test the guard):
     assert gpp.extract[0].scope == ExtractScope.LATEST_ONLY
     aramco = manifest.get("ARAMCO_FUEL_SA")
-    assert aramco.family == ConnectorFamily.TBD_PROBE
-    assert aramco.extract[0].regions == ["SA"]  # feeds ONLY the Saudi row
+    # Probed live 2026-07-23 and promoted from TBD-probe to a real family.
+    assert aramco.family == ConnectorFamily.ARAMCO_FUEL_PAGE
+    assert aramco.extract[0].regions == ["SA"]  # feeds ONLY the Saudi rows
+    assert manifest.get("TABLER").family == ConnectorFamily.TBD_PROBE
 
 
 def test_no_source_is_active_without_a_shipped_connector():

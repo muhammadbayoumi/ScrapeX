@@ -314,19 +314,32 @@ sources:
       drives incremental re-scrape. Feeds material_attribute_value only
       (consumption rates for pricing breakdowns) — never price_observation.
 
-  # ---- NOT yet probed — placeholder; cannot be activated until probed (A3) ----
+  # ---- probed live 2026-07-23: official monthly prices as heading + pairs ----
   - source_key: ARAMCO_FUEL_SA
     source_name: أرامكو السعودية
     base_url: https://www.aramco.com
-    family: TBD-probe
+    family: aramco-fuel-page
     cadence: monthly
     authority: official
     active: false
+    currency: SAR
+    default_region: SA
+    vat_mode: incl             # pump prices are the final at-the-pump figures
     extract:
       - kind: commodity_price
-        materials: [GASOLINE_91, GASOLINE_95, DIESEL, LPG]
-        regions: [SA]          # updates ONLY the Saudi fuel row — nothing else
-    notes: run `scrapex probe` first; official monthly fuel-price announcements.
+        scope: latest_only
+        # What the page actually publishes (LPG is NOT there): 91/95/98,
+        # diesel and kerosene, in SAR per litre.
+        materials: [GASOLINE_91, GASOLINE_95, GASOLINE_98, DIESEL, KEROSENE]
+        regions: [SA]          # updates ONLY the Saudi fuel rows — nothing else
+    min_expected_rows: 4
+    max_drop_pct: 50
+    notes: >
+      /ar/what-we-do/energy-products/retail-fuels carries the month's retail
+      prices as one heading — «أسعار المنتجات لشهر … (﷼ / لتر)» — followed by
+      value/label pairs; the heading month is the source's own dating and
+      rides source_date. robots.txt allows the path. Parsed from reading-order
+      text, not selectors: the React class names churn, the words do not.
 
   - source_key: TABLER
     source_name: tabler.io

@@ -285,12 +285,13 @@ def test_flipping_active_changes_one_line_and_keeps_every_comment(client, tmp_pa
 
 
 def test_a_probe_placeholder_refuses_activation_with_the_reason(client):
-    """ARAMCO is family TBD-probe: pydantic refuses an active placeholder, and
-    the refusal must reach the panel as a message, not corrupt the manifest."""
-    r = client.post("/api/sources/ARAMCO_FUEL_SA/active", json={"active": True})
+    """TABLER is family TBD-probe (ARAMCO graduated to a real family):
+    pydantic refuses an active placeholder, and the refusal must reach the
+    panel as a message, not corrupt the manifest."""
+    r = client.post("/api/sources/TABLER/active", json={"active": True})
     assert r.status_code == 400
     listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
-    assert listed["ARAMCO_FUEL_SA"]["active"] is False, "the bad write survived"
+    assert listed["TABLER"]["active"] is False, "the bad write survived"
 
 
 def test_activating_an_unknown_source_is_404(client):
