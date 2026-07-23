@@ -123,3 +123,29 @@ def test_woo_end_to_end_into_warehouse():
         conn.close()
     assert result.observations == 2 and not result.errors
     assert result.products == 2 and result.variants == 2
+
+
+def test_a_variation_answering_price_zero_is_not_a_price():
+    """WooCommerce represents an unpriced variation two ways — null AND "0".
+    A 0.00 row would replace the real range-low fallback, poison Min, and
+    silently skip the say-it-out-loud path (adversarial review, reproduced
+    by execution)."""
+    class _ZeroPriceFetcher(_StubFetcher):
+        def get(self, url, params=None, **kwargs):
+            if url.endswith("/products/10491"):
+                self.requests_count += 1
+                zero = json.loads(json.dumps(VARIATION))
+                zero["prices"].update(price="0", regular_price="0", sale_price="")
+                return _StubResponse(zero)
+            return super().get(url, params=params, **kwargs)
+
+    table = next(iter(WooCommerceConnector(_ZeroPriceFetcher()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+    rows = [view.as_dict(r) for r in table.rows]
+
+    assert not any(r["effective_price"] == "0.00" for r in rows), \
+        "a zero entered the table as if it were a price"
+    fallback = rows[0]
+    assert fallback["effective_price"] == "450.00"      # the range low, said out loud
+    assert fallback["external_variant_id"] == "10150"
+    assert any("low end" in w for w in table.warnings)

@@ -166,8 +166,16 @@ class WooCommerceConnector:
              parent: dict | None = None):
         prices = product.get("prices") or {}
         effective = _money(prices, "price")
-        if not effective:
-            return None  # no price — skip
+        try:
+            priced = bool(effective) and float(effective) != 0
+        except ValueError:
+            priced = False
+        if not priced:
+            # No price OR price "0" — WooCommerce represents an unpriced
+            # variation both ways, and 0.00 entering the table would replace a
+            # real range-low fallback, poison Min, and silently skip the
+            # say-it-out-loud path (found by the adversarial review).
+            return None
         regular = _money(prices, "regular_price") or effective
         sale = _money(prices, "sale_price")
         pid = str((parent or product).get("id", ""))

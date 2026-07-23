@@ -335,3 +335,21 @@ def test_a_currency_flip_opens_a_period_named_for_what_happened(conn):
     assert [p["currency"] for p in periods] == ["USD", "EGP"]
     assert periods[1]["opened_because"] == "currency_change", \
         "a currency flip was filed as a price move"
+
+
+def test_at_most_one_open_period_per_offer_is_enforced_again(conn):
+    """0030's rebuild silently dropped 0016's UNIQUE partial index; 0031
+    restores the backstop — a double-open is a loud IntegrityError, never two
+    concurrent current prices (adversarial review, reproduced by execution)."""
+    import sqlite3
+
+    crawl(conn, price="100.00", day="2026-07-01")
+    pricehistory.rebuild_all(conn)
+
+    names = {r[1] for r in conn.execute("PRAGMA index_list('price_period')")}
+    assert "ux_price_period_open" in names
+
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO price_period (offer_id, price_hash, first_detected_at, "
+            "last_confirmed_at) VALUES (?, 'x', 't', 't')", (offer(conn),))

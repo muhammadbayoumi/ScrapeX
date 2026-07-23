@@ -53,6 +53,14 @@ _LEAF_PRODUCTS_QUERY = """query($uid:String!,$pageSize:Int!,$currentPage:Int!){
 }"""
 
 
+def _depth(path: str) -> int:
+    """LEVELS in a path, not characters. 'Deepest wins' compared string
+    lengths once, so a shallow promo bucket with a long Arabic name beat a
+    genuinely deeper three-level home (found by the adversarial review,
+    reproduced by execution). A filing's depth is its level count."""
+    return path.count(" > ") + 1 if path else 0
+
+
 def _classification(product: dict) -> tuple[str, str]:
     """(category_path, category_external_id) — the DEEPEST filing the site states.
 
@@ -175,7 +183,7 @@ class MagentoGraphqlConnector:
                                 .get("data") or {}).get("products")) or {}
                     for item in listing.get("items") or []:
                         puid = str(item.get("uid") or "")
-                        if puid and len(path) > len(paths.get(puid, ("", ""))[0]):
+                        if puid and _depth(path) > _depth(paths.get(puid, ("", ""))[0]):
                             paths[puid] = (path, uid)
                     total = ((listing.get("page_info") or {}).get("total_pages")) or page
                     if page >= total:
@@ -208,7 +216,7 @@ class MagentoGraphqlConnector:
         stated_path, stated_id = _classification(product)
         walked_path, walked_id = (ctx.get("paths") or {}).get(
             str(product.get("uid") or ""), ("", ""))
-        if len(walked_path) > len(stated_path):
+        if _depth(walked_path) > _depth(stated_path):
             category_path, category_id = walked_path, walked_id
         else:
             category_path, category_id = stated_path, stated_id

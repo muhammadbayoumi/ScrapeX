@@ -300,3 +300,47 @@ def test_a_currency_flip_never_reaches_the_change_feed_as_a_price_move(conn):
     flips = [e for e in events if e["field_key"] == "currency"]
     assert flips, "the flip itself left no event at all"
     assert flips[0]["previous_value"] == "USD" and flips[0]["new_value"] == "EGP"
+
+
+def test_a_product_that_now_publishes_real_variants_retires_its_stand_in(conn):
+    """The v1 woo shape (variant id == product id, priced at the range's low
+    end) must leave the current-prices table the moment a run publishes the
+    product's REAL variants — and leave a change event, not a silence."""
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_product_id="10150", external_variant_id="10150",
+                effective_price="450.00", regular_price="450.00")])])
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_product_id="10150", external_variant_id="10491",
+                effective_price="2,776.66", regular_price="2,776.66")])])
+
+    from scrapex.reports import table_payload
+    grid = table_payload(conn, "ELSEWEDYSHOP")
+    assert len(grid["rows"]) == 1, "the stand-in kept posing as a current offer"
+    assert grid["rows"][0]["effective_price"] == 2776.66
+    event = conn.execute(
+        "SELECT change_type FROM change_event WHERE field_key = 'variant_status'"
+    ).fetchone()
+    assert event is not None and event[0] == "removed"
+
+
+def test_republishing_the_stand_in_reactivates_it_with_an_event(conn):
+    """The fallback path re-emits the stand-in when every variation fetch
+    fails; its return to the table is an event, not a secret."""
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_product_id="10150", external_variant_id="10150",
+                effective_price="450.00", regular_price="450.00")])])
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_product_id="10150", external_variant_id="10491",
+                effective_price="2,776.66", regular_price="2,776.66")])])
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_product_id="10150", external_variant_id="10150",
+                effective_price="455.00", regular_price="455.00")])])
+
+    from scrapex.reports import table_payload
+    grid = table_payload(conn, "ELSEWEDYSHOP")
+    prices = sorted(r["effective_price"] for r in grid["rows"])
+    assert prices == [455.0, 2776.66], "the reactivated stand-in must be back"
+    returned = conn.execute(
+        "SELECT COUNT(*) FROM change_event WHERE field_key = 'variant_status' "
+        "AND change_type = 'returned'").fetchone()[0]
+    assert returned == 1

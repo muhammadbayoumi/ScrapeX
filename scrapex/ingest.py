@@ -38,6 +38,9 @@ class IngestResult:
     # if the run completes successfully, because a failed or partial run has not
     # established that anything is still true.
     seen: dict = field(default_factory=dict)
+    # product_id -> the external variant ids THIS run published, for the
+    # stand-in retirement sweep. Run bookkeeping, not result contract.
+    _seen_variant_ids: dict = field(default_factory=dict, repr=False)
     skipped_ignored: int = 0     # rows under an owner-ignored product
     rejected_out_of_scope: int = 0
     # Two kinds of trouble, kept apart because they mean different things:
@@ -202,7 +205,8 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
     return pid, CurationStatus.INVENTORIED.value, True
 
 
-def _get_variant(conn, product_id: int, r: dict) -> tuple[int, bool]:
+def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
+                 job_id: int | None = None) -> tuple[int, bool]:
     """(source_variant_id, created). Keyed by external_variant_id when present,
     else by option_fingerprint (the owner's rule — never SKU alone)."""
     ext = r["external_variant_id"] or None
@@ -223,6 +227,19 @@ def _get_variant(conn, product_id: int, r: dict) -> tuple[int, bool]:
         )
     if found is not None:
         _touch_last_seen(conn, "source_variant", "source_variant_id", found)
+        status = conn.execute(
+            "SELECT status FROM source_variant WHERE source_variant_id = ?",
+            (found,)).fetchone()[0]
+        if status != "active":
+            # The source publishes this variant again (the woo fallback path
+            # re-emits the stand-in when every variation fetch fails) — it
+            # returns to the table, and the return is an event, not a secret.
+            conn.execute("UPDATE source_variant SET status = 'active' "
+                         "WHERE source_variant_id = ?", (found,))
+            record_change(conn, ChangeType.RETURNED, "variant_status",
+                          previous_value=status, new_value="active",
+                          source_product_id=product_id, source_variant_id=found,
+                          run_id=run_id, job_id=job_id)
         return found, False
     return _insert(conn, "source_variant", {
         "source_product_id": product_id,
@@ -231,6 +248,43 @@ def _get_variant(conn, product_id: int, r: dict) -> tuple[int, bool]:
         "option_fingerprint": fp,
         "option_label": r["option_label"] or None,
     }), True
+
+
+def _retire_product_level_stand_ins(conn, result: "IngestResult",
+                                    run_id: int | None,
+                                    job_id: int | None) -> None:
+    """A product now publishing REAL variants retires its old stand-in.
+
+    The stand-in is the row whose variant id IS the product id — the shape a
+    connector emits when it cannot see variations, priced at whatever the
+    listing showed (for WooCommerce: the price RANGE's low end). When a run
+    publishes differently-identified variants for the product and no longer
+    publishes the stand-in, the stand-in is superseded — otherwise the low
+    end poses as a current offer forever beside the real prices.
+
+    Scoped hard on purpose: only products THIS run touched, only the exact
+    stand-in id, and never when the run still publishes it (the fallback
+    path) — a partial crawl retires nothing it did not positively replace.
+    """
+    for product_id, seen in result._seen_variant_ids.items():
+        ext = conn.execute(
+            "SELECT external_product_id FROM source_product "
+            "WHERE source_product_id = ?", (product_id,)).fetchone()[0]
+        if ext in seen or not any(v and v != ext for v in seen):
+            continue
+        stale = conn.execute(
+            "SELECT source_variant_id FROM source_variant "
+            "WHERE source_product_id = ? AND external_variant_id = ? "
+            "AND status = 'active'", (product_id, ext)).fetchone()
+        if stale is None:
+            continue
+        conn.execute("UPDATE source_variant SET status = 'superseded' "
+                     "WHERE source_variant_id = ?", (stale[0],))
+        record_change(conn, ChangeType.REMOVED, "variant_status",
+                      previous_value="product-level stand-in (range low end)",
+                      new_value="superseded by per-variation prices",
+                      source_product_id=product_id, source_variant_id=stale[0],
+                      run_id=run_id, job_id=job_id)
 
 
 def canonical_unit(raw: str, currency: str = "") -> str:
@@ -497,6 +551,10 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
             except Exception as exc:  # noqa: BLE001 — isolate one bad row (Q3)
                 result.errors.append(f"row {i}: {exc}")
 
+    # Stand-ins are retired before the derive: a run that just published a
+    # product's real variants must not leave the range low end posing as a
+    # current offer beside them.
+    _retire_product_level_stand_ins(conn, result, run_id, job_id)
     # The derived layers are rebuilt for EVERY offer the run touched, whatever
     # the run's status ends up being: the observations are already appended, and
     # leaving them underived strands them where timeline() cannot see them.
@@ -723,7 +781,9 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
     if product_created:
         result.products += 1
 
-    variant_id, variant_created = _get_variant(conn, product_id, r)
+    variant_id, variant_created = _get_variant(conn, product_id, r, run_id, job_id)
+    result._seen_variant_ids.setdefault(product_id, set()).add(
+        r["external_variant_id"] or "")
     if variant_created:
         result.variants += 1
         record_change(conn, ChangeType.NEW, "source_variant", source_product_id=product_id,

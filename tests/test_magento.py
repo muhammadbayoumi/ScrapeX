@@ -232,3 +232,31 @@ def test_a_dead_tree_walk_costs_a_note_never_the_price_crawl():
 
     assert len(table.rows) == 3, "the prices must survive a dead tree walk"
     assert any("category tree walk failed" in w for w in table.warnings)
+
+
+def test_the_deeper_home_wins_over_a_longer_shallow_name():
+    """'Deepest wins' means LEVELS, not characters: a one-level promo bucket
+    with a long Arabic name must never beat a stated three-level home
+    (adversarial review, reproduced by execution)."""
+    from scrapex.connectors.magento import MagentoGraphqlConnector, _depth
+
+    assert _depth("") == 0 and _depth("أسمنت") == 1 and _depth("a > b > c") == 3
+
+    from scrapex.rowspec import RowBuilder
+    builder = RowBuilder(PRODUCT_PRICES)
+    product = {
+        "uid": "P1", "sku": "s", "name": "n", "url_key": "u",
+        "stock_status": "IN_STOCK",
+        "categories": [{"uid": "C3", "name": "حديد",
+                        "breadcrumbs": [{"category_name": "مواد"},
+                                        {"category_name": "معادن"}]}],
+        "price_range": {"minimum_price": {"regular_price": {"value": 10.0},
+                                          "final_price": {"value": 10.0}}},
+    }
+    ctx = {"base": "https://x", "currency": "SAR", "vat": "0", "region": "SA",
+           "paths": {"P1": ("التخفيضات والعروض الحصرية الكبرى للمقاولين", "PROMO")}}
+
+    rows = MagentoGraphqlConnector._product_rows(builder, product, ctx)
+    row = RowView(PRODUCT_PRICES, builder.header).as_dict(rows[0])
+    assert row["category_path"] == "مواد > معادن > حديد"
+    assert row["category_external_id"] == "C3"

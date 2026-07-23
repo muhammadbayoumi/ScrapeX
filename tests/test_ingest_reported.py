@@ -558,3 +558,30 @@ def test_previous_and_change_read_the_move_before_the_current_price(conn):
     assert ext["previous_price"] == 15.5
     assert ext["current_price"] == 20.5
     assert ext["change_pct"] == 32.26 or abs(ext["change_pct"] - 32.26) < 0.05
+
+
+def test_a_currency_flip_does_not_leak_into_min_max_previous(conn):
+    """The flip guard has to hold on the DATA PAGE too: after USD 0.40 ->
+    EGP 20.50, Previous/Change must stay empty and Min/Max must speak ONLY the
+    current currency — 0.40 in the same numeric column as 20.50 (or a +5025%
+    Change) is the corruption the guard exists to prevent (adversarial
+    review, reproduced by execution)."""
+    from scrapex.reports import price_extremes, table_payload
+
+    ingest_payloads(conn, _entry(), [_payload([
+        dict(effective_price="0.40", original_price="0.40", currency="USD"),
+    ])])
+    ingest_payloads(conn, _entry(), [_payload([
+        dict(effective_price="20.50", original_price="20.50"),
+    ])])
+
+    row = table_payload(conn, "GPP_ENERGY")["rows"][0]
+    assert row["currency"] == "EGP"
+    assert row["previous_price"] == "" and row["price_change"] == ""
+    assert row["min_price"] == 20.5 and row["max_price"] == 20.5
+    assert row["observations"] == 1
+
+    extreme = price_extremes(conn, "GPP_ENERGY")[0]
+    assert extreme["min_price"] == 20.5 and extreme["max_price"] == 20.5
+    assert extreme["first_price"] == 20.5 and extreme["current_price"] == 20.5
+    assert extreme["previous_price"] is None and extreme["change_pct"] is None

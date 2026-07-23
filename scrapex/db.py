@@ -105,11 +105,38 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
         if number <= current:
             continue
         sql = file.read_text(encoding="utf-8")
-        with conn:  # one transaction per migration — partial application impossible
-            conn.executescript(sql)
+        # The transaction is OWNED here, explicitly — the domain runner's
+        # proven recipe, ported. The old `with conn:` wrapper guaranteed
+        # nothing: in legacy isolation executescript performs no transaction
+        # control, each statement autocommitted, and a mid-script crash in a
+        # multi-statement rebuild (0030's DROP + RENAME) left a half-schema
+        # every later run tripped over. Three traps the recipe defuses:
+        # isolation None (legacy mode implicitly COMMITS before any PRAGMA —
+        # splitting the atomicity this exists to provide); connection-level
+        # FK OFF before the txn (an in-script PRAGMA foreign_keys is a no-op
+        # inside one, and 0020-style parent-table rebuilds need it); and the
+        # fk check INSIDE the txn, where a failure still rolls everything back.
+        previous_isolation = conn.isolation_level
+        conn.isolation_level = None
+        conn.execute("PRAGMA foreign_keys = OFF")
+        try:
+            conn.executescript(f"BEGIN IMMEDIATE;\n{sql}")
+            broken = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if broken:
+                raise sqlite3.IntegrityError(
+                    f"migration {file.name} left {len(broken)} row(s) "
+                    f"pointing at nothing (first: {tuple(broken[0])})")
             # schema.sql sets its own user_version; later migrations must too.
             if schema_version(conn) != number:
                 conn.execute(f"PRAGMA user_version = {number}")
+            conn.execute("COMMIT")
+        except Exception:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.isolation_level = previous_isolation
         applied.append(number)
     # Stamp the contract version (two-engine guardrail) once the meta table exists.
     from .contract import stamp_contract

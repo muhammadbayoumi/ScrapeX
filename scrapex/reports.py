@@ -105,6 +105,10 @@ _LATEST_PER_OFFER = (
     # must read as "not stated" and must never suppress the row.
     "LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id "
     "WHERE ss.source_key = ? "
+    # A superseded variant is history, not a current offer: the product-level
+    # stand-in a per-variation upgrade replaced must leave the current-prices
+    # table, the export, and every count derived from this join.
+    "AND sv.status = 'active' "
     # The offer's face is what WE saw, newest first; a reported claim speaks
     # only for an offer with no observation at all. TWO indexed probes rather
     # than one expression-ordered subquery: ORDER BY (provenance='observed')
@@ -721,11 +725,25 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
     #             claims would call this week "the beginning of history".
     #   current = what we last SAW: observed outranks reported, then newest
     #             business_date — identical to the Data page's rule.
+    # The current CURRENCY, by the same observed-first probes as the current
+    # price. Every statistic below is scoped to it: after a currency flip,
+    # first/min/max mixing USD and EGP amounts — or a Change computed across
+    # them — is the corruption the flip guard exists to prevent, and it has
+    # to hold on this page too, not only in the feed.
+    current_currency = (
+        "COALESCE("
+        " (SELECT cc1.currency FROM price_observation cc1 "
+        "  WHERE cc1.offer_id = so.offer_id AND cc1.provenance = 'observed' "
+        "  ORDER BY cc1.business_date DESC, cc1.price_observation_id DESC LIMIT 1), "
+        " (SELECT cc2.currency FROM price_observation cc2 "
+        "  WHERE cc2.offer_id = so.offer_id AND cc2.provenance = 'reported' "
+        "  ORDER BY cc2.business_date DESC, cc2.price_observation_id DESC LIMIT 1))")
     rows = conn.execute(
         "SELECT sp.source_name, so.region, po.currency, so.offer_id, "
         "       MIN(po.effective_price) AS min_price, MAX(po.effective_price) AS max_price, "
         "       COUNT(*) AS observations, "
         "       (SELECT p2.effective_price FROM price_observation p2 WHERE p2.offer_id = so.offer_id "
+        f"        AND p2.currency = {current_currency} "
         "        ORDER BY p2.business_date, p2.price_observation_id LIMIT 1) AS first_price, "
         "       COALESCE("
         "        (SELECT p3.effective_price FROM price_observation p3 "
@@ -740,7 +758,9 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? GROUP BY so.offer_id "
+        "WHERE ss.source_key = ? AND sv.status = 'active' "
+        f"AND po.currency = {current_currency} "
+        "GROUP BY so.offer_id "
         "ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, max(1, min(limit, 2000))),
     ).fetchall()
@@ -748,7 +768,8 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         r2[0]: r2[1] for r2 in conn.execute(
             "SELECT so.offer_id, "
             "  (SELECT ph.effective_price FROM price_observation ph "
-            "   WHERE ph.offer_id = so.offer_id AND ph.effective_price != ("
+            f"   WHERE ph.offer_id = so.offer_id AND ph.currency = {current_currency} "
+            "   AND ph.effective_price != ("
             "     SELECT COALESCE("
             "      (SELECT c1.effective_price FROM price_observation c1 "
             "       WHERE c1.offer_id = so.offer_id AND c1.provenance = 'observed' "
@@ -761,7 +782,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
             "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
             "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
             "JOIN source_site ss ON ss.source_id = sp.source_id "
-            "WHERE ss.source_key = ?", (source_key,))}
+            "WHERE ss.source_key = ? AND sv.status = 'active'", (source_key,))}
     out = []
     for r in rows:
         item = dict(r)
@@ -981,14 +1002,23 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         "       po.official_source_name, po.official_source_url, sp.brand_raw, "
+        # Every history statistic is scoped to the CURRENT observation's
+        # currency (po IS the latest row, so po.currency IS the current one):
+        # after a currency flip, 0.40 USD in the same Min column as 20.50 EGP
+        # — or a +5025% Change — is the corruption the flip guard exists to
+        # prevent, and the guard has to hold HERE too, not only in the feed.
         "       (SELECT COUNT(*) FROM price_observation ph "
-        "        WHERE ph.offer_id = so.offer_id) AS observations, "
+        "        WHERE ph.offer_id = so.offer_id "
+        "        AND ph.currency = po.currency) AS observations, "
         "       (SELECT MIN(ph2.effective_price) FROM price_observation ph2 "
-        "        WHERE ph2.offer_id = so.offer_id) AS min_price, "
+        "        WHERE ph2.offer_id = so.offer_id "
+        "        AND ph2.currency = po.currency) AS min_price, "
         "       (SELECT MAX(ph3.effective_price) FROM price_observation ph3 "
-        "        WHERE ph3.offer_id = so.offer_id) AS max_price, "
+        "        WHERE ph3.offer_id = so.offer_id "
+        "        AND ph3.currency = po.currency) AS max_price, "
         "       (SELECT ph4.effective_price FROM price_observation ph4 "
         "        WHERE ph4.offer_id = so.offer_id "
+        "        AND ph4.currency = po.currency "
         "        AND ph4.effective_price != po.effective_price "
         "        ORDER BY ph4.business_date DESC, ph4.price_observation_id DESC "
         "        LIMIT 1) AS previous_price, "

@@ -113,7 +113,7 @@ def _general_plan() -> tuple[Migration, ...]:
 # Listed rather than ranged: the unified chain and this one have diverged, so a
 # new price migration lands at the END of the legacy chain but in the middle of
 # this plan. A range would silently swallow whatever General adds next.
-_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
+_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32)
 
 # Where the identity migration sits in this stream. Everything before it is the
 # price history the unified warehouse already had; everything after is a price
@@ -388,6 +388,22 @@ class DomainDatabase(Generic[T]):
                         f"{len(broken)} row(s) pointing at nothing "
                         f"(first: {tuple(broken[0])}); it was applied with "
                         "enforcement suspended and must repair what it breaks")
+                # The stream's version is corrected INSIDE the same
+                # transaction. A file shared with the unified chain carries
+                # THAT chain's number, and cannot also carry this stream's —
+                # correcting it in a second commit (as this once did) left a
+                # crash window where the file's higher number survived alone
+                # and the next start misdiagnosed the database as written by
+                # a NEWER ScrapeX. A file that set nothing at all is still a
+                # mistake: the author forgot, and every later run would
+                # replay it.
+                stamped = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                if stamped == 0:
+                    raise DatabaseMigrationError(
+                        f"{self.kind} migration {migration.name} set no schema "
+                        "version at all; add a PRAGMA user_version and retry")
+                if stamped != migration.number:
+                    conn.execute(f"PRAGMA user_version = {migration.number}")
                 conn.execute("COMMIT")
             except Exception:
                 if conn.in_transaction:
@@ -396,20 +412,6 @@ class DomainDatabase(Generic[T]):
             finally:
                 conn.execute("PRAGMA foreign_keys = ON")
                 conn.isolation_level = previous_isolation
-            stamped = int(conn.execute("PRAGMA user_version").fetchone()[0])
-            if stamped != migration.number:
-                # A file shared with the unified chain carries THAT chain's
-                # number, and cannot also carry this stream's — the two diverged
-                # the moment General and MarketLens stopped applying the same
-                # list. The stream owns its version, so the runner stamps it.
-                # A file that set nothing at all is still a mistake: it means the
-                # author forgot, and every later run would replay it.
-                if stamped == 0:
-                    raise DatabaseMigrationError(
-                        f"{self.kind} migration {migration.name} set no schema "
-                        "version at all; add a PRAGMA user_version and retry")
-                conn.execute(f"PRAGMA user_version = {migration.number}")
-                conn.commit()
             current = migration.number
             applied.append(current)
         self._stamp_and_verify_checksums(conn)
