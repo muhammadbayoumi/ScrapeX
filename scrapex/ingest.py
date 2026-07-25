@@ -270,6 +270,16 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
                 "UPDATE source_variant SET raw_options_json = ? "
                 "WHERE source_variant_id = ? AND COALESCE(raw_options_json,'') != ?",
                 (r["option_axes"], found, r["option_axes"]))
+        # The same variation in English (0036). Same rule as every other
+        # learned fact: written when the source states it, never blanked when
+        # it does not, and identity untouched.
+        for column, value in (("variant", r.get("variant")),
+                              ("variant_axes", r.get("variant_axes"))):
+            if value:
+                conn.execute(
+                    f"UPDATE source_variant SET {column} = ? "
+                    f"WHERE source_variant_id = ? AND COALESCE({column},'') != ?",
+                    (value, found, value))
         status = conn.execute(
             "SELECT status FROM source_variant WHERE source_variant_id = ?",
             (found,)).fetchone()[0]
@@ -295,6 +305,8 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         # written: connectors composed "Color: أحمر" and dropped the parts, so
         # nothing downstream could put the axis and its value in two columns.
         "raw_options_json": r.get("option_axes") or None,
+        "variant": r.get("variant") or "",
+        "variant_axes": r.get("variant_axes") or "",
     }), True
 
 

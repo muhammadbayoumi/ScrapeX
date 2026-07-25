@@ -522,6 +522,7 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("category_en", "Category"),
     ("category", "Category"),
     *_level_columns(),
+    ("variant", "Variant"),
     ("option_label", "Variant"),
     ("sku", "SKU"),
     ("effective_price", "Price"),
@@ -568,6 +569,9 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
 # toggle — so adding a bilingual field is one line, not five edits.
 BILINGUAL_COLUMNS: dict[str, str] = {
     "product_name": "product_name_en",
+    # The variation reads «العرض (ملم): 610» in Arabic and "Width (mm): 610" in
+    # English, and madar publishes both — so the switch flips it too.
+    "option_label": "variant",
     "category": "category_en",
     **{f"category_l{level}": f"category_en_l{level}"
        for level in range(1, CATEGORY_LEVELS + 1)},
@@ -608,7 +612,10 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_raw,'')),'')), "
         "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END), "
         "       COUNT(DISTINCT po.currency), "
-        "       COUNT(NULLIF(TRIM(COALESCE(sp.source_name_en,'')),'')) "
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.source_name_en,'')),'')), "
+        # Appended LAST, like every count before it: this list is read by
+        # position, and a column inserted mid-list shifts every index under it.
+        "       COUNT(NULLIF(TRIM(COALESCE(sv.variant,'')),'')) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("option_label", row[0]), ("sku", row[1]),
@@ -616,7 +623,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
                           ("availability", row[4]), ("official_source", row[5]),
                           ("brand", row[6]), ("discount", row[7]),
                           ("discount_pct", row[7]),
-                          ("product_name_en", row[9])):
+                          ("product_name_en", row[9]), ("variant", row[10])):
         if not count:
             present.discard(column)
     # USD est. exists to make many currencies RANKABLE in one column. A source
@@ -726,6 +733,8 @@ _EXPORT_SELECT: dict[str, str] = {
     "official_source_url": "po.official_source_url",
     "category_path_en": "sp.category_path_en",
     "option_axes": "sv.raw_options_json",
+    "variant_en": "sv.variant",
+    "option_axes_en": "sv.variant_axes",
     # Not an exported column: the key the site's own filter values are joined on.
     "source_product_id": "sp.source_product_id",
 }
@@ -754,7 +763,11 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # arrive as six rows whose SKUs differ only in the suffix (…-1 … …-6); this
     # is the id they share, so a spreadsheet can group them without parsing.
     ("product_id", lambda r, s: r["external_product_id"] or ""),
-    ("option_label", lambda r, s: r["option_label"] or ""),
+    # English first, the Arabic beside it — the same pair convention the table
+    # uses, and the same fallback: a source that publishes one language fills
+    # one column instead of leaving the reader a blank.
+    ("variant", lambda r, s: r["variant_en"] or r["option_label"] or ""),
+    ("variant_ar", lambda r, s: r["option_label"] or ""),
     ("sku", lambda r, s: r["sku"] or ""),
     ("effective_price", lambda r, s: _or_blank(r["effective_price"])),
     # The unit sits beside the price it qualifies. A column of bare numbers
@@ -826,7 +839,11 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         # attribute describes the family, and letting it win would print the
         # family's thickness on every one of its variants.
         merged = dict(filters.get(row["source_product_id"], {}))
-        merged.update(option_axes_from(row["option_axes"]))
+        # The axes in the language the export is written in — English is the
+        # primary display language, so the English axis NAMES head the columns
+        # when the source publishes them, and the Arabic ones when it does not.
+        merged.update(option_axes_from(row["option_axes_en"])
+                      or option_axes_from(row["option_axes"]))
         parsed.append(merged)
     return _with_axis_columns(list(EXPORT_HEADER), table, parsed)
 
@@ -886,7 +903,7 @@ def _with_axis_columns(header: list[str], table: list[list],
                 names.append(name)
     if not names:
         return header, table
-    at = header.index("option_label") + 1
+    at = header.index("variant_ar") + 1
     widened = header[:at] + names + header[at:]
     rows = [row[:at] + [axes.get(name, "") for name in names] + row[at:]
             for row, axes in zip(table, parsed)]
@@ -1324,7 +1341,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       sp.category_path, sp.source_name_en, sp.category_path_en, "
         # Appended LAST on purpose: every index above is positional and a column
         # inserted mid-list silently shifts the lot.
-        "       po.vat_included "
+        "       po.vat_included, sv.variant "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1347,7 +1364,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                               .for_row(vat_included).as_dict())
         return tax_index[key]
 
-    shaped = [{"product_name": r[0], "option_label": r[1] or "", "sku": r[2] or "",
+    shaped = [{"product_name": r[0], "option_label": r[1] or "", "variant": r[30] or "",
+               "sku": r[2] or "",
                "effective_price": r[3], "regular_price": r[4], "sale_price": r[5],
                "currency": r[6], "availability": r[7],
                "price_changed_on": r[8], "product_url": r[9] or "",
@@ -1456,15 +1474,27 @@ def _tree_shape(rows: list[dict]) -> dict:
 #
 # The one thing that cannot be derived is what a column MEANS. That sentence is
 # authored here, once, beside the name it describes.
+#
+# IT DESCRIBES TODAY, NOT THE PLAN. The first version of this map wrote the
+# APPROVED vocabulary's meaning onto the columns that still hold the old one —
+# product_name was described as "the product's name, in English" while it holds
+# Arabic on every bilingual source. The owner read that off the page and asked
+# why the agreement had been reversed. It had not: the inversion has not
+# happened yet, and a page whose whole claim is that it cannot drift from the
+# product must describe the product AS IT IS. Columns whose name is due to
+# change say so, in RENAMING_TO below, instead of pretending it already did.
 COLUMN_NOTES: dict[str, str] = {
-    "product_name": "The product's name, in English.",
-    "product_name_en": "The product's name, in English.",
+    "product_name": "The product's name in the source's own language — Arabic on "
+                    "every bilingual source today.",
+    "product_name_en": "The same name in English, where the source publishes one.",
     "region": "The country the price applies to, as an ISO code.",
     "country": "The same country, spelled out.",
     "brand": "The brand, as the source publishes it — never inferred from the name.",
-    "category": "The full classification path the source files this product under.",
-    "category_en": "The same path, in English.",
+    "category": "The full classification path the source files this product under, "
+                "in the source's own language.",
+    "category_en": "The same path in English, where the source publishes one.",
     "option_label": "Which variation this row is, in the site's own words.",
+    "variant": "The same variation in English, where the site publishes both.",
     "sku": "The source's own code for this item.",
     "product_id": "The id its variations share, so six rows of one cable group.",
     "effective_price": "What a visitor actually pays today.",
@@ -1496,6 +1526,48 @@ COLUMN_NOTES: dict[str, str] = {
 }
 
 
+# The approved vocabulary (docs/column-vocabulary.md), and the columns still
+# waiting for it. Two rules produce every target name: the key and the label are
+# the same word, and the name states the LANGUAGE of the content — English
+# unmarked, Arabic marked `_ar`. The rename is one sweep, not yet run, and until
+# it is the page shows both names side by side rather than letting the owner
+# read a plan as a fact. Empty when a column's name is already correct.
+RENAMING_TO: dict[str, str] = {
+    "product_name": "product_name_ar",
+    "product_name_en": "product_name",
+    "category": "category_ar",
+    "category_en": "category",
+    "region": "country_code",
+    "option_label": "variant_ar",
+    "effective_price": "price",
+    "regular_price": "price_before",
+    "sale_price": "price_sale",
+    "usd_price": "price_usd",
+    "previous_price": "price_previous",
+    "min_price": "price_min",
+    "max_price": "price_max",
+    "availability": "availability",
+    "tax_label": "tax",
+    "vat_included": "tax_included",
+    "tax_statement_url": "tax_statement",
+    "official_source_url": "official_source_link",
+    "curation_status": "curation",
+    "open": "product_link",
+}
+
+
+def renaming_to(key: str) -> str:
+    """The name this column takes when the vocabulary sweep lands, or ""."""
+    if key in RENAMING_TO and RENAMING_TO[key] != key:
+        return RENAMING_TO[key]
+    for level in range(1, CATEGORY_LEVELS + 1):
+        if key == f"category_l{level}":
+            return f"category_l{level}_ar"
+        if key == f"category_en_l{level}":
+            return f"category_l{level}"
+    return ""
+
+
 def schema_report(conn: sqlite3.Connection) -> dict:
     """Every column, what it means, and which sources actually fill it.
 
@@ -1523,11 +1595,12 @@ def schema_report(conn: sqlite3.Connection) -> dict:
         english_twin = BILINGUAL_COLUMNS.get(key)
         table_columns.append({
             "key": key, "label": label, "note": note(key),
+            "renaming_to": renaming_to(key),
             "language": "Arabic" if arabic else ("English" if key in BILINGUAL_COLUMNS.values() else ""),
             "pairs_with": english_twin or "",
             "sources": [s for s in sources if key in presence[s]],
         })
-    export_only = [{"key": key, "note": note(key)}
+    export_only = [{"key": key, "note": note(key), "renaming_to": renaming_to(key)}
                    for key in EXPORT_HEADER if key not in {k for k, _ in BROWSE_COLUMNS}]
 
     # The per-source columns the SITE names, not us: variation axes and the
@@ -1557,4 +1630,112 @@ def schema_report(conn: sqlite3.Connection) -> dict:
                            "variants_with_axes": axes, "filters": facets,
                            "detail_groups": groups})
     return {"sources": sources, "table": table_columns, "export_only": export_only,
-            "per_source": per_source, "category_levels": CATEGORY_LEVELS}
+            "per_source": per_source, "category_levels": CATEGORY_LEVELS,
+            "pending_renames": sum(1 for c in table_columns if c["renaming_to"]),
+            "warehouse": warehouse_tables(conn)}
+
+
+# ---- the warehouse itself: every table, and why it exists --------------------
+#
+# The owner opened the schema page to REVIEW the data model and found one table
+# on it — the Data page's columns. What he asked for is the warehouse: every
+# table, what it holds, and what it is FOR. So the page lists them all, grouped
+# by the layer they belong to, with the row counts read live.
+#
+# The grouping is the model's own story, in the order the data moves through it:
+# a site publishes a product, we record what it charges, the charges become a
+# history, the owner curates a unified layer on top, and the operational tables
+# say what ran.
+TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
+    ("What the source said", "The source-local layer: exactly what each site "
+     "published, before any interpretation. Nothing here is merged or renamed.", [
+         ("source_site", "One row per source: its key, both names, base URL and platform."),
+         ("source_product", "One row per product a source publishes, with its name, "
+                            "classification, URL and your curation state."),
+         ("source_variant", "One row per buyable variation — a colour, a thickness — "
+                            "with the site's own label and axes."),
+         ("source_product_attribute", "Every stated fact about a product: descriptions, "
+                                      "specifications, images, datasheets, the site's filters."),
+         ("identity_alias", "Names and codes a product has been seen under, so a rename "
+                            "on the site does not create a second product here."),
+         ("raw_snapshot", "The untouched page or response behind a row, when kept."),
+     ]),
+    ("What it costs", "An offer is a thing you can buy at a price. Observations are "
+     "append-only: a price is never edited, only observed again.", [
+         ("source_offer", "One row per (variant, region, currency, unit) — what is on sale."),
+         ("price_observation", "Every price ever recorded, with its date, currency, tax "
+                               "state and whether we observed it or the source reported it."),
+         ("price_period", "The change-only timeline: one row per price that HELD, from "
+                          "when it appeared until it moved."),
+         ("offer_state", "The current answer per offer: latest price, last confirmation, "
+                         "whether it is still on the site."),
+         ("absence_period", "When an offer disappeared from the source, and when it returned."),
+         ("change_event", "The feed behind the Changes page: what changed, from what, to "
+                          "what, and when it was detected."),
+         ("selling_unit", "The units prices are quoted in — litre, kg, metre, piece."),
+         ("currency_rate", "Rates the sources themselves imply, used only to RANK many "
+                           "currencies in one column, never to convert a stored price."),
+         ("tax_rule", "What each source says about tax: the rate, the sentence it was read "
+                      "from, and the link to it."),
+     ]),
+    ("Your unified layer", "Where your own catalogue lives. It fills only as you curate: "
+     "until then these tables are empty by design, and the source-local layer above is "
+     "the whole truth.", [
+         ("material", "One material in YOUR catalogue — the thing several sources each sell."),
+         ("material_variant", "One buyable form of your material."),
+         ("material_attribute_value", "Your own attribute values for it."),
+         ("material_classification", "Where your material sits in your own classification."),
+         ("source_product_match", "Which source product you decided IS which material."),
+         ("source_variant_match", "The same decision at variation level."),
+         ("brand", "Brands, deduplicated across sources."),
+         ("attribute_definition", "The attributes you track, and their types."),
+         ("classification_scheme", "A classification you keep — yours, or a standard's."),
+         ("classification_node", "One node in that classification."),
+         ("classification_mapping", "How a source's own category maps onto your node."),
+         ("variant_attribute_value", "Attribute values at variation level."),
+         ("feed_assignment", "Which materials a published feed carries."),
+     ]),
+    ("What ran, and what you asked for", "Operations: every run leaves a record, and "
+     "every preference you set is stored rather than remembered.", [
+         ("crawl_run", "One row per ingest: rows seen, status, and what failed."),
+         ("crawl_job", "One row per job you started, with its controls and outcome."),
+         ("job_log_entry", "The log lines behind a job."),
+         ("schedule", "When a source should run by itself."),
+         ("retention_policy", "How long raw material is kept."),
+         ("retention_run", "What a retention pass actually removed."),
+         ("retention_pin", "What you pinned so retention never touches it."),
+         ("dataset_field", "Every column a source has, and whether you hide it."),
+         ("saved_view", "A filter and column arrangement you saved."),
+         ("database_migration", "Every schema change this database has applied."),
+         ("scrapex_meta", "The database's own identity and version."),
+     ]),
+]
+
+
+def warehouse_tables(conn: sqlite3.Connection) -> list[dict]:
+    """Every table, grouped by layer, with its live row count.
+
+    The counts are read; the purposes are authored (a table cannot say what it
+    is FOR). A table present in the database but missing from the groups above
+    is listed at the end rather than hidden — a schema page that quietly omits
+    part of the schema is the one thing it must never be.
+    """
+    known = {name for _title, _note, tables in TABLE_GROUPS for name, _purpose in tables}
+    live = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+
+    def described(name: str) -> dict:
+        rows = conn.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0] if name in live else None
+        columns = len(list(conn.execute(f'PRAGMA table_info("{name}")'))) if name in live else 0
+        return {"name": name, "rows": rows, "columns": columns, "present": name in live}
+
+    groups = [{"title": title, "note": note,
+               "tables": [dict(described(name), purpose=purpose) for name, purpose in tables]}
+              for title, note, tables in TABLE_GROUPS]
+    stray = sorted(live - known)
+    if stray:
+        groups.append({"title": "Not yet described",
+                       "note": "Present in the database and missing from the list above — "
+                               "shown so the page can never omit part of the schema.",
+                       "tables": [dict(described(name), purpose="") for name in stray]})
+    return groups

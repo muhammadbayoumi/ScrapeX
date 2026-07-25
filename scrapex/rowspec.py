@@ -90,11 +90,23 @@ PRODUCT_PRICES = RowSpec(
         # not instead of it: the label is what the site calls this variation and
         # stays the thing a human reads.
         "option_axes",
+        # The SAME variation, in English. madar publishes its axis names in
+        # both stores («العرض (ملم)» / "Width (mm)") and we were keeping one —
+        # the standing bilingual rule says a translation the site publishes and
+        # we drop is a defect. Named for the vocabulary these fields are moving
+        # to (docs/column-vocabulary.md): the unmarked name is English, so the
+        # Arabic pair above becomes option_label -> variant_ar and option_axes
+        # -> variant_axes_ar in the one sweep that inverts every bilingual name
+        # at once. Naming the new fields correctly now means that sweep renames
+        # only what already existed.
+        "variant",
+        "variant_axes",
     ),
     required=frozenset({"external_product_id", "region", "currency", "vat_included", "effective_price"}),
     additive=frozenset({"unit", "basis_quantity", "product_name_en", "lang",
                         "category_path", "category_path_en",
-                        "category_external_id", "option_axes"}),
+                        "category_external_id", "option_axes",
+                        "variant", "variant_axes"}),
 )
 
 # ---- enrichment: the open-ended attribute bag, one ROW per attribute ---------

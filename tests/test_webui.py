@@ -270,3 +270,39 @@ def test_the_schema_page_is_derived_not_written(client):
     # The rules the whole schema follows are stated on it, not left implicit.
     assert "states the language of its content" in r.text
     assert "Nothing is computed into a price" in r.text
+
+
+def test_the_schema_page_never_reads_a_plan_as_a_fact(client):
+    """The owner read the first version of this page, saw product_name described
+    as "the product's name, in English" while it holds Arabic, and asked why the
+    agreed vocabulary had been reversed. It had not: the rename has not run yet,
+    and the page had written the plan's meaning onto today's columns.
+
+    A page whose whole claim is that it cannot drift from the product must
+    describe the product AS IT IS, and say plainly where it is going."""
+    body = client.get("/schema").text
+
+    assert "Arabic on every bilingual source today" in body, \
+        "product_name is described as English while it holds Arabic"
+    assert "It has not been applied yet" in body, \
+        "the page presents the pending vocabulary as if it were live"
+    # Current name and future name, side by side, for every column that moves.
+    assert "<code>product_name_ar</code>" in body
+    assert "Becomes" in body
+
+
+def test_the_schema_page_shows_the_whole_warehouse(client):
+    """The owner opened this page to review the data model and found one table
+    on it — the Data page's columns. What he asked for is the warehouse: every
+    table, and what each one is FOR."""
+    body = client.get("/schema").text
+
+    for table in ("source_site", "source_product", "source_variant",
+                  "source_offer", "price_observation", "price_period",
+                  "change_event", "crawl_run", "dataset_field"):
+        assert f"<code>{table}</code>" in body, f"{table} is missing from the schema page"
+    # Grouped in the order the data moves, not alphabetically.
+    assert body.index("What the source said") < body.index("What it costs")
+    assert body.index("What it costs") < body.index("Your unified layer")
+    # And the purposes are there, not just the names.
+    assert "append-only" in body or "never edited" in body

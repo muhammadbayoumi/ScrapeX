@@ -118,7 +118,9 @@ _ENGLISH_STORE = "en_SA"
 _EN_QUERY = """query($pageSize:Int!,$currentPage:Int!){
   products(filter:{price:{from:"0"}},pageSize:$pageSize,currentPage:$currentPage){
     page_info{current_page total_pages}
-    items{uid name ... on ConfigurableProduct{variants{product{uid name}}}}
+    items{uid name ... on ConfigurableProduct{
+      configurable_options{attribute_code label}
+      variants{product{uid name} attributes{code label}}}}
   }
 }"""
 
@@ -282,7 +284,10 @@ class MagentoGraphqlConnector:
         # found — no second product listing, no second crawl (owner's standing
         # bilingual rule).
         ctx["paths_en"] = self._category_labels(endpoint, notes)
-        ctx["names_en"] = self._english_names(endpoint, notes)
+        english = self._english_names(endpoint, notes)
+        ctx["names_en"] = english["names"]
+        ctx["axis_labels_en"] = english["axis_labels"]
+        ctx["axis_values_en"] = english["axis_values"]
         wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
                                for spec in source.extract)
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
@@ -379,11 +384,22 @@ class MagentoGraphqlConnector:
         return found
 
     def _english_names(self, endpoint: str, notes: list) -> dict:
-        """uid -> English name from the en_SA store view (verified live:
-        "اسمنت الرياض" -> "Riyadh Cement"). A LIGHT second pass — uid and name
-        only — so the bilingual table costs pages, never payloads. Failure
-        degrades to Arabic-only WITH a note; the prices are never at stake."""
+        """The en_SA store view, read once, for everything it says in English.
+
+        Returns {"names": {uid: name}, "axis_labels": {code: label},
+                 "axis_values": {child_uid: {code: label}}}.
+
+        Verified live: "اسمنت الرياض" -> "Riyadh Cement", and «العرض (ملم)» ->
+        "Width (mm)". The axes ride the SAME pages the names already cost, so
+        the second language of a variation is free — which matters, because the
+        owner's rule is that a translation the site publishes and we drop is a
+        defect, and this store publishes every axis twice.
+
+        Failure degrades to Arabic-only WITH a note; prices are never at stake.
+        """
         names: dict[str, str] = {}
+        axis_labels: dict[str, str] = {}
+        axis_values: dict[str, dict[str, str]] = {}
         try:
             page = 1
             while True:
@@ -400,11 +416,24 @@ class MagentoGraphqlConnector:
                     uid = str(item.get("uid") or "")
                     if uid and item.get("name"):
                         names[uid] = str(item["name"])
+                    # The axis NAME is per attribute and shared by every product
+                    # that varies by it, so one map serves the whole crawl.
+                    for option in item.get("configurable_options") or []:
+                        code = str(option.get("attribute_code") or "")
+                        if code and option.get("label"):
+                            axis_labels[code] = str(option["label"])
                     for v in item.get("variants") or []:
                         child = v.get("product") or {}
                         cuid = str(child.get("uid") or "")
                         if cuid and child.get("name"):
                             names[cuid] = str(child["name"])
+                        # The axis VALUE is per variant: a width reads 610 in
+                        # both stores, a colour does not.
+                        if cuid:
+                            for attribute in v.get("attributes") or []:
+                                code = str(attribute.get("code") or "")
+                                if code and attribute.get("label"):
+                                    axis_values.setdefault(cuid, {})[code] = str(attribute["label"])
                 total = ((products.get("page_info") or {}).get("total_pages")) or page
                 if page >= total:
                     break
@@ -412,10 +441,10 @@ class MagentoGraphqlConnector:
         except CrawlBlocked:
             raise
         except Exception as exc:  # noqa: BLE001 — bilingual is additive, prices are vital
-            notes.append(f"english-names pass failed — names stay "
+            notes.append(f"english-names pass failed — names and variations stay "
                          f"Arabic-only this run: {exc}")
-            return {}
-        return names
+            return {"names": {}, "axis_labels": {}, "axis_values": {}}
+        return {"names": names, "axis_labels": axis_labels, "axis_values": axis_values}
 
     def _category_labels(self, endpoint: str, notes: list) -> dict:
         """leaf uid -> English path, from the en_SA tree. {} when unavailable."""
@@ -534,11 +563,13 @@ class MagentoGraphqlConnector:
         out: list[list[str]] = []
 
         names_en = ctx.get("names_en") or {}
+        axis_labels_en = ctx.get("axis_labels_en") or {}
+        axis_values_en = ctx.get("axis_values_en") or {}
         option_labels = {str(o.get("attribute_code") or ""): str(o.get("label") or "")
                          for o in product.get("configurable_options") or []}
 
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp="",
-                basis="", unit="", vat=None, axes=None):
+                basis="", unit="", vat=None, axes=None, axes_en=None):
             effective = fin if fin is not None else reg
             if effective is None:
                 return  # a product with no price — skip, don't emit an empty required field
@@ -558,6 +589,12 @@ class MagentoGraphqlConnector:
                 # axis, and the parts were being discarded the moment the
                 # sentence existed (the owner's report, fixed at the root).
                 option_axes=option_axes_json(axes or {}),
+                # The same variation in English, when the en_SA store publishes
+                # it. Composed with the SAME rule as the Arabic label so the two
+                # read alike — «العرض (ملم): 610» / "Width (mm): 610" — instead
+                # of one being a sentence and the other a list.
+                variant=", ".join(f"{axis}: {value}" for axis, value in (axes_en or {}).items()),
+                variant_axes=option_axes_json(axes_en or {}),
                 basis_quantity=basis, unit=unit,
                 product_url=url, region=ctx["region"], currency=ctx["currency"],
                 # PER ROW, never per source: on this platform one crawl carries
@@ -683,6 +720,16 @@ class MagentoGraphqlConnector:
                     # matters more than legibility.
                     axes={option_labels.get(str(a.get("code") or ""), str(a.get("code") or "")):
                           str(a.get("label") or "") for a in attrs},
+                    # English axis NAME from the store-wide map, English VALUE
+                    # from this child's own attributes — a width reads 610 in
+                    # both stores, a colour does not. Falls back to the Arabic
+                    # value rather than dropping the axis: a half-translated
+                    # variation still says which variation it is.
+                    axes_en={axis_labels_en[code]: (axis_values_en.get(str(child.get("uid") or ""), {}).get(code)
+                                                    or str(a.get("label") or ""))
+                             for a in attrs
+                             for code in [str(a.get("code") or "")]
+                             if code in axis_labels_en},
                     basis=basis, unit=unit, vat=variant_vat)
         else:
             # A product standing alone must have ONE price, not a span. Every

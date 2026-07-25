@@ -23,6 +23,27 @@
        hiding a field moves it into the container rather than losing it.</p>
   </section>
 
+  {# The vocabulary is APPROVED and NOT YET APPLIED, and the page says which
+     columns are waiting rather than describing the plan as if it were the
+     product. The owner read the first version, saw product_name described as
+     English while it holds Arabic, and asked why the agreement had been
+     reversed — it had not, the page was just ahead of the code. #}
+  {% if schema.pending_renames %}
+  <section class="card">
+    <h2>Waiting on one rename</h2>
+    <p>The vocabulary below is agreed and written down in
+       <code>docs/column-vocabulary.md</code>: the key and the label are the same
+       word, and a name states the LANGUAGE of its content — English unmarked,
+       Arabic marked <code>_ar</code>.</p>
+    <p><strong>It has not been applied yet.</strong> {{ schema.pending_renames }}
+       columns still carry the old names, and today
+       <code>product_name</code> holds ARABIC while <code>product_name_en</code>
+       holds English — the reverse of where they are going. Every column that is
+       due to change shows its new name beside its current one below, so nothing
+       here reads as a promise.</p>
+  </section>
+  {% endif %}
+
   <section class="card">
     <h2>The rules</h2>
     <ol>
@@ -43,18 +64,53 @@
        that actually reach that depth.</p>
   </section>
 
+  {# The owner opened this page to review the DATA MODEL and found one table on
+     it. This is the warehouse: every table, grouped in the order data moves
+     through it, with the counts read live and the purposes authored — a table
+     cannot say what it is for. #}
   <section class="card">
-    <h2>Table columns</h2>
+    <h2>The warehouse</h2>
+    <p class="hint">Every table in the database, in the order the data moves:
+       what a source said, what it costs, your own unified layer on top, and the
+       record of what ran. Counts are read from the database right now.</p>
+    {% for group in schema.warehouse %}
+      <h3>{{ group.title }}</h3>
+      <p class="hint">{{ group.note }}</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Table</th><th>Rows</th><th>Columns</th><th>What it is for</th></tr></thead>
+          <tbody>
+          {% for row in group.tables %}
+            <tr>
+              <td><code>{{ row.name }}</code></td>
+              <td>{% if row.present %}{{ "{:,}".format(row.rows) }}
+                  {%- else %}<span class="muted">absent</span>{% endif %}</td>
+              <td class="muted">{{ row.columns or "—" }}</td>
+              <td>{{ row.purpose }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>The Data page's columns</h2>
+    <p class="hint">What the table at the top of a dataset shows, one row per
+       column.</p>
     <div class="tablewrap">
       <table>
         <thead><tr>
-          <th>Column</th><th>Key</th><th>What it is</th><th>Filled by</th>
+          <th>Column</th><th>Key</th><th>Becomes</th><th>What it is</th><th>Filled by</th>
         </tr></thead>
         <tbody>
         {% for column in schema.table %}
           <tr>
             <td>{{ column.label or "—" }}</td>
             <td><code>{{ column.key }}</code></td>
+            <td>{% if column.renaming_to %}<code>{{ column.renaming_to }}</code>
+                {%- else %}<span class="muted">—</span>{% endif %}</td>
             <td>{{ column.note }}</td>
             <td class="muted">
               {%- if column.sources %}{{ column.sources | join(" · ") }}
@@ -73,10 +129,13 @@
        screen does not need to repeat on every row.</p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Key</th><th>What it is</th></tr></thead>
+        <thead><tr><th>Key</th><th>Becomes</th><th>What it is</th></tr></thead>
         <tbody>
         {% for column in schema.export_only %}
-          <tr><td><code>{{ column.key }}</code></td><td>{{ column.note }}</td></tr>
+          <tr><td><code>{{ column.key }}</code></td>
+              <td>{% if column.renaming_to %}<code>{{ column.renaming_to }}</code>
+                  {%- else %}<span class="muted">—</span>{% endif %}</td>
+              <td>{{ column.note }}</td></tr>
         {% endfor %}
         </tbody>
       </table>

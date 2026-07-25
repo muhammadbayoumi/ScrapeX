@@ -251,8 +251,11 @@ def test_each_variation_axis_becomes_its_own_export_column(conn):
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
 
     assert "Color" in header, "the axis never became a column"
-    assert header.index("Color") == header.index("option_label") + 1, \
-        "the axis belongs beside the label it was welded into, not at the far end"
+    # Beside the variation it was welded into, not at the far end. The exported
+    # variation is now a PAIR — variant (English) and variant_ar — so the axes
+    # follow the Arabic side, which is the last of the two.
+    assert header.index("Color") == header.index("variant_ar") + 1, \
+        "the axis belongs beside the variation, not at the far end"
     rows = sorted(dict(zip(header, row))["Color"] for row in table)
     assert rows == ["أحمر", "أخضر"]
 
