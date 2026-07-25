@@ -1219,8 +1219,8 @@
         formatter: "rowSelection", titleFormatter: "rowSelection",
         hozAlign: "center", headerHozAlign: "center", headerSort: false,
         width: 44, minWidth: 44, resizable: false, download: false, frozen: true,
+        cssClass: "grid-select-column",
         headerMenu: undefined, headerPopup: undefined,
-        cellClick: (event, cell) => cell.getRow().toggleSelect(),
       });
     }
 
@@ -1279,9 +1279,10 @@
       movableColumns: true,        // drag a header to build the table you want
       height: "100%",              // the stable frame owns the visible row area
       placeholder: "No rows match these filters.",
-      footerElement: features.statusbar ? footer : undefined,
+      // Selection is not complete without visible feedback. Keep the summary
+      // inside the table whenever either the status bar or row selection is on.
+      footerElement: (features.statusbar || features.select) ? footer : undefined,
       selectableRows: !!features.select,
-      selectableRowsRangeMode: "click",
       selectableRowsPersistence: false,
       // WIDTH only, never VISIBLE. Persisting visibility here created two
       // sources of truth that fought each other: the server said show Country,

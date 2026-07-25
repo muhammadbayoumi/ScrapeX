@@ -28,7 +28,7 @@
   border-radius: var(--table-radius);
   color: var(--table-text);
   font-size: var(--table-font-size);
-  font-family: inherit;
+  font-family: var(--font);
   overflow: hidden;
 }
 
@@ -154,6 +154,29 @@
   background-color: color-mix(in srgb, var(--accent) 14%, transparent) !important;
 }
 
+/* ---- row selection: one integrated table column -------------------------- */
+/* A frozen column normally gets a heavy vertical divider from Tabulator.
+ * Selection is part of the row, not a separate frozen pane, so that divider
+ * breaks the table's otherwise rule-free column rhythm. */
+.tabulator .tabulator-header .tabulator-col.grid-select-column.tabulator-frozen.tabulator-frozen-left,
+.tabulator .tabulator-row .tabulator-cell.grid-select-column.tabulator-frozen.tabulator-frozen-left {
+  border-right: 0;
+}
+.tabulator.tabulator-rtl .tabulator-row .tabulator-cell.grid-select-column.tabulator-frozen.tabulator-frozen-left {
+  border-left: 0;
+}
+.tabulator .grid-select-column {
+  align-items: center;
+  justify-content: center;
+}
+.tabulator .grid-select-column input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* ---- footer: total rows and the live selection count --------------------- */
 .tabulator > .grid-footer-summary {
   padding: 0;
@@ -170,12 +193,15 @@
   min-height: 3rem;
   padding: .7rem 1rem !important;
   font-size: .82rem;
+  font-family: inherit;
 }
 .grid-footer-stat { display: inline-flex; align-items: baseline; gap: .3rem; }
 .grid-footer-stat[hidden] { display: none; }
 .grid-footer-label { color: var(--table-text); font-weight: 600; }
 .grid-footer-value {
   color: var(--accent-ink);
+  font-family: inherit;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 

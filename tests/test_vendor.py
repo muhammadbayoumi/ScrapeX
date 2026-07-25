@@ -105,8 +105,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-14: the Excel button asks the SERVER for the whole workbook.
     # A cached script would keep calling Tabulator's xlsx writer, which needs a
     # library this project does not vendor, and keep producing nothing.
-    assert '/static/grid.js?v=design-system-14' in page
-    assert '/static/grid-theme.css?v=design-system-12' in page
+    # design-system-15/13: row checkboxes now accumulate selection, the header
+    # checkbox reports partial/all state, and the frozen selection divider is
+    # removed from the shared table frame.
+    assert '/static/grid.js?v=design-system-15' in page
+    assert '/static/grid-theme.css?v=design-system-13' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -148,7 +151,7 @@ def test_status_bar_is_a_real_feature_and_owns_the_row_total():
 
     assert 'data-feature="statusbar"' in page
     assert "statusbar: true" in script
-    assert "footerElement: features.statusbar ? footer : undefined" in script
+    assert "footerElement: (features.statusbar || features.select) ? footer : undefined" in script
     assert 'class="data-grid-count"' not in page
 
 
@@ -189,7 +192,14 @@ def test_row_selection_is_an_explicit_feature_and_zero_is_not_noise():
     assert 'data-feature="select"' in page
     assert "select: true" in script
     assert "selectableRows: !!features.select" in script
+    assert 'selectableRowsRangeMode: "click"' not in script
+    assert "cell.getRow().toggleSelect()" not in script
+    assert 'cssClass: "grid-select-column"' in script
+    assert "(features.statusbar || features.select) ? footer : undefined" in script
     assert "footerSelected.stat.hidden = selected === 0" in script
+    assert ".grid-select-column.tabulator-frozen.tabulator-frozen-left" in css
+    assert '.grid-select-column input[type="checkbox"]' in css
+    assert "font-family: var(--font)" in css
     assert ".grid-footer-stat[hidden]" in css
     assert "note.hidden = details.length === 0" in script
 
