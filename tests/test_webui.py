@@ -42,7 +42,12 @@ def test_overview_summarizes_the_workspace_and_data_uses_one_dropdown(client):
     selected = client.get("/source/ELSEWEDYSHOP").text
 
     assert 'class="overview-page"' in overview
-    assert "Everything at a glance" in overview
+    assert "Your data pipeline" in overview
+    assert "From source to delivery" in overview
+    assert "Needs your attention" in overview
+    assert overview.count("data-overview-stage=") == 5
+    for stage in ("sources", "run", "data", "changes", "deliver"):
+        assert f'data-overview-stage="{stage}"' in overview
     assert 'href="/" title="Overview" aria-current="page"' in overview
     assert "Data rows" in overview
     assert 'data-overview-source="ELSEWEDYSHOP"' in overview
@@ -353,6 +358,7 @@ def test_data_model_is_a_first_class_workspace_destination(client):
     assert "/static/pages/data-model.js" in response.text
 
 
+
 def test_the_database_page_offers_buttons_not_commands(client):
     """The owner hit this page and it ended with "run python -m scrapex.cli
     init-db". He does not use a terminal, so that was a dead end dressed as
@@ -402,3 +408,4 @@ def test_relinking_the_native_host_refuses_a_value_that_is_not_an_extension_id(c
     r = client.post("/api/native-host/register", json={"extension_id": "../../etc/passwd"})
     assert r.status_code == 400
     assert "extension id" in r.json()["detail"]
+

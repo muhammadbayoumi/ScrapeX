@@ -79,7 +79,12 @@ def test_the_status_is_words_not_only_a_colour(tmp_path):
     unhealthy = client.get("/").text
 
     assert "Databases healthy" in healthy and "Databases healthy" not in unhealthy
-    assert "need attention" in unhealthy and "need attention" not in healthy
+    # Anchored on the DATABASE chip's own words. "need attention" alone stopped
+    # being a database sentence the day Overview started counting sources that
+    # need attention — two true statements about different things, and a test
+    # that reads the whole page cannot tell them apart.
+    assert "Databases need attention" in unhealthy
+    assert "Databases need attention" not in healthy
 
 
 def test_one_app_never_reports_another_apps_databases(tmp_path):

@@ -92,7 +92,7 @@ def test_a_fresh_install_shows_every_configured_source(split_client):
     problem, it simply did not exist."""
     body = split_client.get("/").text
 
-    assert "Workspace overview" in body
+    assert "ScrapeX command center" in body
     assert "GPP_ENERGY" in body and "ELSEWEDYSHOP" in body
     assert "Never run" in body, "the status must be stated in words"
 
