@@ -398,7 +398,7 @@ def test_add_source_opens_the_existing_working_form(open_panel):
     assert page.evaluate("() => document.activeElement?.id") == "url"
 
 
-def test_edit_source_opens_that_source_in_the_full_manager(open_panel):
+def test_edit_source_stays_inside_the_extension(open_panel):
     page = open_panel()
     page.evaluate("""() => {
         window.__opened = [];
@@ -407,11 +407,36 @@ def test_edit_source_opens_that_source_in_the_full_manager(open_panel):
     page.click(SOURCES_TAB)
     page.wait_for_timeout(300)
     page.click('[data-edit-source="SHORT"]')
-    page.wait_for_timeout(150)
+    page.wait_for_timeout(220)
 
-    opened = page.evaluate("() => window.__opened")
-    assert len(opened) == 1
-    assert opened[0].endswith("/manage?source_key=SHORT")
+    assert page.is_visible("#view-source-edit")
+    assert text_of(page, "#source-edit-domain") == "a.co"
+    assert text_of(page, "#source-edit-name") == "A"
+    assert text_of(page, "#source-edit-key") == "SHORT"
+    assert page.is_checked("#source-edit-active")
+    assert page.get_attribute(SOURCES_TAB, "aria-current") == "page"
+    assert page.evaluate("() => window.__opened") == []
+
+    page.click("#source-edit-back")
+    page.wait_for_timeout(220)
+    assert page.is_visible("#view-sources")
+    assert page.evaluate(
+        "() => document.activeElement?.dataset.editSource") == "SHORT"
+
+
+def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.uncheck("#source-edit-active")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(250)
+
+    calls = page.evaluate("() => window.__calls")
+    assert any(call.startswith("/api/sources/SHORT/active") for call in calls)
+    assert page.is_visible("#view-source-edit")
+    assert "Changes saved" in text_of(page, "#source-edit-result")
 
 
 def test_sources_scroll_inside_the_library_card_not_the_page(open_panel):

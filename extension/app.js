@@ -40,12 +40,13 @@ async function openTab(path) { chrome.tabs.create({ url: (await getBackend()) + 
 // ---- state ----------------------------------------------------------------
 const state = {
   sources: [], selected: new Set(), filter: "", sourceFilter: "",
+  editingSourceKey: null,
   job: null, jobRef: null, autoscroll: true, logs: [],
   engineUp: false,
 };
 
 // ---- views ----------------------------------------------------------------
-const VIEWS = ["source", "run", "data", "sources", "settings"];
+const VIEWS = ["source", "run", "data", "sources", "source-edit", "settings"];
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
 // stopped. When /api/ui responds, its canonical navigation replaces this copy.
@@ -140,11 +141,13 @@ function closeWorkspaceMenu(returnFocus = false) {
 
 function showView(name, animate = true) {
   const current = VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden"));
+  const navigationName = name === "source-edit" ? "sources" : name;
   closeWorkspaceMenu();
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
-  const activeButton = document.querySelector(`nav.tabs button[data-view="${name}"]`);
+  const activeButton = document.querySelector(
+    `nav.tabs button[data-view="${navigationName}"]`);
   document.querySelectorAll("nav.tabs button[data-view]").forEach((b) => {
-    const selected = b.dataset.view === name;
+    const selected = b.dataset.view === navigationName;
     b.setAttribute("aria-selected", String(selected));
     b.tabIndex = selected ? 0 : -1;
     if (selected) b.setAttribute("aria-current", "page");
@@ -353,8 +356,70 @@ function renderSourceManager() {
   }).join("");
 
   box.querySelectorAll("[data-edit-source]").forEach((button) =>
-    button.addEventListener("click", () =>
-      openTab("/manage?source_key=" + encodeURIComponent(button.dataset.editSource))));
+    button.addEventListener("click", () => openSourceEditor(button.dataset.editSource)));
+}
+
+function renderSourceEditor(source) {
+  state.editingSourceKey = source.source_key;
+  $("source-edit-identity").innerHTML = sourceIdentity(
+    source, false, Number(source.observations || 0).toLocaleString());
+
+  const ready = Boolean(source.implemented);
+  $("source-edit-readiness").innerHTML =
+    `<span class="dot ${ready ? "on" : "off"}" aria-hidden="true"></span>
+     <span>${ready ? "Ready" : "Connector unavailable"}</span>`;
+  $("source-edit-domain").textContent = sourceDomain(source.base_url) || "â€”";
+  $("source-edit-name").textContent = source.source_name || "â€”";
+  $("source-edit-name-en").textContent = source.source_name_en || "â€”";
+  $("source-edit-key").textContent = source.source_key || "â€”";
+  $("source-edit-family").textContent = source.family || "â€”";
+  $("source-edit-url").textContent = source.base_url || "â€”";
+
+  const active = $("source-edit-active");
+  active.checked = Boolean(source.active);
+  active.disabled = !ready;
+  $("source-edit-save").disabled = !ready;
+  $("source-edit-active-help").textContent = ready
+    ? "Manual runs remain available when automation is off."
+    : "Automation cannot be enabled until this connector is available.";
+  out("source-edit-result", "");
+}
+
+function openSourceEditor(sourceKey) {
+  const source = state.sources.find((item) => item.source_key === sourceKey);
+  if (!source) return;
+  renderSourceEditor(source);
+  showView("source-edit");
+  requestAnimationFrame(() => $("source-edit-back").focus({preventScroll: true}));
+}
+
+async function saveSourceEditor() {
+  const source = state.sources.find(
+    (item) => item.source_key === state.editingSourceKey);
+  if (!source) {
+    out("source-edit-result", "This source is no longer available.", "err");
+    return;
+  }
+
+  const button = $("source-edit-save");
+  const wanted = $("source-edit-active").checked;
+  button.disabled = true;
+  out("source-edit-result", "Savingâ€¦", "muted");
+  try {
+    if (wanted !== Boolean(source.active)) {
+      await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",
+                 {active: wanted});
+      source.active = wanted;
+      renderSites();
+      renderSourceManager();
+    }
+    renderSourceEditor(source);
+    out("source-edit-result", `${icon("check", "sm")} Changes saved.`, "ok icon-label");
+  } catch (error) {
+    button.disabled = false;
+    out("source-edit-result", `${icon("close", "sm")} ${esc(error.message)}`,
+        "err icon-label");
+  }
 }
 
 async function loadSources() {
@@ -1294,6 +1359,17 @@ async function init() {
       });
       $("url").focus({preventScroll: true});
     });
+  });
+  $("source-edit-back").addEventListener("click", () => {
+    const sourceKey = state.editingSourceKey;
+    showView("sources");
+    requestAnimationFrame(() =>
+      document.querySelector(`[data-edit-source="${CSS.escape(sourceKey || "")}"]`)
+        ?.focus({preventScroll: true}));
+  });
+  $("source-edit-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await saveSourceEditor();
   });
   $("select-all").addEventListener("click", () => {
     // What is VISIBLE, not what exists: with a search term typed, taking the

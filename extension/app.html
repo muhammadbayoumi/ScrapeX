@@ -449,6 +449,68 @@
       </section>
     </section>
 
+    <!-- ======================= EDIT SOURCE ======================== -->
+    <section id="view-source-edit" class="hidden" aria-labelledby="source-edit-title"
+             tabindex="0">
+      <header class="source-edit-heading">
+        <button id="source-edit-back" type="button" class="ghost source-edit-back"
+                aria-label="Back to sources" title="Back to sources">
+          <svg class="sx-icon" aria-hidden="true">
+            <use href="icons/material-icons.svg#arrow-back"></use>
+          </svg>
+        </button>
+        <div class="view-heading">
+          <h1 id="source-edit-title">Edit source</h1>
+          <p>Review the source identity and update its extension settings.</p>
+        </div>
+      </header>
+
+      <section class="card source-edit-summary" aria-labelledby="source-edit-summary-heading">
+        <h2 id="source-edit-summary-heading" class="visually-hidden">Selected source</h2>
+        <div id="source-edit-identity"></div>
+        <div id="source-edit-readiness" class="source-edit-readiness"></div>
+      </section>
+
+      <section class="card" aria-labelledby="source-edit-details-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="source-edit-details-heading">Source details</h2>
+            <p>The registered identity used across every dataset and job.</p>
+          </div>
+        </div>
+        <dl class="source-edit-facts">
+          <div><dt>Domain</dt><dd id="source-edit-domain"></dd></div>
+          <div><dt>Display name</dt><dd id="source-edit-name" dir="auto"></dd></div>
+          <div><dt>English name</dt><dd id="source-edit-name-en" dir="auto"></dd></div>
+          <div><dt>Source key</dt><dd><code id="source-edit-key"></code></dd></div>
+          <div><dt>Connector</dt><dd><code id="source-edit-family"></code></dd></div>
+          <div><dt>Base URL</dt><dd id="source-edit-url" class="tech"></dd></div>
+        </dl>
+      </section>
+
+      <form id="source-edit-form" class="card source-edit-form">
+        <div class="section-head">
+          <div>
+            <h2>Automation</h2>
+            <p>Allow scheduled runs for this source.</p>
+          </div>
+        </div>
+        <label class="source-edit-switch" for="source-edit-active">
+          <span>
+            <strong>Automatic runs</strong>
+            <small id="source-edit-active-help">
+              Manual runs remain available when automation is off.
+            </small>
+          </span>
+          <input id="source-edit-active" type="checkbox">
+        </label>
+        <div class="source-edit-actions">
+          <button id="source-edit-save" type="submit">Save changes</button>
+          <span id="source-edit-result" class="hint" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </section>
+
     <!-- ========================== SETTINGS ========================== -->
     <section id="view-settings" class="hidden" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
       <header class="view-heading">

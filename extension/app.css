@@ -80,7 +80,7 @@
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-data, #view-sources, #view-settings {
+  #view-run, #view-data, #view-sources, #view-source-edit, #view-settings {
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
@@ -260,6 +260,98 @@
     color: var(--muted);
     text-align: center;
   }
+  .source-edit-heading {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: flex-start;
+    gap: var(--sp-3);
+  }
+  .source-edit-back {
+    display: grid;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    place-items: center;
+  }
+  .source-edit-summary {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-3);
+  }
+  .source-edit-summary .source-identity { flex: 1; }
+  .source-edit-readiness {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--sp-1);
+    color: var(--muted);
+    font-size: var(--fs-xs);
+  }
+  .source-edit-readiness .dot { width: .45rem; height: .45rem; }
+  .source-edit-facts {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+  }
+  .source-edit-facts > div {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, .72fr) minmax(0, 1.5fr);
+    gap: var(--sp-3);
+    padding-block: var(--sp-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .source-edit-facts > div:first-child { padding-top: 0; }
+  .source-edit-facts > div:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+  .source-edit-facts dt {
+    color: var(--muted);
+    font-size: var(--fs-xs);
+  }
+  .source-edit-facts dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: var(--fs-sm);
+  }
+  .source-edit-form { display: flex; flex-direction: column; }
+  .source-edit-switch {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    padding: var(--sp-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    cursor: pointer;
+  }
+  .source-edit-switch > span {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .source-edit-switch strong { font-size: var(--fs-sm); }
+  .source-edit-switch small {
+    color: var(--muted);
+    font-size: var(--fs-xs);
+  }
+  .source-edit-switch input {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex: none;
+  }
+  .source-edit-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    margin-top: var(--sp-3);
+    padding-top: var(--sp-3);
+    border-top: 1px solid var(--line);
+  }
+  .source-edit-actions .hint { margin: 0; }
   .engine-runtime { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-3);
                     padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line); }
   .engine-runtime-status { display: flex; align-items: center; gap: var(--sp-2);
@@ -269,6 +361,10 @@
     .data-view-heading > button, .source-manager-heading > button { width: 100%; }
     .source-manager-card { grid-template-columns: minmax(0, 1fr); }
     .source-manager-edit { width: 100%; justify-content: center; }
+    .source-edit-summary { flex-direction: column; }
+    .source-edit-facts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .source-edit-actions { align-items: stretch; flex-direction: column; }
+    .source-edit-actions button { width: 100%; }
   }
   .output-groups { display: flex; flex-direction: column; gap: var(--sp-4); }
   .output-group + .output-group { border-top: 1px solid var(--line); padding-top: var(--sp-4); }
