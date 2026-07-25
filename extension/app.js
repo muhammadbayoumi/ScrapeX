@@ -682,7 +682,7 @@ async function loadOutputs() {
       </section>
       <section class="output-group" aria-labelledby="sync-output-heading">
         <div class="output-group-head">
-          <h3 id="sync-output-heading">Sync services</h3>
+          <h3 id="sync-output-heading">Synchronization services</h3>
           <p>Optional destinations that send data outside the local workspace.</p>
         </div>
         <div>${renderRows(sync)}</div>

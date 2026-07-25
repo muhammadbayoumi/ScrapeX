@@ -1,217 +1,428 @@
 {% extends "base.html" %}
-{% block title %}Sync — ScrapeX{% endblock %}
+{% from "_icons.html" import icon %}
+{% block title %}Google Sheets Synchronization — ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/sync.css">
+{% endblock %}
 {% block content %}
-<header class="page-header">
-  <div class="page-heading">
-    <span class="page-eyebrow">Outputs</span>
-    <h1 class="page-title">Sync to Google Sheets</h1>
-    <p class="page-description">Use Apps Script to push batches or connect Drive
-      to write directly. Each route is configured independently.</p>
-  </div>
-</header>
-
-<!-- ==================== Apps Script funnel (spec 22) ==================== -->
-<h2>Apps Script funnel</h2>
-{% with label=funnel.label, ready=funnel.ready, blocker=funnel.blocker %}
-  {% include "_destination.html" %}
-{% endwith %}
-
-<div class="steps">
-  <div class="step">
-    <span class="step-n" aria-hidden="true">1</span>
-    <div class="step-body">
-      <h3>Copy the script into your spreadsheet</h3>
-      <p class="hint">In the sheet: Extensions → Apps Script, replace the file contents,
-        then Project Settings → Script Properties → add <code>FUNNEL_TOKEN</code> (step 2
-        generates it). Deploy → New deployment → Web app, <strong>Execute as: Me</strong>,
-        <strong>Who has access: Anyone</strong> — ScrapeX posts without a Google sign-in,
-        so any narrower access answers the login page instead of the funnel.</p>
-      <div class="row">
-        <button id="copy-script">Copy script</button>
-        <button id="show-script" class="ghost" aria-expanded="false"
-                aria-controls="script-box">Show script</button>
-        <span id="copy-out" class="hint" role="status" aria-live="polite"></span>
-      </div>
-      <pre id="script-box" class="script" hidden></pre>
+<div class="sync-page">
+  <header class="sync-hero">
+    <div class="sync-hero-copy">
+      <span class="page-eyebrow">Outputs · Google Sheets</span>
+      <h1 class="page-title">Google Sheets Synchronization</h1>
+      <p class="page-description">Keep collected data available in Google Sheets
+        through a secure Apps Script endpoint or a direct Google Drive connection.
+        Configure and run each route independently.</p>
+      <nav class="sync-hero-actions" aria-label="Synchronization methods">
+        <a class="button icon-label" href="#apps-script">
+          {{ icon("sync", "sm") }} Set up Apps Script
+        </a>
+        <a class="button ghost icon-label" href="#google-drive">
+          {{ icon("insert-drive-file", "sm") }} Set up Google Drive
+        </a>
+      </nav>
     </div>
-  </div>
-  <div class="step">
-    <span class="step-n" aria-hidden="true">2</span>
-    <div class="step-body">
-      <h3>Save the deployment URL and a shared token</h3>
-      <form id="funnel-form" class="stack" onsubmit="return false">
+
+    <div class="sync-overview" aria-label="Connection overview">
+      <a class="sync-overview-card" href="#apps-script">
+        <span class="sync-overview-icon">{{ icon("sync") }}</span>
+        <span class="sync-overview-copy">
+          <small>Apps Script</small>
+          <strong>{{ "Ready to send" if funnel.ready else "Setup required" }}</strong>
+        </span>
+        <span class="badge {{ 'ok' if funnel.ready else 'off' }}">
+          {{ "Ready" if funnel.ready else "Needs setup" }}
+        </span>
+      </a>
+      <a class="sync-overview-card" href="#google-drive">
+        <span class="sync-overview-icon">{{ icon("insert-drive-file") }}</span>
+        <span class="sync-overview-copy">
+          <small>Google Drive</small>
+          <strong>{{ "Connected" if google.connected else "Not connected" }}</strong>
+        </span>
+        <span class="badge {{ 'ok' if google.ready else 'off' }}">
+          {{ "Ready" if google.ready else "Needs setup" }}
+        </span>
+      </a>
+    </div>
+  </header>
+
+  <nav class="sync-section-nav" aria-label="On this page">
+    <span>On this page</span>
+    <a href="#apps-script">Apps Script</a>
+    <a href="#google-drive">Google Drive</a>
+  </nav>
+
+  <!-- ==================== Apps Script funnel (spec 22) ==================== -->
+  <section class="sync-route" id="apps-script" aria-labelledby="apps-script-title">
+    <header class="sync-route-header">
+      <span class="sync-route-icon">{{ icon("sync") }}</span>
+      <div class="sync-route-heading">
+        <span class="page-eyebrow">Method 1 · Web app endpoint</span>
+        <h2 id="apps-script-title">Apps Script synchronization</h2>
+        <p>Send data to a spreadsheet without signing ScrapeX in to a Google account.</p>
+      </div>
+      <span class="badge sync-route-badge {{ 'ok' if funnel.ready else 'off' }}">
+        {{ "Ready to send" if funnel.ready else "Setup required" }}
+      </span>
+    </header>
+
+    {% if funnel.blocker %}
+      <div class="sync-blocker" role="status">
+        {{ icon("info") }}
+        <div>
+          <strong>Finish setup to start sending</strong>
+          <p>{{ funnel.blocker }}</p>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="sync-method-note">
+      {{ icon("security") }}
+      <div>
+        <strong>Designed for reliable batch delivery</strong>
+        <p>Shared-token authentication, a durable outbox, and adaptive batch retries
+          protect long sends from temporary failures.</p>
+      </div>
+    </div>
+
+    <ol class="sync-steps" aria-label="Apps Script setup">
+      <li class="sync-step">
+        <span class="sync-step-number" aria-hidden="true">1</span>
+        <div class="sync-step-content">
+          <header class="sync-step-header">
+            <div>
+              <span class="sync-step-kicker">Add the receiver</span>
+              <h3>Copy the script into your spreadsheet</h3>
+            </div>
+            <span class="sync-step-state">One-time setup</span>
+          </header>
+          <p>Open <strong>Extensions → Apps Script</strong> in the spreadsheet,
+            replace the file contents, then deploy it as a web app.</p>
+          <div class="sync-instruction">
+            <strong>Deployment access</strong>
+            <span>Execute as <b>Me</b> and set access to <b>Anyone</b>. The shared
+              token added in the next step protects requests from ScrapeX.</span>
+          </div>
+          <div class="sync-actions">
+            <button id="copy-script">Copy script</button>
+            <button id="show-script" class="ghost" aria-expanded="false"
+                    aria-controls="script-box">Show script</button>
+            <span id="copy-out" class="hint" role="status" aria-live="polite"></span>
+          </div>
+          <pre id="script-box" class="script" hidden></pre>
+        </div>
+      </li>
+
+      <li class="sync-step">
+        <span class="sync-step-number" aria-hidden="true">2</span>
+        <div class="sync-step-content">
+          <header class="sync-step-header">
+            <div>
+              <span class="sync-step-kicker">Secure the connection</span>
+              <h3>Save the deployment URL and shared token</h3>
+            </div>
+            <span class="sync-step-state">Stored locally</span>
+          </header>
+          <form id="funnel-form" class="sync-form" onsubmit="return false">
+            <div class="sync-form-grid">
+              <div class="field">
+                <label for="funnel_url">Deployment URL</label>
+                <input id="funnel_url" name="funnel_url" dir="ltr" spellcheck="false"
+                       value="{{ settings.funnel_url.value }}"
+                       placeholder="https://script.google.com/macros/s/.../exec">
+                {% if funnel.url_source == "environment" %}
+                  <span class="hint">Currently provided by
+                    <code>{{ settings.funnel_url.env }}</code>. Saving a value here
+                    overrides it.</span>
+                {% else %}
+                  <span class="hint">Paste the web app URL created in step 1.</span>
+                {% endif %}
+              </div>
+              <div class="field">
+                <label for="funnel_token">Shared token</label>
+                <input id="funnel_token" name="funnel_token" type="password" dir="ltr"
+                       autocomplete="off" spellcheck="false"
+                       placeholder="{{ 'Saved (' ~ funnel.token_hint ~ ') — type to replace' if funnel.token_is_set else 'Paste or generate a token' }}">
+                <span class="hint">Stored on this machine and never shown again
+                  {% if funnel.token_source == "environment" %}
+                    · provided by <code>{{ settings.funnel_token.env }}</code>
+                  {% endif %}</span>
+              </div>
+            </div>
+            <div class="sync-actions">
+              <button id="save-funnel">Save connection</button>
+              <button id="gen-token" class="ghost">Generate token</button>
+              <button id="revoke-token" class="ghost">Revoke token</button>
+              <span id="funnel-out" class="hint" role="status" aria-live="polite"></span>
+            </div>
+            <p id="token-reveal" class="sync-token-reveal" role="status" hidden></p>
+          </form>
+        </div>
+      </li>
+
+      <li class="sync-step">
+        <span class="sync-step-number" aria-hidden="true">3</span>
+        <div class="sync-step-content">
+          <header class="sync-step-header">
+            <div>
+              <span class="sync-step-kicker">Verify delivery</span>
+              <h3>Test the connection</h3>
+            </div>
+            <span class="sync-step-state">Recommended</span>
+          </header>
+          <p>Sends one <code>FUNNEL_SELFTEST</code> row so you can confirm that
+            the spreadsheet receives data before a full synchronization.</p>
+          <div class="sync-actions">
+            <button id="test-funnel" {{ "disabled" if not funnel.ready }}>Send a test row</button>
+            <span id="test-out" class="hint" role="status" aria-live="polite"></span>
+          </div>
+        </div>
+      </li>
+    </ol>
+
+    <div class="sync-run-panel">
+      <div class="sync-run-copy">
+        <span class="page-eyebrow">Run synchronization</span>
+        <h3>Send one source through Apps Script</h3>
+        <p>Choose a collected source. Large sends are split automatically and
+          incomplete batches remain available for retry.</p>
+      </div>
+      {% if not sources %}
+        <div class="empty sync-empty">No source has data yet. Collect a source first,
+          then return here to synchronize it.</div>
+      {% else %}
+        <form id="funnel-pick" class="sync-run-form" onsubmit="return false">
+          <div class="field">
+            <label for="funnel-src">Source to send</label>
+            <select id="funnel-src">
+              {% for s in sources %}
+                {# A native <option> cannot be styled, so bidi is controlled with
+                   isolate characters instead. #}
+                <option value="{{ s.source_key }}" {{ "selected" if s.source_key == source_key }}>
+                  &#x2068;{{ s.source_name }}&#x2069; — {{ "{:,}".format(s.observations) }} observations</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="sync-actions">
+            <button id="send-funnel" {{ "disabled" if not funnel.ready }}>Send now</button>
+            <span id="send-out" class="hint" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+
+    <details class="sync-details">
+      <summary>
+        <span>{{ icon("security", "sm") }} Delivery safeguards and technical limits</span>
+        {{ icon("expand-more", "sm") }}
+      </summary>
+      <dl class="sync-detail-list">
+        <div>
+          <dt>Batch size</dt>
+          <dd>{{ "{:,}".format(funnel.max_rows) }} rows is the comfortable size for
+            one send. A larger source is still sent: chunks that Apps Script chokes
+            on are halved and resent, and the batch stays in the outbox until every
+            piece is acknowledged.</dd>
+        </div>
+        <div>
+          <dt>Undelivered batches</dt>
+          <dd><strong class="num">{{ funnel.outbox_pending }}</strong> of
+            {{ funnel.outbox_threshold }} before an alarm.
+            {% if funnel.outbox_pending %}
+              Kept in <code>{{ funnel.outbox_dir }}</code> and retried on the next
+              send—nothing is lost when a delivery fails.
+            {% endif %}</dd>
+        </div>
+        <div>
+          <dt>Transport</dt>
+          <dd>{{ funnel.limits }}</dd>
+        </div>
+      </dl>
+    </details>
+
+    <section class="sync-activity" aria-labelledby="funnel-activity-title">
+      <header>
+        <div>
+          <span class="page-eyebrow">Activity</span>
+          <h3 id="funnel-activity-title">Last Apps Script synchronization</h3>
+        </div>
+        {% if funnel.last %}
+          <span class="badge {{ 'ok' if funnel.last.ok else 'off' }}">
+            {{ "Succeeded" if funnel.last.ok else "Failed" }}
+          </span>
+        {% endif %}
+      </header>
+      {% if funnel.last %}
+        <dl class="sync-activity-grid">
+          <div><dt>When</dt><dd class="num">{{ funnel.last.at }}</dd></div>
+          <div class="sync-activity-wide"><dt>Details</dt><dd>{{ funnel.last.detail }}</dd></div>
+        </dl>
+      {% else %}
+        <div class="empty sync-empty">No Apps Script synchronization has run yet.</div>
+      {% endif %}
+    </section>
+  </section>
+
+  <!-- ==================== Google Drive and Sheets (spec 23) ==================== -->
+  <section class="sync-route" id="google-drive" aria-labelledby="google-drive-title">
+    <header class="sync-route-header">
+      <span class="sync-route-icon">{{ icon("insert-drive-file") }}</span>
+      <div class="sync-route-heading">
+        <span class="page-eyebrow">Method 2 · Direct connection</span>
+        <h2 id="google-drive-title">Google Drive synchronization</h2>
+        <p>Sign in once, choose the destination, and write source tabs directly
+          into a spreadsheet managed by ScrapeX.</p>
+      </div>
+      <span class="badge sync-route-badge {{ 'ok' if google.ready else 'off' }}">
+        {{ "Ready to push" if google.ready else "Setup required" }}
+      </span>
+    </header>
+
+    {% if google.blocker %}
+      <div class="sync-blocker" role="status">
+        {{ icon("info") }}
+        <div>
+          <strong>Finish setup to connect Google Drive</strong>
+          <p>{{ google.blocker }}</p>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="sync-google-layout">
+      <aside class="sync-account-card" aria-labelledby="google-account-title">
+        <span class="sync-account-icon">{{ icon("security") }}</span>
+        <span class="page-eyebrow">Google account</span>
+        <h3 id="google-account-title">
+          {{ google.account if google.account else ("Connected securely" if google.connected else "Not connected") }}
+        </h3>
+        <p>{{ google.account_note }}</p>
+        <dl class="sync-account-meta">
+          <div>
+            <dt>Connection</dt>
+            <dd><span class="badge {{ 'ok' if google.connected else 'off' }}">
+              {{ "Signed in" if google.connected else "Sign-in required" }}
+            </span></dd>
+          </div>
+          <div>
+            <dt>Access</dt>
+            <dd>Files created by ScrapeX only</dd>
+          </div>
+        </dl>
+        <details class="sync-account-details">
+          <summary>View permissions and local sign-in details</summary>
+          <div>
+            <strong>Access requested</strong>
+            {% for scope in google.scopes %}<code>{{ scope }}</code>{% endfor %}
+            <strong>Sign-in stored at</strong>
+            <code>{{ google.token_path }}</code>
+          </div>
+        </details>
+      </aside>
+
+      <form id="google-form" class="sync-google-form" onsubmit="return false">
+        <div>
+          <span class="page-eyebrow">Destination</span>
+          <h3>Choose where synchronized data is stored</h3>
+          <p class="hint">ScrapeX creates the folder and spreadsheet if they do
+            not already exist.</p>
+        </div>
         <div class="field">
-          <label for="funnel_url">Deployment URL</label>
-          <input id="funnel_url" name="funnel_url" dir="ltr" spellcheck="false"
-                 value="{{ settings.funnel_url.value }}"
-                 placeholder="https://script.google.com/macros/s/.../exec">
-          {% if funnel.url_source == "environment" %}
-            <span class="hint">Currently coming from the environment variable
-              <code>{{ settings.funnel_url.env }}</code>. Saving a value here overrides it.</span>
+          <label for="google_folder">Drive folder</label>
+          <input id="google_folder" value="{{ settings.google_folder.value }}" dir="auto">
+          <span class="hint">ScrapeX can only see folders and files it created itself.</span>
+        </div>
+        <div class="field">
+          <label for="google_workbook">Spreadsheet name</label>
+          <input id="google_workbook" value="{{ settings.google_workbook.value }}" dir="auto">
+          <span class="hint">One spreadsheet with one tab per source—the same
+            arrangement as the Excel workbook.</span>
+        </div>
+        <div class="sync-actions">
+          <button id="save-google">Save destination</button>
+          {% if google.connected %}
+            <button id="disconnect" class="ghost">Disconnect</button>
+          {% else %}
+            <button id="connect">Continue with Google</button>
           {% endif %}
+          <span id="google-out" class="hint" role="status" aria-live="polite"></span>
         </div>
-        <div class="field">
-          <label for="funnel_token">Shared token</label>
-          <input id="funnel_token" name="funnel_token" type="password" dir="ltr"
-                 autocomplete="off" spellcheck="false"
-                 placeholder="{{ 'Saved (' ~ funnel.token_hint ~ ') — type to replace' if funnel.token_is_set else 'Paste or generate a token' }}">
-          <span class="hint">The token is stored on this machine and never shown again —
-            only its last four characters.
-            {% if funnel.token_source == "environment" %}
-              It currently comes from <code>{{ settings.funnel_token.env }}</code>.
-            {% endif %}</span>
-        </div>
-        <div class="row">
-          <button id="save-funnel">Save</button>
-          <button id="gen-token" class="ghost">Generate a new token</button>
-          <button id="revoke-token" class="ghost">Revoke</button>
-          <span id="funnel-out" class="hint" role="status" aria-live="polite"></span>
-        </div>
-        <p id="token-reveal" class="hint" hidden></p>
+        {% if google.connected %}
+          <p class="sync-safe-note">{{ icon("check", "sm") }}
+            Disconnecting removes only the sign-in saved on this machine. Your
+            Drive files, folders, and spreadsheets remain unchanged.</p>
+        {% endif %}
       </form>
     </div>
-  </div>
-  <div class="step">
-    <span class="step-n" aria-hidden="true">3</span>
-    <div class="step-body">
-      <h3>Test the connection</h3>
-      <p class="hint">Sends a single <code>FUNNEL_SELFTEST</code> row so you can confirm
-        the sheet receives it before pushing real data.</p>
-      <div class="row">
-        <button id="test-funnel" {{ "disabled" if not funnel.ready }}>Send a test row</button>
-        <span id="test-out" class="hint" role="status" aria-live="polite"></span>
+
+    <div class="sync-run-panel sync-drive-run">
+      <div class="sync-run-copy">
+        <span class="page-eyebrow">Run synchronization</span>
+        <h3>Push selected sources to Google Drive</h3>
+        <p>Each selected source becomes its own spreadsheet tab. Choose one or
+          several sources for this run.</p>
       </div>
+      {% if not sources %}
+        <div class="empty sync-empty">No source has data yet. Collect a source first,
+          then return here to synchronize it.</div>
+      {% else %}
+        <form id="google-pick" class="sync-source-form" onsubmit="return false">
+          <fieldset class="sync-source-list">
+            <legend class="visually-hidden">Sources to synchronize</legend>
+            {% for s in sources %}
+              <label class="sync-source-row">
+                <input type="checkbox" name="gsrc" value="{{ s.source_key }}"
+                       {{ "checked" if source_key and s.source_key == source_key }}>
+                <span class="sync-source-copy">
+                  <strong dir="auto">{{ s.source_name }}</strong>
+                  <small>{{ s.source_key.replace("_", " ") }}</small>
+                </span>
+                <span class="sync-source-count">
+                  <strong>{{ "{:,}".format(s.observations) }}</strong>
+                  <small>observations</small>
+                </span>
+              </label>
+            {% endfor %}
+          </fieldset>
+          <div class="sync-actions">
+            <button id="push" {{ "disabled" if not google.ready }}>Push to Drive</button>
+            <span id="push-out" class="hint" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      {% endif %}
     </div>
-  </div>
+
+    <section class="sync-activity" aria-labelledby="google-activity-title">
+      <header>
+        <div>
+          <span class="page-eyebrow">Activity</span>
+          <h3 id="google-activity-title">Last Google Drive synchronization</h3>
+        </div>
+        {% if google.last %}
+          <span class="badge {{ 'ok' if google.last.ok else 'off' }}">
+            {{ "Succeeded" if google.last.ok else "Failed" }}
+          </span>
+        {% endif %}
+      </header>
+      {% if google.last %}
+        <dl class="sync-activity-grid">
+          <div><dt>When</dt><dd class="num">{{ google.last.at }}</dd></div>
+          <div class="sync-activity-wide"><dt>Details</dt><dd>{{ google.last.detail }}</dd></div>
+          {% if google.last.location %}
+            <div class="sync-activity-wide">
+              <dt>Spreadsheet</dt>
+              <dd><a class="icon-label" href="{{ google.last.location }}"
+                     rel="noopener noreferrer" target="_blank" dir="ltr">
+                Open spreadsheet {{ icon("open-in-new", "sm") }}</a></dd>
+            </div>
+          {% endif %}
+        </dl>
+      {% else %}
+        <div class="empty sync-empty">No Google Drive synchronization has run yet.</div>
+      {% endif %}
+    </section>
+  </section>
 </div>
-
-<h2>Send a source through the funnel</h2>
-{% if not sources %}
-  <div class="empty">No source has data yet.</div>
-{% else %}
-  <form id="funnel-pick" class="stack" onsubmit="return false">
-    <div class="field">
-      <label for="funnel-src">Source</label>
-      <select id="funnel-src">
-        {% for s in sources %}
-          {# A native <option> cannot be styled, so bidi is controlled with
-             isolate characters instead: without them an Arabic name reorders the
-             English count around it and the line reads "2 — <name> observations". #}
-          <option value="{{ s.source_key }}" {{ "selected" if s.source_key == source_key }}>
-            &#x2068;{{ s.source_name }}&#x2069; — {{ "{:,}".format(s.observations) }} observations</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="row">
-      <button id="send-funnel" {{ "disabled" if not funnel.ready }}>Send now</button>
-      <span id="send-out" class="hint" role="status" aria-live="polite"></span>
-    </div>
-  </form>
-{% endif %}
-
-<table>
-  <tr><th>Batch size</th><td>{{ "{:,}".format(funnel.max_rows) }} rows is the comfortable
-      size for one send. A larger source is still sent: chunks that Apps Script chokes on
-      are halved and resent, and the batch stays in the outbox until every piece is acked.</td></tr>
-  <tr><th>Undelivered batches</th>
-      <td class="num">{{ funnel.outbox_pending }}
-        <span class="muted">of {{ funnel.outbox_threshold }} before an alarm</span>
-        {% if funnel.outbox_pending %}
-          <div class="muted small">Kept in <code>{{ funnel.outbox_dir }}</code> and retried on
-            the next send — nothing is lost when a delivery fails.</div>
-        {% endif %}</td></tr>
-  <tr><th>Transport</th><td>{{ funnel.limits }}</td></tr>
-</table>
-
-{% if funnel.last %}
-  <h3>Last funnel activity</h3>
-  <table>
-    <tr><th>Result</th><td><span class="badge {{ 'ok' if funnel.last.ok else 'off' }}">
-      {{ "Succeeded" if funnel.last.ok else "Failed" }}</span></td></tr>
-    <tr><th>When</th><td class="num">{{ funnel.last.at }}</td></tr>
-    <tr><th>Details</th><td>{{ funnel.last.detail }}</td></tr>
-  </table>
-{% endif %}
-
-<!-- ==================== Google Drive and Sheets (spec 23) ==================== -->
-<h2>Google Drive and Sheets</h2>
-{% with label=google.label, ready=google.ready, blocker=google.blocker %}
-  {% include "_destination.html" %}
-{% endwith %}
-
-<table>
-  <tr><th>Access requested</th>
-      <td>{% for scope in google.scopes %}<div>{{ scope }}</div>{% endfor %}</td></tr>
-  <tr><th>Signed-in account</th><td>{{ google.account or "—" }}
-      <div class="muted small">{{ google.account_note }}</div></td></tr>
-  <tr><th>Sign-in stored at</th><td><code>{{ google.token_path }}</code></td></tr>
-</table>
-
-<form id="google-form" class="stack" onsubmit="return false">
-  <div class="field">
-    <label for="google_folder">Drive folder</label>
-    <input id="google_folder" value="{{ settings.google_folder.value }}" dir="auto">
-    <span class="hint">Created if it does not exist. ScrapeX can only see folders and
-      files it created itself.</span>
-  </div>
-  <div class="field">
-    <label for="google_workbook">Spreadsheet name</label>
-    <input id="google_workbook" value="{{ settings.google_workbook.value }}" dir="auto">
-    <span class="hint">One spreadsheet, one tab per source — the same arrangement as
-      the Excel workbook.</span>
-  </div>
-  <div class="row">
-    <button id="save-google">Save</button>
-    {% if google.connected %}
-      <button id="disconnect" class="ghost">Disconnect</button>
-    {% else %}
-      <button id="connect">Continue with Google</button>
-    {% endif %}
-    <span id="google-out" class="hint" role="status" aria-live="polite"></span>
-  </div>
-  {% if google.connected %}
-    <p class="hint">Disconnecting removes only ScrapeX's saved sign-in from this machine.
-      Your Drive files, folders and spreadsheets are left exactly as they are.</p>
-  {% endif %}
-</form>
-
-<h3>Push a source to Drive</h3>
-{% if not sources %}
-  <div class="empty">No source has data yet.</div>
-{% else %}
-  <form id="google-pick" class="stack" onsubmit="return false">
-    <fieldset class="picklist">
-      <legend class="hint">Each source becomes one tab</legend>
-      {% for s in sources %}
-        <label class="pickrow">
-          <input type="checkbox" name="gsrc" value="{{ s.source_key }}"
-                 {{ "checked" if source_key and s.source_key == source_key }}>
-          <span class="pickname">{{ s.source_name }}</span>
-          <span class="num muted">{{ "{:,}".format(s.observations) }} observations</span>
-        </label>
-      {% endfor %}
-    </fieldset>
-    <div class="row">
-      <button id="push" {{ "disabled" if not google.ready }}>Push to Drive</button>
-      <span id="push-out" class="hint" role="status" aria-live="polite"></span>
-    </div>
-  </form>
-{% endif %}
-
-{% if google.last %}
-  <h3>Last Drive activity</h3>
-  <table>
-    <tr><th>Result</th><td><span class="badge {{ 'ok' if google.last.ok else 'off' }}">
-      {{ "Succeeded" if google.last.ok else "Failed" }}</span></td></tr>
-    <tr><th>When</th><td class="num">{{ google.last.at }}</td></tr>
-    <tr><th>Details</th><td>{{ google.last.detail }}</td></tr>
-    {% if google.last.location %}
-      <tr><th>Spreadsheet</th>
-          <td><a href="{{ google.last.location }}" rel="noopener noreferrer" target="_blank"
-                 dir="ltr">{{ google.last.location }}</a></td></tr>
-    {% endif %}
-  </table>
-{% endif %}
 
 <script>
 const $ = (id) => document.getElementById(id);

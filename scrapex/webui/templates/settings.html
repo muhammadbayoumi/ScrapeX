@@ -236,7 +236,7 @@
     {% with label=funnel.label, ready=funnel.ready, blocker=funnel.blocker %}
       {% include "_destination.html" %}
     {% endwith %}
-    <p class="hint"><a class="link" href="/sync">open Sync</a></p>
+    <p class="hint"><a class="link" href="/sync">open Google Sheets Synchronization</a></p>
   </div>
 </details>
 
@@ -248,7 +248,7 @@
       {% include "_destination.html" %}
     {% endwith %}
     <p class="hint">{{ google.account_note }}
-      <a class="link" href="/sync">open Sync</a></p>
+      <a class="link" href="/sync">open Google Sheets Synchronization</a></p>
   </div>
 </details>
 
@@ -329,7 +329,8 @@
             connector-drift repair; an over-the-air updater. Each is named where it
             would appear rather than hidden behind a control that does nothing.
             (Apps Script request signing and adaptive batching left this list once
-            they were built — the Sync tab states exactly what they now do.)</td></tr>
+            they were built — the Google Sheets Synchronization page states
+            exactly what they now do.)</td></tr>
     </table>
   </div>
 </details>

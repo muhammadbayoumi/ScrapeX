@@ -256,7 +256,7 @@ def test_data_output_is_grouped_under_settings_not_run_or_data(open_panel):
     page.wait_for_timeout(300)
     assert page.is_visible("#s-output")
     assert "Local storage" in page.text_content("#outputs")
-    assert "Sync services" in page.text_content("#outputs")
+    assert "Synchronization services" in page.text_content("#outputs")
 
 
 def test_dataset_action_opens_the_workspace_directly(open_panel):
