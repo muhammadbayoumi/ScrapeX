@@ -1189,9 +1189,22 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     # the registered-VISIBLE list instead silently suppressed every column
     # added after a source's view was first seeded.)
     hidden = fields.hidden_columns(conn, source_key)
+    # OWNER'S CONVENTION (2026-07-25): where a source publishes both
+    # languages, the UNMARKED column is the English one — «العمود record يعرض
+    # اللغة الانجليزية اما record ar يعرض العربية» — and the Arabic one wears
+    # the (AR) marker. Applied from the pair table, so it holds for the name,
+    # the category and every level at once, and a monolingual source keeps its
+    # plain heading (calling its only Record column "(AR)" would be a claim
+    # about a language nobody stated).
+    labels = dict(BROWSE_COLUMNS)
+    for arabic, english in BILINGUAL_COLUMNS.items():
+        if arabic in present and english in present:
+            labels[english] = labels[arabic]
+            labels[arabic] = f"{labels[arabic]} (AR)"
+
     return {
         "source_key": source_key,
-        "columns": [{"key": key, "label": label} for key, label in BROWSE_COLUMNS
+        "columns": [{"key": key, "label": labels[key]} for key, label in BROWSE_COLUMNS
                     if key in present and key not in hidden],
         "rows": shaped,
         "tax_states": tax_states,

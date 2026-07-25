@@ -935,11 +935,30 @@
         // with nothing to open is plain words: same colour family for the
         // unverified state, but no underline, because underline means "press
         // me" on this page and nothing may wear it idly (owner rule).
+        // WHERE the link goes (owner's report 2026-07-25: "the link showing
+        // excl. 14% is fixed, and each product surely has its own"). The rule
+        // is per region, but the PROOF is per product: sika's 14% appears when
+        // you open THIS item's page and put it in the cart, so a single
+        // shop-wide cart URL on 87 rows sends the owner to a page that says
+        // nothing about the row they clicked. The row's own product page wins;
+        // the rule's published statement is the fallback for a source whose
+        // evidence really is one page (a fuel authority's tax notice), and the
+        // tooltip always names which of the two you are about to open.
+        const rowData = cell.getRow().getData();
+        const candidates = [[rowData.product_url, "this product's own page"],
+                            [state.tax_statement_url, "the source's own statement"]];
         let safe = "";
-        try {
-          const parsed = new URL(state.tax_statement_url || "");
-          if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
-        } catch (err) { /* no statement to open */ }
+        let what = "";
+        for (const [candidate, describes] of candidates) {
+          try {
+            const parsed = new URL(candidate || "");
+            if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+              safe = parsed.href;
+              what = describes;
+              break;
+            }
+          } catch (err) { /* try the next one */ }
+        }
         if (safe) {
           const link = document.createElement("a");
           link.className = "grid-action";
@@ -947,7 +966,7 @@
           link.target = "_blank";
           link.rel = "noopener noreferrer";
           link.textContent = state.tax_short || "—";
-          link.title = (state.tax_label || "") + " — open the source's own statement";
+          link.title = (state.tax_label || "") + " — open " + what;
           return link;
         }
         const span = document.createElement("span");
