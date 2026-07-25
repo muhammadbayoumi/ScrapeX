@@ -450,3 +450,38 @@ def test_the_db_lock_wraps_only_the_ingest_not_the_network_fetch(tmp_path):
         capmod.build_connector = original
         conn.close()
     assert held == [False], "the DB lock was held across the network fetch"
+
+
+def test_locked_capture_forwards_every_capture_keyword(tmp_path):
+    """Regression (owner-reported: every full_rebuild failed on an unexpected
+    'archive_first'). run_job_once passes history/resume/archive_first through
+    **extras; the _locked_capture seam only ADDS the write lock, so it must
+    forward whatever it is handed instead of enumerating a keyword set that
+    goes stale the moment capture_source grows one."""
+    import inspect
+
+    from scrapex.jobs import JobRunner
+
+    seen: dict = {}
+
+    def fake_capture(conn, entry, job_id=None, *, lock=None, **kw):
+        seen.update(kw)
+        return _result(entry.source_key)
+
+    runner = JobRunner(str(tmp_path / "h.db"), lambda: _FakeManifest(["A"]))
+    # Patch the module capture_source the seam calls, then drive the seam the
+    # way run_job_once does — with the rebuild keyword.
+    import scrapex.jobs as jobs_mod
+    original = jobs_mod.capture_source
+    jobs_mod.capture_source = fake_capture
+    try:
+        runner._locked_capture(None, SimpleNamespace(source_key="A"), 1,
+                               history=True, resume=True, archive_first=True)
+    finally:
+        jobs_mod.capture_source = original
+
+    assert seen == {"history": True, "resume": True, "archive_first": True}
+    # And the seam must not hardcode a keyword list that can drift.
+    params = inspect.signature(JobRunner._locked_capture).parameters
+    assert any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()), \
+        "the capture seam must forward **extras, not a fixed keyword set"

@@ -486,14 +486,20 @@ class JobRunner:
         """Called after enqueueing so a new job starts without waiting a full poll."""
 
     def _locked_capture(self, conn: sqlite3.Connection, entry,
-                        job_id: int | None = None, *,
-                        history: bool = False) -> CaptureResult:
+                        job_id: int | None = None, **extras) -> CaptureResult:
+        # Whatever run_job_once decided the capture needs — history, resume,
+        # archive_first — travels straight through: this seam only ADDS the
+        # write lock, so it must not enumerate (and stale-out on) the keyword
+        # set capture_source accepts. Forwarding **extras is why a full_rebuild's
+        # archive_first reaches capture instead of dying here (owner-reported:
+        # every rebuild failed on an unexpected 'archive_first').
+        #
         # The lock is passed DOWN so it wraps only the ingest write, not the
         # network crawl. Holding it across the whole fetch made every unrelated
         # UI write fail with a conflict for the duration of a crawl.
         return capture_source(conn, entry, job_id,
                               lock=lambda: dbmod.write_lock(self._db_path),
-                              history=history)
+                              **extras)
 
     def release_database(self) -> None:
         """Ask the worker to drop its connection before the next poll.
