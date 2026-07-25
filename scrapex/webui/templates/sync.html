@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_source_identity.html" import source_identity, source_metric %}
 {% block title %}Google Sheets Synchronization — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/sync.css">
@@ -19,6 +20,9 @@
         </a>
         <a class="button ghost icon-label" href="#google-drive">
           {{ icon("insert-drive-file", "sm") }} Set up Google Drive
+        </a>
+        <a class="button ghost icon-label" href="#automation">
+          {{ icon("schedule", "sm") }} View automation
         </a>
       </nav>
     </div>
@@ -44,12 +48,21 @@
           {{ "Ready" if google.ready else "Needs setup" }}
         </span>
       </a>
+      <a class="sync-overview-card" href="#automation">
+        <span class="sync-overview-icon">{{ icon("schedule") }}</span>
+        <span class="sync-overview-copy">
+          <small>Automation</small>
+          <strong id="automation-overview-value">Loading schedules</strong>
+        </span>
+        <span class="badge off" id="automation-overview-badge">Checking</span>
+      </a>
     </div>
   </header>
 
   <nav class="sync-section-nav" aria-label="On this page">
     <span>On this page</span>
     <a href="#apps-script">Apps Script</a>
+    <a href="#automation">Automation</a>
     <a href="#google-drive">Google Drive</a>
   </nav>
 
@@ -184,28 +197,28 @@
     <div class="sync-run-panel">
       <div class="sync-run-copy">
         <span class="page-eyebrow">Run synchronization</span>
-        <h3>Send one source through Apps Script</h3>
-        <p>Choose a collected source. Large sends are split automatically and
+        <h3>Send selected sources through Apps Script</h3>
+        <p>Choose one or several collected sources. They are delivered in sequence; large sends are split automatically and
           incomplete batches remain available for retry.</p>
       </div>
       {% if not sources %}
         <div class="empty sync-empty">No source has data yet. Collect a source first,
           then return here to synchronize it.</div>
       {% else %}
-        <form id="funnel-pick" class="sync-run-form" onsubmit="return false">
-          <div class="field">
-            <label for="funnel-src">Source to send</label>
-            <select id="funnel-src">
-              {% for s in sources %}
-                {# A native <option> cannot be styled, so bidi is controlled with
-                   isolate characters instead. #}
-                <option value="{{ s.source_key }}" {{ "selected" if s.source_key == source_key }}>
-                  &#x2068;{{ s.source_name }}&#x2069; — {{ "{:,}".format(s.observations) }} observations</option>
-              {% endfor %}
-            </select>
-          </div>
+        <form id="funnel-pick" class="sync-source-form" onsubmit="return false">
+          <fieldset class="source-selection-list">
+            <legend class="visually-hidden">Sources to send through Apps Script</legend>
+            {% for s in sources %}
+              <label class="source-selection-row">
+                <input type="checkbox" name="fsrc" value="{{ s.source_key }}"
+                       {{ "checked" if source_key and s.source_key == source_key }}>
+                {{ source_identity(s) }}
+                {{ source_metric("{:,}".format(s.observations), "observations") }}
+              </label>
+            {% endfor %}
+          </fieldset>
           <div class="sync-actions">
-            <button id="send-funnel" {{ "disabled" if not funnel.ready }}>Send now</button>
+            <button id="send-funnel" {{ "disabled" if not funnel.ready }}>Send selected</button>
             <span id="send-out" class="hint" role="status" aria-live="polite"></span>
           </div>
         </form>
@@ -262,6 +275,64 @@
         <div class="empty sync-empty">No Apps Script synchronization has run yet.</div>
       {% endif %}
     </section>
+  </section>
+
+  <section class="sync-route sync-automation" id="automation" aria-labelledby="automation-title">
+    <header class="sync-route-header">
+      <span class="sync-route-icon">{{ icon("schedule") }}</span>
+      <div class="sync-route-heading">
+        <span class="page-eyebrow">Automation · Source collection</span>
+        <h2 id="automation-title">Keep synchronized sources up to date</h2>
+        <p>Review the collection schedule behind every source before sending its latest data to Google Sheets.</p>
+      </div>
+      <span class="badge sync-route-badge off" id="automation-route-badge">Loading schedules</span>
+    </header>
+
+    <div class="sync-method-note">
+      {{ icon("info") }}
+      <div>
+        <strong>Collection can run automatically; delivery stays deliberate</strong>
+        <p>Schedules refresh the data stored in ScrapeX while the engine is running. Sending to Apps Script or Google Drive remains a manual action from this page.</p>
+      </div>
+    </div>
+
+    <div class="sync-automation-layout">
+      <aside class="sync-automation-summary" aria-label="Automation summary">
+        <span class="page-eyebrow">Current coverage</span>
+        <strong id="automation-summary-value">Checking schedules…</strong>
+        <p id="automation-summary-note">Reading the schedules already configured in ScrapeX.</p>
+        <dl class="sync-automation-metrics">
+          <div><dt>Scheduled</dt><dd id="automation-count-scheduled">—</dd></div>
+          <div><dt>Manual</dt><dd id="automation-count-manual">—</dd></div>
+          <div><dt>Paused</dt><dd id="automation-count-paused">—</dd></div>
+        </dl>
+        <a class="button icon-label" href="/schedules">
+          {{ icon("schedule", "sm") }} Manage schedules
+        </a>
+      </aside>
+
+      <div class="sync-automation-sources">
+        <header>
+          <div>
+            <h3>Source automation</h3>
+            <p>Open any source to set its cadence, timezone, and missed-run policy.</p>
+          </div>
+        </header>
+        {% if sources %}
+          <div class="sync-automation-list">
+            {% for s in sources %}
+              <a class="sync-automation-source" href="/schedules#schedule-{{ s.source_key }}"
+                 data-automation-source="{{ s.source_key }}">
+                {{ source_identity(s) }}
+                <span class="badge off" data-automation-state>Loading</span>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty sync-empty">Collect a source before configuring its automation.</div>
+        {% endif %}
+      </div>
+    </div>
   </section>
 
   <!-- ==================== Google Drive and Sheets (spec 23) ==================== -->
@@ -367,20 +438,14 @@
           then return here to synchronize it.</div>
       {% else %}
         <form id="google-pick" class="sync-source-form" onsubmit="return false">
-          <fieldset class="sync-source-list">
+          <fieldset class="source-selection-list">
             <legend class="visually-hidden">Sources to synchronize</legend>
             {% for s in sources %}
-              <label class="sync-source-row">
+              <label class="source-selection-row">
                 <input type="checkbox" name="gsrc" value="{{ s.source_key }}"
                        {{ "checked" if source_key and s.source_key == source_key }}>
-                <span class="sync-source-copy">
-                  <strong dir="auto">{{ s.source_name }}</strong>
-                  <small>{{ s.source_key.replace("_", " ") }}</small>
-                </span>
-                <span class="sync-source-count">
-                  <strong>{{ "{:,}".format(s.observations) }}</strong>
-                  <small>observations</small>
-                </span>
+                {{ source_identity(s) }}
+                {{ source_metric("{:,}".format(s.observations), "observations") }}
               </label>
             {% endfor %}
           </fieldset>
@@ -502,10 +567,61 @@ on("test-funnel", () => act($("test-funnel"), $("test-out"), async () =>
   (await call("/api/outputs/apps-script/test")).detail));
 
 on("send-funnel", () => act($("send-funnel"), $("send-out"), async () => {
-  const r = await call("/api/outputs/apps-script/send", {source_key: $("funnel-src").value});
-  reload(900);
-  return r.detail;
+  const keys = [...document.querySelectorAll('input[name="fsrc"]:checked')].map(c => c.value);
+  if (!keys.length) throw new Error("Pick at least one source first.");
+  const button = $("send-funnel");
+  const details = [];
+  for (let i = 0; i < keys.length; i++) {
+    button.textContent = `Sending ${i + 1} of ${keys.length}…`;
+    const result = await call("/api/outputs/apps-script/send", {source_keys: [keys[i]]});
+    details.push(result.detail);
+  }
+  reload(1200);
+  return `Sent ${keys.length} source${keys.length === 1 ? "" : "s"}. ${details.join(" ")}`;
 }));
+
+// ---- Automation ------------------------------------------------------------
+async function loadAutomation() {
+  const sourceRows = [...document.querySelectorAll("[data-automation-source]")];
+  const setText = (id, value) => { const el = $(id); if (el) el.textContent = value; };
+  try {
+    const response = await call("/api/schedules", null, "GET");
+    const schedules = new Map((response.schedules || []).map(item => [item.source_key, item]));
+    const totals = {scheduled: 0, manual: 0, paused: 0};
+
+    sourceRows.forEach(row => {
+      const schedule = schedules.get(row.dataset.automationSource);
+      const frequency = schedule?.frequency || "manual";
+      const state = frequency === "manual" ? "manual" : (schedule?.enabled ? "scheduled" : "paused");
+      totals[state] += 1;
+      const badge = row.querySelector("[data-automation-state]");
+      badge.textContent = state[0].toUpperCase() + state.slice(1);
+      badge.className = `badge ${state === "scheduled" ? "ok" : "off"}`;
+    });
+
+    setText("automation-count-scheduled", totals.scheduled);
+    setText("automation-count-manual", totals.manual);
+    setText("automation-count-paused", totals.paused);
+    setText("automation-summary-value", `${totals.scheduled} of ${sourceRows.length} sources scheduled`);
+    setText("automation-summary-note", response.note || "Schedules run while the ScrapeX engine is available.");
+    setText("automation-overview-value", totals.scheduled ? `${totals.scheduled} source${totals.scheduled === 1 ? "" : "s"} scheduled` : "Manual collection");
+
+    const overviewBadge = $("automation-overview-badge");
+    const routeBadge = $("automation-route-badge");
+    [overviewBadge, routeBadge].forEach(badge => {
+      if (!badge) return;
+      badge.textContent = totals.scheduled ? "Active" : "Manual";
+      badge.className = `badge${badge === routeBadge ? " sync-route-badge" : ""} ${totals.scheduled ? "ok" : "off"}`;
+    });
+  } catch (error) {
+    setText("automation-summary-value", "Schedules unavailable");
+    setText("automation-summary-note", error.message);
+    setText("automation-overview-value", "Could not load");
+    setText("automation-overview-badge", "Unavailable");
+    setText("automation-route-badge", "Unavailable");
+  }
+}
+loadAutomation();
 
 // ---- Google ----------------------------------------------------------------
 on("save-google", () => act($("save-google"), $("google-out"), async () => {

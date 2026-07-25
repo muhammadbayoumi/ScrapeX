@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_source_identity.html" import source_identity %}
 {% block title %}Crawl history — ScrapeX{% endblock %}
 {% block content %}
 <header class="page-header">
@@ -20,7 +21,7 @@
     {% for r in runs %}
       <tr>
         <td class="num muted">#{{ r.run_id }}{% if r.job_id %} <span class="muted">/ job {{ r.job_id }}</span>{% endif %}</td>
-        <td dir="auto">{{ r.source_name }}</td>
+        <td>{{ source_identity(r, compact=true) }}</td>
         <td class="num muted">{{ r.started_at }}</td>
         <td class="num muted">{{ r.finished_at or "—" }}</td>
         <td><span class="badge {% if r.status == 'success' %}ok{% elif r.status != 'running' %}off{% endif %}">

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_source_identity.html" import source_identity %}
 {% block title %}Manage sources — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/manage.css">
@@ -71,7 +72,7 @@
   <tbody>
   {% for r in rows %}
     <tr>
-      <td dir="auto">{{ r.entry.source_name }} <span class="key text-xs">{{ r.entry.source_key }}</span></td>
+      <td>{{ source_identity(r.entry, compact=true) }}</td>
       <td class="muted"><code>{{ r.entry.family.value }}</code></td>
       <td class="num">{{ "{:,}".format(r.observations) }}</td>
       <td>{% if r.implemented %}<span class="badge ok">Ready</span>{% else %}<span class="badge off">Not supported yet</span>{% endif %}</td>

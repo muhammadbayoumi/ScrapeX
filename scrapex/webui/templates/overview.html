@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_source_identity.html" import source_identity, source_metric %}
 {% block title %}Overview — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/overview.css">
@@ -61,25 +62,16 @@
                data-overview-source="{{ source.source_key }}">
               <span class="overview-source-status {{ 'is-ok' if source.last_status == 'success' else 'is-attention' }}"
                     aria-hidden="true"></span>
-              <span class="overview-source-copy">
-                <strong>{{ source.source_key.replace("_", " ") }}</strong>
-                <small dir="auto">{{ source.source_name }}</small>
-              </span>
-              <span class="overview-source-meta">
-                <strong>{{ "{:,}".format(source.observations) }}</strong>
-                <small>{{ "Last run completed" if source.last_status == "success" else "Needs attention" }}</small>
-              </span>
+              {{ source_identity(source) }}
+              {{ source_metric("{:,}".format(source.observations), "Last run completed" if source.last_status == "success" else "Needs attention") }}
             </a>
           {% endfor %}
           {% for source in shown_pending %}
             <a class="overview-source" href="/source/{{ source.source_key }}"
                data-overview-source="{{ source.source_key }}">
               <span class="overview-source-status is-pending" aria-hidden="true"></span>
-              <span class="overview-source-copy">
-                <strong>{{ source.source_key.replace("_", " ") }}</strong>
-                <small dir="auto">{{ source.source_name }}</small>
-              </span>
-              <span class="overview-source-meta"><strong>Never run</strong><small>Configured</small></span>
+              {{ source_identity(source) }}
+              {{ source_metric("Never run", "Configured") }}
             </a>
           {% endfor %}
           {% if remaining_datasets %}

@@ -137,6 +137,27 @@ def test_export_and_sync_tabs_are_real_controls_now(client):
     assert "Send a test row" in sync and "Push to Drive" in sync
 
 
+def test_apps_script_can_send_multiple_sources_and_exposes_existing_automation(client):
+    """The UI composes the existing one-source delivery safely and never
+    presents collection schedules as automatic Google delivery."""
+    sync = client.get("/sync").text
+
+    assert 'name="fsrc"' in sync
+    assert "querySelectorAll('input[name=\"fsrc\"]:checked')" in sync
+    assert "{source_keys: [keys[i]]}" in sync
+    assert 'id="automation"' in sync and 'href="/schedules"' in sync
+    assert 'call("/api/schedules", null, "GET")' in sync
+    assert "delivery stays deliberate" in sync
+
+
+@pytest.mark.parametrize("path", ["/", f"/source/{SOURCE}", "/manage", "/schedules",
+                                  "/exports", "/sync", "/history"])
+def test_source_identity_is_shared_across_every_source_listing(client, path):
+    body = client.get(path).text
+    assert "source-identity-name" in body, f"{path} bypassed the canonical source identity"
+    assert "source-identity-key" in body, f"{path} omitted the stable source key"
+
+
 def test_the_sync_tab_states_the_transport_exactly(client):
     """This asserted the words "NOT implemented" while request signing and
     adaptive batching were unbuilt. A9 built them, so the page now has to state

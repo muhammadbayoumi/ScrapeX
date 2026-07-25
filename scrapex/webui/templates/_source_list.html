@@ -1,4 +1,5 @@
 {% from "_icons.html" import icon %}
+{% from "_source_identity.html" import source_identity, source_metric %}
 <div class="dataset-menu-popover" data-dataset-browser aria-label="Datasets">
   <header class="dataset-browser-head">
     <div class="dataset-browser-title">
@@ -30,13 +31,11 @@
         {# The NAME leads, the key follows: a list headed by MADAR / GPP
            ENERGY made the owner read machine keys where the site has a
            name. One rule for every listing (owner-reported). #}
-        <span class="dataset-choice-name" dir="auto">{{ s.source_name or s.source_key.replace("_", " ") }}</span>
+        {{ source_identity(s) }}
         {# The English name reads on its own line, the way the table flips
            AR|EN — dir="ltr" because it IS English, whatever the line above is
            written in. Nothing at all when the site has one name only. #}
-        {% if s.source_name_en %}<span class="dataset-choice-local" dir="ltr">{{ s.source_name_en }}</span>{% endif %}
-        <span class="dataset-choice-local tech">{{ s.source_key }}</span>
-        <span class="dataset-choice-meta">{{ "{:,}".format(s.observations) }} prices</span>
+        {{ source_metric("{:,}".format(s.observations), "prices") }}
       </a>
       {% endfor %}
     </section>
@@ -49,10 +48,8 @@
       <a class="dataset-choice dataset-choice-pending" href="/source/{{ p.source_key }}"
          data-dataset-choice data-search="{{ (p.source_name ~ ' ' ~ p.source_name_en ~ ' ' ~ p.source_key)|lower }}"
          {% if p.source_key == source_key %}aria-current="page"{% endif %}>
-        <span class="dataset-choice-name" dir="auto">{{ p.source_name or p.source_key.replace("_", " ") }}</span>
-        {% if p.source_name_en %}<span class="dataset-choice-local" dir="ltr">{{ p.source_name_en }}</span>{% endif %}
-        <span class="dataset-choice-local tech">{{ p.source_key }}</span>
-        <span class="dataset-choice-meta">Never run</span>
+        {{ source_identity(p) }}
+        {{ source_metric("Never run", "Configured") }}
       </a>
       {% endfor %}
     </section>

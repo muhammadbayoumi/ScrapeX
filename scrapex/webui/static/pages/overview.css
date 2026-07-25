@@ -138,38 +138,6 @@
 .overview-source-status.is-attention,
 .overview-source-status.is-pending { background: var(--amber); }
 
-.overview-source-copy,
-.overview-source-copy strong,
-.overview-source-copy small,
-.overview-source-meta strong,
-.overview-source-meta small {
-  display: block;
-  min-width: 0;
-}
-
-.overview-source-copy strong {
-  overflow: hidden;
-  font-size: var(--fs-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.overview-source-copy small,
-.overview-source-meta small {
-  margin-top: 0.1rem;
-  color: var(--muted);
-  font-size: var(--fs-xs);
-}
-
-.overview-source-meta {
-  text-align: end;
-}
-
-.overview-source-meta strong {
-  font-size: var(--fs-sm);
-  font-variant-numeric: tabular-nums;
-}
-
 .overview-source-more {
   display: inline-flex;
   align-items: center;
@@ -298,7 +266,7 @@
   .overview-areas { grid-template-columns: 1fr; }
   .overview-panel { padding: var(--sp-4); }
   .overview-source { grid-template-columns: auto minmax(0, 1fr); }
-  .overview-source-meta {
+  .overview-source .source-identity-meta {
     grid-column: 2;
     text-align: start;
   }

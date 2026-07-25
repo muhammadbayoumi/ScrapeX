@@ -64,8 +64,10 @@ def test_sources_lists_manifest_with_counts(client):
     assert "ELSEWEDYSHOP" in keys and "MADAR" in keys
     els = next(s for s in data if s["source_key"] == "ELSEWEDYSHOP")
     assert els["implemented"] is True and els["observations"] == 1
+    assert "source_name_en" in els
     madar = next(s for s in data if s["source_key"] == "MADAR")
     assert madar["implemented"] is True  # magento-graphql connector now built
+    assert madar["source_name_en"] == "Madar"
 
 
 def test_resolve_known_and_unknown(client):

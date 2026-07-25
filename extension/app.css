@@ -42,8 +42,15 @@
   .checklist .srow { align-items: flex-start; }
   .checklist .srow.off { opacity: .6; }
   .checklist label { display: flex; gap: var(--sp-2); align-items: flex-start; flex: 1;
-                     cursor: pointer; }
+                      cursor: pointer; }
   .checklist .srow.off label { cursor: not-allowed; }
+  .checklist label .source-identity { flex: 1; }
+  .source-row-actions { display: flex; flex: none; flex-direction: column;
+                        align-items: flex-end; gap: var(--sp-1); }
+  .source-row-actions .source-identity-meta { text-align: end; }
+  .dataset-card .source-identity { margin-bottom: var(--sp-2); }
+  .sched-summary .source-identity { flex: 1; }
+  .sched-summary [data-role="next"] { flex: none; text-align: end; }
   .toolbar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
              font-size: var(--fs-xs); }
   .toolbar .spacer { flex: 1; }

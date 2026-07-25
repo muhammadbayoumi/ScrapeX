@@ -537,6 +537,133 @@ button.chip {
   background: var(--surface-subtle);
 }
 
+/* Canonical source identity and selectable source list.
+ *
+ * Source names are data, so they choose their own direction. The English name
+ * and stable key always remain LTR. Page layouts supply only the surrounding
+ * interaction (link, tab, checkbox, or table cell); this reading order stays
+ * identical across the workspace and browser panel. */
+.source-identity {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.source-identity-name,
+.source-identity-name-en,
+.source-identity-key {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-identity-name {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  unicode-bidi: plaintext;
+}
+
+.source-identity-name-en {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.source-identity-key {
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  direction: ltr;
+  font-size: var(--fs-2xs);
+  unicode-bidi: isolate;
+}
+
+.source-identity-compact {
+  gap: 0;
+}
+
+.source-identity-compact .source-identity-name {
+  font-size: var(--fs-xs);
+}
+
+.source-identity-compact .source-identity-name-en,
+.source-identity-compact .source-identity-key {
+  font-size: var(--fs-2xs);
+}
+
+.source-identity-meta {
+  display: block;
+  flex: none;
+  color: var(--muted);
+  text-align: end;
+}
+
+.source-identity-meta strong,
+.source-identity-meta small {
+  display: block;
+}
+
+.source-identity-meta strong {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.source-identity-meta small {
+  margin-top: 0.08rem;
+  font-size: var(--fs-xs);
+}
+
+.source-selection-list {
+  max-height: 22rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.source-selection-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  padding: var(--sp-3);
+  cursor: pointer;
+}
+
+.source-selection-row + .source-selection-row {
+  border-top: 1px solid var(--line);
+}
+
+.source-selection-row:hover {
+  background: var(--surface-subtle);
+}
+
+.source-selection-row:has(input:focus-visible) {
+  outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
+  outline-offset: -3px;
+}
+
+.source-selection-row input[type="checkbox"] {
+  margin-top: 0;
+}
+
+@media (max-width: 560px) {
+  .source-selection-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .source-selection-row .source-identity-meta {
+    grid-column: 2;
+    text-align: start;
+  }
+}
+
 .n,
 .num {
   color: var(--muted);

@@ -97,10 +97,28 @@ function setStatus(engine) {
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
+function sourceIdentity(source, compact = false) {
+  const key = source.source_key || "";
+  const name = source.source_name || key.replaceAll("_", " ");
+  const english = source.source_name_en && source.source_name_en !== name
+    ? `<span class="source-identity-name-en" dir="ltr">${esc(source.source_name_en)}</span>` : "";
+  return `<span class="source-identity${compact ? " source-identity-compact" : ""}">
+    <strong class="source-identity-name" dir="auto">${esc(name)}</strong>
+    ${english}
+    <code class="source-identity-key">${esc(key)}</code>
+  </span>`;
+}
+
+function sourceMetric(value, label) {
+  return `<span class="source-identity-meta"><strong>${esc(value)}</strong><small>${esc(label)}</small></span>`;
+}
+
 function visibleSources() {
   const term = state.filter.trim().toLowerCase();
   return state.sources.filter((s) =>
-    !term || s.source_name.toLowerCase().includes(term) ||
+    !term || (s.source_name || "").toLowerCase().includes(term) ||
+    (s.source_name_en || "").toLowerCase().includes(term) ||
+    (s.source_key || "").toLowerCase().includes(term) ||
     (s.base_url || "").toLowerCase().includes(term));
 }
 
@@ -113,8 +131,6 @@ function renderSites() {
   } else if (!shown.length) {
     box.innerHTML = `<div class="srow"><span class="muted">No site matches “${esc(state.filter)}”.</span></div>`;
   } else {
-    // `host (Display Name)` per spec 10: the host is technical (forced LTR), the
-    // display name is data (picks its own direction).
     box.innerHTML = shown.map((s) => {
       const ready = s.implemented;
       const checked = state.selected.has(s.source_key) ? "checked" : "";
@@ -129,13 +145,12 @@ function renderSites() {
       return `<div class="srow ${ready ? "" : "off"}">
         <label>
           <input type="checkbox" data-key="${esc(s.source_key)}" ${checked} ${ready ? "" : "disabled"}>
-          <span>
-            <span class="tech">${esc(hostOf(s.base_url))}</span>
-            <span class="name muted"> (${esc(s.source_name)})</span>
-            <span class="n text-block">${Number(s.observations || 0).toLocaleString()} prices${
-              s.changes ? " · " + esc(s.changes) : ""}</span>
-          </span>
-        </label>${auto}${reason}
+          ${sourceIdentity(s, true)}
+        </label>
+        <span class="source-row-actions">
+          ${sourceMetric(Number(s.observations || 0).toLocaleString(), "prices")}
+          ${auto}${reason}
+        </span>
       </div>`;
     }).join("");
     box.querySelectorAll("input[data-key]").forEach((cb) =>
@@ -424,7 +439,7 @@ async function loadDatasets() {
     }
     box.innerHTML = withData.map((s) => `
       <div class="card dataset-card">
-        <div><b class="name content">${esc(s.source_name)}</b>
+        <div>${sourceIdentity(s)}
           <div class="n">${Number(s.observations).toLocaleString()} prices · ${
             Number(s.products || 0).toLocaleString()} products</div>
           <div class="n">${esc(s.changes || "no recorded changes yet")}</div></div>
@@ -520,7 +535,7 @@ async function loadSchedules() {
       // schedule is decided anywhere else.
       return `<details class="sched-row" data-sched="${esc(s.source_key)}">
         <summary class="row sched-summary">
-          <b class="name content">${esc(s.source_name)}</b>
+          ${sourceIdentity(s, true)}
           <span class="muted" data-role="next">${esc(summary)}${next ? " · " + next : ""}</span>
         </summary>
         <div class="stack sched-body">
@@ -635,7 +650,7 @@ function renderSelected() {
         s.implemented ? "Ready" : "Not supported yet"}</span></div>`;
     return `<div class="card">
       <div class="row">
-        <span><b class="name content">${esc(s.source_name)}</b>
+        <span>${sourceIdentity(s)}
           <span class="n text-block">${esc(hostOf(s.base_url))}</span></span>
         <button class="ghost" data-drop="${esc(s.source_key)}"
                 title="Remove from this run — the saved site is kept">Remove</button>

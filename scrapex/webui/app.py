@@ -537,7 +537,7 @@ def create_app(
                          changes=recent_changes(conn, source_key, limit=limit),
                          extremes=price_extremes(conn, source_key, limit=2000) if source_key else [],
                          offers=_offers_with_history(conn, source_key) if source_key else [],
-                         sources=[s.source_key for s in list_sources(conn)])
+                          sources=list_sources(conn))
         finally:
             conn.close()
 
@@ -547,7 +547,7 @@ def create_app(
         try:
             return _page(request, "history.html", "history", source_key,
                          runs=crawl_history(conn, source_key),
-                         sources=[s.source_key for s in list_sources(conn)])
+                          sources=list_sources(conn))
         finally:
             conn.close()
 
@@ -557,7 +557,7 @@ def create_app(
         try:
             return _page(request, "review.html", "review", source_key,
                          pending=pending_reviews(conn, source_key, limit=100),
-                         sources=[s.source_key for s in list_sources(conn)])
+                          sources=list_sources(conn))
         finally:
             conn.close()
 
@@ -588,6 +588,7 @@ def create_app(
             rows.append({
                 "source_key": entry.source_key,
                 "source_name": entry.source_name,
+                "source_name_en": entry.source_name_en,
                 "active": entry.active,
                 "supports_history": supports_history(entry.family),
                 "sched": saved.get(entry.source_key) or {},
@@ -718,6 +719,7 @@ def create_app(
             s = summaries.get(entry.source_key)
             out.append({
                 "source_key": entry.source_key, "source_name": entry.source_name,
+                "source_name_en": entry.source_name_en,
                 "base_url": entry.base_url, "family": entry.family.value,
                 "active": entry.active, "implemented": _is_implemented(entry),
                 # A per-source CAPABILITY, not a universal mode: the panel

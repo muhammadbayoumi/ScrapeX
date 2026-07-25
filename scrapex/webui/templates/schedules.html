@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_source_identity.html" import source_identity %}
 {% block title %}Schedules — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/schedules.css">
@@ -76,9 +77,8 @@
                 id="schedule-source-{{ loop.index0 }}" aria-controls="schedule-panel-{{ loop.index0 }}"
                 aria-selected="{{ 'true' if loop.first else 'false' }}"
                 tabindex="{{ '0' if loop.first else '-1' }}" data-source-choice="{{ r.source_key }}"
-                data-state="{{ state }}" data-search="{{ (r.source_name ~ ' ' ~ r.source_key)|lower }}">
-          <span class="schedule-choice-name" dir="auto">{{ r.source_name }}</span>
-          <span class="schedule-choice-key">{{ r.source_key }}</span>
+                data-state="{{ state }}" data-search="{{ (r.source_name ~ ' ' ~ r.source_name_en ~ ' ' ~ r.source_key)|lower }}">
+          {{ source_identity(r, compact=true) }}
           <span class="schedule-choice-state" data-choice-state data-state="{{ state }}"
                 aria-label="{{ state|capitalize }}">{{ state|capitalize }}</span>
         </button>
@@ -105,10 +105,7 @@
           <span class="schedule-source-icon" aria-hidden="true">
             <svg class="sx-icon"><use href="/static/material-icons/material-icons.svg?v=design-system-2#schedule"></use></svg>
           </span>
-          <div>
-            <h2 dir="auto">{{ r.source_name }}</h2>
-            <code>{{ r.source_key }}</code>
-          </div>
+          {{ source_identity(r) }}
         </div>
         <div class="schedule-card-state">
           <span class="schedule-state schedule-state-{{ state }}" data-role="state">{{ state|capitalize }}</span>

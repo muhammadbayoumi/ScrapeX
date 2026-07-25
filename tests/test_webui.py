@@ -98,7 +98,7 @@ def test_dataset_identity_leads_with_the_sources_NAME_and_links_the_website(clie
     name = selected.index("السويدي شوب")
     key = selected.index("ELSEWEDYSHOP", name)
     assert name < key
-    assert 'class="dataset-local-name tech"' in selected
+    assert 'class="source-identity-key"' in selected
     assert 'class="dataset-site-link" href="https://elsewedyshop.com"' in selected
     assert 'target="_blank"' in selected and 'rel="noopener noreferrer"' in selected
 
@@ -119,14 +119,14 @@ def test_the_heading_and_the_listing_carry_the_english_name_too(tmp_path: Path):
     page = TestClient(create_app(db_path)).get("/source/ELSEWEDYSHOP").text
 
     # The heading block, in order: the name, its English twin, then the key.
-    english = '<p class="dataset-local-name" dir="ltr">Elsewedy Shop</p>'
+    english = '<span class="source-identity-name-en" dir="ltr">Elsewedy Shop</span>'
     assert english in page
     assert (page.index("السويدي شوب") < page.index(english)
-            < page.index('<p class="dataset-local-name tech">ELSEWEDYSHOP</p>'))
+            < page.index('<code class="source-identity-key">ELSEWEDYSHOP</code>'))
     # The same rule inside the dataset popover — for the source with data, and
     # for one that is only configured, whose names come from the manifest.
-    assert '<span class="dataset-choice-local" dir="ltr">Elsewedy Shop</span>' in page
-    assert '<span class="dataset-choice-local" dir="ltr">Global Petrol Prices</span>' in page
+    assert '<span class="source-identity-name-en" dir="ltr">Elsewedy Shop</span>' in page
+    assert '<span class="source-identity-name-en" dir="ltr">Global Petrol Prices</span>' in page
     # And a search over the list answers to either name, not the Arabic one only.
     assert 'data-search="السويدي شوب elsewedy shop elsewedyshop"' in page
 

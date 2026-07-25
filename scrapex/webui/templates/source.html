@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_source_identity.html" import source_identity %}
 {% block title %}{{ source_key }} — ScrapeX{% endblock %}
 {% block head %}
 {# The grid is served from OUR origin, never a CDN: this tool must work with no
@@ -30,10 +31,8 @@
   <div class="idblock">
     <div class="dataset-identity">
       {% set pending_source = pending | selectattr("source_key", "equalto", source_key) | first %}
-      <h1 dir="auto">{{ (pending_source.source_name if pending_source else "") or source_key.replace("_", " ") }}</h1>
-      {% set pending_name_en = (pending_source.source_name_en if pending_source else "") %}
-      {% if pending_name_en %}<p class="dataset-local-name" dir="ltr">{{ pending_name_en }}</p>{% endif %}
-      <p class="dataset-local-name tech">{{ source_key }}</p>
+      {% set identity_source = pending_source or {"source_key": source_key, "source_name": "", "source_name_en": ""} %}
+      {{ source_identity(identity_source) }}
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
            rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
@@ -62,11 +61,7 @@
      or ran a month ago. #}
   <div class="idblock">
     <div class="dataset-identity">
-      <h1 dir="auto">{{ summary.source_name or summary.source_key.replace("_", " ") }}</h1>
-      {# The site's English name, under the name it leads with — the heading now
-         reads in both languages, like the table below it. #}
-      {% if summary.source_name_en %}<p class="dataset-local-name" dir="ltr">{{ summary.source_name_en }}</p>{% endif %}
-      <p class="dataset-local-name tech">{{ summary.source_key }}</p>
+      {{ source_identity(summary) }}
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
            rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>

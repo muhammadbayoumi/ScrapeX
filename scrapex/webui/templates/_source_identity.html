@@ -1,0 +1,36 @@
+{# Canonical source identity.
+
+   Every source list follows the same reading order:
+   1. owner-facing source name;
+   2. English name when the source publishes a distinct one;
+   3. stable technical source key;
+   4. contextual metric or state outside this macro.
+
+   Keep interaction semantics (link, checkbox, tab, table cell) in the caller.
+   The identity itself stays identical everywhere. #}
+{% macro source_identity(source, compact=false) -%}
+  {% set key = source.source_key %}
+  {% set name = source.source_name or key.replace("_", " ") %}
+  {% set name_en = source.source_name_en or "" %}
+  <span class="source-identity{% if compact %} source-identity-compact{% endif %}">
+    <strong class="source-identity-name" dir="auto">{{ name }}</strong>
+    {% if name_en and name_en != name %}
+      <span class="source-identity-name-en" dir="ltr">{{ name_en }}</span>
+    {% endif %}
+    <code class="source-identity-key">{{ key }}</code>
+  </span>
+{%- endmacro %}
+
+{% macro source_metric(value, label) -%}
+  <span class="source-identity-meta">
+    <strong>{{ value }}</strong>
+    <small>{{ label }}</small>
+  </span>
+{%- endmacro %}
+
+{% macro source_option_label(source) -%}
+  {% set key = source.source_key -%}
+  {% set name = source.source_name or key.replace("_", " ") -%}
+  {% set name_en = source.source_name_en or "" -%}
+  {{ name }}{% if name_en and name_en != name %} — {{ name_en }}{% endif %} · {{ key }}
+{%- endmacro %}

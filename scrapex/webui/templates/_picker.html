@@ -1,9 +1,10 @@
 {# Shared dataset picker: every source-scoped tab keeps the same control. #}
+{% from "_source_identity.html" import source_option_label %}
 <form class="filters" method="get">
   <select name="source_key" onchange="this.form.submit()">
     <option value="">All sources</option>
-    {% for k in sources %}
-      <option value="{{ k }}" {% if k == source_key %}selected{% endif %}>{{ k }}</option>
+    {% for source in sources %}
+      <option value="{{ source.source_key }}" {% if source.source_key == source_key %}selected{% endif %}>{{ source_option_label(source) }}</option>
     {% endfor %}
   </select>
   <noscript><button type="submit">Apply</button></noscript>

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_source_identity.html" import source_identity, source_metric %}
 {% block title %}Excel export — ScrapeX{% endblock %}
 {% block content %}
 <header class="page-header">
@@ -82,14 +83,14 @@
   <div class="empty">No source has data yet. Crawl one first, then export it.</div>
 {% else %}
   <form id="pick" class="stack" onsubmit="return false">
-    <fieldset class="picklist">
+    <fieldset class="source-selection-list">
       <legend class="hint">Each source becomes one tab</legend>
       {% for s in sources %}
-        <label class="pickrow">
+        <label class="source-selection-row">
           <input type="checkbox" name="src" value="{{ s.source_key }}"
                  {{ "checked" if source_key and s.source_key == source_key }}>
-          <span class="pickname">{{ s.source_name }}</span>
-          <span class="num muted">{{ "{:,}".format(s.observations) }} observations</span>
+          {{ source_identity(s) }}
+          {{ source_metric("{:,}".format(s.observations), "observations") }}
         </label>
       {% endfor %}
     </fieldset>
