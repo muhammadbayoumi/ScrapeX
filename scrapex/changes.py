@@ -17,7 +17,14 @@ TRACKED_PRODUCT_FIELDS = (
     ("source_name", "product_name"),   # (stored column, incoming row key)
     ("product_url", "product_url"),
     ("brand_raw", "brand_raw"),
-    ("external_sku", "external_sku"),
+    # The PRODUCT's own sku. `product_sku` is DERIVED, not a column a connector
+    # fills: it is the parent's sku where the source publishes one and the row's
+    # own sku where the product has no variations (ingest._product_sku). Reading
+    # `external_sku` here made a variable product wear whichever VARIATION was
+    # written last; reading `parent_sku` alone would empty the sku of every
+    # source that has no parents at all.
+    ("external_sku", "product_sku"),
+    ("parent_sku", "parent_sku"),
     # Classification is product identity the source states (owner ruling
     # 2026-07-22): tracked like brand, so a product the site re-files under a
     # new category records the move instead of silently forgetting the old one.

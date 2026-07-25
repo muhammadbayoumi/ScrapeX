@@ -101,12 +101,18 @@ PRODUCT_PRICES = RowSpec(
         # only what already existed.
         "variant",
         "variant_axes",
+        # The variation's OWN page, and the PRODUCT's own sku. Both existed on
+        # the sites and had nowhere to land: the variation's link was written
+        # onto the product and every variation overwrote the one before, and the
+        # product's sku column held whichever variation was ingested last.
+        "variant_url",
+        "parent_sku",
     ),
     required=frozenset({"external_product_id", "region", "currency", "vat_included", "effective_price"}),
     additive=frozenset({"unit", "basis_quantity", "product_name_en", "lang",
                         "category_path", "category_path_en",
                         "category_external_id", "option_axes",
-                        "variant", "variant_axes"}),
+                        "variant", "variant_axes", "variant_url", "parent_sku"}),
 )
 
 # ---- enrichment: the open-ended attribute bag, one ROW per attribute ---------

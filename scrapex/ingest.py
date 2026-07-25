@@ -135,6 +135,27 @@ def _touch_last_seen(conn: sqlite3.Connection, table: str, id_col: str, row_id: 
     )
 
 
+def _product_sku(r) -> str:
+    """The PRODUCT's own sku: the parent's where there is one, else the row's.
+
+    A variable product's row carries the VARIATION's sku (76ec8c8572f0-1), so
+    writing that onto the product left it wearing whichever variation landed
+    last. A product with no variations has no parent_sku and its own sku IS the
+    row's — so this is a fallback, not a replacement.
+    """
+    return str(r.get("parent_sku") or r.get("external_sku") or "")
+
+
+def _with_product_sku(r) -> dict:
+    """The row plus the derived product sku, for the field-diff comparison."""
+    incoming = {key: r.get(key) for key in
+                ("product_name", "product_url", "brand_raw", "external_sku",
+                 "category_path", "category_path_en", "category_external_id",
+                 "product_name_en", "lang", "parent_sku")}
+    incoming["product_sku"] = _product_sku(r)
+    return incoming
+
+
 # ---- entity resolution (get-or-create; each returns an explicit `created`) ---
 
 def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
@@ -189,7 +210,7 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
                          (pid,))
             record_change(conn, ChangeType.RETURNED, "status", previous_value=row["status"],
                           new_value="active", source_product_id=pid, run_id=run_id, job_id=job_id)
-        for column, old, new in product_field_diffs(dict(row), r):
+        for column, old, new in product_field_diffs(dict(row), _with_product_sku(r)):
             record_change(conn, ChangeType.FIELD_UPDATED, column, previous_value=old,
                           new_value=new, source_product_id=pid, run_id=run_id, job_id=job_id)
             if column in ALIAS_FIELDS and old:
@@ -202,7 +223,12 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
     pid = _insert(conn, "source_product", {
         "source_id": source_id,
         "external_product_id": r["external_product_id"],
-        "external_sku": r["external_sku"] or None,
+        # The PRODUCT's own sku when the source publishes one (0037). This used
+        # to take the row's external_sku, which on a variable product is the
+        # VARIATION's — so the product ended up wearing whichever variation was
+        # written last (76ec8c8572f0-6 instead of 76ec8c8572f0).
+        "external_sku": _product_sku(r) or None,
+        "parent_sku": r.get("parent_sku") or "",
         "source_name": r["product_name"] or None,
         "product_url": r["product_url"] or None,
         "brand_raw": r["brand_raw"] or None,
@@ -274,7 +300,8 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         # learned fact: written when the source states it, never blanked when
         # it does not, and identity untouched.
         for column, value in (("variant", r.get("variant")),
-                              ("variant_axes", r.get("variant_axes"))):
+                              ("variant_axes", r.get("variant_axes")),
+                              ("variant_url", r.get("variant_url"))):
             if value:
                 conn.execute(
                     f"UPDATE source_variant SET {column} = ? "
@@ -307,6 +334,9 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         "raw_options_json": r.get("option_axes") or None,
         "variant": r.get("variant") or "",
         "variant_axes": r.get("variant_axes") or "",
+        # The variation's OWN page (0037). It used to be written onto the
+        # product, where every variation overwrote the one before it.
+        "variant_url": r.get("variant_url") or "",
     }), True
 
 

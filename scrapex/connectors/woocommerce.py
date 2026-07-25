@@ -267,7 +267,15 @@ class WooCommerceConnector:
             external_sku=product.get("sku") or carrier.get("sku") or "",
             product_name=product.get("name") or carrier.get("name") or "",
             brand_raw=brand_of(carrier),
-            product_url=product.get("permalink") or carrier.get("permalink") or "",
+            # The PRODUCT's page for the product column, and the VARIATION's own
+            # page for the variation — they are different addresses and were
+            # sharing one column, so five of every six links opened the wrong
+            # colour. (This shop's colour slugs disagree with its colour names:
+            # «أحمر» is slug `black`. WooCommerce selects by SLUG, so the link
+            # is right and the label is right; do not reconcile them.)
+            product_url=carrier.get("permalink") or product.get("permalink") or "",
+            variant_url=(product.get("permalink") or "") if parent else "",
+            parent_sku=str(carrier.get("sku") or ""),
             option_label=option,
             option_fingerprint=option_fingerprint(axes) if axes else "",
             # The SAME axes as structure. They were parsed already, for the
