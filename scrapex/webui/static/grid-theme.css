@@ -861,33 +861,9 @@
   flex-direction: column;
   align-items: flex-end;
 }
-/* The Arabic of the SAME fact, quieter and under its English — never a second
-   row pretending to be a different attribute. */
-.spec-alt { color: var(--muted); font-size: var(--fs-xs, .75rem); }
-
-/* The English and the Arabic of one paragraph, side by side on a wide panel
-   and stacked on a narrow one — the same fact twice, never two facts. */
-.record-bilingual {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-  gap: var(--sp-3, .75rem);
-  align-items: start;
-  margin-bottom: var(--sp-3, .75rem);
-}
-.record-bilingual:last-child { margin-bottom: 0; }
 .record-prose { margin: 0 0 var(--sp-2, .5rem); }
 .record-prose p { margin: 0 0 var(--sp-2, .5rem); line-height: var(--lh-relaxed, 1.65); }
 .record-prose p:last-child { margin-bottom: 0; }
-/* The same description in Arabic. Tinted rather than bordered: the paragraph
-   sets its own direction, so a border on one side would land on the wrong edge
-   for one of the two languages, while a panel reads as "the same text again"
-   from either side. */
-.record-prose-alt {
-  color: var(--muted);
-  background: var(--surface);
-  border-radius: var(--radius-sm, .375rem);
-  padding: var(--sp-2, .5rem) var(--sp-3, .75rem);
-}
 .record-prose-title {
   margin: var(--sp-2, .5rem) 0 var(--sp-1, .25rem);
   font-size: var(--fs-sm, .8125rem);

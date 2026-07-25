@@ -1360,12 +1360,24 @@
     });
   }
 
-  // ---- AR | EN: which NAME column is on show --------------------------------
+  // ---- AR | EN: which language the whole page is in -------------------------
   // A bilingual source stores BOTH names (the owner's rule: extracted once,
   // flipped without re-extracting). The toggle swaps VISIBILITY between the
   // two name columns rather than rewriting one column's contents, so sort,
   // filter and export each keep working on exactly the column they name.
+  //
+  // It governs the RECORD PANEL as well (owner's ruling): printing Arabic and
+  // English side by side in the tables under the table is the same fact twice,
+  // not more detail. So the choice lives here, at module scope, and the open
+  // panel is redrawn when it changes.
+  //
+  // English is the default. The interface is English, and the owner's rule is
+  // that English is the primary display language; a stored preference from
+  // before that ruling is honoured, because it was made deliberately.
   const LANG_KEY = "scrapex-name-lang-" + (mount.dataset.source || "");
+  let nameLang = "en";
+  try { nameLang = localStorage.getItem(LANG_KEY) || "en"; } catch (err) { nameLang = "en"; }
+
   function wireLanguageToggle() {
     // The server declares which columns pair (reports.BILINGUAL_COLUMNS), so
     // this flips names, category and every level at once and never carries a
@@ -1373,21 +1385,19 @@
     const pairs = Object.entries(payload.bilingual || {});
     if (!pairs.length) return;
     if (document.getElementById("grid-lang-toggle")) return;
-    let lang = "ar";
-    try { lang = localStorage.getItem(LANG_KEY) || "ar"; } catch (err) {}
     const host = document.querySelector(".data-grid-commandbar");
     if (!host) return;
     const wrap = document.createElement("div");
     wrap.id = "grid-lang-toggle";
     wrap.className = "grid-lang-toggle";
     wrap.setAttribute("role", "group");
-    wrap.setAttribute("aria-label", "Record name language");
+    wrap.setAttribute("aria-label", "Display language");
     const note = document.createElement("span");
     note.className = "muted";
-    note.textContent = "Names:";
+    note.textContent = "Language:";
     wrap.append(note);
     const buttons = {};
-    for (const [code, label] of [["ar", "AR"], ["en", "EN"]]) {
+    for (const [code, label] of [["en", "EN"], ["ar", "AR"]]) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "chip";
@@ -1398,7 +1408,7 @@
     }
     host.append(wrap);
     function apply(code, save) {
-      lang = code;
+      nameLang = code;
       if (save) { try { localStorage.setItem(LANG_KEY, code); } catch (err) {} }
       for (const [arabic, english] of pairs) {
         for (const [key, on] of [[arabic, code === "ar"], [english, code === "en"]]) {
@@ -1408,11 +1418,14 @@
         }
       }
       for (const [c, b] of Object.entries(buttons)) {
-        b.setAttribute("aria-pressed", String(c === lang));
-        b.classList.toggle("pill", c === lang);
+        b.setAttribute("aria-pressed", String(c === nameLang));
+        b.classList.toggle("pill", c === nameLang);
       }
+      // The record open underneath is showing the other language's details;
+      // leaving it as it was would make the switch look half-connected.
+      if (save) redrawOpenPanel();
     }
-    apply(lang, false);
+    apply(nameLang, false);
   }
 
   function widthsFromTable() {
@@ -1466,6 +1479,19 @@
   }
 
   let openOfferRow = null;
+  // What the panel on screen was drawn FROM, so a language switch can redraw it
+  // without another round trip. Exactly one of the two is ever set.
+  let openOfferData = null;
+  let openCompareRows = null;
+
+  function redrawOpenPanel() {
+    const panel = document.getElementById("offer-panel");
+    if (!panel || panel.hidden) return;
+    if (openCompareRows) { renderComparePanel(openCompareRows); return; }
+    if (openOfferData && openOfferId) {
+      renderOfferPanel(panel, openOfferData, openOfferId, openOfferMode);
+    }
+  }
 
   function openOfferPanel(offerId, mode, rowData) {
     const panel = document.getElementById("offer-panel");
@@ -1501,6 +1527,8 @@
     panel.hidden = true;
     panel.textContent = "";
     openOfferId = null;
+    openOfferData = null;
+    openCompareRows = null;
   }
 
   // ---- the record panel: one product, shaped the way its own page is shaped -
@@ -1514,6 +1542,15 @@
   // its content the way the source's own page shows it. Same output for every
   // source (the owner's ruling); a card appears only where that source
   // actually stated something, so nothing renders an empty frame.
+
+  // The value in the language on show, or the only one there is. Never blank
+  // because one side of a pair is missing — a source that publishes a single
+  // language must still fill the cell.
+  function pickLang(english, arabic) {
+    const first = nameLang === "ar" ? arabic : english;
+    const second = nameLang === "ar" ? english : arabic;
+    return text(first) || text(second);
+  }
 
   function safeUrl(raw) {
     try {
@@ -1532,13 +1569,19 @@
   // AR + EN are ONE fact in two languages, not two facts. Connectors keep them
   // in separate rows under paired codes (description / description_en), and the
   // server sends the code, so the pairing is the connector's declaration rather
-  // than a guess made from the text. English leads and Arabic sits under it —
-  // the same convention the table headings now use (Record / Record (AR)).
+  // than a guess made from the text.
+  //
+  // The panel then shows ONE of them — whichever the table's AR|EN toggle is
+  // set to (the owner's ruling: the switch governs both surfaces, and printing
+  // both languages in the tables under the table is repetition, not detail).
+  // A pair whose chosen side the source never published falls back to the side
+  // it did publish: a missing translation must show the fact, not a blank.
   function pairByLanguage(items) {
     const byCode = new Map();
     items.forEach((d) => { if (d.code) byCode.set(d.code, d); });
     const used = new Set();
     const entries = [];
+    const strip = (label) => (label || "").replace(/\s*\((EN|AR)\)\s*$/i, "");
     items.forEach((d) => {
       if (used.has(d)) return;
       const code = d.code || "";
@@ -1547,14 +1590,17 @@
       if (english && arabic && english !== arabic && !used.has(english) && !used.has(arabic)) {
         used.add(english);
         used.add(arabic);
-        entries.push({label: (english.label || arabic.label || "").replace(/\s*\(EN\)\s*$/i, ""),
-                      value: english.value, alt: arabic.value,
-                      url: english.url || arabic.url, unit: english.unit || arabic.unit,
-                      numeric: english.numeric || arabic.numeric});
+        const chosen = nameLang === "en" ? english : arabic;
+        const other = chosen === english ? arabic : english;
+        const side = chosen.value ? chosen : other;
+        entries.push({label: strip(side.label) || strip(chosen.label) || strip(other.label),
+                      value: side.value, url: side.url || other.url,
+                      unit: side.unit || other.unit,
+                      numeric: side.numeric || other.numeric});
         return;
       }
       used.add(d);
-      entries.push({label: d.label || "", value: d.value, alt: "",
+      entries.push({label: strip(d.label), value: d.value,
                     url: d.url, unit: d.unit, numeric: d.numeric});
     });
     return entries;
@@ -1589,13 +1635,6 @@
       }
       primary.dir = "auto";
       value.appendChild(primary);
-      // The Arabic of the same fact, quieter and underneath — never a second
-      // row pretending to be a different attribute.
-      if (entry.alt && entry.alt !== entry.value) {
-        const alt = el("span", "spec-alt", text(entry.alt));
-        alt.dir = "auto";
-        value.appendChild(alt);
-      }
       row.append(label, value);
       list.appendChild(row);
     });
@@ -1688,13 +1727,19 @@
     const showDetails = mode !== "history";
     panel.textContent = "";
     panel.className = "record-panel";
+    openOfferData = data;
+    openCompareRows = null;
     const offer = data.offer || {};
     const row = openOfferRow || {};
 
-    const title = el("h2", "record-name", text(offer.name || row.product_name || ""));
+    // Name and classification in the language the toggle is set to, falling
+    // back to the one the source published when it published only one.
+    const title = el("h2", "record-name",
+                     text(pickLang(row.product_name_en, row.product_name) || offer.name || ""));
     title.dir = "auto";
-    const facts = [offer.region_name || offer.region || "",
-                   row.external_sku || "", row.category_path_en || row.category_path || ""]
+    const facts = [offer.region_name || offer.region || "", row.external_sku || "",
+                   pickLang(row.category_path_en || row.category_en,
+                            row.category_path || row.category)]
       .filter(Boolean).join(" · ");
     const full = el("a", "", "Open full page");
     full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + offerId;
@@ -1788,17 +1833,11 @@
             if (label && label.toLowerCase() !== name.toLowerCase()) {
               box.appendChild(el("h4", "record-prose-title", label));
             }
-            // The two languages side by side, not stacked: they are the same
-            // paragraph, and reading one under the other invites the reader to
-            // think the second one says something new.
-            const pair = el("div", "record-bilingual");
-            pair.appendChild(prose(entry.value));
-            if (entry.alt && entry.alt !== entry.value) {
-              const arabic = prose(entry.alt);
-              arabic.classList.add("record-prose-alt");
-              pair.appendChild(arabic);
-            }
-            box.appendChild(pair);
+            // One language — whichever the toggle is set to. This briefly
+            // showed both, side by side, and the owner's answer was that the
+            // switch exists precisely so the tables under the table do not
+            // repeat the same paragraph in two languages.
+            box.appendChild(prose(entry.value));
           });
           cards.appendChild(box);
           return;
@@ -1912,6 +1951,8 @@
     panel.textContent = "";
     panel.className = "record-panel";
 
+    openCompareRows = rowsData;
+    openOfferData = null;
     const shown = rowsData.slice(0, COMPARE_LIMIT);
     const title = el("h2", "record-name", rowsData.length + " records selected");
     const clear = el("button", "ghost", "Clear selection");
@@ -1932,10 +1973,22 @@
     // The columns of the TABLE become the rows of the comparison: the owner
     // already chose which fields matter by arranging the grid, so the
     // comparison inherits that choice instead of inventing its own field list.
+    // VISIBLE columns, not every column the server sent: the language toggle
+    // hides one side of each bilingual pair, and Choose Columns moves fields
+    // into the details. A comparison that ignored both would answer with the
+    // Arabic and the English name of every record, one under the other.
+    const visible = new Set();
+    try {
+      table.getColumns().forEach((column) => {
+        if (column.getField() && column.isVisible()) visible.add(column.getField());
+      });
+    } catch (err) { /* not built yet — fall back to the server's list */ }
     const fields = (payload.columns || []).filter((column) =>
+      (!visible.size || visible.has(column.key)) &&
       shown.some((row) => text(row[column.key]) !== ""));
     const headers = ["Field"].concat(shown.map((row) =>
-      text(row.product_name_en || row.product_name || row.external_sku || row.offer_id)));
+      pickLang(row.product_name_en, row.product_name) ||
+      text(row.external_sku || row.offer_id)));
     // Prices are the reason anyone compares two records, so they are compared
     // as prices — formatted, with the row's own currency — never as the bare
     // numbers that would let 750 EGP and 81 EGP look like the same kind of gap

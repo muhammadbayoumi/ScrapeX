@@ -99,8 +99,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-12/11: the record panel became a container of cards and the
     # selection column appeared. A cached script here would keep drawing the
     # old bare tables and would not know the new class names the CSS styles.
-    assert '/static/grid.js?v=design-system-12' in page
-    assert '/static/grid-theme.css?v=design-system-11' in page
+    # design-system-13/12: the AR|EN switch now governs the panel too, and
+    # English is the default. A cached script would keep printing both
+    # languages in the cards under the table.
+    assert '/static/grid.js?v=design-system-13' in page
+    assert '/static/grid-theme.css?v=design-system-12' in page
 
 
 def test_material_header_icons_are_local_and_dry():
