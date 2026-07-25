@@ -41,7 +41,7 @@ async function openTab(path) { chrome.tabs.create({ url: (await getBackend()) + 
 const state = {
   sources: [], selected: new Set(), filter: "",
   job: null, jobRef: null, autoscroll: true, logs: [],
-  dataset: null, cursor: 0, records: [], engineUp: false,
+  engineUp: false,
 };
 
 // ---- views ----------------------------------------------------------------
@@ -452,15 +452,23 @@ async function loadDatasets() {
       return;
     }
     box.innerHTML = withData.map((s) => `
-      <div class="card dataset-card">
+      <article class="card dataset-card" data-open="${esc(s.source_key)}"
+               role="link" tabindex="0"
+               aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook">
+        <span class="dataset-card-open">${icon("chevron-right", "sm")}</span>
         <div><div class="dataset-identity-line">${sourceIdentity(
           s, false, Number(s.observations).toLocaleString())}</div>
           <div class="n">${Number(s.products || 0).toLocaleString()} products</div>
           <div class="n">${esc(s.changes || "no recorded changes yet")}</div></div>
-        <button data-open="${esc(s.source_key)}">Open in Workspace ${icon("open-in-new", "sm")}</button>
-      </div>`).join("");
-    box.querySelectorAll("button[data-open]").forEach((b) =>
-      b.addEventListener("click", () => openDataset(b.dataset.open)));
+      </article>`).join("");
+    box.querySelectorAll("[data-open]").forEach((card) => {
+      card.addEventListener("click", () => openDataset(card.dataset.open));
+      card.addEventListener("keydown", (event) => {
+        if (!["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        openDataset(card.dataset.open);
+      });
+    });
   } catch (_) {
     box.innerHTML = `<div class="card"><span class="err">Couldn't reach the engine.</span></div>`;
   }
@@ -468,43 +476,6 @@ async function loadDatasets() {
 
 function openDataset(key) {
   openTab("/source/" + key);
-}
-
-async function loadRecords(reset) {
-  if (reset) { state.cursor = 0; state.records = []; $("records").innerHTML =
-    `<div class="skeleton"></div><div class="skeleton"></div>`; }
-  const params = new URLSearchParams({
-    source_key: state.dataset, cursor: String(state.cursor), limit: "25",
-    q: $("rec-search").value.trim(), availability: $("rec-avail").value,
-  });
-  try {
-    const page = await api("/api/records?" + params);
-    state.records = state.records.concat(page.records);
-    if (!state.records.length) {
-      $("records").innerHTML = `<div class="card"><span class="muted">No records match.</span></div>`;
-    } else {
-      // Compact cards, a few fields — the panel is not a table (spec 20).
-      // Compact cards, a few fields — the panel is not a table (spec 20).
-      // Country is shown whenever present: for a commodity source it is the ONLY
-      // thing distinguishing one row from the next.
-      $("records").innerHTML = state.records.map((r) => `
-        <div class="card">
-          <div class="name content">${esc(r.name || "—")}</div>
-          ${r.region ? `<div class="kv"><span class="muted">Country</span>
-            <span>${esc(r.region_name || r.region)} <span class="tech">${esc(r.region)}</span></span></div>` : ""}
-          <div class="kv"><span class="muted">Price</span>
-            <span class="tech">${esc(r.effective_price)} ${esc(r.currency)}${
-              r.unit ? ` / ${esc(r.unit)}` : ""}</span></div>
-          <div class="kv"><span class="muted">Status</span>
-            <span>${esc(String(r.availability).replace(/_/g, " "))}</span></div>
-          ${r.sku ? `<div class="kv"><span class="muted">SKU</span><span class="tech">${esc(r.sku)}</span></div>` : ""}
-        </div>`).join("");
-    }
-    state.cursor = page.next_cursor ?? state.cursor;
-    $("more-records").classList.toggle("hidden", page.next_cursor === null);
-  } catch (e) {
-    $("records").innerHTML = `<div class="card"><span class="err">${esc(e.message)}</span></div>`;
-  }
 }
 
 // ---- settings --------------------------------------------------------------
@@ -1110,11 +1081,6 @@ async function init() {
       b.setAttribute("aria-expanded", String(!open));
     }));
 
-  $("estat").addEventListener("click", () => {
-    const open = $("runtime-details").classList.toggle("hidden");
-    $("estat").setAttribute("aria-expanded", String(!open));
-    $("chev").classList.toggle("open", !open);
-  });
   $("recheck").addEventListener("click", render);
   $("setup-recheck").addEventListener("click", render);
   $("engine-start").addEventListener("click", startEngineFromPanel);
@@ -1175,16 +1141,7 @@ async function init() {
   $("mini-pause").addEventListener("click", (e) => controlJob(e.target.dataset.control || "pause"));
   $("mini-cancel").addEventListener("click", () => controlJob("cancel"));
 
-  $("data-back").addEventListener("click", () => {
-    $("dataset-detail").classList.add("hidden"); $("datasets").classList.remove("hidden");
-  });
-  $("open-workspace").addEventListener("click", () => openTab("/source/" + state.dataset));
-  $("more-records").addEventListener("click", () => loadRecords(false));
-  let searchTimer = null;
-  $("rec-search").addEventListener("input", () => {
-    clearTimeout(searchTimer); searchTimer = setTimeout(() => loadRecords(true), 250);
-  });
-  $("rec-avail").addEventListener("change", () => loadRecords(true));
+  $("open-workbook").addEventListener("click", () => openTab("/data"));
 
   $("save").addEventListener("click", async () => { await setBackend($("backend").value); render(); });
   $("how").addEventListener("click", () =>

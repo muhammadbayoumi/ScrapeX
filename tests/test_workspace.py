@@ -169,6 +169,7 @@ def test_source_identity_uses_domain_names_key_and_plain_data_row_metric(client)
     )
     assert 'font-family: Consolas, "Courier New", monospace;' in styles
     assert "margin-inline-end: 0.45em;" in styles
+    assert ".source-identity-meta-value {\n  color: inherit;" in styles
 
 
 @pytest.mark.parametrize("path", ["/", f"/source/{SOURCE}", "/manage", "/schedules",

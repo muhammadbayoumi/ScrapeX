@@ -10,29 +10,7 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <header class="sx-header">
-    <span class="brand"><span class="brand-logo" aria-hidden="true"></span>ScrapeX</span>
-    <button id="estat" class="estat" aria-expanded="false" aria-controls="runtime-details"
-            title="Local runtime status">
-      <span id="dot" class="dot"></span><span id="estat-text">Checking…</span>
-      <svg class="chev sx-icon sm" id="chev" aria-hidden="true">
-        <use href="icons/material-icons.svg#chevron-right"></use>
-      </svg>
-    </button>
-  </header>
-
   <main>
-    <!-- Runtime detail, opened from the status row ------------------------- -->
-    <section id="runtime-details" class="card hidden">
-      <h2 class="flush">Local runtime</h2>
-      <div id="components"></div>
-      <div class="links mt-2">
-        <button id="recheck" class="ghost">Recheck status</button>
-        <button id="diagnostics" class="ghost">Run diagnostics</button>
-      </div>
-      <div id="diag-out" class="muted text-xs"></div>
-    </section>
-
     <!-- ============================ RUN ============================ -->
     <section id="view-run" class="hidden" role="tabpanel" aria-labelledby="tab-run" tabindex="0">
       <header class="view-heading">
@@ -406,9 +384,17 @@
 
     <!-- ============================ DATA ============================ -->
     <section id="view-data" class="hidden" role="tabpanel" aria-labelledby="tab-data" tabindex="0">
-      <header class="view-heading">
-        <h1>Data</h1>
-        <p>Open stored datasets directly in the full Workspace.</p>
+      <header class="view-heading data-view-heading">
+        <div>
+          <h1>Data</h1>
+          <p>Open stored datasets directly in the full Workspace.</p>
+        </div>
+        <button id="open-workbook" type="button">
+          Open workbook
+          <svg class="sx-icon sm" aria-hidden="true">
+            <use href="icons/material-icons.svg#open-in-new"></use>
+          </svg>
+        </button>
       </header>
 
       <section class="card" aria-labelledby="browse-data-heading">
@@ -421,38 +407,6 @@
         <div id="datasets" class="dataset-list">
           <div class="skeleton"></div><div class="skeleton"></div>
         </div>
-
-        <!-- Kept for compatibility with the existing panel wiring. Dataset
-             cards now open the full Workspace directly, so this compact detail
-             view is no longer part of the visible navigation. -->
-      <section id="dataset-detail" class="hidden">
-        <div class="row">
-          <button id="data-back" class="ghost">
-            <svg class="sx-icon sm" aria-hidden="true">
-              <use href="icons/material-icons.svg#arrow-back"></use>
-            </svg>
-            All datasets
-          </button>
-          <button id="open-workspace" class="ghost">
-            Open in Workspace
-            <svg class="sx-icon sm" aria-hidden="true">
-              <use href="icons/material-icons.svg#open-in-new"></use>
-            </svg>
-          </button>
-        </div>
-        <div class="field my-2">
-          <input id="rec-search" type="search" placeholder="Search records..."
-                 aria-label="Search records">
-          <select id="rec-avail" aria-label="Availability filter">
-            <option value="">Any status</option>
-            <option value="in_stock">In stock</option>
-            <option value="out_of_stock">Out of stock</option>
-            <option value="unknown">Unknown</option>
-          </select>
-        </div>
-        <div id="records"></div>
-        <button id="more-records" class="ghost hidden block">Load more</button>
-      </section>
       </section>
 
     </section>
@@ -490,6 +444,18 @@
               </svg>
             </button>
             <div id="s-engine" class="settings-panel hidden">
+              <div id="runtime-details" class="engine-runtime">
+                <div class="engine-runtime-status">
+                  <span id="dot" class="dot"></span>
+                  <strong id="estat-text">Checking…</strong>
+                </div>
+                <div id="components"></div>
+                <div class="links mt-2">
+                  <button id="recheck" class="ghost">Recheck status</button>
+                  <button id="diagnostics" class="ghost">Run diagnostics</button>
+                </div>
+                <div id="diag-out" class="muted text-xs"></div>
+              </div>
               <label class="muted text-xs" for="backend">Engine URL</label>
               <div class="field"><input id="backend" placeholder="http://127.0.0.1:8000" class="tech">
                 <button id="save" class="ghost">Save</button></div>

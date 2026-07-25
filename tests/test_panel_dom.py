@@ -267,15 +267,24 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
     }""")
     page.click(DATA_TAB)
     page.wait_for_timeout(300)
-    assert "Open in Workspace" in page.text_content('[data-open="LONG_AR"]')
+    assert page.locator("header.sx-header").count() == 0
+    assert page.locator("#open-workbook").count() == 1
+    assert page.locator("#datasets button").count() == 0
+    assert "Open in Workspace" not in page.text_content("#view-data")
+
+    page.click("#open-workbook")
+    page.wait_for_timeout(200)
+    opened = page.evaluate("() => window.__opened")
+    assert len(opened) == 1
+    assert opened[0].endswith("/data")
+
+    page.evaluate("() => { window.__opened = []; }")
     page.click('[data-open="LONG_AR"]')
     page.wait_for_timeout(200)
 
     opened = page.evaluate("() => window.__opened")
     assert len(opened) == 1
     assert opened[0].endswith("/source/LONG_AR")
-    assert page.is_hidden("#dataset-detail"), \
-        "the panel preview should not intercept an action that promises Workspace"
 
 
 # ---- untrusted content (spec 34) --------------------------------------------
