@@ -152,6 +152,7 @@ def test_apps_script_can_send_multiple_sources_and_exposes_existing_automation(c
 
 def test_source_identity_uses_domain_names_key_and_plain_data_row_metric(client):
     sync = client.get("/sync").text
+    styles = Path("design/components.css").read_text(encoding="utf-8")
 
     domain = sync.index("elsewedyshop.com")
     english = sync.index("Elsewedy Shop", domain)
@@ -166,6 +167,8 @@ def test_source_identity_uses_domain_names_key_and_plain_data_row_metric(client)
     assert metric < sync.index(
         '<span class="source-identity-meta-value">2</span>', metric
     )
+    assert 'font-family: Consolas, "Courier New", monospace;' in styles
+    assert "margin-inline-end: 0.45em;" in styles
 
 
 @pytest.mark.parametrize("path", ["/", f"/source/{SOURCE}", "/manage", "/schedules",

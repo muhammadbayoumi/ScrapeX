@@ -628,28 +628,31 @@ button.chip {
   gap: 0;
   flex: none;
   color: var(--muted);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  line-height: inherit;
   white-space: nowrap;
 }
 
 .source-identity-meta-bracket {
   color: color-mix(in srgb, var(--muted) 72%, transparent);
-  font-size: var(--fs-2xs);
+  font: inherit;
 }
 
 .source-identity-meta-value,
 .source-identity-meta small {
   display: inline;
+  font: inherit;
 }
 
 .source-identity-meta-value {
   color: var(--text);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-regular);
   font-variant-numeric: tabular-nums;
 }
 
 .source-identity-meta small {
-  font-size: var(--fs-2xs);
+  margin-inline-end: 0.45em;
 }
 
 .source-selection-list {
