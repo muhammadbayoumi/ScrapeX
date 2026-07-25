@@ -10,6 +10,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from . import fields, tax
+from .normalize import option_axes_from
 
 
 @dataclass
@@ -707,6 +708,7 @@ _EXPORT_SELECT: dict[str, str] = {
     "official_source": "po.official_source_name",
     "official_source_url": "po.official_source_url",
     "category_path_en": "sp.category_path_en",
+    "option_axes": "sv.raw_options_json",
 }
 
 # The exported COLUMN NAME and the value that fills it, declared side by side.
@@ -790,6 +792,7 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     ).fetchall()
     tax_rules = tax.load_rules(conn, source_key)
     table = []
+    parsed = []
     for raw in rows:
         row = dict(zip(aliases, raw))
         # ...and read for THIS row's figure, so tax_evidence never contradicts
@@ -797,7 +800,38 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         state = (tax.resolve(tax_rules, row["region"], material=row["name"])
                  .for_row(bool(row["vat_included"])))
         table.append([produce(row, state) for _name, produce in EXPORT_COLUMNS])
-    return list(EXPORT_HEADER), table
+        parsed.append(option_axes_from(row["option_axes"]))
+    return _with_axis_columns(list(EXPORT_HEADER), table, parsed)
+
+
+def _with_axis_columns(header: list[str], table: list[list],
+                       parsed: list[dict]) -> tuple[list[str], list[list]]:
+    """One column per variation AXIS this source publishes, beside the label.
+
+    The owner exported a variable product and found `Color: أحمر` welded into
+    one cell: a spreadsheet cannot filter, group or pivot on that, which is the
+    only reason a column exists. Splitting the STRING at the far end would have
+    been the fix he explicitly refused — so the axes travel from the connector
+    as structure and arrive here as columns named the way the SITE names them
+    ("Color", «السماكة (مم)»).
+
+    The columns are per SOURCE, in first-seen order, because the axes are: a
+    cable shop varies by colour, a steel shop by thickness and width. A source
+    with no variations gets no extra columns at all, so nothing gains an empty
+    column for a shape it does not have.
+    """
+    names: list[str] = []
+    for axes in parsed:
+        for name in axes:
+            if name not in names:
+                names.append(name)
+    if not names:
+        return header, table
+    at = header.index("option_label") + 1
+    widened = header[:at] + names + header[at:]
+    rows = [row[:at] + [axes.get(name, "") for name in names] + row[at:]
+            for row, axes in zip(table, parsed)]
+    return widened, rows
 
 
 DETAILS_HEADER = ["product_name", "region", "sku", "group", "attribute",

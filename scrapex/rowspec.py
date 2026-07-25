@@ -78,11 +78,23 @@ PRODUCT_PRICES = RowSpec(
         "category_path",         # "Concrete additives" or "Cables > Low voltage"
         "category_path_en",      # the SAME path in English, when the site publishes it
         "category_external_id",  # the site's own id for that category, when it has one
+        # --- added 2026-07-25 ------------------------------------------------
+        # The variation's axes as STRUCTURE, not as the sentence `option_label`
+        # composes from them: {"Color": "أحمر", "Size": "2mm"} as compact JSON.
+        # The owner exported to Excel and found "Color: أحمر" in one cell, which
+        # cannot be filtered, grouped or pivoted — and asked for the fix at the
+        # root rather than a split in the spreadsheet. The root is here: woo and
+        # magento both KNOW the axes (woo parses them for the fingerprint,
+        # magento reads configurable_options) and both were throwing the
+        # structure away after composing the label. Kept beside option_label,
+        # not instead of it: the label is what the site calls this variation and
+        # stays the thing a human reads.
+        "option_axes",
     ),
     required=frozenset({"external_product_id", "region", "currency", "vat_included", "effective_price"}),
     additive=frozenset({"unit", "basis_quantity", "product_name_en", "lang",
                         "category_path", "category_path_en",
-                        "category_external_id"}),
+                        "category_external_id", "option_axes"}),
 )
 
 # ---- enrichment: the open-ended attribute bag, one ROW per attribute ---------

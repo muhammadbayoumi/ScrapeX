@@ -231,3 +231,34 @@ def test_multi_currency_without_any_relevant_rate_stays_without_usd_est(conn):
 
     assert "usd_price" not in column_presence(conn, "ELSEWEDYSHOP"), \
         "a column that can only render empty cells was still offered"
+
+
+def test_each_variation_axis_becomes_its_own_export_column(conn):
+    """The owner exported a variable product and read "Color: أحمر" in ONE cell.
+
+    A spreadsheet cannot filter, group or pivot on that, which is the only
+    reason the column exists — and he asked for the fix at the root, not for
+    the string to be cut at the far end. So the axes travel from the connector
+    as structure and arrive as columns named the way the SITE names them.
+    """
+    from scrapex.reports import export_source_table
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_variant_id="v1", option_label="Color: أحمر",
+                option_axes='{"Color":"أحمر"}'),
+        one_row(external_variant_id="v2", option_label="Color: أخضر",
+                option_axes='{"Color":"أخضر"}', effective_price="99.00"),
+    ])])
+    header, table = export_source_table(conn, "ELSEWEDYSHOP")
+
+    assert "Color" in header, "the axis never became a column"
+    assert header.index("Color") == header.index("option_label") + 1, \
+        "the axis belongs beside the label it was welded into, not at the far end"
+    rows = sorted(dict(zip(header, row))["Color"] for row in table)
+    assert rows == ["أحمر", "أخضر"]
+
+
+def test_a_source_without_variations_gains_no_empty_axis_columns(conn):
+    from scrapex.reports import EXPORT_HEADER, export_source_table
+    ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
+    header, _table = export_source_table(conn, "ELSEWEDYSHOP")
+    assert header == EXPORT_HEADER

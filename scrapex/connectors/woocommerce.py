@@ -18,7 +18,7 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import option_fingerprint
+from ..normalize import option_axes_json, option_fingerprint
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -270,6 +270,12 @@ class WooCommerceConnector:
             product_url=product.get("permalink") or carrier.get("permalink") or "",
             option_label=option,
             option_fingerprint=option_fingerprint(axes) if axes else "",
+            # The SAME axes as structure. They were parsed already, for the
+            # fingerprint, and then thrown away — so the warehouse kept
+            # "Color: أحمر" as one string and an export could not split it into
+            # the two columns it is (the owner's report, fixed at the root
+            # rather than by cutting the string at the far end).
+            option_axes=option_axes_json(axes),
             unit=unit,
             basis_quantity=basis,
             region=source.default_region,

@@ -34,7 +34,7 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import option_fingerprint, selling_unit_from
+from ..normalize import option_axes_json, option_fingerprint, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -480,7 +480,7 @@ class MagentoGraphqlConnector:
                          for o in product.get("configurable_options") or []}
 
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp="",
-                basis="", unit="", vat=None):
+                basis="", unit="", vat=None, axes=None):
             effective = fin if fin is not None else reg
             if effective is None:
                 return  # a product with no price — skip, don't emit an empty required field
@@ -494,6 +494,12 @@ class MagentoGraphqlConnector:
                 # telephone and data sockets". Same rule as the Arabic name.
                 product_name_en=names_en.get(str(pid)) or names_en.get(str(vid)) or "",
                 option_label=label, option_fingerprint=fp,
+                # The axes as STRUCTURE beside the sentence built from them.
+                # `_option_text` composes «السماكة (مم): 2.2، العرض (مم): 24»
+                # for a person to read; a spreadsheet needs one column per
+                # axis, and the parts were being discarded the moment the
+                # sentence existed (the owner's report, fixed at the root).
+                option_axes=option_axes_json(axes or {}),
                 basis_quantity=basis, unit=unit,
                 product_url=url, region=ctx["region"], currency=ctx["currency"],
                 # PER ROW, never per source: on this platform one crawl carries
@@ -612,6 +618,13 @@ class MagentoGraphqlConnector:
                     product.get("name") or child.get("name"), reg, fin, child.get("stock_status"),
                     label=_option_text(attrs, option_labels),
                     fp=option_fingerprint({a["code"]: a.get("label", "") for a in attrs}) if attrs else "",
+                    # Keyed by the site's own axis LABEL, not its internal code:
+                    # a column headed «السماكة (مم)» is readable, one headed
+                    # `thickness_mm` is our vocabulary imposed on the shop's.
+                    # The code stays the fingerprint's key, where stability
+                    # matters more than legibility.
+                    axes={option_labels.get(str(a.get("code") or ""), str(a.get("code") or "")):
+                          str(a.get("label") or "") for a in attrs},
                     basis=basis, unit=unit, vat=variant_vat)
         else:
             # A product standing alone must have ONE price, not a span. Every

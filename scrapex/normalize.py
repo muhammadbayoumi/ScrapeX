@@ -145,6 +145,44 @@ def option_fingerprint(options: dict[str, str]) -> str:
     return "|".join(parts)
 
 
+def option_axes_json(axes: dict[str, str]) -> str:
+    """The variation's axes as STRUCTURE, for the row that carries them.
+
+    `option_label` is the sentence the site writes — "Color: أحمر" — and it is
+    what a person reads. It is not what a spreadsheet can work with: the owner
+    exported a variable product and got the axis and its value welded into one
+    cell, unable to be filtered, grouped or pivoted, and asked for the fix at
+    the root rather than a split at the end. Both connectors that build that
+    sentence already hold the parts (woo parses them for the fingerprint,
+    magento reads them out of configurable_options) and were discarding the
+    structure the moment the sentence existed.
+
+    Insertion order is preserved, not sorted: it is the order the site lists
+    its axes in, and reordering would be an opinion. Empty pairs are dropped —
+    an axis with no value is not a fact. Arabic is written through, not
+    escaped, because these strings are read by people.
+    """
+    kept = {str(k).strip(): str(v).strip()
+            for k, v in (axes or {}).items() if str(k).strip() and str(v).strip()}
+    if not kept:
+        return ""
+    return json.dumps(kept, ensure_ascii=False, separators=(",", ":"))
+
+
+def option_axes_from(raw: str) -> dict[str, str]:
+    """The axes back out of a stored row. Anything unreadable reads as none —
+    a half-parsed variation must not become a half-true column."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k): str(v) for k, v in parsed.items() if str(k) and str(v)}
+
+
 _NAME_NOISE = re.compile(r"[^\w؀-ۿ]+")  # keep word chars + Arabic letters
 
 

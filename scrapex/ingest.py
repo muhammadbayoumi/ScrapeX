@@ -265,6 +265,11 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
                 "UPDATE source_variant SET external_sku = ? "
                 "WHERE source_variant_id = ? AND COALESCE(external_sku,'') != ?",
                 (r["external_sku"], found, r["external_sku"]))
+        if r.get("option_axes"):
+            conn.execute(
+                "UPDATE source_variant SET raw_options_json = ? "
+                "WHERE source_variant_id = ? AND COALESCE(raw_options_json,'') != ?",
+                (r["option_axes"], found, r["option_axes"]))
         status = conn.execute(
             "SELECT status FROM source_variant WHERE source_variant_id = ?",
             (found,)).fetchone()[0]
@@ -285,6 +290,11 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         "external_sku": r["external_sku"] or None,
         "option_fingerprint": fp,
         "option_label": r["option_label"] or None,
+        # The axes as the site states them, as structure. The column has
+        # existed since the first schema and was NULL on every row ever
+        # written: connectors composed "Color: أحمر" and dropped the parts, so
+        # nothing downstream could put the axis and its value in two columns.
+        "raw_options_json": r.get("option_axes") or None,
     }), True
 
 
