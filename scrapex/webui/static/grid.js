@@ -1079,7 +1079,13 @@
   function headerLabel(cell) {
     const label = document.createElement("span");
     label.className = "grid-header-label";
-    label.textContent = text(cell.getValue());
+    // Tabulator substitutes the literal string "&nbsp;" for an empty column
+    // title, to keep the header row's height. Setting that through textContent
+    // printed those six characters as the heading of the arrow column — the
+    // owner read "&nbsp;" above the link to the product. That column has no
+    // title on purpose, so an empty title stays empty.
+    const value = text(cell.getValue());
+    label.textContent = value === "&nbsp;" ? "" : value;
     return label;
   }
 
@@ -1155,36 +1161,12 @@
       return def;
     });
 
-    columns.push({
-      title: "History", field: "offer_id", headerSort: false, resizable: false,
-      width: 110, download: false, headerMenu: undefined, headerPopup: undefined,
-      formatter: (cell) => {
-        // A tree heading is not an offer, so it has no history to link to.
-        // Rendering the link anyway would point at /offer/undefined: a control
-        // that looks live and leads nowhere.
-        if (!cell.getValue()) return "";
-        const link = document.createElement("a");
-        link.className = "grid-action";
-        link.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + cell.getValue();
-        link.textContent = "History";
-        link.title = "Every price this offer has had";
-        // A plain left-click opens the story UNDER the table, so choosing a
-        // row never navigates away from the filtered view that found it. The
-        // href stays real: middle-click, ctrl-click and scripting-off all
-        // still reach the full page.
-        link.addEventListener("click", (event) => {
-          if (event.button !== 0 || event.ctrlKey || event.metaKey ||
-              event.shiftKey || event.altKey) return;
-          event.preventDefault();
-          // The SAME panel a row selection opens — one output for every
-          // source (owner's ruling: not a Details button here and a row
-          // selection there). Picture, then details, then the price story.
-          openOfferPanel(cell.getValue(), "record",
-                         cell.getRow().getData());
-        });
-        return link;
-      },
-    });
+    // There is NO History column. Selecting a row opens the record underneath,
+    // price story included, so a column whose only job was to open the same
+    // container was a second door into a room the row already opens (the
+    // owner's ruling, and the same reason the Details column went). The full
+    // page at /source/<key>/offer/<id> still exists and is still linked from
+    // the record's own header, for bookmarking and middle-click.
 
     if (features.rownum) {
       columns.unshift({title: "#", field: "__n", width: 56, headerSort: false,

@@ -773,6 +773,18 @@
   text-decoration-thickness: 2px;
 }
 
+/* ...except where the control is an ICON. The signature above is for text
+   living inside content, where the underline is what separates a link from a
+   word. A bare glyph has no text to underline, so all that reached the table
+   was the amber — a warning colour, in a table that uses no other colour, on a
+   control that does nothing more alarming than open the product's own page. It
+   wears the theme's accent instead, and it is still the only coloured thing in
+   its cell. (Owner-reported, 2026-07-25.) */
+.tabulator .grid-action .inline-icon {
+  color: var(--accent-ink);
+}
+.tabulator .grid-action:hover .inline-icon { color: var(--accent); }
+
 /* ---- the record panel ----------------------------------------------------
  * What opens UNDER the table when a row is selected. It used to be a bare
  * stack of headings and two-column tables on the page background: the same

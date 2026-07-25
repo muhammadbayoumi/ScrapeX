@@ -105,6 +105,9 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-14: the Excel button asks the SERVER for the whole workbook.
     # A cached script would keep calling Tabulator's xlsx writer, which needs a
     # library this project does not vendor, and keep producing nothing.
+    # design-system-15/13: the History column is gone, an empty column title no
+    # longer prints "&nbsp;", and the arrow wears the theme's accent instead of
+    # the amber reserved for text links.
     # design-system-15/13: row checkboxes now accumulate selection, the header
     # checkbox reports partial/all state, and the frozen selection divider is
     # removed from the shared table frame.
@@ -541,24 +544,35 @@ def test_a_tree_heading_never_speaks_for_its_children():
 
 
 def test_a_heading_row_offers_no_link_to_a_record_it_does_not_have():
-    """A heading has no offer_id, so a History link on it pointed at
-    /offer/undefined — a control that looks live and leads nowhere."""
+    """A grouping heading is not an offer, so nothing may open a record for it.
+
+    This used to pin the History column's own guard ("if (!cell.getValue())"),
+    and that column is gone: selecting a row opens the record underneath, so a
+    column whose only job was to open the same container was a second door into
+    a room the row already opens. The concern outlived the column - the guard
+    that matters now is the selection filter, because a heading row IS
+    selectable and has no offer_id."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
-    assert "if (!cell.getValue()) return \"\";" in script
+    assert 'title: "History"' not in script, "the History column is back"
+    assert ".filter((row) => row.offer_id)" in script,         "a heading row would open /api/offer/undefined"
 
 
 def test_history_opens_inline_and_the_full_page_link_survives():
-    """The owner's ask: History must open UNDER the table, not navigate away —
-    and the real href must stay, so middle-click and scripting-off still reach
-    the full page. The interception is only ever a plain left-click."""
+    """The owner's ask: the record opens UNDER the table, never by navigating
+    away — and the full page must stay reachable, for bookmarking.
+
+    The modified-click passthrough this used to assert belonged to the History
+    LINK, and that link is gone with its column: selecting a row opens the same
+    container, so a column whose only job was to open it was a second door into
+    a room the row already opens. The full page did not go with it — the
+    record's own header carries a real href to it."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
 
     assert 'id="offer-panel"' in page
     assert "openOfferPanel" in script and "/api/offer/" in script
-    assert "event.preventDefault()" in script
-    assert "event.ctrlKey || event.metaKey" in script, \
-        "modified clicks must keep opening the full page"
+    assert 'el("a", "", "Open full page")' in script
+    assert 'full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/"' in script
 
 
 def test_the_panel_never_renders_scraped_values_as_html():
