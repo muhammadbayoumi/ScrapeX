@@ -73,6 +73,16 @@
     <p class="hint">Every table in the database, in the order the data moves:
        what a source said, what it costs, your own unified layer on top, and the
        record of what ran. Counts are read from the database right now.</p>
+    {# A template is re-read from disk on every request; the Python that fills
+       it is loaded once, when the engine starts. So an engine started before an
+       update serves the NEW page with the OLD data behind it, and a section
+       renders as a heading with nothing under it. That silence is worse than an
+       error - it reads as "there are no tables". It says why instead. #}
+    {% if not schema.warehouse %}
+      <p class="err">This page is being drawn by an engine that started before
+         this section existed — the layout is current, the data behind it is not.
+         Restart the engine and it fills in. Nothing is wrong with the database.</p>
+    {% endif %}
     {% for group in schema.warehouse %}
       <h3>{{ group.title }}</h3>
       <p class="hint">{{ group.note }}</p>
