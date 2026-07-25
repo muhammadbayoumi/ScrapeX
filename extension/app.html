@@ -411,6 +411,44 @@
 
     </section>
 
+    <!-- ========================== SOURCES ========================== -->
+    <section id="view-sources" class="hidden" role="tabpanel"
+             aria-labelledby="tab-sources" tabindex="0">
+      <header class="view-heading source-manager-heading">
+        <div>
+          <h1>Add or edit source</h1>
+          <p>Add a new source or update an existing source.</p>
+        </div>
+        <button id="source-manager-add" type="button">
+          <svg class="sx-icon sm" aria-hidden="true">
+            <use href="icons/material-icons.svg#add"></use>
+          </svg>
+          Add source
+        </button>
+      </header>
+
+      <section class="card source-manager-panel" aria-labelledby="source-library-heading">
+        <div class="section-head source-manager-section-head">
+          <div>
+            <h2 id="source-library-heading">Source library</h2>
+            <p>Choose a source to review and edit its setup.</p>
+          </div>
+          <span id="source-manager-count" class="muted text-xs"></span>
+        </div>
+        <label class="source-manager-search">
+          <span class="visually-hidden">Search sources</span>
+          <svg class="sx-icon sm" aria-hidden="true">
+            <use href="icons/material-icons.svg#search"></use>
+          </svg>
+          <input id="source-manager-filter" type="search"
+                 placeholder="Search by domain, name, or key...">
+        </label>
+        <div id="source-manager-list" class="source-manager-list">
+          <div class="skeleton"></div><div class="skeleton"></div>
+        </div>
+      </section>
+    </section>
+
     <!-- ========================== SETTINGS ========================== -->
     <section id="view-settings" class="hidden" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
       <header class="view-heading">
@@ -492,12 +530,6 @@
                 </button>
                 <button type="button" class="link" id="open-browse">
                   Browse all data
-                  <svg class="sx-icon sm" aria-hidden="true">
-                    <use href="icons/material-icons.svg#open-in-new"></use>
-                  </svg>
-                </button>
-                <button type="button" class="link" id="open-manage">
-                  Manage sources
                   <svg class="sx-icon sm" aria-hidden="true">
                     <use href="icons/material-icons.svg#open-in-new"></use>
                   </svg>
@@ -644,6 +676,14 @@
 
     <div class="rail-tablist rail-tablist-bottom" role="tablist"
          aria-label="Extension settings">
+      <button class="rail-item" id="tab-sources" role="tab" data-view="sources"
+              aria-controls="view-sources" aria-selected="false" tabindex="-1"
+              aria-label="Add or edit sources" title="Add or edit sources">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#tune"></use>
+        </svg>
+        <span class="visually-hidden">Add or edit sources</span>
+      </button>
       <button class="rail-item" id="tab-settings" role="tab" data-view="settings"
               aria-controls="view-settings" aria-selected="false" tabindex="-1"
               aria-label="Settings" title="Settings">

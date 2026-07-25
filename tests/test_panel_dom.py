@@ -26,6 +26,7 @@ import panel_harness as harness  # noqa: E402
 SOURCE_TAB = 'nav.tabs button[data-view="source"]'
 RUN_TAB = 'nav.tabs button[data-view="run"]'
 DATA_TAB = 'nav.tabs button[data-view="data"]'
+SOURCES_TAB = 'nav.tabs button[data-view="sources"]'
 SETTINGS_TAB = 'nav.tabs button[data-view="settings"]'
 
 
@@ -96,8 +97,8 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["y"] == pytest.approx(0, abs=1)
     assert bounds["height"] == pytest.approx(800, abs=1)
 
-    assert page.locator("nav.side-rail button[data-view]").count() == 4
-    assert page.locator("nav.side-rail button.rail-item").count() == 5
+    assert page.locator("nav.side-rail button[data-view]").count() == 5
+    assert page.locator("nav.side-rail button.rail-item").count() == 6
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
     # Rolled 9 -> 10 when the Schema page joined System: the panel mirrors the
@@ -368,6 +369,64 @@ def test_dataset_hover_does_not_move_the_card_out_of_its_scrollport(open_panel):
     assert card.evaluate("(element) => getComputedStyle(element).transform") == "none"
 
 
+# ---- source management ------------------------------------------------------
+
+def test_sources_has_its_own_page_immediately_above_settings(open_panel):
+    page = open_panel()
+    sources_y, settings_y = page.evaluate("""() => [
+        document.querySelector('[data-view="sources"]').offsetTop,
+        document.querySelector('[data-view="settings"]').offsetTop,
+    ]""")
+    assert sources_y < settings_y
+
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    assert page.is_visible("#view-sources")
+    assert page.locator("#source-manager-list .source-manager-card").count() == 3
+    assert "3 of 3" in text_of(page, "#source-manager-count")
+
+
+def test_add_source_opens_the_existing_working_form(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.click("#source-manager-add")
+    page.wait_for_timeout(220)
+
+    assert page.is_visible("#view-source")
+    assert page.is_checked("#source-addsite")
+    assert page.is_visible("#source-detail")
+    assert page.evaluate("() => document.activeElement?.id") == "url"
+
+
+def test_edit_source_opens_that_source_in_the_full_manager(open_panel):
+    page = open_panel()
+    page.evaluate("""() => {
+        window.__opened = [];
+        window.chrome.tabs.create = (o) => window.__opened.push(o.url);
+    }""")
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(150)
+
+    opened = page.evaluate("() => window.__opened")
+    assert len(opened) == 1
+    assert opened[0].endswith("/manage?source_key=SHORT")
+
+
+def test_sources_scroll_inside_the_library_card_not_the_page(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(200)
+
+    page_overflow, list_overflow = page.evaluate("""() => [
+        getComputedStyle(document.querySelector("main")).overflowY,
+        getComputedStyle(document.querySelector("#source-manager-list")).overflowY,
+    ]""")
+    assert page_overflow == "hidden"
+    assert list_overflow == "auto"
+
+
 # ---- untrusted content (spec 34) --------------------------------------------
 
 def test_a_scraped_name_containing_markup_cannot_inject_into_the_panel(open_panel):
@@ -423,7 +482,7 @@ def test_the_workspace_links_can_be_reached_and_fired_from_the_keyboard(open_pan
     page.wait_for_timeout(300)
     assert page.is_visible("#open-storage"), "the section did not open from the keyboard"
 
-    for control in ("#open-storage", "#open-browse", "#open-manage"):
+    for control in ("#open-storage", "#open-browse"):
         page.focus(control)
         assert page.evaluate(
             "(sel) => document.activeElement === document.querySelector(sel)", control
@@ -432,7 +491,7 @@ def test_the_workspace_links_can_be_reached_and_fired_from_the_keyboard(open_pan
 
     page.wait_for_timeout(300)
     opened = page.evaluate("() => window.__opened")
-    assert len(opened) == 3, f"a keyboard press opened nothing: {opened}"
+    assert len(opened) == 2, f"a keyboard press opened nothing: {opened}"
 
 
 def test_nothing_that_looks_like_a_link_is_an_unfocusable_span(open_panel):

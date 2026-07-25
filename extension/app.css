@@ -80,12 +80,17 @@
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-data, #view-settings { display: flex; flex-direction: column; gap: var(--sp-3); }
+  #view-run, #view-data, #view-sources, #view-settings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
   /* Data follows the same pattern as Choose sites: the page frame stays put
      while the repeated rows scroll inside their own card. */
-  body:has(#view-data:not(.hidden)) main { overflow-y: hidden; }
-  #view-data { flex: 1; min-height: 0; }
-  #view-data > .card {
+  body:has(#view-data:not(.hidden)) main,
+  body:has(#view-sources:not(.hidden)) main { overflow-y: hidden; }
+  #view-data, #view-sources { flex: 1; min-height: 0; }
+  #view-data > .card, #view-sources > .card {
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -95,11 +100,20 @@
   .view-heading { display: flex; flex-direction: column; gap: 2px; }
   .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
   .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
-  .data-view-heading { flex-direction: row; align-items: flex-start;
-                       justify-content: space-between; gap: var(--sp-3); }
-  .data-view-heading > div { min-width: 0; }
-  .data-view-heading > button { display: inline-flex; flex: none; align-items: center;
-                                justify-content: center; gap: var(--sp-1); }
+  .data-view-heading, .source-manager-heading {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-3);
+  }
+  .data-view-heading > div, .source-manager-heading > div { min-width: 0; }
+  .data-view-heading > button, .source-manager-heading > button {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-1);
+  }
   .section-head { display: flex; align-items: flex-start; gap: var(--sp-2);
                   margin-bottom: var(--sp-3); }
   .section-head h2 { margin: 0; }
@@ -147,13 +161,114 @@
                        inset-inline-end: var(--sp-3); color: var(--muted); }
   .dataset-card:hover .dataset-card-open { color: var(--accent-ink); }
   .dataset-card-open svg { width: 1rem; height: 1rem; fill: currentColor; }
+  .source-manager-panel { padding-bottom: var(--sp-2); }
+  .source-manager-section-head {
+    align-items: center;
+    justify-content: space-between;
+  }
+  .source-manager-search {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-3);
+    padding-inline: var(--sp-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    color: var(--muted);
+  }
+  .source-manager-search:focus-within {
+    border-color: var(--focus);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 25%, transparent);
+  }
+  .source-manager-search input {
+    width: 100%;
+    padding-inline: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .source-manager-search input:focus { box-shadow: none; }
+  .source-manager-list {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--sp-2);
+    min-height: 0;
+    padding-inline-end: var(--sp-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+  .source-manager-list::-webkit-scrollbar { width: .45rem; }
+  .source-manager-list::-webkit-scrollbar-track {
+    margin-block: var(--sp-2);
+    background: transparent;
+  }
+  .source-manager-list::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    background-clip: padding-box;
+  }
+  .source-manager-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--sp-3);
+    align-items: center;
+    padding: var(--sp-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    transition:
+      border-color var(--dur-fast) ease,
+      background var(--dur-fast) ease;
+  }
+  .source-manager-card:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+    background: var(--surface-subtle);
+  }
+  .source-manager-card-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+  .source-manager-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+  .source-manager-card-meta .dot { width: .45rem; height: .45rem; }
+  .source-manager-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    align-self: center;
+    padding-inline: var(--sp-3);
+  }
+  .source-manager-empty {
+    display: grid;
+    flex: 1;
+    place-items: center;
+    min-height: 8rem;
+    padding: var(--sp-4);
+    color: var(--muted);
+    text-align: center;
+  }
   .engine-runtime { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-3);
                     padding-bottom: var(--sp-3); border-bottom: 1px solid var(--line); }
   .engine-runtime-status { display: flex; align-items: center; gap: var(--sp-2);
                            font-size: var(--fs-sm); }
   @media (max-width: 390px) {
-    .data-view-heading { flex-direction: column; }
-    .data-view-heading > button { width: 100%; }
+    .data-view-heading, .source-manager-heading { flex-direction: column; }
+    .data-view-heading > button, .source-manager-heading > button { width: 100%; }
+    .source-manager-card { grid-template-columns: minmax(0, 1fr); }
+    .source-manager-edit { width: 100%; justify-content: center; }
   }
   .output-groups { display: flex; flex-direction: column; gap: var(--sp-4); }
   .output-group + .output-group { border-top: 1px solid var(--line); padding-top: var(--sp-4); }
@@ -348,7 +463,7 @@
   .mini-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
 
   /* Compact icon navigation at the far right. Deep workspace destinations open
-     in the full web UI; Source, Run, Data and Settings stay in this panel. */
+     in the full web UI; Source, Run, Data, Sources and Settings stay in this panel. */
   nav.side-rail {
     grid-column: 2;
     grid-row: 1 / -1;

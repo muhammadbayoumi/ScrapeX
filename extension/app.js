@@ -39,13 +39,13 @@ async function openTab(path) { chrome.tabs.create({ url: (await getBackend()) + 
 
 // ---- state ----------------------------------------------------------------
 const state = {
-  sources: [], selected: new Set(), filter: "",
+  sources: [], selected: new Set(), filter: "", sourceFilter: "",
   job: null, jobRef: null, autoscroll: true, logs: [],
   engineUp: false,
 };
 
 // ---- views ----------------------------------------------------------------
-const VIEWS = ["source", "run", "data", "settings"];
+const VIEWS = ["source", "run", "data", "sources", "settings"];
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
 // stopped. When /api/ui responds, its canonical navigation replaces this copy.
@@ -165,6 +165,7 @@ function showView(name, animate = true) {
     main.scrollTo({top: 0, behavior: reduceMotion.matches ? "auto" : "smooth"});
   }
   if (name === "data") loadDatasets();
+  if (name === "sources") loadSources();
   if (name === "settings") { loadSchedules(); loadStorage(); }
   if (name === "source") loadCurrentPage();
 }
@@ -302,6 +303,60 @@ function renderSites() {
   refreshRunButton();
 }
 
+function renderSourceManager() {
+  const box = $("source-manager-list");
+  const term = state.sourceFilter.trim().toLowerCase();
+  const shown = state.sources.filter((source) =>
+    !term || (source.source_name || "").toLowerCase().includes(term) ||
+    (source.source_name_en || "").toLowerCase().includes(term) ||
+    (source.source_key || "").toLowerCase().includes(term) ||
+    sourceDomain(source.base_url).includes(term));
+
+  $("source-manager-count").textContent = state.sources.length
+    ? `${shown.length} of ${state.sources.length}`
+    : "";
+
+  if (!state.sources.length) {
+    box.innerHTML = `<div class="source-manager-empty">
+      No sources yet. Add your first source to start collecting data.
+    </div>`;
+    return;
+  }
+  if (!shown.length) {
+    box.innerHTML = `<div class="source-manager-empty">
+      No source matches â€œ${esc(state.sourceFilter)}â€.
+    </div>`;
+    return;
+  }
+
+  box.innerHTML = shown.map((source) => {
+    const status = source.implemented ? "Ready" : "Connector unavailable";
+    return `<article class="source-manager-card">
+      <div class="source-manager-card-copy">
+        ${sourceIdentity(
+          source, false, Number(source.observations || 0).toLocaleString())}
+        <span class="source-manager-card-meta muted text-xs">
+          <span class="dot ${source.implemented ? "on" : "off"}" aria-hidden="true"></span>
+          <span>${status}</span>
+          <span aria-hidden="true">Â·</span>
+          <span>Automation ${source.active ? "on" : "off"}</span>
+        </span>
+      </div>
+      <button type="button" class="ghost source-manager-edit"
+              data-edit-source="${esc(source.source_key)}"
+              aria-label="Edit ${esc(sourceDomain(source.base_url) ||
+                source.source_name || source.source_key)}">
+        Edit
+        ${icon("open-in-new", "sm")}
+      </button>
+    </article>`;
+  }).join("");
+
+  box.querySelectorAll("[data-edit-source]").forEach((button) =>
+    button.addEventListener("click", () =>
+      openTab("/manage?source_key=" + encodeURIComponent(button.dataset.editSource))));
+}
+
 async function loadSources() {
   try {
     const { sources } = await api("/api/sources");
@@ -311,10 +366,14 @@ async function loadSources() {
       if (!sources.some((s) => s.source_key === key)) state.selected.delete(key);
     }
     renderSites();
+    renderSourceManager();
     loadChangeSummaries();
   } catch (_) {
     $("sites").innerHTML =
       `<div class="srow"><span class="err">Couldn&#39;t reach the engine.</span></div>`;
+    $("source-manager-count").textContent = "";
+    $("source-manager-list").innerHTML =
+      `<div class="source-manager-empty err">Couldn&#39;t reach the engine.</div>`;
   }
 }
 
@@ -1220,6 +1279,22 @@ async function init() {
   $("site-search").addEventListener("input", (e) => {
     state.filter = e.target.value; renderSites();
   });
+  $("source-manager-filter").addEventListener("input", (e) => {
+    state.sourceFilter = e.target.value;
+    renderSourceManager();
+  });
+  $("source-manager-add").addEventListener("click", () => {
+    showView("source");
+    const choice = $("source-addsite");
+    choice.checked = true;
+    choice.dispatchEvent(new Event("change", {bubbles: true}));
+    requestAnimationFrame(() => {
+      $("source-detail").scrollIntoView({
+        behavior: reduceMotion.matches ? "auto" : "smooth", block: "start",
+      });
+      $("url").focus({preventScroll: true});
+    });
+  });
   $("select-all").addEventListener("click", () => {
     // What is VISIBLE, not what exists: with a search term typed, taking the
     // whole catalogue left the count contradicting the list on screen.
@@ -1272,7 +1347,6 @@ async function init() {
   $("how").addEventListener("click", () =>
     chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") }));
   $("open-browse").addEventListener("click", () => openTab("/"));
-  $("open-manage").addEventListener("click", () => openTab("/manage"));
   // The workspace opens with the Storage section already expanded, so the link
   // lands on what it promised rather than on a wall of closed rows.
   $("open-storage").addEventListener("click", () => openTab("/settings#s-storage"));
