@@ -84,7 +84,7 @@ def test_opening_the_panel_raises_no_script_errors(open_panel):
     assert page.js_errors == [], f"the panel threw on load: {page.js_errors}"
 
 
-def test_the_icon_rail_replaces_the_bottom_tabs_and_covers_the_web_workspace(open_panel):
+def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel):
     page = open_panel()
     page.evaluate("""() => {
         window.__opened = [];
@@ -97,15 +97,41 @@ def test_the_icon_rail_replaces_the_bottom_tabs_and_covers_the_web_workspace(ope
     assert bounds["height"] == pytest.approx(800, abs=1)
 
     assert page.locator("nav.side-rail button[data-view]").count() == 4
+    assert page.locator("nav.side-rail button.rail-item").count() == 5
     workspace = page.locator("#workspace-links [data-workspace-path]")
     assert workspace.count() == 9
-    assert all(workspace.nth(i).get_attribute("aria-label")
-               for i in range(workspace.count()))
+    assert page.locator("#workspace-links .workspace-menu-group").count() == 4
+    assert not page.locator("#workspace-menu").get_attribute("class").endswith("is-open")
 
+    page.click("#workspace-toggle")
+    assert page.get_attribute("#workspace-toggle", "aria-expanded") == "true"
+    assert page.get_attribute("#workspace-menu", "aria-hidden") == "false"
     page.click('[data-workspace-key="changes"]')
     page.wait_for_timeout(100)
     opened = page.evaluate("() => window.__opened")
     assert len(opened) == 1 and opened[0].endswith("/changes")
+
+
+def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):
+    page = open_panel()
+    page.focus(SOURCE_TAB)
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(220)
+
+    assert page.is_visible("#view-run")
+    assert page.get_attribute(RUN_TAB, "aria-current") == "page"
+    indicator_y, run_y = page.evaluate("""() => [
+        getComputedStyle(document.querySelector("nav.side-rail"))
+          .getPropertyValue("--rail-indicator-y").trim(),
+        document.querySelector('[data-view="run"]').offsetTop + "px",
+    ]""")
+    assert indicator_y == run_y
+
+    page.click("#workspace-toggle")
+    assert page.get_attribute("#workspace-menu", "aria-hidden") == "false"
+    page.keyboard.press("Escape")
+    assert page.get_attribute("#workspace-menu", "aria-hidden") == "true"
+    assert page.evaluate("() => document.activeElement.id") == "workspace-toggle"
 
 
 def test_a_tab_that_is_not_a_website_is_refused_with_a_reason(open_panel):

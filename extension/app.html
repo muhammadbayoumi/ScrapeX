@@ -603,6 +603,7 @@
   </details>
 
   <nav class="tabs side-rail" aria-label="ScrapeX navigation">
+    <span id="rail-indicator" class="rail-indicator" aria-hidden="true"></span>
     <div class="rail-tablist" role="tablist" aria-label="Extension pages">
       <button class="rail-item" id="tab-source" role="tab" data-view="source"
               aria-controls="view-source" aria-selected="true" aria-current="page"
@@ -631,8 +632,14 @@
     </div>
 
     <span class="rail-divider" aria-hidden="true"></span>
-    <div id="workspace-links" class="rail-workspace"
-         aria-label="Workspace pages"></div>
+    <button class="rail-item" id="workspace-toggle" type="button"
+            aria-controls="workspace-menu" aria-expanded="false"
+            aria-label="Workspace pages" title="Workspace pages">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#dashboard"></use>
+      </svg>
+      <span class="visually-hidden">Workspace pages</span>
+    </button>
     <span class="rail-spacer" aria-hidden="true"></span>
 
     <div class="rail-tablist rail-tablist-bottom" role="tablist"
@@ -647,6 +654,27 @@
       </button>
     </div>
   </nav>
+
+  <button id="workspace-backdrop" class="workspace-menu-backdrop" type="button"
+          tabindex="-1" aria-label="Close Workspace pages"></button>
+  <aside id="workspace-menu" class="workspace-menu" aria-hidden="true"
+         aria-labelledby="workspace-menu-title">
+    <header class="workspace-menu-head">
+      <div>
+        <span class="workspace-menu-eyebrow">Full Workspace</span>
+        <h2 id="workspace-menu-title">Open a workspace page</h2>
+        <p>Detailed tools open in a full browser tab.</p>
+      </div>
+      <button id="workspace-close" class="icon-button ghost" type="button"
+              aria-label="Close Workspace pages" title="Close">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#close"></use>
+        </svg>
+      </button>
+    </header>
+    <div id="workspace-links" class="workspace-menu-groups"
+         aria-label="Workspace pages"></div>
+  </aside>
 
   <script type="module" src="app.js"></script>
 </body>

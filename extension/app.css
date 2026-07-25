@@ -15,7 +15,16 @@
   .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
 
   main { grid-column: 1; grid-row: 1; overflow-y: auto; padding: var(--sp-4);
-         display: flex; flex-direction: column; gap: var(--sp-4); }
+         display: flex; flex-direction: column; gap: var(--sp-4);
+         scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
+  main::-webkit-scrollbar { width: .45rem; }
+  main::-webkit-scrollbar-track { background: transparent; }
+  main::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    background-clip: padding-box;
+  }
   h2 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
        color: var(--muted); margin: var(--sp-1) 0; }
   .field { display: flex; gap: var(--sp-2); }
@@ -308,6 +317,8 @@
   nav.side-rail {
     grid-column: 2;
     grid-row: 1 / -1;
+    position: relative;
+    z-index: 30;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -321,7 +332,7 @@
     scrollbar-width: none;
   }
   nav.side-rail::-webkit-scrollbar { display: none; }
-  .rail-tablist, .rail-workspace {
+  .rail-tablist {
     display: flex;
     flex: none;
     flex-direction: column;
@@ -329,7 +340,26 @@
     gap: var(--sp-1);
     width: 100%;
   }
+  .rail-indicator {
+    position: absolute;
+    z-index: 1;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    width: 3px;
+    height: 2.5rem;
+    border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+    background: var(--text);
+    opacity: 0;
+    transform: translateY(var(--rail-indicator-y, var(--sp-2)));
+    transition:
+      transform var(--dur-slow) var(--ease),
+      opacity var(--dur-fast) ease;
+    pointer-events: none;
+  }
+  .side-rail.rail-ready .rail-indicator { opacity: 1; }
   .side-rail .rail-item {
+    position: relative;
+    z-index: 2;
     display: grid;
     place-items: center;
     width: 2.5rem;
@@ -340,6 +370,10 @@
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--muted);
+    transition:
+      background-color var(--dur) var(--ease),
+      color var(--dur) var(--ease),
+      transform var(--dur-fast) var(--ease);
   }
   .side-rail .rail-item:hover:not(:disabled) {
     background: var(--control-hover);
@@ -348,8 +382,12 @@
   .side-rail .rail-item[aria-current="page"] {
     background: var(--control-hover);
     color: var(--text);
-    box-shadow: inset 2px 0 0 currentColor;
   }
+  .side-rail .rail-item[aria-expanded="true"] {
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  .side-rail .rail-item:active:not(:disabled) { transform: scale(.94); }
   .side-rail .rail-item .sx-icon { width: 1.2rem; height: 1.2rem; }
   .rail-divider {
     flex: none;
@@ -360,6 +398,144 @@
   }
   .rail-spacer { flex: 1 0 var(--sp-3); }
   .rail-tablist-bottom { margin-top: auto; }
+
+  /* One Workspace launcher replaces the wall of unlabeled destinations. The
+     full list opens as a grouped sheet to the left of the rail. */
+  .workspace-menu-backdrop {
+    position: fixed;
+    z-index: 20;
+    inset: 0 var(--panel-rail-width) 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--overlay);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity var(--dur) var(--ease),
+      visibility 0s linear var(--dur);
+  }
+  .workspace-menu {
+    position: fixed;
+    z-index: 25;
+    inset-block: 0;
+    inset-inline-end: var(--panel-rail-width);
+    display: flex;
+    flex-direction: column;
+    width: min(20rem, calc(100vw - var(--panel-rail-width)));
+    border-inline-start: 1px solid var(--line);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(.75rem);
+    pointer-events: none;
+    transition:
+      opacity var(--dur) var(--ease),
+      transform var(--dur-slow) var(--ease),
+      visibility 0s linear var(--dur);
+  }
+  .workspace-menu.is-open,
+  .workspace-menu-backdrop.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+  .workspace-menu.is-open { transform: translateX(0); }
+  .workspace-menu-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+    border-bottom: 1px solid var(--line);
+  }
+  .workspace-menu-head h2 {
+    margin: .125rem 0 0;
+    color: var(--text);
+    font-size: var(--fs-md);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .workspace-menu-head p {
+    margin: var(--sp-1) 0 0;
+    color: var(--muted);
+    font-size: var(--fs-xs);
+  }
+  .workspace-menu-eyebrow {
+    color: var(--accent-ink);
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-bold);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .workspace-menu-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    min-height: 0;
+    padding: var(--sp-4);
+    overflow-y: auto;
+  }
+  .workspace-menu-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .workspace-menu-group h3 {
+    margin: 0 0 var(--sp-1);
+    color: var(--muted);
+    font-size: var(--fs-2xs);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .workspace-destination {
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--sp-2);
+    width: 100%;
+    min-height: 3.25rem;
+    padding: var(--sp-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text);
+    text-align: start;
+    white-space: normal;
+  }
+  .workspace-destination:hover:not(:disabled) {
+    border-color: var(--line);
+    background: var(--surface-subtle);
+    color: var(--text);
+  }
+  .workspace-destination > .sx-icon:first-child {
+    width: 1.1rem;
+    height: 1.1rem;
+    justify-self: center;
+    color: var(--muted);
+  }
+  .workspace-destination-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .workspace-destination-copy strong {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-bold);
+  }
+  .workspace-destination-copy small {
+    color: var(--muted);
+    font-size: var(--fs-2xs);
+    line-height: 1.35;
+  }
+  .workspace-destination > .sx-icon:last-child {
+    width: .9rem;
+    height: .9rem;
+    color: var(--muted);
+  }
 
   /* The live crawl controller stays in the content column, never under the
      navigation rail. */
@@ -376,5 +552,7 @@
   @media (prefers-reduced-motion: reduce) {
     .skeleton { animation: none; }
     .source-choice, .source-choice-label, .source-choice-icon, .source-choice-check,
-    .source-choice-panel, .source-choice-panel-inner, .settings-chevron { transition: none; }
+    .source-choice-panel, .source-choice-panel-inner, .settings-chevron,
+    .rail-indicator, .side-rail .rail-item, .workspace-menu,
+    .workspace-menu-backdrop { transition: none; }
   }

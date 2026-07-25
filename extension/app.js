@@ -50,27 +50,27 @@ const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
 // stopped. When /api/ui responds, its canonical navigation replaces this copy.
 const WORKSPACE_NAVIGATION_FALLBACK = [
-  {key: "overview", label: "Overview", path: "/", icon: "dashboard",
+  {key: "overview", label: "Overview", path: "/", icon: "dashboard", group: "Browse",
     description: "Sources and warehouse totals."},
-  {key: "data", label: "Data", path: "/data", icon: "storage",
+  {key: "data", label: "Data", path: "/data", icon: "storage", group: "Browse",
     description: "Browse, search, and arrange saved records."},
-  {key: "changes", label: "Changes", path: "/changes", icon: "trending-up",
+  {key: "changes", label: "Changes", path: "/changes", icon: "trending-up", group: "Browse",
     description: "Recent price and availability changes."},
-  {key: "history", label: "Crawl history", path: "/history", icon: "history",
+  {key: "history", label: "Crawl history", path: "/history", icon: "history", group: "Browse",
     description: "Past runs and their outcomes."},
-  {key: "review", label: "Review queue", path: "/review", icon: "check",
+  {key: "review", label: "Review queue", path: "/review", icon: "check", group: "Browse",
     description: "Resolve proposed record matches."},
-  {key: "jobs", label: "Jobs", path: "/jobs", icon: "play-circle",
+  {key: "jobs", label: "Jobs", path: "/jobs", icon: "play-circle", group: "Automation",
     description: "Start and monitor collection jobs."},
-  {key: "schedules", label: "Schedules", path: "/schedules", icon: "schedule",
+  {key: "schedules", label: "Schedules", path: "/schedules", icon: "schedule", group: "Automation",
     description: "Review automatic collection times."},
-  {key: "sync", label: "Google Sheets Synchronization", path: "/sync", icon: "sync",
+  {key: "sync", label: "Google Sheets Synchronization", path: "/sync", icon: "sync", group: "Outputs",
     description: "Synchronize saved data with Google Sheets and Drive."},
-  {key: "exports", label: "Exports", path: "/exports", icon: "file-download",
+  {key: "exports", label: "Exports", path: "/exports", icon: "file-download", group: "Outputs",
     description: "Create and configure Excel exports."},
-  {key: "logs", label: "Logs", path: "/logs", icon: "description",
+  {key: "logs", label: "Logs", path: "/logs", icon: "description", group: "System",
     description: "Inspect detailed job activity."},
-  {key: "settings", label: "Settings", path: "/settings", icon: "settings",
+  {key: "settings", label: "Settings", path: "/settings", icon: "settings", group: "System",
     description: "Runtime, storage, and policy."},
 ];
 
@@ -78,21 +78,69 @@ function renderWorkspaceNavigation(navigation) {
   const destinations = (navigation || WORKSPACE_NAVIGATION_FALLBACK)
     .filter((destination) => !PANEL_DESTINATIONS.has(destination.key));
   const box = $("workspace-links");
-  box.innerHTML = destinations.map((destination) => {
-    const tooltip = `${destination.label} — ${destination.description || "Open in Workspace"}`;
-    return `<button type="button" class="rail-item" data-workspace-key="${
-      esc(destination.key)}" data-workspace-path="${esc(destination.path)}"
-      aria-label="${esc(destination.label)}" title="${esc(tooltip)}">
-      ${icon(destination.icon)}
-      <span class="visually-hidden">${esc(destination.label)}</span>
-    </button>`;
-  }).join("");
+  const groups = new Map();
+  destinations.forEach((destination) => {
+    const group = destination.group || "Workspace";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(destination);
+  });
+  box.innerHTML = [...groups.entries()].map(([group, items]) =>
+    `<section class="workspace-menu-group" aria-labelledby="workspace-group-${
+      esc(group.toLowerCase())}">
+      <h3 id="workspace-group-${esc(group.toLowerCase())}">${esc(group)}</h3>
+      ${items.map((destination) =>
+        `<button type="button" class="workspace-destination" data-workspace-key="${
+          esc(destination.key)}" data-workspace-path="${esc(destination.path)}">
+          ${icon(destination.icon)}
+          <span class="workspace-destination-copy">
+            <strong>${esc(destination.label)}</strong>
+            <small>${esc(destination.description || "Open in Workspace")}</small>
+          </span>
+          ${icon("open-in-new", "sm")}
+        </button>`).join("")}
+    </section>`).join("");
   box.querySelectorAll("[data-workspace-path]").forEach((button) =>
-    button.addEventListener("click", () => openTab(button.dataset.workspacePath)));
+    button.addEventListener("click", () => {
+      openTab(button.dataset.workspacePath);
+      closeWorkspaceMenu(true);
+    }));
 }
 
-function showView(name) {
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function positionRailIndicator(button, immediate = false) {
+  if (!button) return;
+  const rail = document.querySelector("nav.side-rail");
+  const indicator = $("rail-indicator");
+  if (immediate) indicator.style.transition = "none";
+  rail.style.setProperty("--rail-indicator-y", `${button.offsetTop}px`);
+  rail.classList.add("rail-ready");
+  if (immediate) requestAnimationFrame(() => { indicator.style.transition = ""; });
+}
+
+function openWorkspaceMenu() {
+  $("workspace-menu").classList.add("is-open");
+  $("workspace-backdrop").classList.add("is-open");
+  $("workspace-menu").setAttribute("aria-hidden", "false");
+  $("workspace-toggle").setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() =>
+    $("workspace-links").querySelector("button")?.focus());
+}
+
+function closeWorkspaceMenu(returnFocus = false) {
+  const wasOpen = $("workspace-toggle").getAttribute("aria-expanded") === "true";
+  $("workspace-menu").classList.remove("is-open");
+  $("workspace-backdrop").classList.remove("is-open");
+  $("workspace-menu").setAttribute("aria-hidden", "true");
+  $("workspace-toggle").setAttribute("aria-expanded", "false");
+  if (returnFocus && wasOpen) $("workspace-toggle").focus();
+}
+
+function showView(name, animate = true) {
+  const current = VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden"));
+  closeWorkspaceMenu();
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
+  const activeButton = document.querySelector(`nav.tabs button[data-view="${name}"]`);
   document.querySelectorAll("nav.tabs button[data-view]").forEach((b) => {
     const selected = b.dataset.view === name;
     b.setAttribute("aria-selected", String(selected));
@@ -100,6 +148,20 @@ function showView(name) {
     if (selected) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   });
+  positionRailIndicator(activeButton, !animate);
+  if (animate && current !== name && !reduceMotion.matches) {
+    $(`view-${name}`).animate(
+      [
+        {opacity: 0, transform: "translateY(8px)"},
+        {opacity: 1, transform: "translateY(0)"},
+      ],
+      {duration: 180, easing: "cubic-bezier(.2,.8,.2,1)"},
+    );
+  }
+  const main = document.querySelector("main");
+  if (main.scrollTop) {
+    main.scrollTo({top: 0, behavior: reduceMotion.matches ? "auto" : "smooth"});
+  }
   if (name === "data") loadDatasets();
   if (name === "settings") { loadSchedules(); loadStorage(); }
   if (name === "source") loadCurrentPage();
@@ -1106,6 +1168,16 @@ async function init() {
 
   const tabs = [...document.querySelectorAll("nav.tabs button[data-view]")];
   tabs.forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+  $("workspace-toggle").addEventListener("click", () => {
+    const open = $("workspace-toggle").getAttribute("aria-expanded") === "true";
+    if (open) closeWorkspaceMenu(true);
+    else openWorkspaceMenu();
+  });
+  $("workspace-close").addEventListener("click", () => closeWorkspaceMenu(true));
+  $("workspace-backdrop").addEventListener("click", () => closeWorkspaceMenu(true));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeWorkspaceMenu(true);
+  });
   document.querySelector("nav.tabs").addEventListener("keydown", (event) => {
     if (!event.target.matches("button[data-view]")) return;
     if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
@@ -1117,6 +1189,10 @@ async function init() {
     else next = (current + (event.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length;
     tabs[next].focus();
     showView(tabs[next].dataset.view);
+  });
+  window.addEventListener("resize", () => {
+    const active = document.querySelector('nav.tabs button[aria-current="page"]');
+    positionRailIndicator(active, true);
   });
   // `[data-sect]` is load-bearing: other buttons borrow the `.sect` LOOK (the
   // Advanced-settings toggle does), and without the attribute filter they get
@@ -1205,7 +1281,7 @@ async function init() {
   // the default screen sat at "Reading the active tab…" until the owner
   // navigated away and back — and the screenshot harness hid it by clicking a
   // nav button before capturing.
-  showView("source");
+  showView("source", false);
   await render();
 }
 
