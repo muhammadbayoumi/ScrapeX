@@ -26,7 +26,7 @@ def conn() -> sqlite3.Connection:
 
 def _material(conn, name_en=None, name_ar=None, gtin=None, mpn=None) -> int:
     cur = conn.execute(
-        "INSERT INTO material (material_name_en, material_name_ar, gtin, manufacturer_part_number) "
+        "INSERT INTO material (material_name, material_name_ar, gtin, manufacturer_part_number) "
         "VALUES (?,?,?,?)", (name_en, name_ar, gtin, mpn))
     return int(cur.lastrowid)
 

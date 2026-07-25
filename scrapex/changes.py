@@ -14,7 +14,13 @@ from .vocab import Availability, ChangeType
 # Product fields worth tracking. Deliberately a short explicit list (P5): these
 # are the source-local descriptive fields the owner sees, not every column.
 TRACKED_PRODUCT_FIELDS = (
-    ("source_name", "product_name"),   # (stored column, incoming row key)
+    # (stored column, incoming row key). The two sides speak DIFFERENT
+    # vocabularies for one release: storage already says which language it
+    # holds, the wire does not yet. Leave this half-inverted and every crawl
+    # writes one language into the other's column, one logged FIELD_UPDATED
+    # per row — the write path runs off this same tuple (ingest applies
+    # UPDATE source_product SET {column} from it).
+    ("product_name_ar", "product_name"),
     ("product_url", "product_url"),
     ("brand_raw", "brand_raw"),
     # The PRODUCT's own sku. `product_sku` is DERIVED, not a column a connector
@@ -28,13 +34,13 @@ TRACKED_PRODUCT_FIELDS = (
     # Classification is product identity the source states (owner ruling
     # 2026-07-22): tracked like brand, so a product the site re-files under a
     # new category records the move instead of silently forgetting the old one.
-    ("category_path", "category_path"),
-    ("category_path_en", "category_path_en"),
+    ("category_path_ar", "category_path"),
+    ("category_path", "category_path_en"),
     ("category_external_id", "category_external_id"),
     # The English name, tracked like the primary one — a bilingual site
     # renaming in either language is a recorded change, not a silent drift.
-    ("source_name_en", "product_name_en"),
-    ("name_lang", "lang"),
+    ("product_name", "product_name_en"),
+    ("product_name_lang", "lang"),
 )
 
 # Fields whose OLD value is an identity worth remembering (spec 14): if a site
@@ -141,7 +147,7 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     for a commodity source: a price move on Egyptian diesel and one on Saudi
     diesel would otherwise both read as just "DIESEL".
     """
-    sql = ("SELECT c.*, sp.source_name AS product_name, so.region AS region, "
+    sql = ("SELECT c.*, sp.product_name_ar AS product_name, so.region AS region, "
            "       su.unit_code AS unit_code, so.basis_quantity AS basis_quantity "
            "FROM change_event c "
            "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
@@ -249,7 +255,7 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
     from .reports import price_unit, region_name
 
     rows = conn.execute(
-        "SELECT c.*, sp.source_name AS product_name, so2.region AS region, "
+        "SELECT c.*, sp.product_name_ar AS product_name, so2.region AS region, "
         "       su.unit_code AS unit_code, so2.basis_quantity AS basis_quantity "
         "FROM change_event c "
         "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "

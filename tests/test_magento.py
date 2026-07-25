@@ -152,7 +152,7 @@ def test_classification_lands_on_the_product_and_reaches_the_main_table():
         ingest_payloads(conn, entry, [table.to_payload()])
 
         stored = dict(conn.execute(
-            "SELECT external_product_id, category_path FROM source_product").fetchall())
+            "SELECT external_product_id, category_path_ar FROM source_product").fetchall())
         assert stored["NDY3Mg=="] == "مواد البناء > الأخشاب > أخشاب معالجة"
 
         from scrapex.reports import table_payload
@@ -200,12 +200,15 @@ def test_a_product_the_site_refiles_records_the_move():
         ingest_payloads(conn, entry, [table2.to_payload()])
 
         path = conn.execute(
-            "SELECT category_path FROM source_product WHERE source_name LIKE '%Cement%' "
+            "SELECT category_path_ar FROM source_product WHERE product_name_ar LIKE '%Cement%' "
             "OR external_product_id = 'Q0VNQg=='").fetchone()[0]
         assert path == "مواد البناء > مواد لاصقة"
         event = conn.execute(
             "SELECT previous_value, new_value FROM change_event "
-            "WHERE field_key = 'category_path'").fetchone()
+            # The STORED column: change_event records the warehouse's own
+            # vocabulary, which since 0038 says which language it holds. The
+            # wire key is still `category_path` and still carries Arabic.
+            "WHERE field_key = 'category_path_ar'").fetchone()
         assert event is not None, "the re-filing left no change event"
         assert event[0] == "أسمنت" and event[1] == "مواد البناء > مواد لاصقة"
     finally:
@@ -310,7 +313,7 @@ def test_english_names_ride_every_row_when_the_store_answers():
         table2 = next(iter(MagentoGraphqlConnector(_BilingualFetcher()).fetch(make_entry())))
         ingest_payloads(conn, make_entry(), [table2.to_payload()])
         stored = conn.execute(
-            "SELECT source_name_en FROM source_product "
+            "SELECT product_name FROM source_product "
             "WHERE external_product_id = 'Q0VNMg=='").fetchone()[0]
         assert stored == "Madar Cement"
 

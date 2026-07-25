@@ -160,7 +160,7 @@ def _with_product_sku(r) -> dict:
 
 def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
     row = conn.execute(
-        "SELECT source_id, source_name_en FROM source_site WHERE source_key = ?",
+        "SELECT source_id, source_name FROM source_site WHERE source_key = ?",
         (entry.source_key,)).fetchone()
     if row is not None:
         source_id = int(row[0])
@@ -171,13 +171,13 @@ def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
         # the listings would stay Arabic-only for exactly the sites with data.
         # Narrow on purpose — only the column the manifest just answered for.
         if (row[1] or "") != entry.source_name_en:
-            conn.execute("UPDATE source_site SET source_name_en = ? WHERE source_id = ?",
+            conn.execute("UPDATE source_site SET source_name = ? WHERE source_id = ?",
                          (entry.source_name_en, source_id))
         return source_id
     return _insert(conn, "source_site", {
         "source_key": entry.source_key,
-        "source_name": entry.source_name,
-        "source_name_en": entry.source_name_en,
+        "source_name_ar": entry.source_name,
+        "source_name": entry.source_name_en,
         "base_url": entry.base_url,
         "platform": entry.family.value,
         "currency": currency,
@@ -195,9 +195,9 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
     the change was neither stored as history nor reflected in current state.
     """
     row = conn.execute(
-        "SELECT source_product_id, curation_status, source_name, product_url, brand_raw, "
-        "       external_sku, status, category_path, category_external_id, "
-        "       source_name_en, name_lang, category_path_en "
+        "SELECT source_product_id, curation_status, product_name_ar, product_url, brand_raw, "
+        "       external_sku, status, category_path_ar, category_external_id, "
+        "       product_name, product_name_lang, category_path "
         "FROM source_product WHERE source_id = ? AND external_product_id = ?",
         (source_id, r["external_product_id"]),
     ).fetchone()
@@ -229,16 +229,16 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
         # written last (76ec8c8572f0-6 instead of 76ec8c8572f0).
         "external_sku": _product_sku(r) or None,
         "parent_sku": r.get("parent_sku") or "",
-        "source_name": r["product_name"] or None,
+        "product_name_ar": r["product_name"] or None,
         "product_url": r["product_url"] or None,
         "brand_raw": r["brand_raw"] or None,
         # .get: the commodity spec has no classification columns, and old
         # payloads predate the contract widening that added them.
-        "category_path": r.get("category_path") or "",
-        "category_path_en": r.get("category_path_en") or "",
+        "category_path_ar": r.get("category_path") or "",
+        "category_path": r.get("category_path_en") or "",
         "category_external_id": r.get("category_external_id") or "",
-        "source_name_en": r.get("product_name_en") or "",
-        "name_lang": r.get("lang") or "",
+        "product_name": r.get("product_name_en") or "",
+        "product_name_lang": r.get("lang") or "",
         "has_variants": 1 if r["external_variant_id"] or r["option_fingerprint"] else 0,
         "curation_status": CurationStatus.INVENTORIED.value,
     })
@@ -276,8 +276,8 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
             # 2026-07-23), the next crawl rewrites it. Identity never moves:
             # the fingerprint and external id stay untouched.
             conn.execute(
-                "UPDATE source_variant SET option_label = ? "
-                "WHERE source_variant_id = ? AND COALESCE(option_label,'') != ?",
+                "UPDATE source_variant SET variant_ar = ? "
+                "WHERE source_variant_id = ? AND COALESCE(variant_ar,'') != ?",
                 (r["option_label"], found, r["option_label"]))
         if r["external_sku"]:
             # Same rule for the SKU, and it was missing: a variant recorded
@@ -293,8 +293,8 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
                 (r["external_sku"], found, r["external_sku"]))
         if r.get("option_axes"):
             conn.execute(
-                "UPDATE source_variant SET raw_options_json = ? "
-                "WHERE source_variant_id = ? AND COALESCE(raw_options_json,'') != ?",
+                "UPDATE source_variant SET variant_axes_ar = ? "
+                "WHERE source_variant_id = ? AND COALESCE(variant_axes_ar,'') != ?",
                 (r["option_axes"], found, r["option_axes"]))
         # The same variation in English (0036). Same rule as every other
         # learned fact: written when the source states it, never blanked when
@@ -326,12 +326,12 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         "external_variant_id": ext,
         "external_sku": r["external_sku"] or None,
         "option_fingerprint": fp,
-        "option_label": r["option_label"] or None,
+        "variant_ar": r["option_label"] or None,
         # The axes as the site states them, as structure. The column has
         # existed since the first schema and was NULL on every row ever
         # written: connectors composed "Color: أحمر" and dropped the parts, so
         # nothing downstream could put the axis and its value in two columns.
-        "raw_options_json": r.get("option_axes") or None,
+        "variant_axes_ar": r.get("option_axes") or None,
         "variant": r.get("variant") or "",
         "variant_axes": r.get("variant_axes") or "",
         # The variation's OWN page (0037). It used to be written onto the

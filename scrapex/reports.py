@@ -39,7 +39,7 @@ class SourceSummary:
 
 def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary | None:
     row = conn.execute(
-        "SELECT source_id, source_name, source_name_en, base_url "
+        "SELECT source_id, source_name_ar, source_name, base_url "
         "FROM source_site WHERE source_key = ?",
         (source_key,)
     ).fetchone()
@@ -285,7 +285,7 @@ def _browse_filters(search: str | None, availability: str | None,
         # Match the region too: for a commodity source the country IS the row.
         # Both spellings work — the stored code ("EG") and the human name
         # ("Egypt"), which is resolved to its code before the query runs.
-        clause += " AND (sp.source_name LIKE ? OR so.region LIKE ?"
+        clause += " AND (sp.product_name_ar LIKE ? OR so.region LIKE ?"
         params += [f"%{search}%", f"%{search}%"]
         code = region_code(search)
         if code:
@@ -332,9 +332,9 @@ def _browse_filters(search: str | None, availability: str | None,
 #   date    a date comparison
 #   derived computed in PYTHON after the query, so SQL cannot filter it at all
 FILTERABLE: dict[str, tuple[str, str]] = {
-    "product_name": ("sp.source_name", "text"),
+    "product_name": ("sp.product_name_ar", "text"),
     "region": ("so.region", "exact"),
-    "option_label": ("sv.option_label", "text"),
+    "option_label": ("sv.variant_ar", "text"),
     "sku": ("sv.external_sku", "text"),
     "effective_price": ("po.effective_price", "number"),
     "availability": ("po.availability", "exact"),
@@ -394,7 +394,7 @@ def _order_by(sort: str | None, direction: str | None) -> str:
     way = "DESC" if (direction or "asc").lower() == "desc" else "ASC"
     # so.region is always the final tiebreak: commodity rows share a source_name,
     # and without it their order is not stable between identical queries.
-    return f"ORDER BY {column} {way}, sp.source_name, so.region"
+    return f"ORDER BY {column} {way}, sp.product_name_ar, so.region"
 
 
 def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: str | None = None,
@@ -412,7 +412,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
 
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}{filt}", base_params).fetchone()[0])
     rows = conn.execute(
-        "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
+        "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, po.vat_included, "
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id "
@@ -600,7 +600,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
     every shop's table the moment GPP landed its first rate.
     """
     row = conn.execute(
-        "SELECT COUNT(NULLIF(TRIM(COALESCE(sv.option_label,'')),'')), "
+        "SELECT COUNT(NULLIF(TRIM(COALESCE(sv.variant_ar,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(sv.external_sku,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(so.region,'')),'')), "
         "       COUNT(so.selling_unit_id), "
@@ -612,7 +612,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_raw,'')),'')), "
         "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END), "
         "       COUNT(DISTINCT po.currency), "
-        "       COUNT(NULLIF(TRIM(COALESCE(sp.source_name_en,'')),'')), "
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.product_name,'')),'')), "
         # Appended LAST, like every count before it: this list is read by
         # position, and a column inserted mid-list shifts every index under it.
         "       COUNT(NULLIF(TRIM(COALESCE(sv.variant,'')),'')) "
@@ -664,8 +664,8 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
             f"WHERE ss.source_key = ? AND TRIM(COALESCE({column},'')) <> ''",
             (source_key,)).fetchone()[0] or 0
 
-    depth = _depth_of("category_path")
-    depth_en = _depth_of("category_path_en")
+    depth = _depth_of("category_path_ar")
+    depth_en = _depth_of("category_path")
     if not depth_en:
         present.discard("category_en")
     for level in range(1, CATEGORY_LEVELS + 1):
@@ -706,9 +706,9 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
 # alias -> SQL expression. The SELECT list and the accessors below are built
 # from ONE mapping, so a column can be added without counting tuple positions.
 _EXPORT_SELECT: dict[str, str] = {
-    "name": "sp.source_name",
-    "name_en": "sp.source_name_en",
-    "option_label": "sv.option_label",
+    "name": "sp.product_name_ar",
+    "name_en": "sp.product_name",
+    "option_label": "sv.variant_ar",
     "sku": "sv.external_sku",
     "external_product_id": "sp.external_product_id",
     # The VARIATION's own page (0037). A variable product's rows are one per
@@ -728,15 +728,15 @@ _EXPORT_SELECT: dict[str, str] = {
     "unit_code": "su.unit_code",
     "basis_quantity": "so.basis_quantity",
     "brand": "sp.brand_raw",
-    "category_path": "sp.category_path",
+    "category_path": "sp.category_path_ar",
     "category_flat": (
         "(SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
         " WHERE spa.source_product_id = sp.source_product_id "
         " AND spa.attribute_code = 'category')"),
     "official_source": "po.official_source_name",
     "official_source_url": "po.official_source_url",
-    "category_path_en": "sp.category_path_en",
-    "option_axes": "sv.raw_options_json",
+    "category_path_en": "sp.category_path",
+    "option_axes": "sv.variant_axes_ar",
     "variant_en": "sv.variant",
     "option_axes_en": "sv.variant_axes",
     # Not an exported column: the key the site's own filter values are joined on.
@@ -826,7 +826,7 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     select = ", ".join(f"{_EXPORT_SELECT[alias]} AS {alias}" for alias in aliases)
     rows = conn.execute(
         f"SELECT {select} {_LATEST_PER_OFFER} "
-        "ORDER BY sp.source_name, so.region LIMIT ?",
+        "ORDER BY sp.product_name_ar, so.region LIMIT ?",
         (source_key, limit),
     ).fetchall()
     tax_rules = tax.load_rules(conn, source_key)
@@ -931,7 +931,7 @@ def export_details_table(conn: sqlite3.Connection, source_key: str,
     details or the history, so the spreadsheet held a third of what the page
     showed. Same bounded rule as every other read (A8)."""
     rows = conn.execute(
-        "SELECT sp.source_name, so.region, sv.external_sku, "
+        "SELECT sp.product_name_ar, so.region, sv.external_sku, "
         "       spa.attribute_group, COALESCE(spa.attribute_label, spa.attribute_code), "
         "       spa.raw_value, spa.value_url, spa.last_seen_at "
         "FROM source_product_attribute spa "
@@ -941,7 +941,7 @@ def export_details_table(conn: sqlite3.Connection, source_key: str,
         "JOIN source_offer so ON so.source_variant_id = sv.source_variant_id "
         "WHERE ss.source_key = ? AND sv.status = 'active' "
         "GROUP BY spa.source_product_attribute_id "
-        "ORDER BY sp.source_name, spa.attribute_group, spa.attribute_label LIMIT ?",
+        "ORDER BY sp.product_name_ar, spa.attribute_group, spa.attribute_label LIMIT ?",
         (source_key, limit)).fetchall()
     return list(DETAILS_HEADER), [
         [r[0] or "", (r[1] or "") if r[1] != "*" else "", r[2] or "",
@@ -953,7 +953,7 @@ def export_history_table(conn: sqlite3.Connection, source_key: str,
                          limit: int = 40_000) -> tuple[list[str], list[list]]:
     """Every price this source has published, oldest first per record."""
     rows = conn.execute(
-        "SELECT sp.source_name, so.region, sv.external_sku, po.business_date, "
+        "SELECT sp.product_name_ar, so.region, sv.external_sku, po.business_date, "
         "       po.effective_price, po.currency, po.provenance "
         "FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
@@ -961,7 +961,7 @@ def export_history_table(conn: sqlite3.Connection, source_key: str,
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
         "WHERE ss.source_key = ? AND sv.status = 'active' "
-        "ORDER BY sp.source_name, so.region, po.business_date LIMIT ?",
+        "ORDER BY sp.product_name_ar, so.region, po.business_date LIMIT ?",
         (source_key, limit)).fetchall()
     return list(HISTORY_HEADER), [
         [r[0] or "", (r[1] or "") if r[1] != "*" else "", r[2] or "",
@@ -972,7 +972,7 @@ def export_history_table(conn: sqlite3.Connection, source_key: str,
 def recent_observations(conn: sqlite3.Connection, source_key: str, limit: int = 10) -> list[dict]:
     """A bounded sample of the source-local prices (A8: always LIMIT-ed)."""
     rows = conn.execute(
-        "SELECT sp.source_name, po.effective_price, po.currency, po.availability, "
+        "SELECT sp.product_name_ar, po.effective_price, po.currency, po.availability, "
         "       po.vat_included, po.business_date, so.region, su.unit_code, so.basis_quantity "
         "FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
@@ -996,8 +996,8 @@ def crawl_history(conn: sqlite3.Connection, source_key: str | None = None,
                   limit: int = 50) -> list[dict]:
     """Per-run history (spec 21 "Crawl History"). crawl_run has recorded this all
     along — status, counts, request budget, rows_seen — and nothing ever showed it."""
-    sql = ("SELECT r.run_id, r.job_id, ss.source_key, ss.source_name, "
-           "       ss.source_name_en, ss.base_url, r.started_at, "
+    sql = ("SELECT r.run_id, r.job_id, ss.source_key, ss.source_name_ar, "
+           "       ss.source_name, ss.base_url, r.started_at, "
            "       r.finished_at, r.status, r.products_discovered, r.variants_discovered, "
            "       r.errors_count, r.rows_seen "
            "FROM crawl_run r JOIN source_site ss ON ss.source_id = r.source_id ")
@@ -1041,7 +1041,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "  WHERE cc2.offer_id = so.offer_id AND cc2.provenance = 'reported' "
         "  ORDER BY cc2.business_date DESC, cc2.price_observation_id DESC LIMIT 1))")
     rows = conn.execute(
-        "SELECT sp.source_name, so.region, po.currency, so.offer_id, "
+        "SELECT sp.product_name_ar, so.region, po.currency, so.offer_id, "
         "       MIN(po.effective_price) AS min_price, MAX(po.effective_price) AS max_price, "
         "       COUNT(*) AS observations, "
         "       (SELECT p2.effective_price FROM price_observation p2 WHERE p2.offer_id = so.offer_id "
@@ -1063,7 +1063,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "WHERE ss.source_key = ? AND sv.status = 'active' "
         f"AND po.currency = {current_currency} "
         "GROUP BY so.offer_id "
-        "ORDER BY sp.source_name, so.region LIMIT ?",
+        "ORDER BY sp.product_name_ar, so.region LIMIT ?",
         (source_key, max(1, min(limit, 2000))),
     ).fetchall()
     previous_by_offer = {
@@ -1118,7 +1118,7 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
     check impossible to forget — the row simply does not come back.
     """
     row = conn.execute(
-        "SELECT sp.source_name, sv.option_label, sv.external_sku, so.region, "
+        "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, so.region, "
         "       so.currency, su.unit_code, so.basis_quantity, sp.product_url, "
         "       ss.source_key "
         "FROM source_offer so "
@@ -1312,7 +1312,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     limit = max(1, min(limit, TABLE_ROW_CAP))
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}", (source_key,)).fetchone()[0])
     rows = conn.execute(
-        "SELECT sp.source_name, sv.option_label, sv.external_sku, po.effective_price, "
+        "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, "
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
@@ -1345,11 +1345,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "        AND spa.attribute_code = 'category') AS category, "
         "       EXISTS(SELECT 1 FROM source_product_attribute spa2 "
         "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details, "
-        "       sp.category_path, sp.source_name_en, sp.category_path_en, "
+        "       sp.category_path_ar, sp.product_name, sp.category_path, "
         # Appended LAST on purpose: every index above is positional and a column
         # inserted mid-list silently shifts the lot.
         "       po.vat_included, sv.variant, sv.variant_url "
-        f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
+        f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
     tax_rules = tax.load_rules(conn, source_key)
@@ -1623,7 +1623,7 @@ def schema_report(conn: sqlite3.Connection) -> dict:
             "SELECT COUNT(*) FROM source_variant sv "
             "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
             "JOIN source_site ss ON ss.source_id = sp.source_id "
-            "WHERE ss.source_key = ? AND COALESCE(sv.raw_options_json,'') != ''",
+            "WHERE ss.source_key = ? AND COALESCE(sv.variant_axes_ar,'') != ''",
             (key,)).fetchone()[0]
         facets = conn.execute(
             "SELECT COUNT(DISTINCT spa.attribute_label) FROM source_product_attribute spa "
@@ -1797,9 +1797,9 @@ _TABLE_BY_ALIAS = {
 }
 
 _COMPUTED_FROM: dict[str, str] = {
-    "product_name_en": "source_product.source_name_en",
-    "category": "source_product.category_path",
-    "category_en": "source_product.category_path_en",
+    "product_name_en": "source_product.product_name",
+    "category": "source_product.category_path_ar",
+    "category_en": "source_product.category_path",
     "variant": "source_variant.variant",
     "unit": "selling_unit + source_offer.basis_quantity",
     "discount": "computed: price_observation.regular_price − effective_price",
@@ -1829,7 +1829,7 @@ def column_origin(key: str) -> str:
         return _COMPUTED_FROM[key]
     for level in range(1, CATEGORY_LEVELS + 1):
         if key in (f"category_l{level}", f"category_en_l{level}"):
-            path = "category_path_en" if key.startswith("category_en") else "category_path"
+            path = "category_path" if key.startswith("category_en") else "category_path_ar"
             return f"split from source_product.{path}"
     return ""
 

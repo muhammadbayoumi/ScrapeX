@@ -145,7 +145,7 @@ def stale_pins(conn: sqlite3.Connection) -> list[dict]:
 def list_pins(conn: sqlite3.Connection, source_key: str | None = None,
               limit: int = 200) -> list[dict]:
     sql = ("SELECT p.retention_pin_id, p.offer_id, p.business_date, p.record_hash, "
-           "       p.note, p.pinned_at, ss.source_key, sp.source_name "
+           "       p.note, p.pinned_at, ss.source_key, sp.product_name_ar "
            "FROM retention_pin p "
            "JOIN source_offer so ON so.offer_id = p.offer_id "
            "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "

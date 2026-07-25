@@ -1407,7 +1407,7 @@ def create_app(
         that do.
         """
         return [dict(r) for r in conn.execute(
-            "SELECT so.offer_id, sp.source_name, so.region, "
+            "SELECT so.offer_id, sp.product_name_ar AS source_name, so.region, "
             "       COUNT(pp.price_period_id) AS periods, "
             "       MAX(pp.last_confirmed_at) AS last_confirmed "
             "FROM price_period pp "
@@ -1417,7 +1417,7 @@ def create_app(
             "JOIN source_site ss ON ss.source_id = sp.source_id "
             "WHERE ss.source_key = ? GROUP BY so.offer_id "
             "HAVING COUNT(pp.price_period_id) > 1 "
-            "ORDER BY periods DESC, sp.source_name LIMIT 50", (source_key,))]
+            "ORDER BY periods DESC, sp.product_name_ar LIMIT 50", (source_key,))]
 
     def _engine_rows() -> list[dict]:
         """Every connector family, with whether it is actually built.

@@ -87,7 +87,7 @@ def test_commodity_creates_degenerate_chain(conn):
 
     sp = conn.execute("SELECT external_product_id, has_variants FROM source_product").fetchone()
     assert sp[0] == "DIESEL" and sp[1] == 0
-    sv = conn.execute("SELECT external_variant_id, option_fingerprint, option_label "
+    sv = conn.execute("SELECT external_variant_id, option_fingerprint, variant_ar "
                       "FROM source_variant").fetchone()
     # option_label is empty now: a commodity has no variant title, and the unit
     # it used to borrow this column for has a real home.

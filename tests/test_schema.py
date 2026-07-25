@@ -24,12 +24,12 @@ def conn() -> sqlite3.Connection:
 def _seed_minimal(conn: sqlite3.Connection) -> dict[str, int]:
     """One site -> product -> variant -> offer -> run: the spine every test needs."""
     conn.execute(
-        "INSERT INTO source_site (source_key, source_name, currency, default_vat_mode)"
+        "INSERT INTO source_site (source_key, source_name_ar, currency, default_vat_mode)"
         " VALUES ('MADAR', 'المدار', 'SAR', 'excl')"
     )
     source_id = conn.execute("SELECT source_id FROM source_site").fetchone()[0]
     conn.execute(
-        "INSERT INTO source_product (source_id, external_product_id, external_sku, source_name)"
+        "INSERT INTO source_product (source_id, external_product_id, external_sku, product_name_ar)"
         " VALUES (?, '4672', '12015-FRP', 'Fire Retardant Plywood')",
         (source_id,),
     )
@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 37  # +0037 the variation's own url + the product's own sku
+    assert dbmod.schema_version(conn) == 38  # +0038 the name states its language
 
 
 def test_all_owner_tables_exist(conn):
@@ -168,7 +168,7 @@ def test_migration_0020_preserves_existing_jobs_and_their_log_references():
         upgrading.commit()
 
         assert dbmod.migrate(upgrading) == [20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-                                            30, 31, 32, 33, 34, 35, 36, 37]
+                                            30, 31, 32, 33, 34, 35, 36, 37, 38]
 
         joined = upgrading.execute(
             "SELECT j.job_ref, j.status, l.message FROM job_log_entry l"
@@ -184,7 +184,7 @@ def test_migration_0020_preserves_existing_jobs_and_their_log_references():
 
 def test_review_status_vocabulary_matches_vocab_enum(conn):
     ids = _seed_minimal(conn)
-    conn.execute("INSERT INTO material (material_name_en) VALUES ('FR Plywood')")
+    conn.execute("INSERT INTO material (material_name) VALUES ('FR Plywood')")
     material_id = conn.execute("SELECT material_id FROM material").fetchone()[0]
     for status in ReviewStatus:
         conn.execute(
@@ -203,7 +203,7 @@ def test_review_status_vocabulary_matches_vocab_enum(conn):
 def test_one_active_approved_match_per_source_product(conn):
     """The partial unique index: one current approved match, history retained."""
     ids = _seed_minimal(conn)
-    conn.execute("INSERT INTO material (material_name_en) VALUES ('FR Plywood')")
+    conn.execute("INSERT INTO material (material_name) VALUES ('FR Plywood')")
     material_id = conn.execute("SELECT material_id FROM material").fetchone()[0]
     conn.execute(
         "INSERT INTO source_product_match (source_product_id, material_id, review_status)"
@@ -228,7 +228,7 @@ def test_one_active_approved_match_per_source_product(conn):
 def test_feed_assignment_unique_active_slot(conn):
     """ux_feed_assignment_active: one active row per (material, variant, region, priority)."""
     _seed_minimal(conn)
-    conn.execute("INSERT INTO material (material_name_en) VALUES ('Diesel')")
+    conn.execute("INSERT INTO material (material_name) VALUES ('Diesel')")
     material_id = conn.execute("SELECT material_id FROM material").fetchone()[0]
     source_id = conn.execute("SELECT source_id FROM source_site").fetchone()[0]
     conn.execute(
@@ -257,7 +257,7 @@ def test_flat_view_returns_matched_latest_observation(conn):
     # Unmatched variant -> view must be empty (unmatched data never publishes).
     assert conn.execute("SELECT COUNT(*) FROM v_material_price_tracking").fetchone()[0] == 0
 
-    conn.execute("INSERT INTO material (material_name_en) VALUES ('FR Plywood')")
+    conn.execute("INSERT INTO material (material_name) VALUES ('FR Plywood')")
     material_id = conn.execute("SELECT material_id FROM material").fetchone()[0]
     conn.execute(
         "INSERT INTO material_variant (material_id, variant_name, spec_fingerprint)"

@@ -22,7 +22,7 @@ def db_path(tmp_path: Path) -> Path:
     conn = dbmod.connect(p)
     dbmod.migrate(conn)
     ingest_payloads(conn, make_entry(), [make_payload([one_row(product_name="LED Floodlight 400W")])])
-    conn.execute("INSERT INTO material (material_name_en) VALUES ('Floodlight LED 400W')")
+    conn.execute("INSERT INTO material (material_name) VALUES ('Floodlight LED 400W')")
     conn.commit()
     conn.close()
     return p

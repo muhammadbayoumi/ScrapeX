@@ -93,7 +93,7 @@ def _about(conn: sqlite3.Connection, source_key: str,
     """
     summary = source_summary(conn, source_key)
     site = conn.execute(
-        "SELECT source_name, source_name_en, base_url FROM source_site WHERE source_key = ?",
+        "SELECT source_name_ar, source_name, base_url FROM source_site WHERE source_key = ?",
         (source_key,)).fetchone()
     facts: list[list] = [
         ["source_key", source_key],

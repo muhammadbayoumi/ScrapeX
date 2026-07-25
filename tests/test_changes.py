@@ -53,9 +53,9 @@ def test_classify_availability_ignores_unknown():
 
 
 def test_product_field_diffs_detects_and_protects():
-    stored = {"source_name": "Old name", "product_url": "u", "brand_raw": "B"}
+    stored = {"product_name_ar": "Old name", "product_url": "u", "brand_raw": "B"}
     assert product_field_diffs(stored, {"product_name": "New name", "product_url": "u",
-                                        "brand_raw": "B"}) == [("source_name", "Old name", "New name")]
+                                        "brand_raw": "B"}) == [("product_name_ar", "Old name", "New name")]
     # an EMPTY incoming value means "not reported", never "cleared"
     assert product_field_diffs(stored, {"product_name": "", "product_url": "", "brand_raw": ""}) == []
 
@@ -111,10 +111,13 @@ def test_rename_is_recorded_AND_applied(conn):
     ingest_payloads(conn, entry, [make_payload([one_row(product_name="LED Floodlight 400W Pro")],
                                                scraped_at="2026-07-17T10:00:00Z")])
     ev = conn.execute("SELECT * FROM change_event WHERE change_type = 'field_updated'").fetchone()
-    assert ev["field_key"] == "source_name"
+    # The STORED column, which now says which language it holds. The wire key
+    # is still `product_name` and still carries Arabic; the two vocabularies
+    # meet in TRACKED_PRODUCT_FIELDS and nowhere else.
+    assert ev["field_key"] == "product_name_ar"
     assert ev["previous_value"] == "LED 400W" and ev["new_value"] == "LED Floodlight 400W Pro"
     # current state now reflects reality:
-    assert conn.execute("SELECT source_name FROM source_product").fetchone()[0] \
+    assert conn.execute("SELECT product_name_ar FROM source_product").fetchone()[0] \
         == "LED Floodlight 400W Pro"
 
 
