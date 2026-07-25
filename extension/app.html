@@ -602,15 +602,50 @@
     </div>
   </details>
 
-  <nav class="tabs" role="tablist" aria-label="ScrapeX sections">
-    <button id="tab-source" role="tab" data-view="source" aria-controls="view-source"
-            aria-selected="true" aria-current="page">Source</button>
-    <button id="tab-run" role="tab" data-view="run" aria-controls="view-run"
-            aria-selected="false" tabindex="-1">Run</button>
-    <button id="tab-data" role="tab" data-view="data" aria-controls="view-data"
-            aria-selected="false" tabindex="-1">Data</button>
-    <button id="tab-settings" role="tab" data-view="settings" aria-controls="view-settings"
-            aria-selected="false" tabindex="-1">Settings</button>
+  <nav class="tabs side-rail" aria-label="ScrapeX navigation">
+    <div class="rail-tablist" role="tablist" aria-label="Extension pages">
+      <button class="rail-item" id="tab-source" role="tab" data-view="source"
+              aria-controls="view-source" aria-selected="true" aria-current="page"
+              aria-label="Source" title="Source">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#link"></use>
+        </svg>
+        <span class="visually-hidden">Source</span>
+      </button>
+      <button class="rail-item" id="tab-run" role="tab" data-view="run"
+              aria-controls="view-run" aria-selected="false" tabindex="-1"
+              aria-label="Run" title="Run">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#play-circle"></use>
+        </svg>
+        <span class="visually-hidden">Run</span>
+      </button>
+      <button class="rail-item" id="tab-data" role="tab" data-view="data"
+              aria-controls="view-data" aria-selected="false" tabindex="-1"
+              aria-label="Data" title="Data">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#storage"></use>
+        </svg>
+        <span class="visually-hidden">Data</span>
+      </button>
+    </div>
+
+    <span class="rail-divider" aria-hidden="true"></span>
+    <div id="workspace-links" class="rail-workspace"
+         aria-label="Workspace pages"></div>
+    <span class="rail-spacer" aria-hidden="true"></span>
+
+    <div class="rail-tablist rail-tablist-bottom" role="tablist"
+         aria-label="Extension settings">
+      <button class="rail-item" id="tab-settings" role="tab" data-view="settings"
+              aria-controls="view-settings" aria-selected="false" tabindex="-1"
+              aria-label="Settings" title="Settings">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#settings"></use>
+        </svg>
+        <span class="visually-hidden">Settings</span>
+      </button>
+    </div>
   </nav>
 
   <script type="module" src="app.js"></script>

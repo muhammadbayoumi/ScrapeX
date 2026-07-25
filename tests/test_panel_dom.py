@@ -84,6 +84,30 @@ def test_opening_the_panel_raises_no_script_errors(open_panel):
     assert page.js_errors == [], f"the panel threw on load: {page.js_errors}"
 
 
+def test_the_icon_rail_replaces_the_bottom_tabs_and_covers_the_web_workspace(open_panel):
+    page = open_panel()
+    page.evaluate("""() => {
+        window.__opened = [];
+        window.chrome.tabs.create = (o) => window.__opened.push(o.url);
+    }""")
+    rail = page.locator("nav.side-rail")
+    bounds = rail.bounding_box()
+    assert bounds and bounds["x"] + bounds["width"] == pytest.approx(360, abs=1)
+    assert bounds["y"] == pytest.approx(0, abs=1)
+    assert bounds["height"] == pytest.approx(800, abs=1)
+
+    assert page.locator("nav.side-rail button[data-view]").count() == 4
+    workspace = page.locator("#workspace-links [data-workspace-path]")
+    assert workspace.count() == 9
+    assert all(workspace.nth(i).get_attribute("aria-label")
+               for i in range(workspace.count()))
+
+    page.click('[data-workspace-key="changes"]')
+    page.wait_for_timeout(100)
+    opened = page.evaluate("() => window.__opened")
+    assert len(opened) == 1 and opened[0].endswith("/changes")
+
+
 def test_a_tab_that_is_not_a_website_is_refused_with_a_reason(open_panel):
     page = open_panel(tab={"url": "chrome://extensions", "title": "Extensions"})
     assert page.is_disabled("#cur-use"), "a chrome:// page cannot be crawled"

@@ -46,10 +46,54 @@ const state = {
 
 // ---- views ----------------------------------------------------------------
 const VIEWS = ["source", "run", "data", "settings"];
+const PANEL_DESTINATIONS = new Set(["data", "settings"]);
+// The local fallback keeps every web page reachable even while the engine is
+// stopped. When /api/ui responds, its canonical navigation replaces this copy.
+const WORKSPACE_NAVIGATION_FALLBACK = [
+  {key: "overview", label: "Overview", path: "/", icon: "dashboard",
+    description: "Sources and warehouse totals."},
+  {key: "data", label: "Data", path: "/data", icon: "storage",
+    description: "Browse, search, and arrange saved records."},
+  {key: "changes", label: "Changes", path: "/changes", icon: "trending-up",
+    description: "Recent price and availability changes."},
+  {key: "history", label: "Crawl history", path: "/history", icon: "history",
+    description: "Past runs and their outcomes."},
+  {key: "review", label: "Review queue", path: "/review", icon: "check",
+    description: "Resolve proposed record matches."},
+  {key: "jobs", label: "Jobs", path: "/jobs", icon: "play-circle",
+    description: "Start and monitor collection jobs."},
+  {key: "schedules", label: "Schedules", path: "/schedules", icon: "schedule",
+    description: "Review automatic collection times."},
+  {key: "sync", label: "Google Sheets Synchronization", path: "/sync", icon: "sync",
+    description: "Synchronize saved data with Google Sheets and Drive."},
+  {key: "exports", label: "Exports", path: "/exports", icon: "file-download",
+    description: "Create and configure Excel exports."},
+  {key: "logs", label: "Logs", path: "/logs", icon: "description",
+    description: "Inspect detailed job activity."},
+  {key: "settings", label: "Settings", path: "/settings", icon: "settings",
+    description: "Runtime, storage, and policy."},
+];
+
+function renderWorkspaceNavigation(navigation) {
+  const destinations = (navigation || WORKSPACE_NAVIGATION_FALLBACK)
+    .filter((destination) => !PANEL_DESTINATIONS.has(destination.key));
+  const box = $("workspace-links");
+  box.innerHTML = destinations.map((destination) => {
+    const tooltip = `${destination.label} — ${destination.description || "Open in Workspace"}`;
+    return `<button type="button" class="rail-item" data-workspace-key="${
+      esc(destination.key)}" data-workspace-path="${esc(destination.path)}"
+      aria-label="${esc(destination.label)}" title="${esc(tooltip)}">
+      ${icon(destination.icon)}
+      <span class="visually-hidden">${esc(destination.label)}</span>
+    </button>`;
+  }).join("");
+  box.querySelectorAll("[data-workspace-path]").forEach((button) =>
+    button.addEventListener("click", () => openTab(button.dataset.workspacePath)));
+}
 
 function showView(name) {
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
-  document.querySelectorAll("nav.tabs button").forEach((b) => {
+  document.querySelectorAll("nav.tabs button[data-view]").forEach((b) => {
     const selected = b.dataset.view === name;
     b.setAttribute("aria-selected", String(selected));
     b.tabIndex = selected ? 0 : -1;
@@ -244,11 +288,13 @@ const MODES = {
 // workspace sidebar renders from) overlays it, so the two surfaces can never
 // hold two drifting wordings of the same mode.
 async function adoptUiContract() {
+  renderWorkspaceNavigation(WORKSPACE_NAVIGATION_FALLBACK);
   try {
     const manifest = await api("/api/ui");
     for (const mode of manifest.run_modes || []) {
       if (MODES[mode.key]) MODES[mode.key] = [mode.label, mode.detail, mode.warning || null];
     }
+    renderWorkspaceNavigation(manifest.navigation);
     refreshMode();
   } catch (_) { /* engine down or older — the built-ins stand */ }
 }
@@ -1058,16 +1104,17 @@ async function init() {
   renderAutostart();
   adoptUiContract();
 
-  const tabs = [...document.querySelectorAll("nav.tabs button")];
+  const tabs = [...document.querySelectorAll("nav.tabs button[data-view]")];
   tabs.forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
   document.querySelector("nav.tabs").addEventListener("keydown", (event) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    if (!event.target.matches("button[data-view]")) return;
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     const current = tabs.indexOf(document.activeElement);
     let next = current < 0 ? 0 : current;
     if (event.key === "Home") next = 0;
     else if (event.key === "End") next = tabs.length - 1;
-    else next = (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    else next = (current + (event.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length;
     tabs[next].focus();
     showView(tabs[next].dataset.view);
   });

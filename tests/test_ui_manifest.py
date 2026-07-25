@@ -71,5 +71,9 @@ def test_the_panel_is_wired_to_adopt_the_contract():
     the module via the template global."""
     panel = Path("extension/app.js").read_text(encoding="utf-8")
     assert '"/api/ui"' in panel and "adoptUiContract" in panel
+    assert "manifest.navigation" in panel and "renderWorkspaceNavigation" in panel
+    for destination in WORKSPACE_DESTINATIONS:
+        assert f'key: "{destination.key}"' in panel
+        assert f'path: "{destination.path}"' in panel
     base = Path("scrapex/webui/templates/base.html").read_text(encoding="utf-8")
     assert "workspace_navigation_groups" in base

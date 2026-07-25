@@ -1,14 +1,20 @@
-:root { --brand-mark: url("icons/x-mark.png"); }
+:root {
+  --brand-mark: url("icons/x-mark.png");
+  --panel-rail-width: 3.5rem;
+}
 
 /* Page layout only — primitives and tokens live in the shared sheets. */
   html, body { height: 100%; }
-  body { display: flex; flex-direction: column; overflow-x: hidden; }
+  body { display: grid;
+         grid-template-columns: minmax(0, 1fr) var(--panel-rail-width);
+         grid-template-rows: minmax(0, 1fr) auto;
+         overflow: hidden; }
 
   /* Nothing may widen the panel: it can be as narrow as 320px. */
   * { min-width: 0; }
   .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
 
-  main { flex: 1; overflow-y: auto; padding: var(--sp-4);
+  main { grid-column: 1; grid-row: 1; overflow-y: auto; padding: var(--sp-4);
          display: flex; flex-direction: column; gap: var(--sp-4); }
   h2 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
        color: var(--muted); margin: var(--sp-1) 0; }
@@ -297,17 +303,72 @@
                border-top: 1px solid var(--line); }
   .mini-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
 
-  /* Bottom navigation. The active tab is marked by weight + a rule, never colour
-     alone, and carries aria-current for assistive tech. */
-  nav.tabs { display: flex; border-top: 1px solid var(--line); background: var(--bg); }
-  nav.tabs button { flex: 1; border: 0; border-top: 2px solid transparent; border-radius: 0;
-                    min-height: 3rem; background: none; color: var(--muted);
-                    padding: var(--sp-3) var(--sp-1);
-                    font-size: var(--fs-xs); color: var(--muted); }
-  nav.tabs button:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
-  @media (min-width: 360px) { nav.tabs button { font-size: var(--fs-sm); } }
-  nav.tabs button[aria-current="page"] { color: var(--text); font-weight: var(--fw-bold);
-                                         border-top-color: currentColor; }
+  /* Compact icon navigation at the far right. Deep workspace destinations open
+     in the full web UI; Source, Run, Data and Settings stay in this panel. */
+  nav.side-rail {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-1);
+    min-height: 0;
+    padding: var(--sp-2) var(--sp-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-inline-start: 1px solid var(--line);
+    background: var(--bg);
+    scrollbar-width: none;
+  }
+  nav.side-rail::-webkit-scrollbar { display: none; }
+  .rail-tablist, .rail-workspace {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-1);
+    width: 100%;
+  }
+  .side-rail .rail-item {
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--muted);
+  }
+  .side-rail .rail-item:hover:not(:disabled) {
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  .side-rail .rail-item[aria-current="page"] {
+    background: var(--control-hover);
+    color: var(--text);
+    box-shadow: inset 2px 0 0 currentColor;
+  }
+  .side-rail .rail-item .sx-icon { width: 1.2rem; height: 1.2rem; }
+  .rail-divider {
+    flex: none;
+    width: 1.75rem;
+    height: 1px;
+    margin-block: var(--sp-1);
+    background: var(--line);
+  }
+  .rail-spacer { flex: 1 0 var(--sp-3); }
+  .rail-tablist-bottom { margin-top: auto; }
+
+  /* The live crawl controller stays in the content column, never under the
+     navigation rail. */
+  .sx-mini { grid-column: 1; grid-row: 2; }
+
+  @media (max-width: 340px) {
+    :root { --panel-rail-width: 3.25rem; }
+    main { padding: var(--sp-3); }
+  }
 
   .skeleton { height: var(--sp-3); border-radius: var(--radius-xs); background: var(--chip);
               animation: pulse 1.4s ease-in-out infinite; margin: var(--sp-2) 0; }
