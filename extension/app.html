@@ -265,9 +265,15 @@
            what we actually detected, so nothing is guessed by the user. -->
       <div id="add-form" class="card stack hidden">
         <div class="fieldset">
-          <label for="f-name">Display name</label>
-          <input id="f-name" dir="auto" aria-describedby="err-name">
+          <label for="f-name">Display name (English)</label>
+          <input id="f-name" dir="ltr" aria-describedby="err-name">
           <div id="err-name" class="err hint" role="alert"></div>
+        </div>
+        <div class="fieldset">
+          <label for="f-name-ar">Arabic name</label>
+          <input id="f-name-ar" dir="auto" aria-describedby="hint-name-ar">
+          <div id="hint-name-ar" class="hint">Optional — only if the site
+            publishes one. The heading then reads in both.</div>
         </div>
         <div class="fieldset">
           <label for="f-key">Source key</label>
@@ -355,7 +361,7 @@
                 </select></div>
             </div>
             <div class="fieldset"><label for="f-id-composite">Composite fields</label>
-              <input id="f-id-composite" class="tech" placeholder="sku, option_label">
+              <input id="f-id-composite" class="tech" placeholder="sku, variant_ar">
             </div>
             <div class="fieldset"><label for="f-id-ambiguous">If a match is ambiguous</label>
               <select id="f-id-ambiguous">
@@ -481,7 +487,7 @@
         <dl class="source-edit-facts">
           <div><dt>Domain</dt><dd id="source-edit-domain"></dd></div>
           <div><dt>Display name</dt><dd id="source-edit-name" dir="auto"></dd></div>
-          <div><dt>English name</dt><dd id="source-edit-name-en" dir="auto"></dd></div>
+          <div><dt>Arabic name</dt><dd id="source-edit-name-ar" dir="auto"></dd></div>
           <div><dt>Source key</dt><dd><code id="source-edit-key"></code></dd></div>
           <div><dt>Connector</dt><dd><code id="source-edit-family"></code></dd></div>
           <div><dt>Base URL</dt><dd id="source-edit-url" class="tech"></dd></div>

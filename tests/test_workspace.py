@@ -63,9 +63,11 @@ def test_no_arabic_leaks_into_the_interface(client, path):
     from scrapex.config import load_manifest
 
     body = client.get(path).text
+    # The ARABIC name is the legitimate one to strip — the unmarked
+    # source_name is English and can never trip this check.
     # Longest first: "السويد" is a PREFIX of "السويدي شوب", so replacing the short
     # one first would leave a fragment behind and fail for the wrong reason.
-    names = sorted((e.source_name for e in load_manifest(MANIFEST_FILE).sources),
+    names = sorted((e.source_name_ar for e in load_manifest(MANIFEST_FILE).sources),
                    key=len, reverse=True)
     for name in names:
         body = body.replace(name, "")

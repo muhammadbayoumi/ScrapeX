@@ -97,8 +97,10 @@ def _about(conn: sqlite3.Connection, source_key: str,
         (source_key,)).fetchone()
     facts: list[list] = [
         ["source_key", source_key],
-        ["source_name", (site[0] if site else "") or ""],
-        ["source_name_en", (site[1] if site else "") or ""],
+        # Row VALUES, so no rename reaches them: the workbook would go on
+        # explaining itself in the retired vocabulary. Edited by hand.
+        ["source_name", (site[1] if site else "") or ""],
+        ["source_name_ar", (site[0] if site else "") or ""],
         ["site", (site[2] if site else "") or ""],
         ["exported_at", utc_now_iso()],
     ]

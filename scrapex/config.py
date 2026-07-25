@@ -162,12 +162,18 @@ class SourceEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_key: str
-    source_name: str
-    # The site's own English name, when it publishes one. Stored BESIDE the
+    # English is the primary display language, so the unmarked name is English
+    # and it is REQUIRED. Requiredness inverts here deliberately: these twelve
+    # labels are owner-authored rather than scraped, all twelve already carry
+    # both, and the primary column must never be blank on the one surface we
+    # fully control. min_length pins that: a blank primary name is refused
+    # rather than listed under an empty heading.
+    source_name: str = Field(min_length=1)
+    # The site's own Arabic name, when it publishes one. Stored BESIDE the
     # primary name, never instead of it — the rule 0033 set for every bilingual
     # field: the warehouse remembers both, the display layer chooses. Optional,
     # so a source that answers in one language only stays valid.
-    source_name_en: str = ""
+    source_name_ar: str = ""
     base_url: str
     family: ConnectorFamily
     cadence: Cadence = Cadence.MANUAL

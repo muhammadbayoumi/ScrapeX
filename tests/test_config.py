@@ -11,7 +11,7 @@ from scrapex.vocab import ConnectorFamily, ExtractScope
 def entry(**overrides) -> dict:
     base = {
         "source_key": "MADAR",
-        "source_name": "المدار",
+        "source_name": "Madar",
         "base_url": "https://www.madar.com",
         "family": "magento-graphql",
         "extract": [{"kind": "product_prices"}],
@@ -35,26 +35,41 @@ def test_committed_manifest_is_valid():
 
 
 def test_every_committed_source_carries_an_english_name():
-    """The manifest is where a site's names live, so the English one lives here
-    too. A source without it shows Arabic-only wherever it is listed, while the
-    table beside it flips AR|EN on demand — so "most of them" is not enough,
-    and this asks every committed source rather than a sample."""
+    """The manifest is where a site's names live, and the UNMARKED name is the
+    English one — the primary display language. A source without it would show
+    Arabic-only wherever it is listed, so "most of them" is not enough, and
+    this asks every committed source rather than a sample."""
     manifest = load_manifest(MANIFEST_FILE)
 
-    nameless = [s.source_key for s in manifest.sources if not s.source_name_en.strip()]
+    nameless = [s.source_key for s in manifest.sources if not s.source_name.strip()]
     assert nameless == [], f"no English name: {nameless}"
     # Two spellings the site itself uses, pinned so a rename here is deliberate.
-    assert manifest.get("MADAR").source_name_en == "Madar"
-    assert manifest.get("GPP_ENERGY").source_name_en == "Global Petrol Prices"
-    # Both names are kept: the English one is stored BESIDE the Arabic one,
-    # never in place of it.
-    assert manifest.get("ELSEWEDYSHOP").source_name == "السويدي شوب"
+    assert manifest.get("MADAR").source_name == "Madar"
+    assert manifest.get("GPP_ENERGY").source_name == "Global Petrol Prices"
+    # Both names are kept: the Arabic one is stored BESIDE the English one,
+    # never in place of it. A TWO-WAY tripwire — renaming the keys without
+    # swapping the values in sources.yaml leaves this green while every site's
+    # Arabic name sits under the English-marked key.
+    assert manifest.get("ELSEWEDYSHOP").source_name_ar == "السويدي شوب"
+    assert manifest.get("ELSEWEDYSHOP").source_name == "Elsewedy Shop"
 
 
-def test_a_source_may_have_no_english_name():
-    """Optional by design — a site that answers in one language only must not
-    be unrepresentable in the manifest."""
-    assert Manifest.model_validate({"sources": [entry()]}).get("MADAR").source_name_en == ""
+def test_a_source_may_have_no_arabic_name():
+    """Optional by design — a site that answers in English only must not be
+    unrepresentable in the manifest."""
+    assert Manifest.model_validate({"sources": [entry()]}).get("MADAR").source_name_ar == ""
+
+
+def test_a_source_may_NOT_have_no_english_name():
+    """The other direction, which the old test left untested: English is the
+    primary display language, so the unmarked name is required and a source
+    without one must be REFUSED rather than listed under a blank heading."""
+    with pytest.raises(ValidationError):
+        Manifest.model_validate({"sources": [entry(source_name="")]})
+    bare = entry()
+    bare.pop("source_name")
+    with pytest.raises(ValidationError):
+        Manifest.model_validate({"sources": [bare]})
 
 
 def test_no_source_is_active_without_a_shipped_connector():

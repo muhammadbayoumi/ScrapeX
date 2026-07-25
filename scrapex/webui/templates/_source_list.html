@@ -26,7 +26,7 @@
       <span class="dataset-group-label">Available data</span>
       {% for s in sources %}
       <a class="dataset-choice" href="/source/{{ s.source_key }}"
-         data-dataset-choice data-search="{{ (s.source_name ~ ' ' ~ s.source_name_en ~ ' ' ~ s.source_key)|lower }}"
+         data-dataset-choice data-search="{{ (s.source_name ~ ' ' ~ s.source_name_ar ~ ' ' ~ s.source_key)|lower }}"
          data-domain="{{ (s.base_url or '')|source_domain|lower }}"
          {% if s.source_key == source_key %}aria-current="page"{% endif %}>
         {# The NAME leads, the key follows: a list headed by MADAR / GPP
@@ -46,7 +46,7 @@
       <span class="dataset-group-label">Configured, never run</span>
       {% for p in pending %}
       <a class="dataset-choice dataset-choice-pending" href="/source/{{ p.source_key }}"
-         data-dataset-choice data-search="{{ (p.source_name ~ ' ' ~ p.source_name_en ~ ' ' ~ p.source_key)|lower }}"
+         data-dataset-choice data-search="{{ (p.source_name ~ ' ' ~ p.source_name_ar ~ ' ' ~ p.source_key)|lower }}"
          data-domain="{{ (p.base_url or '')|source_domain|lower }}"
          {% if p.source_key == source_key %}aria-current="page"{% endif %}>
         {{ source_identity(p, metric_value="0") }}

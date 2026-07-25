@@ -218,15 +218,17 @@ function sourceDomain(url) {
 
 function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row") {
   const key = source.source_key || "";
+  // The unmarked name is English and is required; _ar is the site's own
+  // Arabic name and may be absent. English leads, as it always did.
   const name = source.source_name || key.replaceAll("_", " ");
   const domain = sourceDomain(source.base_url);
-  const english = source.source_name_en && source.source_name_en !== name
-    ? `<span class="source-identity-name-en" dir="ltr">${esc(source.source_name_en)}</span>` : "";
+  const arabic = source.source_name_ar && source.source_name_ar !== name
+    ? `<span class="source-identity-name" dir="auto">${esc(source.source_name_ar)}</span>` : "";
   return `<span class="source-identity${compact ? " source-identity-compact" : ""}">
     <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${esc(domain || name)}</strong>
-    ${domain || english ? `<span class="source-identity-names">${english}${
-      english ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
-    }<span class="source-identity-name" dir="auto">${esc(name)}</span></span>` : ""}
+    ${domain || arabic ? `<span class="source-identity-names"><span class="source-identity-name-en" dir="ltr">${esc(name)}</span>${
+      arabic ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
+    }${arabic}</span>` : ""}
     <span class="source-identity-footer">
       <code class="source-identity-key">${esc(key)}</code>
       ${metricValue == null ? "" : sourceMetric(metricValue, metricLabel)}
@@ -246,7 +248,7 @@ function visibleSources() {
   const term = state.filter.trim().toLowerCase();
   return state.sources.filter((s) =>
     !term || (s.source_name || "").toLowerCase().includes(term) ||
-    (s.source_name_en || "").toLowerCase().includes(term) ||
+    (s.source_name_ar || "").toLowerCase().includes(term) ||
     (s.source_key || "").toLowerCase().includes(term) ||
     (s.base_url || "").toLowerCase().includes(term));
 }
@@ -313,7 +315,7 @@ function renderSourceManager() {
   const term = state.sourceFilter.trim().toLowerCase();
   const shown = state.sources.filter((source) =>
     !term || (source.source_name || "").toLowerCase().includes(term) ||
-    (source.source_name_en || "").toLowerCase().includes(term) ||
+    (source.source_name_ar || "").toLowerCase().includes(term) ||
     (source.source_key || "").toLowerCase().includes(term) ||
     sourceDomain(source.base_url).includes(term));
 
@@ -372,7 +374,7 @@ function renderSourceEditor(source) {
      <span>${ready ? "Ready" : "Connector unavailable"}</span>`;
   $("source-edit-domain").textContent = sourceDomain(source.base_url) || "â€”";
   $("source-edit-name").textContent = source.source_name || "â€”";
-  $("source-edit-name-en").textContent = source.source_name_en || "â€”";
+  $("source-edit-name-ar").textContent = source.source_name_ar || "â€”";
   $("source-edit-key").textContent = source.source_key || "â€”";
   $("source-edit-family").textContent = source.family || "â€”";
   $("source-edit-url").textContent = source.base_url || "â€”";
@@ -1124,6 +1126,7 @@ async function probe() {
     // Prefill from what was DETECTED, so the user confirms rather than guesses.
     fillFamilySelects(s.family);
     $("f-name").value = s.source_name || "";
+    $("f-name-ar").value = s.source_name_ar || "";
     $("f-key").value = s.source_key || "";
     $("f-currency").value = s.currency || "";
     $("f-region").value = s.default_region || "*";
@@ -1151,10 +1154,11 @@ async function addSite() {
     return;
   }
   if (!$("f-name").value.trim()) {
-    fieldError("err-name", "A display name is required."); return;
+    fieldError("err-name", "An English display name is required."); return;
   }
   const payload = {
     source_key: key, source_name: $("f-name").value.trim(),
+    source_name_ar: $("f-name-ar").value.trim(),
     base_url: $("url").value.trim(), family: $("f-family").value,
     fetcher: $("f-fetcher").value, currency: $("f-currency").value.trim(),
     default_region: $("f-region").value.trim() || "*", vat_mode: $("f-vat").value,

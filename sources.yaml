@@ -8,18 +8,20 @@
 # Auto switch (or here). active gates SCHEDULED runs only — manual runs from
 # the panel always work.
 #
-# A source is named twice: source_name as the site names itself, and
-# source_name_en for the same site in English. A name is a fact about the
-# source, not a scraped value, so it is stated here — the dataset lists and the
-# page headings then read in both languages, as the table already does.
+# A source is named twice: source_name in English, REQUIRED because English is
+# the primary display language, and source_name_ar for the same site as it
+# names itself in Arabic. Each name states the language it holds. A name is a
+# fact about the source, not a scraped value, so it is stated here — the
+# dataset lists and the page headings then read in both languages, as the table
+# already does.
 # Validation: scrapex validate-manifest (same check runs in CI — S5).
 # ============================================================================
 
 sources:
   # ---- probed 2026-07-16: Magento 2 + Hyvä; GraphQL open; SSR fallback ----
   - source_key: MADAR
-    source_name: المدار
-    source_name_en: Madar
+    source_name_ar: المدار
+    source_name: Madar
     base_url: https://www.madar.com
     family: magento-graphql
     cadence: daily
@@ -111,8 +113,8 @@ sources:
 
   # ---- probed: Salla; SSR + JSON-LD; numeric /p{ID} ids. This is "السويد" ----
   - source_key: ALSWEED
-    source_name: السويد
-    source_name_en: Alsweed
+    source_name_ar: السويد
+    source_name: Alsweed
     base_url: https://alsweed.sa
     family: salla-html
     cadence: daily
@@ -132,8 +134,8 @@ sources:
       URLs from the ar sitemap (short /-/p{id} URLs redirect-loop).
 
   - source_key: ELBUROJ
-    source_name: البروج
-    source_name_en: Elburoj
+    source_name_ar: البروج
+    source_name: Elburoj
     base_url: https://elburoj.com
     family: salla-html
     cadence: daily
@@ -151,8 +153,8 @@ sources:
 
   # ---- probed: Zid platform; SSR + JSON-LD; UUID ids; needs browser UA ----
   - source_key: ADVANCEDCASTLE
-    source_name: القلعة المتقدمة
-    source_name_en: Advanced Castle
+    source_name_ar: القلعة المتقدمة
+    source_name: Advanced Castle
     base_url: https://advancedcastle.com
     family: zid-html
     cadence: daily
@@ -176,8 +178,8 @@ sources:
 
   # ---- probed: Shopify; products.json OPEN ----
   - source_key: ELSEWEDYSHOP
-    source_name: السويدي شوب
-    source_name_en: Elsewedy Shop
+    source_name_ar: السويدي شوب
+    source_name: Elsewedy Shop
     base_url: https://elsewedyshop.com
     family: shopify-json
     cadence: daily
@@ -195,8 +197,8 @@ sources:
 
   # ---- probed: SAP Hybris OCC v2 REST open; real EAN/GTIN ----
   - source_key: MASDAR
-    source_name: مصدر
-    source_name_en: Masdar
+    source_name_ar: مصدر
+    source_name: Masdar
     base_url: https://www.masdaronline.com
     family: hybris-occ
     cadence: daily
@@ -237,8 +239,8 @@ sources:
 
   # ---- probed: custom Next.js shop with open unauthenticated JSON API ----
   - source_key: SIKAEGSHOP
-    source_name: سيكا مصر شوب
-    source_name_en: Sika Egypt Shop
+    source_name_ar: سيكا مصر شوب
+    source_name: Sika Egypt Shop
     base_url: https://www.sikaegshop.com
     family: custom-json-api
     cadence: daily
@@ -297,8 +299,8 @@ sources:
 
   # ---- probed: WooCommerce Store API open, variations included ----
   - source_key: SAMEHGABRIEL
-    source_name: سامح جبرائيل
-    source_name_en: Sameh Gabriel
+    source_name_ar: سامح جبرائيل
+    source_name: Sameh Gabriel
     base_url: https://samehgabriel.com
     family: woocommerce-storeapi
     cadence: daily
@@ -324,8 +326,8 @@ sources:
 
   # ---- probed: data publisher; LATEST PRICE ONLY (owner license decision) ----
   - source_key: GPP_ENERGY
-    source_name: أسعار الطاقة العالمية
-    source_name_en: Global Petrol Prices
+    source_name_ar: أسعار الطاقة العالمية
+    source_name: Global Petrol Prices
     base_url: https://www.globalpetrolprices.com
     family: static-html-table
     cadence: weekly
@@ -422,8 +424,8 @@ sources:
 
   # ---- probed: Sika Egypt corporate (AEM) — enrichment only, no prices ----
   - source_key: SIKA_EGYPT_DATASHEETS
-    source_name: سيكا مصر (نشرات فنية)
-    source_name_en: Sika Egypt datasheets
+    source_name_ar: سيكا مصر (نشرات فنية)
+    source_name: Sika Egypt datasheets
     base_url: https://egy.sika.com
     family: datasheet-enrichment
     cadence: monthly
@@ -439,8 +441,8 @@ sources:
 
   # ---- probed live 2026-07-23: official monthly prices as heading + pairs ----
   - source_key: ARAMCO_FUEL_SA
-    source_name: أرامكو السعودية
-    source_name_en: Saudi Aramco
+    source_name_ar: أرامكو السعودية
+    source_name: Saudi Aramco
     base_url: https://www.aramco.com
     family: aramco-fuel-page
     cadence: monthly
@@ -466,8 +468,8 @@ sources:
       text, not selectors: the React class names churn, the words do not.
 
   - source_key: TABLER
-    source_name: tabler.io
-    source_name_en: Tabler
+    source_name_ar: tabler.io
+    source_name: Tabler
     base_url: https://tabler.io/icons
     family: TBD-probe
     cadence: manual

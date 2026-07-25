@@ -31,7 +31,7 @@
   <div class="idblock">
     <div class="dataset-identity">
       {% set pending_source = pending | selectattr("source_key", "equalto", source_key) | first %}
-      {% set identity_source = pending_source or {"source_key": source_key, "source_name": "", "source_name_en": ""} %}
+      {% set identity_source = pending_source or {"source_key": source_key, "source_name": "", "source_name_ar": ""} %}
       {{ source_identity(identity_source) }}
       {% if source_site %}
         <a class="dataset-site-link" href="{{ source_site }}" target="_blank"

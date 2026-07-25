@@ -77,7 +77,7 @@
                 id="schedule-source-{{ loop.index0 }}" aria-controls="schedule-panel-{{ loop.index0 }}"
                 aria-selected="{{ 'true' if loop.first else 'false' }}"
                 tabindex="{{ '0' if loop.first else '-1' }}" data-source-choice="{{ r.source_key }}"
-                data-state="{{ state }}" data-search="{{ (r.source_name ~ ' ' ~ r.source_name_en ~ ' ' ~ r.source_key)|lower }}">
+                data-state="{{ state }}" data-search="{{ (r.source_name ~ ' ' ~ r.source_name_ar ~ ' ' ~ r.source_key)|lower }}">
           {{ source_identity(r, compact=true) }}
           <span class="schedule-choice-state" data-choice-state data-state="{{ state }}"
                 aria-label="{{ state|capitalize }}">{{ state|capitalize }}</span>

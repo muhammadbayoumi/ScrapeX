@@ -16,12 +16,13 @@ from .normalize import option_axes_from
 @dataclass
 class SourceSummary:
     source_key: str
+    # English, and required — the unmarked name is the primary one.
     source_name: str
-    # The same name in English when the site has one (0035). Carried here so a
+    # The same name in Arabic when the site has one (0035). Carried here so a
     # listing or a heading shows both without a second query — empty for a
     # source that answers in one language, which the templates read as "nothing
     # to add" rather than an empty line.
-    source_name_en: str = ""
+    source_name_ar: str = ""
     # Display identity uses the source's host as its primary label. The full
     # URL remains available for links while templates strip it to the domain.
     base_url: str = ""
@@ -45,9 +46,9 @@ def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary |
     ).fetchone()
     if row is None:
         return None
-    source_id, source_name = row[0], row[1]
-    s = SourceSummary(source_key=source_key, source_name=source_name,
-                      source_name_en=row[2] or "", base_url=row[3] or "")
+    source_id = row[0]
+    s = SourceSummary(source_key=source_key, source_name=row[2] or "",
+                      source_name_ar=row[1] or "", base_url=row[3] or "")
 
     s.products = _scalar(conn, "SELECT COUNT(*) FROM source_product WHERE source_id = ?", (source_id,))
     s.variants = _scalar(conn,
@@ -77,7 +78,9 @@ def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary |
         "WHERE sp.source_id = ? AND svm.review_status = 'approved' AND svm.valid_to IS NULL",
         (source_id,))
     s.published_rows = _scalar(conn,
-        "SELECT COUNT(*) FROM v_material_price_tracking WHERE source_name = ?", (source_name,))
+        # The view publishes the ENGLISH name under the unmarked alias (0038).
+        "SELECT COUNT(*) FROM v_material_price_tracking WHERE source_name = ?",
+        (s.source_name,))
     return s
 
 

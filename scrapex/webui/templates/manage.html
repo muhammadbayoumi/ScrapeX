@@ -30,7 +30,8 @@
   <form id="add-form" onsubmit="return false">
     <div class="form-grid">
       <div class="field"><label>source_key (UPPER_SNAKE)</label><input name="source_key" required></div>
-      <div class="field"><label>Display name</label><input name="source_name" required></div>
+      <div class="field"><label>Display name (English)</label><input name="source_name" required></div>
+      <div class="field"><label>Arabic name</label><input name="source_name_ar" dir="auto"></div>
       <div class="field"><label>base_url</label><input name="base_url" type="url" required></div>
       <div class="field"><label>Connector family</label>
         <select name="family">{% for f in families %}<option value="{{ f }}">{{ f }}</option>{% endfor %}</select>
@@ -97,7 +98,7 @@ $("#probe-btn").addEventListener("click", async () => {
     const r = await res.json();
     if(!res.ok){ ev.innerHTML = `<span class="err">${r.detail||"Test failed"}</span>`; return; }
     const s = r.suggested;
-    for(const k of ["source_key","source_name","base_url","family","currency","default_region","vat_mode","cadence","authority","fetcher","kind","scope"]) setField(k, s[k]);
+    for(const k of ["source_key","source_name","source_name_ar","base_url","family","currency","default_region","vat_mode","cadence","authority","fetcher","kind","scope"]) setField(k, s[k]);
     $("#active").checked = !!s.active;
     const cls = r.implemented ? "ok" : "err";
     ev.innerHTML = `<div class="${cls}">Family: <b>${r.family}</b> — ${r.notes}</div>` +

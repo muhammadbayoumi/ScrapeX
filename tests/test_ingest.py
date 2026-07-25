@@ -23,7 +23,11 @@ def conn() -> sqlite3.Connection:
 
 def make_entry(**over) -> SourceEntry:
     base = dict(
-        source_key="ELSEWEDYSHOP", source_name="السويدي شوب",
+        # The unmarked name is English (required); the Arabic one is marked.
+        # The old default put Arabic under the unmarked key and 28 files
+        # inherited it — exactly the lie the marking exists to prevent.
+        source_key="ELSEWEDYSHOP", source_name="Elsewedy Shop",
+        source_name_ar="السويدي شوب",
         base_url="https://elsewedyshop.com", family="shopify-json",
         currency="EGP", default_region="EG",
         extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)],

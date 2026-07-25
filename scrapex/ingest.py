@@ -170,14 +170,14 @@ def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
         # already crawl carries '' until the manifest value is copied over, and
         # the listings would stay Arabic-only for exactly the sites with data.
         # Narrow on purpose — only the column the manifest just answered for.
-        if (row[1] or "") != entry.source_name_en:
+        if (row[1] or "") != entry.source_name:
             conn.execute("UPDATE source_site SET source_name = ? WHERE source_id = ?",
-                         (entry.source_name_en, source_id))
+                         (entry.source_name, source_id))
         return source_id
     return _insert(conn, "source_site", {
         "source_key": entry.source_key,
-        "source_name_ar": entry.source_name,
-        "source_name": entry.source_name_en,
+        "source_name_ar": entry.source_name_ar,
+        "source_name": entry.source_name,
         "base_url": entry.base_url,
         "platform": entry.family.value,
         "currency": currency,

@@ -112,7 +112,7 @@ def test_the_heading_and_the_listing_carry_the_english_name_too(tmp_path: Path):
     db_path = tmp_path / "harvest.db"
     conn = dbmod.connect(db_path)
     dbmod.migrate(conn)
-    ingest_payloads(conn, make_entry(source_name_en="Elsewedy Shop"),
+    ingest_payloads(conn, make_entry(),
                     [make_payload([one_row()])])
     conn.commit()
     conn.close()
@@ -130,7 +130,7 @@ def test_the_heading_and_the_listing_carry_the_english_name_too(tmp_path: Path):
     assert '<span class="source-identity-name-en" dir="ltr">Elsewedy Shop</span>' in page
     assert '<span class="source-identity-name-en" dir="ltr">Global Petrol Prices</span>' in page
     # And a search over the list answers to either name, not the Arabic one only.
-    assert 'data-search="السويدي شوب elsewedy shop elsewedyshop"' in page
+    assert 'data-search="elsewedy shop السويدي شوب elsewedyshop"' in page
 
 
 # The rows are rendered by the grid in the browser now, so asserting product

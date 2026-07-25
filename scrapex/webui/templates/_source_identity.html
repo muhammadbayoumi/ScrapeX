@@ -17,18 +17,21 @@
 
 {% macro source_identity(source, compact=false, metric_value=none, metric_label="Row") -%}
   {% set key = source.source_key %}
+  {# The unmarked name is English and is required; _ar is the site's own Arabic
+     name and may be absent. English leads, as it did before the names were
+     marked — only the variables moved. #}
   {% set name = source.source_name or key.replace("_", " ") %}
-  {% set name_en = source.source_name_en or "" %}
+  {% set name_ar = source.source_name_ar or "" %}
   {% set domain = (source.base_url or "")|source_domain %}
   <span class="source-identity{% if compact %} source-identity-compact{% endif %}">
     <strong class="source-identity-domain" dir="{{ 'ltr' if domain else 'auto' }}">{{ domain or name }}</strong>
-    {% if domain or (name_en and name_en != name) %}
+    {% if domain or (name_ar and name_ar != name) %}
       <span class="source-identity-names">
-        {% if name_en and name_en != name %}
-          <span class="source-identity-name-en" dir="ltr">{{ name_en }}</span>
+        <span class="source-identity-name-en" dir="ltr">{{ name }}</span>
+        {% if name_ar and name_ar != name %}
           <span class="source-identity-separator" aria-hidden="true">·</span>
+          <span class="source-identity-name" dir="auto">{{ name_ar }}</span>
         {% endif %}
-        <span class="source-identity-name" dir="auto">{{ name }}</span>
       </span>
     {% endif %}
     <span class="source-identity-footer">
@@ -41,7 +44,7 @@
 {% macro source_option_label(source) -%}
   {% set key = source.source_key -%}
   {% set name = source.source_name or key.replace("_", " ") -%}
-  {% set name_en = source.source_name_en or "" -%}
+  {% set name_ar = source.source_name_ar or "" -%}
   {% set domain = (source.base_url or "")|source_domain -%}
-  {{ domain or name }} — {% if name_en and name_en != name %}{{ name_en }} · {% endif %}{{ name }} — {{ key }}
+  {{ domain or name }} — {{ name }}{% if name_ar and name_ar != name %} · {{ name_ar }}{% endif %} — {{ key }}
 {%- endmacro %}

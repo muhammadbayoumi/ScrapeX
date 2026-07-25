@@ -243,7 +243,7 @@ def create_app(
             if entry is None:
                 continue
             source.source_name = entry.source_name or source.source_name
-            source.source_name_en = entry.source_name_en or source.source_name_en
+            source.source_name_ar = entry.source_name_ar or source.source_name_ar
             source.base_url = entry.base_url or source.base_url
         return sources
 
@@ -259,7 +259,7 @@ def create_app(
             # the "never run" half of the list would read Arabic-only while the
             # half above it reads both.
             {"source_key": key, "source_name": entry.source_name,
-             "source_name_en": entry.source_name_en,
+             "source_name_ar": entry.source_name_ar,
              "base_url": entry.base_url,
              "family": entry.family.value, "active": entry.active}
             for entry in sorted(app.state.manifest.sources, key=lambda item: item.source_key)
@@ -763,7 +763,7 @@ def create_app(
             rows.append({
                 "source_key": entry.source_key,
                 "source_name": entry.source_name,
-                "source_name_en": entry.source_name_en,
+                "source_name_ar": entry.source_name_ar,
                 "base_url": entry.base_url,
                 "active": entry.active,
                 "supports_history": supports_history(entry.family),
@@ -895,7 +895,7 @@ def create_app(
             s = summaries.get(entry.source_key)
             out.append({
                 "source_key": entry.source_key, "source_name": entry.source_name,
-                "source_name_en": entry.source_name_en,
+                "source_name_ar": entry.source_name_ar,
                 "base_url": entry.base_url, "family": entry.family.value,
                 "active": entry.active, "implemented": _is_implemented(entry),
                 # A per-source CAPABILITY, not a universal mode: the panel
@@ -1976,6 +1976,10 @@ def _entry_from_form(form: dict) -> SourceEntry:
     data = {
         "source_key": (form.get("source_key") or "").strip().upper(),
         "source_name": (form.get("source_name") or "").strip(),
+        # Both keys, or a site added through the form with an Arabic name
+        # has nowhere to put it. The form collects English as the primary
+        # name (required) and Arabic beside it when the site has one.
+        "source_name_ar": (form.get("source_name_ar") or "").strip(),
         "base_url": (form.get("base_url") or "").strip(),
         "family": form.get("family"),
         "cadence": form.get("cadence", Cadence.DAILY.value),
