@@ -30,7 +30,12 @@ Two rules produce every name below:
 | `category` (Arabic) | `category_ar` | Category (AR) |
 | `category_en_l1`…`_l4` | `category_l1`…`_l4` | Category L1…L4 |
 | `category_l1`…`_l4` (Arabic) | `category_l1_ar`… | Category L1 (AR)… |
-| `option_label` (headed "Variant") | `variant` | Variant |
+| `option_label` (Arabic, headed "Variant") | `variant_ar` | Variant (AR) |
+| `variant` (English, added by 0036) | `variant` | Variant |
+| `option_axes` (Arabic axes JSON) | `variant_axes_ar` | — *(payload only)* |
+| `variant_axes` (English axes JSON) | `variant_axes` | — *(payload only)* |
+| `variant_url` (added by 0037) | `variant_url` | — *(feeds the link)* |
+| `parent_sku` (added by 0037) | `parent_sku` | — *(groups a family)* |
 | `sku` | `sku` | SKU |
 | `product_id` (export only) | `product_id` | Product id |
 | `effective_price` (headed "Price") | `price` | Price |
@@ -61,6 +66,45 @@ Two rules produce every name below:
 The whole price family shares the `price_` prefix, so it reads and sorts
 together instead of scattering between `effective_`, `regular_`, `min_` and
 `usd_`.
+
+The `variant` rows above correct an earlier version of this table, which mapped
+`option_label` — the **Arabic** variation label — to the unmarked `variant`.
+That was a written instruction to land Arabic under an English-asserting name,
+i.e. the exact error rule 2 exists to prevent. Migration 0036 had already added
+a real English `variant` column beside it; the doc had no row for it.
+
+## Storage
+
+Rule 2 says "in the table, in the export **and in storage**", so the warehouse
+columns move with the rest. The wire keys are listed above; these are the
+columns underneath them.
+
+| table | today | becomes |
+|---|---|---|
+| `source_site` | `source_name` (Arabic) / `source_name_en` | `source_name_ar` / `source_name` |
+| `source_product` | `source_name` (Arabic) / `source_name_en` | `product_name_ar` / `product_name` |
+| `source_product` | `category_path` (Arabic) / `category_path_en` | `category_path_ar` / `category_path` |
+| `source_product` | `name_lang` | `product_name_lang` |
+| `source_variant` | `option_label` / `raw_options_json` | `variant_ar` / `variant_axes_ar` |
+| `source_product_attribute` | `description` / `description_en` (and 8 more) | `description_ar` / `description` |
+| `material` | `material_name_en` | `material_name` |
+| `selling_unit`, `attribute_definition` | `name_en` | `name` |
+
+The commodity wire pair `material_label` / `material_label_en`
+(`COMMODITY_PRICE`) inverts to `material_label_ar` / `material_label` for the
+same reason, and folds into the same `product_name` storage.
+
+Three things are deliberately **not** renamed, and each would be a lie if it
+were:
+
+- `option_fingerprint`, `record_hash` and `price_key` — identity, not display.
+  Re-deriving them re-keys every variant and splits every price history.
+- The General database's `original_name` / `display_name` columns. They hold the
+  **crawled site's** own field names as first discovered; marking them with our
+  vocabulary would be an assertion about someone else's data.
+- Anything under `tests/fixtures/` — captured responses are byte-faithful site
+  data. The SIKA fixtures' `product_arname` / `name_en` keys are the shop's
+  words, not ours.
 
 ## Per-source columns
 

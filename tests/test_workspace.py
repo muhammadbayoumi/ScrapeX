@@ -73,6 +73,50 @@ def test_no_arabic_leaks_into_the_interface(client, path):
     assert not leaked, f"Arabic interface text leaked into {path}: {leaked[:3]}"
 
 
+def test_no_arabic_sits_under_an_unmarked_column_key(db_path):
+    """The owner's rule: a column name states the language of its content, in
+    display AND in storage. So an UNMARKED key asserts English, and an Arabic
+    character under one is a lie the reader cannot see.
+
+    This is the only assertion in the suite that reads column CONTENT. Every
+    other guard compares a header to the constant that produced it, so a
+    consistent rename keeps them all green while the two languages swap
+    columns. Written against the English side of BILINGUAL_COLUMNS so it holds
+    the same meaning before and after that inversion.
+    """
+    import re
+    import sqlite3
+
+    from scrapex.reports import BILINGUAL_COLUMNS, table_payload
+
+    conn = dbmod.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    entry = make_entry()
+    # A genuinely bilingual row: the site publishes both, so we capture both.
+    ingest_payloads(conn, entry, [make_payload([one_row(
+        external_product_id="9001", external_variant_id="9501",
+        product_name="كشاف ليد ٤٠٠ وات",
+        product_name_en="LED Floodlight 400W",
+        category_path="إضاءة/كشافات",
+        category_path_en="Lighting/Floodlights",
+    )])])
+    conn.commit()
+
+    payload = table_payload(conn, SOURCE)
+    unmarked = set(BILINGUAL_COLUMNS.values())
+    offenders = [
+        (key, row[key])
+        for row in payload["rows"]
+        for key in unmarked
+        if isinstance(row.get(key), str) and re.search(r"[؀-ۿ]", row[key])
+    ]
+    conn.close()
+    assert not offenders, (
+        "these keys assert English and hold Arabic — the reader is told the "
+        f"wrong language with nothing on screen to reveal it: {offenders[:3]}"
+    )
+
+
 def test_active_tab_is_marked_for_assistive_tech(client):
     assert 'aria-current="page"' in client.get("/jobs").text
 

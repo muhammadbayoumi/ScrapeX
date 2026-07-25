@@ -485,3 +485,24 @@ def test_the_sheet_names_a_tab_from_the_table_it_was_sent(conn):
     assert "function tableSuffix_" in script
     assert 'SYNC_TABLE_SUFFIXES = ["details", "history", "about"]' in script
     assert "tableSuffix_(payload.source_url)" in script
+
+
+def test_the_sheet_and_the_engine_speak_the_same_payload_version():
+    """The script declares its own SYNC_PAYLOAD_VERSION and throws on a
+    mismatch, so this number lives in two languages and only one of them is
+    Python.
+
+    Bump one without the other and nothing looks wrong: handleChunk has no
+    version gate, so every chunk is accepted and acked ok, the throw fires
+    later inside reassemble_, rebuildTables_ files the batch under "skipped",
+    and the published tab keeps republishing the last complete batch. The
+    sheet stays alive, opens fine, and is frozen."""
+    from scrapex.payload import PAYLOAD_VERSION
+
+    script = (Path(__file__).resolve().parent.parent / "apps_script" /
+              "StagingAppScript.txt").read_text(encoding="utf-8")
+
+    assert f"const SYNC_PAYLOAD_VERSION = {PAYLOAD_VERSION};" in script, (
+        f"the engine speaks payload version {PAYLOAD_VERSION}; "
+        "apps_script/StagingAppScript.txt must declare the same number"
+    )
