@@ -27,13 +27,23 @@ sources:
     active: false
     currency: SAR
     default_region: SA
-    # The STOREFRONT states «الأسعار تشمل ضريبة القيمة المضافة 15%» and charges
-    # 224.14 where GraphQL answers 194.9 — so what we store is tax-inclusive,
-    # and the API's net figure is converted below rather than shown as if it
-    # were the price (verified live 2026-07-23).
+    # CORRECTED 2026-07-25 (owner-verified, and the earlier reading was mine to
+    # get wrong): the GraphQL price IS the price the storefront shows a
+    # visitor, VAT already included — «الأسعار تشمل ضريبة القيمة المضافة 15%»
+    # describes the figures we receive, it does not ask us to add anything.
+    #
+    # The 15% uplift added on 2026-07-23 came from a NUMERIC COINCIDENCE: the
+    # owner reported 224.14 on the Legrand page while a sample taken that day
+    # answered 194.9, and 194.9 x 1.15 = 224.135. It was a price CHANGE, not a
+    # tax gap — the same variant answers 224.14 in the API today. One matching
+    # ratio on one product is not a rule, and it made every madar price 15%
+    # too high.
+    #
+    # The page also shows a SECOND, lower figure — «حساب أعمال؟ افتح السعر:
+    # 4.03» — the business-account price, which an anonymous crawl cannot be
+    # charged (the same shape as sika's trade tier). We store the visitor
+    # price and never that one.
     vat_mode: incl
-    api:
-      prices_exclude_tax_pct: 15
     extract:
       - kind: product_prices
         scope: census          # first crawl is a full census; owner will replace

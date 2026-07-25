@@ -396,17 +396,20 @@ def test_the_deeper_home_wins_over_a_longer_shallow_name():
     assert row["category_external_id"] == "C3"
 
 
-def test_the_price_is_what_the_storefront_charges_not_the_apis_net_figure():
-    """Verified live 2026-07-23: GraphQL answers 194.9 for the Legrand box
-    while the page charges 224.14 and states «الأسعار تشمل ضريبة القيمة
-    المضافة 15%». Storing the net number showed a price the site never
-    displays (owner-reported)."""
+def test_the_api_price_is_the_price_and_no_tax_is_invented():
+    """CORRECTED 2026-07-25. The 15% uplift this test used to defend came from
+    a numeric coincidence — the owner saw 224.14 on the Legrand page the same
+    day a sample answered 194.9, and 194.9 x 1.15 = 224.135. It was a price
+    CHANGE: that variant answers 224.14 in the API today, and the page shows
+    exactly what the API says. The mechanism stays (a source whose API really
+    is net can declare it) but madar declares nothing, and an undeclared
+    source must never be uplifted."""
     from scrapex.connectors.magento import _prices
 
-    node = {"price_range": {"minimum_price": {"regular_price": {"value": 194.9},
-                                              "final_price": {"value": 194.9}}}}
-    assert _prices(node) == (194.9, 194.9)              # no declaration: untouched
-    assert _prices(node, 15) == (224.14, 224.14)        # the storefront's figure
+    node = {"price_range": {"minimum_price": {"regular_price": {"value": 224.14},
+                                              "final_price": {"value": 224.14}}}}
+    assert _prices(node) == (224.14, 224.14)            # nothing declared: untouched
+    assert _prices(node, 15) == (257.76, 257.76)        # only when a source declares it
 
 
 def test_the_row_carries_the_products_localized_name_never_the_child_sku_string():
@@ -431,7 +434,7 @@ def test_the_row_carries_the_products_localized_name_never_the_child_sku_string(
                       "attributes": [{"code": "color", "label": "Aluminium"}]}],
     }
     ctx = {"base": "https://www.madar.com", "currency": "SAR", "vat": "1",
-           "region": "SA", "tax_pct": 15,
+           "region": "SA", "tax_pct": None,
            "names_en": {"P1": "Legrand Pop-up Floor Box Kit"}}
 
     row = RowView(PRODUCT_PRICES, builder.header).as_dict(
@@ -440,7 +443,7 @@ def test_the_row_carries_the_products_localized_name_never_the_child_sku_string(
     assert row["product_name"] == "علب أرضية منبثقة من ليجراند"
     assert row["product_name_en"] == "Legrand Pop-up Floor Box Kit"
     assert row["option_label"] == "اللون: Aluminium"
-    assert row["effective_price"] == "224.14"
+    assert row["effective_price"] == "194.9"      # the API figure, untouched
 
 
 def test_the_english_tree_relabels_every_walked_path_for_one_query():
