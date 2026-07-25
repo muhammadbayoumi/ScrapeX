@@ -1,11 +1,38 @@
-{# Shared dataset picker: every source-scoped tab keeps the same control. #}
-{% from "_source_identity.html" import source_option_label %}
-<form class="filters" method="get">
-  <select name="source_key" onchange="this.form.submit()">
-    <option value="">All sources</option>
-    {% for source in sources %}
-      <option value="{{ source.source_key }}" {% if source.source_key == source_key %}selected{% endif %}>{{ source_option_label(source) }}</option>
-    {% endfor %}
-  </select>
-  <noscript><button type="submit">Apply</button></noscript>
-</form>
+{# Shared source filter: native select options forced the entire identity into
+   one unreadable line. The same canonical identity now remains stacked here. #}
+{% from "_icons.html" import icon %}
+{% from "_source_identity.html" import source_identity %}
+{% set selected_source = sources|selectattr("source_key", "equalto", source_key)|first if source_key else none %}
+<details class="source-filter-menu">
+  <summary class="source-filter-trigger">
+    <span class="source-filter-caption">Source</span>
+    <span class="source-filter-current">
+      {% if selected_source %}
+        {{ source_identity(selected_source, compact=true) }}
+      {% else %}
+        <strong>All sources</strong>
+        <small>Show records from every configured source</small>
+      {% endif %}
+    </span>
+    {{ icon("expand-more", "source-filter-chevron") }}
+  </summary>
+  <div class="source-filter-popover">
+    <header class="source-filter-head">
+      <strong>Filter by source</strong>
+      <small>Domain, source names, and technical key stay separate.</small>
+    </header>
+    <nav class="source-filter-list" aria-label="Filter by source">
+      <a class="source-filter-option source-filter-all" href="{{ request.url.path }}"
+         {% if not source_key %}aria-current="page"{% endif %}>
+        <strong>All sources</strong>
+        <small>Show every configured source</small>
+      </a>
+      {% for source in sources %}
+        <a class="source-filter-option" href="{{ request.url.path }}?source_key={{ source.source_key }}"
+           {% if source.source_key == source_key %}aria-current="page"{% endif %}>
+          {{ source_identity(source, compact=true) }}
+        </a>
+      {% endfor %}
+    </nav>
+  </div>
+</details>

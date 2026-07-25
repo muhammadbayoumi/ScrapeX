@@ -16,7 +16,8 @@
     const term = (search?.value || "").trim().toLocaleLowerCase();
     let visible = 0;
     choices.forEach((choice) => {
-      const match = !term || (choice.dataset.search || "").includes(term);
+      const haystack = `${choice.dataset.search || ""} ${choice.dataset.domain || ""}`;
+      const match = !term || haystack.includes(term);
       choice.hidden = !match;
       if (match) visible += 1;
     });

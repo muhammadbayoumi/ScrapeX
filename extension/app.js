@@ -118,7 +118,11 @@ function sourceIdentity(source, compact = false) {
 }
 
 function sourceMetric(value, label) {
-  return `<span class="source-identity-meta"><small>${esc(label)}</small><strong>${esc(value)}</strong></span>`;
+  return `<span class="source-identity-meta">
+    <span class="source-identity-meta-bracket" aria-hidden="true">[</span>
+    <small>${esc(label)}</small><strong>${esc(value)}</strong>
+    <span class="source-identity-meta-bracket" aria-hidden="true">]</span>
+  </span>`;
 }
 
 function visibleSources() {
@@ -154,9 +158,9 @@ function renderSites() {
         <label>
           <input type="checkbox" data-key="${esc(s.source_key)}" ${checked} ${ready ? "" : "disabled"}>
           ${sourceIdentity(s, true)}
+          ${sourceMetric(Number(s.observations || 0).toLocaleString(), "data rows")}
         </label>
         <span class="source-row-actions">
-          ${sourceMetric(Number(s.observations || 0).toLocaleString(), "prices")}
           ${auto}${reason}
         </span>
       </div>`;
@@ -357,7 +361,7 @@ function renderActivity(job) {
   const c = job.counters || {};
   const rows = [
     ["Sites done", `${job.progress.done} / ${job.progress.total}`],
-    ["New prices", c.observations || 0],
+    ["New data rows", c.observations || 0],
     ["Unchanged", c.duplicates || 0],
     ["New products", c.products || 0],
     ["Requests", c.requests || 0],
@@ -387,7 +391,7 @@ function renderMiniplayer(job, queued) {
   const c = job.counters || {};
   const bits = [];
   if (job.current_source_key) bits.push(`now: ${job.current_source_key}`);
-  if (c.observations != null) bits.push(`${c.observations} new prices`);
+  if (c.observations != null) bits.push(`${c.observations} new data rows`);
   if (queued > 0) bits.push(`${queued} queued`);
   $("mini-sub").textContent = bits.join(" · ") || "starting…";
   const paused = job.status === "paused";
@@ -447,9 +451,9 @@ async function loadDatasets() {
     }
     box.innerHTML = withData.map((s) => `
       <div class="card dataset-card">
-        <div>${sourceIdentity(s)}
-          <div class="n">${Number(s.observations).toLocaleString()} prices · ${
-            Number(s.products || 0).toLocaleString()} products</div>
+        <div><div class="dataset-identity-line">${sourceIdentity(s)}
+          ${sourceMetric(Number(s.observations).toLocaleString(), "data rows")}</div>
+          <div class="n">${Number(s.products || 0).toLocaleString()} products</div>
           <div class="n">${esc(s.changes || "no recorded changes yet")}</div></div>
         <button data-open="${esc(s.source_key)}">Open in Workspace ${icon("open-in-new", "sm")}</button>
       </div>`).join("");

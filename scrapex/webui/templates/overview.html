@@ -3,7 +3,7 @@
 {% from "_source_identity.html" import source_identity, source_metric %}
 {% block title %}Overview — ScrapeX{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="/static/pages/overview.css">
+  <link rel="stylesheet" href="/static/pages/overview.css?v=source-ui-5">
 {% endblock %}
 {% block content %}
 <div class="overview-page">
@@ -28,7 +28,7 @@
     </a>
     <a class="overview-kpi" href="/data">
       <span class="overview-kpi-icon">{{ icon("view-stream") }}</span>
-      <span><strong>{{ "{:,}".format(totals.observations) }}</strong><small>Price observations</small></span>
+      <span><strong>{{ "{:,}".format(totals.observations) }}</strong><small>Data rows</small></span>
       <span class="overview-kpi-detail">{{ "{:,}".format(totals.products) }} products ·
         {{ "{:,}".format(totals.variants) }} variants</span>
     </a>
@@ -63,7 +63,10 @@
               <span class="overview-source-status {{ 'is-ok' if source.last_status == 'success' else 'is-attention' }}"
                     aria-hidden="true"></span>
               {{ source_identity(source) }}
-              {{ source_metric("{:,}".format(source.observations), "Last run completed" if source.last_status == "success" else "Needs attention") }}
+              <span class="overview-source-detail">
+                <small class="overview-source-state">{{ "Last run completed" if source.last_status == "success" else "Needs attention" }}</small>
+                {{ source_metric("{:,}".format(source.observations), "data rows") }}
+              </span>
             </a>
           {% endfor %}
           {% for source in shown_pending %}
@@ -71,7 +74,10 @@
                data-overview-source="{{ source.source_key }}">
               <span class="overview-source-status is-pending" aria-hidden="true"></span>
               {{ source_identity(source) }}
-              {{ source_metric("Never run", "Configured") }}
+              <span class="overview-source-detail">
+                <small class="overview-source-state">Never run</small>
+                {{ source_metric("0", "data rows") }}
+              </span>
             </a>
           {% endfor %}
           {% if remaining_datasets %}

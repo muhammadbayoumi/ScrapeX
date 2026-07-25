@@ -150,7 +150,7 @@ def test_apps_script_can_send_multiple_sources_and_exposes_existing_automation(c
     assert "delivery stays deliberate" in sync
 
 
-def test_source_identity_uses_domain_names_key_and_inline_observation_badge(client):
+def test_source_identity_uses_domain_names_key_and_plain_data_row_metric(client):
     sync = client.get("/sync").text
 
     domain = sync.index("elsewedyshop.com")
@@ -158,18 +158,44 @@ def test_source_identity_uses_domain_names_key_and_inline_observation_badge(clie
     local = sync.index("السويدي شوب", english)
     key = sync.index("ELSEWEDYSHOP", local)
     assert domain < english < local < key
-    assert "<small>observations</small>" in sync
-    assert sync.index("<small>observations</small>") < sync.index(
-        "<strong>2</strong>", sync.index("<small>observations</small>")
+    assert "<small>data rows</small>" in sync
+    assert "source-identity-meta-bracket" in sync
+    assert sync.index("<small>data rows</small>") < sync.index(
+        "<strong>2</strong>", sync.index("<small>data rows</small>")
     )
 
 
 @pytest.mark.parametrize("path", ["/", f"/source/{SOURCE}", "/manage", "/schedules",
-                                  "/exports", "/sync", "/history"])
+                                  "/exports", "/sync", "/changes", "/history", "/review"])
 def test_source_identity_is_shared_across_every_source_listing(client, path):
     body = client.get(path).text
     assert "source-identity-name" in body, f"{path} bypassed the canonical source identity"
     assert "source-identity-key" in body, f"{path} omitted the stable source key"
+
+
+@pytest.mark.parametrize("path", ["/changes", "/history", "/review"])
+def test_source_scoped_pages_use_the_stacked_source_filter(client, path):
+    body = client.get(path, params={"source_key": SOURCE}).text
+    assert 'class="source-filter-menu"' in body
+    assert '<select name="source_key"' not in body
+    assert "elsewedyshop.com" in body
+
+
+def test_jobs_use_cards_and_canonical_source_identity(client, db_path):
+    from tests.test_jobs import _FakeManifest, _capture_ok
+
+    conn = dbmod.connect(db_path)
+    try:
+        ref = create_job(conn, [SOURCE])
+        run_job_once(conn, ref, _FakeManifest([SOURCE]), capture=_capture_ok([]))
+    finally:
+        conn.close()
+
+    body = client.get("/jobs").text
+    assert 'class="job-card"' in body
+    assert "New data rows" in body
+    assert "source-identity-domain" in body
+    assert "<table" not in body
 
 
 def test_the_sync_tab_states_the_transport_exactly(client):

@@ -90,7 +90,7 @@
           <input type="checkbox" name="src" value="{{ s.source_key }}"
                  {{ "checked" if source_key and s.source_key == source_key }}>
           {{ source_identity(s) }}
-          {{ source_metric("{:,}".format(s.observations), "observations") }}
+          {{ source_metric("{:,}".format(s.observations), "data rows") }}
         </label>
       {% endfor %}
     </fieldset>

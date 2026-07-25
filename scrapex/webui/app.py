@@ -593,7 +593,8 @@ def create_app(
         conn = read_conn()
         try:
             return _page(request, "jobs.html", "jobs", None,
-                         jobs=[_job_view(j) for j in list_jobs(conn, limit=50)])
+                         jobs=[_job_view(j) for j in list_jobs(conn, limit=50)],
+                         sources=_display_sources(conn))
         finally:
             conn.close()
 

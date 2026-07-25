@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_source_identity.html" import source_identity %}
 {% block title %}Jobs — ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/jobs.css?v=source-ui-1">
+{% endblock %}
 {% block content %}
 <header class="page-header">
   <div class="page-heading">
@@ -12,45 +16,83 @@
 {% if not jobs %}
   <div class="empty">No jobs yet. Start one from the side panel.</div>
 {% else %}
-  <div class="tablewrap"><table>
-    <thead><tr><th>Job</th><th>Mode</th><th>Sources</th><th>Status</th>
-      <th>Progress</th><th>New prices</th><th>Started</th><th>Finished</th><th></th></tr></thead>
-    <tbody>
-    {% for j in jobs %}
-      <tr data-job-ref="{{ j.job_ref }}" data-status="{{ j.status }}">
-        <td class="num muted"><code>{{ j.job_ref }}</code></td>
-        <td>{{ j.run_mode.replace("_", " ") }}</td>
-        <td class="muted">{{ j.source_keys|join(", ") }}</td>
-        <td><span data-cell="status" class="badge {% if j.status == 'completed' %}ok
-          {% elif j.status in ('failed', 'cancelled', 'completed_with_errors',
-                               'partially_completed') %}off{% endif %}">
-          {{ j.status.replace("_", " ") }}</span></td>
-        {# Sources alone froze for a quarter hour on a single-source crawl —
-           the heartbeat's request counter and the stage have been in the row
-           all along; now they are ON the page, and live below. #}
-        <td class="num" data-cell="progress">{{ j.progress.done }}/{{ j.progress.total }} sources{% if j.stage and j.status in ('running', 'preparing') %} · {{ j.stage }}{% if j.current_source_key %} {{ j.current_source_key }}{% endif %} · {{ "{:,}".format(j.counters.get("requests", 0)) }} requests{% endif %}</td>
-        <td class="num" data-cell="observations">{{ "{:,}".format(j.counters.get("observations", 0)) }}</td>
-        <td class="num muted">{{ j.started_at or "—" }}</td>
-        <td class="num muted" data-cell="finished">{{ j.finished_at or "—" }}</td>
-        <td><a href="/logs?job_ref={{ j.job_ref }}">Logs {{ icon("chevron-right", "inline-icon") }}</a></td>
-      </tr>
+  <section class="jobs-list" aria-label="Collection jobs">
+  {% for j in jobs %}
+    <article class="job-card" data-job-ref="{{ j.job_ref }}" data-status="{{ j.status }}">
+      <header class="job-card-head">
+        <div class="job-card-title">
+          <span class="job-card-label">Job</span>
+          <code>{{ j.job_ref }}</code>
+          <span data-cell="status" class="badge {% if j.status == 'completed' %}ok
+            {% elif j.status in ('failed', 'cancelled', 'completed_with_errors',
+                                 'partially_completed') %}off{% endif %}">
+            {{ j.status.replace("_", " ") }}</span>
+        </div>
+        <a class="icon-label" href="/logs?job_ref={{ j.job_ref }}">
+          Logs {{ icon("chevron-right", "inline-icon") }}
+        </a>
+      </header>
+
+      <div class="job-card-body">
+        <section class="job-source-scope" aria-label="Job sources">
+          <span class="job-field-label">Sources</span>
+          <div class="job-sources">
+            {% for key in j.source_keys %}
+              {% set source = sources|selectattr("source_key", "equalto", key)|first %}
+              <div class="job-source">
+                {% if source %}
+                  {{ source_identity(source, compact=true) }}
+                {% else %}
+                  <code class="source-identity-key">{{ key }}</code>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <dl class="job-stats">
+          <div>
+            <dt>Mode</dt>
+            <dd>{{ j.run_mode.replace("_", " ") }}</dd>
+          </div>
+          <div>
+            <dt>Progress</dt>
+            <dd data-cell="progress">{{ j.progress.done }}/{{ j.progress.total }} sources{% if j.stage and j.status in ('running', 'preparing') %} · {{ j.stage }}{% if j.current_source_key %} {{ j.current_source_key }}{% endif %}{% endif %}</dd>
+          </div>
+          <div>
+            <dt>New data rows</dt>
+            <dd data-cell="observations">{{ "{:,}".format(j.counters.get("observations", 0)) }}</dd>
+          </div>
+          <div>
+            <dt>Requests</dt>
+            <dd data-cell="requests">{{ "{:,}".format(j.counters.get("requests", 0)) }}</dd>
+          </div>
+          <div>
+            <dt>Started</dt>
+            <dd>{{ j.started_at or "—" }}</dd>
+          </div>
+          <div>
+            <dt>Finished</dt>
+            <dd data-cell="finished">{{ j.finished_at or "—" }}</dd>
+          </div>
+        </dl>
+      </div>
+
       {% if j.error_summary %}
-        <tr><td colspan="9" class="muted text-sm">{{ j.error_summary }}</td></tr>
+        <p class="job-error">{{ j.error_summary }}</p>
       {% endif %}
-    {% endfor %}
-    </tbody>
-  </table></div>
+    </article>
+  {% endfor %}
+  </section>
 {% endif %}
 
 <script>
-// The page stays TRUE while a job runs: poll the same aggregate the panel
-// polls (spec 25 — never raw records) and repaint the moving cells. Stops on
-// its own when nothing is active.
+// Keep live job cards current from the existing aggregate endpoint.
 (() => {
   const TERMINAL = new Set(["completed", "completed_with_errors",
                             "partially_completed", "failed", "cancelled"]);
-  const rows = [...document.querySelectorAll("tr[data-job-ref]")];
-  if (!rows.length || !rows.some((r) => !TERMINAL.has(r.dataset.status))) return;
+  const rows = [...document.querySelectorAll("[data-job-ref]")];
+  if (!rows.length || !rows.some((row) => !TERMINAL.has(row.dataset.status))) return;
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const paint = (row, job) => {
     row.dataset.status = job.status;
@@ -60,17 +102,17 @@
       : TERMINAL.has(job.status) ? "off" : "");
     let progress = job.progress.done + "/" + job.progress.total + " sources";
     if (!TERMINAL.has(job.status) && job.stage) {
-      progress += " · " + job.stage + (job.current_source_key ? " " + job.current_source_key : "")
-        + " · " + fmt(job.counters.requests) + " requests";
+      progress += " · " + job.stage + (job.current_source_key ? " " + job.current_source_key : "");
     }
     row.querySelector('[data-cell="progress"]').textContent = progress;
     row.querySelector('[data-cell="observations"]').textContent = fmt(job.counters.observations);
+    row.querySelector('[data-cell="requests"]').textContent = fmt(job.counters.requests);
     row.querySelector('[data-cell="finished"]').textContent = job.finished_at || "—";
   };
   const tick = async () => {
     try {
       const body = await (await fetch("/api/jobs?limit=50")).json();
-      const byRef = new Map((body.jobs || []).map((j) => [j.job_ref, j]));
+      const byRef = new Map((body.jobs || []).map((job) => [job.job_ref, job]));
       let live = false;
       for (const row of rows) {
         const job = byRef.get(row.dataset.jobRef);

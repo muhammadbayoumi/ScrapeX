@@ -9,9 +9,9 @@
   <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
   {# Loaded AFTER the library so the project's own table appearance wins. #}
   <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-12">
-  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=design-system-3">
+  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=source-ui-5">
   <script src="/static/vendor/tabulator.min.js" defer></script>
-  <script src="/static/datasets-browser.js?v=design-system-2" defer></script>
+  <script src="/static/datasets-browser.js?v=source-ui-5" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
@@ -112,7 +112,7 @@
   <div class="metrics">
     <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">Products</div></div>
     <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">Variants</div></div>
-    <div class="metric"><div class="n">{{ "{:,}".format(summary.observations) }}</div><div class="l">Price observations</div></div>
+    <div class="metric"><div class="n">{{ "{:,}".format(summary.observations) }}</div><div class="l">Data rows</div></div>
     <div class="metric"><div class="n">{{ summary.matched_variants }}</div><div class="l">Matched (unified)</div></div>
   </div>
 

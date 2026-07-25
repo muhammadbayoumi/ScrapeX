@@ -27,6 +27,7 @@
       {% for s in sources %}
       <a class="dataset-choice" href="/source/{{ s.source_key }}"
          data-dataset-choice data-search="{{ (s.source_name ~ ' ' ~ s.source_name_en ~ ' ' ~ s.source_key)|lower }}"
+         data-domain="{{ (s.base_url or '')|source_domain|lower }}"
          {% if s.source_key == source_key %}aria-current="page"{% endif %}>
         {# The NAME leads, the key follows: a list headed by MADAR / GPP
            ENERGY made the owner read machine keys where the site has a
@@ -35,7 +36,7 @@
         {# The English name reads on its own line, the way the table flips
            AR|EN — dir="ltr" because it IS English, whatever the line above is
            written in. Nothing at all when the site has one name only. #}
-        {{ source_metric("{:,}".format(s.observations), "prices") }}
+        {{ source_metric("{:,}".format(s.observations), "data rows") }}
       </a>
       {% endfor %}
     </section>
@@ -47,9 +48,13 @@
       {% for p in pending %}
       <a class="dataset-choice dataset-choice-pending" href="/source/{{ p.source_key }}"
          data-dataset-choice data-search="{{ (p.source_name ~ ' ' ~ p.source_name_en ~ ' ' ~ p.source_key)|lower }}"
+         data-domain="{{ (p.base_url or '')|source_domain|lower }}"
          {% if p.source_key == source_key %}aria-current="page"{% endif %}>
         {{ source_identity(p) }}
-        {{ source_metric("Never run", "Configured") }}
+        <span class="dataset-choice-detail">
+          <small class="dataset-choice-state">Never run</small>
+          {{ source_metric("0", "data rows") }}
+        </span>
       </a>
       {% endfor %}
     </section>

@@ -44,7 +44,7 @@ def test_overview_summarizes_the_workspace_and_data_uses_one_dropdown(client):
     assert 'class="overview-page"' in overview
     assert "Everything at a glance" in overview
     assert 'href="/" title="Overview" aria-current="page"' in overview
-    assert "Price observations" in overview
+    assert "Data rows" in overview
     assert 'data-overview-source="ELSEWEDYSHOP"' in overview
     assert overview.count("data-overview-source=") <= 6
     assert "more datasets" in overview

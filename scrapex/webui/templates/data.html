@@ -2,8 +2,8 @@
 {% from "_icons.html" import icon %}
 {% block title %}Data — ScrapeX{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=design-system-3">
-  <script src="/static/datasets-browser.js?v=design-system-2" defer></script>
+  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=source-ui-5">
+  <script src="/static/datasets-browser.js?v=source-ui-5" defer></script>
 {% endblock %}
 {% block content %}
 <div class="data-workspace">
@@ -29,7 +29,7 @@
         </div>
         <div class="data-overview-metric">
           <strong>{{ "{:,}".format(sources|sum(attribute="observations")) }}</strong>
-          <span>Price observations</span>
+          <span>Data rows</span>
         </div>
         <div class="data-overview-metric">
           <strong>{{ pending|length }}</strong><span>Not run yet</span>

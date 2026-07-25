@@ -30,8 +30,10 @@
 
 {% macro source_metric(value, label) -%}
   <span class="source-identity-meta">
+    <span class="source-identity-meta-bracket" aria-hidden="true">[</span>
     <small>{{ label }}</small>
     <strong>{{ value }}</strong>
+    <span class="source-identity-meta-bracket" aria-hidden="true">]</span>
   </span>
 {%- endmacro %}
 
