@@ -42,7 +42,12 @@ def test_overview_summarizes_the_workspace_and_data_uses_one_dropdown(client):
     selected = client.get("/source/ELSEWEDYSHOP").text
 
     assert 'class="overview-page"' in overview
-    assert "Everything at a glance" in overview
+    assert "Your data pipeline" in overview
+    assert "From source to delivery" in overview
+    assert "Needs your attention" in overview
+    assert overview.count("data-overview-stage=") == 5
+    for stage in ("sources", "run", "data", "changes", "deliver"):
+        assert f'data-overview-stage="{stage}"' in overview
     assert 'href="/" title="Overview" aria-current="page"' in overview
     assert "Data rows" in overview
     assert 'data-overview-source="ELSEWEDYSHOP"' in overview
