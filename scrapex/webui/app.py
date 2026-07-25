@@ -64,6 +64,7 @@ from ..reports import (
     BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
     export_source_table, history_counts, list_sources, offer_identity,
+    schema_report,
     offer_observations, price_extremes, product_attributes,
     table_payload,
 )
@@ -497,6 +498,23 @@ def create_app(
         conn = read_conn()
         try:
             return table_payload(conn, source_key)
+        finally:
+            conn.close()
+
+    @app.get("/schema", response_class=HTMLResponse)
+    def schema_page(request: Request):
+        """What every column is, derived from the code and the warehouse.
+
+        The owner asked for a page he could read and review with me. Written by
+        hand it would be wrong within a week, so nothing here is written by
+        hand: the names come from the same lists the table and the export are
+        built from, and the counts from the warehouse as it is right now.
+        """
+        conn = read_conn()
+        try:
+            return TEMPLATES.TemplateResponse(
+                request=request, name="schema.html",
+                context={"schema": schema_report(conn)})
         finally:
             conn.close()
 

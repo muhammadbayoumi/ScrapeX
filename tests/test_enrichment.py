@@ -267,7 +267,12 @@ def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_pa
     assert row["brand"] == "السويدي اليكتريك"
     assert row["category"]
     assert float(row["was_price"]) > float(row["effective_price"])
-    assert row["discount"].startswith("-") and "%" in row["discount"]
+    # The discount is TWO numbers now, in the table as it already was in the
+    # export (the owner's ask). This used to assert one string - "-84.67
+    # (-7.0%)" - which can be sorted by neither the amount saved nor how deep
+    # the cut is, and sorting is the only reason a column exists.
+    assert "discount_pct" in keys
+    assert row["discount"] < 0 and row["discount_pct"] < 0
     assert row["unit"] == "100 m"
     assert row["has_details"] is True
 

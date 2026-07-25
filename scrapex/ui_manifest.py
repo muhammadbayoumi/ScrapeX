@@ -84,6 +84,9 @@ WORKSPACE_DESTINATIONS = (
                          "Outputs", "file-download"),
     WorkspaceDestination("logs", "Logs", "/logs",
                          "Inspect detailed job activity.", "System", "description"),
+    WorkspaceDestination("schema", "Schema", "/schema",
+                         "What every column means and who fills it.",
+                         "System", "view-column"),
     WorkspaceDestination("settings", "Settings", "/settings",
                          "Runtime, storage, and policy.", "System", "settings"),
 )

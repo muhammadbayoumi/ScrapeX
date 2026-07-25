@@ -253,3 +253,20 @@ def test_exporting_a_source_with_nothing_ingested_says_so(client):
     r = client.get("/export/NOSUCHSOURCE.xlsx")
     assert r.status_code == 404
     assert "crawl" in r.json()["detail"]
+
+
+def test_the_schema_page_is_derived_not_written(client):
+    """The owner asked for a page he can read and review with me. Written by
+    hand it would be wrong within a week, so it is derived: the columns come
+    from the same lists the table and the export are built from, and who fills
+    them is counted from the warehouse. This pins that it is derived - a column
+    the fixture's source populates must appear WITH that source's name."""
+    r = client.get("/schema")
+
+    assert r.status_code == 200
+    assert "ELSEWEDYSHOP" in r.text, "the page never asked the warehouse"
+    assert "<code>effective_price</code>" in r.text
+    assert "What one price BUYS" in r.text, "the meaning of a column is missing"
+    # The rules the whole schema follows are stated on it, not left implicit.
+    assert "states the language of its content" in r.text
+    assert "Nothing is computed into a price" in r.text

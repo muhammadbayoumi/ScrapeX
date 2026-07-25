@@ -481,6 +481,27 @@ def history_counts(conn: sqlite3.Connection, offer_ids: list[int]) -> dict[int, 
 # block -> its history -> operational meta. The history block answers, left to
 # right, "what is it now, what would that be in dollars, what was it before,
 # how did it move, and what range has it lived in".
+# HOW DEEP a classification may be split into its own columns. Not dynamic and
+# never was: the levels used to be four names typed by hand, so a source filing
+# products six deep had its fifth and sixth levels shown only inside the
+# full-path Category column. Nothing was lost, but nothing could sort or group
+# by them either. This is the one number that decides it, and the presence gate
+# still hides every level a source does not actually reach — MADAR reaches 3
+# today and SIKAEGSHOP 1, so raising the ceiling adds no empty columns to
+# either. Raising it further is one line.
+CATEGORY_LEVELS = 10
+
+
+def _level_columns() -> list[tuple[str, str]]:
+    """The classification levels as columns, English then Arabic, level by
+    level, so a pair sits together instead of in two distant blocks."""
+    columns: list[tuple[str, str]] = []
+    for level in range(1, CATEGORY_LEVELS + 1):
+        columns.append((f"category_en_l{level}", f"Category L{level}"))
+        columns.append((f"category_l{level}", f"Category L{level}"))
+    return columns
+
+
 BROWSE_COLUMNS: list[tuple[str, str]] = [
     # The two languages of one field sit TOGETHER, English first. They used to
     # be filed in separate blocks — every English column, then Country, then
@@ -500,14 +521,7 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # keeps each level to the sources that actually reach that depth.
     ("category_en", "Category"),
     ("category", "Category"),
-    ("category_en_l1", "Category L1"),
-    ("category_l1", "Category L1"),
-    ("category_en_l2", "Category L2"),
-    ("category_l2", "Category L2"),
-    ("category_en_l3", "Category L3"),
-    ("category_l3", "Category L3"),
-    ("category_en_l4", "Category L4"),
-    ("category_l4", "Category L4"),
+    *_level_columns(),
     ("option_label", "Variant"),
     ("sku", "SKU"),
     ("effective_price", "Price"),
@@ -525,8 +539,12 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("observations", "Observations"),
     # The pre-discount price rides INSIDE the price cell, struck through beside
     # the current one (the owner's asked-for shape) — a separate Was column
-    # would state the same number twice.
+    # would state the same number twice. The discount itself is TWO columns,
+    # matching the export: one cell reading "-84.67 (-7.0%)" can be neither
+    # sorted by size nor by severity, and the owner asked for the split in both
+    # places rather than in one.
     ("discount", "Discount"),
+    ("discount_pct", "Discount %"),
     ("unit", "Unit"),
     ("availability", "Status"),
     ("tax_label", "Tax"),
@@ -551,10 +569,8 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
 BILINGUAL_COLUMNS: dict[str, str] = {
     "product_name": "product_name_en",
     "category": "category_en",
-    "category_l1": "category_en_l1",
-    "category_l2": "category_en_l2",
-    "category_l3": "category_en_l3",
-    "category_l4": "category_en_l4",
+    **{f"category_l{level}": f"category_en_l{level}"
+       for level in range(1, CATEGORY_LEVELS + 1)},
 }
 
 
@@ -599,6 +615,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
                           ("region", row[2]), ("unit", row[3]),
                           ("availability", row[4]), ("official_source", row[5]),
                           ("brand", row[6]), ("discount", row[7]),
+                          ("discount_pct", row[7]),
                           ("product_name_en", row[9])):
         if not count:
             present.discard(column)
@@ -644,12 +661,12 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
     depth_en = _depth_of("category_path_en")
     if not depth_en:
         present.discard("category_en")
-    for level in (1, 2, 3, 4):
+    for level in range(1, CATEGORY_LEVELS + 1):
         if depth_en < level or (level == 1 and depth_en < 2):
             present.discard(f"category_en_l{level}")
     if not details[1] and not depth:
         present.discard("category")
-    for level in (1, 2, 3, 4):
+    for level in range(1, CATEGORY_LEVELS + 1):
         if depth < level or (level == 1 and depth < 2):
             # L1 alone would duplicate Category exactly; the split only earns
             # its columns once there is more than one level to split.
@@ -1235,15 +1252,17 @@ def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7)
 
 
 def _category_levels(path: str | None, prefix: str = "category_l") -> dict[str, str]:
-    """Split "Cables > Low voltage > Copper" into category_l1..l4.
+    """Split "Cables > Low voltage > Copper" into category_l1..lN.
 
-    Always all four keys, so every row has the same shape (a grid that meets a
-    ragged row invents undefineds). Levels past the fourth stay visible in the
-    full-path Category column rather than being lost; the presence gate hides
-    the level columns a source never reaches."""
+    Always ALL the keys, so every row has the same shape (a grid that meets a
+    ragged row invents undefineds). CATEGORY_LEVELS decides how many; the
+    presence gate then hides every level a source never reaches, so a shop with
+    one level shows one column and not ten empty ones. Anything deeper than the
+    ceiling stays visible in the full-path Category column rather than being
+    lost."""
     segments = [s.strip() for s in (path or "").split(">") if s.strip()]
-    return {f"{prefix}{i}": (segments[i - 1] if i <= len(segments) else "")
-            for i in (1, 2, 3, 4)}
+    return {f"{prefix}{level}": (segments[level - 1] if level <= len(segments) else "")
+            for level in range(1, CATEGORY_LEVELS + 1)}
 
 
 # The whole table, for a browser that filters and groups it in place. Bounded —
@@ -1355,7 +1374,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "price_change": _change_text(r[22], r[3]),
                "usd_price": _usd_value(r[3], r[6], r[23]),
                "was_price": r[4] if _discounted(r[4], r[3]) else "",
-               "discount": _discount_text(r[4], r[3]),
+               "discount": _discount_amount(r[4], r[3]),
+               "discount_pct": _discount_pct(r[4], r[3]),
                "tax_ref": tax_ref(r[11] or "", r[0] or "", bool(r[29]))}
               for r in rows]
 
@@ -1424,3 +1444,117 @@ def _tree_shape(rows: list[dict]) -> dict:
     if len(regions) > 1 and len(names) < len(rows):
         return {"by": "product_name", "child": "region_name"}
     return {"by": "", "child": ""}
+
+
+# ---- the schema page: what every column IS, read from the code itself --------
+#
+# The owner asked for a page he can read and review with me. Written as a static
+# document it would be wrong within a week, so it is DERIVED: the column list
+# comes from BROWSE_COLUMNS and EXPORT_HEADER, which is the same list the table
+# and the export are built from, and "who fills it" is counted from the live
+# warehouse. A column that stops existing disappears from the page by itself.
+#
+# The one thing that cannot be derived is what a column MEANS. That sentence is
+# authored here, once, beside the name it describes.
+COLUMN_NOTES: dict[str, str] = {
+    "product_name": "The product's name, in English.",
+    "product_name_en": "The product's name, in English.",
+    "region": "The country the price applies to, as an ISO code.",
+    "country": "The same country, spelled out.",
+    "brand": "The brand, as the source publishes it — never inferred from the name.",
+    "category": "The full classification path the source files this product under.",
+    "category_en": "The same path, in English.",
+    "option_label": "Which variation this row is, in the site's own words.",
+    "sku": "The source's own code for this item.",
+    "product_id": "The id its variations share, so six rows of one cable group.",
+    "effective_price": "What a visitor actually pays today.",
+    "regular_price": "The price before any discount inside this listing.",
+    "sale_price": "The discounted price, when the listing has one.",
+    "discount": "How much the listing takes off, as an amount.",
+    "discount_pct": "The same discount as a percentage.",
+    "currency": "The currency the source quotes in — never converted.",
+    "usd_price": "An approximate US-dollar figure, so many currencies can be ranked.",
+    "previous_price": "The price that held immediately before the current one.",
+    "price_change": "The move from that previous price to this one.",
+    "min_price": "The lowest price ever recorded for this record.",
+    "max_price": "The highest price ever recorded for this record.",
+    "observations": "How many times this price has been recorded.",
+    "unit": "What one price BUYS: a litre, a 50 kg bag, a 100 m roll.",
+    "availability": "In stock or out, as the source states it.",
+    "tax_label": "Whether THIS figure includes tax, and at what rate.",
+    "vat_included": "The same fact as yes/no, for a spreadsheet.",
+    "tax_evidence": "How well the tax position is known: stated, implied, unknown.",
+    "tax_rate_pct": "The rate, when the source states one.",
+    "tax_statement_url": "Where the source says it, so the claim can be read.",
+    "price_changed_on": "When the price last MOVED.",
+    "last_confirmed_on": "When a completed run last saw it still true.",
+    "official_source": "The body the source attributes its figure to.",
+    "official_source_url": "Where that body publishes it.",
+    "curation_status": "Your own review state for this product.",
+    "product_url": "The product's page on the site.",
+    "open": "Opens the product's page on the site.",
+}
+
+
+def schema_report(conn: sqlite3.Connection) -> dict:
+    """Every column, what it means, and which sources actually fill it.
+
+    Derived, never authored: the names come from the same lists the table and
+    the export are built from, and the counts from the warehouse as it is right
+    now. The page cannot drift from the product because it IS the product's own
+    declaration, read back.
+    """
+    sources = [row[0] for row in conn.execute(
+        "SELECT DISTINCT ss.source_key FROM source_site ss "
+        "JOIN source_product sp ON sp.source_id = ss.source_id ORDER BY ss.source_key")]
+    presence = {key: column_presence(conn, key) for key in sources}
+
+    def note(key: str) -> str:
+        if key in COLUMN_NOTES:
+            return COLUMN_NOTES[key]
+        if key.startswith("category_") and "_l" in key:
+            level = key.rsplit("_l", 1)[-1]
+            return f"Level {level} of the classification path, split out so it can be sorted and grouped."
+        return ""
+
+    table_columns = []
+    for key, label in BROWSE_COLUMNS:
+        arabic = key in BILINGUAL_COLUMNS
+        english_twin = BILINGUAL_COLUMNS.get(key)
+        table_columns.append({
+            "key": key, "label": label, "note": note(key),
+            "language": "Arabic" if arabic else ("English" if key in BILINGUAL_COLUMNS.values() else ""),
+            "pairs_with": english_twin or "",
+            "sources": [s for s in sources if key in presence[s]],
+        })
+    export_only = [{"key": key, "note": note(key)}
+                   for key in EXPORT_HEADER if key not in {k for k, _ in BROWSE_COLUMNS}]
+
+    # The per-source columns the SITE names, not us: variation axes and the
+    # facets a source filters by. Counted, not listed, because madar alone
+    # publishes sixty.
+    per_source = []
+    for key in sources:
+        axes = conn.execute(
+            "SELECT COUNT(*) FROM source_variant sv "
+            "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ? AND COALESCE(sv.raw_options_json,'') != ''",
+            (key,)).fetchone()[0]
+        facets = conn.execute(
+            "SELECT COUNT(DISTINCT spa.attribute_label) FROM source_product_attribute spa "
+            "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ? AND spa.attribute_group = 'Filters'",
+            (key,)).fetchone()[0]
+        groups = [row[0] for row in conn.execute(
+            "SELECT DISTINCT spa.attribute_group FROM source_product_attribute spa "
+            "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
+            "JOIN source_site ss ON ss.source_id = sp.source_id "
+            "WHERE ss.source_key = ? AND COALESCE(spa.attribute_group,'') != '' "
+            "ORDER BY spa.attribute_group", (key,))]
+        per_source.append({"source_key": key, "columns": len(presence[key]),
+                           "variants_with_axes": axes, "filters": facets,
+                           "detail_groups": groups})
+    return {"sources": sources, "table": table_columns, "export_only": export_only,
+            "per_source": per_source, "category_levels": CATEGORY_LEVELS}

@@ -99,7 +99,11 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert page.locator("nav.side-rail button[data-view]").count() == 4
     assert page.locator("nav.side-rail button.rail-item").count() == 5
     workspace = page.locator("#workspace-links [data-workspace-path]")
-    assert workspace.count() == 9
+    # One per workspace destination the rail does not own as its own view.
+    # Rolled 9 -> 10 when the Schema page joined System: the panel mirrors the
+    # destination contract, so a page added on one surface and not the other is
+    # exactly what this count exists to catch.
+    assert workspace.count() == 10
     assert page.locator("#workspace-links .workspace-menu-group").count() == 4
     assert not page.locator("#workspace-menu").get_attribute("class").endswith("is-open")
 

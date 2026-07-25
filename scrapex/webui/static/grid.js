@@ -1009,17 +1009,19 @@
         return span;
       };
     }
-    if (key === "discount") {
+    if (key === "discount" || key === "discount_pct") {
+      // TWO columns, as the export has always had: the amount saved and the
+      // percentage. One cell reading "-84.67 (-7.0%)" could be sorted by
+      // neither, which is the only reason a column exists (owner's ask). The
+      // server sends both numbers; this only renders them.
       return (cell) => {
-        const row = cell.getRow().getData();
-        const was = parseFloat(row.was_price);
-        const now = parseFloat(row.effective_price);
-        if (!isFinite(was) || !isFinite(now) || was <= now) return "";
-        const saved = now - was;
+        const value = cell.getValue();
+        if (value === "" || value === null || value === undefined) return "";
         const span = document.createElement("span");
         span.dir = "ltr";
-        span.textContent = formatMoney(saved.toFixed(2)) + " (" +
-          (saved / was * 100).toFixed(1).replace(".", ",") + "%)";
+        span.textContent = key === "discount_pct"
+          ? String(value).replace(".", ",") + "%"
+          : formatMoney(value);
         return span;
       };
     }
@@ -1130,6 +1132,7 @@
       if (col.key === "effective_price") def.hozAlign = "right";
       if (col.key === "price_changed_on" || col.key === "last_confirmed_on" ||
           col.key === "was_price" || col.key === "discount" ||
+          col.key === "discount_pct" ||
           col.key === "usd_price" || col.key === "previous_price" ||
           col.key === "price_change" || col.key === "min_price" ||
           col.key === "max_price" || col.key === "observations") {
@@ -1139,6 +1142,7 @@
       // 11 and defeat the whole point of the USD column.
       if (col.key === "usd_price" || col.key === "previous_price" ||
           col.key === "min_price" || col.key === "max_price" ||
+          col.key === "discount" || col.key === "discount_pct" ||
           col.key === "observations") {
         def.sorter = "number";
       }

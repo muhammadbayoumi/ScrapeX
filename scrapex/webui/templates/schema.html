@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Schema — ScrapeX{% endblock %}
+{% block content %}
+{# Everything on this page is DERIVED from the same lists the table and the
+   export are built from, plus counts from the warehouse as it is right now. A
+   column that stops existing disappears from here by itself — a hand-written
+   schema page would be wrong within a week. #}
+<div class="wrap wrap-wide">
+  <h1>Schema</h1>
+  <p class="hint">What every column is, where it appears, and which sources
+     actually fill it. Read from the code and the warehouse, not written by
+     hand, so this page and the table can never disagree.</p>
+
+  <section class="card">
+    <h2>The two places</h2>
+    <p><strong>The table</strong> answers “how do these compare?” — what you scan
+       across many rows and sort, filter or group by.</p>
+    <p><strong>The container underneath</strong> answers “what is this one
+       thing?” — pictures, description, specifications, attachments and the
+       price story. It opens when you select a row; select two or more and it
+       compares them instead.</p>
+    <p>Move any field between the two with <strong>Choose Columns</strong>:
+       hiding a field moves it into the container rather than losing it.</p>
+  </section>
+
+  <section class="card">
+    <h2>The rules</h2>
+    <ol>
+      <li><strong>A column's name states the language of its content</strong>,
+          in display and in storage. English is primary, so an unmarked name is
+          English and Arabic is marked <code>(AR)</code>.</li>
+      <li><strong>One language at a time.</strong> The AR|EN switch governs the
+          table and the container together.</li>
+      <li><strong>A missing translation shows the fact</strong>, never a blank.</li>
+      <li><strong>Presence is per source.</strong> A column appears only where
+          that source's own rows fill it.</li>
+      <li><strong>Nothing is computed into a price.</strong> Every figure is what
+          the source published; the Tax column states, per row, whether it
+          includes tax.</li>
+    </ol>
+    <p class="hint">Classification splits into as many as
+       {{ schema.category_levels }} levels; each level appears only for sources
+       that actually reach that depth.</p>
+  </section>
+
+  <section class="card">
+    <h2>Table columns</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Column</th><th>Key</th><th>What it is</th><th>Filled by</th>
+        </tr></thead>
+        <tbody>
+        {% for column in schema.table %}
+          <tr>
+            <td>{{ column.label or "—" }}</td>
+            <td><code>{{ column.key }}</code></td>
+            <td>{{ column.note }}</td>
+            <td class="muted">
+              {%- if column.sources %}{{ column.sources | join(" · ") }}
+              {%- else %}<em>no source today</em>{% endif -%}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Only in the export</h2>
+    <p class="hint">The workbook carries these as well: they answer questions a
+       screen does not need to repeat on every row.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Key</th><th>What it is</th></tr></thead>
+        <tbody>
+        {% for column in schema.export_only %}
+          <tr><td><code>{{ column.key }}</code></td><td>{{ column.note }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Columns the sites name</h2>
+    <p class="hint">Two kinds of column are named by the source, not by us, and
+       appear only for the sources that publish them: one per
+       <strong>variation axis</strong> (Color, «السماكة (مم)»), and one per
+       attribute the site itself <strong>filters</strong> by.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Source</th><th>Table columns</th><th>Variants with axes</th>
+          <th>Filter columns</th><th>Detail cards</th>
+        </tr></thead>
+        <tbody>
+        {% for row in schema.per_source %}
+          <tr>
+            <td><a href="/source/{{ row.source_key }}">{{ row.source_key }}</a></td>
+            <td>{{ row.columns }}</td>
+            <td>{{ "{:,}".format(row.variants_with_axes) }}</td>
+            <td>{{ row.filters }}</td>
+            <td class="muted">{{ row.detail_groups | join(" · ") or "—" }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>What an export carries</h2>
+    <p>Excel is the whole record, not the view: a <strong>prices</strong> sheet,
+       a <strong>details</strong> sheet, a <strong>history</strong> sheet and an
+       <strong>about</strong> sheet naming the source, the export time, the
+       counts and what each sheet is. CSV and JSON stay the view you are looking
+       at, filters and column order included.</p>
+  </section>
+</div>
+{% endblock %}
