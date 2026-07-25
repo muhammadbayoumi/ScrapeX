@@ -136,10 +136,11 @@
   .dataset-card { position: relative; display: block; padding-inline-end: calc(var(--sp-4) * 2);
                   color: var(--text); cursor: pointer;
                   transition: border-color var(--dur-fast) ease,
-                              background var(--dur-fast) ease,
-                              transform var(--dur-fast) ease; }
-  .dataset-card:hover { border-color: var(--accent); background: var(--surface-subtle);
-                        transform: translateY(-1px); }
+                              background var(--dur-fast) ease; }
+  .dataset-card:hover {
+    border-color: var(--accent);
+    background: var(--surface-subtle);
+  }
   .dataset-card:focus-visible { outline: 3px solid color-mix(in srgb, var(--focus) 65%, transparent);
                                 outline-offset: 2px; }
   .dataset-card-open { position: absolute; inset-block-start: var(--sp-3);

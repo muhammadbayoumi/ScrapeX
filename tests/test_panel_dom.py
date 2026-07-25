@@ -354,6 +354,20 @@ def test_data_rows_scroll_inside_the_browse_card_not_the_page(open_panel):
     assert list_overflow == "auto"
 
 
+def test_dataset_hover_does_not_move_the_card_out_of_its_scrollport(open_panel):
+    page = open_panel()
+    page.click(DATA_TAB)
+    page.wait_for_timeout(200)
+
+    card = page.locator("#datasets .dataset-card").first
+    before = card.bounding_box()
+    card.hover()
+    page.wait_for_timeout(180)
+    after = card.bounding_box()
+    assert before and after and after["y"] == pytest.approx(before["y"], abs=.1)
+    assert card.evaluate("(element) => getComputedStyle(element).transform") == "none"
+
+
 # ---- untrusted content (spec 34) --------------------------------------------
 
 def test_a_scraped_name_containing_markup_cannot_inject_into_the_panel(open_panel):
