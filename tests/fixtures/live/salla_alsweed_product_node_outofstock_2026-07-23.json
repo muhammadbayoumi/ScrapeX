@@ -1,0 +1,24 @@
+{
+  "@type": "Product",
+  "name": "لي سخان مجدول اسباني",
+  "description": "لي سخان اسباني مجدول ليس مجرد قطعة تكميلية في نظام السخان بل هو شريان الأمان الذي يضمن وصول الماء الساخن بكفاءة وثبات دون تسرب أو ضعف في الضغط. يعني اختيار لي ا...",
+  "sku": "لي-سخان-اسباني-مجدول/p1754450923",
+  "offers": {
+    "@type": "Offer",
+    "url": "https://alsweed.sa/%D9%84%D9%8A-%D8%B3%D8%AE%D8%A7%D9%86-%D8%A7%D8%B3%D8%A8%D8%A7%D9%86%D9%8A-%D9%85%D8%AC%D8%AF%D9%88%D9%84/p1754450923",
+    "availability": "https://schema.org/OutOfStock",
+    "price": 6,
+    "priceCurrency": "SAR",
+    "priceValidUntil": "2026-08-23T18:41:27+03:00",
+    "seller": {
+      "@type": "Organization",
+      "name": "السويد للسباكة"
+    }
+  },
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingCount": 17,
+    "ratingValue": 4.823529411764706
+  },
+  "image": "https://cdn.salla.sa/RPNxP/2WLMQu3kpep7sz7j0rZBxJHopbIO31WD17MtF8HU.jpg"
+}

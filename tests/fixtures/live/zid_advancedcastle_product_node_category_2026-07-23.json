@@ -1,0 +1,45 @@
+{
+  "@context": "https://schema.org/",
+  "@type": "Product",
+  "url": "https://advancedcastle.com/products/grabs",
+  "name": "قفل عجلات السيارة المضاد للسرقة (كلبش كفرات)",
+  "image": [
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/64ed0972-e15c-4e57-b1d1-b94c2b2462cc-thumbnail-1000x1000-70.jpg",
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/615472e0-0c9f-40b2-b835-35ef40e7193a-thumbnail-1000x1000-70.jpg",
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/c6b236f7-1501-4453-9c19-19e1171ef6c8-thumbnail-1000x1000-70.jpg",
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/9dd0318b-f5b0-4a75-b545-f1aad9352bf2-thumbnail-1000x1000-70.jpg",
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/6823a95c-d4cd-4ee8-abca-5a2423302bf6-thumbnail-1000x1000-70.jpg",
+    "https://media.zid.store/thumbs/c8ea395e-772e-4ce7-bcfb-117308676724/15d3b579-a3c1-40f5-ab5a-9fc86351ad29-thumbnail-1000x1000-70.jpg"
+  ],
+  "description": "قفل عجلات معدني قوي لتأمين السيارة ومنعها من الحركة والحماية من السرقة، سهل التركيب والفك، وقابل للتعديل ليناسب مختلف مقاسات الإطارات.",
+  "sku": "b5rs0601",
+  "category": "قفل عجلات > مخفض",
+  "offers": {
+    "@type": "Offer",
+    "url": "https://advancedcastle.com/products/grabs",
+    "priceCurrency": "SAR",
+    "price": "199.00",
+    "itemCondition": "https://schema.org/NewCondition",
+    "availability": "https://schema.org/InStock"
+  },
+  "review": [
+    {
+      "@type": "Review",
+      "reviewRating": {
+        "@type": "Rating",
+        "ratingValue": 5.0,
+        "bestRating": "5"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "فهدعبدالعزيز سلامي"
+      },
+      "datePublished": "2024-04-04T01:23:06"
+    }
+  ],
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": 5.0,
+    "reviewCount": 1
+  }
+}
