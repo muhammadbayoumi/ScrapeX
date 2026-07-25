@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
+import time
 from urllib.parse import urlencode, urlsplit
 from pathlib import Path
 
@@ -531,6 +533,67 @@ def create_app(
             request=request, name="data_model.html",
             context={"model": model, "tab": "data-model", "source_key": None,
                      "wide_page": True})
+
+    @app.post("/api/engine/restart")
+    def restart_engine(request: Request) -> dict:
+        """Replace this engine with one running the current code.
+
+        The fault only this can repair: a database written by a NEWER build than
+        the process reading it. Migrations go forward only, so Upgrade database
+        cannot help, and the guard is right to refuse rather than guess — which
+        left exactly one route out, and it was a terminal command. The owner
+        does not use a terminal, so it is a button.
+
+        A process cannot free its own port and then bind it, so the work goes to
+        a detached helper that outlives this one (scrapex/relaunch.py). This
+        answers FIRST and exits a moment later, so the browser gets a reply
+        instead of a dropped connection.
+        """
+        from .. import relaunch as relaunch_module
+
+        port = int(request.url.port or 8000)
+        try:
+            helper = relaunch_module.spawn_helper(port)
+        except Exception as exc:  # noqa: BLE001 — never leave the owner without a route
+            raise HTTPException(
+                status_code=500,
+                detail=(f"could not start the helper that brings the engine back ({exc}). "
+                        "The engine is still running; start a new one from the Startup "
+                        "folder if you need the newer code.")) from exc
+
+        def bow_out() -> None:
+            # Long enough for the response to reach the browser, short enough
+            # that the helper is not left waiting on a port nobody released.
+            time.sleep(1.5)
+            os._exit(0)
+
+        threading.Thread(target=bow_out, daemon=True).start()
+        return {"ok": True, "helper_pid": helper, "port": port,
+                "message": ("Restarting. This page will not answer for a few seconds — "
+                            "reload it once the engine is back.")}
+
+    @app.post("/api/native-host/register")
+    def register_native_host(payload: dict) -> dict:
+        """Re-link the Chrome helper to THIS extension id.
+
+        Reloading an unpacked extension from a different folder gives it a new
+        id, and the installed host allows only the id it was installed for — so
+        the panel's Start engine starts failing with nothing visibly broken.
+        The panel knows its own id; this writes it into the host, so the repair
+        needs no command and no reinstall.
+        """
+        extension_id = str(payload.get("extension_id") or "").strip()
+        if not extension_id.isalnum() or not (24 <= len(extension_id) <= 40):
+            raise HTTPException(status_code=400,
+                                detail="that does not look like a Chrome extension id")
+        from ..nativehost import install
+
+        try:
+            written = install([extension_id])
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return {"ok": True, "manifest": str(written), "extension_id": extension_id,
+                "message": "The helper now recognises this extension. Try Start engine again."}
 
     @app.get("/schema", response_class=HTMLResponse)
     def schema_page(request: Request):

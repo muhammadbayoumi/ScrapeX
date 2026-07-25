@@ -116,6 +116,16 @@
                 sign in to Windows.</div>
             {% endif %}</td></tr>
     </table>
+    {# The two controls that used to be terminal commands. They live beside the
+       versions they act on, so the reader can see WHY they would press one. #}
+    <div class="row" id="runtime-actions">
+      <button type="button" id="runtime-restart" class="ghost">Restart engine</button>
+      <button type="button" id="runtime-upgrade" class="ghost">Upgrade database</button>
+    </div>
+    <p class="hint" id="runtime-note">Restart replaces this engine with one running
+      the current code — the only repair for a database written by a newer build.
+      Upgrade brings the database forward to this build. Both are safe to press
+      when nothing is pending.</p>
   </div>
 </details>
 
@@ -425,3 +435,45 @@ window.addEventListener("hashchange", revealSettingsHash);
 revealSettingsHash();
 </script>
 {% endblock %}
+
+<script>
+// Plain fetch, no dependencies: these two must work on the day the workspace
+// is otherwise unhappy, which is exactly when they are needed.
+(function () {
+  const note = document.getElementById("runtime-note");
+  const restart = document.getElementById("runtime-restart");
+  const upgrade = document.getElementById("runtime-upgrade");
+  if (!note || !restart || !upgrade) return;
+
+  upgrade.addEventListener("click", async () => {
+    upgrade.disabled = true;
+    try {
+      const r = await fetch("/api/databases/upgrade", {method: "POST"});
+      const body = await r.json();
+      note.textContent = r.ok ? body.message : (body.detail || "The upgrade did not run.");
+    } catch (err) {
+      note.textContent = "Could not reach the engine: " + err.message;
+    } finally { upgrade.disabled = false; }
+  });
+
+  restart.addEventListener("click", async () => {
+    restart.disabled = true;
+    note.textContent = "Restarting — this page will go quiet for a few seconds.";
+    try { await fetch("/api/engine/restart", {method: "POST"}); } catch (err) { /* it exits mid-answer */ }
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      attempts += 1;
+      try {
+        const probe = await fetch("/api/marketlens/health", {cache: "no-store"});
+        if (probe.ok) { clearInterval(timer); location.reload(); return; }
+      } catch (err) { /* still down */ }
+      if (attempts > 60) {
+        clearInterval(timer);
+        note.textContent = "The engine has not come back. Start it from the Windows " +
+          "Startup folder (ScrapeX Engine.vbs), or sign out and in again.";
+        restart.disabled = false;
+      }
+    }, 1000);
+  });
+})();
+</script>

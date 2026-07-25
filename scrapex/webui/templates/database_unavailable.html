@@ -31,15 +31,71 @@
         </table>
       </div>
     {% endif %}
+    {# Every line here used to end in a command to type. The owner does not use
+       a terminal, so each one was a dead end: the two faults a person can
+       actually fix from a page are now the two buttons on it. #}
     <div>
-      <h2>Most likely</h2>
-      <ul>
-        <li>The drive holding the database is disconnected — reconnect it, then reload.</li>
-        <li>The database is behind this build — run
-          <code>python -m scrapex.cli init-db</code>, then reload.</li>
-        <li>The file was replaced or moved — point ScrapeX at the right one in
-          <a href="/settings#s-storage">Settings {{ icon("chevron-right", "inline-icon") }} Storage</a>.</li>
-      </ul>
+      <h2>What you can do from here</h2>
+      <div class="row" id="db-actions">
+        <button type="button" id="db-upgrade" class="primary">Upgrade database</button>
+        <button type="button" id="db-restart" class="ghost">Restart engine</button>
+      </div>
+      <p class="hint" id="db-action-note">
+        <strong>Upgrade</strong> brings the database up to this build — press it when
+        the database is BEHIND. <strong>Restart</strong> replaces this engine with one
+        running the current code — press it when the database was written by a NEWER
+        build than this one, which no upgrade can repair, because migrations only run
+        forward.</p>
+      <p class="hint">Still stuck? The drive holding the file may be disconnected —
+        reconnect it and reload. Or the file was replaced or moved: point ScrapeX at
+        the right one in
+        <a href="/settings#s-storage">Settings {{ icon("chevron-right", "inline-icon") }} Storage</a>.</p>
     </div>
   </div>
+
+  <script>
+  // Plain fetch and plain text: this page is what the owner sees when the
+  // workspace itself cannot answer, so it may not depend on anything the
+  // workspace loads.
+  (function () {
+    const note = document.getElementById("db-action-note");
+    function working(button, text) { button.disabled = true; button.dataset.was = button.textContent; button.textContent = text; }
+    function done(button) { button.disabled = false; button.textContent = button.dataset.was || button.textContent; }
+
+    document.getElementById("db-upgrade").addEventListener("click", async function () {
+      working(this, "Upgrading…");
+      try {
+        const r = await fetch("/api/databases/upgrade", {method: "POST"});
+        const body = await r.json();
+        note.textContent = r.ok ? (body.message || "Done.") + " Reloading…"
+                                : (body.detail || "The upgrade did not run.");
+        if (r.ok) setTimeout(() => location.reload(), 1200);
+      } catch (err) {
+        note.textContent = "Could not reach the engine: " + err.message;
+      } finally { done(this); }
+    });
+
+    document.getElementById("db-restart").addEventListener("click", async function () {
+      working(this, "Restarting…");
+      note.textContent = "Restarting the engine — this page will go quiet for a few seconds.";
+      try { await fetch("/api/engine/restart", {method: "POST"}); } catch (err) { /* the engine exits mid-answer */ }
+      // Poll until something answers again, then reload. Never claim it is back
+      // before a request has actually succeeded.
+      let attempts = 0;
+      const timer = setInterval(async () => {
+        attempts += 1;
+        try {
+          const probe = await fetch("/api/databases/health", {cache: "no-store"});
+          if (probe.ok) { clearInterval(timer); location.reload(); return; }
+        } catch (err) { /* still down */ }
+        if (attempts > 60) {
+          clearInterval(timer);
+          note.textContent = "The engine has not come back. Start it from the Windows " +
+            "Startup folder (ScrapeX Engine.vbs), or sign out and in again.";
+          done(this);
+        }
+      }, 1000);
+    });
+  })();
+  </script>
 {% endblock %}

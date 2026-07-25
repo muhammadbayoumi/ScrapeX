@@ -1241,9 +1241,26 @@ async function startEngineFromPanel() {
       note.textContent = "Chrome cannot find the ScrapeX helper on this machine — " +
         "open Setup below for the one-time install.";
     } else if (kind === "forbidden") {
-      note.textContent = "The helper is installed but does not recognise this " +
-        "extension yet — this happens after the extension is reloaded from a " +
-        "new folder. Open Setup to re-link them.";
+      // The panel knows its OWN id, and the engine can write it into the
+      // helper — so the repair is a request, not a reinstall. It needs the
+      // engine reachable over HTTP, which is a different road from the helper
+      // and is usually open when this fault happens.
+      note.textContent = "The helper does not recognise this extension yet — re-linking…";
+      try {
+        const backend = await getBackend();
+        const r = await fetch(`${backend}/api/native-host/register`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({extension_id: chrome.runtime.id}),
+        });
+        const body = await r.json();
+        note.textContent = r.ok
+          ? body.message
+          : "Could not re-link automatically — open Setup below for the one-time install.";
+      } catch (relinkError) {
+        note.textContent = "The helper does not recognise this extension, and the " +
+          "engine is not reachable to fix it — open Setup below.";
+      }
     } else if (kind === "crashed") {
       note.textContent = "The helper started and stopped. Open Logs to see why — " +
         "nothing is lost, and the engine can still be started from Windows.";

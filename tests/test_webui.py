@@ -351,3 +351,54 @@ def test_data_model_is_a_first_class_workspace_destination(client):
     assert 'aria-current="page"' in response.text
     assert "/static/pages/data-model.css" in response.text
     assert "/static/pages/data-model.js" in response.text
+
+
+def test_the_database_page_offers_buttons_not_commands(client):
+    """The owner hit this page and it ended with "run python -m scrapex.cli
+    init-db". He does not use a terminal, so that was a dead end dressed as
+    help. Two faults can be fixed from here and there are two buttons."""
+    page = client.get("/data").text  # any page renders the base; the target is direct
+    body = (Path(__file__).resolve().parent.parent / "scrapex" / "webui" /
+            "templates" / "database_unavailable.html").read_text(encoding="utf-8")
+
+    assert "scrapex.cli init-db" not in body, "the page still tells the owner to type a command"
+    assert 'id="db-upgrade"' in body and 'id="db-restart"' in body
+    assert "/api/databases/upgrade" in body and "/api/engine/restart" in body
+    # It must also say WHICH button answers which fault - they are not
+    # interchangeable, and pressing Upgrade on a too-new database does nothing.
+    assert "migrations only run" in body
+
+
+def test_upgrading_the_database_is_a_truthful_no_op_when_nothing_is_pending():
+    """Pressing Upgrade with nothing pending must ANSWER, not error.
+
+    A button the owner is told to press when a page is broken has to be safe to
+    press when it is not. (Mounted on a bare app: the database router only
+    exists where a registry does, which a single-file test app has no business
+    inventing.)"""
+    from fastapi import FastAPI
+
+    from scrapex.webui.database_api import create_database_router
+
+    class Registry:
+        def __init__(self, applied):
+            self._applied = applied
+
+        def initialize(self):
+            return self._applied
+
+    quiet = FastAPI()
+    quiet.include_router(create_database_router(lambda: Registry({"general": [], "marketlens": []})))
+    body = TestClient(quiet).post("/api/databases/upgrade").json()
+    assert body["ok"] is True and "already up to date" in body["message"]
+
+    busy = FastAPI()
+    busy.include_router(create_database_router(lambda: Registry({"general": [], "marketlens": [36]})))
+    body = TestClient(busy).post("/api/databases/upgrade").json()
+    assert "1 migration to marketlens" in body["message"]
+
+
+def test_relinking_the_native_host_refuses_a_value_that_is_not_an_extension_id(client):
+    r = client.post("/api/native-host/register", json={"extension_id": "../../etc/passwd"})
+    assert r.status_code == 400
+    assert "extension id" in r.json()["detail"]

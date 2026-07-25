@@ -319,6 +319,18 @@ def _cmd_google_connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_relaunch(args: argparse.Namespace) -> int:
+    """The detached helper behind the Restart engine button.
+
+    Not for a person to run: the engine spawns it, then exits, and this waits
+    for the port and brings the engine back. It exists because a process cannot
+    free its own port and then bind it.
+    """
+    from .relaunch import relaunch
+
+    return relaunch(args.port, args.wait_pid)
+
+
 def _cmd_native_host(args: argparse.Namespace) -> int:
     """Chrome launches this; it speaks framed JSON on stdio, not to a human."""
     from .native import serve
@@ -724,6 +736,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", help="database path")
     p.add_argument("--no-open", action="store_true", help="do not auto-open the browser")
     p.set_defaults(func=_cmd_ui)
+
+    p = sub.add_parser("relaunch",
+                       help="internal: wait for the engine's port to free, then start it again")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--wait-pid", type=int, default=None,
+                   help="the engine asking to be replaced")
+    p.set_defaults(func=_cmd_relaunch)
 
     p = sub.add_parser("native-host",
                        help="serve the Chrome Native Messaging bridge on stdio (Chrome starts this)")
