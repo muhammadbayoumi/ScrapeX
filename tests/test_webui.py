@@ -323,3 +323,31 @@ def test_every_column_says_which_table_it_came_from(client):
     assert "<code>price_observation.effective_price</code>" in body
     assert "computed: price_observation.regular_price" in body, \
         "a discount is not stored anywhere; saying it is would be a lie"
+
+
+def test_the_data_model_page_draws_the_live_relational_model(client):
+    """The model is a view of SQLite, not a hand-maintained architecture image:
+    real table cards, key fields and foreign keys all reach the page."""
+    response = client.get("/data-model")
+
+    assert response.status_code == 200
+    body = response.text
+    assert "<h1>Data Model</h1>" in body
+    for table in ("source_site", "source_product", "source_variant",
+                  "source_offer", "price_observation", "crawl_run"):
+        assert f'data-table="{table}"' in body
+    assert "<span class=\"key-badge pk\">PK</span>" in body
+    assert "<span class=\"key-badge fk\">FK</span>" in body
+    assert '"from_table": "source_product"' in body
+    assert '"to_table": "source_site"' in body
+    assert "How ScrapeX works" in body
+    assert "Every answer keeps lineage" in body
+
+
+def test_data_model_is_a_first_class_workspace_destination(client):
+    response = client.get("/data-model")
+
+    assert 'href="/data-model"' in response.text
+    assert 'aria-current="page"' in response.text
+    assert "/static/pages/data-model.css" in response.text
+    assert "/static/pages/data-model.js" in response.text

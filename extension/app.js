@@ -71,6 +71,8 @@ const WORKSPACE_NAVIGATION_FALLBACK = [
     description: "Create and configure Excel exports."},
   {key: "logs", label: "Logs", path: "/logs", icon: "description", group: "System",
     description: "Inspect detailed job activity."},
+  {key: "data-model", label: "Data Model", path: "/data-model", icon: "account-tree",
+    group: "System", description: "Tables, relationships, and how data moves."},
   {key: "schema", label: "Schema", path: "/schema", icon: "view-column", group: "System",
     description: "What every column means and who fills it."},
   {key: "settings", label: "Settings", path: "/settings", icon: "settings", group: "System",
