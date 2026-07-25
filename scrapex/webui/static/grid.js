@@ -1019,20 +1019,6 @@
         return link;
       };
     }
-    if (key === "details") {
-      // Its own action, separated from History (the owner's ask): History is
-      // the price story, Details is what the product IS.
-      return (cell) => {
-        const data = cell.getRow().getData();
-        if (!data.has_details || !data.offer_id) return "";
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "grid-action";
-        button.textContent = "Details";
-        button.addEventListener("click", () => openOfferPanel(data.offer_id, "details"));
-        return button;
-      };
-    }
     if (key === "official_source") {
       // The official body the SOURCE names for its figure — scraped content,
       // so it is set as textContent (never HTML) and the URL becomes a link
@@ -1139,15 +1125,6 @@
         def.width = 56;
         def.resizable = false;
       }
-      if (col.key === "details") {
-        // An action, not data: nothing to sort, filter, menu or export.
-        def.headerSort = false;
-        def.download = false;
-        def.headerMenu = undefined;
-        def.headerPopup = undefined;
-        def.width = 110;
-        def.resizable = false;
-      }
       let formatter = formatterFor(col.key);
       // On the column a tree nests by, a heading row must say how many rows it
       // hides — whichever column that is. Wrapping here rather than teaching
@@ -1180,7 +1157,11 @@
           if (event.button !== 0 || event.ctrlKey || event.metaKey ||
               event.shiftKey || event.altKey) return;
           event.preventDefault();
-          openOfferPanel(cell.getValue(), "history");
+          // The SAME panel a row selection opens — one output for every
+          // source (owner's ruling: not a Details button here and a row
+          // selection there). Picture, then details, then the price story.
+          openOfferPanel(cell.getValue(), "record",
+                         cell.getRow().getData());
         });
         return link;
       },
@@ -1516,6 +1497,37 @@
     // categories, warranties — grouped as the page grouped them. Scraped
     // content throughout: names as text, URLs linked only when they parse.
     const details = showDetails ? (data.details || []) : [];
+    // The PICTURE leads — the same shape the sites themselves use, and the
+    // same shape for every source (owner's ruling: one output, not one panel
+    // per connector). Media is pulled out of the attribute groups below so it
+    // can never end up buried under a table of text.
+    if (showDetails) {
+      const pictures = details.filter((d) => (d.group || "") === "Media" && d.url);
+      const gallery = el("div", "detail-gallery");
+      let shown = 0;
+      pictures.forEach((d) => {
+        let safe = "";
+        try {
+          const parsed = new URL(d.url);
+          if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
+        } catch (err) { /* not a URL — the attribute table still lists it */ }
+        if (!safe) return;
+        const frame = document.createElement("a");
+        frame.href = safe;
+        frame.target = "_blank";
+        frame.rel = "noopener noreferrer";
+        frame.title = text(d.value || "");
+        const picture = document.createElement("img");
+        picture.src = safe;
+        picture.alt = text(d.value || "");
+        picture.loading = "lazy";
+        picture.className = "detail-image";
+        frame.appendChild(picture);
+        gallery.appendChild(frame);
+        shown += 1;
+      });
+      if (shown) panel.appendChild(gallery);
+    }
     // Fields the owner moved OUT of the table (Choose Columns -> hide) are
     // shown here instead, so nothing is ever lost by tidying the grid: hide
     // moves a field into the details, show moves it back.
@@ -1538,44 +1550,14 @@
       const groups = new Map();
       details.forEach((d) => {
         const key = d.group || "Details";
+        // Media already leads the panel as pictures; listing the same rows
+        // again as file names would be the record said twice.
+        if (key === "Media" && d.url) return;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(d);
       });
       groups.forEach((items, groupName) => {
         panel.appendChild(el("h4", "muted", groupName));
-        // Pictures are shown as PICTURES. A gallery of file names was the
-        // owner's report: the site offers images, the panel offered links.
-        // Only http(s) URLs are rendered — scraped content is untrusted, and
-        // a data: or javascript: "image" is not an image (spec 34).
-        if (groupName === "Media") {
-          const gallery = el("div", "detail-gallery");
-          let shown = 0;
-          items.forEach((d) => {
-            let safe = "";
-            try {
-              const parsed = new URL(d.url);
-              if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
-            } catch (err) { /* not a URL — falls through to the table below */ }
-            if (!safe) return;
-            const frame = document.createElement("a");
-            frame.href = safe;
-            frame.target = "_blank";
-            frame.rel = "noopener noreferrer";
-            frame.title = text(d.value || "");
-            const picture = document.createElement("img");
-            picture.src = safe;
-            picture.alt = text(d.value || "");
-            picture.loading = "lazy";
-            picture.className = "detail-image";
-            frame.appendChild(picture);
-            gallery.appendChild(frame);
-            shown += 1;
-          });
-          if (shown) {
-            panel.appendChild(gallery);
-            return;                       // the pictures ARE the section
-          }
-        }
         panel.appendChild(miniTable(
           ["Attribute", "Value"],
           items.map((d) => {
