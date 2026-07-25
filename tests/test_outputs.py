@@ -244,7 +244,13 @@ def test_an_oversized_batch_is_delivered_with_the_sheet_cap_named(conn, monkeypa
     monkeypatch.setattr(outputs, "FUNNEL_MAX_ROWS", 0)
     client = FakeFunnel()
     result = outputs.apps_script_send(conn, SOURCE, client=client)
-    assert len(client.sent) == 1, "the batch was sent rather than refused"
+    # More than one payload now: prices, then whichever of details, history and
+    # provenance this source actually has. This asserted exactly one because the
+    # funnel used to send the price table alone; what it was really testing —
+    # that an oversized batch is SENT rather than refused up front — is proven
+    # by the first payload existing at all.
+    assert client.sent, "the batch was refused instead of sent"
+    assert client.sent[0].source_url.endswith(SOURCE), "the prices go first"
     assert "SYNC_MAX_ROWS" in result.detail and "_INBOX" in result.detail
 
 
@@ -446,3 +452,36 @@ def test_an_older_script_degrades_to_an_honest_not_confirmed(conn):
     result = outputs.apps_script_send(conn, SOURCE, client=FakeFunnel())
     assert result.ok is True
     assert "did not confirm" in result.detail and "Copy Script" in result.detail
+
+
+def test_the_funnel_sends_every_table_the_workbook_has(conn):
+    """The owner's ruling: Apps Script sends every piece of information
+    collected.
+
+    It sent the price table alone while the local workbook and the Google push
+    both carried the details and the history — the same data, three
+    destinations, two answers. All four tables now go, each announcing WHICH
+    table it is in its own source_url, which the frozen payload already carries
+    and which means exactly "where this came from"."""
+    client = FakeFunnel()
+    outputs.apps_script_send(conn, SOURCE, client=client)
+
+    urls = [payload.source_url for payload in client.sent]
+    assert urls[0] == f"scrapex://export/{SOURCE}", "prices lead, with no suffix"
+    assert any(url.endswith("/history") for url in urls), "the price history never left"
+    assert any(url.endswith("/about") for url in urls), "nothing said where the numbers came from"
+    # Every batch carries the same source_key: these are four views of ONE
+    # source, not four sources, and the sheet must file them together.
+    assert {payload.source_key for payload in client.sent} == {SOURCE}
+
+
+def test_the_sheet_names_a_tab_from_the_table_it_was_sent(conn):
+    """The sheet script reads that suffix and writes SOURCE — details beside
+    SOURCE. Pinned here because the two engines have to agree on it and only
+    one of them is Python."""
+    script = (Path(__file__).resolve().parent.parent / "apps_script" /
+              "StagingAppScript.txt").read_text(encoding="utf-8")
+
+    assert "function tableSuffix_" in script
+    assert 'SYNC_TABLE_SUFFIXES = ["details", "history", "about"]' in script
+    assert "tableSuffix_(payload.source_url)" in script

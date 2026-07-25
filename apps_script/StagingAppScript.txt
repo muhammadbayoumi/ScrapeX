@@ -362,7 +362,17 @@ function collectBatches_(inbox) {
     }
     if (!payload || !payload.source_key) continue;
     const chunk = payload.chunk || { index: 1, total: 1 };
-    const sourceKey = String(payload.source_key);
+    // ONE SOURCE, FOUR TABLES. Prices used to be everything ScrapeX sent, so a
+    // tab per source_key was the whole story. It now sends the details, the
+    // price history and a provenance sheet as well — the same four the local
+    // workbook has — and each announces WHICH table it is in its own
+    // source_url ("scrapex://export/SIKAEGSHOP/details"). That field is part of
+    // the frozen payload already and means exactly "where this table came
+    // from", so nothing had to be added to the contract to carry it.
+    //
+    // An older ScrapeX sends only prices, with no suffix, and lands in the
+    // source's own tab exactly as before.
+    const sourceKey = String(payload.source_key) + tableSuffix_(payload.source_url);
     const batchKey = String(payload.scraped_at || "");
     const attemptKey = String(Number(chunk.total || 1));
     if (!bySource[sourceKey]) bySource[sourceKey] = {};
@@ -453,6 +463,21 @@ function reassemble_(chunks) {
 }
 
 /* Replace one tab with header + rows. */
+/* " — details" from "scrapex://export/SIKAEGSHOP/details", or "" for prices.
+ * Deliberately strict: only the suffixes ScrapeX publishes are honoured, so a
+ * stray URL cannot invent tabs in the owner's spreadsheet. */
+const SYNC_TABLE_SUFFIXES = ["details", "history", "about"];
+
+function tableSuffix_(sourceUrl) {
+  const text = String(sourceUrl || "");
+  for (let i = 0; i < SYNC_TABLE_SUFFIXES.length; i++) {
+    if (text.slice(-(SYNC_TABLE_SUFFIXES[i].length + 1)) === "/" + SYNC_TABLE_SUFFIXES[i]) {
+      return " — " + SYNC_TABLE_SUFFIXES[i];
+    }
+  }
+  return "";
+}
+
 function writeTable_(ss, sourceKey, header, rows) {
   const tab = tabNameFor_(sourceKey);
   if (!header || !header.length) throw new Error("batch carries no header");

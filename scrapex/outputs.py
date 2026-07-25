@@ -265,10 +265,20 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
     """Deliver one source's current prices through the funnel."""
     from .funnel import FunnelDeliveryError, OutboxAlarm
 
-    header, rows = export_source_table(conn, source_key)
-    if not rows:
+    # EVERYTHING THE SOURCE GAVE, not the price table alone (owner's ruling).
+    # The same four tables the local workbook carries, from the same one place
+    # that decides what a complete export IS — so the sheet, the .xlsx and the
+    # Drive push can never be three different answers.
+    from .publish import workbook_tables
+
+    try:
+        tables = workbook_tables(conn, source_key)
+    except ValueError:
+        # workbook_tables refuses a source with no priced rows, which is the
+        # same condition this function has always reported in its own words.
         raise NotConfiguredError(
-            f"Nothing to send for {source_key} — crawl and ingest it first.")
+            f"Nothing to send for {source_key} — crawl and ingest it first.") from None
+    header, rows = tables[0][1], tables[0][2]
     # A9: a big source used to be refused right here, on the theory that Apps
     # Script would time out on it. The transport no longer needs that theory —
     # it halves a chunk the funnel chokes on and resends (funnel._deliver) — so
@@ -282,13 +292,38 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
                  "_INBOX regardless.")
 
     client = client if client is not None else _funnel_client(conn)
-    payload = FunnelPayload(
-        payload_version=PAYLOAD_VERSION, source_key=source_key,
-        kind=ExtractKind.PRODUCT_PRICES, client=PayloadClient.CLI,
-        scraped_at=utc_now_iso(), source_url=f"scrapex://export/{source_key}",
-        header=list(header), rows=[[_canonical_cell(c) for c in row] for row in rows])
+    sent_at = utc_now_iso()
+
+    def deliver(suffix: str, table_header, table_rows, kind) -> int:
+        # The table announces WHICH table it is in its own source_url — a field
+        # the frozen payload already carries, meaning exactly "where this came
+        # from". The sheet reads the suffix and writes "SOURCE — details" beside
+        # "SOURCE", so four tables needed no change to the contract between the
+        # two engines. An older sheet script ignores the suffix and keeps
+        # writing one tab, which is what it did before.
+        url = f"scrapex://export/{source_key}" + (f"/{suffix}" if suffix else "")
+        return client.send(FunnelPayload(
+            payload_version=PAYLOAD_VERSION, source_key=source_key,
+            kind=kind, client=PayloadClient.CLI,
+            scraped_at=sent_at, source_url=url, header=list(table_header),
+            rows=[[_canonical_cell(cell) for cell in row] for row in table_rows]))
+
     try:
-        chunks = client.send(payload)
+        chunks = deliver("", header, rows, ExtractKind.PRODUCT_PRICES)
+        # The rest ride after the prices, each in its own batch so one oversized
+        # table cannot hold the others hostage. `kind` names what the rows ARE:
+        # the details are enrichment; the history is price observations; the
+        # provenance sheet describes the export itself, and rides under the
+        # kind it describes rather than inventing a vocabulary for one tab.
+        for name, extra_header, extra_rows in tables[1:]:
+            if not extra_rows:
+                continue
+            suffix = name.rsplit("—", 1)[-1].strip() if "—" in name else ""
+            if not suffix:
+                continue
+            chunks += deliver(
+                suffix, extra_header, extra_rows,
+                ExtractKind.ENRICHMENT if suffix == "details" else ExtractKind.PRODUCT_PRICES)
     except (FunnelDeliveryError, OutboxAlarm) as exc:
         return _record(conn, "apps_script_last", RunResult(
             ok=False, rows=len(rows),
