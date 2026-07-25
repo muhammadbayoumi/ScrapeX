@@ -62,7 +62,7 @@
   background:var(--surface);box-shadow:var(--shadow)}
 .data-source-overview .idblock{padding-bottom:.85rem;border-bottom:1px solid var(--line)}
 .data-source-overview h1{margin:0 0 .18rem;font-size:1.5rem;letter-spacing:.01em}
-.dataset-identity .source-identity-name{font-size:1.5rem;letter-spacing:.01em}
+.dataset-identity .source-identity-domain{font-size:1.5rem;letter-spacing:.01em}
 .dataset-local-name{margin:0;color:var(--muted);font-size:.78rem}
 .dataset-site-link{display:inline-flex;align-items:center;gap:.25rem;margin-top:.42rem;
   color:var(--accent-ink);font-size:.68rem;font-weight:650;text-decoration:none}

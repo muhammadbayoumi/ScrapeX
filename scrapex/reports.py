@@ -21,6 +21,9 @@ class SourceSummary:
     # source that answers in one language, which the templates read as "nothing
     # to add" rather than an empty line.
     source_name_en: str = ""
+    # Display identity uses the source's host as its primary label. The full
+    # URL remains available for links while templates strip it to the domain.
+    base_url: str = ""
     # source-local layer (raw)
     products: int = 0
     variants: int = 0
@@ -35,14 +38,15 @@ class SourceSummary:
 
 def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary | None:
     row = conn.execute(
-        "SELECT source_id, source_name, source_name_en FROM source_site WHERE source_key = ?",
+        "SELECT source_id, source_name, source_name_en, base_url "
+        "FROM source_site WHERE source_key = ?",
         (source_key,)
     ).fetchone()
     if row is None:
         return None
     source_id, source_name = row[0], row[1]
     s = SourceSummary(source_key=source_key, source_name=source_name,
-                      source_name_en=row[2] or "")
+                      source_name_en=row[2] or "", base_url=row[3] or "")
 
     s.products = _scalar(conn, "SELECT COUNT(*) FROM source_product WHERE source_id = ?", (source_id,))
     s.variants = _scalar(conn,
@@ -875,7 +879,8 @@ def crawl_history(conn: sqlite3.Connection, source_key: str | None = None,
                   limit: int = 50) -> list[dict]:
     """Per-run history (spec 21 "Crawl History"). crawl_run has recorded this all
     along — status, counts, request budget, rows_seen — and nothing ever showed it."""
-    sql = ("SELECT r.run_id, r.job_id, ss.source_key, ss.source_name, r.started_at, "
+    sql = ("SELECT r.run_id, r.job_id, ss.source_key, ss.source_name, "
+           "       ss.source_name_en, ss.base_url, r.started_at, "
            "       r.finished_at, r.status, r.products_discovered, r.variants_discovered, "
            "       r.errors_count, r.rows_seen "
            "FROM crawl_run r JOIN source_site ss ON ss.source_id = r.source_id ")

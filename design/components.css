@@ -539,16 +539,17 @@ button.chip {
 
 /* Canonical source identity and selectable source list.
  *
- * Source names are data, so they choose their own direction. The English name
- * and stable key always remain LTR. Page layouts supply only the surrounding
- * interaction (link, tab, checkbox, or table cell); this reading order stays
- * identical across the workspace and browser panel. */
+ * The domain is the primary identity. English precedes the local name on one
+ * secondary line, while the stable key stays LTR on the final line. Page
+ * layouts supply only the surrounding interaction and contextual metric. */
 .source-identity {
   display: grid;
   min-width: 0;
   gap: 0.08rem;
 }
 
+.source-identity-domain,
+.source-identity-names,
 .source-identity-name,
 .source-identity-name-en,
 .source-identity-key {
@@ -559,16 +560,34 @@ button.chip {
   white-space: nowrap;
 }
 
-.source-identity-name {
+.source-identity-domain {
   color: var(--text);
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.source-identity-names {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.source-identity-name {
   unicode-bidi: plaintext;
 }
 
+.source-identity-name,
 .source-identity-name-en {
+  flex: 0 1 auto;
+}
+
+.source-identity-separator {
+  flex: none;
   color: var(--muted);
-  font-size: var(--fs-xs);
 }
 
 .source-identity-key {
@@ -584,36 +603,43 @@ button.chip {
   gap: 0;
 }
 
-.source-identity-compact .source-identity-name {
+.source-identity-compact .source-identity-domain {
   font-size: var(--fs-xs);
 }
 
+.source-identity-compact .source-identity-names,
 .source-identity-compact .source-identity-name-en,
 .source-identity-compact .source-identity-key {
   font-size: var(--fs-2xs);
 }
 
 .source-identity-meta {
-  display: block;
+  display: inline-flex;
+  align-items: baseline;
+  align-self: end;
+  gap: 0.3rem;
   flex: none;
+  padding: 0.18rem 0.48rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--chip);
   color: var(--muted);
-  text-align: end;
+  white-space: nowrap;
 }
 
 .source-identity-meta strong,
 .source-identity-meta small {
-  display: block;
+  display: inline;
 }
 
 .source-identity-meta strong {
   color: var(--text);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .source-identity-meta small {
-  margin-top: 0.08rem;
-  font-size: var(--fs-xs);
+  font-size: var(--fs-2xs);
 }
 
 .source-selection-list {

@@ -1,10 +1,10 @@
 {# Canonical source identity.
 
    Every source list follows the same reading order:
-   1. owner-facing source name;
-   2. English name when the source publishes a distinct one;
+   1. source domain, without scheme or www;
+   2. English name, then owner-facing/local name;
    3. stable technical source key;
-   4. contextual metric or state outside this macro.
+   4. contextual metric or state beside the key.
 
    Keep interaction semantics (link, checkbox, tab, table cell) in the caller.
    The identity itself stays identical everywhere. #}
@@ -12,10 +12,17 @@
   {% set key = source.source_key %}
   {% set name = source.source_name or key.replace("_", " ") %}
   {% set name_en = source.source_name_en or "" %}
+  {% set domain = (source.base_url or "")|source_domain %}
   <span class="source-identity{% if compact %} source-identity-compact{% endif %}">
-    <strong class="source-identity-name" dir="auto">{{ name }}</strong>
-    {% if name_en and name_en != name %}
-      <span class="source-identity-name-en" dir="ltr">{{ name_en }}</span>
+    <strong class="source-identity-domain" dir="{{ 'ltr' if domain else 'auto' }}">{{ domain or name }}</strong>
+    {% if domain or (name_en and name_en != name) %}
+      <span class="source-identity-names">
+        {% if name_en and name_en != name %}
+          <span class="source-identity-name-en" dir="ltr">{{ name_en }}</span>
+          <span class="source-identity-separator" aria-hidden="true">·</span>
+        {% endif %}
+        <span class="source-identity-name" dir="auto">{{ name }}</span>
+      </span>
     {% endif %}
     <code class="source-identity-key">{{ key }}</code>
   </span>
@@ -23,8 +30,8 @@
 
 {% macro source_metric(value, label) -%}
   <span class="source-identity-meta">
-    <strong>{{ value }}</strong>
     <small>{{ label }}</small>
+    <strong>{{ value }}</strong>
   </span>
 {%- endmacro %}
 
@@ -32,5 +39,6 @@
   {% set key = source.source_key -%}
   {% set name = source.source_name or key.replace("_", " ") -%}
   {% set name_en = source.source_name_en or "" -%}
-  {{ name }}{% if name_en and name_en != name %} — {{ name_en }}{% endif %} · {{ key }}
+  {% set domain = (source.base_url or "")|source_domain -%}
+  {{ domain or name }} — {% if name_en and name_en != name %}{{ name_en }} · {% endif %}{{ name }} — {{ key }}
 {%- endmacro %}

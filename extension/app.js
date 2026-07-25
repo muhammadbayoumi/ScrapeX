@@ -97,20 +97,28 @@ function setStatus(engine) {
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
+function sourceDomain(url) {
+  const host = hostOf(url).replace(/\.$/, "");
+  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
+}
+
 function sourceIdentity(source, compact = false) {
   const key = source.source_key || "";
   const name = source.source_name || key.replaceAll("_", " ");
+  const domain = sourceDomain(source.base_url);
   const english = source.source_name_en && source.source_name_en !== name
     ? `<span class="source-identity-name-en" dir="ltr">${esc(source.source_name_en)}</span>` : "";
   return `<span class="source-identity${compact ? " source-identity-compact" : ""}">
-    <strong class="source-identity-name" dir="auto">${esc(name)}</strong>
-    ${english}
+    <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${esc(domain || name)}</strong>
+    ${domain || english ? `<span class="source-identity-names">${english}${
+      english ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
+    }<span class="source-identity-name" dir="auto">${esc(name)}</span></span>` : ""}
     <code class="source-identity-key">${esc(key)}</code>
   </span>`;
 }
 
 function sourceMetric(value, label) {
-  return `<span class="source-identity-meta"><strong>${esc(value)}</strong><small>${esc(label)}</small></span>`;
+  return `<span class="source-identity-meta"><small>${esc(label)}</small><strong>${esc(value)}</strong></span>`;
 }
 
 function visibleSources() {
@@ -650,8 +658,7 @@ function renderSelected() {
         s.implemented ? "Ready" : "Not supported yet"}</span></div>`;
     return `<div class="card">
       <div class="row">
-        <span>${sourceIdentity(s)}
-          <span class="n text-block">${esc(hostOf(s.base_url))}</span></span>
+        <span>${sourceIdentity(s)}</span>
         <button class="ghost" data-drop="${esc(s.source_key)}"
                 title="Remove from this run — the saved site is kept">Remove</button>
       </div>${detail}

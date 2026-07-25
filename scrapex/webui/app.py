@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -61,7 +61,7 @@ from ..reports import (
     BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
     export_source_table, history_counts, list_sources, offer_identity,
-    offer_observations, price_extremes, product_attributes, source_summary,
+    offer_observations, price_extremes, product_attributes,
     table_payload,
 )
 from ..scheduler import list_schedules, upsert_schedule, zone_exists
@@ -106,6 +106,19 @@ def database_state(request: Request) -> dict:
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"),
                             context_processors=[database_state])
+
+
+def _source_domain(value: str | None) -> str:
+    """Presentation-only host label: no scheme, path, credentials, port, or www."""
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw if "://" in raw else f"//{raw}")
+    host = (parsed.hostname or "").strip(".")
+    return host[4:] if host.lower().startswith("www.") else host
+
+
+TEMPLATES.env.filters["source_domain"] = _source_domain
 # The sidebar renders from the shared UI contract (scrapex/ui_manifest.py) —
 # the same module /api/ui serves to the panel, so the surfaces cannot drift.
 TEMPLATES.env.globals["workspace_navigation_groups"] = workspace_navigation_groups
@@ -215,9 +228,22 @@ def create_app(
 
     # ---- HTML browse UI ----------------------------------------------------
 
+    def _display_sources(conn):
+        """Warehouse counts with the manifest's current display identity."""
+        sources = list_sources(conn)
+        entries = {entry.source_key: entry for entry in app.state.manifest.sources}
+        for source in sources:
+            entry = entries.get(source.source_key)
+            if entry is None:
+                continue
+            source.source_name = entry.source_name or source.source_name
+            source.source_name_en = entry.source_name_en or source.source_name_en
+            source.base_url = entry.base_url or source.base_url
+        return sources
+
     def _source_catalog(conn):
         """Every configured source, split by whether it has warehouse data."""
-        sources = list_sources(conn)
+        sources = _display_sources(conn)
         source_sites = {entry.source_key: entry.base_url
                         for entry in app.state.manifest.sources}
         known = {source.source_key for source in sources}
@@ -388,7 +414,8 @@ def create_app(
         conn = read_conn()
         try:
             sources, pending, source_sites = _source_catalog(conn)
-            summary = source_summary(conn, source_key)
+            summary = next((source for source in sources
+                            if source.source_key == source_key), None)
             page_data, fields, views, columns = None, [], [], []
             changes_by_offer, facets, watch_counts = {}, {}, {}
             absent_columns = []
@@ -537,7 +564,7 @@ def create_app(
                          changes=recent_changes(conn, source_key, limit=limit),
                          extremes=price_extremes(conn, source_key, limit=2000) if source_key else [],
                          offers=_offers_with_history(conn, source_key) if source_key else [],
-                          sources=list_sources(conn))
+                          sources=_display_sources(conn))
         finally:
             conn.close()
 
@@ -547,7 +574,7 @@ def create_app(
         try:
             return _page(request, "history.html", "history", source_key,
                          runs=crawl_history(conn, source_key),
-                          sources=list_sources(conn))
+                          sources=_display_sources(conn))
         finally:
             conn.close()
 
@@ -557,7 +584,7 @@ def create_app(
         try:
             return _page(request, "review.html", "review", source_key,
                          pending=pending_reviews(conn, source_key, limit=100),
-                          sources=list_sources(conn))
+                          sources=_display_sources(conn))
         finally:
             conn.close()
 
@@ -589,6 +616,7 @@ def create_app(
                 "source_key": entry.source_key,
                 "source_name": entry.source_name,
                 "source_name_en": entry.source_name_en,
+                "base_url": entry.base_url,
                 "active": entry.active,
                 "supports_history": supports_history(entry.family),
                 "sched": saved.get(entry.source_key) or {},
@@ -613,7 +641,7 @@ def create_app(
         try:
             return _page(request, "excel.html", "exports", source_key or None,
                          status=excel_status(conn), settings=public_settings(conn),
-                         sources=list_sources(conn))
+                          sources=_display_sources(conn))
         finally:
             conn.close()
 
@@ -640,7 +668,7 @@ def create_app(
         try:
             return _page(request, "sync.html", "sync", source_key or None,
                          funnel=apps_script_status(conn), google=google_status(conn),
-                         settings=public_settings(conn), sources=list_sources(conn))
+                          settings=public_settings(conn), sources=_display_sources(conn))
         finally:
             conn.close()
 

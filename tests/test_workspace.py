@@ -150,6 +150,20 @@ def test_apps_script_can_send_multiple_sources_and_exposes_existing_automation(c
     assert "delivery stays deliberate" in sync
 
 
+def test_source_identity_uses_domain_names_key_and_inline_observation_badge(client):
+    sync = client.get("/sync").text
+
+    domain = sync.index("elsewedyshop.com")
+    english = sync.index("Elsewedy Shop", domain)
+    local = sync.index("السويدي شوب", english)
+    key = sync.index("ELSEWEDYSHOP", local)
+    assert domain < english < local < key
+    assert "<small>observations</small>" in sync
+    assert sync.index("<small>observations</small>") < sync.index(
+        "<strong>2</strong>", sync.index("<small>observations</small>")
+    )
+
+
 @pytest.mark.parametrize("path", ["/", f"/source/{SOURCE}", "/manage", "/schedules",
                                   "/exports", "/sync", "/history"])
 def test_source_identity_is_shared_across_every_source_listing(client, path):

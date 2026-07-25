@@ -88,26 +88,22 @@ def test_data_canvas_stays_centered_and_the_dataset_menu_is_a_popover():
     assert styles.count("var(--data-canvas-width)") >= 1
 
 
-def test_dataset_identity_leads_with_the_sources_NAME_and_links_the_website(client):
-    """CORRECTED 2026-07-23 on the owner's report: the page led with the
-    machine key (ELSEWEDYSHOP) and put the site's actual name underneath, so
-    every listing read as keys. The name leads; the key stays visible as the
-    technical identifier the URL and the API use."""
+def test_dataset_identity_leads_with_the_domain_and_links_the_website(client):
+    """The domain is the stable human-scannable identity. Names follow it,
+    while the key remains visible as the URL and API identifier."""
     selected = client.get("/source/ELSEWEDYSHOP").text
 
+    domain = selected.index("elsewedyshop.com")
     name = selected.index("السويدي شوب")
     key = selected.index("ELSEWEDYSHOP", name)
-    assert name < key
+    assert domain < name < key
     assert 'class="source-identity-key"' in selected
     assert 'class="dataset-site-link" href="https://elsewedyshop.com"' in selected
     assert 'target="_blank"' in selected and 'rel="noopener noreferrer"' in selected
 
 
 def test_the_heading_and_the_listing_carry_the_english_name_too(tmp_path: Path):
-    """A5: the SITE gained an English name, so a dataset list stops being the
-    one Arabic-only thing on a page whose table already flips AR|EN. Both names
-    show — the site's own name leads, the English one sits under it marked
-    dir="ltr" so it renders the way it is written, and the key stays last."""
+    """The domain leads, followed by English · local name, then the key."""
     db_path = tmp_path / "harvest.db"
     conn = dbmod.connect(db_path)
     dbmod.migrate(conn)
@@ -118,10 +114,11 @@ def test_the_heading_and_the_listing_carry_the_english_name_too(tmp_path: Path):
 
     page = TestClient(create_app(db_path)).get("/source/ELSEWEDYSHOP").text
 
-    # The heading block, in order: the name, its English twin, then the key.
+    # The heading block follows the one canonical source order.
     english = '<span class="source-identity-name-en" dir="ltr">Elsewedy Shop</span>'
     assert english in page
-    assert (page.index("السويدي شوب") < page.index(english)
+    assert (page.index("elsewedyshop.com") < page.index(english)
+            < page.index("السويدي شوب")
             < page.index('<code class="source-identity-key">ELSEWEDYSHOP</code>'))
     # The same rule inside the dataset popover — for the source with data, and
     # for one that is only configured, whose names come from the manifest.
