@@ -253,6 +253,18 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
                 "UPDATE source_variant SET option_label = ? "
                 "WHERE source_variant_id = ? AND COALESCE(option_label,'') != ?",
                 (r["option_label"], found, r["option_label"]))
+        if r["external_sku"]:
+            # Same rule for the SKU, and it was missing: a variant recorded
+            # before its connector could read a sku kept a NULL forever, because
+            # nothing but the INSERT ever wrote this column. Sika made it
+            # visible — 87 products with a real sku each (SK1049 and its
+            # siblings) and an export whose SKU column was empty on every row.
+            # Identity does not move: variants are keyed on external_variant_id
+            # or the option fingerprint, never on the sku (the owner's rule).
+            conn.execute(
+                "UPDATE source_variant SET external_sku = ? "
+                "WHERE source_variant_id = ? AND COALESCE(external_sku,'') != ?",
+                (r["external_sku"], found, r["external_sku"]))
         status = conn.execute(
             "SELECT status FROM source_variant WHERE source_variant_id = ?",
             (found,)).fetchone()[0]
@@ -415,6 +427,27 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     )
     if found is not None:
         return found
+    # AN OFFER LEARNING ITS UNIT IS NOT A SECOND OFFER. The rule above is right
+    # about two KNOWN units, and wrong about the step from unknown to known: the
+    # day the sika connector learned to read "5 KG" off the name, 56 products
+    # each grew a second offer beside their unit-less one, both active, and the
+    # current-prices table showed every one of them twice. The offer that never
+    # had a unit adopts the one this run states — same offer, better described,
+    # and the Unit column fills in where it was blank. Only a move BETWEEN two
+    # stated units mints a new offer, which is what "15 per litre and 15 per
+    # gallon are different offers" actually means.
+    if unit_id:
+        unstated = _find_id(
+            conn,
+            "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
+            "AND region = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL",
+            (variant_id, r["region"]),
+        )
+        if unstated is not None:
+            conn.execute(
+                "UPDATE source_offer SET selling_unit_id = ?, basis_quantity = ? "
+                "WHERE offer_id = ?", (unit_id, basis, unstated))
+            return unstated
     return _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
         "region": r["region"],

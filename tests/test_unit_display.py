@@ -121,6 +121,47 @@ def test_the_export_has_a_unit_column_beside_the_price(conn):
     assert table[0][header.index("unit")] == "tonne"
 
 
+def test_learning_the_unit_describes_the_offer_it_does_not_fork_it(conn):
+    """A connector that learns to read the pack size off the name must not
+    double the catalogue.
+
+    Live: the day sika started reading "5 KG", 56 of its 87 products grew a
+    SECOND offer beside their unit-less one — both active, both current — and
+    the export listed every one of them twice. The unit stays part of what an
+    offer IS (15 per litre and 15 per gallon are different offers), but unknown
+    to known is the same offer described better.
+    """
+    ingest_payloads(conn, entry(), [payload([row()])])
+    ingest_payloads(conn, entry(), [payload([row(unit="kg", basis_quantity="5")])])
+
+    offers = conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0]
+    page = browse_observations(conn, "SHOP")
+
+    assert offers == 1, "learning the unit minted a second offer"
+    assert len(page.rows) == 1, "the same product was listed twice"
+    assert page.rows[0]["unit"] == "5 kg"
+
+
+def test_a_stated_unit_still_differs_from_another_stated_unit(conn):
+    """The other half of the rule: two DIFFERENT stated units are two offers."""
+    ingest_payloads(conn, entry(), [payload([row(unit="liter")])])
+    ingest_payloads(conn, entry(), [payload([row(unit="gallon")])])
+
+    assert conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0] == 2
+
+
+def test_a_variant_learns_a_sku_it_did_not_have(conn):
+    """Nothing but the INSERT ever wrote external_sku, so a variant recorded
+    before its connector could read one kept a NULL forever. Sika made it
+    visible: 87 products with a real sku each and an export whose SKU column
+    was empty on every row."""
+    ingest_payloads(conn, entry(), [payload([row(external_sku="")])])
+    ingest_payloads(conn, entry(), [payload([row(external_sku="SK1049")])])
+
+    stored = conn.execute("SELECT external_sku FROM source_variant").fetchall()
+    assert [s[0] for s in stored] == ["SK1049"]
+
+
 def test_the_export_header_and_row_widths_agree(conn):
     ingest_payloads(conn, entry(), [payload([row(unit="tonne")])])
     header, table = export_source_table(conn, "SHOP")
