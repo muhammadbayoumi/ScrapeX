@@ -1210,6 +1210,20 @@
       ...columns.filter((column) => pinned.get(column.field) === "right"),
     ];
 
+    // Selecting several rows was already possible and had NO affordance saying
+    // so: no checkbox, no select-all, and clicking a second row looked like it
+    // had replaced the first. A visible box per row (and one in the header for
+    // all of them) is what makes multi-select a feature instead of a secret.
+    if (features.select) {
+      orderedColumns.unshift({
+        formatter: "rowSelection", titleFormatter: "rowSelection",
+        hozAlign: "center", headerHozAlign: "center", headerSort: false,
+        width: 44, minWidth: 44, resizable: false, download: false, frozen: true,
+        headerMenu: undefined, headerPopup: undefined,
+        cellClick: (event, cell) => cell.getRow().toggleSelect(),
+      });
+    }
+
     // A compact summary belongs inside the table frame, not as another toolbar
     // below it. Build it with DOM nodes so the counts remain text-only and the
     // theme can style the shape without inheriting Tabulator's hardcoded skin.
@@ -1336,10 +1350,13 @@
       // ONE container under the table, opened by SELECTING a row (the owner's
       // ruling): Details first — they are what the record IS and barely move —
       // then the history, which only grows. Deselecting closes it, so the
-      // panel always describes the row that is actually chosen.
-      const chosen = rows.length ? rows[rows.length - 1].getData() : null;
-      if (!chosen || !chosen.offer_id) { closeOfferPanel(); return; }
-      openOfferPanel(chosen.offer_id, "record", chosen);
+      // panel always describes the row that is actually chosen. Select more
+      // than one and the same container answers the question that selecting
+      // several rows asks: how do they compare.
+      const chosen = rows.map((row) => row.getData()).filter((row) => row.offer_id);
+      if (!chosen.length) { closeOfferPanel(); return; }
+      if (chosen.length > 1) { renderComparePanel(chosen); return; }
+      openOfferPanel(chosen[0].offer_id, "record", chosen[0]);
     });
   }
 
@@ -1464,12 +1481,14 @@
     openOfferMode = mode;
     panel.hidden = false;
     panel.textContent = "";
-    panel.appendChild(el("p", "muted", "Loading the record's history…"));
+    panel.className = "record-panel is-loading";
+    panel.appendChild(el("p", "muted", "Loading this record…"));
     fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + offerId)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
       .then((data) => renderOfferPanel(panel, data, offerId, mode))
       .catch((err) => {
         panel.textContent = "";
+        panel.className = "record-panel";
         panel.appendChild(el("p", "err",
           "Couldn't load this record's history (" + err.message + ")."));
       });
@@ -1484,6 +1503,182 @@
     openOfferId = null;
   }
 
+  // ---- the record panel: one product, shaped the way its own page is shaped -
+  //
+  // The first version printed EVERY fact through the same two-column
+  // "Attribute | Value" table under a bare heading, so a product arrived as
+  // four identical grey grids: the picture, the datasheet, the specifications
+  // and the price story all looked like the same kind of thing. They are not.
+  // A record is sections of UNLIKE content — images, a specification list,
+  // prose, downloadable files, a timeline — and each is now a card that shows
+  // its content the way the source's own page shows it. Same output for every
+  // source (the owner's ruling); a card appears only where that source
+  // actually stated something, so nothing renders an empty frame.
+
+  function safeUrl(raw) {
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.href;
+    } catch (err) { /* not a URL — callers fall back to plain text */ }
+    return "";
+  }
+
+  function card(titleText, className) {
+    const box = el("article", "record-card" + (className ? " " + className : ""));
+    if (titleText) box.appendChild(el("h3", "record-card-title", titleText));
+    return box;
+  }
+
+  // AR + EN are ONE fact in two languages, not two facts. Connectors keep them
+  // in separate rows under paired codes (description / description_en), and the
+  // server sends the code, so the pairing is the connector's declaration rather
+  // than a guess made from the text. English leads and Arabic sits under it —
+  // the same convention the table headings now use (Record / Record (AR)).
+  function pairByLanguage(items) {
+    const byCode = new Map();
+    items.forEach((d) => { if (d.code) byCode.set(d.code, d); });
+    const used = new Set();
+    const entries = [];
+    items.forEach((d) => {
+      if (used.has(d)) return;
+      const code = d.code || "";
+      const english = code.endsWith("_en") ? d : byCode.get(code + "_en");
+      const arabic = code.endsWith("_en") ? byCode.get(code.slice(0, -3)) : d;
+      if (english && arabic && english !== arabic && !used.has(english) && !used.has(arabic)) {
+        used.add(english);
+        used.add(arabic);
+        entries.push({label: (english.label || arabic.label || "").replace(/\s*\(EN\)\s*$/i, ""),
+                      value: english.value, alt: arabic.value,
+                      url: english.url || arabic.url, unit: english.unit || arabic.unit,
+                      numeric: english.numeric || arabic.numeric});
+        return;
+      }
+      used.add(d);
+      entries.push({label: d.label || "", value: d.value, alt: "",
+                    url: d.url, unit: d.unit, numeric: d.numeric});
+    });
+    return entries;
+  }
+
+  // A definition list, not a table: one fact per line, label left, value right,
+  // exactly like the "Specifications" card the shops themselves print.
+  function specList(entries) {
+    const list = el("dl", "spec-list");
+    entries.forEach((entry) => {
+      const row = el("div", "spec-row");
+      const label = el("dt", "", text(entry.label || ""));
+      label.dir = "auto";
+      const value = el("dd", "");
+      const href = safeUrl(entry.url || "");
+      // The unit the source stated travels with the number, so "50" is not
+      // left for the reader to guess at — but only when the printed value does
+      // not already carry it ("5 kg" must not become "5 kg kg").
+      let shown = text(entry.value);
+      if (entry.unit && shown && !shown.toLowerCase().includes(String(entry.unit).toLowerCase())) {
+        shown = shown + " " + entry.unit;
+      }
+      let primary;
+      if (href) {
+        primary = document.createElement("a");
+        primary.href = href;
+        primary.target = "_blank";
+        primary.rel = "noopener noreferrer";
+        primary.textContent = shown;
+      } else {
+        primary = el("span", "", shown);
+      }
+      primary.dir = "auto";
+      value.appendChild(primary);
+      // The Arabic of the same fact, quieter and underneath — never a second
+      // row pretending to be a different attribute.
+      if (entry.alt && entry.alt !== entry.value) {
+        const alt = el("span", "spec-alt", text(entry.alt));
+        alt.dir = "auto";
+        value.appendChild(alt);
+      }
+      row.append(label, value);
+      list.appendChild(row);
+    });
+    return list;
+  }
+
+  // Descriptions arrive as one string with newlines (the shop's own paragraph
+  // breaks). Printing that into a table cell collapsed a datasheet into one
+  // unreadable line; the breaks the source wrote are kept as paragraphs.
+  function prose(value) {
+    const box = el("div", "record-prose");
+    String(value == null ? "" : value).split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const paragraph = el("p", "", trimmed);
+      paragraph.dir = "auto";
+      box.appendChild(paragraph);
+    });
+    return box;
+  }
+
+  function fileSize(bytes) {
+    const size = Number(bytes);
+    if (!isFinite(size) || size <= 0) return "";
+    if (size < 1024) return size + " B";
+    if (size < 1024 * 1024) return (size / 1024).toFixed(0) + " KB";
+    return (size / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  // Datasheets and other non-image files: a card each, with the size the API
+  // states and one obvious control. (The shop's own page shows "0 Bytes" for
+  // every attachment — its bug; the API carries the true size and we print it.)
+  function fileCards(items) {
+    const wrap = el("div", "file-cards");
+    items.forEach((d) => {
+      const href = safeUrl(d.url || "");
+      const box = el("div", "file-card");
+      const name = el("span", "file-name", text(d.value || d.label || "file"));
+      name.dir = "auto";
+      box.appendChild(name);
+      const meta = [d.label && d.label !== d.value ? d.label : "", fileSize(d.numeric)]
+        .filter(Boolean).join(" · ");
+      if (meta) box.appendChild(el("span", "file-meta", meta));
+      if (href) {
+        const open = document.createElement("a");
+        open.href = href;
+        open.target = "_blank";
+        open.rel = "noopener noreferrer";
+        open.className = "file-open";
+        open.textContent = "Open";
+        box.appendChild(open);
+      }
+      wrap.appendChild(box);
+    });
+    return wrap;
+  }
+
+  function panelHead(titleNode, subtitle, actions) {
+    const head = el("header", "record-head");
+    const identity = el("div", "record-identity");
+    identity.appendChild(titleNode);
+    if (subtitle) {
+      const line = el("p", "record-sub", subtitle);
+      line.dir = "auto";
+      identity.appendChild(line);
+    }
+    head.appendChild(identity);
+    const controls = el("div", "record-head-actions");
+    actions.forEach((node) => controls.appendChild(node));
+    head.appendChild(controls);
+    return head;
+  }
+
+  function closeButton() {
+    const close = el("button", "ghost", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => {
+      if (table) { try { table.deselectRow(); } catch (err) { /* not selectable */ } }
+      closeOfferPanel();
+    });
+    return close;
+  }
+
   function renderOfferPanel(panel, data, offerId, mode) {
     // The owner separated the two asks: History is the price story (periods,
     // changes, observations); Details is what the product IS (attributes,
@@ -1492,52 +1687,63 @@
     const showHistory = mode !== "details";
     const showDetails = mode !== "history";
     panel.textContent = "";
+    panel.className = "record-panel";
     const offer = data.offer || {};
+    const row = openOfferRow || {};
 
-    const head = el("div", "row");
-    const title = el("h2", "", "");
-    const name = el("span", "", text(offer.name || ""));
-    name.dir = "auto";
-    title.appendChild(name);
-    if (offer.region_name || offer.region) {
-      title.appendChild(el("span", "muted", " — " + (offer.region_name || offer.region)));
-    }
-    head.appendChild(title);
+    const title = el("h2", "record-name", text(offer.name || row.product_name || ""));
+    title.dir = "auto";
+    const facts = [offer.region_name || offer.region || "",
+                   row.external_sku || "", row.category_path_en || row.category_path || ""]
+      .filter(Boolean).join(" · ");
     const full = el("a", "", "Open full page");
     full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + offerId;
-    head.appendChild(full);
-    const close = el("button", "ghost", "Close");
-    close.type = "button";
-    close.addEventListener("click", closeOfferPanel);
-    head.appendChild(close);
+    const actions = [full, closeButton()];
+    // The owner checks what we stored against what the shop shows constantly;
+    // the product's own page is one click from the record it describes.
+    const live = safeUrl(row.product_url || offer.product_url || "");
+    if (live) {
+      const visit = el("a", "", "Open on the site");
+      visit.href = live;
+      visit.target = "_blank";
+      visit.rel = "noopener noreferrer";
+      actions.unshift(visit);
+    }
+    const head = panelHead(title, facts, actions);
+    // The price is the reason this table exists: it belongs in the record's
+    // header, not buried in the timeline further down.
+    if (row.effective_price !== undefined && row.effective_price !== null && row.effective_price !== "") {
+      const chip = el("span", "record-price");
+      chip.appendChild(money(row.effective_price, row.currency, offer.unit || row.unit));
+      head.querySelector(".record-identity").appendChild(chip);
+    }
     panel.appendChild(head);
+
+    const cards = el("div", "record-cards");
+    panel.appendChild(cards);
 
     // The details the source printed for this product — colours, lengths,
     // categories, warranties — grouped as the page grouped them. Scraped
     // content throughout: names as text, URLs linked only when they parse.
     const details = showDetails ? (data.details || []) : [];
+
     // The PICTURE leads — the same shape the sites themselves use, and the
     // same shape for every source (owner's ruling: one output, not one panel
     // per connector). Media is pulled out of the attribute groups below so it
     // can never end up buried under a table of text.
     if (showDetails) {
-      const pictures = details.filter((d) => (d.group || "") === "Media" && d.url);
       const gallery = el("div", "detail-gallery");
       let shown = 0;
-      pictures.forEach((d) => {
-        let safe = "";
-        try {
-          const parsed = new URL(d.url);
-          if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
-        } catch (err) { /* not a URL — the attribute table still lists it */ }
-        if (!safe) return;
+      details.filter((d) => (d.group || "") === "Media" && d.url).forEach((d) => {
+        const href = safeUrl(d.url);
+        if (!href) return;                    // the spec list still names it
         const frame = document.createElement("a");
-        frame.href = safe;
+        frame.href = href;
         frame.target = "_blank";
         frame.rel = "noopener noreferrer";
         frame.title = text(d.value || "");
         const picture = document.createElement("img");
-        picture.src = safe;
+        picture.src = href;
         picture.alt = text(d.value || "");
         picture.loading = "lazy";
         picture.className = "detail-image";
@@ -1545,27 +1751,14 @@
         gallery.appendChild(frame);
         shown += 1;
       });
-      if (shown) panel.appendChild(gallery);
+      if (shown) {
+        const box = card(shown === 1 ? "Picture" : "Pictures (" + shown + ")", "record-card-wide");
+        box.appendChild(gallery);
+        cards.appendChild(box);
+      }
     }
-    // Fields the owner moved OUT of the table (Choose Columns -> hide) are
-    // shown here instead, so nothing is ever lost by tidying the grid: hide
-    // moves a field into the details, show moves it back.
-    const moved = showDetails ? (payload.moved_to_details || []) : [];
-    if (moved.length && openOfferRow) {
-      panel.appendChild(el("h3", "", "Fields moved to details"));
-      panel.appendChild(miniTable(
-        ["Field", "Value"],
-        moved.map((column) => {
-          const value = el("span", "", text(openOfferRow[column.key]));
-          value.dir = "auto";
-          return [column.label || column.key, value];
-        })));
-    }
-    if (showDetails && !details.length && !moved.length) {
-      panel.appendChild(el("p", "muted", "No details recorded for this record."));
-    }
+
     if (details.length) {
-      panel.appendChild(el("h3", "", "Details"));
       const groups = new Map();
       details.forEach((d) => {
         const key = d.group || "Details";
@@ -1575,90 +1768,199 @@
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(d);
       });
-      groups.forEach((items, groupName) => {
-        panel.appendChild(el("h4", "muted", groupName));
-        panel.appendChild(miniTable(
-          ["Attribute", "Value"],
-          items.map((d) => {
-            let valueNode;
-            let safe = "";
-            try {
-              const parsed = new URL(d.url);
-              if (parsed.protocol === "http:" || parsed.protocol === "https:") safe = parsed.href;
-            } catch (err) { /* no link — plain text */ }
-            if (safe) {
-              valueNode = document.createElement("a");
-              valueNode.href = safe;
-              valueNode.target = "_blank";
-              valueNode.rel = "noopener noreferrer";
-              valueNode.textContent = text(d.value);
-            } else {
-              valueNode = el("span", "", text(d.value));
+      // Description first (it is what the product IS), then the measured
+      // specifications, then the files. Any group a connector invents that this
+      // list does not know about keeps its own card, after the known ones.
+      const order = ["Description", "Specifications", "Specs", "Details", "Attachments"];
+      const names = [...groups.keys()].sort((a, b) => {
+        const rankA = order.indexOf(a), rankB = order.indexOf(b);
+        return (rankA < 0 ? order.length : rankA) - (rankB < 0 ? order.length : rankB);
+      });
+      names.forEach((name) => {
+        const items = groups.get(name);
+        const paired = pairByLanguage(items);
+        if (name === "Description") {
+          const box = card("Description", "record-card-wide");
+          paired.forEach((entry) => {
+            // "DESCRIPTION / Description" said twice is the card title read
+            // back to the reader; a label only earns a line when it adds one.
+            const label = (entry.label || "").trim();
+            if (label && label.toLowerCase() !== name.toLowerCase()) {
+              box.appendChild(el("h4", "record-prose-title", label));
             }
-            valueNode.dir = "auto";
-            return [d.label || "", valueNode];
-          })));
+            // The two languages side by side, not stacked: they are the same
+            // paragraph, and reading one under the other invites the reader to
+            // think the second one says something new.
+            const pair = el("div", "record-bilingual");
+            pair.appendChild(prose(entry.value));
+            if (entry.alt && entry.alt !== entry.value) {
+              const arabic = prose(entry.alt);
+              arabic.classList.add("record-prose-alt");
+              pair.appendChild(arabic);
+            }
+            box.appendChild(pair);
+          });
+          cards.appendChild(box);
+          return;
+        }
+        if (name === "Attachments") {
+          const box = card("Attachments", "record-card-wide");
+          box.appendChild(fileCards(paired));
+          cards.appendChild(box);
+          return;
+        }
+        const box = card(name);
+        box.appendChild(specList(paired));
+        cards.appendChild(box);
       });
     }
 
-    if (showHistory) {
-    // 1. The change-only timeline: the first price and each REAL move.
-    panel.appendChild(el("h3", "", "Price changes"));
-    const periods = data.periods || [];
-    if (!periods.length) {
-      panel.appendChild(el("p", "muted", "No derived history yet for this record."));
-    } else {
-      panel.appendChild(miniTable(
-        ["From", "Until", "Price", "Why it opened"],
-        periods.map((p) => [
-          (p.first_detected_at || "").slice(0, 10),
-          (p.closed_at || "").slice(0, 10) || "current",
-          money(p.effective_price, p.currency, offer.unit),
-          (p.opened_because || "").replace(/_/g, " "),
-        ])));
+    // Fields the owner moved OUT of the table (Choose Columns -> hide) are
+    // shown here instead, so nothing is ever lost by tidying the grid: hide
+    // moves a field into the details, show moves it back.
+    const moved = showDetails ? (payload.moved_to_details || []) : [];
+    if (moved.length && openOfferRow) {
+      const box = card("Moved out of the table");
+      box.appendChild(specList(moved.map((column) => ({
+        label: column.label || column.key, value: text(openOfferRow[column.key]),
+      }))));
+      cards.appendChild(box);
     }
-
-    // 2. What the change feed recorded about THIS record — the same shaping
-    // the Changes page uses, so the two can never tell different stories.
-    panel.appendChild(el("h3", "", "Changes"));
-    const changes = data.changes || [];
-    if (!changes.length) {
-      panel.appendChild(el("p", "muted", "No change events recorded yet."));
-    } else {
-      panel.appendChild(miniTable(
-        ["Detected", "What", "Previous", "New", "Change"],
-        changes.map((c) => {
-          const when = el("span", "muted", (c.detected_at || "").slice(0, 16).replace("T", " "));
-          when.dir = "ltr";
-          return [
-            when,
-            c.field_label || "",
-            c.display_previous || "—",
-            (c.display_new || "—") + (c.unit && c.field_label === "price" ? " / " + c.unit : ""),
-            c.display_change || "—",
-          ];
-        })));
-    }
-
+    if (showDetails && !details.length && !moved.length) {
+      const box = card("Details");
+      box.appendChild(el("p", "muted",
+        "This source has not published any details for this record."));
+      cards.appendChild(box);
     }
 
     if (showHistory) {
-    // Every observation behind the story, provenance spelled out.
-    panel.appendChild(el("h3", "", "What was recorded"));
-    const observations = data.observations || [];
-    if (!observations.length) {
-      panel.appendChild(el("p", "muted", "No observations recorded yet."));
-    } else {
-      panel.appendChild(miniTable(
-        ["Date", "Price", "Where it came from"],
-        observations.map((o) => [
-          o.business_date || "",
-          money(o.effective_price, o.currency, offer.unit),
-          o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
-        ])));
-    }
+      // 1. The change-only timeline: the first price and each REAL move.
+      const periods = data.periods || [];
+      const timeline = card("Price changes", "record-card-wide");
+      if (!periods.length) {
+        timeline.appendChild(el("p", "muted", "No derived history yet for this record."));
+      } else {
+        timeline.appendChild(miniTable(
+          ["From", "Until", "Price", "Why it opened"],
+          periods.map((p) => [
+            (p.first_detected_at || "").slice(0, 10),
+            (p.closed_at || "").slice(0, 10) || "current",
+            money(p.effective_price, p.currency, offer.unit),
+            (p.opened_because || "").replace(/_/g, " "),
+          ])));
+      }
+      cards.appendChild(timeline);
+
+      // 2. What the change feed recorded about THIS record — the same shaping
+      // the Changes page uses, so the two can never tell different stories.
+      const changes = data.changes || [];
+      const feed = card("Changes", "record-card-wide");
+      if (!changes.length) {
+        feed.appendChild(el("p", "muted", "No change events recorded yet."));
+      } else {
+        feed.appendChild(miniTable(
+          ["Detected", "What", "Previous", "New", "Change"],
+          changes.map((c) => {
+            const when = el("span", "muted", (c.detected_at || "").slice(0, 16).replace("T", " "));
+            when.dir = "ltr";
+            return [
+              when,
+              c.field_label || "",
+              c.display_previous || "—",
+              (c.display_new || "—") + (c.unit && c.field_label === "price" ? " / " + c.unit : ""),
+              c.display_change || "—",
+            ];
+          })));
+      }
+      cards.appendChild(feed);
+
+      // 3. Every observation behind the story, provenance spelled out.
+      const observations = data.observations || [];
+      const recorded = card("What was recorded", "record-card-wide");
+      if (!observations.length) {
+        recorded.appendChild(el("p", "muted", "No observations recorded yet."));
+      } else {
+        recorded.appendChild(miniTable(
+          ["Date", "Price", "Where it came from"],
+          observations.map((o) => [
+            o.business_date || "",
+            money(o.effective_price, o.currency, offer.unit),
+            o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
+          ])));
+      }
+      cards.appendChild(recorded);
     }
 
+    panel.focus({preventScroll: true});
+    panel.scrollIntoView({behavior: "smooth", block: "nearest"});
+  }
+
+  // ---- more than one row selected: compare them side by side ----------------
+  //
+  // Selecting several rows used to open the LAST one's record and silently
+  // ignore the rest — the selection did nothing the selection was for. Two or
+  // more rows is a comparison question ("which of these is cheaper, what
+  // differs between them"), so that is what the container answers, with the
+  // fields that actually differ marked.
+  const COMPARE_LIMIT = 6;
+
+  function renderComparePanel(rowsData) {
+    const panel = document.getElementById("offer-panel");
+    if (!panel) return;
+    openOfferId = null;
+    panel.hidden = false;
+    panel.textContent = "";
+    panel.className = "record-panel";
+
+    const shown = rowsData.slice(0, COMPARE_LIMIT);
+    const title = el("h2", "record-name", rowsData.length + " records selected");
+    const clear = el("button", "ghost", "Clear selection");
+    clear.type = "button";
+    clear.addEventListener("click", () => {
+      if (table) { try { table.deselectRow(); } catch (err) { /* not selectable */ } }
+      closeOfferPanel();
+    });
+    panel.appendChild(panelHead(
+      title,
+      rowsData.length > COMPARE_LIMIT
+        ? "Comparing the first " + COMPARE_LIMIT + " — deselect some to compare the rest"
+        : "Rows that differ are marked",
+      [clear, closeButton()]));
+
+    const cards = el("div", "record-cards");
+    const box = card("Side by side", "record-card-wide");
+    // The columns of the TABLE become the rows of the comparison: the owner
+    // already chose which fields matter by arranging the grid, so the
+    // comparison inherits that choice instead of inventing its own field list.
+    const fields = (payload.columns || []).filter((column) =>
+      shown.some((row) => text(row[column.key]) !== ""));
+    const headers = ["Field"].concat(shown.map((row) =>
+      text(row.product_name_en || row.product_name || row.external_sku || row.offer_id)));
+    // Prices are the reason anyone compares two records, so they are compared
+    // as prices — formatted, with the row's own currency — never as the bare
+    // numbers that would let 750 EGP and 81 EGP look like the same kind of gap
+    // as 750 SAR and 81 EGP would be.
+    const MONEY_FIELDS = new Set(["effective_price", "regular_price", "sale_price",
+                                  "min_price", "max_price", "previous_price"]);
+    const body = fields.map((column) => {
+      const values = shown.map((row) => {
+        const raw = text(row[column.key]);
+        if (!raw || !MONEY_FIELDS.has(column.key)) return raw;
+        return formatMoney(row[column.key]) + (row.currency ? " " + row.currency : "");
+      });
+      const differs = values.some((value) => value !== values[0]);
+      const cells = [el("span", differs ? "compare-field is-diff" : "compare-field",
+                        column.label || column.key)];
+      values.forEach((value) => {
+        const cell = el("span", differs ? "is-diff" : "", value);
+        cell.dir = "auto";
+        cells.push(cell);
+      });
+      return cells;
+    });
+    box.appendChild(miniTable(headers, body));
+    cards.appendChild(box);
+    panel.appendChild(cards);
     panel.focus({preventScroll: true});
     panel.scrollIntoView({behavior: "smooth", block: "nearest"});
   }

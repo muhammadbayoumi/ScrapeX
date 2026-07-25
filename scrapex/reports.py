@@ -944,15 +944,26 @@ def product_attributes(conn: sqlite3.Connection, offer_id: int,
     said, before any curation."""
     rows = conn.execute(
         "SELECT spa.attribute_group, spa.attribute_label, spa.attribute_code, "
-        "       spa.raw_value, spa.value_url, spa.last_seen_at "
+        "       spa.raw_value, spa.value_url, spa.last_seen_at, spa.lang, "
+        "       spa.numeric_value, spa.unit_raw "
         "FROM source_product_attribute spa "
         "JOIN source_variant sv ON sv.source_product_id = spa.source_product_id "
         "JOIN source_offer so ON so.source_variant_id = sv.source_variant_id "
         "WHERE so.offer_id = ? "
         "ORDER BY spa.attribute_group, spa.attribute_label, spa.raw_value LIMIT ?",
         (offer_id, max(1, min(limit, 1000)))).fetchall()
+    # `code` and `lang` travel with every row so the panel can PAIR the two
+    # languages of one fact (description + description_en) into ONE entry
+    # instead of printing the same attribute twice. Connectors already keep the
+    # languages in separate rows under distinct codes; that declaration is the
+    # pairing key, so the browser never has to guess which rows are a pair.
+    # `numeric`/`unit` come along for values that carry a measured quantity —
+    # a datasheet's byte size, a weight — which the panel formats rather than
+    # printing raw.
     return [{"group": r[0] or "Details", "label": r[1] or r[2], "value": r[3],
-             "url": r[4] or "", "last_seen_at": (r[5] or "")[:10]} for r in rows]
+             "url": r[4] or "", "last_seen_at": (r[5] or "")[:10],
+             "code": r[2] or "", "lang": r[6] or "",
+             "numeric": r[7] or "", "unit": r[8] or ""} for r in rows]
 
 
 def offer_observations(conn: sqlite3.Connection, offer_id: int,

@@ -96,8 +96,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-3: menuLabel learned that "" means no icon — the strict
     # validator threw on pinMenu's blank states and killed the whole
     # three-dot menu (owner-reported live).
-    assert '/static/grid.js?v=design-system-11' in page
-    assert '/static/grid-theme.css?v=design-system-10' in page
+    # design-system-12/11: the record panel became a container of cards and the
+    # selection column appeared. A cached script here would keep drawing the
+    # old bare tables and would not know the new class names the CSS styles.
+    assert '/static/grid.js?v=design-system-12' in page
+    assert '/static/grid-theme.css?v=design-system-11' in page
 
 
 def test_material_header_icons_are_local_and_dry():

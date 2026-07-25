@@ -747,21 +747,191 @@
   text-decoration-thickness: 2px;
 }
 
+/* ---- the record panel ----------------------------------------------------
+ * What opens UNDER the table when a row is selected. It used to be a bare
+ * stack of headings and two-column tables on the page background: the same
+ * grey grid repeated for pictures, specifications, description and history,
+ * with nothing framing it as one record. The owner's verdict was that it
+ * looked bad, and it did — a record is sections of UNLIKE content, so each
+ * section is now a card, inside a container with the same surface, border and
+ * radius as the table it hangs below. */
+.record-panel {
+  display: block;
+  margin-top: var(--sp-3, .75rem);
+  padding: var(--sp-4, 1rem);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius, .5625rem);
+  box-shadow: var(--shadow-sm);
+  /* Selecting a row scrolls the panel into view, and the workspace's sticky
+     top bar would otherwise land exactly on the record's name and controls. */
+  scroll-margin-top: 5rem;
+}
+.record-panel:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.record-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3, .75rem);
+  padding-bottom: var(--sp-3, .75rem);
+  border-bottom: 1px solid var(--line);
+}
+.record-identity { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline;
+                   gap: var(--sp-1, .25rem) var(--sp-3, .75rem); }
+.record-name {
+  margin: 0;
+  font-size: var(--fs-lg, 1.125rem);
+  font-weight: var(--fw-bold, 600);
+  line-height: var(--lh-tight, 1.25);
+  /* A product name can be a paragraph; it wraps rather than pushing the
+     header's controls off the edge. */
+  overflow-wrap: anywhere;
+}
+.record-sub {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-xs, .75rem);
+}
+.record-price {
+  font-size: var(--fs-md, 1rem);
+  font-weight: var(--fw-bold, 600);
+  color: var(--text);
+  background: var(--chip);
+  border-radius: var(--radius-pill, 999px);
+  padding: .1rem var(--sp-3, .75rem);
+  white-space: nowrap;
+}
+.record-head-actions { display: flex; align-items: center; gap: var(--sp-3, .75rem); }
+
+/* auto-fit, so a narrow window stacks the cards and a wide one sets the
+   specification and attachment cards side by side without any breakpoint. */
+.record-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: var(--sp-3, .75rem);
+  margin-top: var(--sp-3, .75rem);
+}
+.record-card {
+  min-width: 0;
+  padding: var(--sp-3, .75rem);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, .375rem);
+}
+/* Pictures, prose and the price tables are read across, not beside: they take
+   the whole row however many columns the grid happens to have. */
+.record-card-wide { grid-column: 1 / -1; }
+.record-card-title {
+  margin: 0 0 var(--sp-2, .5rem);
+  font-size: var(--fs-xs, .75rem);
+  font-weight: var(--fw-bold, 600);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.record-card .tablewrap { margin: 0; }
+
+/* One fact per line, label left and value right — the shape the shops' own
+   "Specifications" cards use, and unlike a table it never asks the reader to
+   parse a header row to learn that a label is a label. */
+.spec-list { margin: 0; }
+.spec-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4, 1rem);
+  padding: var(--sp-2, .5rem) 0;
+  border-bottom: 1px solid var(--line);
+}
+.spec-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.spec-list dt {
+  color: var(--muted);
+  font-size: var(--fs-sm, .8125rem);
+  overflow-wrap: anywhere;
+}
+.spec-list dd {
+  margin: 0;
+  text-align: end;
+  font-size: var(--fs, .875rem);
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+/* The Arabic of the SAME fact, quieter and under its English — never a second
+   row pretending to be a different attribute. */
+.spec-alt { color: var(--muted); font-size: var(--fs-xs, .75rem); }
+
+/* The English and the Arabic of one paragraph, side by side on a wide panel
+   and stacked on a narrow one — the same fact twice, never two facts. */
+.record-bilingual {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--sp-3, .75rem);
+  align-items: start;
+  margin-bottom: var(--sp-3, .75rem);
+}
+.record-bilingual:last-child { margin-bottom: 0; }
+.record-prose { margin: 0 0 var(--sp-2, .5rem); }
+.record-prose p { margin: 0 0 var(--sp-2, .5rem); line-height: var(--lh-relaxed, 1.65); }
+.record-prose p:last-child { margin-bottom: 0; }
+/* The same description in Arabic. Tinted rather than bordered: the paragraph
+   sets its own direction, so a border on one side would land on the wrong edge
+   for one of the two languages, while a panel reads as "the same text again"
+   from either side. */
+.record-prose-alt {
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: var(--radius-sm, .375rem);
+  padding: var(--sp-2, .5rem) var(--sp-3, .75rem);
+}
+.record-prose-title {
+  margin: var(--sp-2, .5rem) 0 var(--sp-1, .25rem);
+  font-size: var(--fs-sm, .8125rem);
+  font-weight: var(--fw-bold, 600);
+}
+
+/* Datasheets: a card each with its real size, because a bare filename in a
+   table cell gives no clue that it is a file you can open. */
+.file-cards { display: flex; flex-wrap: wrap; gap: var(--sp-2, .5rem); }
+.file-card {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  min-width: 12rem;
+  max-width: 20rem;
+  padding: var(--sp-2, .5rem) var(--sp-3, .75rem);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, .375rem);
+}
+.file-name { font-weight: var(--fw-medium, 500); overflow-wrap: anywhere; }
+.file-meta { color: var(--muted); font-size: var(--fs-xs, .75rem); }
+.file-open { align-self: flex-start; font-size: var(--fs-sm, .8125rem); }
+
+/* Comparing several selected records: what DIFFERS is the answer, so the
+   fields that differ are the only thing the eye has to find. */
+.compare-field { color: var(--muted); }
+.record-card .is-diff { color: var(--text); font-weight: var(--fw-medium, 500); }
+.record-card .compare-field.is-diff { color: var(--amber); }
+
 /* The record panel's picture gallery: thumbnails that open the full image.
    Sized in rem so a long gallery wraps instead of pushing the panel wide. */
 .detail-gallery {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2, .5rem);
-  margin: var(--sp-1, .25rem) 0 var(--sp-3, .75rem);
 }
 .detail-image {
   width: 7.5rem;
   height: 7.5rem;
   object-fit: contain;
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #d8dee9);
-  border-radius: var(--radius-sm, 4px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, .375rem);
   padding: .25rem;
 }
 
