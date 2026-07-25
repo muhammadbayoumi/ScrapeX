@@ -24,7 +24,7 @@ answers and only the first is a number anyone may calculate with.
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .config import SourceEntry
 
@@ -46,6 +46,25 @@ class TaxState:
     @property
     def verified(self) -> bool:
         return self.evidence != "unknown"
+
+    def for_row(self, vat_included: bool) -> "TaxState":
+        """The same evidence, read for ONE row's own figure.
+
+        Two different facts had been collapsed into one. The RULE says what tax
+        the source charges, at what rate, and where it says so; the ROW says
+        whether the number we actually stored has that tax in it. The label was
+        built from the rule alone — fine while a source answers one way, and
+        false the moment it answers two.
+
+        Madar is that source: its GraphQL gives the printed, tax-inclusive
+        price for a SimpleProduct and its own tax-EXCLUSIVE `basePrice` for a
+        ConfigurableProduct (50.4 where the page prints 57.96). Both figures
+        are stored unmodified, so 328 rows must read "Excl. 15%" while 399 read
+        "Incl. 15%" in the same table. The rate, the sentence and the link stay
+        the source's; incl/excl comes from the row.
+        """
+        mode = "incl" if vat_included else "excl"
+        return self if mode == self.vat_mode else replace(self, vat_mode=mode)
 
     def label(self) -> str:
         """One honest phrase. Never implies a rate we do not have."""

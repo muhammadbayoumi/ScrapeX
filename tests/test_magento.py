@@ -396,20 +396,26 @@ def test_the_deeper_home_wins_over_a_longer_shallow_name():
     assert row["category_external_id"] == "C3"
 
 
-def test_the_api_price_is_the_price_and_no_tax_is_invented():
-    """CORRECTED 2026-07-25. The 15% uplift this test used to defend came from
-    a numeric coincidence — the owner saw 224.14 on the Legrand page the same
-    day a sample answered 194.9, and 194.9 x 1.15 = 224.135. It was a price
-    CHANGE: that variant answers 224.14 in the API today, and the page shows
-    exactly what the API says. The mechanism stays (a source whose API really
-    is net can declare it) but madar declares nothing, and an undeclared
-    source must never be uplifted."""
+def test_the_api_price_is_the_price_and_no_tax_is_ever_invented():
+    """The uplift this test once defended, then guarded, is GONE.
+
+    Its history: the owner saw 224.14 on the Legrand page the same day a sample
+    answered 194.9, and 194.9 x 1.15 = 224.135, so a source-wide 15% multiply
+    was added. It made 3,312 rows wrong. The owner's ruling replaced the
+    mechanism outright — «سجلها كما تاخذ البيانات من الموقع بدون تعديل» — so
+    _prices takes no rate at all now. The signature IS the guarantee: a caller
+    cannot pass one, and this test fails loudly if the parameter comes back.
+    """
+    import inspect
+
     from scrapex.connectors.magento import _prices
 
     node = {"price_range": {"minimum_price": {"regular_price": {"value": 224.14},
                                               "final_price": {"value": 224.14}}}}
-    assert _prices(node) == (224.14, 224.14)            # nothing declared: untouched
-    assert _prices(node, 15) == (257.76, 257.76)        # only when a source declares it
+    assert _prices(node) == (224.14, 224.14)
+
+    assert list(inspect.signature(_prices).parameters) == ["node"], \
+        "a rate parameter on _prices is an uplift waiting to be declared"
 
 
 def test_the_row_carries_the_products_localized_name_never_the_child_sku_string():
@@ -434,7 +440,7 @@ def test_the_row_carries_the_products_localized_name_never_the_child_sku_string(
                       "attributes": [{"code": "color", "label": "Aluminium"}]}],
     }
     ctx = {"base": "https://www.madar.com", "currency": "SAR", "vat": "1",
-           "region": "SA", "tax_pct": None,
+           "region": "SA",
            "names_en": {"P1": "Legrand Pop-up Floor Box Kit"}}
 
     row = RowView(PRODUCT_PRICES, builder.header).as_dict(
@@ -488,3 +494,262 @@ def test_a_missing_english_tree_costs_a_note_never_the_classification():
 
     assert view.as_dict(table.rows[0])["category_path"], "the Arabic path must survive"
     assert any("english category tree" in w for w in table.warnings)
+
+
+# ---------------------------------------------------------------------------
+# B1 (2026-07-25): madar publishes THREE product shapes, and they do not share
+# one price rule. The fixture below is a live capture — see
+# tests/fixtures/live/madar_shapes_2026-07-25.CAPTURE.md for the census counts
+# (399 simple / 328 configurable / 33 grouped) and the storefront evidence.
+# ---------------------------------------------------------------------------
+
+SHAPES = json.loads((Path(__file__).parent / "fixtures" / "live" /
+                     "madar_shapes_2026-07-25.json").read_text(encoding="utf-8"))
+
+
+class _ShapesFetcher(_StubFetcher):
+    """The four live shapes on page 1; no tree, no English store."""
+
+    def post(self, url, json=None, **kwargs):
+        self.requests_count += 1
+        if (kwargs.get("headers") or {}).get("Store"):
+            return _StubResponse({"data": {"products": {
+                "items": [], "page_info": {"total_pages": 1}}}})
+        query = (json or {}).get("query", "")
+        if "categoryList" in query:
+            return _StubResponse({"data": {"categoryList": [{"children": []}]}})
+        page = (json or {}).get("variables", {}).get("currentPage", 1)
+        return _StubResponse(SHAPES if page == 1
+                             else {"data": {"products": {"items": []}}})
+
+
+def shapes_entry(**api) -> SourceEntry:
+    spec = dict(
+        source_key="MADAR", source_name="المدار", base_url="https://www.madar.com",
+        family="magento-graphql", currency="SAR", default_region="SA",
+        vat_mode="incl",
+        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)],
+    )
+    if api:
+        spec["api"] = api
+    return SourceEntry.model_validate(spec)
+
+
+def _shape_rows(entry=None):
+    table = next(iter(MagentoGraphqlConnector(_ShapesFetcher())
+                      .fetch(entry or shapes_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+    return table, [view.as_dict(r) for r in table.rows]
+
+
+def test_a_grouped_product_becomes_one_row_per_member_not_one_row_per_group():
+    """The Swedish redwood group is 28 different boards, priced separately.
+
+    The storefront page prints NO price for the group — it prints
+    «المقاسات/الأنواع المتوفرة» and then one figure per member, and those
+    figures are the API's member prices to the piastre. Storing one row at the
+    group's minimum said "Swedish redwood costs 1,449" about a product whose
+    boards run to 2,233.88.
+    """
+    _table, rows = _shape_rows()
+    members = [r for r in rows if r["product_name"] == "الخشب الأحمر السويدي"]
+    assert len(members) == 4, "one row per member of the captured group"
+    assert {r["effective_price"] for r in members} == {
+        "1630.13", "1750.88", "1811.25", "1449"}
+    # Each row is a distinct offer, identified by the member, and labelled with
+    # the member name the page prints beside that member's price.
+    assert len({r["external_variant_id"] for r in members}) == 4
+    assert len({r["external_sku"] for r in members}) == 4
+    assert all(r["option_label"].startswith("خشب سويدي") for r in members)
+    # The GROUP still owns the rows: one product, several offers.
+    assert len({r["external_product_id"] for r in members}) == 1
+
+
+def test_the_groups_maximum_price_is_a_lie_the_connector_must_not_believe():
+    """Magento answers maximum_price == minimum_price on EVERY one of madar's
+    33 grouped products, including this one whose members span 1449..1811.25 in
+    the capture (1449..2233.88 live). A range check on the group would pass and
+    the group figure would still be one member's price under the group's name,
+    so the members — not the group — are what gets read."""
+    group = next(i for i in SHAPES["data"]["products"]["items"]
+                 if i["sku"] == "11535-SRW")
+    span = group["price_range"]
+    assert span["minimum_price"]["final_price"]["value"] == 1449
+    assert span["maximum_price"]["final_price"]["value"] == 1449, "the lie itself"
+    member_prices = [m["product"]["price_range"]["minimum_price"]["final_price"]["value"]
+                     for m in group["items"]]
+    assert max(member_prices) > min(member_prices), "the members really do differ"
+
+    _table, rows = _shape_rows()
+    priced = {r["effective_price"] for r in rows
+              if r["product_name"] == "الخشب الأحمر السويدي"}
+    assert "1811.25" in priced, "the dearer member must reach the table"
+
+
+def test_a_grouped_product_whose_members_carry_no_price_is_skipped_out_loud():
+    priceless = _json.loads(_json.dumps(SHAPES))
+    for item in priceless["data"]["products"]["items"]:
+        for member in item.get("items") or []:
+            member["product"]["price_range"] = {"minimum_price": {}}
+
+    class _Priceless(_ShapesFetcher):
+        def post(self, url, json=None, **kwargs):
+            answer = super().post(url, json=json, **kwargs)
+            payload = answer.json()
+            if ((payload.get("data") or {}).get("products") or {}).get("items"):
+                return _StubResponse(priceless)
+            return answer
+
+    table = next(iter(MagentoGraphqlConnector(_Priceless()).fetch(shapes_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+    assert not [r for r in table.rows
+                if view.as_dict(r)["product_name"] == "الخشب الأحمر السويدي"]
+    assert any("grouped product" in w and "11535-SRW" in w for w in table.warnings)
+    # And never at the group's own figure, which is what it used to fall back to.
+    assert not [r for r in table.rows if view.as_dict(r)["effective_price"] == "1449"]
+
+
+def test_a_configurable_is_stored_at_the_api_figure_and_says_it_excludes_tax():
+    """GraphQL answers 50.4 for 12512-TSP; the page prints 57.96.
+
+    The page is not guessed at — it declares
+    `finalPriceExclTaxKey = 'basePrice'` / `finalPriceInclTaxKey = 'finalPrice'`
+    and then publishes `{"basePrice":{"amount":50.4},
+    "finalPrice":{"amount":57.96}}`, so the API lands on the field the
+    storefront itself calls tax-exclusive.
+
+    The owner's rule for that is not arithmetic: record what the site gives and
+    make the tax column say what it is. 50.4 goes in the row, vat_included=0
+    goes beside it. 57.96 is never stored, because 57.96 is a number WE would
+    have produced.
+    """
+    table, rows = _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))
+    plywood = [r for r in rows if r["product_name"] == "Tigercore Shuttering Plywood"]
+    assert len(plywood) == 2
+    assert {r["effective_price"] for r in plywood} == {"50.4", "90.3"}
+    assert {r["regular_price"] for r in plywood} == {"50.4", "90.3"}
+    assert all(r["vat_included"] == "0" for r in plywood), \
+        "the figure the shop calls basePrice must not claim to include tax"
+    assert not any("57.96" in r["effective_price"] for r in plywood), \
+        "an uplifted price is a price no madar page has printed"
+    # Nothing to warn about: the manifest states the fact and every row carries it.
+    assert not any("configurable" in w for w in table.warnings)
+
+
+def test_the_declaration_moves_no_price_at_all_only_the_tax_flag():
+    """The guard against the bug commit 53b2407 undid, now stated as a rule
+    about EVERY shape: declaring the fact must change no figure anywhere.
+
+    The 2026-07-23 uplift multiplied 3,312 rows by 1.15 — 4.23 became 4.86 —
+    and the only defence against that is a test that reads the same numbers
+    with the switch on and off.
+    """
+    plain = {r["external_sku"]: r["effective_price"] for r in _shape_rows()[1]}
+    declared = {r["external_sku"]: r["effective_price"]
+                for r in _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))[1]}
+
+    assert plain == declared, "declaring a tax FACT moved a price"
+    assert plain["71102002"] == "4.23"       # the SimpleProduct checked by hand
+    assert plain["12512182813"] == "50.4"    # a ConfigurableProduct's variant
+    assert plain["115430208"] == "1449"      # a GroupedProduct's member
+
+
+def test_an_undeclared_configurable_is_still_recorded_but_says_so_once():
+    """Undeclared, a row is stored at the source's own vat_mode — never
+    converted, never dropped. But madar proved this is the shape where a
+    Magento store's two answers diverge, so a run states the assumption once
+    rather than letting the next store repeat the 3,312-row mistake in silence.
+    """
+    table, rows = _shape_rows()
+    plywood = [r for r in rows if r["product_name"] == "Tigercore Shuttering Plywood"]
+    assert len(plywood) == 2, "an undeclared configurable is recorded, not skipped"
+    assert all(r["vat_included"] == "1" for r in plywood), "the source's own vat_mode"
+    note = next(w for w in table.warnings if "configurable prices recorded" in w)
+    assert "configurable_prices_exclude_tax" in note, \
+        "the note must name the declaration that makes these rows truthful"
+    assert "12512-TSP" in note
+
+
+def test_simple_and_grouped_rows_keep_the_storefronts_vat_state():
+    """Only the configurable shape is quoted before tax. A simple product's
+    figure and a grouped member's both matched the page exactly, so they carry
+    vat_included=1 in the very same table."""
+    _table, rows = _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))
+    simple = next(r for r in rows if r["external_sku"] == "71102002")
+    member = next(r for r in rows if r["product_name"] == "الخشب الأحمر السويدي")
+    plywood = next(r for r in rows if r["product_name"] == "Tigercore Shuttering Plywood")
+
+    assert simple["vat_included"] == "1"
+    assert member["vat_included"] == "1"
+    assert plywood["vat_included"] == "0"
+    assert len({simple["vat_included"], plywood["vat_included"]}) == 2, \
+        "one crawl of one source carries BOTH answers — that is the whole point"
+
+
+def test_a_grouped_product_whose_members_agree_still_reaches_the_table():
+    """The Tameer rebar group: 3 members, all 3,139.50 — the page prints that
+    figure three times. The old single row happened to be right here; the fix
+    must not lose the product to make a point."""
+    _table, rows = _shape_rows()
+    rebar = [r for r in rows if r["product_name"] == "حديد تسليح تعمير"]
+    assert len(rebar) == 3
+    assert {r["effective_price"] for r in rebar} == {"3139.5"}
+
+
+def test_a_product_whose_price_range_really_is_a_range_is_skipped_out_loud():
+    """No BundleProduct exists on madar today (0 of 760). If one appears, its
+    price_range is a genuine min..max and its minimum is a "from" figure, so it
+    is refused rather than filed as a price."""
+    bundled = {"data": {"products": {
+        "page_info": {"current_page": 1, "total_pages": 1},
+        "items": [{
+            "__typename": "BundleProduct", "uid": "QlVOMQ==", "sku": "KIT-1",
+            "name": "طقم أدوات", "url_key": "tool-kit", "stock_status": "IN_STOCK",
+            "categories": [],
+            "price_range": {"minimum_price": {"regular_price": {"value": 120.0},
+                                              "final_price": {"value": 120.0}},
+                            "maximum_price": {"final_price": {"value": 380.0}}},
+        }]}}}
+
+    class _Bundle(_ShapesFetcher):
+        def post(self, url, json=None, **kwargs):
+            answer = super().post(url, json=json, **kwargs)
+            payload = answer.json()
+            if ((payload.get("data") or {}).get("products") or {}).get("items"):
+                return _StubResponse(bundled)
+            return answer
+
+    table = next(iter(MagentoGraphqlConnector(_Bundle()).fetch(shapes_entry())))
+    assert table.rows == []
+    assert any("price RANGE" in w and "120.0..380.0" in w for w in table.warnings)
+
+
+def test_a_note_raised_on_a_later_page_is_not_thrown_away():
+    """Warnings used to be pinned to page 1, so everything a later page had to
+    say was dropped on the floor — a report nobody hears is the silent loss the
+    warnings exist to prevent."""
+
+    class _TwoPages(_ShapesFetcher):
+        def post(self, url, json=None, **kwargs):
+            if (kwargs.get("headers") or {}).get("Store"):
+                return super().post(url, json=json, **kwargs)
+            if "categoryList" in (json or {}).get("query", ""):
+                return super().post(url, json=json, **kwargs)
+            self.requests_count += 1
+            page = (json or {}).get("variables", {}).get("currentPage", 1)
+            shapes = SHAPES["data"]["products"]["items"]
+            if page == 1:
+                keep = [i for i in shapes if i["__typename"] == "SimpleProduct"]
+            elif page == 2:
+                keep = [i for i in shapes if i["__typename"] == "ConfigurableProduct"]
+            else:
+                keep = []
+            return _StubResponse({"data": {"products": {
+                "items": keep,
+                "page_info": {"current_page": page, "total_pages": 2}}}})
+
+    tables = list(MagentoGraphqlConnector(_TwoPages()).fetch(shapes_entry()))
+    assert len(tables) == 2
+    assert not any("configurable prices recorded" in w for w in tables[0].warnings)
+    assert any("configurable prices recorded" in w for w in tables[1].warnings), \
+        "page 2 must carry the note page 2 raised"

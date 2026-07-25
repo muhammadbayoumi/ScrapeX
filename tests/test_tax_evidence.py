@@ -20,7 +20,8 @@ from scrapex import db as dbmod, tax
 from scrapex.config import ExtractSpec, SourceEntry, TaxEvidence
 from scrapex.ingest import ingest_payloads
 from scrapex.payload import PAYLOAD_VERSION, FunnelPayload
-from scrapex.reports import EXPORT_HEADER, browse_observations, export_source_table
+from scrapex.reports import (EXPORT_HEADER, browse_observations,
+                             export_source_table, table_payload)
 from scrapex.rowspec import PRODUCT_PRICES, RowBuilder
 from scrapex.vocab import ExtractKind, ExtractScope
 
@@ -174,6 +175,68 @@ def test_the_export_carries_the_evidence_and_where_to_read_it(conn):
     assert table[0][header.index("tax_rate_pct")] == 15
     assert table[0][header.index("tax_statement_url")] == "https://shop.example/terms"
     assert all(len(r) == len(header) for r in table), "a column shifted the row"
+
+
+# ---- one source, both answers, in the same table ------------------------------
+#
+# Madar's GraphQL gives the printed tax-INCLUSIVE price for a SimpleProduct and
+# its own tax-EXCLUSIVE `basePrice` for a ConfigurableProduct (50.4 where the
+# page prints 57.96). Both are stored exactly as given — the owner's rule — so
+# 328 rows are excl and 399 are incl under one source_key, one region and one
+# 15% rule. The label was built from the RULE alone, so every one of them read
+# "Incl. 15%" and half the table was false.
+
+SIMPLE = dict(external_product_id="P-SIMPLE", product_name="معجون",
+              vat_included="1", effective_price="4.23")
+CONFIGURABLE = dict(external_product_id="P-CONFIG", product_name="خشب أبلكاش",
+                    vat_included="0", effective_price="50.4")
+
+
+def test_both_tax_states_of_one_source_render_side_by_side(conn):
+    ingest_payloads(conn, entry([STATED]),
+                    [payload([row(**SIMPLE), row(**CONFIGURABLE)])])
+
+    shown = {r["name"]: r for r in browse_observations(conn, "SHOP").rows}
+
+    assert shown["معجون"]["tax_label"] == "Incl. 15% tax"
+    assert shown["خشب أبلكاش"]["tax_label"] == "Excl. 15% tax"
+    assert shown["معجون"]["tax_label"] != shown["خشب أبلكاش"]["tax_label"], \
+        "one source's two tax states collapsed into one label"
+    # The rate, the sentence and the link stay the SOURCE's — only incl/excl is
+    # the row's. A per-row label that also invented a per-row rate would be a
+    # different lie.
+    assert all(r["tax_rate_pct"] == 15 for r in shown.values())
+    assert len({r["tax_statement_url"] for r in shown.values()}) == 1
+
+
+def test_the_data_page_sends_a_distinct_tax_state_per_answer(conn):
+    """The grid receives tax states once and joins them by index. Keyed by
+    region alone, both rows pointed at the same state and the Tax column
+    printed one verdict for a table holding two."""
+    ingest_payloads(conn, entry([STATED]),
+                    [payload([row(**SIMPLE), row(**CONFIGURABLE)])])
+
+    page = table_payload(conn, "SHOP")
+    by_name = {r["product_name"]: r for r in page["rows"]}
+
+    assert by_name["معجون"]["tax_ref"] != by_name["خشب أبلكاش"]["tax_ref"]
+    labels = {page["tax_states"][r["tax_ref"]]["tax_short"] for r in page["rows"]}
+    assert labels == {"Incl. 15%", "Excl. 15%"}
+
+
+def test_the_export_never_contradicts_its_own_vat_column(conn):
+    """vat_included says "no" and tax_evidence said "incl" two columns away."""
+    ingest_payloads(conn, entry([STATED]),
+                    [payload([row(**SIMPLE), row(**CONFIGURABLE)])])
+
+    header, table = export_source_table(conn, "SHOP")
+    vat = header.index("vat_included")
+    name = header.index("product_name")
+    by_name = {r[name]: r for r in table}
+
+    assert by_name["معجون"][vat] == "yes"
+    assert by_name["خشب أبلكاش"][vat] == "no"
+    assert all(r[header.index("tax_rate_pct")] == 15 for r in table)
 
 
 def test_an_unverified_export_cell_is_empty_not_zero(conn):

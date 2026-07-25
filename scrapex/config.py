@@ -63,13 +63,22 @@ class ApiConfig(BaseModel):
 
     base_url: str | None = None   # API host root, e.g. https://api.masdaronline.com
     base_site: str | None = None  # OCC baseSite id (Hybris)
-    # An API that publishes prices NET of a tax the storefront shows included.
-    # Verified live on madar 2026-07-23: GraphQL says 194.9, the page charges
-    # 224.14 (x1.15) and states «الأسعار تشمل ضريبة القيمة المضافة 15%». The
-    # rate is declared here so the connector converts to what a buyer pays
-    # instead of quietly storing a number the site never shows. Absent for
-    # every API whose figures already match the storefront.
-    prices_exclude_tax_pct: float | None = None
+    # A STATEMENT OF FACT about one product shape, not an instruction to do
+    # arithmetic: "this API's ConfigurableProduct figures are the storefront's
+    # tax-EXCLUSIVE ones". The connector never converts them — it records the
+    # number the API gave and marks that row vat_included = 0, so the Tax
+    # column says "Excl. 15%" beside a simple product's "Incl. 15%".
+    #
+    # There used to be a `prices_exclude_tax_pct` here (and a shape-scoped
+    # twin) that multiplied by 1 + rate. It is gone. Declared source-wide on
+    # 2026-07-23 it made 3,312 madar rows 15% too high, and the owner's ruling
+    # closes the question for good: «سجلها كما تاخذ البيانات من الموقع بدون
+    # تعديل ولكن عمود الضريبة يكون واضح» — record what the site gives,
+    # unmodified, and let the tax column say what the number is. A price we
+    # computed is a price no page ever printed; a price plus an honest label is
+    # two facts, both true. The RATE for that label comes from the source's
+    # `tax:` evidence block, where it must carry the sentence it was read from.
+    configurable_prices_exclude_tax: bool = False
 
 
 class TaxEvidence(BaseModel):

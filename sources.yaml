@@ -27,23 +27,67 @@ sources:
     active: false
     currency: SAR
     default_region: SA
-    # CORRECTED 2026-07-25 (owner-verified, and the earlier reading was mine to
-    # get wrong): the GraphQL price IS the price the storefront shows a
-    # visitor, VAT already included — «الأسعار تشمل ضريبة القيمة المضافة 15%»
-    # describes the figures we receive, it does not ask us to add anything.
+    # PRICE SEMANTICS — settled per PRODUCT SHAPE, and settled by the OWNER's
+    # rule for what to DO about it: «سجلها كما تاخذ البيانات من الموقع بدون
+    # تعديل ولكن عمود الضريبة يكون واضح الرقم دا شامل الضريبة ام لا» — store
+    # what the site gives, unmodified, and let the tax column say whether that
+    # number includes tax. Nothing here is multiplied by anything.
     #
-    # The 15% uplift added on 2026-07-23 came from a NUMERIC COINCIDENCE: the
-    # owner reported 224.14 on the Legrand page while a sample taken that day
-    # answered 194.9, and 194.9 x 1.15 = 224.135. It was a price CHANGE, not a
-    # tax gap — the same variant answers 224.14 in the API today. One matching
-    # ratio on one product is not a rule, and it made every madar price 15%
-    # too high.
+    #   shape                count   what GraphQL answers      stored as
+    #   SimpleProduct          399   the printed price          vat_included=1
+    #   GroupedProduct          33   no group price at all —    vat_included=1
+    #                                one row per MEMBER, and    (per member)
+    #                                the members match 28/28
+    #   ConfigurableProduct    328   the shop's own basePrice   vat_included=0
     #
-    # The page also shows a SECOND, lower figure — «حساب أعمال؟ افتح السعر:
-    # 4.03» — the business-account price, which an anonymous crawl cannot be
-    # charged (the same shape as sika's trade tier). We store the visitor
-    # price and never that one.
+    # The configurable gap is not a ratio guess, and it was re-checked live on
+    # 2026-07-25 by a second pass that fetched the pages itself. 12512-TSP:
+    # GraphQL answers 50.4, and the page publishes
+    #   "prices":{"baseOldPrice":{"amount":50.4},"oldPrice":{"amount":57.96},
+    #             "basePrice":{"amount":50.4},"finalPrice":{"amount":57.96}}
+    # with «initialFinalPrice: 57.96» — beside its own declarations
+    # «finalPriceExclTaxKey = 'basePrice'» and «finalPriceInclTaxKey =
+    # 'finalPrice'». The shop names which of its two figures excludes tax, and
+    # the API hands us that one. The control: SimpleProduct 71231005 answers
+    # 65.21 in the API against «initialFinalPrice: 65.205» on its page — no gap.
+    #
+    # Which also explains the history. On 2026-07-23 a source-WIDE 15% uplift
+    # was added because the Legrand floor box read 194.9 in the API and 224.14
+    # on the page. 60402-LPF is a CONFIGURABLE and still answers 194.9 — that
+    # reading was right for its shape. On 2026-07-25 the uplift was removed
+    # because putty-1-kg-sab and uib-oxidized-bitumen showed no gap at all;
+    # both are SIMPLE, and that reading was right for THEIRS. Both observations
+    # were true. What was wrong, twice, was answering with arithmetic: the
+    # uplift put 3,312 prices in the warehouse that no madar page has ever
+    # printed. A stored price now always exists on the site, and the fact that
+    # a configurable one is quoted before tax rides the row instead of being
+    # baked into the number.
+    #
+    # A SEPARATE figure the page also shows: «حساب أعمال؟ افتح السعر: 4.03» is
+    # the business-account price, which an anonymous crawl can never be charged
+    # (the same shape as sika's trade tier). We store the visitor price and
+    # never that one.
     vat_mode: incl
+    api:
+      # A statement of fact about ONE shape, not an instruction to convert. It
+      # makes those 328 rows carry vat_included=0, so the Tax column reads
+      # "Excl. 15%" on them and "Incl. 15%" on the simple rows beside them.
+      configurable_prices_exclude_tax: true
+    tax:
+      # The rate for that label, with the sentence it was read from — every
+      # madar product page carries this line under the price. 12512-TSP is the
+      # URL because it is the product whose two LABELLED figures (basePrice
+      # 50.4 excl, finalPrice 57.96 incl) are what makes the 15 a reading
+      # rather than an assumption.
+      - region: SA
+        vat_mode: incl
+        evidence: stated
+        rate_pct: 15
+        statement_text: >-
+          الأسعار تشمل ضريبة القيمة المضافة 15%.
+        statement_url: https://www.madar.com/12512-tsp.html
+        statement_lang: ar
+        verified_at: "2026-07-25"
     extract:
       - kind: product_prices
         scope: census          # first crawl is a full census; owner will replace
@@ -57,9 +101,13 @@ sources:
     min_expected_rows: 50
     max_drop_pct: 50
     notes: >
-      Stores en_SA + ar_SA (ar gives Arabic names free). GraphQL prices are
-      VAT-EXCLUSIVE; display multiplies by 1.15. Business-segment prices and
-      per-branch availability need a session (extension capture, Phase 4).
+      Stores en_SA + ar_SA (ar gives Arabic names free). 760 products in three
+      shapes, all three recorded, each at the figure the API states — see the
+      per-shape price semantics above for which of them is quoted before tax.
+      A grouped product yields ONE ROW PER MEMBER, because its page has no
+      product price: it lists the members and prices each. Business-segment
+      prices and per-branch availability need a session (extension capture,
+      Phase 4).
 
   # ---- probed: Salla; SSR + JSON-LD; numeric /p{ID} ids. This is "السويد" ----
   - source_key: ALSWEED

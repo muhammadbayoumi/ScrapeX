@@ -1,0 +1,362 @@
+{
+ "data": {
+  "products": {
+   "page_info": {
+    "current_page": 1,
+    "total_pages": 1
+   },
+   "items": [
+    {
+     "__typename": "ConfigurableProduct",
+     "uid": "Njg4MA==",
+     "sku": "12512-TSP",
+     "name": "Tigercore Shuttering Plywood",
+     "url_key": "12512-tsp",
+     "stock_status": "IN_STOCK",
+     "categories": [
+      {
+       "uid": "MTE=",
+       "name": "الأخشاب والمنتجات الخشبية",
+       "breadcrumbs": null
+      },
+      {
+       "uid": "MTY=",
+       "name": "أبلكاش مدهون",
+       "breadcrumbs": [
+        {
+         "category_name": "الأخشاب والمنتجات الخشبية"
+        }
+       ]
+      }
+     ],
+     "price_range": {
+      "minimum_price": {
+       "regular_price": {
+        "value": 50.4
+       },
+       "final_price": {
+        "value": 50.4
+       }
+      },
+      "maximum_price": {
+       "final_price": {
+        "value": 90.3
+       }
+      }
+     },
+     "configurable_options": [
+      {
+       "attribute_code": "width_mm",
+       "label": "العرض (ملم)"
+      }
+     ],
+     "variants": [
+      {
+       "product": {
+        "uid": "NTQ4MA==",
+        "sku": "12512182813",
+        "name": "Tigercore Shuttering Plywood | 18 × 610 × 2440mm | 13PLY",
+        "stock_status": "IN_STOCK",
+        "weight": 18.571,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 50.4
+          },
+          "final_price": {
+           "value": 50.4
+          }
+         }
+        }
+       },
+       "attributes": [
+        {
+         "code": "width_mm",
+         "label": "610"
+        }
+       ]
+      },
+      {
+       "product": {
+        "uid": "NTg4Nw==",
+        "sku": "12512184813",
+        "name": "Tigercore Shuttering Plywood | 18 × 1220 × 2440mm | 13PLY",
+        "stock_status": "IN_STOCK",
+        "weight": 37.143,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 90.3
+          },
+          "final_price": {
+           "value": 90.3
+          }
+         }
+        }
+       },
+       "attributes": [
+        {
+         "code": "width_mm",
+         "label": "1220"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "__typename": "SimpleProduct",
+     "uid": "NTUyNA==",
+     "sku": "71102002",
+     "name": "                 Putty - 1 kg - sab",
+     "url_key": "putty-1-kg-sab",
+     "stock_status": "IN_STOCK",
+     "categories": [],
+     "price_range": {
+      "minimum_price": {
+       "regular_price": {
+        "value": 4.23
+       },
+       "final_price": {
+        "value": 4.23
+       }
+      },
+      "maximum_price": {
+       "final_price": {
+        "value": 4.23
+       }
+      }
+     }
+    },
+    {
+     "__typename": "GroupedProduct",
+     "uid": "NTE1NQ==",
+     "sku": "10128-TSS",
+     "name": "حديد تسليح تعمير",
+     "url_key": "tameer-steel-rebar",
+     "stock_status": "IN_STOCK",
+     "categories": [
+      {
+       "uid": "Mw==",
+       "name": "المعادن والحديد الإنشائي",
+       "breadcrumbs": null
+      },
+      {
+       "uid": "NA==",
+       "name": "حديد التسليح والشبك",
+       "breadcrumbs": [
+        {
+         "category_name": "المعادن والحديد الإنشائي"
+        }
+       ]
+      }
+     ],
+     "price_range": {
+      "minimum_price": {
+       "regular_price": {
+        "value": 3139.5
+       },
+       "final_price": {
+        "value": 3139.5
+       }
+      },
+      "maximum_price": {
+       "final_price": {
+        "value": 3139.5
+       }
+      }
+     },
+     "items": [
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NTE0OA==",
+        "sku": "101281212",
+        "name": "Tameer Steel Rebar | Ø12mm × 12m | ASTM A615 Grade 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 3139.5
+          },
+          "final_price": {
+           "value": 3139.5
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NTE1MA==",
+        "sku": "101281612",
+        "name": "Tameer Steel Rebar | Ø16mm × 12m | ASTM A615 Grade 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 3139.5
+          },
+          "final_price": {
+           "value": 3139.5
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NTE0OQ==",
+        "sku": "101281412",
+        "name": "Tameer Steel Rebar | Ø14mm × 12m | ASTM A615 Grade 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 3139.5
+          },
+          "final_price": {
+           "value": 3139.5
+          }
+         }
+        }
+       }
+      }
+     ]
+    },
+    {
+     "__typename": "GroupedProduct",
+     "uid": "MzAyNw==",
+     "sku": "11535-SRW",
+     "name": "الخشب الأحمر السويدي",
+     "url_key": "swedish-redwood",
+     "stock_status": "IN_STOCK",
+     "categories": [
+      {
+       "uid": "MTE=",
+       "name": "الأخشاب والمنتجات الخشبية",
+       "breadcrumbs": null
+      },
+      {
+       "uid": "MTM=",
+       "name": "أخشاب صلبة متنوعة",
+       "breadcrumbs": [
+        {
+         "category_name": "الأخشاب والمنتجات الخشبية"
+        }
+       ]
+      }
+     ],
+     "price_range": {
+      "minimum_price": {
+       "regular_price": {
+        "value": 1449
+       },
+       "final_price": {
+        "value": 1449
+       }
+      },
+      "maximum_price": {
+       "final_price": {
+        "value": 1449
+       }
+      }
+     },
+     "items": [
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "MTU3Nw==",
+        "sku": "115420208",
+        "name": "خشب سويدي - VI 2 * 8 بوصة",
+        "stock_status": "IN_STOCK",
+        "weight": 650,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 1630.13
+          },
+          "final_price": {
+           "value": 1630.13
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "MTQ4Nw==",
+        "sku": "1153602102",
+        "name": "خشب سويدي - V 2 * 10 بوصة - 240,330,420 سم",
+        "stock_status": "IN_STOCK",
+        "weight": 650,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 1750.88
+          },
+          "final_price": {
+           "value": 1750.88
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "MTQ4Mg==",
+        "sku": "115360209",
+        "name": "خشب سويدي - V 2 * 9 بوصة - 390,360,300,270 سم",
+        "stock_status": "IN_STOCK",
+        "weight": 650,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 1811.25
+          },
+          "final_price": {
+           "value": 1811.25
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "MTEzOA==",
+        "sku": "115430208",
+        "name": "خشب سويدي ألماني - 5 * 20 سم",
+        "stock_status": "IN_STOCK",
+        "weight": 650,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 1449
+          },
+          "final_price": {
+           "value": 1449
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

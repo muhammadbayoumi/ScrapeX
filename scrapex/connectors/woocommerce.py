@@ -69,6 +69,35 @@ def brand_of(product: dict) -> str:
     return _single_term(product, _BRAND_ATTRS)
 
 
+def _price_span(product: dict) -> tuple[str, str]:
+    """The Store API's own (min, max) minor-unit strings, or ("", "").
+
+    WooCommerce populates `prices.price_range` only when the product's price is
+    a span — a variable product whose variations differ, a grouped product
+    summarising its children. Its absence is the shop saying "one price".
+    """
+    span = (product.get("prices") or {}).get("price_range") or {}
+    if not isinstance(span, dict):
+        return "", ""
+    return str(span.get("min_amount") or ""), str(span.get("max_amount") or "")
+
+
+def _is_a_range(product: dict) -> bool:
+    low, high = _price_span(product)
+    return bool(low) and bool(high) and low != high
+
+
+def _range_text(product: dict) -> str:
+    prices = product.get("prices") or {}
+    low, high = _price_span(product)
+    minor = int(prices.get("currency_minor_unit", 2) or 0)
+    scale = 10 ** minor
+    try:
+        return f"{int(low) / scale:.{minor}f}..{int(high) / scale:.{minor}f}"
+    except (TypeError, ValueError):
+        return f"{low}..{high}"
+
+
 def _money(prices: dict, key: str) -> str:
     raw = prices.get(key)
     if raw in (None, ""):
@@ -104,10 +133,17 @@ class WooCommerceConnector:
             products = self._fetcher.get(endpoint, params={"per_page": PER_PAGE, "page": page}).json()
             if not isinstance(products, list) or not products:
                 break
-            fetched.extend(products)
             page_rows: list[list[str]] = []
             for p in products:
-                page_rows.extend(self._product_rows(builder, p, source, vat, endpoint, notes))
+                made = self._product_rows(builder, p, source, vat, endpoint, notes)
+                page_rows.extend(made)
+                if made:
+                    # Enrichment is keyed to a product the warehouse knows, and
+                    # the warehouse learns a product from its PRICE row. Details
+                    # for a product we refused to price have nothing to hang on
+                    # and arrive as out-of-scope rejects — noise that looks like
+                    # a contract breach. What we priced is what we describe.
+                    fetched.append(p)
             rows.extend(page_rows)
             # One table PER PAGE so a pause keeps what it fetched: the journal
             # stores each as it arrives and the resume starts at the tail.
@@ -148,6 +184,21 @@ class WooCommerceConnector:
         variation_ids = [str(v.get("id") or "")
                          for v in (product.get("variations") or []) if v.get("id")]
         if not variation_ids:
+            # No variations to stand in for it, so this catalogue entry has to
+            # answer for itself — and a `grouped` or `external` product often
+            # cannot. The Store API says so itself: `prices.price_range` is
+            # populated exactly when `prices.price` is the LOW END of a span
+            # rather than a price (live proof on this very shop, 2026-07-25:
+            # product 9803 carries {"min_amount":"208978","max_amount":"209072"}).
+            # Writing 2,089.78 into effective_price for a product that sells
+            # from 2,089.78 to 2,090.72 states a price the shop does not quote.
+            if _is_a_range(product):
+                notes.append(
+                    f"{product.get('name')}: a {product.get('type') or 'product'} "
+                    f"whose price is a RANGE ({_range_text(product)}) and which "
+                    "publishes no variations to price individually — skipped "
+                    "rather than stored at the range's low end")
+                return []
             row = self._row(builder, product, source, vat)
             return [row] if row is not None else []
         out: list[list[str]] = []
@@ -164,9 +215,21 @@ class WooCommerceConnector:
             if row is not None:
                 out.append(row)
         if not out:
+            if _is_a_range(product):
+                # The fallback was always the range's low end; when the shop
+                # states that it IS a range, keeping it says "this costs X"
+                # about a product that costs X..Y. A missing week is honest,
+                # a wrong price is not.
+                notes.append(
+                    f"{product.get('name')}: no variation answered with a price "
+                    f"and the product-level figure is a RANGE "
+                    f"({_range_text(product)}) — skipped rather than stored at "
+                    "the range's low end")
+                return out
             notes.append(
                 f"{product.get('name')}: no variation answered with a price — "
-                "the product-level price (the range's low end) is kept instead")
+                "the product-level price is kept instead; the shop publishes no "
+                "price_range for it, so that low end is the whole range")
             row = self._row(builder, product, source, vat)
             if row is not None:
                 out.append(row)

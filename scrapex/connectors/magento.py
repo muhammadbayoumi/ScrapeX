@@ -1,9 +1,31 @@
 """magento-graphql family connector (ENGINEERING.md A3: proven family).
 
 Madar (the flagship) runs Magento 2 with an open GraphQL endpoint. We list all
-priced products paginated (`filter:{price:{from:"0"}}`) and map each configurable
-variant — or each simple product — to one canonical PRODUCT_PRICES row.
-Prices are VAT-exclusive on this platform (the source's vat_mode records that).
+priced products paginated (`filter:{price:{from:"0"}}`).
+
+WHAT A ROW IS depends on the product's SHAPE, and the shapes do not agree — the
+single most expensive assumption this connector ever made. Study B1 enumerated
+madar's whole live census on 2026-07-25 (760 products, 8 pages):
+
+  SimpleProduct        399   one row; the API figure IS the price the page shows
+  ConfigurableProduct  328   one row per variant, and the API figure is the
+                             page's tax-EXCLUSIVE one — see _product_rows
+  GroupedProduct        33   one row per MEMBER; the group itself has no price,
+                             and its price_range reports max == min even when
+                             the members span 55%
+
+No BundleProduct, VirtualProduct or DownloadableProduct exists on this store
+today; a price_range that really is a range is refused rather than filed at its
+low end.
+
+NOTHING HERE MULTIPLIES A PRICE. The figure the API states is the figure that
+gets stored, for every shape, and what differs per shape is the vat_included
+flag the row carries — the owner's ruling after a source-wide 15% uplift was
+declared here and put 3,312 wrong prices in the warehouse: «سجلها كما تاخذ
+البيانات من الموقع بدون تعديل ولكن عمود الضريبة يكون واضح الرقم دا شامل الضريبة
+ام لا». Record it as the site gives it; make the tax column say what it is.
+So a configurable row is stored at 50.4 with vat_included=0 and reads "Excl.
+15%", where the old code stored 57.96 and claimed the shop had printed it.
 """
 from __future__ import annotations
 
@@ -12,7 +34,7 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import option_fingerprint
+from ..normalize import option_fingerprint, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -24,14 +46,26 @@ PAGE_SIZE = 100
 # on madar 2026-07-22 (riyadh-cement: weight 50 + "50كجم" in the name; steel
 # angles: thickness/width/length axes). The descriptions slot is filled only
 # when the manifest asks for enrichment, so a prices-only crawl stays light.
+#
+# `__typename` and the GroupedProduct fragment ride the SAME request the prices
+# already come from — they cost nothing and they are the difference between
+# knowing what a row is and assuming it. Study B1 (2026-07-25) enumerated the
+# whole madar census: 399 SimpleProduct, 328 ConfigurableProduct, 33
+# GroupedProduct, and the three do NOT share one price rule (see _product_rows).
 _QUERY_TEMPLATE = """query($pageSize:Int!,$currentPage:Int!){{
   products(filter:{{price:{{from:"0"}}}},pageSize:$pageSize,currentPage:$currentPage){{
     page_info{{current_page total_pages}}
     items{{
-      uid sku name url_key stock_status
+      __typename uid sku name url_key stock_status
       categories{{uid name breadcrumbs{{category_name}}}}
-      price_range{{minimum_price{{regular_price{{value}} final_price{{value}}}}}}
+      price_range{{minimum_price{{regular_price{{value}} final_price{{value}}}}
+                  maximum_price{{final_price{{value}}}}}}
       {extra}
+      ... on GroupedProduct{{
+        items{{qty position product{{uid sku name stock_status
+          ... on PhysicalProductInterface{{weight}}
+          price_range{{minimum_price{{regular_price{{value}} final_price{{value}}}}}}}}}}
+      }}
       ... on ConfigurableProduct{{
         configurable_options{{attribute_code label}}
         variants{{
@@ -65,9 +99,10 @@ _EN_QUERY = """query($pageSize:Int!,$currentPage:Int!){
   }
 }"""
 
-# "50كجم" / "50 kg" in a variant's NAME: the site stating what one price
-# buys. Arabic and Latin spellings both appear on madar.
-_STATED_KG = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:كجم|كغم|كغ|kg)", re.IGNORECASE)
+# selling_unit_from (the "50كجم" in a variant's NAME agreeing with its weight)
+# moved to ..normalize on 2026-07-25: sikaegshop states its pack size the same
+# way, and connectors never import each other (A1). Unit parsing belongs to the
+# one shared parsing module by rule anyway (Q2).
 
 
 # The category TREE, to four levels — the same L1..L4 the main table offers.
@@ -94,33 +129,6 @@ def _depth(path: str) -> int:
     genuinely deeper three-level home (found by the adversarial review,
     reproduced by execution). A filing's depth is its level count."""
     return path.count(" > ") + 1 if path else 0
-
-
-def selling_unit_from(name: str, weight) -> tuple[str, str]:
-    """(basis_quantity, unit) — ONLY when the site itself states the basis.
-
-    The owner's rule: a price is never shown apart from the unit it is FOR,
-    and the unit is read off the source, never guessed. Riyadh cement states
-    it twice — weight=50 AND "50كجم" in the variant's name — so kg/50 is the
-    basis. A steel angle carries weight=4.986, but that is the PIECE's mass:
-    its name states dimensions in millimetres, no kg quantity, and its price
-    is per piece — inventing "per 4.986 kg" would be exactly the guess this
-    function refuses. Agreement between the stated name and the weight field
-    is the test."""
-    try:
-        heavy = float(weight)
-    except (TypeError, ValueError):
-        return "", ""
-    if not heavy:
-        return "", ""
-    found = _STATED_KG.search(name or "")
-    if not found:
-        return "", ""
-    stated = float(found.group(1).replace(",", "."))
-    if abs(stated - heavy) > 1e-6:
-        return "", ""
-    quantity = int(stated) if stated == int(stated) else stated
-    return str(quantity), "kg"
 
 
 def _option_text(attrs: list[dict], option_labels: dict[str, str]) -> str:
@@ -183,29 +191,36 @@ def _availability(stock_status: str | None) -> str:
     return Availability.UNKNOWN.value
 
 
-def _prices(node: dict, tax_pct: float | None = None) -> tuple[float | None, float | None]:
-    """The prices a BUYER sees. Magento's GraphQL publishes them net of tax on
-    a store that displays them inclusive (verified live on madar: 194.9 here,
-    224.14 on the page), so the manifest's declared rate is applied — rounded
-    to the currency's two places, exactly as the storefront prints it."""
-    mp = ((node.get("price_range") or {}).get("minimum_price")) or {}
-    regular = (mp.get("regular_price") or {}).get("value")
-    final = (mp.get("final_price") or {}).get("value")
-    if tax_pct:
-        from decimal import Decimal, ROUND_HALF_UP
+def _prices(node: dict) -> tuple[float | None, float | None]:
+    """The (regular, final) figures the node states — exactly as stated.
 
-        factor = Decimal(1) + Decimal(str(tax_pct)) / 100
-        def taxed(value):
-            if value is None:
-                return None
-            # HALF_UP, not Python's bankers rounding: 194.9 x 1.15 = 224.135,
-            # and the storefront prints 224.14 — money rounds the way the shop
-            # rounds it or the row disagrees with the page by a piastre.
-            money = (Decimal(str(value)) * factor).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP)
-            return float(money)
-        regular, final = taxed(regular), taxed(final)
-    return regular, final
+    This function used to take a tax rate and multiply. It does not any more,
+    and the parameter is gone rather than defaulted, so no caller can quietly
+    re-introduce the uplift: a computed price is a number the shop never
+    published, and telling the two apart afterwards is impossible. Whether the
+    figure includes tax is recorded BESIDE it, on the row.
+    """
+    mp = ((node.get("price_range") or {}).get("minimum_price")) or {}
+    return ((mp.get("regular_price") or {}).get("value"),
+            (mp.get("final_price") or {}).get("value"))
+
+
+def _range_ends(product: dict) -> tuple[float | None, float | None]:
+    """(lowest, highest) final price the node's price_range states."""
+    span = product.get("price_range") or {}
+    low = ((span.get("minimum_price") or {}).get("final_price") or {}).get("value")
+    high = ((span.get("maximum_price") or {}).get("final_price") or {}).get("value")
+    return low, high
+
+
+def _spans_a_range(product: dict) -> bool:
+    low, high = _range_ends(product)
+    return low is not None and high is not None and high != low
+
+
+def _range_text(product: dict) -> str:
+    low, high = _range_ends(product)
+    return f"{low}..{high}"
 
 
 class MagentoGraphqlConnector:
@@ -222,12 +237,22 @@ class MagentoGraphqlConnector:
         ctx = {
             "base": base,
             "currency": source.currency or "UNKNOWN",
+            # What the STOREFRONT shows, which is what a simple product's and a
+            # grouped member's figure is.
             "vat": "1" if source.vat_mode.value == "incl" else "0",
             "region": source.default_region,
-            # The storefront's own figure, when the API publishes a net one.
-            "tax_pct": (source.api.prices_exclude_tax_pct if source.api else None),
+            # ...and what a CONFIGURABLE's figure is, which on this platform is
+            # a different answer (see _product_rows). vat_included is a fact
+            # about the number in the row, not about the source, so the two
+            # travel separately and every row states its own.
+            "configurable_excl": bool(source.api
+                                      and source.api.configurable_prices_exclude_tax),
+            "vat_configurable": (
+                "0" if (source.api and source.api.configurable_prices_exclude_tax)
+                else ("1" if source.vat_mode.value == "incl" else "0")),
         }
         notes: list[str] = []
+        ctx["notes"] = notes
         ctx["paths"] = self._category_map(endpoint, source, notes)
         # The SAME tree, read in English: leaf uids are store-independent, so
         # one extra categoryList query relabels every path the walk already
@@ -248,18 +273,32 @@ class MagentoGraphqlConnector:
             items = products.get("items") or []
             if not items:
                 break
-            if wants_enrichment:
-                fetched.extend(items)
             if token not in self.skip_tokens:
+                # Warnings raised while building THIS page must ride this page.
+                # Pinning them all to page 1 (as before) silently dropped every
+                # skip a later page reported — and a skip nobody hears is the
+                # quiet data loss the warnings exist to prevent.
+                before = len(notes)
                 page_rows: list[list[str]] = []
                 for product in items:
-                    page_rows.extend(self._product_rows(builder, product, ctx))
+                    made = self._product_rows(builder, product, ctx)
+                    page_rows.extend(made)
+                    if made and wants_enrichment:
+                        # Details hang off the PRICE row's product, so the
+                        # enrichment set follows the priced set. A product this
+                        # page refused (a real price RANGE, a grouped product
+                        # whose members carry no figure) that still shipped its
+                        # attributes would send details for something the
+                        # warehouse has never heard of — rejected out of scope,
+                        # and looking for all the world like a contract breach.
+                        fetched.append(product)
                 # One table per page: a pause keeps every page already fetched
                 # and the resume asks only for the rest.
                 yield ScrapedTable(
                     source_key=source.source_key, kind=PRODUCT_PRICES.kind,
                     source_url=f"{endpoint}#page={page}", header=builder.header,
-                    rows=page_rows, warnings=notes if page == 1 else [],
+                    rows=page_rows,
+                    warnings=list(notes) if page == 1 else notes[before:],
                     page_token=token,
                 )
             total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
@@ -441,7 +480,7 @@ class MagentoGraphqlConnector:
                          for o in product.get("configurable_options") or []}
 
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp="",
-                basis="", unit=""):
+                basis="", unit="", vat=None):
             effective = fin if fin is not None else reg
             if effective is None:
                 return  # a product with no price — skip, don't emit an empty required field
@@ -456,7 +495,12 @@ class MagentoGraphqlConnector:
                 product_name_en=names_en.get(str(pid)) or names_en.get(str(vid)) or "",
                 option_label=label, option_fingerprint=fp,
                 basis_quantity=basis, unit=unit,
-                product_url=url, region=ctx["region"], currency=ctx["currency"], vat_included=ctx["vat"],
+                product_url=url, region=ctx["region"], currency=ctx["currency"],
+                # PER ROW, never per source: on this platform one crawl carries
+                # both answers at once, and a source-level flag stamped on
+                # every observation is how the warehouse came to assert things
+                # the shop never said.
+                vat_included=vat if vat is not None else ctx["vat"],
                 regular_price=reg if reg is not None else effective,
                 sale_price=fin if (reg is not None and fin is not None and reg != fin) else "",
                 effective_price=effective, availability=_availability(stock),
@@ -464,11 +508,95 @@ class MagentoGraphqlConnector:
                 category_external_id=category_id,
             ))
 
+        shape = str(product.get("__typename") or "")
+        notes = ctx.setdefault("notes", [])
+
+        # ---- GROUPED: the page has no product price, only its members' -------
+        #
+        # Study B1 (2026-07-25), read off the live storefront: a GroupedProduct
+        # page prints NO single figure. It prints «المقاسات/الأنواع المتوفرة»
+        # and then one price per member, and those member prices equal the
+        # API's member prices exactly (swedish-redwood: 28 of 28, 1,449.00 ..
+        # 2,233.88). The GROUP's own price_range is not a range at all —
+        # Magento answers maximum_price == minimum_price on every one of the 33
+        # groups even when the members really do span 55%, so the group figure
+        # is the CHEAPEST member wearing the group's identity. Emitting it as
+        # "the price of الخشب الأحمر السويدي" states a number the page never
+        # presents as that product's price, which is precisely the range-as-a-
+        # single-price defect. One row per member instead: each carries a price
+        # the visitor can actually read, beside the member name printed next
+        # to it.
+        if shape == "GroupedProduct":
+            members = product.get("items") or []
+            for member in members:
+                child = member.get("product") or {}
+                # A member is a simple product with a group for a parent: its
+                # own price matched the page 28/28 on swedish-redwood, so it
+                # carries the storefront's vat state like any simple row.
+                reg, fin = _prices(child)
+                basis, unit = selling_unit_from(child.get("name") or "",
+                                                child.get("weight"))
+                row(product.get("uid"), child.get("uid"), child.get("sku"),
+                    product.get("name") or child.get("name"), reg, fin,
+                    child.get("stock_status"),
+                    # The member's own name is what the page prints beside its
+                    # price — it IS the label that tells the two apart.
+                    label=str(child.get("name") or ""),
+                    fp=option_fingerprint({"member": str(child.get("sku") or "")})
+                    if child.get("sku") else "",
+                    basis=basis, unit=unit)
+            if not out:
+                # Never fall back to the group figure: it is the cheapest
+                # member's price under the group's name, and saying nothing is
+                # honest where saying that is not.
+                notes.append(
+                    f"{product.get('name')} ({product.get('sku')}): grouped product "
+                    "whose members carry no readable price — skipped rather than "
+                    "stored at the group's minimum, which is one member's price "
+                    "wearing the group's name")
+            return out
+
+        # ---- CONFIGURABLE: the API's figure is the page's EXCL-of-tax one ----
+        #
+        # The storefront LABELS its own price fields — «finalPriceExclTaxKey =
+        # 'basePrice'», «finalPriceInclTaxKey = 'finalPrice'» — and then, for
+        # 12512-TSP, publishes
+        #   "prices":{"basePrice":{"amount":50.4},"finalPrice":{"amount":57.96}}
+        # with initialFinalPrice: 57.96. GraphQL answers 50.4. Re-verified live
+        # 2026-07-25 by a second pass that fetched the page itself; the same
+        # page carries «الأسعار تشمل ضريبة القيمة المضافة 15%», and the same
+        # check on SimpleProduct 71231005 gave API 65.21 / page 65.205 — no gap
+        # at all. This is also what the Legrand floor box (60402-LPF, a
+        # CONFIGURABLE) was saying on 2026-07-23 at 194.9 vs 224.14, and why
+        # commit 53b2407's counter-examples (putty-1-kg-sab,
+        # uib-oxidized-bitumen — both SIMPLE) were equally true. Every reading
+        # was right; only generalising one shape's rule to the source was not.
+        #
+        # What we do about it is NOT arithmetic. The row keeps 50.4 and says
+        # vat_included=0, so the Tax column reads "Excl. 15%" on this row and
+        # "Incl. 15%" on the simple one beside it. Both numbers then exist on
+        # the site, which is the only test a stored price has to pass.
         if variants:
+            variant_vat = (ctx.get("vat_configurable") or ctx["vat"]
+                           if shape == "ConfigurableProduct" else ctx["vat"])
+            # An undeclared source is recorded at its storefront's vat_mode —
+            # never silently converted — but madar taught us that this shape is
+            # where the two answers diverge, so a run says so once instead of
+            # letting a future store repeat the 3,312-row mistake in silence.
+            if shape == "ConfigurableProduct" and not ctx.get("configurable_excl"):
+                marker = "configurable prices recorded at the source's declared vat_mode"
+                if not any(marker in n for n in notes):
+                    notes.append(
+                        f"{marker} — on madar this shape's GraphQL figure is the "
+                        "storefront's tax-EXCLUSIVE one (its own basePrice field) "
+                        "while a SimpleProduct's is the printed price. If this "
+                        "store does the same, declare "
+                        "api.configurable_prices_exclude_tax so these rows say "
+                        f"so. First: {product.get('name')} ({product.get('sku')})")
             for v in variants:
                 child = v.get("product") or {}
                 attrs = [a for a in (v.get("attributes") or []) if a.get("code")]
-                reg, fin = _prices(child, ctx.get("tax_pct"))
+                reg, fin = _prices(child)
                 # The basis the site itself states (weight + "50كجم" in the
                 # name agreeing) rides the row; a piece's mass does not.
                 basis, unit = selling_unit_from(child.get("name") or "",
@@ -484,9 +612,23 @@ class MagentoGraphqlConnector:
                     product.get("name") or child.get("name"), reg, fin, child.get("stock_status"),
                     label=_option_text(attrs, option_labels),
                     fp=option_fingerprint({a["code"]: a.get("label", "") for a in attrs}) if attrs else "",
-                    basis=basis, unit=unit)
+                    basis=basis, unit=unit, vat=variant_vat)
         else:
-            reg, fin = _prices(product, ctx.get("tax_pct"))
+            # A product standing alone must have ONE price, not a span. Every
+            # SimpleProduct in the live census (399 of 399) answers
+            # maximum_price == minimum_price, so this never fires for the shape
+            # we have; it is here for the shape we do not — a BundleProduct
+            # publishes a real min..max, and writing its minimum into
+            # effective_price would file "from 50" as "50". A shape we have not
+            # studied is not a shape we may guess at.
+            if _spans_a_range(product):
+                notes.append(
+                    f"{product.get('name')} ({product.get('sku')}): "
+                    f"{shape or 'this product'} publishes a price RANGE "
+                    f"({_range_text(product)}), not a price — skipped rather "
+                    "than stored at the range's low end")
+                return out
+            reg, fin = _prices(product)
             row(product.get("uid"), product.get("uid"), product.get("sku"),
                 product.get("name"), reg, fin, product.get("stock_status"))
         return out

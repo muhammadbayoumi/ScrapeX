@@ -1221,22 +1221,30 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "        AND spa.attribute_code = 'category') AS category, "
         "       EXISTS(SELECT 1 FROM source_product_attribute spa2 "
         "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details, "
-        "       sp.category_path, sp.source_name_en, sp.category_path_en "
+        "       sp.category_path, sp.source_name_en, sp.category_path_en, "
+        # Appended LAST on purpose: every index above is positional and a column
+        # inserted mid-list silently shifts the lot.
+        "       po.vat_included "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
     tax_rules = tax.load_rules(conn, source_key)
-    # One resolved state per DISTINCT (region, material) pair, sent once and
-    # referenced by index from each row. Keyed by region alone, gasoline and
-    # natural-gas rows wore the diesel page's link — the owner's exact report.
+    # One resolved state per DISTINCT (region, material, vat_included) triple,
+    # sent once and referenced by index from each row. Keyed by region alone,
+    # gasoline and natural-gas rows wore the diesel page's link — the owner's
+    # exact report. Keyed without vat_included, madar's 328 tax-EXCLUSIVE
+    # configurable rows shared one state with its 399 inclusive simple ones and
+    # every Tax cell in the table read "Incl. 15%": still one state per distinct
+    # ANSWER, but the row's own figure is part of what makes an answer distinct.
     tax_states: list[dict] = []
-    tax_index: dict[tuple[str, str], int] = {}
+    tax_index: dict[tuple[str, str, bool], int] = {}
 
-    def tax_ref(region: str, material: str) -> int:
-        key = (region, material)
+    def tax_ref(region: str, material: str, vat_included: bool) -> int:
+        key = (region, material, vat_included)
         if key not in tax_index:
             tax_index[key] = len(tax_states)
-            tax_states.append(tax.resolve(tax_rules, region, material=material).as_dict())
+            tax_states.append(tax.resolve(tax_rules, region, material=material)
+                              .for_row(vat_included).as_dict())
         return tax_index[key]
 
     shaped = [{"product_name": r[0], "option_label": r[1] or "", "sku": r[2] or "",
@@ -1267,7 +1275,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "usd_price": _usd_value(r[3], r[6], r[23]),
                "was_price": r[4] if _discounted(r[4], r[3]) else "",
                "discount": _discount_text(r[4], r[3]),
-               "tax_ref": tax_ref(r[11] or "", r[0] or "")}
+               "tax_ref": tax_ref(r[11] or "", r[0] or "", bool(r[29]))}
               for r in rows]
 
     present = column_presence(conn, source_key)
