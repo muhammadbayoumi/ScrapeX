@@ -63,10 +63,13 @@ def test_second_source_adds_a_tab(tmp_path: Path, conn):
     # a second (empty->skip): simulate another source by writing directly
     sink.write_tab(tmp_path / "ScrapeX Data.xlsx", "MASDAR", EXPORT_HEADER, [["x"] * len(EXPORT_HEADER)])
     wb = load_workbook(tmp_path / "ScrapeX Data.xlsx")
-    # One workbook, a tab per source — plus the source's own history tab.
-    # (Its details tab is skipped: this fixture publishes no attributes, and
-    # a header with no rows is furniture, not data.)
-    assert set(wb.sheetnames) == {"ELSEWEDYSHOP", "ELSEWEDYSHOP — history", "MASDAR"}
+    # One workbook, a tab per source — plus that source's own history and
+    # about tabs. (Its details tab is skipped: this fixture publishes no
+    # attributes, and a header with no rows is furniture, not data. The about
+    # tab is never skipped: a workbook that does not say where its numbers came
+    # from is what the owner opened and could not read.)
+    assert set(wb.sheetnames) == {"ELSEWEDYSHOP", "ELSEWEDYSHOP — history",
+                                  "ELSEWEDYSHOP — about", "MASDAR"}
 
 
 def test_safe_title_truncates_and_sanitizes():

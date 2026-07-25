@@ -11,7 +11,9 @@ import sqlite3
 from typing import Protocol
 
 from .fields import ORIGINAL_SCHEMA, apply_schema
-from .reports import export_details_table, export_history_table, export_source_table
+from .payload import utc_now_iso
+from .reports import (export_details_table, export_history_table,
+                      export_source_table, source_summary)
 
 
 class SheetSink(Protocol):
@@ -40,22 +42,85 @@ def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
     update behaviour keeps each export beside the last instead of replacing it
     (spec 19) — the sink itself needs no knowledge of that choice.
     """
+    tabs = workbook_tables(conn, source_key, schema=schema, tab=tab)
+    handle = sink.ensure_workbook(folder, workbook)
+    for name, header, rows in tabs:
+        sink.write_tab(handle, name, header, rows)
+    return len(tabs[0][2]), sink.location(handle)
+
+
+def workbook_tables(conn: sqlite3.Connection, source_key: str,
+                    schema: str = ORIGINAL_SCHEMA,
+                    tab: str | None = None) -> list[tuple[str, list[str], list[list]]]:
+    """EVERY tab one source's export is made of: [(tab, header, rows), ...].
+
+    The one place that decides what a complete export CONTAINS, so a workbook
+    downloaded from the Data page, one written to disk by the CLI and one
+    pushed to Google can never be three different answers to the same question
+    (P1 DRY). The owner's report was that the export carried the price table
+    and nothing else — the details and the history were already published to
+    Google and were reachable nowhere else.
+
+    Order is deliberate: prices first because that is what the export is for,
+    then the details, then the history, then the sheet that says where all of
+    it came from. Empty tables are skipped rather than written as a header
+    nobody can use — except the price table, whose absence is an error, not an
+    empty tab.
+    """
     header, rows = export_source_table(conn, source_key)
     if not rows:
         raise ValueError(f"nothing to publish for {source_key} — crawl + ingest it first")
     header, rows = apply_schema(conn, source_key, header, rows, schema)
-    handle = sink.ensure_workbook(folder, workbook)
-    sink.write_tab(handle, tab or source_key, header, rows)
-    # The details and the history ride along as their own tabs — the owner
-    # opened a published sheet and found a third of what the page shows.
-    # Empty ones are skipped rather than written as a header nobody can use.
+    name = tab or source_key
+    tabs = [(name, header, rows)]
     for suffix, table in (("details", export_details_table(conn, source_key)),
                           ("history", export_history_table(conn, source_key))):
         extra_header, extra_rows = table
         if extra_rows:
-            sink.write_tab(handle, f"{tab or source_key} — {suffix}",
-                           extra_header, extra_rows)
-    return len(rows), sink.location(handle)
+            tabs.append((f"{name} — {suffix}", extra_header, extra_rows))
+    tabs.append((f"{name} — about", *_about(conn, source_key, tabs)))
+    return tabs
+
+
+def _about(conn: sqlite3.Connection, source_key: str,
+           tabs: list[tuple[str, list[str], list[list]]]) -> tuple[list[str], list[list]]:
+    """A tab that says what the other tabs ARE and where the numbers came from.
+
+    A spreadsheet outlives the screen it was exported from and gets mailed to
+    people who never saw it. Without this, "1124.87" is a number with no source,
+    no date, no currency policy and no statement about tax — and the first
+    question anyone asks of a price list is which of those it is.
+    """
+    summary = source_summary(conn, source_key)
+    site = conn.execute(
+        "SELECT source_name, source_name_en, base_url FROM source_site WHERE source_key = ?",
+        (source_key,)).fetchone()
+    facts: list[list] = [
+        ["source_key", source_key],
+        ["source_name", (site[0] if site else "") or ""],
+        ["source_name_en", (site[1] if site else "") or ""],
+        ["site", (site[2] if site else "") or ""],
+        ["exported_at", utc_now_iso()],
+    ]
+    if summary is not None:
+        facts += [
+            ["products", summary.products],
+            ["variants", summary.variants],
+            ["observations", summary.observations],
+            ["last_run_status", summary.last_status or ""],
+            ["last_run_at", summary.last_run or ""],
+        ]
+    facts += [[f"rows in “{name}”", len(rows)] for name, _header, rows in tabs]
+    # What the reader is holding, in the reader's terms.
+    facts += [
+        ["prices", "as the source published them — nothing is computed or converted"],
+        ["tax", "each row states vat_included, and the evidence columns beside it "
+                "say how well that is known and where the source says so"],
+        ["details", "one row per fact the source stated about a product: "
+                    "descriptions, specifications, images and datasheets"],
+        ["history", "every price observation behind the current figure, oldest first"],
+    ]
+    return ["fact", "value"], facts
 
 
 class GoogleSink:

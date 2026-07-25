@@ -102,7 +102,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-13/12: the AR|EN switch now governs the panel too, and
     # English is the default. A cached script would keep printing both
     # languages in the cards under the table.
-    assert '/static/grid.js?v=design-system-13' in page
+    # design-system-14: the Excel button asks the SERVER for the whole workbook.
+    # A cached script would keep calling Tabulator's xlsx writer, which needs a
+    # library this project does not vendor, and keep producing nothing.
+    assert '/static/grid.js?v=design-system-14' in page
     assert '/static/grid-theme.css?v=design-system-12' in page
 
 

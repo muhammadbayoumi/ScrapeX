@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -45,6 +45,9 @@ from ..outputs import (
     apps_script_status, apps_script_test, excel_export, excel_status, google_connect,
     google_disconnect, google_push, google_status, rotate_funnel_token,
 )
+from ..localsheets import workbook_bytes
+from ..payload import utc_now_iso
+from ..publish import workbook_tables
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
@@ -496,6 +499,38 @@ def create_app(
             return table_payload(conn, source_key)
         finally:
             conn.close()
+
+    @app.get("/export/{source_key}.xlsx")
+    def export_workbook(source_key: str):
+        """One download carrying the WHOLE record for a source.
+
+        The owner exported to Excel and got the price table alone. Two separate
+        reasons, both fixed here: the details, the history and the provenance
+        were published to Google and reachable from nowhere else, and the Data
+        page's Excel button called Tabulator's browser-side xlsx writer, which
+        needs a SheetJS library this project has never vendored — so it logged
+        a console error and produced no file at all.
+
+        Built on the server, where those tabs actually live, from the same
+        publish.workbook_tables the CLI and the Google push use, so one export
+        cannot answer differently from another.
+        """
+        conn = read_conn()
+        try:
+            tabs = workbook_tables(conn, source_key)
+        except ValueError as exc:      # nothing ingested for this source yet
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        finally:
+            conn.close()
+        try:
+            body = workbook_bytes(tabs)
+        except RuntimeError as exc:    # openpyxl absent: name the install
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        name = f"{source_key}-{utc_now_iso()[:10]}.xlsx"
+        return Response(
+            content=body,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/source/{source_key}/offer/{offer_id}", response_class=HTMLResponse)
     def offer_history(request: Request, source_key: str, offer_id: int):

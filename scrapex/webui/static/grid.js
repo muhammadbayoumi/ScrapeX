@@ -2025,12 +2025,18 @@
       button.addEventListener("click", () => {
         const kind = button.dataset.export;
         const name = SOURCE + "-" + new Date().toISOString().slice(0, 10);
-        // "visible" means what you are looking at: your filters, your column
-        // order, your hidden columns. Exporting something other than what is on
-        // screen is how a spreadsheet and a screen start disagreeing.
+        // CSV and JSON are THIS VIEW: your filters, your column order, your
+        // hidden columns. Exporting something other than what is on screen is
+        // how a spreadsheet and a screen start disagreeing.
         if (kind === "csv") table.download("csv", name + ".csv");
         else if (kind === "json") table.download("json", name + ".json");
-        else if (kind === "xlsx") table.download("xlsx", name + ".xlsx", {sheetName: SOURCE});
+        // Excel is the WHOLE RECORD, and it comes from the server. Two reasons.
+        // The browser cannot build it: the details, the price history and the
+        // provenance are not in the grid. And it never could — this called
+        // Tabulator's xlsx writer, which needs a SheetJS library that has never
+        // been vendored here, so the button logged a console error and produced
+        // no file at all, silently, for as long as it has existed.
+        else if (kind === "xlsx") window.location = "/export/" + encodeURIComponent(SOURCE) + ".xlsx";
       }));
   }
 

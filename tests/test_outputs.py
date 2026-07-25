@@ -144,9 +144,12 @@ def test_excel_export_writes_one_tab_per_source(conn):
     sink = FakeSink()
     result = outputs.excel_export(conn, [SOURCE], sink=sink)
     assert result.ok and result.rows == 1
-    # The prices tab, plus the history tab publish_source now writes
-    # beside it (details is skipped — this fixture has no attributes).
-    assert list(sink.tabs) == [SOURCE, f"{SOURCE} — history"]
+    # The prices tab, plus the history and about tabs publish_source now writes
+    # beside it (details is skipped — this fixture has no attributes). The
+    # about tab is never skipped: a workbook is read long after the screen it
+    # came from is closed, and a price with no source, date, currency policy or
+    # tax statement is a number rather than a fact.
+    assert list(sink.tabs) == [SOURCE, f"{SOURCE} — history", f"{SOURCE} — about"]
     header, rows = sink.tabs[SOURCE]
     assert "country" in header and len(rows) == 1
 
@@ -396,9 +399,10 @@ def test_the_snapshot_behaviour_keeps_the_previous_export_instead_of_replacing_i
     sink = FakeSink()
     outputs.excel_export(conn, [SOURCE], sink=sink)
     tabs = list(sink.tabs)
-    # The dated prices tab, and the history tab that now rides beside it —
-    # a snapshot keeps the WHOLE picture of that run, not a third of it.
-    prices = [t for t in tabs if "history" not in t and "details" not in t]
+    # The dated prices tab, and the history and about tabs that now ride beside
+    # it — a snapshot keeps the WHOLE picture of that run, not a third of it.
+    prices = [t for t in tabs
+              if not any(k in t for k in ("history", "details", "about"))]
     assert len(prices) == 1 and prices[0].startswith(SOURCE) and prices[0] != SOURCE, \
         "a snapshot tab carries its date"
     assert all(t.startswith(SOURCE) for t in tabs)

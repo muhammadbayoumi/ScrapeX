@@ -15,7 +15,7 @@
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-  <script src="/static/grid.js?v=design-system-13" defer></script>
+  <script src="/static/grid.js?v=design-system-14" defer></script>
 {% endblock %}
 {% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they
@@ -318,13 +318,22 @@
         <div id="grid" class="tablewrap" data-source="{{ source_key }}"></div>
       </div>
       <footer class="data-grid-exportbar">
+        {# Two different exports, and the difference is worth saying out loud:
+           CSV and JSON are the view you are looking at, Excel is the whole
+           record. The owner exported to Excel and found the price table alone,
+           which was true twice over — the workbook carried one tab, and this
+           button called a browser-side writer whose library was never
+           vendored, so it produced nothing at all. #}
         <div class="data-grid-export-copy">
-          <strong>Export current view</strong>
-          <span>Filters, column order, and hidden columns are included.</span>
+          <strong>Export</strong>
+          <span>CSV and JSON carry this view — your filters, column order and
+                hidden columns. Excel carries the whole record: prices,
+                details, price history and where each figure came from.</span>
         </div>
-        <p id="grid-toolbar" class="toolbar" aria-label="Export current view">
+        <p id="grid-toolbar" class="toolbar" aria-label="Export">
           <button type="button" class="chip" data-export="csv">CSV</button>
-          <button type="button" class="chip" data-export="xlsx">Excel</button>
+          <button type="button" class="chip" data-export="xlsx"
+                  title="Every sheet: prices, details, history and provenance">Excel</button>
           <button type="button" class="chip" data-export="json">JSON</button>
         </p>
       </footer>

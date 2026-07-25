@@ -217,3 +217,39 @@ def test_empty_db_overview_has_hint(tmp_path: Path):
     # PATH after a plain editable install.
     assert "python -m scrapex.cli crawl" in r.text
     assert "Never run" in r.text
+
+
+def test_the_excel_export_carries_every_sheet_not_just_the_grid(client):
+    """The owner exported to Excel and got the price table alone.
+
+    Two failures in one button: the workbook the browser could build holds only
+    what is in the grid, and the button called Tabulator's xlsx writer, which
+    needs a SheetJS library this project has never vendored — so it produced no
+    file at all. The download now comes from the server with every sheet.
+    """
+    openpyxl = pytest.importorskip("openpyxl")
+    from io import BytesIO
+
+    r = client.get("/export/ELSEWEDYSHOP.xlsx")
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].endswith("spreadsheetml.sheet")
+    assert 'attachment; filename="ELSEWEDYSHOP-' in r.headers["content-disposition"]
+    book = openpyxl.load_workbook(BytesIO(r.content))
+    assert book.sheetnames[0] == "ELSEWEDYSHOP"
+    # The provenance sheet always rides along: a workbook outlives the screen it
+    # came from, and a price with no source, date or tax statement is a number.
+    about = [s for s in book.sheetnames if s.endswith("about")]
+    assert about, f"no provenance sheet in {book.sheetnames}"
+    facts = {row[0].value: row[1].value for row in book[about[0]].iter_rows(min_row=2)}
+    assert facts["source_key"] == "ELSEWEDYSHOP"
+    assert facts["products"] == 2
+    prices = book["ELSEWEDYSHOP"]
+    assert prices.max_row == 3          # header + the two ingested rows
+    assert prices.freeze_panes == "A2"
+
+
+def test_exporting_a_source_with_nothing_ingested_says_so(client):
+    r = client.get("/export/NOSUCHSOURCE.xlsx")
+    assert r.status_code == 404
+    assert "crawl" in r.json()["detail"]
