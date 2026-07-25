@@ -306,3 +306,20 @@ def test_the_schema_page_shows_the_whole_warehouse(client):
     assert body.index("What it costs") < body.index("Your unified layer")
     # And the purposes are there, not just the names.
     assert "append-only" in body or "never edited" in body
+
+
+def test_every_column_says_which_table_it_came_from(client):
+    """The owner, reviewing the schema: "put the table name beside each column
+    so I know which table it came from."
+
+    Read from the query's own SQL wherever there is one, so a column that moves
+    tables cannot keep a stale note. What is computed says COMPUTED instead of
+    naming a table it does not live in."""
+    body = client.get("/schema").text
+
+    assert "Comes from" in body
+    assert "<code>source_product.source_name</code>" in body
+    assert "<code>source_offer.region</code>" in body
+    assert "<code>price_observation.effective_price</code>" in body
+    assert "computed: price_observation.regular_price" in body, \
+        "a discount is not stored anywhere; saying it is would be a lie"

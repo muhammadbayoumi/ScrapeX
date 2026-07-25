@@ -1595,12 +1595,13 @@ def schema_report(conn: sqlite3.Connection) -> dict:
         english_twin = BILINGUAL_COLUMNS.get(key)
         table_columns.append({
             "key": key, "label": label, "note": note(key),
-            "renaming_to": renaming_to(key),
+            "renaming_to": renaming_to(key), "origin": column_origin(key),
             "language": "Arabic" if arabic else ("English" if key in BILINGUAL_COLUMNS.values() else ""),
             "pairs_with": english_twin or "",
             "sources": [s for s in sources if key in presence[s]],
         })
-    export_only = [{"key": key, "note": note(key), "renaming_to": renaming_to(key)}
+    export_only = [{"key": key, "note": note(key), "renaming_to": renaming_to(key),
+                    "origin": column_origin(key)}
                    for key in EXPORT_HEADER if key not in {k for k, _ in BROWSE_COLUMNS}]
 
     # The per-source columns the SITE names, not us: variation axes and the
@@ -1739,3 +1740,59 @@ def warehouse_tables(conn: sqlite3.Connection) -> list[dict]:
                                "shown so the page can never omit part of the schema.",
                        "tables": [dict(described(name), purpose="") for name in stray]})
     return groups
+
+
+# ---- where a column COMES FROM ----------------------------------------------
+#
+# The owner, reviewing the schema page: "put the table name beside each column
+# so I know which table it came from". Half of that is already declared —
+# FILTERABLE and _EXPORT_SELECT carry the real SQL expression per column, so the
+# table is READ from the same string the query uses, and a column that moves
+# tables cannot keep a stale note here.
+#
+# The other half is computed at read time (a discount is not stored; it is the
+# difference between two prices) or assembled from a bag (the classification
+# levels split one path). Those are authored, and they say COMPUTED rather than
+# naming a table they do not live in.
+_TABLE_BY_ALIAS = {
+    "sp": "source_product", "sv": "source_variant", "so": "source_offer",
+    "po": "price_observation", "ost": "offer_state", "su": "selling_unit",
+    "ss": "source_site", "spa": "source_product_attribute",
+}
+
+_COMPUTED_FROM: dict[str, str] = {
+    "product_name_en": "source_product.source_name_en",
+    "category": "source_product.category_path",
+    "category_en": "source_product.category_path_en",
+    "variant": "source_variant.variant",
+    "unit": "selling_unit + source_offer.basis_quantity",
+    "discount": "computed: price_observation.regular_price − effective_price",
+    "discount_pct": "computed: the same two prices, as a percentage",
+    "usd_price": "computed: price_observation × currency_rate",
+    "previous_price": "computed: price_observation, the last differing price",
+    "price_change": "computed: this price against the previous one",
+    "min_price": "computed: price_observation, lowest for this offer",
+    "max_price": "computed: price_observation, highest for this offer",
+    "observations": "computed: price_observation, counted",
+    "tax_label": "tax_rule + this row's price_observation.vat_included",
+    "open": "source_product.product_url",
+}
+
+
+def column_origin(key: str) -> str:
+    """"source_product.brand_raw" — where this column's value comes from.
+
+    Read from the query's own SQL where there is one, so it cannot go stale.
+    """
+    expression = (FILTERABLE.get(key, ("", ""))[0] or _EXPORT_SELECT.get(key, "")).strip()
+    if expression and "." in expression and expression.count(" ") == 0:
+        alias, _, column = expression.partition(".")
+        if alias in _TABLE_BY_ALIAS:
+            return f"{_TABLE_BY_ALIAS[alias]}.{column}"
+    if key in _COMPUTED_FROM:
+        return _COMPUTED_FROM[key]
+    for level in range(1, CATEGORY_LEVELS + 1):
+        if key in (f"category_l{level}", f"category_en_l{level}"):
+            path = "category_path_en" if key.startswith("category_en") else "category_path"
+            return f"split from source_product.{path}"
+    return ""

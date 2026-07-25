@@ -112,13 +112,16 @@
     <div class="tablewrap">
       <table>
         <thead><tr>
-          <th>Column</th><th>Key</th><th>Becomes</th><th>What it is</th><th>Filled by</th>
+          <th>Column</th><th>Key</th><th>Comes from</th><th>Becomes</th>
+          <th>What it is</th><th>Filled by</th>
         </tr></thead>
         <tbody>
         {% for column in schema.table %}
           <tr>
             <td>{{ column.label or "—" }}</td>
             <td><code>{{ column.key }}</code></td>
+            <td class="muted">{% if column.origin %}<code>{{ column.origin }}</code>
+                {%- else %}—{% endif %}</td>
             <td>{% if column.renaming_to %}<code>{{ column.renaming_to }}</code>
                 {%- else %}<span class="muted">—</span>{% endif %}</td>
             <td>{{ column.note }}</td>
@@ -139,10 +142,12 @@
        screen does not need to repeat on every row.</p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Key</th><th>Becomes</th><th>What it is</th></tr></thead>
+        <thead><tr><th>Key</th><th>Comes from</th><th>Becomes</th><th>What it is</th></tr></thead>
         <tbody>
         {% for column in schema.export_only %}
           <tr><td><code>{{ column.key }}</code></td>
+              <td class="muted">{% if column.origin %}<code>{{ column.origin }}</code>
+                  {%- else %}—{% endif %}</td>
               <td>{% if column.renaming_to %}<code>{{ column.renaming_to }}</code>
                   {%- else %}<span class="muted">—</span>{% endif %}</td>
               <td>{{ column.note }}</td></tr>
