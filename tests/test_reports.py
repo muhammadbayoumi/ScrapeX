@@ -119,20 +119,52 @@ def test_export_carries_region_and_country(conn):
     _commodity_rows(conn)
     header, table = export_source_table(conn, "GPP_ENERGY")
     assert header == EXPORT_HEADER
-    # product_name_en follows the name (the standing bilingual rule), so the
-    # geography moved one place right — asserted by NAME, not by index, so
-    # the next widening cannot break a test that is about the country.
-    assert "region" in header and "country" in header
-    assert {row[1] for row in table} == {"EG", "SA"}
-    assert {row[2] for row in table} == {"Egypt", "Saudi Arabia"}
+    # This said "asserted by NAME, not by index" and then read row[1] and
+    # row[2] — the positions the geography held BEFORE product_name_en entered
+    # the header. That is precisely the shift the owner found in a real export
+    # (the region code published under product_name_en, the country name under
+    # region, country empty, the English name in country), and these two lines
+    # were defending it. Reading through the header cannot drift.
+    rows = [dict(zip(header, row)) for row in table]
+    assert {row["region"] for row in rows} == {"EG", "SA"}
+    assert {row["country"] for row in rows} == {"Egypt", "Saudi Arabia"}
+
+
+def test_every_exported_column_holds_its_own_field(conn):
+    """The owner opened a real export and found the country code filed under
+    product_name_en, the country name under region, country empty, and the
+    English product name in country. The header was one list and the row was
+    another, and a column added to the first without the second shifted
+    everything between them. One row, every column read by NAME: a value that
+    lands under someone else's heading fails here and nowhere else, because a
+    spreadsheet has no way to notice."""
+    from scrapex.reports import export_source_table
+    ingest_payloads(conn, make_entry(), [make_payload([one_row(
+        product_name="سلك نحاس", product_name_en="Copper wire", region="EG",
+        brand_raw="Elsewedy", category_path="أسلاك", category_path_en="Wires",
+        external_product_id="9797", external_sku="76ec8c8572f0-1",
+        regular_price="1209.54", sale_price="1124.87", effective_price="1124.87")])])
+    header, table = export_source_table(conn, "ELSEWEDYSHOP")
+    row = dict(zip(header, table[0]))
+    assert row["product_name"] == "سلك نحاس"
+    assert row["product_name_en"] == "Copper wire"
+    assert row["region"] == "EG"
+    assert row["country"] == "Egypt"
+    assert row["brand"] == "Elsewedy"
+    assert row["category"] == "أسلاك" and row["category_en"] == "Wires"
+    # The six variations of one cable differ only in the SKU suffix; the id
+    # they share is what lets a spreadsheet group them without parsing text.
+    assert row["product_id"] == "9797" and row["sku"] == "76ec8c8572f0-1"
+    assert row["discount_amount"] == -84.67 and row["discount_pct"] == -7.0
 
 
 def test_product_sources_show_no_country_rather_than_a_star(conn):
     """A shop has no per-row geography; '*' must read as blank, not an asterisk."""
     from scrapex.reports import export_source_table
     ingest_payloads(conn, make_entry(default_region="*"), [make_payload([one_row(region="*")])])
-    _, table = export_source_table(conn, "ELSEWEDYSHOP")
-    assert table[0][1] == "" and table[0][2] == ""
+    header, table = export_source_table(conn, "ELSEWEDYSHOP")
+    row = dict(zip(header, table[0]))
+    assert row["region"] == "" and row["country"] == ""
 
 
 def test_search_accepts_the_country_NAME_not_only_the_code(conn):
