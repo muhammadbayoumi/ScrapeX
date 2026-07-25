@@ -484,21 +484,24 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
             raw_value=str(value).strip(), numeric_value=str(numeric),
             unit_raw=unit, value_url=url, lang=lang, attribute_group=group))
 
-    add("description", "Description", product.get("short_description_ar"),
+    # The code states the language of its content (0039): the unmarked name
+    # is English, `_ar` is Arabic, and `lang` beside it says the same thing
+    # in the column the migration reads.
+    add("description_ar", "Description (AR)", product.get("short_description_ar"),
         lang="ar", group="Description")
-    add("description_en", "Description (EN)", product.get("short_description_en"),
+    add("description", "Description", product.get("short_description_en"),
         lang="en", group="Description")
-    add("keywords", "Keywords", product.get("keywords_ar"), lang="ar",
+    add("keywords_ar", "Keywords (AR)", product.get("keywords_ar"), lang="ar",
         group="Description")
-    add("keywords_en", "Keywords (EN)", product.get("keywords_en"), lang="en",
+    add("keywords", "Keywords", product.get("keywords_en"), lang="en",
         group="Description")
     # The LONG description — the DESCRIPTION / USES / CHARACTERISTICS body of
     # the product page, newline-separated — is detail-only. The `_en` suffix is
-    # not decoration: the panel pairs `code` with `code + "_en"` to print one
-    # bilingual entry, the same convention description/description_en set.
-    add("full_description", "Full description",
+    # not decoration: the panel pairs `code` with `code + "_ar"` to print one
+    # bilingual entry, the same convention description/description_ar set.
+    add("full_description_ar", "Full description (AR)",
         product.get("full_description_ar"), lang="ar", group="Description")
-    add("full_description_en", "Full description (EN)",
+    add("full_description", "Full description",
         product.get("full_description_en"), lang="en", group="Description")
     add("sku", "SKU", product.get("sku"), group="Specs")
     add("weight", "Weight", product.get("weight"), numeric=product.get("weight"),
@@ -546,9 +549,9 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         # This shop's data carries trailing whitespace in both the labels and
         # the values ("Product Attributes ", "1 Meter "). `add` strips the
         # value; the label is stripped here.
-        add(f"attr_{code}", str(attribute.get("name_ar") or "").strip(),
+        add(f"attr_{code}_ar", str(attribute.get("name_ar") or "").strip(),
             assignment.get("value_ar"), lang="ar", group="Specifications")
-        add(f"attr_{code}_en", str(attribute.get("name_en") or "").strip(),
+        add(f"attr_{code}", str(attribute.get("name_en") or "").strip(),
             assignment.get("value_en"), lang="en", group="Specifications")
 
     # EVERY attachment the response states. Images lead the panel as the

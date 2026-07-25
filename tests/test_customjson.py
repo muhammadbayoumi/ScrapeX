@@ -452,15 +452,17 @@ def test_the_technical_specifications_arrive_in_BOTH_languages():
     # languages. The codes are the shop's own attribute_ids (1, 2, 4, 5, 6),
     # never positions: a positional code would rename every fact the day the
     # shop reorders one product's list.
-    assert set(specs) == {"attr_1", "attr_1_en", "attr_2", "attr_2_en",
-                          "attr_4", "attr_4_en", "attr_5", "attr_5_en",
-                          "attr_6", "attr_6_en"}
-    assert specs["attr_2"]["attribute_label"] == "اللون"
-    assert specs["attr_2"]["raw_value"] == "ابيض"
-    assert specs["attr_2"]["lang"] == "ar"
-    assert specs["attr_2_en"]["attribute_label"] == "color"
-    assert specs["attr_2_en"]["raw_value"] == "white"
-    assert specs["attr_2_en"]["lang"] == "en"
+    assert set(specs) == {"attr_1", "attr_1_ar", "attr_2", "attr_2_ar",
+                          "attr_4", "attr_4_ar", "attr_5", "attr_5_ar",
+                          "attr_6", "attr_6_ar"}
+    # The code and the `lang` beside it say the SAME thing (0039). Read them
+    # together: the unmarked code carries English and declares lang="en".
+    assert specs["attr_2_ar"]["attribute_label"] == "اللون"
+    assert specs["attr_2_ar"]["raw_value"] == "ابيض"
+    assert specs["attr_2_ar"]["lang"] == "ar"
+    assert specs["attr_2"]["attribute_label"] == "color"
+    assert specs["attr_2"]["raw_value"] == "white"
+    assert specs["attr_2"]["lang"] == "en"
 
 
 def test_the_shops_own_trailing_whitespace_never_reaches_a_value_or_a_label():
@@ -472,11 +474,11 @@ def test_the_shops_own_trailing_whitespace_never_reaches_a_value_or_a_label():
     rows = {r["attribute_code"]: r
             for r in details_of(crawl(fetcher, make_entry(enrichment=True)))}
 
-    assert rows["attr_1_en"]["raw_value"] == "1 Meter"
-    assert rows["attr_1_en"]["attribute_label"] == "consumption Rate Approx."
-    assert rows["attr_4_en"]["attribute_label"] == "Product Attributes"
-    assert rows["attr_4_en"]["raw_value"] == "Polyethylene Foam"
-    assert rows["attr_5_en"]["raw_value"] == "Joint Sealant"
+    assert rows["attr_1"]["raw_value"] == "1 Meter"
+    assert rows["attr_1"]["attribute_label"] == "consumption Rate Approx."
+    assert rows["attr_4"]["attribute_label"] == "Product Attributes"
+    assert rows["attr_4"]["raw_value"] == "Polyethylene Foam"
+    assert rows["attr_5"]["raw_value"] == "Joint Sealant"
 
 
 def test_EVERY_image_reaches_the_gallery_not_only_the_primary_one():
@@ -576,14 +578,14 @@ def test_the_full_description_arrives_in_both_languages():
     rows = {r["attribute_code"]: r
             for r in details_of(crawl(fetcher, make_entry(enrichment=True)))}
 
-    assert rows["full_description_en"]["lang"] == "en"
-    assert rows["full_description_en"]["attribute_group"] == "Description"
-    assert "CHARACTERISTICS / ADVANTAGES" in rows["full_description_en"]["raw_value"]
-    assert "USES:" in rows["full_description_en"]["raw_value"]
-    assert "الإستعمالات:" in rows["full_description"]["raw_value"]
-    assert rows["full_description"]["lang"] == "ar"
+    assert rows["full_description"]["lang"] == "en"
+    assert rows["full_description"]["attribute_group"] == "Description"
+    assert "CHARACTERISTICS / ADVANTAGES" in rows["full_description"]["raw_value"]
+    assert "USES:" in rows["full_description"]["raw_value"]
+    assert "الإستعمالات:" in rows["full_description_ar"]["raw_value"]
+    assert rows["full_description_ar"]["lang"] == "ar"
     # and the SHORT description still stands beside it, not replaced by it
-    assert rows["description_en"]["raw_value"] == "Backing rod for joint sealing"
+    assert rows["description"]["raw_value"] == "Backing rod for joint sealing"
 
 
 def test_the_stock_levels_are_emitted_only_where_the_shop_populates_them():
@@ -751,7 +753,7 @@ def test_a_detail_wrapped_in_the_shops_own_success_data_envelope_is_read():
 
     rows = details_of(crawl(fetcher, make_entry(enrichment=True)))
 
-    assert any(r["attribute_code"] == "attr_2_en" for r in rows)
+    assert any(r["attribute_code"] == "attr_2" for r in rows)
 
 
 def test_the_owners_stop_button_is_never_swallowed_by_the_per_product_guard():

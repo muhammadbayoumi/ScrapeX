@@ -1575,8 +1575,11 @@
     items.forEach((d) => {
       if (used.has(d)) return;
       const code = d.code || "";
-      const english = code.endsWith("_en") ? d : byCode.get(code + "_en");
-      const arabic = code.endsWith("_en") ? byCode.get(code.slice(0, -3)) : d;
+      // The unmarked code is English, `_ar` is Arabic (0039). slice(0, -3)
+      // works on either suffix -- they are the same length -- but the
+      // INTENT is what moved, so read it as written.
+      const arabic = code.endsWith("_ar") ? d : byCode.get(code + "_ar");
+      const english = code.endsWith("_ar") ? byCode.get(code.slice(0, -3)) : d;
       if (english && arabic && english !== arabic && !used.has(english) && !used.has(arabic)) {
         used.add(english);
         used.add(arabic);
