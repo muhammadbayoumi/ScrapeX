@@ -445,10 +445,17 @@ revealSettingsHash();
   const upgrade = document.getElementById("runtime-upgrade");
   if (!note || !restart || !upgrade) return;
 
+  // An engine older than these buttons does not serve them, and a bare 404
+  // reads as "the button is broken" — the opposite of the truth.
+  const stale = "This engine started before these buttons existed, so it does not " +
+    "have them yet. Start the engine from the Windows Startup folder " +
+    "(Win+R, shell:startup, double-click ScrapeX Engine.vbs), or sign out and in.";
+
   upgrade.addEventListener("click", async () => {
     upgrade.disabled = true;
     try {
       const r = await fetch("/api/databases/upgrade", {method: "POST"});
+      if (r.status === 404) { note.textContent = stale; return; }
       const body = await r.json();
       note.textContent = r.ok ? body.message : (body.detail || "The upgrade did not run.");
     } catch (err) {
@@ -459,7 +466,12 @@ revealSettingsHash();
   restart.addEventListener("click", async () => {
     restart.disabled = true;
     note.textContent = "Restarting — this page will go quiet for a few seconds.";
-    try { await fetch("/api/engine/restart", {method: "POST"}); } catch (err) { /* it exits mid-answer */ }
+    let missing = false;
+    try {
+      const asked = await fetch("/api/engine/restart", {method: "POST"});
+      missing = asked.status === 404;
+    } catch (err) { /* it exits mid-answer, which is the success path */ }
+    if (missing) { note.textContent = stale; restart.disabled = false; return; }
     let attempts = 0;
     const timer = setInterval(async () => {
       attempts += 1;

@@ -711,6 +711,10 @@ _EXPORT_SELECT: dict[str, str] = {
     "option_label": "sv.option_label",
     "sku": "sv.external_sku",
     "external_product_id": "sp.external_product_id",
+    # The VARIATION's own page (0037). A variable product's rows are one per
+    # variation, so linking them all to the product's page sent five of every
+    # six clicks to the wrong colour.
+    "variant_url": "sv.variant_url",
     "effective_price": "po.effective_price",
     "regular_price": "po.regular_price",
     "sale_price": "po.sale_price",
@@ -799,7 +803,10 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # The official body the source names for its figure, when it names one.
     ("official_source", lambda r, s: r["official_source"] or ""),
     ("official_source_url", lambda r, s: r["official_source_url"] or ""),
-    ("product_url", lambda r, s: r["product_url"] or ""),
+    # The most specific address this row has: the variation's own page when the
+    # source publishes one, the product's page otherwise. Storing the right link
+    # and then exporting the wrong one would be the defect with extra steps.
+    ("product_url", lambda r, s: r["variant_url"] or r["product_url"] or ""),
 ]
 
 EXPORT_HEADER = [name for name, _ in EXPORT_COLUMNS]
@@ -1341,7 +1348,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       sp.category_path, sp.source_name_en, sp.category_path_en, "
         # Appended LAST on purpose: every index above is positional and a column
         # inserted mid-list silently shifts the lot.
-        "       po.vat_included, sv.variant "
+        "       po.vat_included, sv.variant, sv.variant_url "
         f"{_LATEST_PER_OFFER} ORDER BY sp.source_name, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1365,10 +1372,13 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         return tax_index[key]
 
     shaped = [{"product_name": r[0], "option_label": r[1] or "", "variant": r[30] or "",
+               # The variation's own page where there is one; the row's arrow
+               # and the record panel both open the most specific address.
+               "product_url": r[31] or r[9] or "",
                "sku": r[2] or "",
                "effective_price": r[3], "regular_price": r[4], "sale_price": r[5],
                "currency": r[6], "availability": r[7],
-               "price_changed_on": r[8], "product_url": r[9] or "",
+               "price_changed_on": r[8],
                "curation_status": r[10], "region": r[11] or "",
                "region_name": region_name(r[11]),
                "last_confirmed_on": (r[12] or "")[:10],

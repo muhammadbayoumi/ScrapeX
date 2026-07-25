@@ -409,3 +409,19 @@ def test_relinking_the_native_host_refuses_a_value_that_is_not_an_extension_id(c
     assert r.status_code == 400
     assert "extension id" in r.json()["detail"]
 
+
+
+def test_a_stale_engine_is_named_rather_than_reported_as_not_found():
+    """The owner pressed Upgrade database and read "Not Found".
+
+    These buttons are served BY the engine they are asking you to fix, so an
+    engine started before they existed does not have them — and the first time
+    they are needed is the one time they are missing. A bare 404 reads as "the
+    button is broken", which is the opposite of what happened."""
+    for name in ("database_unavailable.html", "settings.html"):
+        body = (Path(__file__).resolve().parent.parent / "scrapex" / "webui" /
+                "templates" / name).read_text(encoding="utf-8")
+        assert "status === 404" in body, f"{name} does not notice a missing endpoint"
+        assert "started before these buttons existed" in body, \
+            f"{name} does not say what Not Found means"
+        assert "shell:startup" in body, f"{name} does not name the route that works"

@@ -265,3 +265,32 @@ def test_a_source_without_variations_gains_no_empty_axis_columns(conn):
     ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
     header, _table = export_source_table(conn, "ELSEWEDYSHOP")
     assert header == EXPORT_HEADER
+
+
+def test_a_variation_is_linked_to_its_own_page_not_the_products(conn):
+    """Every variation of one product used to carry the SAME url — the product's
+    — because the variation's own address had nowhere to live. Live on
+    samehgabriel that meant 108 variants sharing one link, so five of every six
+    opened the wrong colour."""
+    from scrapex.reports import export_source_table, table_payload
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_variant_id="v1", option_label="Color: أحمر",
+                product_url="https://shop.example/wire/",
+                variant_url="https://shop.example/wire/?attribute_pa_color=black"),
+    ])])
+
+    header, table = export_source_table(conn, "ELSEWEDYSHOP")
+    row = dict(zip(header, table[0]))
+    assert row["product_url"].endswith("attribute_pa_color=black")
+    assert table_payload(conn, "ELSEWEDYSHOP")["rows"][0]["product_url"].endswith(
+        "attribute_pa_color=black")
+
+
+def test_a_product_without_variations_keeps_its_own_link(conn):
+    """The fallback matters as much: a source with no variations publishes no
+    variant_url, and the row must still link somewhere."""
+    from scrapex.reports import export_source_table
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(product_url="https://shop.example/floodlight/")])])
+    header, table = export_source_table(conn, "ELSEWEDYSHOP")
+    assert dict(zip(header, table[0]))["product_url"] == "https://shop.example/floodlight/"

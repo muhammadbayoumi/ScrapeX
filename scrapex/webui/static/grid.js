@@ -1028,6 +1028,9 @@
     if (key === "open") {
       // The arrow the owner missed: straight to the record on the site.
       return (cell) => {
+        // product_url is already the most specific address the server has for
+        // this row — the variation's own page where the source publishes one.
+        // The grid does not choose; it opens what the row was given.
         const url = cell.getRow().getData().product_url;
         if (!url) return "";
         const link = document.createElement("a");

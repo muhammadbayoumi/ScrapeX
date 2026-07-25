@@ -59,6 +59,20 @@
   // workspace loads.
   (function () {
     const note = document.getElementById("db-action-note");
+
+    // THE ONE THING THESE BUTTONS CANNOT DO. This page is drawn by the engine
+    // it is asking you to fix, and an engine started before these buttons
+    // existed does not serve them — so the very first time they are needed,
+    // they answer 404. A bare "Not Found" reads as "the button is broken",
+    // which is the opposite of the truth, so it says what actually happened
+    // and names the one route that does not depend on this process.
+    function stale() {
+      return "This engine started before these buttons existed, so it does not " +
+        "have them yet — that is what Not Found means here. Start the engine " +
+        "from the Windows Startup folder (press Win+R, type shell:startup, and " +
+        "double-click ScrapeX Engine.vbs), or sign out and in. After that the " +
+        "buttons are there and you will not need this again.";
+    }
     function working(button, text) { button.disabled = true; button.dataset.was = button.textContent; button.textContent = text; }
     function done(button) { button.disabled = false; button.textContent = button.dataset.was || button.textContent; }
 
@@ -66,6 +80,7 @@
       working(this, "Upgrading…");
       try {
         const r = await fetch("/api/databases/upgrade", {method: "POST"});
+        if (r.status === 404) { note.textContent = stale(); return; }
         const body = await r.json();
         note.textContent = r.ok ? (body.message || "Done.") + " Reloading…"
                                 : (body.detail || "The upgrade did not run.");
@@ -78,7 +93,12 @@
     document.getElementById("db-restart").addEventListener("click", async function () {
       working(this, "Restarting…");
       note.textContent = "Restarting the engine — this page will go quiet for a few seconds.";
-      try { await fetch("/api/engine/restart", {method: "POST"}); } catch (err) { /* the engine exits mid-answer */ }
+      let missing = false;
+      try {
+        const asked = await fetch("/api/engine/restart", {method: "POST"});
+        missing = asked.status === 404;
+      } catch (err) { /* the engine exits mid-answer, which is the success path */ }
+      if (missing) { note.textContent = stale(); done(this); return; }
       // Poll until something answers again, then reload. Never claim it is back
       // before a request has actually succeeded.
       let attempts = 0;
