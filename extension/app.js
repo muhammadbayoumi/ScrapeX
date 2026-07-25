@@ -102,7 +102,7 @@ function sourceDomain(url) {
   return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
 }
 
-function sourceIdentity(source, compact = false) {
+function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row") {
   const key = source.source_key || "";
   const name = source.source_name || key.replaceAll("_", " ");
   const domain = sourceDomain(source.base_url);
@@ -113,14 +113,17 @@ function sourceIdentity(source, compact = false) {
     ${domain || english ? `<span class="source-identity-names">${english}${
       english ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
     }<span class="source-identity-name" dir="auto">${esc(name)}</span></span>` : ""}
-    <code class="source-identity-key">${esc(key)}</code>
+    <span class="source-identity-footer">
+      <code class="source-identity-key">${esc(key)}</code>
+      ${metricValue == null ? "" : sourceMetric(metricValue, metricLabel)}
+    </span>
   </span>`;
 }
 
 function sourceMetric(value, label) {
   return `<span class="source-identity-meta">
     <span class="source-identity-meta-bracket" aria-hidden="true">[</span>
-    <small>${esc(label)}</small><strong>${esc(value)}</strong>
+    <small>${esc(label)}</small><span class="source-identity-meta-value">${esc(value)}</span>
     <span class="source-identity-meta-bracket" aria-hidden="true">]</span>
   </span>`;
 }
@@ -157,8 +160,7 @@ function renderSites() {
       return `<div class="srow ${ready ? "" : "off"}">
         <label>
           <input type="checkbox" data-key="${esc(s.source_key)}" ${checked} ${ready ? "" : "disabled"}>
-          ${sourceIdentity(s, true)}
-          ${sourceMetric(Number(s.observations || 0).toLocaleString(), "data rows")}
+          ${sourceIdentity(s, true, Number(s.observations || 0).toLocaleString())}
         </label>
         <span class="source-row-actions">
           ${auto}${reason}
@@ -451,8 +453,8 @@ async function loadDatasets() {
     }
     box.innerHTML = withData.map((s) => `
       <div class="card dataset-card">
-        <div><div class="dataset-identity-line">${sourceIdentity(s)}
-          ${sourceMetric(Number(s.observations).toLocaleString(), "data rows")}</div>
+        <div><div class="dataset-identity-line">${sourceIdentity(
+          s, false, Number(s.observations).toLocaleString())}</div>
           <div class="n">${Number(s.products || 0).toLocaleString()} products</div>
           <div class="n">${esc(s.changes || "no recorded changes yet")}</div></div>
         <button data-open="${esc(s.source_key)}">Open in Workspace ${icon("open-in-new", "sm")}</button>

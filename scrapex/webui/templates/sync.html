@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% from "_source_identity.html" import source_identity, source_metric %}
+{% from "_source_identity.html" import source_identity %}
 {% block title %}Google Sheets Synchronization — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/sync.css">
@@ -212,8 +212,7 @@
               <label class="source-selection-row">
                 <input type="checkbox" name="fsrc" value="{{ s.source_key }}"
                        {{ "checked" if source_key and s.source_key == source_key }}>
-                {{ source_identity(s) }}
-                {{ source_metric("{:,}".format(s.observations), "data rows") }}
+                {{ source_identity(s, metric_value="{:,}".format(s.observations)) }}
               </label>
             {% endfor %}
           </fieldset>
@@ -444,8 +443,7 @@
               <label class="source-selection-row">
                 <input type="checkbox" name="gsrc" value="{{ s.source_key }}"
                        {{ "checked" if source_key and s.source_key == source_key }}>
-                {{ source_identity(s) }}
-                {{ source_metric("{:,}".format(s.observations), "data rows") }}
+                {{ source_identity(s, metric_value="{:,}".format(s.observations)) }}
               </label>
             {% endfor %}
           </fieldset>

@@ -1,5 +1,5 @@
 {% from "_icons.html" import icon %}
-{% from "_source_identity.html" import source_identity, source_metric %}
+{% from "_source_identity.html" import source_identity %}
 <div class="dataset-menu-popover" data-dataset-browser aria-label="Datasets">
   <header class="dataset-browser-head">
     <div class="dataset-browser-title">
@@ -32,11 +32,10 @@
         {# The NAME leads, the key follows: a list headed by MADAR / GPP
            ENERGY made the owner read machine keys where the site has a
            name. One rule for every listing (owner-reported). #}
-        {{ source_identity(s) }}
+        {{ source_identity(s, metric_value="{:,}".format(s.observations)) }}
         {# The English name reads on its own line, the way the table flips
            AR|EN — dir="ltr" because it IS English, whatever the line above is
            written in. Nothing at all when the site has one name only. #}
-        {{ source_metric("{:,}".format(s.observations), "data rows") }}
       </a>
       {% endfor %}
     </section>
@@ -50,10 +49,9 @@
          data-dataset-choice data-search="{{ (p.source_name ~ ' ' ~ p.source_name_en ~ ' ' ~ p.source_key)|lower }}"
          data-domain="{{ (p.base_url or '')|source_domain|lower }}"
          {% if p.source_key == source_key %}aria-current="page"{% endif %}>
-        {{ source_identity(p) }}
+        {{ source_identity(p, metric_value="0") }}
         <span class="dataset-choice-detail">
           <small class="dataset-choice-state">Never run</small>
-          {{ source_metric("0", "data rows") }}
         </span>
       </a>
       {% endfor %}

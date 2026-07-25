@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% from "_source_identity.html" import source_identity, source_metric %}
+{% from "_source_identity.html" import source_identity %}
 {% block title %}Overview — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/overview.css?v=source-ui-5">
@@ -62,10 +62,9 @@
                data-overview-source="{{ source.source_key }}">
               <span class="overview-source-status {{ 'is-ok' if source.last_status == 'success' else 'is-attention' }}"
                     aria-hidden="true"></span>
-              {{ source_identity(source) }}
+              {{ source_identity(source, metric_value="{:,}".format(source.observations)) }}
               <span class="overview-source-detail">
                 <small class="overview-source-state">{{ "Last run completed" if source.last_status == "success" else "Needs attention" }}</small>
-                {{ source_metric("{:,}".format(source.observations), "data rows") }}
               </span>
             </a>
           {% endfor %}
@@ -73,10 +72,9 @@
             <a class="overview-source" href="/source/{{ source.source_key }}"
                data-overview-source="{{ source.source_key }}">
               <span class="overview-source-status is-pending" aria-hidden="true"></span>
-              {{ source_identity(source) }}
+              {{ source_identity(source, metric_value="0") }}
               <span class="overview-source-detail">
                 <small class="overview-source-state">Never run</small>
-                {{ source_metric("0", "data rows") }}
               </span>
             </a>
           {% endfor %}

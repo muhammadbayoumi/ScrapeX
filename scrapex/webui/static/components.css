@@ -540,8 +540,8 @@ button.chip {
 /* Canonical source identity and selectable source list.
  *
  * The domain is the primary identity. English precedes the local name on one
- * secondary line, while the stable key stays LTR on the final line. Page
- * layouts supply only the surrounding interaction and contextual metric. */
+ * secondary line, while the stable key and contextual metric share the final
+ * line. Page layouts supply only the surrounding interaction. */
 .source-identity {
   display: grid;
   min-width: 0;
@@ -566,6 +566,14 @@ button.chip {
   font-weight: var(--fw-bold);
   direction: ltr;
   unicode-bidi: isolate;
+}
+
+.source-identity-footer {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .source-identity-names {
@@ -616,8 +624,8 @@ button.chip {
 .source-identity-meta {
   display: inline-flex;
   align-items: baseline;
-  align-self: end;
-  gap: 0.25rem;
+  align-self: baseline;
+  gap: 0;
   flex: none;
   color: var(--muted);
   white-space: nowrap;
@@ -628,15 +636,15 @@ button.chip {
   font-size: var(--fs-2xs);
 }
 
-.source-identity-meta strong,
+.source-identity-meta-value,
 .source-identity-meta small {
   display: inline;
 }
 
-.source-identity-meta strong {
+.source-identity-meta-value {
   color: var(--text);
   font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-regular);
   font-variant-numeric: tabular-nums;
 }
 
@@ -656,7 +664,7 @@ button.chip {
 
 .source-selection-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--sp-3);
   min-width: 0;
@@ -679,17 +687,6 @@ button.chip {
 
 .source-selection-row input[type="checkbox"] {
   margin-top: 0;
-}
-
-@media (max-width: 560px) {
-  .source-selection-row {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .source-selection-row .source-identity-meta {
-    grid-column: 2;
-    text-align: start;
-  }
 }
 
 .n,

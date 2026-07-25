@@ -156,12 +156,15 @@ def test_source_identity_uses_domain_names_key_and_plain_data_row_metric(client)
     domain = sync.index("elsewedyshop.com")
     english = sync.index("Elsewedy Shop", domain)
     local = sync.index("السويدي شوب", english)
+    footer = sync.index("source-identity-footer", local)
     key = sync.index("ELSEWEDYSHOP", local)
     assert domain < english < local < key
-    assert "<small>data rows</small>" in sync
+    assert "<small>Row</small>" in sync
     assert "source-identity-meta-bracket" in sync
-    assert sync.index("<small>data rows</small>") < sync.index(
-        "<strong>2</strong>", sync.index("<small>data rows</small>")
+    metric = sync.index("<small>Row</small>", key)
+    assert footer < key < metric
+    assert metric < sync.index(
+        '<span class="source-identity-meta-value">2</span>', metric
     )
 
 

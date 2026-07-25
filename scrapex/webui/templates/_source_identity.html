@@ -3,12 +3,19 @@
    Every source list follows the same reading order:
    1. source domain, without scheme or www;
    2. English name, then owner-facing/local name;
-   3. stable technical source key;
-   4. contextual metric or state beside the key.
+   3. stable technical source key and, when supplied, its contextual metric.
 
    Keep interaction semantics (link, checkbox, tab, table cell) in the caller.
    The identity itself stays identical everywhere. #}
-{% macro source_identity(source, compact=false) -%}
+{% macro source_metric(value, label) -%}
+  <span class="source-identity-meta">
+    <span class="source-identity-meta-bracket" aria-hidden="true">[</span>
+    <small>{{ label }}</small><span class="source-identity-meta-value">{{ value }}</span>
+    <span class="source-identity-meta-bracket" aria-hidden="true">]</span>
+  </span>
+{%- endmacro %}
+
+{% macro source_identity(source, compact=false, metric_value=none, metric_label="Row") -%}
   {% set key = source.source_key %}
   {% set name = source.source_name or key.replace("_", " ") %}
   {% set name_en = source.source_name_en or "" %}
@@ -24,16 +31,10 @@
         <span class="source-identity-name" dir="auto">{{ name }}</span>
       </span>
     {% endif %}
-    <code class="source-identity-key">{{ key }}</code>
-  </span>
-{%- endmacro %}
-
-{% macro source_metric(value, label) -%}
-  <span class="source-identity-meta">
-    <span class="source-identity-meta-bracket" aria-hidden="true">[</span>
-    <small>{{ label }}</small>
-    <strong>{{ value }}</strong>
-    <span class="source-identity-meta-bracket" aria-hidden="true">]</span>
+    <span class="source-identity-footer">
+      <code class="source-identity-key">{{ key }}</code>
+      {% if metric_value is not none %}{{ source_metric(metric_value, metric_label) }}{% endif %}
+    </span>
   </span>
 {%- endmacro %}
 
