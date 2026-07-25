@@ -181,6 +181,13 @@ def test_source_scoped_pages_use_the_stacked_source_filter(client, path):
     assert "elsewedyshop.com" in body
 
 
+def test_source_filter_stays_above_sticky_table_headers():
+    styles = Path("scrapex/webui/static/webui.css").read_text(encoding="utf-8")
+    assert ".source-filter-menu[open]{z-index:var(--z-overlay)}" in styles
+    assert ".source-filter-popover{position:absolute;z-index:1" in styles
+    assert "var(--z-popover)" not in styles
+
+
 def test_jobs_use_cards_and_canonical_source_identity(client, db_path):
     from tests.test_jobs import _FakeManifest, _capture_ok
 
