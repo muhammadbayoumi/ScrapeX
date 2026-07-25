@@ -87,6 +87,61 @@ def test_zid_filters_products_and_maps():
     assert rebar["effective_price"] == "300"  # AggregateOffer lowPrice fallback
 
 
+# ---- live capture: advancedcastle.com, 2026-07-20 / 2026-07-23 --------------
+
+class _LiveStubFetcher:
+    """Serves the captured advancedcastle sitemaps and one captured product page."""
+
+    ROUTES = {
+        "/sitemap.xml": "live/advancedcastle_sitemap_index.xml",
+        "/sitemap_products.xml": "live/advancedcastle_sitemap_products.trimmed.xml",
+    }
+    PRODUCT_PAGE = "live/advancedcastle_product.trimmed.html"
+
+    def __init__(self): self.requests_count = 0
+
+    def get(self, url, **kwargs):
+        self.requests_count += 1
+        for needle, fixture in self.ROUTES.items():
+            if url.endswith(needle):
+                return _Resp(_read(fixture))
+        if "/products/" in url:
+            return _Resp(_read(self.PRODUCT_PAGE))
+        raise RuntimeError("404 " + url)
+
+    def close(self): pass
+
+
+def test_the_category_the_live_page_states_rides_the_row():
+    """advancedcastle's product JSON-LD carries `category` — «كاشف دخان» in
+    this 2026-07-20 capture, «قفل عجلات > مخفض» on the 2026-07-23 page. The
+    connector parsed the very same node for the price and dropped the filing,
+    leaving category_path empty on every Zid row."""
+    table = next(iter(ZidConnector(_LiveStubFetcher()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    assert table.rows, "the live capture must produce rows"
+    assert view.as_dict(table.rows[0])["category_path"] == "كاشف دخان"
+    assert view.as_dict(table.rows[0])["availability"] == "in_stock"
+
+
+def test_a_zid_page_that_cannot_be_read_leaves_a_warning():
+    """Zid skipped unreadable and unpriced pages in total silence, so a crawl
+    that landed half the catalogue reported plain success — the lesson salla
+    and GPP already paid for."""
+    class _OneBadPage(_LiveStubFetcher):
+        def get(self, url, **kwargs):
+            if url.endswith("/3-pack-battery-powered-smoke-detectors"):
+                self.requests_count += 1
+                return _Resp("<html><body>no json-ld here</body></html>")
+            return super().get(url, **kwargs)
+
+    table = next(iter(ZidConnector(_OneBadPage()).fetch(make_entry())))
+
+    assert any("no Product" in w and "1 product page(s)" in w
+               for w in table.warnings)
+
+
 def test_zid_end_to_end_into_warehouse():
     entry = make_entry()
     table = next(iter(ZidConnector(_StubFetcher()).fetch(entry)))

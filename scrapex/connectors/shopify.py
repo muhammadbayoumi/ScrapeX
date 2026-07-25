@@ -12,9 +12,16 @@ from ..config import SourceEntry
 from ..normalize import option_fingerprint
 from ..rowspec import PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability
-from .base import HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 250  # Shopify hard max per page
+
+# Shopify serves a translated catalogue under a locale prefix when the shop
+# publishes one. elsewedyshop declares ar + en (hreflang on its own homepage)
+# and /en/products.json answers with the English titles for the SAME ids —
+# verified live 2026-07-23. The prefix is TRIED, never assumed: a shop with one
+# language answers the same titles and this adds nothing to the rows.
+ENGLISH_LOCALE = "en"
 
 
 class ShopifyConnector:
@@ -29,6 +36,8 @@ class ShopifyConnector:
         base = source.base_url.rstrip("/")
         vat_flag = "1" if source.vat_mode.value == "incl" else "0"
         currency = source.currency or "UNKNOWN"
+        titles: dict[str, str] = {}
+        notes: list[str] = []
 
         page = 1
         while True:
@@ -37,10 +46,21 @@ class ShopifyConnector:
             if not products:  # explicit stop: empty page ends pagination (Q4)
                 break
             for product in products:
+                titles[str(product.get("id") or "")] = str(product.get("title") or "")
                 rows.extend(self._product_rows(builder, product, base, currency, vat_flag, source.default_region))
             if len(products) < PAGE_SIZE:
                 break
             page += 1
+
+        # The owner's standing rule: a site that publishes both languages is
+        # captured in both. Applied to the rows already built, so a failed
+        # English pass costs a note and never a price.
+        english = self._english_titles(base, titles, notes)
+        if english:
+            product_at = builder.header.index("external_product_id")
+            english_at = builder.header.index("product_name_en")
+            for row in rows:
+                row[english_at] = english.get(row[product_at], "")
 
         yield ScrapedTable(
             source_key=source.source_key,
@@ -48,7 +68,47 @@ class ShopifyConnector:
             source_url=f"{base}/products.json",
             header=builder.header,
             rows=rows,
+            warnings=notes,
         )
+
+    def _english_titles(self, base: str, titles: dict[str, str],
+                        notes: list[str]) -> dict[str, str]:
+        """product id -> English title, or {} when the shop has only one language.
+
+        Joined by id, and kept only where it DIFFERS from the title already
+        collected: a shop whose locale prefix simply re-serves its single
+        language would otherwise be published as if it had been translated.
+        The first page decides whether the rest is worth fetching, so a
+        monolingual shop pays one request, not a second full crawl.
+        """
+        found: dict[str, str] = {}
+        page = 1
+        while True:
+            url = f"{base}/{ENGLISH_LOCALE}/products.json?limit={PAGE_SIZE}&page={page}"
+            try:
+                products = self._fetcher.get(url).json().get("products", [])
+            except CrawlBlocked:
+                raise
+            except Exception as exc:  # noqa: BLE001 — bilingual is additive
+                if page == 1:
+                    notes.append(f"{ENGLISH_LOCALE} locale unavailable — names "
+                                 f"stay single-language this run: {exc}")
+                break
+            if not products:
+                break
+            fresh = 0
+            for product in products:
+                pid = str(product.get("id") or "")
+                title = str(product.get("title") or "")
+                if pid and title and title != titles.get(pid, ""):
+                    found[pid] = title
+                    fresh += 1
+            if not fresh:
+                break   # this locale says nothing the first pass did not
+            if len(products) < PAGE_SIZE:
+                break
+            page += 1
+        return found
 
     @staticmethod
     def _product_rows(builder, product, base, currency, vat_flag, region) -> list[list[str]]:

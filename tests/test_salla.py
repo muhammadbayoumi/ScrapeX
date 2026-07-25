@@ -1,6 +1,7 @@
 """T2: salla-html connector — sitemap enumeration + JSON-LD parse + price gotcha."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.salla import SallaConnector, offer_price, parse_product_jsonld, sitemap_locs
 from scrapex.ingest import ingest_payloads
-from scrapex.rowspec import PRODUCT_PRICES, RowView
+from scrapex.rowspec import PRODUCT_PRICES, RowBuilder, RowView
 from scrapex.vocab import ExtractKind, ExtractScope
 
 FX = Path(__file__).parent / "fixtures"
@@ -122,3 +123,63 @@ def test_salla_end_to_end_into_warehouse():
     finally:
         conn.close()
     assert result.observations == 2 and not result.errors
+
+
+def test_an_enrichment_extract_no_longer_dies_on_a_missing_import():
+    """The enrichment branch referenced ENRICHMENT without it ever being
+    imported, so the FIRST salla source to contract enrichment would have
+    crawled the whole catalogue and then died on NameError with nothing
+    written. Driven by the 2026-07-20 live captures."""
+    class _LiveStub:
+        ROUTES = {
+            "/ar/sitemap.xml": "live/salla_alsweed_sitemap_index.xml",
+            "/ar/sitemap-1.xml": "live/salla_alsweed_sitemap_products_TRIMMED.xml",
+            "/p1506395107": "live/salla_alsweed_product_price0_p1506395107.html",
+            "/p698258674": "live/salla_alsweed_product_priced_p698258674.html",
+        }
+
+        def __init__(self): self.requests_count = 0
+
+        def get(self, url, **kwargs):
+            self.requests_count += 1
+            for needle, fixture in self.ROUTES.items():
+                if url.endswith(needle):
+                    return _Resp(_read(fixture))
+            return _Resp("<html></html>")   # a page outside the trimmed capture
+
+        def close(self): pass
+
+    entry = make_entry().model_copy(update={"extract": [
+        ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS),
+        ExtractSpec(kind=ExtractKind.ENRICHMENT, scope=ExtractScope.CENSUS),
+    ]})
+
+    tables = list(SallaConnector(_LiveStub()).fetch(entry))
+
+    assert [str(t.kind) for t in tables] == ["product_prices", "enrichment"]
+    codes = {row[tables[1].header.index("attribute_code")] for row in tables[1].rows}
+    assert "description" in codes and "sku" in codes
+
+
+def test_a_sold_out_product_is_recorded_as_sold_out_not_unknown():
+    """Live capture, alsweed 2026-07-23: p1754450923 states
+    availability https://schema.org/OutOfStock and still carries a price.
+
+    The row said `unknown` — the connector only ever asked whether the string
+    contained "InStock" — so a shop's plain "we have run out" was stored as
+    "the shop said nothing about stock".
+    """
+    node = json.loads((FX / "live" /
+                       "salla_alsweed_product_node_outofstock_2026-07-23.json")
+                      .read_text(encoding="utf-8"))
+    builder = RowBuilder(PRODUCT_PRICES)
+
+    row = SallaConnector._row(
+        builder, node,
+        "https://alsweed.sa/ar/لي-سخان-اسباني-مجدول/p1754450923",
+        make_entry(), "1")
+
+    fields = RowView(PRODUCT_PRICES, builder.header).as_dict(row)
+    assert fields["availability"] == "out_of_stock"
+    assert fields["effective_price"] == "6" and fields["currency"] == "SAR"
+    assert fields["external_product_id"] == "1754450923"

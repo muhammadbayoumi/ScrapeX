@@ -16,12 +16,16 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..rowspec import PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability, ExtractKind
+# ENRICHMENT is imported eagerly: the enrichment branch below referenced it
+# without it ever being in scope, so a salla source that declared an
+# enrichment extract would have died on NameError after the whole crawl.
+from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
+from ..vocab import ExtractKind
 from .base import HttpFetcher, ScrapedTable
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
 # generic; the /p{id} id scheme below is the salla-specific part.
-from .jsonld import brand_name, offer_price, parse_product_jsonld, sitemap_locs
+from .jsonld import (availability_status, brand_name, category_path,
+                     offer_price, parse_product_jsonld, sitemap_locs)
 
 _PRODUCT_ID = re.compile(r"/p(\d{5,})")
 
@@ -131,14 +135,14 @@ class SallaConnector:
             return None  # variant-priced with no usable price — needs session capture (later)
         m = _PRODUCT_ID.search(url)
         pid = m.group(1) if m else str(node.get("sku") or url)
-        in_stock = "InStock" in availability
         return builder.row(
             external_product_id=pid, external_variant_id=pid,
             external_sku=str(node.get("sku") or ""), product_name=str(node.get("name") or ""),
             brand_raw=brand_name(node), product_url=url,
             region=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
             regular_price=price, sale_price="", effective_price=price,
-            availability=Availability.IN_STOCK.value if in_stock else Availability.UNKNOWN.value,
+            availability=availability_status(availability),
+            category_path=category_path(node),
         )
 
 

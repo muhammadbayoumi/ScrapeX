@@ -1,0 +1,305 @@
+{
+  "type": "productCategorySearchPageWsDTO",
+  "breadcrumbs": [],
+  "currentQuery": {
+    "query": {
+      "value": ":relevance"
+    },
+    "url": "/search?q=%3Arelevance"
+  },
+  "freeTextSearch": "",
+  "pagination": {
+    "currentPage": 0,
+    "pageSize": 3,
+    "sort": "relevance",
+    "totalPages": 451,
+    "totalResults": 1353
+  },
+  "products": [
+    {
+      "active": false,
+      "activeOnB2C": false,
+      "classifications": [
+        {
+          "code": "MasdarClassification",
+          "features": [
+            {
+              "code": "MasdarClassification/1.0/MasdarClassification.hight",
+              "comparable": true,
+              "featureValues": [
+                {
+                  "value": "[7 CM]"
+                }
+              ],
+              "name": "ارتفاع",
+              "range": false
+            },
+            {
+              "code": "MasdarClassification/1.0/MasdarClassification.width",
+              "comparable": true,
+              "featureValues": [
+                {
+                  "value": "[7 CM]"
+                }
+              ],
+              "name": "عرض",
+              "range": false
+            }
+          ],
+          "name": "المواصفات"
+        }
+      ],
+      "code": "1000035833",
+      "configurable": false,
+      "configuratorType": "",
+      "ean": "605101020325",
+      "enabledForPickup": false,
+      "inWishlist": false,
+      "isAramcoProduct": true,
+      "isNew": false,
+      "isProductAvailableInCurrentCity": false,
+      "manufacturer": "ALFANAR",
+      "minOrderQty": 1,
+      "multidimensional": false,
+      "name": "الفنار ألف جديد مفتاح سخان مفرد 20 أمبير 7*7 سم أبيضAB104-وطني",
+      "organic": false,
+      "price": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 17.89",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 17.894
+      },
+      "priceRange": {},
+      "priceRangeWithTax": {},
+      "priceRangeWithoutTax": {},
+      "priceWithTax": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 17.89",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 17.894
+      },
+      "priceWithoutTax": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 15.56",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 15.56
+      },
+      "productLabels": [],
+      "recommended": false,
+      "salesUnit": {
+        "conversion": 0.0,
+        "name": "قطعة",
+        "unit": "PCE"
+      },
+      "stock": {
+        "isValueRounded": false,
+        "stockLevel": 241,
+        "stockLevelStatus": "inStock"
+      },
+      "stockAvailableForDelivery": true,
+      "stockAvailableForPickup": true,
+      "summary": "مفتاح سخان مفرد - اشتري الآن وتمتع بأفضل سعر",
+      "topSelling": false,
+      "uoms": [
+        {
+          "conversion": 0.0,
+          "name": "قطعة",
+          "unit": "PCE"
+        }
+      ],
+      "url": "/electrical-supplies-and-equipment/switches-and-sockets/sockets/alfanar-new-alf-switch-1gang-20a-double-pole-7-7cm-with-neon-ab104/p/1000035833",
+      "volumePrices": [
+        {
+          "currencyIso": "SAR",
+          "formattedValue": "SAR 15.56",
+          "minQuantity": 1,
+          "priceType": "BUY",
+          "symbolLoc": "SAR",
+          "value": 15.56
+        }
+      ],
+      "volumePricesFlag": false,
+      "volumePricesWithTax": [],
+      "volumePricesWithoutTax": []
+    },
+    {
+      "active": false,
+      "activeOnB2C": false,
+      "code": "1000027627",
+      "configurable": false,
+      "configuratorType": "",
+      "ean": "604604013321",
+      "enabledForPickup": false,
+      "inWishlist": false,
+      "isAramcoProduct": true,
+      "isNew": false,
+      "isProductAvailableInCurrentCity": false,
+      "manufacturer": "SIKA",
+      "minOrderQty": 1,
+      "multidimensional": false,
+      "name": "سيكادور بي اف معجون أيبوكسي لغلق المسامات وتسوية الأسطح 6كجم/للطقم",
+      "organic": false,
+      "price": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 146.05",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 146.04999999999998
+      },
+      "priceRange": {},
+      "priceRangeWithTax": {},
+      "priceRangeWithoutTax": {},
+      "priceWithTax": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 146.05",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 146.04999999999998
+      },
+      "priceWithoutTax": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 127.00",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 127.0
+      },
+      "productLabels": [],
+      "recommended": false,
+      "salesUnit": {
+        "conversion": 0.0,
+        "name": "قطعة",
+        "unit": "EA"
+      },
+      "stock": {
+        "isValueRounded": false,
+        "stockLevel": 0,
+        "stockLevelStatus": "outOfStock"
+      },
+      "stockAvailableForDelivery": true,
+      "stockAvailableForPickup": true,
+      "summary": "سيكادور حاد وقوي لتقليم دقيق – اطلب اليوم!",
+      "topSelling": false,
+      "uoms": [
+        {
+          "conversion": 0.0,
+          "name": "قطعة",
+          "unit": "EA"
+        }
+      ],
+      "url": "/construction-supplies-and-materials/construction-chemicals/concrete-repair/sikadur-pf-epoxy-pore-sealing-and-smoothing-putty-6kg-set/p/1000027627",
+      "volumePrices": [
+        {
+          "currencyIso": "SAR",
+          "formattedValue": "SAR 127.00",
+          "minQuantity": 1,
+          "priceType": "BUY",
+          "symbolLoc": "SAR",
+          "value": 127.0
+        }
+      ],
+      "volumePricesFlag": false,
+      "volumePricesWithTax": [],
+      "volumePricesWithoutTax": []
+    },
+    {
+      "active": false,
+      "activeOnB2C": false,
+      "classifications": [
+        {
+          "code": "MasdarClassification",
+          "features": [
+            {
+              "code": "MasdarClassification/1.0/MasdarClassification.width",
+              "comparable": true,
+              "featureValues": [
+                {
+                  "value": "[12.5 CM]"
+                }
+              ],
+              "name": "عرض",
+              "range": false
+            }
+          ],
+          "name": "المواصفات"
+        }
+      ],
+      "code": "1000028124",
+      "configurable": false,
+      "configuratorType": "",
+      "ean": "604601030101",
+      "enabledForPickup": false,
+      "inWishlist": false,
+      "isAramcoProduct": true,
+      "isNew": false,
+      "isProductAvailableInCurrentCity": false,
+      "manufacturer": "SAAF",
+      "minOrderQty": 1,
+      "multidimensional": false,
+      "name": "ساف روف كوتينج عازل مائى للأسطح والأسقف 20 كجم",
+      "organic": false,
+      "price": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 149.50",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 149.5
+      },
+      "priceRange": {},
+      "priceRangeWithTax": {},
+      "priceRangeWithoutTax": {},
+      "priceWithTax": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 149.50",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 149.5
+      },
+      "priceWithoutTax": {
+        "currencyIso": "SAR",
+        "formattedValue": "SAR 130.00",
+        "priceType": "BUY",
+        "symbolLoc": "SAR",
+        "value": 130.0
+      },
+      "productLabels": [],
+      "recommended": false,
+      "salesUnit": {
+        "conversion": 0.0,
+        "name": "برميل",
+        "unit": "DR"
+      },
+      "stock": {
+        "isValueRounded": false,
+        "stockLevel": 1,
+        "stockLevelStatus": "lowStock"
+      },
+      "stockAvailableForDelivery": true,
+      "stockAvailableForPickup": true,
+      "topSelling": false,
+      "uoms": [
+        {
+          "conversion": 0.0,
+          "name": "برميل",
+          "unit": "DR"
+        }
+      ],
+      "url": "/construction-supplies-and-materials/construction-chemicals/silicone/saaf-roof-coating-2840c2b7400029-20kg/p/1000028124",
+      "volumePrices": [
+        {
+          "currencyIso": "SAR",
+          "formattedValue": "SAR 130.00",
+          "minQuantity": 1,
+          "priceType": "BUY",
+          "symbolLoc": "SAR",
+          "value": 130.0
+        }
+      ],
+      "volumePricesFlag": false,
+      "volumePricesWithTax": [],
+      "volumePricesWithoutTax": []
+    }
+  ]
+}

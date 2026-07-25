@@ -83,6 +83,77 @@ def test_shopify_default_title_variant_has_no_fingerprint():
     assert wire["external_sku"] == "312890"
 
 
+# ---- live captures: elsewedyshop.com, 2026-07-20 (ar) + 2026-07-23 (en) -----
+
+LIVE = Path(__file__).parent / "fixtures" / "live"
+
+
+def _live(name): return json.loads((LIVE / name).read_text(encoding="utf-8"))
+
+
+class _BilingualStubFetcher:
+    """The shop's default locale on /products.json and English on /en/…"""
+
+    def __init__(self): self.requests_count = 0; self.urls: list[str] = []
+
+    def get(self, url, **kwargs):
+        self.requests_count += 1
+        self.urls.append(url)
+        if "page=1" not in url:
+            return _StubResponse({"products": []})
+        if "/en/products.json" in url:
+            return _StubResponse(_live("elsewedyshop_products_en_page1_2026-07-23.json"))
+        return _StubResponse(_live("elsewedyshop_products_page1_live.json"))
+
+    def close(self): pass
+
+
+def test_the_english_title_the_shop_publishes_is_captured_beside_the_arabic():
+    """The standing bilingual rule. elsewedyshop declares ar + en on its own
+    homepage and /en/products.json answers with English titles for the SAME
+    product ids — verified live 2026-07-23. The connector read only the
+    default locale, so product_name_en was empty on all 1032 rows."""
+    table = next(iter(ShopifyConnector(_BilingualStubFetcher()).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    rows = {view.get(r, "external_product_id"): view.as_dict(r) for r in table.rows}
+    floodlight = rows["10157311557932"]
+    assert floodlight["product_name"] == "كشاف واجهات400وات اضاءة ابيض IP 65"
+    assert floodlight["product_name_en"] == "Luma floodlight 400W IP65 6500K"
+    # Every variant of a product carries its product's English name.
+    wire = [view.as_dict(r) for r in table.rows
+            if view.get(r, "external_product_id") == "9033503572268"]
+    assert len(wire) > 1
+    assert {r["product_name_en"] for r in wire} == \
+        {"cu-pvc-copper-wire felexible-25mm-thick"}
+
+
+def test_a_shop_with_one_language_pays_one_request_not_a_second_crawl():
+    """The locale prefix is TRIED, never assumed: when it answers the titles
+    already collected there is nothing to add, and the pass stops at page 1
+    rather than re-crawling the catalogue."""
+    fetcher = _StubFetcher()          # serves the SAME fixture under /en/
+    table = next(iter(ShopifyConnector(fetcher).fetch(make_entry())))
+    view = RowView(PRODUCT_PRICES, table.header)
+
+    assert all(view.get(r, "product_name_en") == "" for r in table.rows), \
+        "a re-served single language must never be published as a translation"
+    assert sum(1 for u in fetcher.urls if "/en/" in u) == 1
+
+
+def test_an_unavailable_locale_costs_a_note_never_the_prices():
+    class _NoEnglish(_BilingualStubFetcher):
+        def get(self, url, **kwargs):
+            if "/en/" in url:
+                raise RuntimeError("404 Not Found")
+            return super().get(url, **kwargs)
+
+    table = next(iter(ShopifyConnector(_NoEnglish()).fetch(make_entry())))
+
+    assert table.rows
+    assert any("locale unavailable" in w for w in table.warnings)
+
+
 def test_shopify_end_to_end_into_warehouse():
     """The whole loop: connector rows -> payload -> ingest -> price_observation."""
     import sqlite3

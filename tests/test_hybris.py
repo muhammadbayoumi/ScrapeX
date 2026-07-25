@@ -26,12 +26,21 @@ class _Resp:
 
 
 class _StubFetcher:
-    """Serves page {currentPage} from the two-page OCC fixture set."""
+    """Serves page {currentPage} from the two-page OCC fixture set.
+
+    LANGUAGES is what the store's own /languages endpoint reports. The
+    connector asks before deciding whether an English pass is worth any
+    requests at all, so a single-language store stays a one-pass crawl.
+    """
+
+    LANGUAGES = [{"isocode": "ar", "active": True}]
 
     def __init__(self): self.requests_count = 0
 
     def get(self, url, params=None, **kwargs):
         self.requests_count += 1
+        if url.endswith("/languages"):
+            return _Resp({"languages": self.LANGUAGES})
         page = (params or {}).get("currentPage", 0)
         name = f"hybris_products_page{int(page)}.json"
         return _Resp(json.loads(_read(name)))
@@ -62,7 +71,9 @@ def test_endpoint_requires_api_config():
 def test_hybris_paginates_and_maps():
     fetcher = _StubFetcher()
     table = next(iter(HybrisOccConnector(fetcher).fetch(make_entry())))
-    assert fetcher.requests_count == 2          # 0-indexed: pages 0 and 1 (totalPages=2)
+    # /languages once, then 0-indexed pages 0 and 1 (totalPages=2). The store
+    # here publishes one language, so no second pass is fetched.
+    assert fetcher.requests_count == 3
     assert len(table.rows) == 3                 # unpriced 1000300 was skipped
     view = RowView(PRODUCT_PRICES, table.header)
 
@@ -71,6 +82,7 @@ def test_hybris_paginates_and_maps():
     assert cement["effective_price"] == "25.5" and cement["currency"] == "SAR"
     assert cement["vat_included"] == "0"        # excl -> "0"
     assert cement["availability"] == "in_stock" and cement["stock_quantity"] == "120"
+    # No salesUnit in this fixture -> the plain join stands, never a guessed prefix.
     assert cement["product_url"] == "https://www.masdaronline.com/asmnt/p/1000123"
 
     rebar = view.as_dict(table.rows[1])
@@ -80,6 +92,116 @@ def test_hybris_paginates_and_maps():
 
     sand = view.as_dict(table.rows[2])          # only row on page 1
     assert sand["external_product_id"] == "1000400" and sand["effective_price"] == "15"
+
+
+def test_the_unpriced_products_are_skipped_OUT_LOUD():
+    """714 of masdar's 1353 products answer price: null (live, 2026-07-23).
+
+    Skipping them is right — they are absent from the storefront's own sitemap,
+    so they are genuinely off sale. Skipping them in silence made a crawl that
+    landed 639 of 1353 report plain success.
+    """
+    table = next(iter(HybrisOccConnector(_StubFetcher()).fetch(make_entry())))
+
+    assert any("no price at all" in w for w in table.warnings)
+    assert any("1 product(s)" in w for w in table.warnings)
+
+
+# ---- live captures: api.masdaronline.com, 2026-07-23 -------------------------
+
+LIVE = FX / "live"
+
+
+def _live(name): return json.loads((LIVE / name).read_text(encoding="utf-8"))
+
+
+class _LiveStubFetcher:
+    """Serves the 2026-07-23 masdar captures, ar or en per the `lang` param."""
+
+    def __init__(self): self.requests_count = 0
+
+    def get(self, url, params=None, **kwargs):
+        self.requests_count += 1
+        if url.endswith("/languages"):
+            return _Resp({"languages": [{"isocode": "en", "active": True},
+                                        {"isocode": "ar", "active": True}]})
+        lang = (params or {}).get("lang", "ar")
+        if int((params or {}).get("currentPage", 0)) > 0:
+            return _Resp({"products": [], "pagination": {"totalPages": 1}})
+        return _Resp(_live(f"masdar_hybris_occ_search_{lang}_2026-07-23.json"))
+
+    def close(self): pass
+
+
+def _live_rows():
+    table = next(iter(HybrisOccConnector(_LiveStubFetcher()).fetch(make_entry())))
+    return table, RowView(PRODUCT_PRICES, table.header)
+
+
+def test_the_product_url_is_the_page_the_storefront_actually_serves():
+    """The API states only the tail; joining it onto the host 404s on EVERY
+    masdar product. The storefront files each product under
+    /{lang}/{currency}/{sales-unit}/ — verified against masdaronline's own
+    Product sitemap, which matched the composed URL for all 639 priced
+    products with zero mismatches, and the page answers 200.
+    """
+    table, view = _live_rows()
+    switch = view.as_dict(table.rows[0])
+
+    assert switch["external_product_id"] == "1000035833"
+    assert switch["product_url"] == (
+        "https://www.masdaronline.com/ar/sar/pce/electrical-supplies-and-equipment"
+        "/switches-and-sockets/sockets/alfanar-new-alf-switch-1gang-20a-double-pole"
+        "-7-7cm-with-neon-ab104/p/1000035833")
+    # The unit segment is READ from each product's salesUnit, never fixed:
+    # PCE above, EA and DR here — three units across three products.
+    assert "/ar/sar/ea/" in view.as_dict(table.rows[1])["product_url"]
+    assert "/ar/sar/dr/" in view.as_dict(table.rows[2])["product_url"]
+
+
+def test_the_english_name_the_same_api_publishes_is_captured_beside_the_arabic():
+    """The standing bilingual rule. OCC takes `lang` per request and masdar's
+    own /languages endpoint lists ar and en as active, so the English name
+    costs one extra pass over the same endpoint — and 1331 of 1346 live
+    products answered with a genuinely different name."""
+    table, view = _live_rows()
+    switch = view.as_dict(table.rows[0])
+
+    assert switch["product_name"] == (
+        "الفنار ألف جديد مفتاح سخان مفرد 20 أمبير 7*7 سم أبيضAB104-وطني")
+    assert switch["product_name_en"] == (
+        "ALFANAR NEW ALF SWITCH 20A 1GANG  DOUBLE POLE 7*7cm WITH NEON AB104")
+    assert switch["lang"] == "ar"   # the language we asked for, not a guess
+
+
+def test_a_single_language_store_is_never_crawled_twice():
+    """The English pass is gated on the STORE saying it publishes English."""
+    class _ArabicOnly(_LiveStubFetcher):
+        def get(self, url, params=None, **kwargs):
+            if url.endswith("/languages"):
+                self.requests_count += 1
+                return _Resp({"languages": [{"isocode": "ar", "active": True}]})
+            return super().get(url, params=params, **kwargs)
+
+    fetcher = _ArabicOnly()
+    table = next(iter(HybrisOccConnector(fetcher).fetch(make_entry())))
+
+    assert fetcher.requests_count == 3   # languages + page 0 + the empty page 1
+    assert all(RowView(PRODUCT_PRICES, table.header).get(r, "product_name_en") == ""
+               for r in table.rows)
+
+
+def test_a_failed_english_pass_costs_a_note_never_the_prices():
+    class _EnglishBroken(_LiveStubFetcher):
+        def get(self, url, params=None, **kwargs):
+            if (params or {}).get("lang") == "en":
+                raise RuntimeError("502 from the OCC host")
+            return super().get(url, params=params, **kwargs)
+
+    table = next(iter(HybrisOccConnector(_EnglishBroken()).fetch(make_entry())))
+
+    assert len(table.rows) == 3
+    assert any("english-names pass failed" in w for w in table.warnings)
 
 
 def test_hybris_end_to_end_into_warehouse():

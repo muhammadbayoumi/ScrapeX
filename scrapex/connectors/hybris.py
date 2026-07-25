@@ -23,9 +23,17 @@ from typing import Iterable
 from ..config import SourceEntry
 from ..rowspec import PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability
-from .base import HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 100
+
+# The language the price rows are collected in, and the one the bilingual rule
+# asks for beside it. OCC takes `lang` per request and masdar's own
+# /languages endpoint lists both as active (read live 2026-07-23), so the
+# English pass is attempted only when the STORE says it publishes English —
+# never as a standing assumption about SAP Commerce.
+PRIMARY_LANG = "ar"
+ENGLISH_LANG = "en"
 
 # OCC stockLevelStatus -> our vocabulary. lowStock is still purchasable (in_stock).
 _STOCK = {
@@ -78,14 +86,47 @@ def _availability(stock: dict) -> str:
     return _STOCK.get(stock.get("stockLevelStatus"), Availability.UNKNOWN.value)
 
 
-def _endpoint(source: SourceEntry) -> str:
+def _occ_root(source: SourceEntry) -> str:
     api = source.api
     if api is None or not api.base_url or not api.base_site:
         raise ValueError(
             f"{source.source_key}: hybris-occ needs api.base_url + api.base_site "
             "(the OCC host and baseSite id) in the manifest"
         )
-    return f"{api.base_url.rstrip('/')}/rest/v2/{api.base_site}/products/search"
+    return f"{api.base_url.rstrip('/')}/rest/v2/{api.base_site}"
+
+
+def _endpoint(source: SourceEntry) -> str:
+    return f"{_occ_root(source)}/products/search"
+
+
+def _storefront_url(product: dict, display_base: str, lang: str, currency: str) -> str:
+    """The page a human can actually open — not the API's bare path.
+
+    The OCC payload states the tail only
+    (`/electrical-…/switches-and-sockets/sockets/…/p/1000035833`), and joining
+    that straight onto the storefront host returns 404 on EVERY masdar
+    product: the storefront files each product under
+    /{lang}/{currency}/{sales-unit}/. Verified 2026-07-23 against
+    masdaronline's own Product sitemap — the composed URL matched the site's
+    canonical URL for all 639 priced products, 0 mismatches, and the composed
+    page answers 200 showing the same price the row carries.
+
+    Every part is READ from the payload (the sales unit and the price's own
+    currency) or from the language we asked for, so nothing here is invented.
+    A product that states no sales unit keeps the plain join rather than a
+    guessed prefix.
+    """
+    url = str(product.get("url") or "")
+    if not url:
+        return ""
+    if url.startswith("http"):
+        return url
+    unit = str((product.get("salesUnit") or {}).get("unit") or "").strip().lower()
+    money = str((product.get("price") or {}).get("currencyIso") or currency).strip().lower()
+    prefix = "/".join(part for part in (lang, money, unit) if part) if unit else ""
+    tail = url.lstrip("/")
+    return f"{display_base}/{prefix}/{tail}" if prefix else f"{display_base}/{tail}"
 
 
 class HybrisOccConnector:
@@ -101,17 +142,26 @@ class HybrisOccConnector:
         vat = "1" if source.vat_mode.value == "incl" else "0"
         currency = source.currency or "UNKNOWN"
         rows: list[list[str]] = []
+        notes: list[str] = []
+        unpriced = 0
+
+        # The owner's standing rule: what a source publishes in both languages
+        # is captured in both. Done FIRST so the price pass can build complete
+        # rows, and best-effort throughout — an English pass that fails costs a
+        # note, never the prices.
+        names_en = self._english_names(source, endpoint, notes)
 
         page = 0
         while True:
-            body = self._fetcher.get(endpoint, params={
-                "fields": "FULL", "pageSize": PAGE_SIZE,
-                "currentPage": page, "query": ":relevance",
-            }).json() or {}
+            body = self._search(endpoint, page, PRIMARY_LANG)
             products = body.get("products") or []
             for product in products:
-                row = self._row(builder, product, display_base, currency, vat, source.default_region)
-                if row is not None:
+                row = self._row(builder, product, display_base, currency, vat,
+                                source.default_region,
+                                names_en.get(str(product.get("code") or "")) or "")
+                if row is None:
+                    unpriced += 1
+                else:
                     rows.append(row)
             total_pages = (body.get("pagination") or {}).get("totalPages")
             page += 1
@@ -123,13 +173,84 @@ class HybrisOccConnector:
             elif len(products) < PAGE_SIZE:  # safety net if pagination block is absent
                 break
 
+        # 714 of masdar's 1353 products answer price: null (verified live
+        # 2026-07-23 — they are also absent from the storefront's own sitemap,
+        # so they really are off sale). Skipping them is right; skipping them
+        # in silence made a half-catalogue crawl look like a whole one.
+        if unpriced:
+            notes.append(
+                f"{unpriced} product(s) publish no price at all (inactive or "
+                "login-gated) — skipped, never guessed")
+
         yield ScrapedTable(
             source_key=source.source_key, kind=PRODUCT_PRICES.kind,
             source_url=endpoint, header=builder.header, rows=rows,
+            warnings=notes,
         )
 
+    def _search(self, endpoint: str, page: int, lang: str) -> dict:
+        return self._fetcher.get(endpoint, params={
+            "fields": "FULL", "pageSize": PAGE_SIZE, "currentPage": page,
+            "query": ":relevance", "lang": lang,
+        }).json() or {}
+
+    def _english_names(self, source: SourceEntry, endpoint: str,
+                       notes: list[str]) -> dict[str, str]:
+        """product code -> English name, or {} when the store has no English.
+
+        Joined by CODE, never by position: two `:relevance` searches are not
+        guaranteed to order the catalogue identically, so pairing page N of one
+        pass with page N of the other would attach the wrong name to a product.
+        """
+        if ENGLISH_LANG not in self._languages(source, notes):
+            return {}
+        names: dict[str, str] = {}
+        try:
+            page = 0
+            while True:
+                body = self._search(endpoint, page, ENGLISH_LANG)
+                products = body.get("products") or []
+                for product in products:
+                    code = str(product.get("code") or "")
+                    if code and product.get("name"):
+                        names[code] = str(product["name"])
+                total_pages = (body.get("pagination") or {}).get("totalPages")
+                page += 1
+                if not products:
+                    break
+                if total_pages is not None:
+                    if page >= int(total_pages):
+                        break
+                elif len(products) < PAGE_SIZE:
+                    break
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — bilingual is additive, prices are vital
+            notes.append("english-names pass failed — names stay "
+                         f"{PRIMARY_LANG}-only this run: {exc}")
+            return {}
+        return names
+
+    def _languages(self, source: SourceEntry, notes: list[str]) -> set[str]:
+        """The isocodes the STORE says it publishes, from OCC's own endpoint.
+
+        Asking costs one request and keeps the second pass evidence-driven: a
+        single-language OCC store is never crawled twice on a guess.
+        """
+        try:
+            body = self._fetcher.get(f"{_occ_root(source)}/languages").json() or {}
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            notes.append("could not read the store's language list — names "
+                         f"stay {PRIMARY_LANG}-only this run: {exc}")
+            return set()
+        return {str(item.get("isocode") or "").lower()
+                for item in body.get("languages") or [] if item.get("active")}
+
     @staticmethod
-    def _row(builder: RowBuilder, product: dict, display_base: str, currency: str, vat: str, region: str):
+    def _row(builder: RowBuilder, product: dict, display_base: str, currency: str,
+             vat: str, region: str, name_en: str = ""):
         price = product.get("price") or {}
         value = price.get("value")
         code = str(product.get("code") or "")
@@ -139,18 +260,21 @@ class HybrisOccConnector:
         # claims to. Where the API states both, believe the API — the manifest
         # said 'excl' for a price that equals priceWithTax exactly.
         vat_flag = _vat_basis(product, default=vat)
-        url = product.get("url") or ""
-        if url and not url.startswith("http"):
-            url = f"{display_base}/{url.lstrip('/')}"
         stock = product.get("stock") or {}
         level = stock.get("stockLevel")
+        name = str(product.get("name") or "")
         return builder.row(
             external_product_id=code,
             external_variant_id=code,  # v1 product-level; baseProduct->variants later
             external_sku=code,
-            product_name=product.get("name") or "",
+            product_name=name,
+            # The English name the SAME API publishes, kept separate and only
+            # when it says something different — a monolingual store repeats
+            # itself and repeating it here would fake a translation.
+            product_name_en=name_en if name_en and name_en != name else "",
+            lang=PRIMARY_LANG,   # not a guess: this is the lang we asked for
             brand_raw=product.get("manufacturer") or "",
-            product_url=url,
+            product_url=_storefront_url(product, display_base, PRIMARY_LANG, currency),
             region=region,
             currency=price.get("currencyIso") or currency,
             vat_included=vat_flag,

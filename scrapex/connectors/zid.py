@@ -13,9 +13,9 @@ from typing import Iterable
 
 from ..config import SourceEntry
 from ..rowspec import PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability
 from .base import HttpFetcher, ScrapedTable
-from .jsonld import brand_name, offer_price, parse_product_jsonld, sitemap_locs
+from .jsonld import (availability_status, brand_name, category_path,
+                     offer_price, parse_product_jsonld, sitemap_locs)
 
 _PRODUCT_PATH = "/products/"
 
@@ -37,20 +37,42 @@ class ZidConnector:
         base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
         rows: list[list[str]] = []
+        priceless = 0
+        unparsed = 0
+        unreachable = 0
 
         for url in self._product_urls(f"{base}/sitemap.xml"):
             try:
                 html = self._fetcher.get(url).text
             except Exception:  # noqa: BLE001 — one dead page never kills the crawl (Q3)
+                unreachable += 1
                 continue
             node = parse_product_jsonld(html)
             if not node:
+                unparsed += 1
                 continue
             row = self._row(builder, node, url, source, vat)
-            if row is not None:
-                rows.append(row)
+            if row is None:
+                priceless += 1
+                continue
+            rows.append(row)
 
-        yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base, builder.header, rows)
+        # Every skip above used to be silent, so a crawl that landed half the
+        # catalogue reported plain success — the GPP lesson, and the one salla
+        # already learned. Carrying on is right; not saying so is not.
+        notes: list[str] = []
+        if priceless:
+            notes.append(
+                f"{priceless} product(s) publish no usable price in their "
+                "JSON-LD (variant-priced) — skipped, never guessed; their real "
+                "prices need the page's variant HTML or a session capture")
+        if unparsed:
+            notes.append(f"{unparsed} product page(s) carried no Product "
+                         "JSON-LD at all")
+        if unreachable:
+            notes.append(f"{unreachable} product page(s) could not be fetched")
+        yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
+                           builder.header, rows, warnings=notes)
 
     def _product_urls(self, sitemap_url: str) -> list[str]:
         try:
@@ -71,12 +93,15 @@ class ZidConnector:
         if not price:
             return None  # variant-priced with no usable price — needs HTML/session capture (later)
         pid = _product_id(url, node)
-        in_stock = "InStock" in availability
         return builder.row(
             external_product_id=pid, external_variant_id=pid,
             external_sku=str(node.get("sku") or ""), product_name=str(node.get("name") or ""),
             brand_raw=brand_name(node), product_url=url,
             region=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
             regular_price=price, sale_price="", effective_price=price,
-            availability=Availability.IN_STOCK.value if in_stock else Availability.UNKNOWN.value,
+            availability=availability_status(availability),
+            # Zid states the product's filing in the SAME JSON-LD the price
+            # comes from — «أنظمة الإطفاء > طفايات الحريق اليدوية» — and it
+            # was being read and thrown away. No extra request.
+            category_path=category_path(node),
         )

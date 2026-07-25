@@ -1,4 +1,4 @@
-"""Three silent data defects, found by fetching live sites rather than trusting tests.
+"""Silent data defects, found by fetching live sites rather than trusting tests.
 
 An audit fetched every connector's real endpoint on 2026-07-20 and compared it to
 the committed fixture. ALL EIGHT fixtures turned out to be hand-authored rather
@@ -6,14 +6,27 @@ than captured, and three connectors were quietly producing wrong data while thei
 tests were green — because a fabricated fixture can only ever contain the cases
 its author already thought of.
 
+A second audit on 2026-07-23 ran each dormant source's own connector against its
+live site and found three more, all of the same kind: something the page states
+plainly, read and then dropped. Those live captures sit in fixtures/live/.
+
 Each test here reproduces the exact live condition that the fabricated fixture
 could not contain.
 """
 from __future__ import annotations
 
-from scrapex.connectors.hybris import _money, _vat_basis
+import json
+from pathlib import Path
+
+from scrapex.connectors.hybris import _money, _storefront_url, _vat_basis
+from scrapex.connectors.jsonld import availability_status, category_path
 from scrapex.connectors.salla import one_url_per_product
 from scrapex.connectors.shopify import was_price
+
+LIVE = Path(__file__).parent / "fixtures" / "live"
+
+
+def _node(name): return json.loads((LIVE / name).read_text(encoding="utf-8"))
 
 
 # ---- Shopify: "0.00" is a truthy string --------------------------------------
@@ -124,3 +137,73 @@ def test_rounding_stops_at_two_decimals_and_invents_no_zeros():
     assert _money(320.2865) == "320.29"
     assert _money(25.5) == "25.5", "the shape of the string is not ours to invent"
     assert _money(None) == ""
+
+
+# ---- SSR families: "out of stock" was being reported as "we don't know" ------
+
+def test_a_product_the_shop_says_it_has_run_out_of_is_not_unknown():
+    """Live, alsweed 2026-07-23: p1754450923 publishes
+    availability https://schema.org/OutOfStock.
+
+    Both SSR connectors read `"InStock" in availability` and sent everything
+    else to `unknown`, so a shop's clear "we don't have this" was stored as
+    "the shop said nothing". The vocabulary has always had out_of_stock; no
+    connector was writing it.
+    """
+    node = _node("salla_alsweed_product_node_outofstock_2026-07-23.json")
+
+    assert node["offers"]["availability"] == "https://schema.org/OutOfStock"
+    assert availability_status(node["offers"]["availability"]) == "out_of_stock"
+
+
+def test_in_stock_and_silence_still_mean_what_they_meant():
+    assert availability_status("https://schema.org/InStock") == "in_stock"
+    assert availability_status("") == "unknown"
+    assert availability_status("https://schema.org/PreOrder") == "unknown", \
+        "an availability we do not recognise stays unknown rather than guessed"
+
+
+# ---- Zid: the filing the page states, read and thrown away -------------------
+
+def test_the_category_the_product_page_states_is_kept():
+    """Live, advancedcastle 2026-07-23: the JSON-LD the price is read from also
+    carries `category`, already in the "A > B" shape category_path uses. The
+    connector parsed the node, took the price, and dropped the filing."""
+    node = _node("zid_advancedcastle_product_node_category_2026-07-23.json")
+
+    assert node["category"] == "قفل عجلات > مخفض"
+    assert category_path(node) == "قفل عجلات > مخفض"
+
+
+def test_a_category_shape_we_do_not_recognise_yields_nothing_invented():
+    assert category_path({}) == ""
+    assert category_path({"category": {"@type": "Thing", "name": "Cables"}}) == "Cables"
+    assert category_path({"category": ["Cables > LV", "Other"]}) == "Cables > LV"
+    assert category_path({"category": 17}) == ""
+
+
+# ---- Hybris: every product_url was a 404 -------------------------------------
+
+def test_the_masdar_product_url_carries_the_storefront_prefix():
+    """Live 2026-07-23: the OCC payload states only
+    /electrical-…/p/1000035833, and www.masdaronline.com serves that path as
+    404. The storefront files products under /{lang}/{currency}/{sales-unit}/
+    — checked against masdaronline's own Product sitemap for all 639 priced
+    products, 0 mismatches."""
+    product = _node("masdar_hybris_occ_search_ar_2026-07-23.json")["products"][0]
+
+    assert _storefront_url(product, "https://www.masdaronline.com", "ar", "SAR") == (
+        "https://www.masdaronline.com/ar/sar/pce/electrical-supplies-and-equipment"
+        "/switches-and-sockets/sockets/alfanar-new-alf-switch-1gang-20a-double-pole"
+        "-7-7cm-with-neon-ab104/p/1000035833")
+
+
+def test_a_product_stating_no_sales_unit_keeps_the_plain_join():
+    """No unit, no invented prefix — a wrong guess is worse than the old link."""
+    assert _storefront_url({"url": "/asmnt/p/1000123"},
+                           "https://www.masdaronline.com", "ar", "SAR") == \
+        "https://www.masdaronline.com/asmnt/p/1000123"
+    assert _storefront_url({}, "https://www.masdaronline.com", "ar", "SAR") == ""
+    assert _storefront_url({"url": "https://elsewhere/x"},
+                           "https://www.masdaronline.com", "ar", "SAR") == \
+        "https://elsewhere/x"
