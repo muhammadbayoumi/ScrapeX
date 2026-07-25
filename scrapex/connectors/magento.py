@@ -82,11 +82,34 @@ _QUERY = _QUERY_TEMPLATE.format(extra="")
 # 2026-07-23: manufacturer, country_of_manufacture, origin, size, material
 # type, coating, grade — the owner's list, code for code). Dropdown values
 # arrive as selected_options, text values as value; both fragments cover it.
+#
+# `image` and `media_gallery` were READ by _enrichment_rows since the day it
+# was written and never ASKED FOR here, so every madar product arrived with no
+# picture and the panel's gallery was empty for the whole source. The reader
+# was right; the query was the hole. Live check 2026-07-25: 11 of the first 60
+# products carry a real image, the other 49 answer with the shop's own
+# placeholder URL — which the reader already refuses, because a grey box where
+# a product belongs is worse than an honest blank.
 _QUERY_ENRICHED = _QUERY_TEMPLATE.format(
     extra="description{html} short_description{html} "
+          "image{url label} media_gallery{url label position} "
           "custom_attributesV2(filters:{is_visible_on_front:true}){items{"
           "code ... on AttributeValue{value} "
           "... on AttributeSelectedOptions{selected_options{label}}}}")
+
+# THE SITE'S OWN FILTERS. Magento answers `aggregations` with exactly the facets
+# its category pages offer — verified live 2026-07-25: 20 of them, including
+# «عدد الخطوط», «التيار المقنّن (بالأمبير)» and «سعة القطع (كيلو أمبير)». The
+# owner asked to be able to filter the way the site lets him filter, and this
+# is the site saying which attributes those are, in its own words. One request
+# per crawl, and only when the manifest asks for enrichment.
+#
+# It also repairs a smaller wart: the "More information" rows were labelled with
+# the raw attribute CODE (country_of_manufacture) because nothing else knew the
+# human label. For every filterable attribute, this query is where that label
+# comes from.
+_AGGREGATIONS_QUERY = """query{products(filter:{price:{from:"0"}},pageSize:1,currentPage:1){
+  aggregations{attribute_code label}}}"""
 
 # The en_SA store view returns English names for the same uids (verified
 # live: "اسمنت الرياض" -> "Riyadh Cement"). uid + name ONLY — the bilingual
@@ -311,14 +334,49 @@ class MagentoGraphqlConnector:
         if wants_enrichment:
             extra = RowBuilder(ENRICHMENT)
             attribute_rows: list[list[str]] = []
+            filterable = self._filterable(endpoint, notes)
             for product in fetched:
-                attribute_rows.extend(_enrichment_rows(extra, product))
+                attribute_rows.extend(_enrichment_rows(extra, product, filterable))
             if attribute_rows:
                 yield ScrapedTable(
                     source_key=source.source_key, kind=ENRICHMENT.kind,
                     source_url=endpoint, header=extra.header,
                     rows=attribute_rows,
                 )
+
+    def _filterable(self, endpoint: str, notes: list) -> dict:
+        """attribute_code -> the site's own label, for every attribute it FILTERS by.
+
+        The owner: «وجدت ان الموقع يتيح الفلاتر فى بعض صفحات المنتجات اريد
+        اضافة اعمدة خاصة بهذه الفلاتر» — the site offers filters on some listing
+        pages, and he wants columns for them so he can filter his own way.
+        `aggregations` is the site answering exactly that question about itself,
+        so the set is the shop's, never a list we curated. One request.
+
+        A failure here costs the LABELS and the Filters grouping, nothing else:
+        the attributes still travel as "More information" rows, which is what
+        they were before this existed.
+        """
+        try:
+            answer = (self._fetcher.post(endpoint, json={"query": _AGGREGATIONS_QUERY})
+                      .json() or {})
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — the crawl does not hang on this
+            notes.append(f"filters: aggregations unavailable ({exc}) — the site's "
+                         "filterable attributes stay under More information")
+            return {}
+        aggregations = (((answer.get("data") or {}).get("products")) or {}).get("aggregations") or []
+        found: dict[str, str] = {}
+        for aggregation in aggregations:
+            code = str(aggregation.get("attribute_code") or "")
+            # `price` and `category_id` are facets over columns the table
+            # already has; repeating them as attributes would file the same
+            # fact twice under two names.
+            if not code or code in {"price", "category_id", "category_uid"}:
+                continue
+            found[code] = str(aggregation.get("label") or "") or code
+        return found
 
     def _english_names(self, endpoint: str, notes: list) -> dict:
         """uid -> English name from the en_SA store view (verified live:
@@ -647,16 +705,26 @@ class MagentoGraphqlConnector:
         return out
 
 
-def _enrichment_rows(builder: RowBuilder, product: dict) -> list:
+def _enrichment_rows(builder: RowBuilder, product: dict,
+                     filterable: dict | None = None) -> list:
     """Descriptions and per-variant weights the census already carried.
 
     The weight lands here ONLY when it is not the selling basis: cement's 50
     lives on the price row as "per 50 kg", while a steel angle's 4.986 kg is
-    a property of the piece — information, not the unit."""
+    a property of the piece — information, not the unit.
+
+    `filterable` is the site's own facet list (attribute_code -> its label, from
+    `aggregations`). An attribute the shop filters by is grouped "Filters" and
+    carries the shop's HUMAN label; everything else stays "More information".
+    Empty when the aggregations query failed, which costs the grouping and the
+    labels and nothing else.
+    """
     pid = str(product.get("uid") or "")
     if not pid:
         return []
     rows: list = []
+
+    facets = filterable or {}
 
     def add(code, label, value, *, numeric="", unit="", url=""):
         if not value:
@@ -664,6 +732,7 @@ def _enrichment_rows(builder: RowBuilder, product: dict) -> list:
         group = ("Media" if code.startswith("image")
                  else "Description" if "desc" in code
                  else "Measurements" if code == "weight"
+                 else "Filters" if code in facets
                  else "More information")
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
@@ -692,7 +761,10 @@ def _enrichment_rows(builder: RowBuilder, product: dict) -> list:
             str(o.get("label") or "")
             for o in attribute.get("selected_options") or [] if o.get("label"))
         if code:
-            add(code, code, value)
+            # The site's own label when it has published one (it does for every
+            # attribute it filters by); the bare code otherwise, which is all
+            # there was for any of them until now.
+            add(code, facets.get(code) or code, value)
     for v in product.get("variants") or []:
         child = v.get("product") or {}
         weight = child.get("weight")

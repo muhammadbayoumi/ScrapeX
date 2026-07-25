@@ -709,6 +709,8 @@ _EXPORT_SELECT: dict[str, str] = {
     "official_source_url": "po.official_source_url",
     "category_path_en": "sp.category_path_en",
     "option_axes": "sv.raw_options_json",
+    # Not an exported column: the key the site's own filter values are joined on.
+    "source_product_id": "sp.source_product_id",
 }
 
 # The exported COLUMN NAME and the value that fills it, declared side by side.
@@ -791,6 +793,7 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         (source_key, limit),
     ).fetchall()
     tax_rules = tax.load_rules(conn, source_key)
+    filters = _filter_values(conn, source_key)
     table = []
     parsed = []
     for raw in rows:
@@ -800,25 +803,64 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         state = (tax.resolve(tax_rules, row["region"], material=row["name"])
                  .for_row(bool(row["vat_included"])))
         table.append([produce(row, state) for _name, produce in EXPORT_COLUMNS])
-        parsed.append(option_axes_from(row["option_axes"]))
+        # The product's filterable attributes first, then this VARIANT's own
+        # axes over them. Where a shop both filters by «السماكة (مم)» and varies
+        # by it, the variant's value is the specific one — the product-level
+        # attribute describes the family, and letting it win would print the
+        # family's thickness on every one of its variants.
+        merged = dict(filters.get(row["source_product_id"], {}))
+        merged.update(option_axes_from(row["option_axes"]))
+        parsed.append(merged)
     return _with_axis_columns(list(EXPORT_HEADER), table, parsed)
+
+
+def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[str, str]]:
+    """source_product_id -> {the site's filter label: this product's value}.
+
+    The owner: the site offers filters on its listing pages and he wants columns
+    for them, so he can slice the table the way the shop lets him slice its own.
+    The connector asks the site which attributes those are (Magento answers
+    `aggregations` with exactly its facet list) and files their values under the
+    group "Filters"; here they become columns, named as the SHOP names them.
+
+    Nothing is inferred: a source whose connector publishes no Filters group
+    gets no such columns, and a product missing one of them gets an empty cell
+    rather than a guess.
+    """
+    rows = conn.execute(
+        "SELECT spa.source_product_id, "
+        "       COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code), spa.raw_value "
+        "FROM source_product_attribute spa "
+        "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND spa.attribute_group = 'Filters' "
+        "ORDER BY spa.source_product_id",
+        (source_key,)).fetchall()
+    found: dict[int, dict[str, str]] = {}
+    for product_id, label, value in rows:
+        if label and value:
+            found.setdefault(product_id, {})[str(label)] = str(value)
+    return found
 
 
 def _with_axis_columns(header: list[str], table: list[list],
                        parsed: list[dict]) -> tuple[list[str], list[list]]:
-    """One column per variation AXIS this source publishes, beside the label.
+    """The per-source columns: one per variation AXIS, one per site FILTER.
 
-    The owner exported a variable product and found `Color: أحمر` welded into
-    one cell: a spreadsheet cannot filter, group or pivot on that, which is the
-    only reason a column exists. Splitting the STRING at the far end would have
-    been the fix he explicitly refused — so the axes travel from the connector
-    as structure and arrive here as columns named the way the SITE names them
-    ("Color", «السماكة (مم)»).
+    Two owner reports with one answer. He exported a variable product and found
+    `Color: أحمر` welded into one cell — a spreadsheet cannot filter, group or
+    pivot on that, which is the only reason a column exists, and splitting the
+    STRING at the far end was the fix he explicitly refused. And he found the
+    site offering filters its own listing pages use, and wanted to slice the
+    table the same ways.
 
-    The columns are per SOURCE, in first-seen order, because the axes are: a
-    cable shop varies by colour, a steel shop by thickness and width. A source
-    with no variations gets no extra columns at all, so nothing gains an empty
-    column for a shape it does not have.
+    Both arrive here as dictionaries per row and leave as columns named the way
+    the SITE names them ("Color", «السماكة (مم)», «التيار المقنّن (بالأمبير)»).
+
+    The columns are per SOURCE, in first-seen order, because the facts are: a
+    cable shop varies by colour, a steel shop by thickness and width, and each
+    shop filters by what it sells. A source with neither gets no extra columns
+    at all, so nothing gains an empty column for a shape it does not have.
     """
     names: list[str] = []
     for axes in parsed:
