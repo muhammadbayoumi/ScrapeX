@@ -14,16 +14,11 @@
   * { min-width: 0; }
   .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
 
-  main { grid-column: 1; grid-row: 1; overflow-y: auto;
-         margin-inline-end: var(--sp-2); padding: var(--sp-4);
+  main { grid-column: 1; grid-row: 1; overflow-y: auto; padding: var(--sp-4);
          display: flex; flex-direction: column; gap: var(--sp-4);
-         scrollbar-width: thin; scrollbar-color: var(--muted) transparent;
-         scrollbar-gutter: stable; }
+         scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
   main::-webkit-scrollbar { width: .45rem; }
-  main::-webkit-scrollbar-track {
-    margin-block: var(--sp-3);
-    background: transparent;
-  }
+  main::-webkit-scrollbar-track { background: transparent; }
   main::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: var(--radius-pill);
@@ -86,6 +81,17 @@
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
   #view-run, #view-data, #view-settings { display: flex; flex-direction: column; gap: var(--sp-3); }
+  /* Data follows the same pattern as Choose sites: the page frame stays put
+     while the repeated rows scroll inside their own card. */
+  body:has(#view-data:not(.hidden)) main { overflow-y: hidden; }
+  #view-data { flex: 1; min-height: 0; }
+  #view-data > .card {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
   .view-heading { display: flex; flex-direction: column; gap: 2px; }
   .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
   .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
@@ -103,7 +109,30 @@
                  font-size: var(--fs-xs); font-weight: var(--fw-bold); }
   .run-action { margin-top: var(--sp-3); padding-top: var(--sp-3);
                 border-top: 1px solid var(--line); }
-  .dataset-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .dataset-list {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--sp-2);
+    min-height: 0;
+    padding-inline-end: var(--sp-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+  .dataset-list::-webkit-scrollbar { width: .45rem; }
+  .dataset-list::-webkit-scrollbar-track {
+    margin-block: var(--sp-2);
+    background: transparent;
+  }
+  .dataset-list::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    background-clip: padding-box;
+  }
   .dataset-card { position: relative; display: block; padding-inline-end: calc(var(--sp-4) * 2);
                   color: var(--text); cursor: pointer;
                   transition: border-color var(--dur-fast) ease,

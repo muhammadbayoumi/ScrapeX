@@ -341,6 +341,19 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
     assert opened[0].endswith("/source/LONG_AR")
 
 
+def test_data_rows_scroll_inside_the_browse_card_not_the_page(open_panel):
+    page = open_panel()
+    page.click(DATA_TAB)
+    page.wait_for_timeout(200)
+
+    page_overflow, list_overflow = page.evaluate("""() => [
+        getComputedStyle(document.querySelector("main")).overflowY,
+        getComputedStyle(document.querySelector("#datasets")).overflowY,
+    ]""")
+    assert page_overflow == "hidden"
+    assert list_overflow == "auto"
+
+
 # ---- untrusted content (spec 34) --------------------------------------------
 
 def test_a_scraped_name_containing_markup_cannot_inject_into_the_panel(open_panel):
