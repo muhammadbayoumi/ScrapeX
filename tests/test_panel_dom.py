@@ -664,3 +664,31 @@ def test_the_active_crawl_minimizes_to_a_statusbar_and_opens_again(open_panel):
     assert not bar.evaluate("el => el.open")
     assert page.is_visible("#mini-title"), "minimizing hid the crawl status itself"
     assert not page.js_errors
+
+
+def test_no_surface_tells_the_owner_to_open_a_terminal():
+    """The owner's standing rule: anything that needs a terminal is a missing
+    button. The panel told him to run `scrapex ui` in one - on a machine where
+    the launcher WAS installed and the helper answered - because a cold start
+    took longer than the five-second budget and every failure printed the same
+    sentence."""
+    panel = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    settings = (ROOT / "scrapex" / "webui" / "templates" / "settings.html").read_text(encoding="utf-8")
+
+    for surface, name in ((panel, "the panel"), (settings, "Settings")):
+        assert "scrapex ui" not in surface, f"{name} still names a terminal command"
+        assert "in a terminal" not in surface, f"{name} still sends the owner to a terminal"
+
+
+def test_each_native_failure_is_named_rather_than_blamed_on_the_install():
+    """One anonymous Error for four different failures is how "the launcher is
+    not installed" got printed on a working install."""
+    transport = (ROOT / "extension" / "transport.js").read_text(encoding="utf-8")
+    panel = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+
+    for kind in ("absent", "forbidden", "crashed", "timeout"):
+        assert f'"{kind}"' in transport, f"transport cannot report {kind}"
+        assert f'"{kind}"' in panel, f"the panel has no message for {kind}"
+    # Starting an engine is not a ping and may not be judged by a ping's budget.
+    assert "START_TIMEOUT_MS = 60000" in transport
+    assert "sendNative({ command: \"START_ENGINE\" }, START_TIMEOUT_MS)" in transport

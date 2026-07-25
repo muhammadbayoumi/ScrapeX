@@ -1218,19 +1218,45 @@ async function startEngineFromPanel() {
   button.textContent = "Starting…";
   try {
     await startEngine();
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    // Sixty seconds, not fourteen. A cold interpreter opening two databases is
+    // slower than the old budget allowed, so the panel used to give up while
+    // the engine was still coming up and then blame the installation.
+    for (let attempt = 0; attempt < 60; attempt += 1) {
       const engine = await checkEngine();
       if (engine.running) { await render(); return; }
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      if (attempt === 8) note.textContent = "Still starting — first run of the day is slower.";
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    note.textContent = "The engine was started but is not answering yet — " +
-      "give it a moment, then Check again.";
+    note.textContent = "The engine was started and is still not answering. " +
+      "Check again in a moment; if it stays quiet, open Logs.";
   } catch (err) {
-    // The host being absent is the ONE expected failure: nothing is installed
-    // to do the starting. The truthful next step is the setup page, which
-    // walks through the one-time install of exactly that host.
-    note.textContent = "The launcher is not installed on this machine yet — " +
-      "open Setup below for the one-time install. Until then: scrapex ui in a terminal.";
+    // ONE branch used to print "the launcher is not installed" for every
+    // failure — including a cold start that simply took longer than five
+    // seconds, on a machine where everything was installed and working. Each
+    // failure now says what it actually is, and none of them says "terminal":
+    // the owner does not use one, so an instruction to open one is not a next
+    // step, it is a dead end.
+    const kind = err && err.kind;
+    if (kind === "absent") {
+      note.textContent = "Chrome cannot find the ScrapeX helper on this machine — " +
+        "open Setup below for the one-time install.";
+    } else if (kind === "forbidden") {
+      note.textContent = "The helper is installed but does not recognise this " +
+        "extension yet — this happens after the extension is reloaded from a " +
+        "new folder. Open Setup to re-link them.";
+    } else if (kind === "crashed") {
+      note.textContent = "The helper started and stopped. Open Logs to see why — " +
+        "nothing is lost, and the engine can still be started from Windows.";
+    } else if (kind === "refused") {
+      note.textContent = "The helper could not start the engine: " + (err.message || "") +
+        " — Check again, or open Logs.";
+    } else if (kind === "timeout" || !kind) {
+      note.textContent = "The engine is taking longer than usual to answer. " +
+        "It may still be starting — press Check again in a few seconds.";
+    } else {
+      note.textContent = "The engine did not start: " + (err.message || kind) +
+        " — press Check again, or open Logs.";
+    }
   } finally {
     button.disabled = false;
     button.textContent = "Start engine";
@@ -1340,7 +1366,11 @@ async function init() {
     const engine = await checkEngine();
     $("diag-out").textContent = engine.running
       ? `Engine reachable at ${await getBackend()} · version ${engine.version || "unknown"}`
-      : `No engine at ${await getBackend()}. Start it with: scrapex ui`;
+      // Not "start it with a command": the owner does not use a terminal, so
+      // naming one is a dead end dressed as help. The button above this one
+      // starts it, and Windows starts it at logon.
+      : `No engine at ${await getBackend()}. Press Start engine above — it also ` +
+        `starts by itself when you sign in to Windows.`;
   });
 
   $("site-search").addEventListener("input", (e) => {

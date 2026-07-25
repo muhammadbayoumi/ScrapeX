@@ -108,8 +108,12 @@
           <td><span class="badge {{ 'ok' if about.worker_alive else 'off' }}">
             {{ "Running" if about.worker_alive else "Not running" }}</span>
             {% if not about.worker_alive %}
+              {# Not a command: the owner does not use a terminal, and the
+                 worker lives inside the engine — so the honest instruction is
+                 the one that needs no typing. #}
               <div class="muted small">Queued jobs wait until a worker is running.
-                Start one with <code>scrapex ui</code>.</div>
+                The worker starts with the engine, and the engine starts when you
+                sign in to Windows.</div>
             {% endif %}</td></tr>
     </table>
   </div>

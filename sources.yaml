@@ -265,8 +265,19 @@ sources:
     extract:
       - kind: product_prices
         scope: census
-      # The same responses already carry descriptions, keywords, weights and
-      # image attachments — emitting them costs no extra request.
+      # COSTS 87 EXTRA REQUESTS — one per product, and it is worth them.
+      #
+      # This line used to say "no extra request", which was true of the LIST
+      # endpoint alone: short descriptions, keywords and weights do ride the
+      # responses the prices come from. But the list publishes ONE attachment of
+      # eleven, no attributes, no full description and no sku at all — so the
+      # panel showed one picture of nine and every row's SKU was empty.
+      # /api/products/{id} carries all of it and nothing cheaper does. A full
+      # crawl is 8 requests without this line and 95 with it, about a minute and
+      # a half at the fetcher's 1 req/s.
+      #
+      # A shop an order of magnitude larger would need this reconsidered. The
+      # sentence is here so that decision is made with the price in front of it.
       - kind: enrichment
         scope: census
     min_expected_rows: 30
