@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Data Model â€” ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/data-model.css">
+  <script defer src="/static/pages/data-model.js"></script>
+{% endblock %}
+{% block content %}
+<div class="data-model-page">
+  <header class="model-hero">
+    <div class="model-hero-copy">
+      <span class="page-eyebrow">System architecture</span>
+      <h1>Data Model</h1>
+      <p>Explore the live tables behind ScrapeX, the relationships between them,
+         and the job each table performs from capture to export.</p>
+    </div>
+    <div class="model-stats" aria-label="Data model summary">
+      <div><strong>{{ model.table_count }}</strong><span>Live tables</span></div>
+      <div><strong>{{ model.relationship_count }}</strong><span>Relationships</span></div>
+      <div><strong>{{ "{:,}".format(model.row_count) }}</strong><span>Stored rows</span></div>
+      <div><strong>{{ model.databases | length }}</strong><span>Databases</span></div>
+    </div>
+  </header>
+
+  <section class="model-story" aria-labelledby="model-story-title">
+    <div class="section-heading">
+      <div>
+        <span class="page-eyebrow">How ScrapeX works</span>
+        <h2 id="model-story-title">A record keeps its path from source to answer</h2>
+      </div>
+      <p>The price branch and the general-data branch share one rule:
+         preserve what the source said before adding your own interpretation.</p>
+    </div>
+    <ol class="model-flow">
+      <li>
+        <span class="model-flow-number">01</span>
+        <strong>Register a source</strong>
+        <p><code>source_site</code> or <code>site_profile</code> identifies where
+           the data comes from.</p>
+      </li>
+      <li>
+        <span class="model-flow-number">02</span>
+        <strong>Capture evidence</strong>
+        <p>Runs and snapshots preserve when, where, and how the source was read.</p>
+      </li>
+      <li>
+        <span class="model-flow-number">03</span>
+        <strong>Keep source identity</strong>
+        <p>Products, variants, datasets, and fields stay in the source's own
+           vocabulary.</p>
+      </li>
+      <li>
+        <span class="model-flow-number">04</span>
+        <strong>Record facts</strong>
+        <p>Offers and observations store price facts; generic records store
+           flexible non-price data.</p>
+      </li>
+      <li>
+        <span class="model-flow-number">05</span>
+        <strong>Build history</strong>
+        <p>Periods, revisions, and change events explain what changed and when.</p>
+      </li>
+      <li>
+        <span class="model-flow-number">06</span>
+        <strong>Curate and publish</strong>
+        <p>Reviewed matches and saved views turn preserved facts into tables,
+           reports, Excel, and synchronization outputs.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="model-explorer" aria-labelledby="model-explorer-title">
+    <header class="model-explorer-head">
+      <div>
+        <span class="page-eyebrow">Relationship view</span>
+        <h2 id="model-explorer-title">Explore the live model</h2>
+        <p>Select a table to see every field, its purpose, and its direct
+           relationships.</p>
+      </div>
+      <div class="model-db-versions" aria-label="Database schema versions">
+        {% for database in model.databases %}
+          <span class="chip">{{ database.label }} <code>v{{ database.schema_version }}</code></span>
+        {% endfor %}
+      </div>
+    </header>
+
+    <div class="model-toolbar">
+      <label class="model-search">
+        {{ icon("search", "sm") }}
+        <span class="visually-hidden">Search tables and fields</span>
+        <input id="model-search" type="search"
+               placeholder="Search tables, fields, or purposeâ€¦">
+      </label>
+      <label>
+        <span>Database</span>
+        <select id="model-database">
+          {% for database in model.databases %}
+            <option value="{{ database.key }}">{{ database.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>Layer</span>
+        <select id="model-layer">
+          <option value="all">All layers</option>
+        </select>
+      </label>
+      <div class="model-zoom" aria-label="Model zoom">
+        <button id="model-zoom-out" type="button" class="ghost icon-button"
+                aria-label="Zoom out" title="Zoom out">âˆ’</button>
+        <button id="model-fit" type="button" class="ghost">Fit model</button>
+        <button id="model-zoom-in" type="button" class="ghost icon-button"
+                aria-label="Zoom in" title="Zoom in">+</button>
+      </div>
+    </div>
+
+    <div class="model-layout">
+      <div>
+        <div id="model-viewport" class="model-viewport" tabindex="0"
+             aria-label="Interactive database relationship diagram">
+          <div id="model-plane" class="model-plane">
+            <div id="model-stage" class="model-stage">
+              <canvas id="model-lines" aria-hidden="true"></canvas>
+              {% for database in model.databases %}
+                {% for table in database.tables %}
+                <article class="model-table"
+                         data-node-id="{{ table.id }}"
+                         data-database="{{ table.database }}"
+                         data-group="{{ table.group_key }}"
+                         data-table="{{ table.name }}"
+                         data-search="{{ table.name }} {{ table.purpose }}"
+                         tabindex="0" role="button"
+                         aria-label="Inspect {{ table.name }} table">
+                  <header class="model-table-head">
+                    <span class="model-table-symbol" aria-hidden="true"></span>
+                    <span>
+                      <strong>{{ table.name }}</strong>
+                      <small>{{ table.group }}</small>
+                    </span>
+                    <span class="model-table-count">{{ "{:,}".format(table.rows) }}</span>
+                  </header>
+                  <ul class="model-field-preview" aria-label="Key fields">
+                    {% for field in table.preview_fields %}
+                    <li>
+                      <span class="model-field-name">
+                        {% if field.primary_key %}<span class="key-badge pk">PK</span>{% endif %}
+                        {% if field.foreign_keys %}<span class="key-badge fk">FK</span>{% endif %}
+                        <code>{{ field.name }}</code>
+                      </span>
+                      <small>{{ field.type or "value" }}</small>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                  <p>{{ table.purpose or "Live system table." }}</p>
+                </article>
+                {% endfor %}
+              {% endfor %}
+            </div>
+          </div>
+          <div id="model-empty" class="model-empty hidden">
+            No table matches the current filters.
+          </div>
+        </div>
+        <div class="model-legend" aria-label="Relationship legend">
+          <span><b>1</b> One side</span>
+          <span><b>âˆ—</b> Many side</span>
+          <span><b class="key-badge pk">PK</b> Primary key</span>
+          <span><b class="key-badge fk">FK</b> Foreign key</span>
+          <span>Drag the background to pan</span>
+        </div>
+      </div>
+
+      <aside id="model-inspector" class="model-inspector" aria-live="polite">
+        <div class="model-inspector-empty">
+          <span class="model-inspector-mark" aria-hidden="true">
+            {{ icon("account-tree") }}
+          </span>
+          <h3>Select a table</h3>
+          <p>Its purpose, columns, and direct relationships will appear here.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="model-principles" aria-labelledby="model-principles-title">
+    <div class="section-heading">
+      <div>
+        <span class="page-eyebrow">Model rules</span>
+        <h2 id="model-principles-title">Why the model is structured this way</h2>
+      </div>
+    </div>
+    <div class="model-principle-grid">
+      <article>
+        <span>01</span>
+        <h3>Source facts stay source facts</h3>
+        <p>Names, classifications, prices, and evidence are preserved before any
+           matching or normalization.</p>
+      </article>
+      <article>
+        <span>02</span>
+        <h3>History is append-only</h3>
+        <p>A new observation adds evidence. It never overwrites the price that
+           was true before it.</p>
+      </article>
+      <article>
+        <span>03</span>
+        <h3>Human review joins worlds</h3>
+        <p>Source products reach the unified catalogue through reviewed match
+           tables, not an irreversible automatic merge.</p>
+      </article>
+      <article>
+        <span>04</span>
+        <h3>Every answer keeps lineage</h3>
+        <p>Runs, snapshots, jobs, and logs explain where a stored fact came from
+           and what produced it.</p>
+      </article>
+    </div>
+  </section>
+</div>
+
+<script id="data-model-payload" type="application/json">{{ model | tojson }}</script>
+{% endblock %}

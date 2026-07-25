@@ -63,7 +63,7 @@ from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..reports import (
     BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
-    export_source_table, history_counts, list_sources, offer_identity,
+    data_model_report, export_source_table, history_counts, list_sources, offer_identity,
     schema_report,
     offer_observations, price_extremes, product_attributes,
     table_payload,
@@ -500,6 +500,37 @@ def create_app(
             return table_payload(conn, source_key)
         finally:
             conn.close()
+
+    @app.get("/data-model", response_class=HTMLResponse)
+    def data_model_page(request: Request):
+        """The two live relational models, drawn from their own SQLite schemas."""
+        reports = []
+        price_conn = read_conn()
+        try:
+            reports.append(data_model_report(
+                price_conn, database_key="marketlens", database_label="MarketLens"))
+        finally:
+            price_conn.close()
+
+        if app.state.general_database is not None:
+            general_conn = general_read_conn()
+            try:
+                reports.append(data_model_report(
+                    general_conn, database_key="general", database_label="General"))
+            finally:
+                general_conn.close()
+
+        model = {
+            "databases": reports,
+            "table_count": sum(len(report["tables"]) for report in reports),
+            "relationship_count": sum(
+                len(report["relationships"]) for report in reports),
+            "row_count": sum(report["row_count"] for report in reports),
+        }
+        return TEMPLATES.TemplateResponse(
+            request=request, name="data_model.html",
+            context={"model": model, "tab": "data-model", "source_key": None,
+                     "wide_page": True})
 
     @app.get("/schema", response_class=HTMLResponse)
     def schema_page(request: Request):

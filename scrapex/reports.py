@@ -1661,6 +1661,32 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
                             "on the site does not create a second product here."),
          ("raw_snapshot", "The untouched page or response behind a row, when kept."),
      ]),
+    ("General extraction", "The flexible branch for non-price data. It discovers a "
+     "dataset and its fields first, then stores versioned records without forcing "
+     "them into the price model.", [
+         ("site_profile", "One profile per general website, including its lifecycle "
+                          "and optional link to a MarketLens source."),
+         ("dataset_definition", "A table, list, detail, tree or stream discovered on "
+                                "that website."),
+         ("field_definition", "The fields that belong to a discovered dataset, with "
+                              "their types, order and identity role."),
+         ("dataset_relationship", "A reviewed relationship between two discovered "
+                                  "datasets, including its cardinality."),
+         ("relationship_field_pair", "The parent and child fields that make a dataset "
+                                     "relationship work."),
+         ("generic_page_snapshot", "The captured page or response from which general "
+                                   "records were extracted."),
+         ("dataset_schema_version", "A frozen version of a dataset's shape, so later "
+                                    "field changes never rewrite old records."),
+         ("schema_version_field", "Which field definitions belonged to one frozen "
+                                  "schema version."),
+         ("generic_record", "The current identity and latest state of one general "
+                            "record."),
+         ("generic_record_revision", "Every previous version of a general record, "
+                                     "preserved as history."),
+         ("generic_ingestion", "One extraction event: dataset, schema, snapshot and "
+                               "record counts."),
+     ]),
     ("What it costs", "An offer is a thing you can buy at a price. Observations are "
      "append-only: a price is never edited, only observed again.", [
          ("source_offer", "One row per (variant, region, currency, unit) — what is on sale."),
@@ -1796,3 +1822,117 @@ def column_origin(key: str) -> str:
             path = "category_path_en" if key.startswith("category_en") else "category_path"
             return f"split from source_product.{path}"
     return ""
+
+
+_MODEL_GROUP_KEYS = {
+    "What the source said": "source",
+    "General extraction": "general",
+    "What it costs": "pricing",
+    "Your unified layer": "unified",
+    "What ran, and what you asked for": "operations",
+    "Not yet described": "other",
+}
+
+
+def data_model_report(conn: sqlite3.Connection, *, database_key: str,
+                      database_label: str) -> dict:
+    """The live relational model for one database.
+
+    Table names, columns, primary keys and relationships are read from SQLite,
+    not copied into a diagram. Purposes and layers reuse ``TABLE_GROUPS`` â€” the
+    same authored explanations shown on the Schema page. This makes the visual
+    model a view of the database that is running, not a drawing that can drift
+    away from it.
+    """
+    described_groups = warehouse_tables(conn)
+    descriptions = {
+        table["name"]: {
+            "group": group["title"],
+            "group_key": _MODEL_GROUP_KEYS.get(group["title"], "other"),
+            "purpose": table["purpose"],
+        }
+        for group in described_groups
+        for table in group["tables"]
+    }
+    live = [row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+
+    tables: list[dict] = []
+    relationships: list[dict] = []
+    for table_name in live:
+        quoted = table_name.replace('"', '""')
+        column_rows = list(conn.execute(f'PRAGMA table_info("{quoted}")'))
+        fk_rows = list(conn.execute(f'PRAGMA foreign_key_list("{quoted}")'))
+        foreign_by_column: dict[str, list[dict]] = {}
+        for fk in fk_rows:
+            relation = {
+                "id": f"{database_key}:{table_name}:{fk[0]}:{fk[1]}",
+                "database": database_key,
+                "from_table": table_name,
+                "from_column": fk[3],
+                "to_table": fk[2],
+                "to_column": fk[4] or "rowid",
+                "on_update": fk[5],
+                "on_delete": fk[6],
+            }
+            relationships.append(relation)
+            foreign_by_column.setdefault(fk[3], []).append(relation)
+
+        fields = [{
+            "name": column[1],
+            "type": column[2] or "",
+            "required": bool(column[3]),
+            "default": column[4],
+            "primary_key": bool(column[5]),
+            "foreign_keys": foreign_by_column.get(column[1], []),
+        } for column in column_rows]
+        preview = sorted(
+            fields,
+            key=lambda field: (
+                not field["primary_key"],
+                not bool(field["foreign_keys"]),
+                fields.index(field),
+            ),
+        )[:7]
+        described = descriptions.get(
+            table_name,
+            {"group": "Not yet described", "group_key": "other", "purpose": ""},
+        )
+        row_count = conn.execute(
+            f'SELECT COUNT(*) FROM "{quoted}"').fetchone()[0]
+        tables.append({
+            "id": f"{database_key}:{table_name}",
+            "database": database_key,
+            "name": table_name,
+            "group": described["group"],
+            "group_key": described["group_key"],
+            "purpose": described["purpose"],
+            "rows": row_count,
+            "column_count": len(fields),
+            "fields": fields,
+            "preview_fields": preview,
+        })
+
+    present_group_keys = {table["group_key"] for table in tables}
+    groups = []
+    for title, note, _tables in TABLE_GROUPS:
+        key = _MODEL_GROUP_KEYS.get(title, "other")
+        if key in present_group_keys and not any(group["key"] == key for group in groups):
+            groups.append({"key": key, "title": title, "note": note})
+    if "other" in present_group_keys:
+        groups.append({
+            "key": "other",
+            "title": "Other tables",
+            "note": "Live tables that have not been assigned to a model layer yet.",
+        })
+
+    return {
+        "key": database_key,
+        "label": database_label,
+        "schema_version": int(conn.execute("PRAGMA user_version").fetchone()[0]),
+        "tables": tables,
+        "relationships": relationships,
+        "groups": groups,
+        "row_count": sum(table["rows"] for table in tables),
+    }
