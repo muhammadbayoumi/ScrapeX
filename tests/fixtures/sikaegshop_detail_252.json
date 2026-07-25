@@ -1,0 +1,258 @@
+{
+ "product_id": 252,
+ "product_enname": "Sika Backing ® Rod 1 CM",
+ "product_arname": "سيكا باكينج رود 1 سم",
+ "short_description_en": "Backing rod for joint sealing",
+ "short_description_ar": "مادة حشو خلفي لمواد سيكا فليكس لملىء الفواصل على البارد و ذلك لإعطاء الفاصل العمق المطلوب",
+ "full_description_en": "Backing rod for joint sealing\nDESCRIPTION\nSika® Backer Rod  is a circular, compressible, mineral wool based backing rod wrapped with a glass fibreyarn.\nUSES:\nSika® Backer Rod may only be used by experienced professionals.\n▪ Designed as a backing rod for joint sealing in horizontal and vertical building structure applications\n▪ Applied in conjunction with All type of  Sikaflex®.\nCHARACTERISTICS / ADVANTAGES\n▪ Easy to apply\n▪ Adapts to joint width and alignment irregularities\n▪ Helps to regulate the sealant profile",
+ "full_description_ar": "وصف المادة:\nمصنعة من البولي إيثيلين المضغوط الرغوي و متوفرة في صورة قضبان بأقطار وأطوال مختلفة.\nالإستعمالات:\nيستعمل كمادة حشو خلفي لمواد سيكا لملىء الفواصل على البارد و ذلك لإعطاء الفاصل العمق المطلوب.\nالمميزات:\nسهل التطبيق .\nمغلق الخلية .\n٤۰ مم . - له أقطار مختلفة من ٦\nعالي المرونة و له إنضغاطية جيدة .\nمقاوم جيد للماء و الحرارة .\nغير سام .\nلا يلتصق بمعظم مواد ملىء الفواصل على البارد .",
+ "keywords_en": "Sika Backing rod",
+ "keywords_ar": "سيكا باكينج رود",
+ "sku": "SK1049",
+ "category_id": 22,
+ "price": 10,
+ "sale_price": null,
+ "specail_price": 7,
+ "weight": 1,
+ "dimensions": null,
+ "stock_quantity": 198,
+ "min_stock_level": 10,
+ "max_stock_level": 0,
+ "is_active": true,
+ "is_shippable": true,
+ "status_id": 1,
+ "created_at": {},
+ "updated_at": {},
+ "product_categories": {
+  "category_id": 22,
+  "category_enname": "Joints Sealing",
+  "category_arname": "ملئ فواصل التمدد",
+  "image_url": "/uploads/categories/1761072527033_4qdlqmb6i7u.jpg",
+  "is_active": true,
+  "sort_order": 0,
+  "created_at": {},
+  "updated_at": {}
+ },
+ "product_attachments": [
+  {
+   "attachment_id": 3105,
+   "product_id": 252,
+   "file_name": "Sika Backing Rod  (1).jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561337784_23tx671bvjq.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 59118,
+   "is_primary": true,
+   "sort_order": 1,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3106,
+   "product_id": 252,
+   "file_name": "170A3566.jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561354421_qyk3w74ud8.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 967815,
+   "is_primary": false,
+   "sort_order": 2,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3107,
+   "product_id": 252,
+   "file_name": "170A3566a.jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561360419_yfhz94160y.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 738998,
+   "is_primary": false,
+   "sort_order": 3,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3108,
+   "product_id": 252,
+   "file_name": "170A3570.jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561363295_a3s88l54d6d.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 887157,
+   "is_primary": false,
+   "sort_order": 4,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3109,
+   "product_id": 252,
+   "file_name": "170A3599.jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561365222_c1r6cttd33f.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 686033,
+   "is_primary": false,
+   "sort_order": 5,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3110,
+   "product_id": 252,
+   "file_name": "170A3604.jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561366911_pw6lqe3rcq.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 666989,
+   "is_primary": false,
+   "sort_order": 6,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3111,
+   "product_id": 252,
+   "file_name": "Kleben24.jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561367653_i01bdvy8g1.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 164742,
+   "is_primary": false,
+   "sort_order": 7,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3112,
+   "product_id": 252,
+   "file_name": "Sika Backing Rod  (3).jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561368023_udgfl9mpzg.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 82410,
+   "is_primary": false,
+   "sort_order": 8,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3113,
+   "product_id": 252,
+   "file_name": "sikarod.jpg",
+   "file_url": "/uploads/productattachments/product_temp_1767561369380_qf0d8s8gy3m.jpg",
+   "file_type": "image/jpeg",
+   "file_size": 543697,
+   "is_primary": false,
+   "sort_order": 9,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3114,
+   "product_id": 252,
+   "file_name": "Sika Backing Rod® English TDS.pdf",
+   "file_url": "/uploads/productattachments/product_temp_1767561409824_4a2fo0kml4y.pdf",
+   "file_type": "application/pdf",
+   "file_size": 265089,
+   "is_primary": false,
+   "sort_order": 10,
+   "created_at": {}
+  },
+  {
+   "attachment_id": 3115,
+   "product_id": 252,
+   "file_name": "Sika Backing-Rod Arabic TDS.pdf",
+   "file_url": "/uploads/productattachments/product_temp_1767561416235_ifzkgfdjo4.pdf",
+   "file_type": "application/pdf",
+   "file_size": 882092,
+   "is_primary": false,
+   "sort_order": 11,
+   "created_at": {}
+  }
+ ],
+ "product_attribute_assignments": [
+  {
+   "id": 1668,
+   "product_id": 252,
+   "attribute_id": 6,
+   "value_ar": "سيكا فليكس",
+   "value_en": "Sika Flex",
+   "sort_order": 1,
+   "created_at": {},
+   "product_attributes": {
+    "attribute_id": 6,
+    "name_ar": "يمكنك استخدام هذه المنتجات  للحصول علي افضل نتائجح",
+    "name_en": "Also you can use this products to gain the best system performance ",
+    "is_active": true,
+    "created_at": {},
+    "updated_at": {},
+    "created_by": 1,
+    "updated_by": null
+   }
+  },
+  {
+   "id": 1669,
+   "product_id": 252,
+   "attribute_id": 2,
+   "value_ar": "ابيض",
+   "value_en": "white",
+   "sort_order": 2,
+   "created_at": {},
+   "product_attributes": {
+    "attribute_id": 2,
+    "name_ar": "اللون",
+    "name_en": "color",
+    "is_active": true,
+    "created_at": {},
+    "updated_at": {},
+    "created_by": 1,
+    "updated_by": 1
+   }
+  },
+  {
+   "id": 1670,
+   "product_id": 252,
+   "attribute_id": 1,
+   "value_ar": "1 متر ",
+   "value_en": "1 Meter ",
+   "sort_order": 3,
+   "created_at": {},
+   "product_attributes": {
+    "attribute_id": 1,
+    "name_ar": "معدل الفرد التقريبي",
+    "name_en": "consumption Rate Approx.",
+    "is_active": true,
+    "created_at": {},
+    "updated_at": {},
+    "created_by": 1,
+    "updated_by": 1
+   }
+  },
+  {
+   "id": 1671,
+   "product_id": 252,
+   "attribute_id": 4,
+   "value_ar": "البولي إيثيلين المضغوط",
+   "value_en": "Polyethylene Foam ",
+   "sort_order": 4,
+   "created_at": {},
+   "product_attributes": {
+    "attribute_id": 4,
+    "name_ar": "صفه المنتج",
+    "name_en": "Product Attributes ",
+    "is_active": true,
+    "created_at": {},
+    "updated_at": {},
+    "created_by": 1,
+    "updated_by": null
+   }
+  },
+  {
+   "id": 1672,
+   "product_id": 252,
+   "attribute_id": 5,
+   "value_ar": "فواصل التمدد",
+   "value_en": "Joint Sealant ",
+   "sort_order": 5,
+   "created_at": {},
+   "product_attributes": {
+    "attribute_id": 5,
+    "name_ar": "مناسب للتطبيقات",
+    "name_en": "Suitable for Application ",
+    "is_active": true,
+    "created_at": {},
+    "updated_at": {},
+    "created_by": 1,
+    "updated_by": null
+   }
+  }
+ ],
+ "product_related_product_related_product_idToproducts": [],
+ "inventory_balance": null
+}

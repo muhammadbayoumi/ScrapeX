@@ -88,6 +88,50 @@ def parse_money(raw: str | None) -> Decimal | None:
         raise ValueError(f"unparseable price string {raw!r} -> {text!r}") from exc
 
 
+# "50كجم" / "50 kg" in a product's NAME: the site stating what one price buys.
+# Arabic and Latin spellings both appear — madar writes it in Arabic, sikaegshop
+# in English ("Sika Zinc Rich® -1 \"5 KG\"").
+_STATED_KG = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:كجم|كغم|كغ|kg)", re.IGNORECASE)
+
+
+def selling_unit_from(name: str, weight) -> tuple[str, str]:
+    """(basis_quantity, unit) — ONLY when the site itself states the basis.
+
+    The owner's rule: a price is never shown apart from the unit it is FOR,
+    and the unit is read off the source, never guessed. Riyadh cement states
+    it twice — weight=50 AND "50كجم" in the variant's name — so kg/50 is the
+    basis. A steel angle carries weight=4.986, but that is the PIECE's mass:
+    its name states dimensions in millimetres, no kg quantity, and its price
+    is per piece — inventing "per 4.986 kg" would be exactly the guess this
+    function refuses. Agreement between the stated name and the weight field
+    is the test.
+
+    Lives HERE, not in a connector, because two families need it (magento and
+    custom-json) and connectors never import each other (A1). Unit parsing is
+    this module's job by rule anyway (Q2).
+
+    The agreement test earns its keep on real data: across sikaegshop's 87 live
+    products (2026-07-25) 60 names state a kg quantity and 4 of those disagree
+    with the weight field — product 218 is "Sika Latex®- 20 kg" with weight 5.
+    Trusting either side alone would have published a basis the shop does not
+    state; disagreement means we say nothing.
+    """
+    try:
+        heavy = float(weight)
+    except (TypeError, ValueError):
+        return "", ""
+    if not heavy:
+        return "", ""
+    found = _STATED_KG.search(name or "")
+    if not found:
+        return "", ""
+    stated = float(found.group(1).replace(",", "."))
+    if abs(stated - heavy) > 1e-6:
+        return "", ""
+    quantity = int(stated) if stated == int(stated) else stated
+    return str(quantity), "kg"
+
+
 def option_fingerprint(options: dict[str, str]) -> str:
     """Canonical variant-option fingerprint: sorted, lowercased, folded.
 

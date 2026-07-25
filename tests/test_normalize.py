@@ -5,7 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from scrapex.normalize import fold_digits, option_fingerprint, parse_money, record_hash
+from scrapex.normalize import (
+    fold_digits, option_fingerprint, parse_money, record_hash, selling_unit_from)
 
 
 # ---- fold_digits -------------------------------------------------------------
@@ -73,6 +74,42 @@ def test_fingerprint_deterministic_across_dict_order():
     a = option_fingerprint({"a": "1", "b": "2"})
     b = option_fingerprint({"b": "2", "a": "1"})
     assert a == b
+
+
+# ---- selling_unit_from -----------------------------------------------------------
+#
+# Moved here from the magento connector 2026-07-25: two families read a pack
+# size off a name now (madar in Arabic, sikaegshop in English) and connectors
+# never import each other (A1). Every case below is a real live product.
+
+@pytest.mark.parametrize(
+    ("name", "weight", "expected"),
+    [
+        ("اسمنت الرياض 50كجم", 50, ("50", "kg")),        # madar, Arabic spelling
+        ('Sika Zinc Rich® -1 "5 KG"', 5, ("5", "kg")),   # sika, English, quoted
+        ("Sika Viscocrete 3425 ®-5 kg", 5, ("5", "kg")),
+        ("Sika Grout 200 ® 25 KG", 25, ("25", "kg")),
+        # the site must state it TWICE and agree with itself:
+        ("Sika Latex®- 20 kg", 5, ("", "")),             # live product 218
+        ("Sika Creat 114 ® 20 KG", 1, ("", "")),         # live product 261
+        # a weight alone is the PIECE's mass, not what one price buys:
+        ("زاوية حديد 40x40x4", 4.986, ("", "")),
+        ("Sika Backing ® Rod 1 CM", 1, ("", "")),        # a diameter, not a basis
+        # nothing to read at all
+        ("Sika Swell S2 ®  600ml", 1, ("", "")),
+        ("Sika Fume® 5 KG", None, ("", "")),
+        ("Sika Fume® 5 KG", 0, ("", "")),
+        ("Sika Fume® 5 KG", "not a number", ("", "")),
+        ("", 50, ("", "")),
+    ],
+)
+def test_selling_unit_only_when_the_site_states_it_twice(name, weight, expected):
+    assert selling_unit_from(name, weight) == expected
+
+
+def test_a_fractional_pack_size_keeps_its_fraction():
+    assert selling_unit_from("Sika Something 2.5 kg", 2.5) == ("2.5", "kg")
+    assert selling_unit_from("Sika Something 2,5 kg", 2.5) == ("2.5", "kg")
 
 
 # ---- record_hash ----------------------------------------------------------------

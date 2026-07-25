@@ -35,15 +35,70 @@ Field census over all 87 live products (2026-07-23):
 
 ScrapeX crawls anonymously, so the trade tier is unreachable BY CONSTRUCTION —
 not "until some date". The public price is `price`, unless a flash sale is live.
+
+TWO ENDPOINTS, NOT ONE — 2026-07-25
+-----------------------------------
+The owner reported the details panel showing a trade price, a weight and two
+short descriptions for a product page that prints a Specifications card, two
+PDF datasheets, a three-part description and nine photographs. The connector
+was not dropping any of that: it never asked for it.
+
+`GET /api/products?page=N` (the list) is a SUMMARY. `GET /api/products/{id}`
+(the detail, equally open and unauthenticated) states, in addition:
+
+  full_description_ar / _en        the long DESCRIPTION / USES / CHARACTERISTICS
+  product_attribute_assignments    the "Technical Specifications" card, bilingual
+  product_attachments              ALL of them — the list publishes only ONE
+  sku                              absent from the list endpoint entirely
+  dimensions, inventory_balance, min_/max_stock_level, status_id
+  product_related_..._idToproducts related products (not captured — see below)
+
+Census over all 87 live products (2026-07-25): the list published 87
+attachments, the details publish 737 (535 images + 202 datasheets); 394
+attribute assignments over 6 distinct attributes; a full description in both
+languages on 87/87; a sku on 87/87. So the panel's gallery held one picture of
+nine and no datasheets at all, and `external_sku` was empty for every row.
+
+NOT captured, deliberately: `product_related_..._idToproducts` embeds a FULL
+copy of each related product, price included. Those products have their own
+rows in this same table — filing a second, instantly-stale copy of a price
+inside another product's attribute bag would state the same offer twice.
+`status_id` is an internal state id with no published lookup, so its number
+means nothing we could write down honestly.
+
+THE SKU, AND THE OWNER'S EXCEPTION — 2026-07-25
+-----------------------------------------------
+The owner ruled: «موقع سيكا غير مسجل به sku يمكننا اخذ product id كاستثناء» —
+sikaegshop registers no SKU, so take the product id instead. That is true of
+the endpoint the owner could see, and only that one. Censused over all 87 live
+products, both endpoints, before applying it:
+
+  /api/products (list)      sku field ABSENT ENTIRELY  —  0/87
+  /api/products/{id}        sku non-empty              — 87/87  ("SK1049")
+
+So the shop does register SKUs; the list simply does not publish them. The rule
+that follows is the owner's, narrowed to where it applies:
+
+  - where the shop publishes a real sku, THAT is `external_sku`. We record what
+    the source states, and today that is every one of the 87 products.
+  - where it publishes none, `external_product_id` stands in — the approved
+    exception. It is written in ONE visible place (`_row`) and named as a
+    fallback there, so nobody later reads "252" as a SKU the shop printed.
+
+Because the sku lives on the detail endpoint, a prices-only crawl (no
+`enrichment` in the manifest) makes no detail request and every row carries the
+fallback. That is the deliberate trade: the price table must never depend on an
+enrichment declaration to be complete.
 """
 from __future__ import annotations
 
 from typing import Iterable
 
 from ..config import SourceEntry
+from ..normalize import selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, ExtractKind
-from .base import HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 # A page is 12 products; 8 pages today. This cap is a runaway guard, not a
 # limit — it sits far above the real page count so a pagination bug cannot spin.
@@ -150,6 +205,48 @@ def _items(payload) -> list:
     return []
 
 
+def _detail(payload) -> dict | None:
+    """The ONE product object in a detail response, or None if there isn't one.
+
+    sikaegshop answers /api/products/{id} with the bare object — no {success,
+    data} envelope, unlike its own list endpoint (verified live 2026-07-25).
+    `data` is still unwrapped because this is a FAMILY connector and the list
+    endpoint proves the envelope exists in this codebase's world; a shape
+    neither branch recognises returns None and the caller records a warning
+    rather than treating an unreadable answer as a product with no details.
+    """
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("product_id") or payload.get("id"):
+        return payload
+    inner = payload.get("data")
+    if isinstance(inner, dict) and (inner.get("product_id") or inner.get("id")):
+        return inner
+    return None
+
+
+def _shape(payload) -> str:
+    """What a response looked like, for a warning that has to be actionable."""
+    if isinstance(payload, dict):
+        return ", ".join(sorted(payload)[:6]) or "{}"
+    return type(payload).__name__
+
+
+def _skipped(product: dict, why: str) -> str:
+    """One warning line naming the product AND what is now missing from it.
+
+    "detail failed" alone would leave the owner to work out what a detail even
+    carries; a run that quietly thinned one product's record has to say so in
+    the terms the record is read in.
+    """
+    pid = str(product.get("product_id") or product.get("id") or "?")
+    name = str(product.get("product_arname") or product.get("product_enname")
+               or product.get("name") or "").strip()
+    return (f"product {pid}" + (f" ({name})" if name else "") + f": {why} — the "
+            "list facts are kept, but its specifications, full description, "
+            "extra images, datasheets and sku are missing from this run")
+
+
 def _total_pages(payload) -> int:
     if not isinstance(payload, dict):
         return 1
@@ -196,6 +293,8 @@ class CustomJsonConnector:
         rows: list[list[str]] = []
         seen: set[str] = set()
         id_at = builder.header.index("external_product_id")
+        sku_at = builder.header.index("external_sku")
+        by_id: dict[str, list[str]] = {}
         for product in products:
             row = self._row(builder, product, base, currency, vat, source.default_region)
             if row is None:
@@ -205,19 +304,97 @@ class CustomJsonConnector:
                 continue   # the catalogue shifting mid-crawl can repeat one across a page edge
             seen.add(key)
             rows.append(row)
+            by_id[key] = row
 
-        yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, endpoint, builder.header, rows)
-        # A SECOND table from the SAME responses: descriptions, keywords,
-        # weights and image attachments were all read already, so emitting
-        # them costs nothing. Only when the manifest declares enrichment.
+        notes: list[str] = []
+        extra = RowBuilder(ENRICHMENT)
+        detail_rows: list[list[str]] = []
+
+        def price_table() -> ScrapedTable:
+            return ScrapedTable(source.source_key, PRODUCT_PRICES.kind, endpoint,
+                                builder.header, rows, warnings=notes)
+
+        # A SECOND table, and the only thing that costs extra requests: the
+        # per-product detail pass. Only when the manifest declares enrichment,
+        # so a source that wants prices alone pays nothing for details.
         if any(spec.kind == ExtractKind.ENRICHMENT for spec in source.extract):
-            extra = RowBuilder(ENRICHMENT)
-            attribute_rows: list[list[str]] = []
-            for product in products:
-                attribute_rows.extend(enrichment_rows(extra, product, base))
-            if attribute_rows:
-                yield ScrapedTable(source.source_key, ENRICHMENT.kind, endpoint,
-                                   extra.header, attribute_rows)
+            try:
+                detail_rows = self._detail_rows(extra, products, endpoint, base,
+                                                by_id, sku_at, notes)
+            except CrawlBlocked:
+                # Stopping mid-detail must not ALSO throw away the prices we
+                # already read. capture.py journals a table the moment it is
+                # yielded, so handing the price table over before the stop
+                # propagates is the difference between a paused crawl keeping
+                # 87 products and losing them to a pause at product 40.
+                yield price_table()
+                raise
+        yield price_table()
+        if detail_rows:
+            yield ScrapedTable(source.source_key, ENRICHMENT.kind, endpoint,
+                               extra.header, detail_rows)
+
+    def _detail_rows(self, builder: RowBuilder, products: list, endpoint: str,
+                     base: str, price_rows: dict[str, list[str]], sku_at: int,
+                     notes: list[str]) -> list[list[str]]:
+        """One GET per product: the enrichment the LIST endpoint does not carry.
+
+        87 products = 87 extra requests through the shared HttpFetcher (rate
+        limited, retrying, robots-aware), roughly a minute and a half at its
+        1 req/s. That is the honest cost of the data and it is acceptable for a
+        daily crawl of an 87-product shop: the list publishes one attachment of
+        eleven, no attributes, no full description and no sku, so there is no
+        cheaper way to have any of them. A shop an order of magnitude larger
+        would need this pass reconsidered — it scales with the catalogue.
+
+        A detail that fails is isolated to its own product: the crawl carries
+        on, the LIST facts for that product are still emitted, and a warning
+        names what was lost (Q3 — carrying on is right, hiding it is not).
+        CrawlBlocked is re-raised untouched: it carries both the site's own
+        refusal and the owner's Pause/Cancel (CrawlInterrupted), and neither of
+        those is answered by making 86 more requests.
+        """
+        rows: list[list[str]] = []
+        asked: set[str] = set()
+        for product in products:
+            pid = str(product.get("product_id") or product.get("id") or "")
+            # Details are keyed to a product the WAREHOUSE knows, and it learns
+            # a product from its price row. One we refused to price — unpriced,
+            # or unidentifiable — has nothing to hang its details on: they would
+            # cost a request and then arrive at ingest as out-of-scope rejects
+            # (the rule the woo connector already follows). `asked` drops the
+            # same page-edge repeat the price loop drops, so a catalogue
+            # shifting mid-crawl cannot buy the same record twice.
+            if pid not in price_rows or pid in asked:
+                continue
+            asked.add(pid)
+            detail = None
+            try:
+                body = self._fetcher.get(f"{endpoint}/{pid}").json()
+            except CrawlBlocked:
+                raise
+            except Exception as exc:  # noqa: BLE001 — isolate per product
+                body = None
+                notes.append(_skipped(product, f"the request failed: {exc}"))
+            if body is not None:
+                detail = _detail(body)
+                if detail is None:
+                    notes.append(_skipped(
+                        product, "the response carried no product object "
+                                 f"(top level: {_shape(body)})"))
+            # A product whose detail failed still has everything the LIST
+            # stated. Emitting that is better than emitting nothing for it, and
+            # the warning above says precisely which facts are absent.
+            rows.extend(enrichment_rows(builder, detail or product, base))
+            sku = str((detail or {}).get("sku") or "")
+            if sku:
+                # The ONLY place a REAL sku can come from: the list endpoint has
+                # no such field (0/87 live), the detail has one on 87/87. It
+                # replaces the product-id fallback `_row` wrote. A detail that
+                # failed, or a product the shop gives no sku, keeps the fallback
+                # — the owner's approved exception, never a silent blank.
+                price_rows[pid][sku_at] = sku
+        return rows
 
     @staticmethod
     def _row(builder: RowBuilder, product: dict, base: str, currency: str, vat: str, region: str):
@@ -244,9 +421,32 @@ class CustomJsonConnector:
         category_en = str(categories.get("category_enname") or "").strip()
         category_id = str(categories.get("category_id")
                           or product.get("category_id") or "")
+        # What one price BUYS, when the shop STATES it: sika prints the pack
+        # size beside the price — product 206 is `Sika Zinc Rich® -1 "5 KG"` at
+        # EGP 5300 with weight 5. The shared rule requires the name and the
+        # `weight` field to agree, which earns its keep here: 60 of the 87 live
+        # names state a kg quantity and 4 of those contradict the weight
+        # (product 218 is "Sika Latex®- 20 kg" with weight 5). A contradiction
+        # states nothing, so we record nothing.
+        #
+        # The ENGLISH name is what we read. All 60 state it there; the Arabic
+        # names spell it «كيلو», which the shared rule does not recognise, and
+        # 0 of the 87 state a pack size in Arabic that the English name omits
+        # (checked live 2026-07-25). Teaching the shared rule that spelling
+        # would change another family's output to buy nothing here.
+        basis, unit = selling_unit_from(english, product.get("weight"))
+        # THE SKU FALLBACK (owner ruling 2026-07-25), applied here so no row can
+        # leave without one. The list entry states no sku — this shop's list
+        # endpoint has no such field at all — so `pid` is what stands in, and
+        # the detail pass replaces it with the shop's real sku for every product
+        # it manages to read (_detail_rows). A row still carrying the product id
+        # therefore says one of two things, and only two: the manifest declared
+        # no enrichment so no detail was ever asked for, or the shop published
+        # no sku for that product. It never means "the shop printed 252 as its
+        # SKU". See the module docstring for the census behind the rule.
         return builder.row(
             external_product_id=pid, external_variant_id=pid,
-            external_sku=str(product.get("sku") or ""), product_name=name,
+            external_sku=str(product.get("sku") or "") or pid, product_name=name,
             product_name_en=english if english != name else "",
             lang="ar" if arabic and name == arabic else ("en" if name == english else ""),
             category_path=category,
@@ -256,16 +456,18 @@ class CustomJsonConnector:
             region=region, currency=currency, vat_included=vat,
             regular_price=regular, sale_price=sale, effective_price=effective,
             availability=_availability(product),
+            unit=unit, basis_quantity=basis,
         )
 
 
-# ---- enrichment: the details the same responses already carried --------------
+# ---- enrichment: everything the shop states about one product ----------------
 #
-# Verified live 2026-07-23: every product carries short_description_ar/_en,
-# keywords in both languages, a weight, its category in both languages and an
-# attachments list whose entries are the product's images. The owner asked for
-# description, specs, attachments and images; this is all of it, and none of it
-# costs a request the price crawl did not already make.
+# ONE function for both endpoints, on purpose. The detail response is a superset
+# of the list entry for every field read here, and the detail-only keys are
+# simply absent from a list entry — `add` skips an absent value, so the same
+# code emits the full record from a detail and the summary record from a list
+# entry whose detail could not be fetched. A second "detail_enrichment_rows"
+# would be the same rules written twice and drifting from the day after (Q1).
 
 def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[str]]:
     """One row per stated fact about one product, both languages kept apart."""
@@ -290,11 +492,35 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         group="Description")
     add("keywords_en", "Keywords (EN)", product.get("keywords_en"), lang="en",
         group="Description")
+    # The LONG description — the DESCRIPTION / USES / CHARACTERISTICS body of
+    # the product page, newline-separated — is detail-only. The `_en` suffix is
+    # not decoration: the panel pairs `code` with `code + "_en"` to print one
+    # bilingual entry, the same convention description/description_en set.
+    add("full_description", "Full description",
+        product.get("full_description_ar"), lang="ar", group="Description")
+    add("full_description_en", "Full description (EN)",
+        product.get("full_description_en"), lang="en", group="Description")
     add("sku", "SKU", product.get("sku"), group="Specs")
     add("weight", "Weight", product.get("weight"), numeric=product.get("weight"),
         unit="kg", group="Specs")
+    # `add` skips a falsy value, so a stock_quantity of 0 emits no row. That is
+    # a real omission and it is left standing: the fact is NOT lost, because
+    # _availability reads the same number and the price row states
+    # `out_of_stock` for it — which is what a zero means to a reader. Lifting
+    # the guard to let this 0 through would also start writing "Maximum stock
+    # level: 0" on 85 of 87 products (below), which would be a lie.
     add("stock_quantity", "Stock quantity", product.get("stock_quantity"),
         numeric=product.get("stock_quantity"), group="Specs")
+    # The shop's own reorder thresholds, detail-only. Emitted only when
+    # populated, and the falsy guard is the RIGHT rule for both rather than an
+    # accident: across all 87 live products (2026-07-25) min_stock_level is
+    # never 0 and never null, while max_stock_level is 0 on 85 and null on 2.
+    # A max of 0 is the field left unset, not a ceiling of zero units — writing
+    # it down would state a limit the shop does not impose.
+    add("min_stock_level", "Minimum stock level", product.get("min_stock_level"),
+        numeric=product.get("min_stock_level"), group="Specs")
+    add("max_stock_level", "Maximum stock level", product.get("max_stock_level"),
+        numeric=product.get("max_stock_level"), group="Specs")
     # `specail_price` is the TRADE-TIER price: the storefront charges it only to
     # a logged-in customer whose customerTypeId is 2 (rule + live proof in
     # _prices). Recorded as exactly that fact — a price for a group we are not —
@@ -303,12 +529,60 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         product.get("specail_price"), numeric=product.get("specail_price"),
         group="Specs")
 
+    # The site's own "Technical Specifications" card (colour, consumption rate,
+    # product attributes, suitable applications...), detail-only, in BOTH
+    # languages — the standing bilingual rule: a translation the shop publishes
+    # and we drop is a defect, not a tidy-up. Codes are keyed on the shop's own
+    # attribute_id, never on position: a code derived from the order would
+    # rename every attribute the day the shop reorders one list.
+    for assignment in product.get("product_attribute_assignments") or []:
+        if not isinstance(assignment, dict):
+            continue
+        attribute = assignment.get("product_attributes") or {}
+        code = str(assignment.get("attribute_id")
+                   or attribute.get("attribute_id") or "")
+        if not code:
+            continue
+        # This shop's data carries trailing whitespace in both the labels and
+        # the values ("Product Attributes ", "1 Meter "). `add` strips the
+        # value; the label is stripped here.
+        add(f"attr_{code}", str(attribute.get("name_ar") or "").strip(),
+            assignment.get("value_ar"), lang="ar", group="Specifications")
+        add(f"attr_{code}_en", str(attribute.get("name_en") or "").strip(),
+            assignment.get("value_en"), lang="en", group="Specifications")
+
+    # EVERY attachment the response states. Images lead the panel as the
+    # gallery ("Media"); datasheets, videos and anything else are files to
+    # open, so they get the shop's own second card, "Attachments". Only
+    # `image/*` may reach the gallery: it renders each Media row as an <img>,
+    # and this shop files YouTube links as `video/url` attachments, which would
+    # arrive there as broken pictures.
+    #
+    # The size is the API's `file_size`. The storefront itself renders "0
+    # Bytes" beside every download — its own defect, not the data's: the API
+    # states 265089 for the English TDS of product 252. We record what the API
+    # states, and the panel formats it. A `video/url` states no size at all, so
+    # it carries no number and no unit rather than a zero it never claimed.
+    #
+    # The code carries the shop's OWN attachment_id, not a position and not the
+    # file name. Ingest keys an attribute on (product, attribute_code,
+    # raw_value): 13 of the 87 live products file TWO attachments both named
+    # "Video" (two different YouTube links, verified 2026-07-25), so a shared
+    # code made the second silently overwrite the first — one video of two
+    # gone, with nothing anywhere to show it had been there. An id also
+    # survives the shop reordering a list, which a position would not.
     for attachment in product.get("attachments") or product.get("product_attachments") or []:
         href = str(attachment.get("file_url") or "")
         if href and not href.startswith("http"):
             href = base.rstrip("/") + "/" + href.lstrip("/")
         kind = str(attachment.get("file_type") or "")
-        add("image" if kind.startswith("image/") else "attachment",
-            "Image" if kind.startswith("image/") else "Attachment",
-            attachment.get("file_name"), url=href, group="Media")
+        ident = str(attachment.get("attachment_id") or "")
+        if kind.startswith("image/"):
+            add(f"image_{ident}" if ident else "image", "Image",
+                attachment.get("file_name"), url=href, group="Media")
+        else:
+            size = attachment.get("file_size") or ""
+            add(f"attachment_{ident}" if ident else "attachment", "Attachment",
+                attachment.get("file_name"), url=href, group="Attachments",
+                numeric=size, unit="bytes" if size else "")
     return rows
