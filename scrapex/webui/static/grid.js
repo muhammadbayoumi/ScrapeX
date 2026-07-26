@@ -1363,7 +1363,7 @@
       if (!chosen.length) { closeOfferPanel(); return; }
       if (chosen.length > 1) {
         nextSelectionPanelMode = null;
-        renderComparePanel(chosen);
+        renderSelectedCardsPanel(chosen);
         return;
       }
       const requestedMode = nextSelectionPanelMode || "record";
@@ -1502,12 +1502,12 @@
   // What the panel on screen was drawn FROM, so a language switch can redraw it
   // without another round trip. Exactly one of the two is ever set.
   let openOfferData = null;
-  let openCompareRows = null;
+  let openSelectedRows = null;
 
   function redrawOpenPanel() {
     const panel = document.getElementById("offer-panel");
     if (!panel || panel.hidden) return;
-    if (openCompareRows) { renderComparePanel(openCompareRows); return; }
+    if (openSelectedRows) { renderSelectedCardsPanel(openSelectedRows); return; }
     if (openOfferData && openOfferId) {
       renderOfferPanel(panel, openOfferData, openOfferId, openOfferMode);
     }
@@ -1553,7 +1553,7 @@
     panel.textContent = "";
     openOfferId = null;
     openOfferData = null;
-    openCompareRows = null;
+    openSelectedRows = null;
   }
 
   // ---- the record panel: one product, shaped the way its own page is shaped -
@@ -1792,10 +1792,23 @@
     box.appendChild(media);
 
     const body = el("div", "selected-product-body");
+    const titleRow = el("div", "selected-product-title-row");
     const name = el("h3", "selected-product-name",
       text(pickLang(row.product_name, row.product_name_ar) || offer.name || "Unnamed record"));
     name.dir = "auto";
-    body.appendChild(name);
+    titleRow.appendChild(name);
+    const live = safeUrl(row.product_url || offer.product_url || "");
+    if (live) {
+      const visit = el("a", "selected-product-site-link");
+      visit.href = live;
+      visit.target = "_blank";
+      visit.rel = "noopener noreferrer";
+      visit.title = "Open on site";
+      visit.setAttribute("aria-label", "Open product on site");
+      visit.appendChild(materialIconElement("open-in-new", "selected-product-site-icon"));
+      titleRow.appendChild(visit);
+    }
+    body.appendChild(titleRow);
     const description = summaryDescription(details);
     const short = el("p", "selected-product-description",
       description || (data ? "No short description was published for this product."
@@ -1833,51 +1846,16 @@
     historyButton.addEventListener("click", () =>
       (onHistory || onDetails)(data, row, historyButton));
     actions.appendChild(historyButton);
-    const live = safeUrl(row.product_url || offer.product_url || "");
-    if (live) {
-      const visit = el("a", "record-action", "Open on site");
-      visit.href = live;
-      visit.target = "_blank";
-      visit.rel = "noopener noreferrer";
-      actions.appendChild(visit);
-    }
-    const full = el("a", "record-action record-action-subtle", "Full record");
-    full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + row.offer_id;
-    actions.appendChild(full);
     body.appendChild(actions);
     box.appendChild(body);
     return box;
-  }
-
-  function selectionBar(titleText, subtitle, actions) {
-    const head = el("header", "record-selection-bar");
-    const copy = el("div", "record-selection-copy");
-    const kicker = el("span", "record-selection-kicker", "Selected from the table");
-    copy.appendChild(kicker);
-    copy.appendChild(el("h2", "record-selection-title", titleText));
-    if (subtitle) copy.appendChild(el("p", "record-selection-sub", subtitle));
-    head.appendChild(copy);
-    const controls = el("div", "record-selection-actions");
-    actions.forEach((node) => controls.appendChild(node));
-    head.appendChild(controls);
-    return head;
-  }
-
-  function closeButton() {
-    const close = el("button", "record-action record-action-subtle", "Clear selection");
-    close.type = "button";
-    close.addEventListener("click", () => {
-      if (table) { try { table.deselectRow(); } catch (err) { /* not selectable */ } }
-      closeOfferPanel();
-    });
-    return close;
   }
 
   function renderOfferPanel(panel, data, offerId, mode) {
     panel.textContent = "";
     panel.className = "record-panel";
     openOfferData = data;
-    openCompareRows = null;
+    openSelectedRows = null;
     const offer = data.offer || {};
     const row = openOfferRow || {};
     const details = data.details || [];
@@ -1892,11 +1870,6 @@
       ["changes", []],
       ["observations", []],
     ]);
-
-    panel.appendChild(selectionBar(
-      "1 record selected",
-      "Open product details or history without leaving the selected row.",
-      [closeButton()]));
 
     const workspace = el("div", "record-product-workspace");
     const productGrid = el("div", "selected-product-grid is-single");
@@ -1937,15 +1910,15 @@
     panel.appendChild(workspace);
 
     const detailDefinitions = [
-      {key: "description", label: "Description"},
-      {key: "specifications", label: "Specifications"},
-      {key: "attachments", label: "Attachments"},
-      {key: "media", label: "Media"},
+      {key: "description", label: "Description", icon: "description"},
+      {key: "specifications", label: "Specifications", icon: "tune"},
+      {key: "attachments", label: "Attachments", icon: "insert-drive-file"},
+      {key: "media", label: "Media", icon: "photo-camera"},
     ];
     const historyDefinitions = [
-      {key: "price", label: "Price history"},
-      {key: "changes", label: "Changes"},
-      {key: "observations", label: "Observations"},
+      {key: "price", label: "Price history", icon: "trending-up"},
+      {key: "changes", label: "Changes", icon: "history"},
+      {key: "observations", label: "Observations", icon: "schedule"},
     ];
 
     function setSummaryMode(view) {
@@ -1976,9 +1949,12 @@
       inspectorContent.textContent = "";
 
       definitions.forEach((item) => {
-        const button = el("button", item.key === activeKey ? "is-active" : "", item.label);
+        const button = el("button", item.key === activeKey ? "is-active" : "");
         button.type = "button";
+        button.title = item.label;
+        button.setAttribute("aria-label", item.label);
         button.setAttribute("aria-pressed", String(item.key === activeKey));
+        button.appendChild(materialIconElement(item.icon, "record-inspector-nav-icon"));
         button.addEventListener("click", () => renderInspector(view, item.key));
         inspectorNav.appendChild(button);
       });
@@ -1988,6 +1964,11 @@
       contentHead.appendChild(el("span", "record-selection-kicker",
         isHistory ? "Recorded over time" : "Collected from the source"));
       contentHead.appendChild(el("h4", "", active.label));
+      if (isHistory) {
+        const full = el("a", "record-action record-action-subtle", "Full record");
+        full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + row.offer_id;
+        contentHead.appendChild(full);
+      }
       inspectorContent.appendChild(contentHead);
       const sectionCards = sections.get(activeKey);
       if (!sectionCards.length) {
@@ -2179,35 +2160,17 @@
     panel.scrollIntoView({behavior: "smooth", block: "nearest"});
   }
 
-  // ---- more than one row selected: compare them side by side ----------------
-  //
-  // Selecting several rows used to open the LAST one's record and silently
-  // ignore the rest — the selection did nothing the selection was for. Two or
-  // more rows is a comparison question ("which of these is cheaper, what
-  // differs between them"), so that is what the container answers, with the
-  // fields that actually differ marked.
-  const COMPARE_LIMIT = 6;
-
-  function renderComparePanel(rowsData) {
+  // ---- more than one row selected: one product card per selected row --------
+  function renderSelectedCardsPanel(rowsData) {
     const panel = document.getElementById("offer-panel");
     if (!panel) return;
     openOfferId = null;
     panel.hidden = false;
     panel.textContent = "";
-    panel.className = "record-panel";
+    panel.className = "record-panel is-multi";
 
-    openCompareRows = rowsData;
+    openSelectedRows = rowsData;
     openOfferData = null;
-    const shown = rowsData.slice(0, COMPARE_LIMIT);
-    const compareButton = el("button", "record-action record-action-primary", "Compare selected");
-    compareButton.type = "button";
-    panel.appendChild(selectionBar(
-      rowsData.length + " records selected",
-      rowsData.length > COMPARE_LIMIT
-        ? "Showing the first " + COMPARE_LIMIT + ". Deselect some records to see the rest."
-        : "Each selected row has its own quick product card.",
-      [compareButton, closeButton()]));
-
     const productGrid = el("div", "selected-product-grid");
     panel.appendChild(productGrid);
     const selection = rowsData;
@@ -2225,7 +2188,7 @@
         openOfferPanel(row.offer_id, view, row);
       }
     };
-    shown.forEach((row) => {
+    rowsData.forEach((row) => {
       const placeholder = productSummaryCard(row, null, () => {}, () => {});
       productGrid.appendChild(placeholder);
       fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + row.offer_id)
@@ -2233,7 +2196,7 @@
           ? response.json()
           : Promise.reject(new Error("HTTP " + response.status)))
         .then((data) => {
-          if (openCompareRows !== selection || !placeholder.isConnected) return;
+          if (openSelectedRows !== selection || !placeholder.isConnected) return;
           placeholder.replaceWith(productSummaryCard(
             row,
             data,
@@ -2241,88 +2204,13 @@
             () => focusRecord(row, "history")));
         })
         .catch(() => {
-          if (openCompareRows !== selection || !placeholder.isConnected) return;
+          if (openSelectedRows !== selection || !placeholder.isConnected) return;
           placeholder.classList.add("has-error");
           const empty = placeholder.querySelector(".selected-product-image-empty");
           const description = placeholder.querySelector(".selected-product-description");
           if (empty) empty.textContent = "No product image";
           if (description) description.textContent = "Product details are unavailable right now.";
         });
-    });
-
-    const comparison = el("section", "record-expanded record-comparison");
-    comparison.hidden = true;
-    const comparisonHead = el("header", "record-expanded-head");
-    const comparisonCopy = el("div", "");
-    comparisonCopy.appendChild(el("span", "record-selection-kicker", "Comparison"));
-    comparisonCopy.appendChild(el("h3", "", "Selected records side by side"));
-    comparisonCopy.appendChild(el("p", "",
-      "The comparison uses the columns currently visible in the table."));
-    comparisonHead.appendChild(comparisonCopy);
-    const hideComparison = el("button", "record-action record-action-subtle", "Hide comparison");
-    hideComparison.type = "button";
-    comparisonHead.appendChild(hideComparison);
-    comparison.appendChild(comparisonHead);
-
-    const cards = el("div", "record-cards");
-    const box = card("Side by side", "record-card-wide");
-    // The columns of the TABLE become the rows of the comparison: the owner
-    // already chose which fields matter by arranging the grid, so the
-    // comparison inherits that choice instead of inventing its own field list.
-    // VISIBLE columns, not every column the server sent: the language toggle
-    // hides one side of each bilingual pair, and Choose Columns moves fields
-    // into the details. A comparison that ignored both would answer with the
-    // Arabic and the English name of every record, one under the other.
-    const visible = new Set();
-    try {
-      table.getColumns().forEach((column) => {
-        if (column.getField() && column.isVisible()) visible.add(column.getField());
-      });
-    } catch (err) { /* not built yet — fall back to the server's list */ }
-    const fields = (payload.columns || []).filter((column) =>
-      (!visible.size || visible.has(column.key)) &&
-      shown.some((row) => text(row[column.key]) !== ""));
-    const headers = ["Field"].concat(shown.map((row) =>
-      pickLang(row.product_name, row.product_name_ar) ||
-      text(row.sku || row.offer_id)));
-    // Prices are the reason anyone compares two records, so they are compared
-    // as prices — formatted, with the row's own currency — never as the bare
-    // numbers that would let 750 EGP and 81 EGP look like the same kind of gap
-    // as 750 SAR and 81 EGP would be.
-    const MONEY_FIELDS = new Set(["effective_price", "regular_price", "sale_price",
-                                  "min_price", "max_price", "previous_price"]);
-    const body = fields.map((column) => {
-      const values = shown.map((row) => {
-        const raw = text(row[column.key]);
-        if (!raw || !MONEY_FIELDS.has(column.key)) return raw;
-        return formatMoney(row[column.key]) + (row.currency ? " " + row.currency : "");
-      });
-      const differs = values.some((value) => value !== values[0]);
-      const cells = [el("span", differs ? "compare-field is-diff" : "compare-field",
-                        column.label || column.key)];
-      values.forEach((value) => {
-        const cell = el("span", differs ? "is-diff" : "", value);
-        cell.dir = "auto";
-        cells.push(cell);
-      });
-      return cells;
-    });
-    box.appendChild(miniTable(headers, body));
-    cards.appendChild(box);
-    comparison.appendChild(cards);
-    panel.appendChild(comparison);
-
-    const toggleComparison = (open) => {
-      const opening = open === undefined ? comparison.hidden : !!open;
-      comparison.hidden = !opening;
-      compareButton.textContent = opening ? "Hide comparison" : "Compare selected";
-      panel.classList.toggle("has-expanded-details", opening);
-      if (opening) comparison.scrollIntoView({behavior: "smooth", block: "nearest"});
-    };
-    compareButton.addEventListener("click", () => toggleComparison());
-    hideComparison.addEventListener("click", () => {
-      toggleComparison(false);
-      productGrid.scrollIntoView({behavior: "smooth", block: "nearest"});
     });
     panel.focus({preventScroll: true});
     panel.scrollIntoView({behavior: "smooth", block: "nearest"});

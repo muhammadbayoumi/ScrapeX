@@ -93,6 +93,7 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
     # design-system-3: menuLabel learned that "" means no icon — the strict
     # validator threw on pinMenu's blank states and killed the whole
     # three-dot menu (owner-reported live).
@@ -115,8 +116,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # the full descriptions/history open in one wide details surface.
     # design-system-17/15: the product gallery gained previous/next controls,
     # while details and history now share a wide side inspector.
-    assert '/static/grid.js?v=design-system-17' in page
-    assert '/static/grid-theme.css?v=design-system-15' in page
+    # design-system-18/16: the cards left the outer container, comparison was
+    # removed, and the details navigation became an icon rail.
+    assert '/static/grid.js?v=design-system-18' in page
+    assert '/static/grid-theme.css?v=design-system-16' in page
+    assert '/static/tokens.css?v=design-system-3' in base
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -593,10 +597,14 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"Description"' in script and '"Specifications"' in script
     assert '"Attachments"' in script and '"Media"' in script
     assert "Previous product image" in script and "Next product image" in script
+    assert '"Compare selected"' not in script and '"Side by side"' not in script
+    assert 'materialIconElement(item.icon, "record-inspector-nav-icon")' in script
+    assert 'materialIconElement("open-in-new", "selected-product-site-icon")' in script
     assert "summaryDescription" in script
     assert ".selected-product-card" in css
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
+    assert ".record-product-workspace .selected-product-card" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 

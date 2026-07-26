@@ -796,11 +796,11 @@
 .record-panel {
   display: block;
   margin-top: var(--sp-3, .75rem);
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
   /* Selecting a row scrolls the panel into view, and the workspace's sticky
      top bar would otherwise land exactly on the record's name and controls. */
   scroll-margin-top: 5rem;
@@ -812,19 +812,11 @@
   place-items: center;
   padding: var(--sp-5);
   color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
 
-.record-selection-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  padding: var(--sp-4) var(--sp-5);
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-subtle);
-}
-.record-selection-copy { min-width: 0; }
 .record-selection-kicker {
   display: block;
   margin-bottom: var(--sp-1);
@@ -834,19 +826,6 @@
   letter-spacing: .09em;
   text-transform: uppercase;
 }
-.record-selection-title {
-  margin: 0;
-  font-size: var(--fs-lg, 1.125rem);
-  font-weight: var(--fw-bold, 600);
-  line-height: var(--lh-tight, 1.25);
-  overflow-wrap: anywhere;
-}
-.record-selection-sub {
-  margin: var(--sp-1) 0 0;
-  color: var(--muted);
-  font-size: var(--fs-sm);
-}
-.record-selection-actions,
 .selected-product-actions {
   display: flex;
   align-items: center;
@@ -899,20 +878,21 @@
 
 .selected-product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 22rem));
-  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 24rem));
+  align-items: stretch;
   gap: var(--sp-4);
-  padding: var(--sp-5);
+  padding: 0;
 }
 .selected-product-grid.is-single {
   grid-template-columns: minmax(0, 24rem);
 }
 .record-product-workspace {
+  --record-workspace-height: clamp(44rem, 78vh, 50rem);
   display: grid;
   grid-template-columns: minmax(0, 24rem);
-  align-items: start;
+  align-items: stretch;
   gap: var(--sp-4);
-  padding: var(--sp-5);
+  padding: 0;
 }
 .record-product-workspace.has-inspector {
   grid-template-columns: minmax(20rem, 24rem) minmax(0, 1fr);
@@ -921,6 +901,8 @@
   padding: 0;
 }
 .selected-product-card {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow: hidden;
   background: var(--surface);
@@ -931,6 +913,10 @@
               box-shadow var(--dur) var(--ease),
               transform var(--dur) var(--ease);
 }
+.record-product-workspace .selected-product-card,
+.record-product-workspace .record-inspector {
+  height: var(--record-workspace-height);
+}
 .selected-product-card:hover {
   border-color: var(--line-strong);
   box-shadow: var(--shadow-sm);
@@ -938,22 +924,23 @@
 }
 .selected-product-card.has-error { border-style: dashed; }
 .selected-product-media {
-  background: var(--surface-subtle);
+  flex: 0 0 auto;
+  background: var(--media-surface);
   border-bottom: 1px solid var(--line);
 }
 .selected-product-image-stage {
   position: relative;
-  min-height: 14rem;
-  background: var(--surface);
+  min-height: 21rem;
+  background: var(--media-surface);
 }
 .selected-product-image-stage > img {
   display: block;
   width: 100%;
-  height: 14rem;
-  min-height: 14rem;
-  padding: var(--sp-4);
+  height: 21rem;
+  min-height: 21rem;
+  padding: var(--sp-5);
   object-fit: contain;
-  background: var(--surface);
+  background: transparent;
 }
 .selected-product-image-count {
   position: absolute;
@@ -998,7 +985,7 @@
   gap: var(--sp-2);
   padding: var(--sp-3);
   overflow-x: auto;
-  background: var(--surface-subtle);
+  background: var(--media-surface-raised);
   border-top: 1px solid var(--line);
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
@@ -1009,7 +996,7 @@
   aspect-ratio: 1;
   padding: 2px;
   overflow: hidden;
-  background: var(--surface);
+  background: var(--media-surface-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1028,7 +1015,7 @@
 .selected-product-image-empty {
   display: grid;
   place-items: center;
-  min-height: 14rem;
+  min-height: 21rem;
   padding: var(--sp-5);
   color: var(--muted);
   font-size: var(--fs-sm);
@@ -1037,15 +1024,42 @@
 .selected-product-body {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: var(--sp-3);
   padding: var(--sp-4);
 }
+.selected-product-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
 .selected-product-name {
+  flex: 1 1 auto;
   margin: 0;
   font-size: var(--fs-lg);
   line-height: var(--lh-tight);
   overflow-wrap: anywhere;
 }
+#offer-panel .selected-product-site-link {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+#offer-panel .selected-product-site-link:hover {
+  color: var(--accent-ink);
+  background: var(--control-hover);
+  border-color: var(--accent);
+  text-decoration: none;
+}
+.selected-product-site-icon { width: 1rem; height: 1rem; }
 .selected-product-description {
   display: -webkit-box;
   min-height: 2.6em;
@@ -1083,8 +1097,16 @@
   font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
 }
-.selected-product-actions { padding-top: var(--sp-1); }
-.selected-product-actions .record-action-primary { flex: 1 1 9rem; }
+.selected-product-actions {
+  align-items: stretch;
+  flex-direction: column;
+  margin-top: auto;
+  padding-top: var(--sp-1);
+}
+.selected-product-actions .record-action {
+  width: 100%;
+  flex: 0 0 auto;
+}
 #offer-panel .selected-product-actions .record-action.is-active {
   color: var(--button-text);
   background: var(--button-bg);
@@ -1092,6 +1114,8 @@
 }
 
 .record-inspector {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow: hidden;
   background: var(--surface);
@@ -1143,21 +1167,26 @@
 }
 .record-inspector-main {
   display: grid;
-  grid-template-columns: minmax(9.5rem, 12rem) minmax(0, 1fr);
-  min-height: 30rem;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 .record-inspector-nav {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-3);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-2);
   background: var(--surface-subtle);
   border-inline-end: 1px solid var(--line);
 }
 .record-inspector-nav button {
-  width: 100%;
-  min-height: 2.5rem;
-  padding: .55rem .7rem;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
   color: var(--muted);
   background: transparent;
   border: 1px solid transparent;
@@ -1165,7 +1194,6 @@
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
-  text-align: start;
   cursor: pointer;
 }
 .record-inspector-nav button:hover {
@@ -1178,13 +1206,26 @@
   border-color: var(--line-strong);
   box-shadow: var(--shadow-xs);
 }
+.record-inspector-nav-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
 .record-inspector-content {
   min-width: 0;
   padding: var(--sp-4);
   overflow: auto;
 }
 .record-inspector-content-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-4);
   margin-bottom: var(--sp-4);
+}
+.record-inspector-content-head .record-selection-kicker {
+  flex-basis: 100%;
+  margin-bottom: 0;
 }
 .record-inspector-content-head h4 {
   margin: 0;
@@ -1206,31 +1247,6 @@
 }
 .record-inspector-content .record-card {
   grid-column: 1 / -1;
-}
-
-.record-expanded {
-  width: 100%;
-  padding: var(--sp-5);
-  background: var(--bg);
-  border-top: 1px solid var(--line);
-}
-.record-expanded[hidden] { display: none; }
-.record-expanded-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-4);
-}
-.record-expanded-head h3 {
-  margin: 0;
-  font-size: var(--fs-lg);
-}
-.record-expanded-head p {
-  max-width: 46rem;
-  margin: var(--sp-1) 0 0;
-  color: var(--muted);
-  font-size: var(--fs-sm);
 }
 
 .record-cards {
@@ -1336,12 +1352,6 @@
 .file-meta { color: var(--muted); font-size: var(--fs-xs, .75rem); }
 .file-open { align-self: flex-start; font-size: var(--fs-sm, .8125rem); }
 
-/* Comparing several selected records: what DIFFERS is the answer, so the
-   fields that differ are the only thing the eye has to find. */
-.compare-field { color: var(--muted); }
-.record-card .is-diff { color: var(--text); font-weight: var(--fw-medium, 500); }
-.record-card .compare-field.is-diff { color: var(--amber); }
-
 /* The record panel's picture gallery: thumbnails that open the full image.
    Sized in rem so a long gallery wraps instead of pushing the panel wide. */
 .detail-gallery {
@@ -1369,25 +1379,13 @@
 }
 
 @media (max-width: 760px) {
-  .record-selection-bar,
-  .record-expanded-head { align-items: stretch; flex-direction: column; }
-  .record-selection-actions,
-  .record-selection-actions .record-action { width: 100%; }
-  .selected-product-grid { padding: var(--sp-4); }
   .selected-product-grid,
   .selected-product-grid.is-single { grid-template-columns: minmax(0, 1fr); }
-  .record-product-workspace { grid-template-columns: minmax(0, 1fr); padding: var(--sp-4); }
+  .record-product-workspace { grid-template-columns: minmax(0, 1fr); }
   .record-product-workspace .selected-product-grid { max-width: none; }
   .record-inspector-head { align-items: stretch; flex-direction: column; }
   .record-inspector-controls .record-inspector-tab { flex: 1 1 auto; }
-  .record-inspector-main { grid-template-columns: minmax(0, 1fr); }
-  .record-inspector-nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    border-inline-end: 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .record-expanded { padding: var(--sp-4); }
+  .record-inspector-main { grid-template-columns: 3.75rem minmax(0, 1fr); }
   .record-card { grid-column: 1 / -1; }
 }
 
