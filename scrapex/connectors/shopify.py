@@ -134,7 +134,7 @@ class ShopifyConnector:
                 variant_ar=variant.get("title") if options else "",
                 option_fingerprint=option_fingerprint(options) if options else "",
                 product_url=f"{base}/products/{handle}" if handle else "",
-                region=region,
+                country_code_alpha2=region,
                 currency=currency,
                 vat_included=vat_flag,
                 regular_price=compare_at or price,

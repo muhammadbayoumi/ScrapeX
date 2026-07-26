@@ -102,7 +102,7 @@ def test_magento_maps_variants_and_simple():
     assert v12["external_sku"] == "120151248"
     assert v12["effective_price"] == "112.5"
     assert v12["option_fingerprint"] == "thickness_mm=12"
-    assert v12["currency"] == "SAR" and v12["region"] == "SA" and v12["vat_included"] == "0"
+    assert v12["currency"] == "SAR" and v12["country_code_alpha2"] == "SA" and v12["vat_included"] == "0"
 
     v18 = view.as_dict(table.rows[1])
     assert v18["effective_price"] == "168.78" and v18["regular_price"] == "200.0"  # on sale
@@ -405,7 +405,7 @@ def test_the_deeper_home_wins_over_a_longer_shallow_name():
         "price_range": {"minimum_price": {"regular_price": {"value": 10.0},
                                           "final_price": {"value": 10.0}}},
     }
-    ctx = {"base": "https://x", "currency": "SAR", "vat": "0", "region": "SA",
+    ctx = {"base": "https://x", "currency": "SAR", "vat": "0", "country_code_alpha2": "SA",
            "paths": {"P1": ("التخفيضات والعروض الحصرية الكبرى للمقاولين", "PROMO")}}
 
     rows = MagentoGraphqlConnector._product_rows(builder, product, ctx)
@@ -458,7 +458,7 @@ def test_the_row_carries_the_products_localized_name_never_the_child_sku_string(
                       "attributes": [{"code": "color", "label": "Aluminium"}]}],
     }
     ctx = {"base": "https://www.madar.com", "currency": "SAR", "vat": "1",
-           "region": "SA",
+           "country_code_alpha2": "SA",
            "names_en": {"P1": "Legrand Pop-up Floor Box Kit"}}
 
     row = RowView(PRODUCT_PRICES, builder.header).as_dict(

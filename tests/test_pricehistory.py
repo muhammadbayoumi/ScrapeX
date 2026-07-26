@@ -240,7 +240,7 @@ def test_a_failed_run_does_not_advance_the_confirmation(conn):
         # failure it is actually testing.
         rows=[[{"external_product_id": "1001", "external_variant_id": "5001",
                 "external_sku": "SKU1", "product_name": "LED",
-                "brand_raw": "Elsewedy", "region": "EG", "currency": "EGP",
+                "brand_raw": "Elsewedy", "country_code_alpha2": "EG", "currency": "EGP",
                 "vat_included": "1", "availability": "in_stock",
                 }.get(col, "") for col in PRODUCT_PRICES.columns]])
     result = ingest_payloads(conn, make_entry(), [broken])

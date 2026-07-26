@@ -52,7 +52,7 @@ def payload(rows) -> FunnelPayload:
 
 
 def row(**over) -> list[str]:
-    fields = dict(external_product_id="P1", product_name_ar="أسمنت", region="SA",
+    fields = dict(external_product_id="P1", product_name_ar="أسمنت", country_code_alpha2="SA",
                   currency="SAR", vat_included="1", effective_price="325")
     fields.update(over)
     return RowBuilder(PRODUCT_PRICES).row(**fields)

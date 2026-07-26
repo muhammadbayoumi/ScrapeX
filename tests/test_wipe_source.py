@@ -40,7 +40,7 @@ def _entry(key: str) -> SourceEntry:
 
 def _seed(conn, key: str, price: str = "0.404") -> None:
     builder = RowBuilder(COMMODITY_PRICE)
-    rows = [builder.row(material_key="DIESEL", region="EG", currency="USD",
+    rows = [builder.row(material_key="DIESEL", country_code_alpha2="EG", currency="USD",
                         unit="USD/liter", vat_included="1", effective_price=price,
                         price_basis="converted")]
     table = ScrapedTable(key, ExtractKind.COMMODITY_PRICE,
@@ -158,7 +158,7 @@ def test_a_recrawl_after_the_wipe_starts_clean(db):
     wipe_source(conn, path, "GPP_ENERGY")
 
     builder = RowBuilder(COMMODITY_PRICE)
-    rows = [builder.row(material_key="DIESEL", region="EG", currency="EGP",
+    rows = [builder.row(material_key="DIESEL", country_code_alpha2="EG", currency="EGP",
                         unit="liter", vat_included="1", effective_price="20.50",
                         price_basis="original")]
     table = ScrapedTable("GPP_ENERGY", ExtractKind.COMMODITY_PRICE,

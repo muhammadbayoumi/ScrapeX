@@ -1407,7 +1407,7 @@ def create_app(
         that do.
         """
         return [dict(r) for r in conn.execute(
-            "SELECT so.offer_id, sp.product_name_ar AS source_name, so.region, "
+            "SELECT so.offer_id, sp.product_name_ar AS source_name, so.country_code_alpha2, "
             "       COUNT(pp.price_period_id) AS periods, "
             "       MAX(pp.last_confirmed_at) AS last_confirmed "
             "FROM price_period pp "

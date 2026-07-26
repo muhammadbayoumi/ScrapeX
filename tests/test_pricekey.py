@@ -177,7 +177,7 @@ def test_what_ingest_stores_is_a_key_over_canonical_money(tmp_path):
     dbmod.migrate(conn)
     ingest_payloads(conn, make_entry(), [make_payload(
         [one_row(effective_price="1,200.00", regular_price="1,200.00",
-                 sale_price="", region="EG", brand_raw="Elsewedy")])])
+                 sale_price="", country_code_alpha2="EG", brand_raw="Elsewedy")])])
     stored = conn.execute(
         "SELECT price_hash, price_fields FROM price_observation").fetchone()
     conn.close()

@@ -199,12 +199,12 @@ def test_a_crafted_filter_key_is_refused_and_named(split_client):
     from scrapex.reports import parse_filters
 
     accepted, ignored = parse_filters({
-        "f.region": "is:EG",
+        "f.country_code_alpha2": "is:EG",
         "f.effective_price;DROP TABLE x--": "1",
         "f.nonexistent": "is:x",
     })
 
-    assert accepted == {"region": ("is", "EG")}
+    assert accepted == {"country_code_alpha2": ("is", "EG")}
     assert "f.effective_price;DROP TABLE x--" in ignored
     assert "f.nonexistent" in ignored
 
@@ -212,9 +212,9 @@ def test_a_crafted_filter_key_is_refused_and_named(split_client):
 def test_an_unknown_operator_is_refused():
     from scrapex.reports import parse_filters
 
-    accepted, ignored = parse_filters({"f.region": "exec:EG"})
+    accepted, ignored = parse_filters({"f.country_code_alpha2": "exec:EG"})
 
-    assert accepted == {} and ignored == ["f.region"]
+    assert accepted == {} and ignored == ["f.country_code_alpha2"]
 
 
 def test_a_computed_column_is_declared_unfilterable_not_half_supported():
@@ -252,9 +252,9 @@ def test_filtering_by_country_uses_the_name_shown_on_screen(split_client):
     Without translating, filtering by the only string on screen matches nothing."""
     from scrapex.reports import _browse_filters
 
-    clause, params = _browse_filters(None, None, {"region": ("is", "Egypt")})
+    clause, params = _browse_filters(None, None, {"country_code_alpha2": ("is", "Egypt")})
 
-    assert "so.region = ?" in clause
+    assert "so.country_code_alpha2 = ?" in clause
     assert params == ["EG"], "the visible name was not resolved to its code"
 
 
@@ -347,8 +347,8 @@ def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
 # working control was its delete ×.
 #
 # The full round trip is verified against real data rather than here: a view
-# saved as {"filters":{"region":"is:Egypt"},"sort":"effective_price"} reopens to
-# 5 Egyptian rows sorted by price, and ?view_id=1&f.region=is:Saudi+Arabia
+# saved as {"filters":{"country_code_alpha2":"is:Egypt"},"sort":"effective_price"} reopens to
+# 5 Egyptian rows sorted by price, and ?view_id=1&f.country_code_alpha2=is:Saudi+Arabia
 # returns Saudi rows — the URL beating the view's default. What these tests
 # guard is the part that must never depend on a live crawl: what a stored blob
 # is allowed to do.
@@ -357,7 +357,7 @@ def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
 def test_a_saved_view_round_trips_through_the_api(split_client):
     saved = split_client.post("/api/views/GPP_ENERGY", json={
         "view_name": "Egyptian fuel",
-        "config": {"filters": {"region": "is:Egypt"}, "sort": "effective_price",
+        "config": {"filters": {"country_code_alpha2": "is:Egypt"}, "sort": "effective_price",
                    "direction": "desc"}})
     assert saved.status_code == 200
 
@@ -365,7 +365,7 @@ def test_a_saved_view_round_trips_through_the_api(split_client):
     names = [v["view_name"] for v in listed]
     assert "Egyptian fuel" in names
     stored = next(v for v in listed if v["view_name"] == "Egyptian fuel")["config"]
-    assert stored["filters"] == {"region": "is:Egypt"},         "a view must save the QUESTION, not only a column list"
+    assert stored["filters"] == {"country_code_alpha2": "is:Egypt"},         "a view must save the QUESTION, not only a column list"
     assert stored["sort"] == "effective_price"
 
 
@@ -375,10 +375,10 @@ def test_a_stored_view_is_no_more_trusted_than_a_typed_url(split_client):
     from scrapex.reports import FILTERABLE, parse_filters
 
     crafted = {"f.effective_price;DROP TABLE x--": "1", "f.ghost": "is:x",
-               "f.region": "is:EG"}
+               "f.country_code_alpha2": "is:EG"}
     accepted, ignored = parse_filters(crafted)
 
-    assert accepted == {"region": ("is", "EG")}
+    assert accepted == {"country_code_alpha2": ("is", "EG")}
     assert len(ignored) == 2
     assert all(key[2:] not in FILTERABLE for key in ignored)
 

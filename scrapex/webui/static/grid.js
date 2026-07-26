@@ -889,15 +889,15 @@
         return span;
       };
     }
-    if (key === "region") {
+    if (key === "country_code_alpha2") {
       return (cell) => {
         const row = cell.getRow().getData();
         const span = document.createElement("span");
-        span.textContent = row.region_name || row.region || "—";
-        if (row.region_name && row.region) {
+        span.textContent = row.country || row.country_code_alpha2 || "—";
+        if (row.country && row.country_code_alpha2) {
           const code = document.createElement("span");
           code.className = "code";
-          code.textContent = row.region;
+          code.textContent = row.country_code_alpha2;
           span.append(code);
         }
         return span;
@@ -1145,7 +1145,7 @@
         // A ceiling as well as a floor: without one, fitColumns hands a short
         // column like Unit the same share as a long one like Record.
         widthGrow: col.key === "product_name" || col.key === "product_name_ar"
-                   || col.key === "region" ? 2 : 1,
+                   || col.key === "country_code_alpha2" ? 2 : 1,
       };
       // Numbers and dates read right-aligned; text reads from its own side.
       if (col.key === "effective_price") def.hozAlign = "right";

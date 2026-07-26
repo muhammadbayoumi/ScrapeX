@@ -49,7 +49,7 @@ def one_row(**over) -> list[str]:
     fields = dict(
         external_product_id="1001", external_variant_id="5001", external_sku="SKU1",
         product_name="LED Floodlight 400W", brand_raw="Elsewedy",
-        region="EG", currency="EGP", vat_included="1",
+        country_code_alpha2="EG", currency="EGP", vat_included="1",
         regular_price="1,200.00", sale_price="", effective_price="1,200.00",
         availability="in_stock",
     )
@@ -125,7 +125,7 @@ def test_scope_reason_targeted_rejects_foreign_region():
 def test_ingest_rejects_out_of_scope_row(conn):
     entry = make_entry(extract=[ExtractSpec(
         kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.TARGETED, regions=["EG"])])
-    result = ingest_payloads(conn, entry, [make_payload([one_row(region="SA")])])
+    result = ingest_payloads(conn, entry, [make_payload([one_row(country_code_alpha2="SA")])])
     assert result.rejected_out_of_scope == 1
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 0
 

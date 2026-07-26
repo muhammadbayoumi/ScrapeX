@@ -39,7 +39,7 @@
       <tr>
         <td class="num muted" dir="ltr">{{ c.detected_at[:16].replace("T", " ") }}</td>
         <td dir="auto">{{ c.product_name or "—" }}</td>
-        <td>{{ c.region_name or c.region or "—" }}</td>
+        <td>{{ c.country or c.country_code_alpha2 or "—" }}</td>
         <td class="muted">{{ c.field_label }}</td>
         <td class="num">{{ c.display_previous or "—" }}</td>
         {# The unit rides on the NEW value only, and only where the value is a
@@ -67,7 +67,7 @@
     {% for e in extremes %}
       <tr>
         <td dir="auto">{{ e.source_name }}</td>
-        <td>{{ e.region_name or e.region or "—" }}</td>
+        <td>{{ e.country or e.country_code_alpha2 or "—" }}</td>
         <td class="num">{{ "%g"|format(e.first_price) }}</td>
         <td class="num">{% if e.previous_price is not none %}{{ "%g"|format(e.previous_price) }}{% else %}—{% endif %}</td>
         <td class="num price">{{ "%g"|format(e.current_price) }} {{ e.currency }}</td>
@@ -98,7 +98,7 @@
     <label for="tl-offer">Offer</label>
     <select id="tl-offer">
       {% for o in offers %}
-        <option value="{{ o.offer_id }}">&#x2068;{{ o.source_name }}&#x2069;{% if o.region and o.region != "*" %} — {{ o.region }}{% endif %} · {{ o.periods }} prices</option>
+        <option value="{{ o.offer_id }}">&#x2068;{{ o.source_name }}&#x2069;{% if o.country_code_alpha2 and o.country_code_alpha2 != "*" %} — {{ o.country_code_alpha2 }}{% endif %} · {{ o.periods }} prices</option>
       {% endfor %}
     </select>
   </div>

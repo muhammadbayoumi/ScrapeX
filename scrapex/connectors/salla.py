@@ -143,7 +143,7 @@ class SallaConnector:
             # a name that asserts English.
             product_name_ar=str(node.get("name") or ""),
             brand_raw=brand_name(node), product_url=url,
-            region=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
+            country_code_alpha2=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
             regular_price=price, sale_price="", effective_price=price,
             availability=availability_status(availability),
             category_path_ar=category_path(node),

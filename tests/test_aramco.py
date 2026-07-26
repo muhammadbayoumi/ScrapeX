@@ -84,7 +84,7 @@ def test_aramco_emits_the_five_official_rows():
     g91 = rows["GASOLINE_91"]
     assert g91["effective_price"] == "2.18"
     assert g91["currency"] == "SAR" and g91["unit"] == "liter"
-    assert g91["region"] == "SA" and g91["vat_included"] == "1"
+    assert g91["country_code_alpha2"] == "SA" and g91["vat_included"] == "1"
     # The heading month is the SOURCE's dating, never our crawl date.
     assert g91["source_date"] == "2026-07-01"
     assert g91["price_basis"] == "original"

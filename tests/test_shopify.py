@@ -59,7 +59,7 @@ def test_shopify_maps_variants_to_rows():
     assert first["sale_price"] == "1200.00"       # on sale -> sale price present
     assert first["option_fingerprint"] == "color temp=6500k"
     assert first["vat_included"] == "1"
-    assert first["region"] == "EG"
+    assert first["country_code_alpha2"] == "EG"
     assert first["currency"] == "EGP"
     assert first["availability"] == "in_stock"
     assert first["product_url"] == "https://elsewedyshop.com/products/led-floodlight-400w-ip65"

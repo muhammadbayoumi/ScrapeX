@@ -41,7 +41,7 @@ def _payload(rows_kv: list[dict]):
     builder = RowBuilder(COMMODITY_PRICE)
     rows = []
     for kv in rows_kv:
-        base = dict(material_key="DIESEL", region="EG", currency="EGP",
+        base = dict(material_key="DIESEL", country_code_alpha2="EG", currency="EGP",
                     unit="liter", vat_included="1", price_basis="original")
         base.update(kv)
         rows.append(builder.row(**base))

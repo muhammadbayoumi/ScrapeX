@@ -10,7 +10,7 @@
 <h1 dir="auto">{{ offer.name }}</h1>
 {% if offer.name_ar and offer.name_ar != offer.name %}<p dir="auto" class="muted">{{ offer.name_ar }}</p>{% endif %}
 <p class="muted context-line">
-  {% if offer.region_name %}{{ offer.region_name }}<span class="code">{{ offer.region }}</span> · {% endif %}
+  {% if offer.country %}{{ offer.country }}<span class="code">{{ offer.country_code_alpha2 }}</span> · {% endif %}
   {% if offer.variant or offer.variant_ar %}<span dir="auto">{{ offer.variant or offer.variant_ar }}</span> · {% endif %}
   {% if offer.sku %}<span class="tech">{{ offer.sku }}</span> · {% endif %}
   prices in {{ offer.currency }}{% if offer.unit %} per {{ offer.unit }}{% endif %}

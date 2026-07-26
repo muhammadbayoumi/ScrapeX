@@ -424,7 +424,7 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
     if not any(ch.isdigit() for ch in amount):
         return None  # '-' / 'N/A' cells — skip, don't feed the money parser garbage
     fields = dict(
-        material_key=material_key, region=region, currency=currency, unit=unit,
+        material_key=material_key, country_code_alpha2=region, currency=currency, unit=unit,
         vat_included=vat, effective_price=amount, observed_label="",
         provenance=provenance, as_of_date=as_of,
         price_basis="converted",

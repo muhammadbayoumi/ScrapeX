@@ -146,7 +146,7 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     for a commodity source: a price move on Egyptian diesel and one on Saudi
     diesel would otherwise both read as just "DIESEL".
     """
-    sql = ("SELECT c.*, sp.product_name_ar AS product_name, so.region AS region, "
+    sql = ("SELECT c.*, sp.product_name_ar AS product_name, so.country_code_alpha2 AS region, "
            "       su.unit_code AS unit_code, so.basis_quantity AS basis_quantity "
            "FROM change_event c "
            "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
@@ -254,7 +254,7 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
     from .reports import price_unit, region_name
 
     rows = conn.execute(
-        "SELECT c.*, sp.product_name_ar AS product_name, so2.region AS region, "
+        "SELECT c.*, sp.product_name_ar AS product_name, so2.country_code_alpha2 AS region, "
         "       su.unit_code AS unit_code, so2.basis_quantity AS basis_quantity "
         "FROM change_event c "
         "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "

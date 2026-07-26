@@ -291,7 +291,7 @@ class WooCommerceConnector:
             variant_axes_ar=option_axes_json(axes),
             unit=unit,
             basis_quantity=basis,
-            region=source.default_region,
+            country_code_alpha2=source.default_region,
             currency=prices.get("currency_code") or source.currency or "UNKNOWN",
             vat_included=vat,
             regular_price=regular,

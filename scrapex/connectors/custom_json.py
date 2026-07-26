@@ -458,7 +458,7 @@ class CustomJsonConnector:
             category_path_ar=category,
             category_external_id=category_id if category else "",
             brand_raw=str(product.get("brand") or ""), product_url=url,
-            region=region, currency=currency, vat_included=vat,
+            country_code_alpha2=region, currency=currency, vat_included=vat,
             regular_price=regular, sale_price=sale, effective_price=effective,
             availability=_availability(product),
             unit=unit, basis_quantity=basis,

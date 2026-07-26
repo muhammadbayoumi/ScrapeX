@@ -265,7 +265,7 @@ class MagentoGraphqlConnector:
             # What the STOREFRONT shows, which is what a simple product's and a
             # grouped member's figure is.
             "vat": "1" if source.vat_mode.value == "incl" else "0",
-            "region": source.default_region,
+            "country_code_alpha2": source.default_region,
             # ...and what a CONFIGURABLE's figure is, which on this platform is
             # a different answer (see _product_rows). vat_included is a fact
             # about the number in the row, not about the source, so the two
@@ -596,7 +596,7 @@ class MagentoGraphqlConnector:
                 variant=", ".join(f"{axis}: {value}" for axis, value in (axes_en or {}).items()),
                 variant_axes=option_axes_json(axes_en or {}),
                 basis_quantity=basis, unit=unit,
-                product_url=url, region=ctx["region"], currency=ctx["currency"],
+                product_url=url, country_code_alpha2=ctx["country_code_alpha2"], currency=ctx["currency"],
                 # PER ROW, never per source: on this platform one crawl carries
                 # both answers at once, and a source-level flag stamped on
                 # every observation is how the warehouse came to assert things

@@ -476,9 +476,9 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     found = _find_id(
         conn,
         "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-        "AND region = ? AND customer_segment = 'retail' "
+        "AND country_code_alpha2 = ? AND customer_segment = 'retail' "
         "AND COALESCE(selling_unit_id,0) = ? AND basis_quantity = ?",
-        (variant_id, r["region"], unit_id or 0, basis),
+        (variant_id, r["country_code_alpha2"], unit_id or 0, basis),
     )
     if found is not None:
         return found
@@ -495,8 +495,8 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         unstated = _find_id(
             conn,
             "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-            "AND region = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL",
-            (variant_id, r["region"]),
+            "AND country_code_alpha2 = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL",
+            (variant_id, r["country_code_alpha2"]),
         )
         if unstated is not None:
             conn.execute(
@@ -505,7 +505,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
             return unstated
     return _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
-        "region": r["region"],
+        "country_code_alpha2": r["country_code_alpha2"],
         "currency": r["currency"],
         "vat_included": vat,
         "selling_unit_id": unit_id,
@@ -563,7 +563,7 @@ def _observation_values(r: dict, observed_at: str) -> dict:
     price_key = pricekey.build(
         effective=_canon_amount(effective), regular=_canon_amount(regular),
         sale=_canon_amount(sale), currency=r["currency"], vat=vat,
-        region=r.get("region", ""),
+        region=r.get("country_code_alpha2", ""),
         # The real unit, canonicalised the same way the offer identity does it,
         # so the two can never disagree about what a price is per. This slot
         # used to hold option_label, which is the selling unit for commodity
@@ -730,7 +730,7 @@ def _ingest_enrichment_row(conn, entry, source_id, run_id, r, observed_at,
 
 def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at,
                         result: IngestResult, job_id: int | None = None) -> None:
-    reason = scope_reason(entry, ExtractKind.PRODUCT_PRICES, r["region"])
+    reason = scope_reason(entry, ExtractKind.PRODUCT_PRICES, r["country_code_alpha2"])
     if reason is not None:
         result.rejected_out_of_scope += 1
         result.errors.append(f"out of scope: {reason}")
@@ -743,7 +743,7 @@ def _ingest_commodity_row(conn, entry, source_id, run_id, c, observed_at,
     """A commodity is a degenerate product (the material is the product, one
     implicit NULL/NULL variant, region on the offer): scope-check on material+region,
     then reuse the exact same persistence chain via the row-shape adapter."""
-    reason = scope_reason(entry, ExtractKind.COMMODITY_PRICE, c["region"], c["material_key"])
+    reason = scope_reason(entry, ExtractKind.COMMODITY_PRICE, c["country_code_alpha2"], c["material_key"])
     if reason is not None:
         result.rejected_out_of_scope += 1
         result.errors.append(f"out of scope: {reason}")
@@ -805,7 +805,7 @@ def _commodity_to_product_row(c: dict) -> dict:
         # ARAMCO: the Arabic page was read and only English keys were kept).
         "product_name": c.get("material_label") or c["material_key"],
         "product_name_ar": c.get("material_label_ar", ""),
-        "region": c["region"],
+        "country_code_alpha2": c["country_code_alpha2"],
         "currency": c["currency"],
         "vat_included": c.get("vat_included", ""),
         "effective_price": c["effective_price"],

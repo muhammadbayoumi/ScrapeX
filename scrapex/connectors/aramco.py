@@ -131,7 +131,7 @@ class AramcoFuelConnector:
                 # "Gasoline 91" from the English edition of the same page.
                 material_label=english.get(material, ""),
                 material_label_ar=label,
-                material_key=material, region=source.default_region or "SA",
+                material_key=material, country_code_alpha2=source.default_region or "SA",
                 currency=source.currency or "SAR", unit="liter",
                 vat_included=vat, effective_price=price,
                 provenance="observed",

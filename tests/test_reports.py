@@ -43,7 +43,7 @@ def test_recent_observations_is_bounded_and_shaped(conn):
     sample = recent_observations(conn, "ELSEWEDYSHOP", limit=3)
     assert len(sample) == 3
     assert set(sample[0]) == {"name", "price", "currency", "availability", "vat_included",
-                              "business_date", "region", "region_name", "unit"}
+                              "business_date", "country_code_alpha2", "country", "unit"}
     assert sample[0]["currency"] == "EGP"
 
 
@@ -70,7 +70,7 @@ def _commodity_rows(conn, regions=("EG", "SA"), price="0.404"):
         extract=[ExtractSpec(kind=ExtractKind.COMMODITY_PRICE, scope=ExtractScope.LATEST_ONLY,
                              materials=["DIESEL"], regions=["*"])]))
     rows = [RowBuilder(COMMODITY_PRICE).row(
-        material_key="DIESEL", region=r, currency="USD", unit="USD/liter",
+        material_key="DIESEL", country_code_alpha2=r, currency="USD", unit="USD/liter",
         vat_included="1", effective_price=price, observed_label="") for r in regions]
     ingest_payloads(conn, entry, [FunnelPayload(
         payload_version=PAYLOAD_VERSION, source_key="GPP_ENERGY",
@@ -93,8 +93,8 @@ def test_browse_exposes_the_country_for_commodity_rows(conn):
     from scrapex.reports import browse_observations
     _commodity_rows(conn)
     rows = browse_observations(conn, "GPP_ENERGY").rows
-    assert {r["region"] for r in rows} == {"EG", "SA"}
-    assert {r["region_name"] for r in rows} == {"Egypt", "Saudi Arabia"}
+    assert {r["country_code_alpha2"] for r in rows} == {"EG", "SA"}
+    assert {r["country"] for r in rows} == {"Egypt", "Saudi Arabia"}
     assert rows[0] != rows[1]                 # the rows are now distinguishable
 
 
@@ -109,8 +109,8 @@ def test_browse_can_search_by_country(conn):
 def test_browse_order_is_stable_for_identical_rows(conn):
     from scrapex.reports import browse_observations
     _commodity_rows(conn, regions=("EG", "SA", "US", "AE"))
-    first = [r["region"] for r in browse_observations(conn, "GPP_ENERGY").rows]
-    second = [r["region"] for r in browse_observations(conn, "GPP_ENERGY").rows]
+    first = [r["country_code_alpha2"] for r in browse_observations(conn, "GPP_ENERGY").rows]
+    second = [r["country_code_alpha2"] for r in browse_observations(conn, "GPP_ENERGY").rows]
     assert first == second == sorted(first)
 
 
@@ -126,7 +126,7 @@ def test_export_carries_region_and_country(conn):
     # region, country empty, the English name in country), and these two lines
     # were defending it. Reading through the header cannot drift.
     rows = [dict(zip(header, row)) for row in table]
-    assert {row["region"] for row in rows} == {"EG", "SA"}
+    assert {row["country_code_alpha2"] for row in rows} == {"EG", "SA"}
     assert {row["country"] for row in rows} == {"Egypt", "Saudi Arabia"}
 
 
@@ -140,7 +140,7 @@ def test_every_exported_column_holds_its_own_field(conn):
     spreadsheet has no way to notice."""
     from scrapex.reports import export_source_table
     ingest_payloads(conn, make_entry(), [make_payload([one_row(
-        product_name_ar="سلك نحاس", product_name="Copper wire", region="EG",
+        product_name_ar="سلك نحاس", product_name="Copper wire", country_code_alpha2="EG",
         brand_raw="Elsewedy", category_path_ar="أسلاك", category_path="Wires",
         external_product_id="9797", external_sku="76ec8c8572f0-1",
         regular_price="1209.54", sale_price="1124.87", effective_price="1124.87")])])
@@ -148,7 +148,7 @@ def test_every_exported_column_holds_its_own_field(conn):
     row = dict(zip(header, table[0]))
     assert row["product_name"] == "Copper wire"
     assert row["product_name_ar"] == "سلك نحاس"
-    assert row["region"] == "EG"
+    assert row["country_code_alpha2"] == "EG"
     assert row["country"] == "Egypt"
     assert row["brand"] == "Elsewedy"
     assert row["category"] == "Wires" and row["category_ar"] == "أسلاك"
@@ -161,10 +161,10 @@ def test_every_exported_column_holds_its_own_field(conn):
 def test_product_sources_show_no_country_rather_than_a_star(conn):
     """A shop has no per-row geography; '*' must read as blank, not an asterisk."""
     from scrapex.reports import export_source_table
-    ingest_payloads(conn, make_entry(default_region="*"), [make_payload([one_row(region="*")])])
+    ingest_payloads(conn, make_entry(default_region="*"), [make_payload([one_row(country_code_alpha2="*")])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
     row = dict(zip(header, table[0]))
-    assert row["region"] == "" and row["country"] == ""
+    assert row["country_code_alpha2"] == "" and row["country"] == ""
 
 
 def test_search_accepts_the_country_NAME_not_only_the_code(conn):

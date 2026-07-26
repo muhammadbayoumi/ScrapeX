@@ -24,18 +24,20 @@ The LANGUAGE half of rule 2 has **landed** — migrations 0038 (storage),
 refusing anything captured before it. Every `_ar` row in the map below is
 now the product, not the plan.
 
-What remains is the non-language half: `region -> country_code`, the
+`region -> country_code_alpha2` landed too (0042). What remains is the rest
+of the non-language half: the
 `price_*` family, `tax_label -> tax`, `curation_status -> curation`, and
 `open`/`product_url -> product_link`. Two of those need a decision before
 they can move, and both reasons are load-bearing:
 
-- **`region` is inside `pricekey.IDENTITY_FIELDS` and is hashed BY NAME.**
-  `build()` writes the field name into the hashed dict and `parse_fields`
-  filters stored `price_fields` against the known names, so every existing
-  row's `region` entry would be dropped on read, `comparable()` would
-  return False, and pricehistory would open a fresh price period on every
-  affected offer. That is a `PRICE_KEY_VERSION` bump and a full
-  re-baseline, not a rename.
+- The `region` deferral is **withdrawn**, and the reason it was wrong is worth
+  keeping: `pricekey.build()` is keyword-only with exactly one call site, so
+  its `region=` parameter is the HASH's own field name, not the column's. The
+  column feeds it and the hash vocabulary stays frozen — no
+  `PRICE_KEY_VERSION` bump, no re-baseline, no price period disturbed.
+  Three things keep the name `region` on purpose, because they SCOPE rather
+  than describe a row: the manifest's `default_region` and `extract.regions`,
+  `tax_rule.region`, and pricekey's own field.
 - **`open` and `product_url` both target `product_link`**, which is an
   unavoidable `dataset_field` UNIQUE collision. Which column survives is
   the owner's call.
@@ -46,7 +48,7 @@ they can move, and both reasons are load-bearing:
 |---|---|---|
 | `product_name` (Arabic, headed "Record (AR)") | `product_name_ar` | Product name (AR) |
 | `product_name_en` (headed "Record") | `product_name` | Product name |
-| `region` (headed "Country") | `country_code` | Country code |
+| `region` (headed "Country") | `country_code_alpha2` | Country code |
 | `country` (export only) | `country` | Country |
 | `brand` | `brand` | Brand |
 | `category_en` | `category` | Category |

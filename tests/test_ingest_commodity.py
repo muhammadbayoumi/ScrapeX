@@ -39,7 +39,7 @@ def commodity_entry(**over) -> SourceEntry:
 
 def commodity_row(**over) -> list[str]:
     fields = dict(
-        material_key="DIESEL", region="EG", currency="USD", unit="USD/liter",
+        material_key="DIESEL", country_code_alpha2="EG", currency="USD", unit="USD/liter",
         vat_included="1", effective_price="0.620", observed_label="Mar 2026",
     )
     fields.update(over)
@@ -73,7 +73,7 @@ def test_adapter_maps_commodity_row_onto_every_product_column():
     # title like "Red / Large".
     assert r["unit"] == "USD/liter"
     assert r["variant_ar"] == ""
-    assert r["region"] == "EG" and r["currency"] == "USD" and r["effective_price"] == "0.620"
+    assert r["country_code_alpha2"] == "EG" and r["currency"] == "USD" and r["effective_price"] == "0.620"
     assert r["external_variant_id"] == "" and r["option_fingerprint"] == ""  # NULL/NULL variant
     assert r["regular_price"] == "" and r["sale_price"] == ""
     assert "observed_label" not in r                      # dropped, never read
@@ -93,7 +93,7 @@ def test_commodity_creates_degenerate_chain(conn):
     # it used to borrow this column for has a real home.
     assert sv[0] is None and sv[1] is None and sv[2] is None
     so = conn.execute(
-        "SELECT so.region, so.currency, so.vat_included, su.unit_code, so.basis_quantity "
+        "SELECT so.country_code_alpha2, so.currency, so.vat_included, su.unit_code, so.basis_quantity "
         "FROM source_offer so LEFT JOIN selling_unit su USING (selling_unit_id)").fetchone()
     assert so[0] == "EG" and so[1] == "USD" and so[2] == 1
     # 'USD/liter' is a currency the offer already records plus a unit. Storing
@@ -165,11 +165,11 @@ def test_out_of_scope_material_is_rejected(conn):
 # ---- region-per-offer + one variant per material -----------------------------
 
 def test_two_regions_share_one_variant_two_offers(conn):
-    rows = [commodity_row(region="EG"), commodity_row(region="SA")]
+    rows = [commodity_row(country_code_alpha2="EG"), commodity_row(country_code_alpha2="SA")]
     result = ingest_payloads(conn, commodity_entry(), [commodity_payload(rows)])
     assert (result.products, result.variants, result.observations) == (1, 1, 2)
     assert conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0] == 2
-    assert {r[0] for r in conn.execute("SELECT region FROM source_offer")} == {"EG", "SA"}
+    assert {r[0] for r in conn.execute("SELECT country_code_alpha2 FROM source_offer")} == {"EG", "SA"}
 
 
 def test_multi_material_one_variant_each_no_dup_on_recrawl(conn):

@@ -276,7 +276,7 @@ class HybrisOccConnector:
             lang=PRIMARY_LANG,   # not a guess: this is the lang we asked for
             brand_raw=product.get("manufacturer") or "",
             product_url=_storefront_url(product, display_base, PRIMARY_LANG, currency),
-            region=region,
+            country_code_alpha2=region,
             currency=price.get("currencyIso") or currency,
             vat_included=vat_flag,
             regular_price=_money(value),

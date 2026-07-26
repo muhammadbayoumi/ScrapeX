@@ -131,7 +131,7 @@ def test_gpp_fetches_diesel_and_maps_regions():
     current = [r for r in rows if r["provenance"] == "observed"]
     assert len(current) == 3                    # Atlantis (unmapped) skipped
     egypt = current[0]
-    assert egypt["material_key"] == "DIESEL" and egypt["region"] == "EG"
+    assert egypt["material_key"] == "DIESEL" and egypt["country_code_alpha2"] == "EG"
     # EGP 20.50 as published — NOT the list page's 0.404 USD conversion.
     assert egypt["effective_price"] == "20.50" and egypt["currency"] == "EGP"
     assert egypt["unit"] == "liter" and egypt["vat_included"] == "1"
@@ -149,7 +149,7 @@ def test_one_failing_page_does_not_kill_the_crawl():
                   make_entry(materials=("DIESEL", "GASOLINE")))
     assert fetcher.requests_count == 5       # both lists attempted + 3 country pages
     view = RowView(COMMODITY_PRICE, table.header)
-    assert {view.as_dict(r)["region"] for r in table.rows} == {"EG", "SA", "US"}
+    assert {view.as_dict(r)["country_code_alpha2"] for r in table.rows} == {"EG", "SA", "US"}
 
 
 def test_layout_drift_on_one_page_does_not_discard_the_others():
@@ -169,7 +169,7 @@ def test_layout_drift_on_one_page_does_not_discard_the_others():
     table = crawl(GlobalPetrolPricesConnector(_DriftFetcher()),
                   make_entry(materials=("DIESEL", "GASOLINE")))
     view = RowView(COMMODITY_PRICE, table.header)
-    assert {view.as_dict(r)["region"] for r in table.rows} == {"EG", "SA", "US"}
+    assert {view.as_dict(r)["country_code_alpha2"] for r in table.rows} == {"EG", "SA", "US"}
 
 
 def test_total_layout_drift_still_fails_loud():
@@ -514,7 +514,7 @@ def test_a_fuel_country_whose_page_fails_gets_no_converted_stand_in():
     view = RowView(COMMODITY_PRICE, table.header)
     rows = [view.as_dict(r) for r in table.rows]
     assert rows, "the healthy countries must still land"
-    assert {r["region"] for r in rows} == {"SA", "US"}, "Egypt must be absent, not faked"
+    assert {r["country_code_alpha2"] for r in rows} == {"SA", "US"}, "Egypt must be absent, not faked"
     assert all(r["currency"] != "USD" for r in rows), "a converted stand-in slipped through"
     assert any("EG" in w for w in table.warnings),         "a skipped country must be named, not lost quietly"
 

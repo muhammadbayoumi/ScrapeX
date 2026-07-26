@@ -342,7 +342,7 @@ def test_every_column_says_which_table_it_came_from(client):
     # Storage says which language it holds (0038). The DISPLAY key is still
     # `product_name` and still Arabic; the two meet only in FILTERABLE.
     assert "<code>source_product.product_name_ar</code>" in body
-    assert "<code>source_offer.region</code>" in body
+    assert "<code>source_offer.country_code_alpha2</code>" in body
     assert "<code>price_observation.effective_price</code>" in body
     assert "computed: price_observation.regular_price" in body, \
         "a discount is not stored anywhere; saying it is would be a lie"

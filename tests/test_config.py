@@ -99,6 +99,8 @@ def test_unknown_family_rejected():
 
 
 def test_bad_region_rejected():
+    # The manifest's `regions:` SCOPES a source; it is not the row's
+    # country column, so it keeps its name and so does this message.
     with pytest.raises(ValidationError, match="region"):
         Manifest.model_validate(
             {"sources": [entry(extract=[{"kind": "commodity_price", "regions": ["Saudi"]}])]}

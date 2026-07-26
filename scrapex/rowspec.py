@@ -62,7 +62,7 @@ PRODUCT_PRICES = RowSpec(
         "variant_ar",
         "option_fingerprint",
         "product_url",
-        "region",
+        "country_code_alpha2",
         "currency",
         "vat_included",          # "0" | "1"
         "regular_price",
@@ -115,7 +115,7 @@ PRODUCT_PRICES = RowSpec(
         "variant_url",
         "parent_sku",
     ),
-    required=frozenset({"external_product_id", "region", "currency", "vat_included", "effective_price"}),
+    required=frozenset({"external_product_id", "country_code_alpha2", "currency", "vat_included", "effective_price"}),
     # The four _ar columns are deliberately NOT additive. RowView returns ""
     # for a missing additive column and RAISES for a missing non-additive one,
     # so marking them additive would make a post-sweep spec ACCEPT a pre-sweep
@@ -158,7 +158,7 @@ COMMODITY_PRICE = RowSpec(
     kind=ExtractKind.COMMODITY_PRICE,
     columns=(
         "material_key",          # DIESEL | GASOLINE_91 | ...
-        "region",                # country ISO code, or 'SA'
+        "country_code_alpha2",                # country ISO code, or 'SA'
         "currency",
         "unit",                  # 'USD/liter' historically; 'liter' going forward
         "vat_included",
@@ -209,7 +209,7 @@ COMMODITY_PRICE = RowSpec(
         # local/usd — which feeds currency_rate and the ranked USD column.
         "converted_usd_price",
     ),
-    required=frozenset({"material_key", "region", "currency", "effective_price"}),
+    required=frozenset({"material_key", "country_code_alpha2", "currency", "effective_price"}),
     additive=frozenset({"original_price", "original_currency", "price_basis",
                         "geo_region", "consumer_segment",
                         "tax_evidence", "tax_statement_url",
