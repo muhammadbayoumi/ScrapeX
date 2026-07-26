@@ -127,10 +127,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # description hierarchy was flattened, and numeric display was unified.
     # design-system-21/21: detail tabs no longer impose a generic heading;
     # each section displays the title stored with its source data instead.
-    # design-system-22/22: all detail views place their stored title in one
-    # header position, and Keywords remains a section inside Description.
-    assert '/static/grid.js?v=design-system-22' in page
-    assert '/static/grid-theme.css?v=design-system-22' in page
+    # design-system-23/23: the established detail-card headings remain in
+    # place, with Keywords added only inside the Description card.
+    assert '/static/grid.js?v=design-system-23' in page
+    assert '/static/grid-theme.css?v=design-system-23' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -618,7 +618,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"record-inspector-head"' not in script
     assert '"record-card-wide record-card-prose"' in script
     assert "const databaseTitle" in script
-    assert "const detailSectionTitles = new Map()" in script
+    assert 'if (isHistory) contentHead.appendChild(el("h3", "", active.label))' in script
+    assert "detailSectionTitles" not in script
     assert "keywordSection" in script and '"record-keywords"' in script
     assert "code.startsWith(\"keywords\")" in script
     assert '"selected-product-category"' in script

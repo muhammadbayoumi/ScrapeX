@@ -2004,7 +2004,6 @@
       ["specifications", []],
       ["attachments", []],
     ]);
-    const detailSectionTitles = new Map();
     const historySections = new Map([
       ["price", []],
       ["changes", []],
@@ -2082,10 +2081,7 @@
 
       const active = definitions.find((item) => item.key === activeKey);
       const contentHead = el("header", "record-inspector-content-head");
-      const sectionTitle = isHistory
-        ? active.label
-        : text(detailSectionTitles.get(activeKey));
-      if (sectionTitle) contentHead.appendChild(el("h3", "", sectionTitle));
+      if (isHistory) contentHead.appendChild(el("h3", "", active.label));
       contentHead.appendChild(el("p", "record-inspector-context",
         isHistory ? "Recorded over time" : "Collected from the source"));
       inspectorContent.appendChild(contentHead);
@@ -2166,23 +2162,16 @@
           };
           const fullRows = items.filter((item) =>
             (item.code || "").toLowerCase().startsWith("full_description"));
-          const shortRows = items.filter((item) => {
-            const code = (item.code || "").toLowerCase();
-            return code.startsWith("short_description") ||
-              (fullRows.length && ["description", "description_ar"].includes(code));
-          });
           const keywordRows = items.filter(isKeyword);
-          const primaryRows = fullRows.length
+          const withoutShortOrKeywords = items.filter((item) =>
+            !(item.code || "").toLowerCase().startsWith("short_description") &&
+            !isKeyword(item));
+          const paired = pairByLanguage(fullRows.length
             ? fullRows
-            : items.filter((item) => !shortRows.includes(item) && !isKeyword(item));
-          const shownRows = primaryRows.length
-            ? primaryRows
-            : items.filter((item) => !isKeyword(item));
-          const paired = pairByLanguage(shownRows);
+            : (withoutShortOrKeywords.length ? withoutShortOrKeywords : items));
           const databaseTitle = text((paired.find((entry) =>
             text(entry.label)) || {}).label);
-          detailSectionTitles.set("description", databaseTitle || name);
-          const box = card("", "record-card-wide record-card-prose");
+          const box = card(databaseTitle, "record-card-wide record-card-prose");
           paired.forEach((entry, index) => {
             const label = (entry.label || "").trim();
             if (index > 0 && label &&
@@ -2191,16 +2180,6 @@
             }
             box.appendChild(prose(entry.value, databaseTitle ? [databaseTitle] : []));
           });
-          const auxiliaryRows = items.filter((item) =>
-            !shownRows.includes(item) && !shortRows.includes(item) && !isKeyword(item));
-          pairByLanguage(auxiliaryRows).forEach((entry) => {
-            const section = el("section", "record-detail-subsection");
-            const heading = el("h4", "record-detail-subsection-title",
-              text(entry.label) || "Additional description");
-            heading.dir = "auto";
-            section.append(heading, prose(entry.value));
-            box.appendChild(section);
-          });
           const keywords = pairByLanguage(keywordRows);
           if (keywords.length) box.appendChild(keywordSection(keywords));
           detailSections.get("description").push(box);
@@ -2208,16 +2187,13 @@
         }
         if (name === "Attachments") {
           const paired = pairByLanguage(items);
-          detailSectionTitles.set("attachments", name);
-          const box = card("", "record-card-wide");
+          const box = card(name, "record-card-wide");
           box.appendChild(fileCards(paired));
           detailSections.get("attachments").push(box);
           return;
         }
         const paired = pairByLanguage(items);
-        const existingTitle = detailSectionTitles.get("specifications");
-        if (!existingTitle) detailSectionTitles.set("specifications", name);
-        const box = card(existingTitle && existingTitle !== name ? name : "");
+        const box = card(name);
         box.appendChild(specList(paired));
         detailSections.get("specifications").push(box);
       });
@@ -2228,9 +2204,6 @@
     // moves a field into the details, show moves it back.
     const moved = payload.moved_to_details || [];
     if (moved.length && openOfferRow) {
-      if (!detailSectionTitles.has("specifications")) {
-        detailSectionTitles.set("specifications", "Additional fields");
-      }
       const box = card("Moved out of the table");
       box.appendChild(specList(moved.map((column) => ({
         label: column.label || column.key, value: text(openOfferRow[column.key]),
