@@ -351,7 +351,11 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
         return _record(conn, "apps_script_last", RunResult(
             ok=False, rows=len(rows),
             detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s), but the "
-                    f"sheet REFUSED to write {source_key}: {refused.get('reason')}"
+                    f"sheet REFUSED to write {source_key}: {refused.get('reason')}. "
+                    # Truthful but useless without this: the commonest
+                    # cause is a sheet still running an older script.
+                    "Open Settings and re-paste the Apps Script (Copy "
+                    "Script), then sync again."
                     f"{oversized}")))
     return _record(conn, "apps_script_last", RunResult(
         ok=True, rows=len(rows),

@@ -79,7 +79,7 @@ def test_shopify_default_title_variant_has_no_fingerprint():
     view = RowView(PRODUCT_PRICES, table.header)
     wire = view.as_dict(table.rows[2])  # copper wire, single Default Title variant
     assert wire["option_fingerprint"] == ""
-    assert wire["option_label"] == ""
+    assert wire["variant_ar"] == ""
     assert wire["external_sku"] == "312890"
 
 
@@ -118,13 +118,13 @@ def test_the_english_title_the_shop_publishes_is_captured_beside_the_arabic():
 
     rows = {view.get(r, "external_product_id"): view.as_dict(r) for r in table.rows}
     floodlight = rows["10157311557932"]
-    assert floodlight["product_name"] == "كشاف واجهات400وات اضاءة ابيض IP 65"
-    assert floodlight["product_name_en"] == "Luma floodlight 400W IP65 6500K"
+    assert floodlight["product_name_ar"] == "كشاف واجهات400وات اضاءة ابيض IP 65"
+    assert floodlight["product_name"] == "Luma floodlight 400W IP65 6500K"
     # Every variant of a product carries its product's English name.
     wire = [view.as_dict(r) for r in table.rows
             if view.get(r, "external_product_id") == "9033503572268"]
     assert len(wire) > 1
-    assert {r["product_name_en"] for r in wire} == \
+    assert {r["product_name"] for r in wire} == \
         {"cu-pvc-copper-wire felexible-25mm-thick"}
 
 
@@ -136,7 +136,7 @@ def test_a_shop_with_one_language_pays_one_request_not_a_second_crawl():
     table = next(iter(ShopifyConnector(fetcher).fetch(make_entry())))
     view = RowView(PRODUCT_PRICES, table.header)
 
-    assert all(view.get(r, "product_name_en") == "" for r in table.rows), \
+    assert all(view.get(r, "product_name") == "" for r in table.rows), \
         "a re-served single language must never be published as a translation"
     assert sum(1 for u in fetcher.urls if "/en/" in u) == 1
 

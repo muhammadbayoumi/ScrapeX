@@ -267,11 +267,12 @@ class HybrisOccConnector:
             external_product_id=code,
             external_variant_id=code,  # v1 product-level; baseProduct->variants later
             external_sku=code,
-            product_name=name,
-            # The English name the SAME API publishes, kept separate and only
-            # when it says something different — a monolingual store repeats
+            # The unmarked column is English. `name` is what the store answers
+            # in PRIMARY_LANG; the English twin is filled only when the SAME
+            # API says something different — a monolingual store repeats
             # itself and repeating it here would fake a translation.
-            product_name_en=name_en if name_en and name_en != name else "",
+            product_name=name_en if name_en and name_en != name else "",
+            product_name_ar=name,
             lang=PRIMARY_LANG,   # not a guess: this is the lang we asked for
             brand_raw=product.get("manufacturer") or "",
             product_url=_storefront_url(product, display_base, PRIMARY_LANG, currency),

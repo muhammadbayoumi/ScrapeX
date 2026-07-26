@@ -265,7 +265,12 @@ class WooCommerceConnector:
             external_product_id=pid,
             external_variant_id=str(product.get("id", "")),
             external_sku=product.get("sku") or carrier.get("sku") or "",
-            product_name=product.get("name") or carrier.get("name") or "",
+            # This shop publishes ONE language, Arabic. It fills only the
+            # marked column and leaves the English one empty — the heading
+            # then says which language the reader is looking at, which is the
+            # owner's rule. Moving the value to product_name would rename
+            # everything and fix nothing.
+            product_name_ar=product.get("name") or carrier.get("name") or "",
             brand_raw=brand_of(carrier),
             # The PRODUCT's page for the product column, and the VARIATION's own
             # page for the variation — they are different addresses and were
@@ -276,14 +281,14 @@ class WooCommerceConnector:
             product_url=carrier.get("permalink") or product.get("permalink") or "",
             variant_url=(product.get("permalink") or "") if parent else "",
             parent_sku=str(carrier.get("sku") or ""),
-            option_label=option,
+            variant_ar=option,
             option_fingerprint=option_fingerprint(axes) if axes else "",
             # The SAME axes as structure. They were parsed already, for the
             # fingerprint, and then thrown away — so the warehouse kept
             # "Color: أحمر" as one string and an export could not split it into
             # the two columns it is (the owner's report, fixed at the root
             # rather than by cutting the string at the far end).
-            option_axes=option_axes_json(axes),
+            variant_axes_ar=option_axes_json(axes),
             unit=unit,
             basis_quantity=basis,
             region=source.default_region,

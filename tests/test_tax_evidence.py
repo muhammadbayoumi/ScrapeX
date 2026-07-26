@@ -53,7 +53,7 @@ def payload(rows) -> FunnelPayload:
 
 
 def row(**over) -> list[str]:
-    fields = dict(external_product_id="P1", product_name="أسمنت", region="SA",
+    fields = dict(external_product_id="P1", product_name_ar="أسمنت", region="SA",
                   currency="SAR", vat_included="1", effective_price="325")
     fields.update(over)
     return RowBuilder(PRODUCT_PRICES).row(**fields)
@@ -186,9 +186,9 @@ def test_the_export_carries_the_evidence_and_where_to_read_it(conn):
 # 15% rule. The label was built from the RULE alone, so every one of them read
 # "Incl. 15%" and half the table was false.
 
-SIMPLE = dict(external_product_id="P-SIMPLE", product_name="معجون",
+SIMPLE = dict(external_product_id="P-SIMPLE", product_name_ar="معجون",
               vat_included="1", effective_price="4.23")
-CONFIGURABLE = dict(external_product_id="P-CONFIG", product_name="خشب أبلكاش",
+CONFIGURABLE = dict(external_product_id="P-CONFIG", product_name_ar="خشب أبلكاش",
                     vat_included="0", effective_price="50.4")
 
 
@@ -217,7 +217,7 @@ def test_the_data_page_sends_a_distinct_tax_state_per_answer(conn):
                     [payload([row(**SIMPLE), row(**CONFIGURABLE)])])
 
     page = table_payload(conn, "SHOP")
-    by_name = {r["product_name"]: r for r in page["rows"]}
+    by_name = {r["product_name_ar"]: r for r in page["rows"]}
 
     assert by_name["معجون"]["tax_ref"] != by_name["خشب أبلكاش"]["tax_ref"]
     labels = {page["tax_states"][r["tax_ref"]]["tax_short"] for r in page["rows"]}
@@ -231,7 +231,7 @@ def test_the_export_never_contradicts_its_own_vat_column(conn):
 
     header, table = export_source_table(conn, "SHOP")
     vat = header.index("vat_included")
-    name = header.index("product_name")
+    name = header.index("product_name_ar")
     by_name = {r[name]: r for r in table}
 
     assert by_name["معجون"][vat] == "yes"

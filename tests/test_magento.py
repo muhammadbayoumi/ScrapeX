@@ -135,11 +135,11 @@ def test_the_deepest_filing_is_the_classification_that_rides_every_row():
 
     for variant_row in table.rows[:2]:            # both variants of product 1
         row = view.as_dict(variant_row)
-        assert row["category_path"] == "مواد البناء > الأخشاب > أخشاب معالجة"
+        assert row["category_path_ar"] == "مواد البناء > الأخشاب > أخشاب معالجة"
         assert row["category_external_id"] == "Q0FULTQ0"
 
     simple = view.as_dict(table.rows[2])
-    assert simple["category_path"] == "أسمنت"     # one flat filing, one level
+    assert simple["category_path_ar"] == "أسمنت"     # one flat filing, one level
     assert simple["category_external_id"] == "Q0FULTc="
 
 
@@ -159,16 +159,19 @@ def test_classification_lands_on_the_product_and_reaches_the_main_table():
         grid = table_payload(conn, "MADAR")
         keys = {c["key"] for c in grid["columns"]}
         # Three levels published -> exactly L1..L3 offered, never an empty L4.
-        assert {"category", "category_l1", "category_l2", "category_l3"} <= keys
-        assert "category_l4" not in keys
+        # This stub is a MONOLINGUAL store, so the Arabic-marked columns are
+        # the ones it fills and the unmarked English ones are absent.
+        assert {"category_ar", "category_l1_ar", "category_l2_ar",
+                "category_l3_ar"} <= keys
+        assert "category_l4_ar" not in keys
         plywood = next(r for r in grid["rows"]
-                       if r["product_name"].startswith("Fire Retardant"))
-        assert plywood["category"] == "مواد البناء > الأخشاب > أخشاب معالجة"
-        assert plywood["category_l1"] == "مواد البناء"
-        assert plywood["category_l2"] == "الأخشاب"
-        assert plywood["category_l3"] == "أخشاب معالجة"
-        cement = next(r for r in grid["rows"] if r["category"] == "أسمنت")
-        assert cement["category_l1"] == "أسمنت" and cement["category_l2"] == ""
+                       if r["product_name_ar"].startswith("Fire Retardant"))
+        assert plywood["category_ar"] == "مواد البناء > الأخشاب > أخشاب معالجة"
+        assert plywood["category_l1_ar"] == "مواد البناء"
+        assert plywood["category_l2_ar"] == "الأخشاب"
+        assert plywood["category_l3_ar"] == "أخشاب معالجة"
+        cement = next(r for r in grid["rows"] if r["category_ar"] == "أسمنت")
+        assert cement["category_l1_ar"] == "أسمنت" and cement["category_l2_ar"] == ""
     finally:
         conn.close()
 
@@ -226,10 +229,10 @@ def test_a_census_that_hides_categories_gets_them_from_the_tree_walk():
     plywood = view.as_dict(table.rows[0])
     # Both walked homes are two levels; the tie keeps the first-walked, and
     # either way BOTH levels arrive — never the census's empty answer.
-    assert plywood["category_path"] == "المعادن والحديد الإنشائي > حديد التسليح والشبك"
+    assert plywood["category_path_ar"] == "المعادن والحديد الإنشائي > حديد التسليح والشبك"
     assert plywood["category_external_id"] == "NA=="
     cement = view.as_dict(table.rows[2])
-    assert cement["category_path"] == "مواد البناء ولوازم الموقع > الأسمنت والجبس"
+    assert cement["category_path_ar"] == "مواد البناء ولوازم الموقع > الأسمنت والجبس"
 
 
 def test_a_dead_tree_walk_costs_a_note_never_the_price_crawl():
@@ -255,7 +258,7 @@ def test_variant_axes_carry_their_names_not_bare_numbers():
     view = RowView(PRODUCT_PRICES, table.header)
 
     v12 = view.as_dict(table.rows[0])
-    assert v12["option_label"] == "السماكة (مم): 12"
+    assert v12["variant_ar"] == "السماكة (مم): 12"
 
 
 def test_the_stated_basis_rides_the_price_and_a_piece_mass_does_not():
@@ -268,7 +271,7 @@ def test_the_stated_basis_rides_the_price_and_a_piece_mass_does_not():
 
     cement = view.as_dict(table.rows[3])
     assert cement["unit"] == "kg" and cement["basis_quantity"] == "50"
-    assert cement["option_label"] == "نوع الأسمنت: اسمنت ابيض"
+    assert cement["variant_ar"] == "نوع الأسمنت: اسمنت ابيض"
 
     plywood = view.as_dict(table.rows[0])
     assert plywood["unit"] == "" and plywood["basis_quantity"] == ""
@@ -303,9 +306,9 @@ def test_english_names_ride_every_row_when_the_store_answers():
     # first put a part number where the page shows a product name
     # (owner-reported after the first bilingual crawl).
     v12 = view.as_dict(table.rows[0])
-    assert v12["product_name_en"] == "Fire Retardant Plywood"
+    assert v12["product_name"] == "Fire Retardant Plywood"
     cement = view.as_dict(table.rows[3])
-    assert cement["product_name_en"] == "Madar Cement"
+    assert cement["product_name"] == "Madar Cement"
 
     conn: sqlite3.Connection = dbmod.connect(":memory:")
     try:
@@ -319,7 +322,13 @@ def test_english_names_ride_every_row_when_the_store_answers():
 
         from scrapex.reports import table_payload
         grid = table_payload(conn, "MADAR")
-        assert "product_name_en" in {c["key"] for c in grid["columns"]},             "a bilingual source must offer the Record (EN) column"
+        columns = {c["key"]: c["label"] for c in grid["columns"]}
+        assert "product_name" in columns, \
+            "a bilingual source must offer the English name column"
+        # The mark is a property of the COLUMN, not of the pair: it is
+        # authored into the label rather than appended when a twin happens
+        # to be present.
+        assert columns["product_name_ar"] == "Product name (AR)"
     finally:
         conn.close()
 
@@ -333,7 +342,13 @@ def test_a_monolingual_source_never_sees_the_english_column():
 
         from scrapex.reports import table_payload
         grid = table_payload(conn, "MADAR")
-        assert "product_name_en" not in {c["key"] for c in grid["columns"]}
+        columns = {c["key"]: c["label"] for c in grid["columns"]}
+        assert "product_name" not in columns
+        # The assertion this test was always missing: the ONE name column a
+        # monolingual source shows still says which language it holds. It used
+        # to read a plain "Record", because the "(AR)" was runtime-conditional
+        # on a twin that does not exist here.
+        assert columns["product_name_ar"] == "Product name (AR)"
     finally:
         conn.close()
 
@@ -395,7 +410,7 @@ def test_the_deeper_home_wins_over_a_longer_shallow_name():
 
     rows = MagentoGraphqlConnector._product_rows(builder, product, ctx)
     row = RowView(PRODUCT_PRICES, builder.header).as_dict(rows[0])
-    assert row["category_path"] == "مواد > معادن > حديد"
+    assert row["category_path_ar"] == "مواد > معادن > حديد"
     assert row["category_external_id"] == "C3"
 
 
@@ -449,9 +464,9 @@ def test_the_row_carries_the_products_localized_name_never_the_child_sku_string(
     row = RowView(PRODUCT_PRICES, builder.header).as_dict(
         MagentoGraphqlConnector._product_rows(builder, product, ctx)[0])
 
-    assert row["product_name"] == "علب أرضية منبثقة من ليجراند"
-    assert row["product_name_en"] == "Legrand Pop-up Floor Box Kit"
-    assert row["option_label"] == "اللون: Aluminium"
+    assert row["product_name_ar"] == "علب أرضية منبثقة من ليجراند"
+    assert row["product_name"] == "Legrand Pop-up Floor Box Kit"
+    assert row["variant_ar"] == "اللون: Aluminium"
     assert row["effective_price"] == "194.9"      # the API figure, untouched
 
 
@@ -479,8 +494,8 @@ def test_the_english_tree_relabels_every_walked_path_for_one_query():
     view = RowView(PRODUCT_PRICES, table.header)
     row = view.as_dict(table.rows[0])
 
-    assert row["category_path"] == "المعادن والحديد الإنشائي > حديد التسليح والشبك"
-    assert row["category_path_en"] == "Metals & structural steel > Rebar & mesh"
+    assert row["category_path_ar"] == "المعادن والحديد الإنشائي > حديد التسليح والشبك"
+    assert row["category_path"] == "Metals & structural steel > Rebar & mesh"
 
 
 def test_a_missing_english_tree_costs_a_note_never_the_classification():
@@ -495,7 +510,7 @@ def test_a_missing_english_tree_costs_a_note_never_the_classification():
     table = next(iter(MagentoGraphqlConnector(_NoEnglishTree()).fetch(make_entry())))
     view = RowView(PRODUCT_PRICES, table.header)
 
-    assert view.as_dict(table.rows[0])["category_path"], "the Arabic path must survive"
+    assert view.as_dict(table.rows[0])["category_path_ar"], "the Arabic path must survive"
     assert any("english category tree" in w for w in table.warnings)
 
 
@@ -555,7 +570,7 @@ def test_a_grouped_product_becomes_one_row_per_member_not_one_row_per_group():
     boards run to 2,233.88.
     """
     _table, rows = _shape_rows()
-    members = [r for r in rows if r["product_name"] == "الخشب الأحمر السويدي"]
+    members = [r for r in rows if r["product_name_ar"] == "الخشب الأحمر السويدي"]
     assert len(members) == 4, "one row per member of the captured group"
     assert {r["effective_price"] for r in members} == {
         "1630.13", "1750.88", "1811.25", "1449"}
@@ -563,7 +578,7 @@ def test_a_grouped_product_becomes_one_row_per_member_not_one_row_per_group():
     # the member name the page prints beside that member's price.
     assert len({r["external_variant_id"] for r in members}) == 4
     assert len({r["external_sku"] for r in members}) == 4
-    assert all(r["option_label"].startswith("خشب سويدي") for r in members)
+    assert all(r["variant_ar"].startswith("خشب سويدي") for r in members)
     # The GROUP still owns the rows: one product, several offers.
     assert len({r["external_product_id"] for r in members}) == 1
 
@@ -585,7 +600,7 @@ def test_the_groups_maximum_price_is_a_lie_the_connector_must_not_believe():
 
     _table, rows = _shape_rows()
     priced = {r["effective_price"] for r in rows
-              if r["product_name"] == "الخشب الأحمر السويدي"}
+              if r["product_name_ar"] == "الخشب الأحمر السويدي"}
     assert "1811.25" in priced, "the dearer member must reach the table"
 
 
@@ -606,7 +621,7 @@ def test_a_grouped_product_whose_members_carry_no_price_is_skipped_out_loud():
     table = next(iter(MagentoGraphqlConnector(_Priceless()).fetch(shapes_entry())))
     view = RowView(PRODUCT_PRICES, table.header)
     assert not [r for r in table.rows
-                if view.as_dict(r)["product_name"] == "الخشب الأحمر السويدي"]
+                if view.as_dict(r)["product_name_ar"] == "الخشب الأحمر السويدي"]
     assert any("grouped product" in w and "11535-SRW" in w for w in table.warnings)
     # And never at the group's own figure, which is what it used to fall back to.
     assert not [r for r in table.rows if view.as_dict(r)["effective_price"] == "1449"]
@@ -627,7 +642,7 @@ def test_a_configurable_is_stored_at_the_api_figure_and_says_it_excludes_tax():
     have produced.
     """
     table, rows = _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))
-    plywood = [r for r in rows if r["product_name"] == "Tigercore Shuttering Plywood"]
+    plywood = [r for r in rows if r["product_name_ar"] == "Tigercore Shuttering Plywood"]
     assert len(plywood) == 2
     assert {r["effective_price"] for r in plywood} == {"50.4", "90.3"}
     assert {r["regular_price"] for r in plywood} == {"50.4", "90.3"}
@@ -664,7 +679,7 @@ def test_an_undeclared_configurable_is_still_recorded_but_says_so_once():
     rather than letting the next store repeat the 3,312-row mistake in silence.
     """
     table, rows = _shape_rows()
-    plywood = [r for r in rows if r["product_name"] == "Tigercore Shuttering Plywood"]
+    plywood = [r for r in rows if r["product_name_ar"] == "Tigercore Shuttering Plywood"]
     assert len(plywood) == 2, "an undeclared configurable is recorded, not skipped"
     assert all(r["vat_included"] == "1" for r in plywood), "the source's own vat_mode"
     note = next(w for w in table.warnings if "configurable prices recorded" in w)
@@ -679,8 +694,8 @@ def test_simple_and_grouped_rows_keep_the_storefronts_vat_state():
     vat_included=1 in the very same table."""
     _table, rows = _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))
     simple = next(r for r in rows if r["external_sku"] == "71102002")
-    member = next(r for r in rows if r["product_name"] == "الخشب الأحمر السويدي")
-    plywood = next(r for r in rows if r["product_name"] == "Tigercore Shuttering Plywood")
+    member = next(r for r in rows if r["product_name_ar"] == "الخشب الأحمر السويدي")
+    plywood = next(r for r in rows if r["product_name_ar"] == "Tigercore Shuttering Plywood")
 
     assert simple["vat_included"] == "1"
     assert member["vat_included"] == "1"
@@ -694,7 +709,7 @@ def test_a_grouped_product_whose_members_agree_still_reaches_the_table():
     figure three times. The old single row happened to be right here; the fix
     must not lose the product to make a point."""
     _table, rows = _shape_rows()
-    rebar = [r for r in rows if r["product_name"] == "حديد تسليح تعمير"]
+    rebar = [r for r in rows if r["product_name_ar"] == "حديد تسليح تعمير"]
     assert len(rebar) == 3
     assert {r["effective_price"] for r in rebar} == {"3139.5"}
 

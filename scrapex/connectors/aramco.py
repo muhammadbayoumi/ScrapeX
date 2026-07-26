@@ -129,8 +129,8 @@ class AramcoFuelConnector:
             rows.append(builder.row(
                 # The site's own words, in both languages: «بنزين 91» here and
                 # "Gasoline 91" from the English edition of the same page.
-                material_label=label,
-                material_label_en=english.get(material, ""),
+                material_label=english.get(material, ""),
+                material_label_ar=label,
                 material_key=material, region=source.default_region or "SA",
                 currency=source.currency or "SAR", unit="liter",
                 vat_included=vat, effective_price=price,

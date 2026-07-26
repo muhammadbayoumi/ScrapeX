@@ -237,7 +237,7 @@ def test_the_real_response_envelope_is_read():
     assert table.rows, "the real envelope produced no rows"
     first = view.as_dict(table.rows[0])
     assert first["external_product_id"] == "256"
-    assert first["product_name"] == "سيكا فيوم 5 كيلو"      # Arabic name preferred
+    assert first["product_name_ar"] == "سيكا فيوم 5 كيلو"      # Arabic name preferred
     assert first["regular_price"] == "325"
     # No live flash sale -> the shop charges its listing price, and so do we.
     assert first["sale_price"] == ""
@@ -319,10 +319,10 @@ def test_both_languages_and_the_classification_ride_every_row():
     table, view = fetch_rows(_StubFetcher())
     first = view.as_dict(table.rows[0])
 
-    assert first["product_name"] == "سيكا فيوم 5 كيلو"
-    assert first["product_name_en"] == "Sika Fume® 5 KG"
+    assert first["product_name_ar"] == "سيكا فيوم 5 كيلو"
+    assert first["product_name"] == "Sika Fume® 5 KG"
     assert first["lang"] == "ar"
-    assert first["category_path"] == "إضافات الخرسانه"      # tab stripped
+    assert first["category_path_ar"] == "إضافات الخرسانه"      # tab stripped
     assert first["category_external_id"] == "20"
 
 
@@ -332,8 +332,8 @@ def test_the_classification_lands_in_BOTH_languages(conn=None):
     table, view = fetch_rows(_StubFetcher())
     first = view.as_dict(table.rows[0])
 
-    assert first["category_path"] == "إضافات الخرسانه"
-    assert first["category_path_en"] == "Concrete additives"
+    assert first["category_path_ar"] == "إضافات الخرسانه"
+    assert first["category_path"] == "Concrete additives"
 
 
 def test_this_shop_publishes_exactly_ONE_product_shape():

@@ -58,7 +58,7 @@ class ShopifyConnector:
         english = self._english_titles(base, titles, notes)
         if english:
             product_at = builder.header.index("external_product_id")
-            english_at = builder.header.index("product_name_en")
+            english_at = builder.header.index("product_name")
             for row in rows:
                 row[english_at] = english.get(row[product_at], "")
 
@@ -127,9 +127,11 @@ class ShopifyConnector:
                 external_product_id=product.get("id"),
                 external_variant_id=variant.get("id"),
                 external_sku=variant.get("sku") or "",
-                product_name=product.get("title") or "",
+                # This store answers in Arabic; the English pass above fills
+                # the unmarked column from the same shop's en locale.
+                product_name_ar=product.get("title") or "",
                 brand_raw=product.get("vendor") or "",
-                option_label=variant.get("title") if options else "",
+                variant_ar=variant.get("title") if options else "",
                 option_fingerprint=option_fingerprint(options) if options else "",
                 product_url=f"{base}/products/{handle}" if handle else "",
                 region=region,

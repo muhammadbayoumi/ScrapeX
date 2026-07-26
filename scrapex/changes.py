@@ -14,13 +14,12 @@ from .vocab import Availability, ChangeType
 # Product fields worth tracking. Deliberately a short explicit list (P5): these
 # are the source-local descriptive fields the owner sees, not every column.
 TRACKED_PRODUCT_FIELDS = (
-    # (stored column, incoming row key). The two sides speak DIFFERENT
-    # vocabularies for one release: storage already says which language it
-    # holds, the wire does not yet. Leave this half-inverted and every crawl
-    # writes one language into the other's column, one logged FIELD_UPDATED
-    # per row — the write path runs off this same tuple (ingest applies
-    # UPDATE source_product SET {column} from it).
-    ("product_name_ar", "product_name"),
+    # (stored column, incoming row key). Both sides now speak the same
+    # vocabulary — each name states the language it holds. Leave a pair
+    # half-inverted and every crawl writes one language into the other's
+    # column, one logged FIELD_UPDATED per row: the write path runs off
+    # this same tuple (ingest applies UPDATE source_product SET {column}).
+    ("product_name_ar", "product_name_ar"),
     ("product_url", "product_url"),
     ("brand_raw", "brand_raw"),
     # The PRODUCT's own sku. `product_sku` is DERIVED, not a column a connector
@@ -34,12 +33,12 @@ TRACKED_PRODUCT_FIELDS = (
     # Classification is product identity the source states (owner ruling
     # 2026-07-22): tracked like brand, so a product the site re-files under a
     # new category records the move instead of silently forgetting the old one.
-    ("category_path_ar", "category_path"),
-    ("category_path", "category_path_en"),
+    ("category_path_ar", "category_path_ar"),
+    ("category_path", "category_path"),
     ("category_external_id", "category_external_id"),
     # The English name, tracked like the primary one — a bilingual site
     # renaming in either language is a recorded change, not a silent drift.
-    ("product_name", "product_name_en"),
+    ("product_name", "product_name"),
     ("product_name_lang", "lang"),
 )
 

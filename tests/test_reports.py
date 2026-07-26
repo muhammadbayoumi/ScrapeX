@@ -140,18 +140,18 @@ def test_every_exported_column_holds_its_own_field(conn):
     spreadsheet has no way to notice."""
     from scrapex.reports import export_source_table
     ingest_payloads(conn, make_entry(), [make_payload([one_row(
-        product_name="سلك نحاس", product_name_en="Copper wire", region="EG",
-        brand_raw="Elsewedy", category_path="أسلاك", category_path_en="Wires",
+        product_name_ar="سلك نحاس", product_name="Copper wire", region="EG",
+        brand_raw="Elsewedy", category_path_ar="أسلاك", category_path="Wires",
         external_product_id="9797", external_sku="76ec8c8572f0-1",
         regular_price="1209.54", sale_price="1124.87", effective_price="1124.87")])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
     row = dict(zip(header, table[0]))
-    assert row["product_name"] == "سلك نحاس"
-    assert row["product_name_en"] == "Copper wire"
+    assert row["product_name"] == "Copper wire"
+    assert row["product_name_ar"] == "سلك نحاس"
     assert row["region"] == "EG"
     assert row["country"] == "Egypt"
     assert row["brand"] == "Elsewedy"
-    assert row["category"] == "أسلاك" and row["category_en"] == "Wires"
+    assert row["category"] == "Wires" and row["category_ar"] == "أسلاك"
     # The six variations of one cable differ only in the SKU suffix; the id
     # they share is what lets a spreadsheet group them without parsing text.
     assert row["product_id"] == "9797" and row["sku"] == "76ec8c8572f0-1"
@@ -243,10 +243,10 @@ def test_each_variation_axis_becomes_its_own_export_column(conn):
     """
     from scrapex.reports import export_source_table
     ingest_payloads(conn, make_entry(), [make_payload([
-        one_row(external_variant_id="v1", option_label="Color: أحمر",
-                option_axes='{"Color":"أحمر"}'),
-        one_row(external_variant_id="v2", option_label="Color: أخضر",
-                option_axes='{"Color":"أخضر"}', effective_price="99.00"),
+        one_row(external_variant_id="v1", variant_ar="Color: أحمر",
+                variant_axes_ar='{"Color":"أحمر"}'),
+        one_row(external_variant_id="v2", variant_ar="Color: أخضر",
+                variant_axes_ar='{"Color":"أخضر"}', effective_price="99.00"),
     ])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
 
@@ -274,7 +274,7 @@ def test_a_variation_is_linked_to_its_own_page_not_the_products(conn):
     opened the wrong colour."""
     from scrapex.reports import export_source_table, table_payload
     ingest_payloads(conn, make_entry(), [make_payload([
-        one_row(external_variant_id="v1", option_label="Color: أحمر",
+        one_row(external_variant_id="v1", variant_ar="Color: أحمر",
                 product_url="https://shop.example/wire/",
                 variant_url="https://shop.example/wire/?attribute_pa_color=black"),
     ])])

@@ -52,7 +52,7 @@ def payload(rows) -> FunnelPayload:
 
 
 def row(**over) -> list[str]:
-    fields = dict(external_product_id="P1", product_name="أسمنت", region="SA",
+    fields = dict(external_product_id="P1", product_name_ar="أسمنت", region="SA",
                   currency="SAR", vat_included="1", effective_price="325")
     fields.update(over)
     return RowBuilder(PRODUCT_PRICES).row(**fields)
@@ -214,21 +214,21 @@ def test_a_source_with_no_variants_or_skus_is_not_given_those_columns(conn):
 
     present = column_presence(conn, "SHOP")
 
-    assert "option_label" not in present, "a Variant column of em-dashes"
+    assert "variant_ar" not in present, "a Variant column of em-dashes"
     assert "sku" not in present, "an SKU column of em-dashes"
-    assert "unit" in present and "product_name" in present and "effective_price" in present
+    assert "unit" in present and "product_name_ar" in present and "effective_price" in present
 
 
 def test_a_source_that_does_supply_them_keeps_those_columns(conn):
     from scrapex.reports import column_presence
 
     ingest_payloads(conn, entry(), [payload([
-        row(external_sku="SKU-1", option_label="Red / Large",
+        row(external_sku="SKU-1", variant_ar="أحمر / كبير",
             option_fingerprint="color=red|size=large")])])
 
     present = column_presence(conn, "SHOP")
 
-    assert "sku" in present and "option_label" in present
+    assert "sku" in present and "variant_ar" in present
 
 
 def test_presence_is_per_source_not_global(conn):
@@ -250,11 +250,16 @@ def test_presence_is_per_source_not_global(conn):
 def test_the_identifying_columns_are_never_swept_away(conn):
     """A table with no name and no price is not a shorter table, it is not a
     price list."""
-    from scrapex.reports import ESSENTIAL_COLUMNS, column_presence
+    from scrapex.reports import ESSENTIAL_COLUMNS, NAME_COLUMNS, column_presence
 
     ingest_payloads(conn, entry(), [payload([row()])])
 
-    assert ESSENTIAL_COLUMNS <= column_presence(conn, "SHOP")
+    present = column_presence(conn, "SHOP")
+    assert ESSENTIAL_COLUMNS <= present
+    # ONE name column survives, and which one is the source's own answer:
+    # this fixture publishes Arabic only, so the English column is legitimately
+    # absent rather than an em-dash claiming a language it does not hold.
+    assert NAME_COLUMNS & present == {"product_name_ar"}
 
 
 # ---- the table has to be READABLE, not merely correct ------------------------

@@ -72,7 +72,7 @@ def test_adapter_maps_commodity_row_onto_every_product_column():
     # into option_label, where a unit was indistinguishable from a variant
     # title like "Red / Large".
     assert r["unit"] == "USD/liter"
-    assert r["option_label"] == ""
+    assert r["variant_ar"] == ""
     assert r["region"] == "EG" and r["currency"] == "USD" and r["effective_price"] == "0.620"
     assert r["external_variant_id"] == "" and r["option_fingerprint"] == ""  # NULL/NULL variant
     assert r["regular_price"] == "" and r["sale_price"] == ""

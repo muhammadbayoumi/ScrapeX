@@ -288,8 +288,9 @@ def _browse_filters(search: str | None, availability: str | None,
         # Match the region too: for a commodity source the country IS the row.
         # Both spellings work — the stored code ("EG") and the human name
         # ("Egypt"), which is resolved to its code before the query runs.
-        clause += " AND (sp.product_name_ar LIKE ? OR so.region LIKE ?"
-        params += [f"%{search}%", f"%{search}%"]
+        clause += (" AND (sp.product_name_ar LIKE ? OR sp.product_name LIKE ? "
+                   "OR so.region LIKE ?")
+        params += [f"%{search}%", f"%{search}%", f"%{search}%"]
         code = region_code(search)
         if code:
             clause += " OR so.region = ?"
@@ -335,9 +336,11 @@ def _browse_filters(search: str | None, availability: str | None,
 #   date    a date comparison
 #   derived computed in PYTHON after the query, so SQL cannot filter it at all
 FILTERABLE: dict[str, tuple[str, str]] = {
-    "product_name": ("sp.product_name_ar", "text"),
+    "product_name": ("sp.product_name", "text"),
+    "product_name_ar": ("sp.product_name_ar", "text"),
     "region": ("so.region", "exact"),
-    "option_label": ("sv.variant_ar", "text"),
+    "variant_ar": ("sv.variant_ar", "text"),
+    "variant": ("sv.variant", "text"),
     "sku": ("sv.external_sku", "text"),
     "effective_price": ("po.effective_price", "number"),
     "availability": ("po.availability", "exact"),
@@ -418,7 +421,10 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.effective_price, "
         "       po.regular_price, po.sale_price, po.currency, po.availability, po.vat_included, "
         "       po.business_date, sp.product_url, sp.curation_status, so.region, "
-        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id "
+        "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
+        # Appended LAST: every index above is positional. The tax rules are
+        # keyed on the name the SOURCE publishes, whichever language that is.
+        "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar) "
         f"{_LATEST_PER_OFFER}{filt} {_order_by(sort, direction)} LIMIT ? OFFSET ?",
         [*base_params, limit, offset],
     ).fetchall()
@@ -439,7 +445,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
          # rate and the statement, the row owns incl/excl. Without it a madar
          # table labelled its 328 tax-EXCLUSIVE configurable prices "Incl. 15%"
          # alongside its 399 inclusive simple ones.
-         **tax.resolve(tax_rules, r[12], material=r[0]).for_row(bool(r[8])).as_dict(),
+         **tax.resolve(tax_rules, r[12], material=r[17]).for_row(bool(r[8])).as_dict(),
          # The row's own identity. Its absence is why no screen has ever been
          # able to ask "what did THIS price do over time" — pricehistory.timeline
          # has been callable since migration 0016 and had no way to be reached,
@@ -500,8 +506,8 @@ def _level_columns() -> list[tuple[str, str]]:
     level, so a pair sits together instead of in two distant blocks."""
     columns: list[tuple[str, str]] = []
     for level in range(1, CATEGORY_LEVELS + 1):
-        columns.append((f"category_en_l{level}", f"Category L{level}"))
         columns.append((f"category_l{level}", f"Category L{level}"))
+        columns.append((f"category_l{level}_ar", f"Category L{level} (AR)"))
     return columns
 
 
@@ -511,9 +517,13 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # every Arabic one — so a bilingual shop showed Record (AR), Record,
     # Category, Country, Category (AR): the same fact twice with an unrelated
     # column wedged between. The label for each pair is written once, by
-    # BILINGUAL_COLUMNS below, which appends "(AR)" to the Arabic side.
-    ("product_name_en", "Record"),
-    ("product_name", "Record"),
+    # BILINGUAL_COLUMNS below. The "(AR)" is AUTHORED into the label, not
+    # appended at runtime: the mark is a property of the column, not of the
+    # pair, so an Arabic-only source is still told which language it is
+    # reading. (It also makes /api/fields and the grid agree by construction
+    # rather than by both remembering to run the same loop.)
+    ("product_name", "Product name"),
+    ("product_name_ar", "Product name (AR)"),
     ("region", "Country"),
     ("brand", "Brand"),
     # Classification (owner ruling 2026-07-22): part of the MAIN table, with
@@ -522,11 +532,11 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # under flat labels, the labels themselves. The per-level columns split
     # the path so the table can sort and group by any layer; presence gating
     # keeps each level to the sources that actually reach that depth.
-    ("category_en", "Category"),
     ("category", "Category"),
+    ("category_ar", "Category (AR)"),
     *_level_columns(),
     ("variant", "Variant"),
-    ("option_label", "Variant"),
+    ("variant_ar", "Variant (AR)"),
     ("sku", "SKU"),
     ("effective_price", "Price"),
     # Derived from currency_rate (the publisher's own implied rates) so 128
@@ -570,20 +580,27 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
 # publishes both languages is captured in both). Everything downstream reads
 # this map — the presence gates, the payload keys and the grid's AR|EN
 # toggle — so adding a bilingual field is one line, not five edits.
+# Orientation is {arabic: english} and must stay that way — grid.js
+# destructures `for (const [arabic, english] of pairs)`.
 BILINGUAL_COLUMNS: dict[str, str] = {
-    "product_name": "product_name_en",
+    "product_name_ar": "product_name",
     # The variation reads «العرض (ملم): 610» in Arabic and "Width (mm): 610" in
     # English, and madar publishes both — so the switch flips it too.
-    "option_label": "variant",
-    "category": "category_en",
-    **{f"category_l{level}": f"category_en_l{level}"
+    "variant_ar": "variant",
+    "category_ar": "category",
+    **{f"category_l{level}_ar": f"category_l{level}"
        for level in range(1, CATEGORY_LEVELS + 1)},
 }
 
 
-# Never hidden by the emptiness sweep: without them a row cannot be identified
-# or is not a price at all.
-ESSENTIAL_COLUMNS = frozenset({"product_name", "effective_price"})
+# Never hidden by the emptiness sweep: without it the table is not a price
+# list at all.
+ESSENTIAL_COLUMNS = frozenset({"effective_price"})
+
+# ONE of these always survives too — a row that cannot be identified is not a
+# shorter table, it is not a table. WHICH one survives is the source's choice
+# of language, which is exactly what the marked names now make visible.
+NAME_COLUMNS = frozenset({"product_name", "product_name_ar"})
 
 
 def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
@@ -618,15 +635,19 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(TRIM(COALESCE(sp.product_name,'')),'')), "
         # Appended LAST, like every count before it: this list is read by
         # position, and a column inserted mid-list shifts every index under it.
-        "       COUNT(NULLIF(TRIM(COALESCE(sv.variant,'')),'')) "
+        "       COUNT(NULLIF(TRIM(COALESCE(sv.variant,'')),'')), "
+        # Appended LAST again: the ENGLISH name is empty on an Arabic-only
+        # source, which it never was while this column held Arabic.
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.product_name_ar,'')),'')) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
-    for column, count in (("option_label", row[0]), ("sku", row[1]),
+    for column, count in (("variant_ar", row[0]), ("sku", row[1]),
                           ("region", row[2]), ("unit", row[3]),
                           ("availability", row[4]), ("official_source", row[5]),
                           ("brand", row[6]), ("discount", row[7]),
                           ("discount_pct", row[7]),
-                          ("product_name_en", row[9]), ("variant", row[10])):
+                          ("product_name", row[9]), ("variant", row[10]),
+                          ("product_name_ar", row[11])):
         if not count:
             present.discard(column)
     # USD est. exists to make many currencies RANKABLE in one column. A source
@@ -667,20 +688,25 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
             f"WHERE ss.source_key = ? AND TRIM(COALESCE({column},'')) <> ''",
             (source_key,)).fetchone()[0] or 0
 
-    depth = _depth_of("category_path_ar")
-    depth_en = _depth_of("category_path")
-    if not depth_en:
-        present.discard("category_en")
-    for level in range(1, CATEGORY_LEVELS + 1):
-        if depth_en < level or (level == 1 and depth_en < 2):
-            present.discard(f"category_en_l{level}")
-    if not details[1] and not depth:
+    depth_ar = _depth_of("category_path_ar")
+    depth = _depth_of("category_path")
+    if not depth:
         present.discard("category")
     for level in range(1, CATEGORY_LEVELS + 1):
         if depth < level or (level == 1 and depth < 2):
             # L1 alone would duplicate Category exactly; the split only earns
             # its columns once there is more than one level to split.
             present.discard(f"category_l{level}")
+    # The Arabic branch keeps its own escape hatch — details[1] counts the
+    # source_product_attribute rows coded 'category', which is how a shop
+    # with flat labels and no path still gets a Category column. The two
+    # branches are NOT symmetric on purpose: moving the hatch to the English
+    # side would cost SAMEHGABRIEL the only classification column it has.
+    if not details[1] and not depth_ar:
+        present.discard("category_ar")
+    for level in range(1, CATEGORY_LEVELS + 1):
+        if depth_ar < level or (level == 1 and depth_ar < 2):
+            present.discard(f"category_l{level}_ar")
     history = conn.execute(
         "SELECT MAX(n), MAX(distinct_prices) FROM ("
         "  SELECT COUNT(*) AS n, COUNT(DISTINCT po.effective_price) AS distinct_prices "
@@ -759,13 +785,18 @@ _EXPORT_SELECT: dict[str, str] = {
 EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # Identity. region/country sit right after the name: for a commodity source
     # they are what distinguishes one row from the next.
-    ("product_name", lambda r, s: r["name"] or ""),
-    ("product_name_en", lambda r, s: r["name_en"] or ""),
+    ("product_name", lambda r, s: r["name_en"] or ""),
+    # No fallback, deliberately: a source that publishes no English name
+    # leaves this blank. Filling it from the Arabic would put Arabic under
+    # an English heading and undo the whole point of marking the columns.
+    ("product_name_ar", lambda r, s: r["name"] or ""),
     ("region", lambda r, s: (r["region"] or "") if r["region"] != "*" else ""),
     ("country", lambda r, s: region_name(r["region"])),
     ("brand", lambda r, s: r["brand"] or ""),
-    ("category", lambda r, s: r["category_path"] or r["category_flat"] or ""),
-    ("category_en", lambda r, s: r["category_path_en"] or ""),
+    # path-or-flat-labels is NOT a language fallback — both are the same
+    # language, and a shop with flat labels and no path has only the labels.
+    ("category", lambda r, s: r["category_path_en"] or ""),
+    ("category_ar", lambda r, s: r["category_path"] or r["category_flat"] or ""),
     # The product this row's variant belongs to. Six variations of one cable
     # arrive as six rows whose SKUs differ only in the suffix (…-1 … …-6); this
     # is the id they share, so a spreadsheet can group them without parsing.
@@ -773,7 +804,11 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # English first, the Arabic beside it — the same pair convention the table
     # uses, and the same fallback: a source that publishes one language fills
     # one column instead of leaving the reader a blank.
-    ("variant", lambda r, s: r["variant_en"] or r["option_label"] or ""),
+    # No language fallback here either. 269 variants (MADAR 161,
+    # SAMEHGABRIEL 108) have an Arabic variation and no English one; the old
+    # `variant_en or option_label` published their Arabic under the English
+    # heading. Blank is the truthful answer.
+    ("variant", lambda r, s: r["variant_en"] or ""),
     ("variant_ar", lambda r, s: r["option_label"] or ""),
     ("sku", lambda r, s: r["sku"] or ""),
     ("effective_price", lambda r, s: _or_blank(r["effective_price"])),
@@ -840,7 +875,8 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         row = dict(zip(aliases, raw))
         # ...and read for THIS row's figure, so tax_evidence never contradicts
         # the vat_included cell two columns to its left.
-        state = (tax.resolve(tax_rules, row["region"], material=row["name"])
+        state = (tax.resolve(tax_rules, row["region"],
+                             material=row["name_en"] or row["name"])
                  .for_row(bool(row["vat_included"])))
         table.append([produce(row, state) for _name, produce in EXPORT_COLUMNS])
         # The product's filterable attributes first, then this VARIANT's own
@@ -920,10 +956,12 @@ def _with_axis_columns(header: list[str], table: list[list],
     return widened, rows
 
 
-DETAILS_HEADER = ["product_name", "region", "sku", "group", "attribute",
-                  "value", "value_url", "last_seen_on"]
-HISTORY_HEADER = ["product_name", "region", "sku", "business_date",
-                  "effective_price", "currency", "provenance"]
+# Both tabs carry BOTH name columns, like the price tab: they are enumerated
+# on no page, so nothing else would ever tell you they had only one.
+DETAILS_HEADER = ["product_name", "product_name_ar", "region", "sku", "group",
+                  "attribute", "value", "value_url", "last_seen_on"]
+HISTORY_HEADER = ["product_name", "product_name_ar", "region", "sku",
+                  "business_date", "effective_price", "currency", "provenance"]
 
 
 def export_details_table(conn: sqlite3.Connection, source_key: str,
@@ -934,7 +972,7 @@ def export_details_table(conn: sqlite3.Connection, source_key: str,
     details or the history, so the spreadsheet held a third of what the page
     showed. Same bounded rule as every other read (A8)."""
     rows = conn.execute(
-        "SELECT sp.product_name_ar, so.region, sv.external_sku, "
+        "SELECT sp.product_name, sp.product_name_ar, so.region, sv.external_sku, "
         "       spa.attribute_group, COALESCE(spa.attribute_label, spa.attribute_code), "
         "       spa.raw_value, spa.value_url, spa.last_seen_at "
         "FROM source_product_attribute spa "
@@ -944,11 +982,12 @@ def export_details_table(conn: sqlite3.Connection, source_key: str,
         "JOIN source_offer so ON so.source_variant_id = sv.source_variant_id "
         "WHERE ss.source_key = ? AND sv.status = 'active' "
         "GROUP BY spa.source_product_attribute_id "
-        "ORDER BY sp.product_name_ar, spa.attribute_group, spa.attribute_label LIMIT ?",
+        "ORDER BY sp.product_name, sp.product_name_ar, spa.attribute_group, "
+        "         spa.attribute_label LIMIT ?",
         (source_key, limit)).fetchall()
     return list(DETAILS_HEADER), [
-        [r[0] or "", (r[1] or "") if r[1] != "*" else "", r[2] or "",
-         r[3] or "Details", r[4] or "", r[5] or "", r[6] or "", (r[7] or "")[:10]]
+        [r[0] or "", r[1] or "", (r[2] or "") if r[2] != "*" else "", r[3] or "",
+         r[4] or "Details", r[5] or "", r[6] or "", r[7] or "", (r[8] or "")[:10]]
         for r in rows]
 
 
@@ -956,19 +995,20 @@ def export_history_table(conn: sqlite3.Connection, source_key: str,
                          limit: int = 40_000) -> tuple[list[str], list[list]]:
     """Every price this source has published, oldest first per record."""
     rows = conn.execute(
-        "SELECT sp.product_name_ar, so.region, sv.external_sku, po.business_date, "
-        "       po.effective_price, po.currency, po.provenance "
+        "SELECT sp.product_name, sp.product_name_ar, so.region, sv.external_sku, "
+        "       po.business_date, po.effective_price, po.currency, po.provenance "
         "FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
         "WHERE ss.source_key = ? AND sv.status = 'active' "
-        "ORDER BY sp.product_name_ar, so.region, po.business_date LIMIT ?",
+        "ORDER BY sp.product_name, sp.product_name_ar, so.region, "
+        "         po.business_date LIMIT ?",
         (source_key, limit)).fetchall()
     return list(HISTORY_HEADER), [
-        [r[0] or "", (r[1] or "") if r[1] != "*" else "", r[2] or "",
-         r[3] or "", r[4] if r[4] is not None else "", r[5] or "", r[6] or "observed"]
+        [r[0] or "", r[1] or "", (r[2] or "") if r[2] != "*" else "", r[3] or "",
+         r[4] or "", r[5] if r[5] is not None else "", r[6] or "", r[7] or "observed"]
         for r in rows]
 
 
@@ -1123,7 +1163,7 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
     row = conn.execute(
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, so.region, "
         "       so.currency, su.unit_code, so.basis_quantity, sp.product_url, "
-        "       ss.source_key "
+        "       ss.source_key, sp.product_name, sv.variant "
         "FROM source_offer so "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
@@ -1133,7 +1173,9 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
         (offer_id, source_key)).fetchone()
     if row is None:
         return None
-    return {"name": row[0], "option_label": row[1] or "", "sku": row[2] or "",
+    return {"name": row[9] or row[0] or "", "name_ar": row[0] or "",
+            "variant": row[10] or "", "variant_ar": row[1] or "",
+            "sku": row[2] or "",
             "region": row[3] or "", "region_name": region_name(row[3]),
             "currency": row[4], "unit": price_unit(row[5], row[6]),
             "product_url": row[7] or "", "source_key": row[8],
@@ -1278,7 +1320,8 @@ def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7)
     return result
 
 
-def _category_levels(path: str | None, prefix: str = "category_l") -> dict[str, str]:
+def _category_levels(path: str | None, prefix: str = "category_l",
+                     suffix: str = "") -> dict[str, str]:
     """Split "Cables > Low voltage > Copper" into category_l1..lN.
 
     Always ALL the keys, so every row has the same shape (a grid that meets a
@@ -1288,7 +1331,7 @@ def _category_levels(path: str | None, prefix: str = "category_l") -> dict[str, 
     ceiling stays visible in the full-path Category column rather than being
     lost."""
     segments = [s.strip() for s in (path or "").split(">") if s.strip()]
-    return {f"{prefix}{level}": (segments[level - 1] if level <= len(segments) else "")
+    return {f"{prefix}{level}{suffix}": (segments[level - 1] if level <= len(segments) else "")
             for level in range(1, CATEGORY_LEVELS + 1)}
 
 
@@ -1351,7 +1394,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       sp.category_path_ar, sp.product_name, sp.category_path, "
         # Appended LAST on purpose: every index above is positional and a column
         # inserted mid-list silently shifts the lot.
-        "       po.vat_included, sv.variant, sv.variant_url "
+        "       po.vat_included, sv.variant, sv.variant_url, "
+        "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar) "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.region LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1374,7 +1418,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                               .for_row(vat_included).as_dict())
         return tax_index[key]
 
-    shaped = [{"product_name": r[0], "option_label": r[1] or "", "variant": r[30] or "",
+    shaped = [{"product_name_ar": r[0], "variant_ar": r[1] or "", "variant": r[30] or "",
                # The variation's own page where there is one; the row's arrow
                # and the record panel both open the most specific address.
                "product_url": r[31] or r[9] or "",
@@ -1392,11 +1436,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                # The full stated path when the source classifies in levels;
                # the flat labels otherwise. The per-level keys split the path
                # so any layer can be sorted or grouped on its own.
-               "category": r[26] or r[24] or "",
-               **_category_levels(r[26]),
-               "category_en": r[28] or "",
-               **_category_levels(r[28], prefix="category_en_l"),
-               "product_name_en": r[27] or "",
+               "category_ar": r[26] or r[24] or "",
+               **_category_levels(r[26], prefix="category_l", suffix="_ar"),
+               "category": r[28] or "",
+               **_category_levels(r[28]),
+               "product_name": r[27] or "",
                "has_details": bool(r[25]),
                "observations": r[19],
                "min_price": r[20],
@@ -1407,7 +1451,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "was_price": r[4] if _discounted(r[4], r[3]) else "",
                "discount": _discount_amount(r[4], r[3]),
                "discount_pct": _discount_pct(r[4], r[3]),
-               "tax_ref": tax_ref(r[11] or "", r[0] or "", bool(r[29]))}
+               "tax_ref": tax_ref(r[11] or "", r[32] or r[0] or "", bool(r[29]))}
               for r in rows]
 
     present = column_presence(conn, source_key)
@@ -1426,10 +1470,6 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     # plain heading (calling its only Record column "(AR)" would be a claim
     # about a language nobody stated).
     labels = dict(BROWSE_COLUMNS)
-    for arabic, english in BILINGUAL_COLUMNS.items():
-        if arabic in present and english in present:
-            labels[english] = labels[arabic]
-            labels[arabic] = f"{labels[arabic]} (AR)"
 
     return {
         "source_key": source_key,
@@ -1468,12 +1508,16 @@ def _tree_shape(rows: list[dict]) -> dict:
     if not rows:
         return {"by": "", "child": ""}
     regions = {r["region"] for r in rows if r["region"] and r["region"] != "*"}
-    names = {r["product_name"] for r in rows}
+    # Whichever name column this source actually fills: an Arabic-only shop
+    # leaves the English one blank, and grouping on a blank column collapses
+    # every row into one branch with an empty heading.
+    by = "product_name" if any(r.get("product_name") for r in rows) else "product_name_ar"
+    names = {r[by] for r in rows}
     # The region has to VARY for nesting by it to mean anything. A shop whose
     # every row is 'SA' would otherwise get a tree whose branch has one child
     # reading "Saudi Arabia" — more clicks to see the same list.
     if len(regions) > 1 and len(names) < len(rows):
-        return {"by": "product_name", "child": "region_name"}
+        return {"by": by, "child": "region_name"}
     return {"by": "", "child": ""}
 
 
@@ -1497,17 +1541,16 @@ def _tree_shape(rows: list[dict]) -> dict:
 # product must describe the product AS IT IS. Columns whose name is due to
 # change say so, in RENAMING_TO below, instead of pretending it already did.
 COLUMN_NOTES: dict[str, str] = {
-    "product_name": "The product's name in the source's own language — Arabic on "
-                    "every bilingual source today.",
-    "product_name_en": "The same name in English, where the source publishes one.",
+    "product_name": "The product's name in English, where the source publishes one.",
+    "product_name_ar": "The same name in Arabic, where the source publishes one.",
     "region": "The country the price applies to, as an ISO code.",
     "country": "The same country, spelled out.",
     "brand": "The brand, as the source publishes it — never inferred from the name.",
-    "category": "The full classification path the source files this product under, "
-                "in the source's own language.",
-    "category_en": "The same path in English, where the source publishes one.",
-    "option_label": "Which variation this row is, in the site's own words.",
-    "variant": "The same variation in English, where the site publishes both.",
+    "category": "The full classification path the source files this product "
+                "under, in English where it publishes one.",
+    "category_ar": "The same path in Arabic, where the source publishes one.",
+    "variant": "Which variation this row is, in English.",
+    "variant_ar": "The same variation in the site's own Arabic words.",
     "sku": "The source's own code for this item.",
     "product_id": "The id its variations share, so six rows of one cable group.",
     "effective_price": "What a visitor actually pays today.",
@@ -1545,13 +1588,15 @@ COLUMN_NOTES: dict[str, str] = {
 # unmarked, Arabic marked `_ar`. The rename is one sweep, not yet run, and until
 # it is the page shows both names side by side rather than letting the owner
 # read a plan as a fact. Empty when a column's name is already correct.
+# The LANGUAGE half of this plan has LANDED (migrations 0038-0040): every
+# name above already states the language it holds, so those rows are gone
+# from here rather than left advertising a rename that has happened. What
+# remains is the non-language half, deferred with its reasons written down
+# in docs/column-vocabulary.md — chiefly `region`, which is inside
+# pricekey.IDENTITY_FIELDS and is hashed BY NAME, so renaming it opens a
+# fresh price period on every affected offer and needs its own argument.
 RENAMING_TO: dict[str, str] = {
-    "product_name": "product_name_ar",
-    "product_name_en": "product_name",
-    "category": "category_ar",
-    "category_en": "category",
     "region": "country_code",
-    "option_label": "variant_ar",
     "effective_price": "price",
     "regular_price": "price_before",
     "sale_price": "price_sale",
@@ -1571,13 +1616,11 @@ RENAMING_TO: dict[str, str] = {
 
 def renaming_to(key: str) -> str:
     """The name this column takes when the vocabulary sweep lands, or ""."""
+    # No level loop any more: it lived OUTSIDE the dict, so emptying the
+    # dict alone would have left pending_renames stuck at 20 and the page
+    # still announcing a rename that had already landed.
     if key in RENAMING_TO and RENAMING_TO[key] != key:
         return RENAMING_TO[key]
-    for level in range(1, CATEGORY_LEVELS + 1):
-        if key == f"category_l{level}":
-            return f"category_l{level}_ar"
-        if key == f"category_en_l{level}":
-            return f"category_l{level}"
     return ""
 
 
@@ -1598,7 +1641,8 @@ def schema_report(conn: sqlite3.Connection) -> dict:
         if key in COLUMN_NOTES:
             return COLUMN_NOTES[key]
         if key.startswith("category_") and "_l" in key:
-            level = key.rsplit("_l", 1)[-1]
+            # rsplit on the RAW key returned "1_ar" and printed "Level 1_ar".
+            level = key.removesuffix("_ar").rsplit("_l", 1)[-1]
             return f"Level {level} of the classification path, split out so it can be sorted and grouped."
         return ""
 
@@ -1800,9 +1844,8 @@ _TABLE_BY_ALIAS = {
 }
 
 _COMPUTED_FROM: dict[str, str] = {
-    "product_name_en": "source_product.product_name",
-    "category": "source_product.category_path_ar",
-    "category_en": "source_product.category_path",
+    "category": "source_product.category_path",
+    "category_ar": "source_product.category_path_ar",
     "variant": "source_variant.variant",
     "unit": "selling_unit + source_offer.basis_quantity",
     "discount": "computed: price_observation.regular_price − effective_price",
@@ -1831,8 +1874,8 @@ def column_origin(key: str) -> str:
     if key in _COMPUTED_FROM:
         return _COMPUTED_FROM[key]
     for level in range(1, CATEGORY_LEVELS + 1):
-        if key in (f"category_l{level}", f"category_en_l{level}"):
-            path = "category_path" if key.startswith("category_en") else "category_path_ar"
+        if key in (f"category_l{level}", f"category_l{level}_ar"):
+            path = "category_path_ar" if key.endswith("_ar") else "category_path"
             return f"split from source_product.{path}"
     return ""
 

@@ -89,7 +89,7 @@ def test_a_variable_products_variations_replace_its_range_low_end():
     variation = rows[0]
     assert variation["external_variant_id"] == "10491"       # its own identity
     assert variation["external_sku"] == "12cc89c502df-2"      # its own sku
-    assert variation["option_label"] == "Color: أرضي"        # the site's words
+    assert variation["variant_ar"] == "Color: أرضي"        # the site's words
     assert variation["option_fingerprint"] == option_fingerprint({"Color": "أرضي"})
     # brand/basis attributes arrive empty on variations (verified live) — the
     # parent is the carrier, so nothing is lost by reading them from it.

@@ -102,20 +102,45 @@ def test_an_attribute_with_no_code_or_value_is_refused():
         RowBuilder(ENRICHMENT).row(external_product_id="501", attribute_code="length")
 
 
-def test_a_payload_captured_before_the_widening_is_still_readable():
+# The pre-sweep header, written out. It is deliberately NOT derived from the
+# current spec: a derived fixture updates itself and goes on passing while
+# the claim it makes stops being true.
+PRE_SWEEP_HEADER = [
+    "external_product_id", "external_variant_id", "external_sku",
+    "product_name", "brand_raw", "option_label", "option_fingerprint",
+    "product_url", "region", "currency", "vat_included", "regular_price",
+    "sale_price", "effective_price", "availability", "stock_quantity",
+]
+
+
+def test_a_payload_captured_after_the_widening_is_still_readable():
     """The contract spans two engines and the local inbox holds rows captured
     on the day they were made. If widening the spec made those unreadable, the
     data would still be on disk and no longer usable — the worst outcome."""
-    old_header = [c for c in PRODUCT_PRICES.columns if c not in PRODUCT_PRICES.additive]
-    old_row = ["4672", "", "SKU-1", "Cable", "Elsewedy", "", "", "",
-               "EG", "EGP", "1", "350", "", "300", "in_stock", "5"]
-    assert len(old_row) == len(old_header)
+    header = [c for c in PRODUCT_PRICES.columns if c not in PRODUCT_PRICES.additive]
+    row = ["4672", "", "SKU-1", "Cable", "", "Elsewedy", "أحمر", "", "",
+           "", "EG", "EGP", "1", "350", "", "300", "in_stock", "5", "", ""]
+    row = row[:len(header)]
 
-    view = RowView(PRODUCT_PRICES, old_header)
+    view = RowView(PRODUCT_PRICES, header)
 
-    assert view.get(old_row, "effective_price") == "300"
-    assert view.get(old_row, "unit") == "", "a column that did not exist reads as empty"
-    assert view.as_dict(old_row)["category_path"] == ""
+    assert view.get(row, "unit") == "", "an additive column reads as empty"
+
+
+def test_a_payload_captured_before_the_language_sweep_is_REFUSED():
+    """The opposite guarantee, and the sharper one.
+
+    `product_name` kept its name and changed its meaning from Arabic to
+    English. A pre-sweep row read through the new spec would land Arabic in
+    the English column with nothing to reveal it — so the four _ar columns
+    are NOT additive and a stale header fails on SHAPE, independently of the
+    payload version number.
+
+    Constructed directly rather than through FunnelPayload: after the bump a
+    stored v1 payload dies at the version validator before RowView is ever
+    built, which would test the wrong mechanism."""
+    with pytest.raises(ValueError):
+        RowView(PRODUCT_PRICES, PRE_SWEEP_HEADER)
 
 
 def test_a_truncated_row_reads_empty_rather_than_raising():

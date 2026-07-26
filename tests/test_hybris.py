@@ -167,9 +167,9 @@ def test_the_english_name_the_same_api_publishes_is_captured_beside_the_arabic()
     table, view = _live_rows()
     switch = view.as_dict(table.rows[0])
 
-    assert switch["product_name"] == (
+    assert switch["product_name_ar"] == (
         "الفنار ألف جديد مفتاح سخان مفرد 20 أمبير 7*7 سم أبيضAB104-وطني")
-    assert switch["product_name_en"] == (
+    assert switch["product_name"] == (
         "ALFANAR NEW ALF SWITCH 20A 1GANG  DOUBLE POLE 7*7cm WITH NEON AB104")
     assert switch["lang"] == "ar"   # the language we asked for, not a guess
 
@@ -187,7 +187,7 @@ def test_a_single_language_store_is_never_crawled_twice():
     table = next(iter(HybrisOccConnector(fetcher).fetch(make_entry())))
 
     assert fetcher.requests_count == 3   # languages + page 0 + the empty page 1
-    assert all(RowView(PRODUCT_PRICES, table.header).get(r, "product_name_en") == ""
+    assert all(RowView(PRODUCT_PRICES, table.header).get(r, "product_name") == ""
                for r in table.rows)
 
 

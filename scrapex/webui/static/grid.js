@@ -40,7 +40,7 @@
   // v2 intentionally forgets column widths and sort state saved by the older
   // grid. Those values could leave a header too narrow for its controls and a
   // saved sorter could make the first three-click cycle start mid-sequence.
-  const PERSISTENCE_ID = "scrapex-grid-v2-" + SOURCE;
+  const PERSISTENCE_ID = "scrapex-grid-v3-" + SOURCE;
   const materialIcon = window.ScrapeXUI.icon;
   const materialIconElement = window.ScrapeXUI.iconNode;
 
@@ -89,8 +89,9 @@
   // because the useful hierarchy for a fuel table (material, then country) is
   // not the useful hierarchy for a shop. The older preference was one plain
   // string; read it as a one-level group so the upgrade does not discard it.
-  const GROUP_KEY = "scrapex-groupby-" + (mount.dataset.source || "");
-  const TREE_KEY = "scrapex-treeby-" + (mount.dataset.source || "");
+  // v2: the vocabulary sweep renamed the columns these hold.
+  const GROUP_KEY = "scrapex-groupby-v2-" + (mount.dataset.source || "");
+  const TREE_KEY = "scrapex-treeby-v2-" + (mount.dataset.source || "");
   let groupedBy = [];
   let treeBy = "";
   function readGroups(raw) {
@@ -832,6 +833,12 @@
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-columns");
       localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-sort");
       localStorage.removeItem("tabulator-" + PERSISTENCE_ID + "-columns");
+      // The keys this page used before the vocabulary sweep bumped them.
+      // Left behind they are harmless but permanent — a reset that leaves
+      // orphans is not a reset.
+      localStorage.removeItem("scrapex-groupby-" + SOURCE);
+      localStorage.removeItem("scrapex-treeby-" + SOURCE);
+      localStorage.removeItem("tabulator-scrapex-grid-v2-" + SOURCE + "-columns");
     } catch (err) { /* nothing to clear */ }
     fetch("/api/fields/" + encodeURIComponent(SOURCE), {
       method: "POST", headers: {"Content-Type": "application/json"},
@@ -873,7 +880,8 @@
   }
 
   function formatterFor(key) {
-    if (key === "product_name" || key === "option_label") {
+    if (key === "product_name_ar" || key === "variant_ar" ||
+        key === "product_name" || key === "variant") {
       return (cell) => {
         const span = document.createElement("span");
         span.dir = "auto";
@@ -1103,6 +1111,13 @@
     // a field that is no longer in the table.
     const availableFields = new Set(payload.columns.map((column) => column.key));
     const validGroups = groupedBy.filter((field) => availableFields.has(field));
+    // treeBy went through no such filter. A renamed or absent field made
+    // nest() bucket every row under "" — one branch, blank heading.
+    if (treeBy && !availableFields.has(treeBy)) { treeBy = ""; remember_(TREE_KEY, ""); }
+    // Whichever name column this source fills; the other is legitimately
+    // absent when the site publishes one language.
+    const nameField = availableFields.has("product_name") ? "product_name"
+                                                          : "product_name_ar";
     if (validGroups.length !== groupedBy.length) {
       groupedBy = validGroups;
       rememberGroups();
@@ -1129,7 +1144,8 @@
         sorterParams: {alignEmptyValues: "bottom"},
         // A ceiling as well as a floor: without one, fitColumns hands a short
         // column like Unit the same share as a long one like Record.
-        widthGrow: col.key === "product_name" || col.key === "region" ? 2 : 1,
+        widthGrow: col.key === "product_name" || col.key === "product_name_ar"
+                   || col.key === "region" ? 2 : 1,
       };
       // Numbers and dates read right-aligned; text reads from its own side.
       if (col.key === "effective_price") def.hozAlign = "right";
@@ -1186,7 +1202,7 @@
       // the count is what is shown for anything that is not plainly additive.
       columns.forEach((c) => {
         if (c.field === "effective_price") { c.topCalc = "avg"; c.topCalcParams = {precision: 2}; }
-        else if (c.field === "product_name") c.topCalc = "count";
+        else if (c.field === nameField) c.topCalc = "count";
       });
     }
 
@@ -1401,6 +1417,12 @@
       nameLang = code;
       if (save) { try { localStorage.setItem(LANG_KEY, code); } catch (err) {} }
       for (const [arabic, english] of pairs) {
+        // Belt and braces. The server already gates `bilingual` to pairs
+        // where BOTH sides are present; without this the toggle could hide
+        // the only column with content and show one that does not exist,
+        // then write that choice to localStorage and keep the table
+        // nameless across reloads.
+        if (!table.getColumn(arabic) || !table.getColumn(english)) continue;
         for (const [key, on] of [[arabic, code === "ar"], [english, code === "en"]]) {
           const column = table.getColumn(key);
           if (!column) continue;
@@ -1728,11 +1750,11 @@
     // Name and classification in the language the toggle is set to, falling
     // back to the one the source published when it published only one.
     const title = el("h2", "record-name",
-                     text(pickLang(row.product_name_en, row.product_name) || offer.name || ""));
+                     text(pickLang(row.product_name, row.product_name_ar)
+                          || offer.name || ""));
     title.dir = "auto";
-    const facts = [offer.region_name || offer.region || "", row.external_sku || "",
-                   pickLang(row.category_path_en || row.category_en,
-                            row.category_path || row.category)]
+    const facts = [offer.region_name || offer.region || "", row.sku || "",
+                   pickLang(row.category, row.category_ar)]
       .filter(Boolean).join(" · ");
     const full = el("a", "", "Open full page");
     full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + offerId;
@@ -1980,8 +2002,8 @@
       (!visible.size || visible.has(column.key)) &&
       shown.some((row) => text(row[column.key]) !== ""));
     const headers = ["Field"].concat(shown.map((row) =>
-      pickLang(row.product_name_en, row.product_name) ||
-      text(row.external_sku || row.offer_id)));
+      pickLang(row.product_name, row.product_name_ar) ||
+      text(row.sku || row.offer_id)));
     // Prices are the reason anyone compares two records, so they are compared
     // as prices — formatted, with the row's own currency — never as the bare
     // numbers that would let 750 EGP and 81 EGP look like the same kind of gap

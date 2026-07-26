@@ -18,12 +18,18 @@ from __future__ import annotations
 import json
 import math
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .vocab import ExtractKind, PayloadClient
 
-PAYLOAD_VERSION = 1
+# 2: the bilingual inversion. product_name keeps its NAME and changes its
+# MEANING from Arabic to English, which no shape check anywhere can detect —
+# an old product_name and a new one are the same string carrying opposite
+# languages. Dual-read was rejected for exactly that reason: it would have
+# made the inversion permanent and undetectable. A v1 payload is REFUSED.
+PAYLOAD_VERSION = 2
 
 # 40k keeps a comfortable margin under the Google Sheets 50k-char cell limit
 # even after the funnel adds its envelope columns (S1).
@@ -56,7 +62,10 @@ class FunnelPayload(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    payload_version: int
+    # Pinned as a const so the GENERATED json-schema carries it too: a
+    # consumer validating against the schema rather than the Python model
+    # would otherwise still accept v1.
+    payload_version: Literal[2]
     source_key: str = Field(min_length=1, max_length=64)
     kind: ExtractKind
     client: PayloadClient

@@ -80,6 +80,10 @@ def test_zid_filters_products_and_maps():
     assert cement["effective_price"] == "45" and cement["currency"] == "SAR"
     assert cement["vat_included"] == "1" and cement["availability"] == "in_stock"
     assert cement["product_url"] == "https://advancedcastle.com/products/cement-bag"
+    # Arabic-only source: the marked column carries the name and the
+    # unmarked one stays EMPTY, so the heading never asserts a language
+    # the cell does not hold.
+    assert cement["product_name_ar"] and cement["product_name"] == ""
 
     rebar = view.as_dict(table.rows[1])
     assert rebar["external_product_id"] == "rebar-12"  # no sku -> URL slug fallback
@@ -121,7 +125,7 @@ def test_the_category_the_live_page_states_rides_the_row():
     view = RowView(PRODUCT_PRICES, table.header)
 
     assert table.rows, "the live capture must produce rows"
-    assert view.as_dict(table.rows[0])["category_path"] == "كاشف دخان"
+    assert view.as_dict(table.rows[0])["category_path_ar"] == "كاشف دخان"
     assert view.as_dict(table.rows[0])["availability"] == "in_stock"
 
 

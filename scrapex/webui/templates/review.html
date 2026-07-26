@@ -27,7 +27,8 @@
       <div class="grid two-column">
         <div>
           <div class="l muted">Incoming record</div>
-          <div dir="auto"><b>{{ p.incoming_name or "—" }}</b></div>
+          <div dir="ltr"><b>{{ p.incoming_name or p.incoming_name_ar or "—" }}</b></div>
+          {% if p.incoming_name and p.incoming_name_ar %}<div dir="auto" class="muted">{{ p.incoming_name_ar }}</div>{% endif %}
           <div class="muted text-sm">
             <code>{{ p.source_key }}</code>
             {% if p.external_sku %} · SKU <code>{{ p.external_sku }}</code>{% endif %}</div>

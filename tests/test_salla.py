@@ -81,7 +81,12 @@ def test_salla_crawls_sitemap_and_maps_products():
     pump = view.as_dict(table.rows[0])
     assert pump["external_product_id"] == "1506395107"
     assert pump["effective_price"] == "450" and pump["currency"] == "SAR"
-    assert pump["product_name"] == "طلمبة مياه جراندفوس"
+    assert pump["product_name_ar"] == "طلمبة مياه جراندفوس"
+    # The owner's rule, pinned: a source that publishes only Arabic fills
+    # only the marked column and leaves the unmarked one EMPTY. Carrying
+    # the Arabic name in product_name would rename everything and fix
+    # nothing — the heading would still assert a language it does not hold.
+    assert pump["product_name"] == ""
     assert pump["availability"] == "in_stock"
 
     plywood = view.as_dict(table.rows[1])

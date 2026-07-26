@@ -52,9 +52,14 @@ PRODUCT_PRICES = RowSpec(
         "external_product_id",
         "external_variant_id",   # "" when the platform gives none -> fingerprint fallback
         "external_sku",
+        # The unmarked name is ENGLISH; the Arabic one is marked. This is the
+        # commit where product_name keeps its NAME and changes its MEANING,
+        # which is why PAYLOAD_VERSION moves with it: nothing that checks
+        # shape can tell an old product_name from a new one.
         "product_name",
+        "product_name_ar",
         "brand_raw",
-        "option_label",
+        "variant_ar",
         "option_fingerprint",
         "product_url",
         "region",
@@ -73,10 +78,12 @@ PRODUCT_PRICES = RowSpec(
         # be mostly empty. They go to ENRICHMENT below, one row per attribute.
         "unit",                  # the SELLING unit: m | kg | liter | item | tonne
         "basis_quantity",        # how many of `unit` one offer buys ("100" for a 100 m roll)
-        "product_name_en",       # the English name, kept SEPARATE, never merged
-        "lang",                  # which language `product_name` is in: ar | en
-        "category_path",         # "Concrete additives" or "Cables > Low voltage"
-        "category_path_en",      # the SAME path in English, when the site publishes it
+        # The language this source's primary extraction ran in — the
+        # CONNECTOR's own claim, not a statement about product_name (the
+        # vocabulary answers that now). 0039's attribute rule leans on it.
+        "lang",                  # ar | en
+        "category_path",         # English: "Concrete additives" or "Cables > Low voltage"
+        "category_path_ar",      # the SAME path in Arabic, when the site publishes it
         "category_external_id",  # the site's own id for that category, when it has one
         # --- added 2026-07-25 ------------------------------------------------
         # The variation's axes as STRUCTURE, not as the sentence `option_label`
@@ -89,7 +96,7 @@ PRODUCT_PRICES = RowSpec(
         # structure away after composing the label. Kept beside option_label,
         # not instead of it: the label is what the site calls this variation and
         # stays the thing a human reads.
-        "option_axes",
+        "variant_axes_ar",
         # The SAME variation, in English. madar publishes its axis names in
         # both stores («العرض (ملم)» / "Width (mm)") and we were keeping one —
         # the standing bilingual rule says a translation the site publishes and
@@ -109,9 +116,16 @@ PRODUCT_PRICES = RowSpec(
         "parent_sku",
     ),
     required=frozenset({"external_product_id", "region", "currency", "vat_included", "effective_price"}),
-    additive=frozenset({"unit", "basis_quantity", "product_name_en", "lang",
-                        "category_path", "category_path_en",
-                        "category_external_id", "option_axes",
+    # The four _ar columns are deliberately NOT additive. RowView returns ""
+    # for a missing additive column and RAISES for a missing non-additive one,
+    # so marking them additive would make a post-sweep spec ACCEPT a pre-sweep
+    # payload and read its ARABIC product_name straight into the new
+    # English-meaning product_name — the inversion, in the ingest path, with
+    # no error. Non-additive constrains the HEADER, not the value, and every
+    # connector builds its header from this spec, so it costs nothing today
+    # and buys a second refusal independent of the version number.
+    additive=frozenset({"unit", "basis_quantity", "lang",
+                        "category_external_id",
                         "variant", "variant_axes", "variant_url", "parent_sku"}),
 )
 
@@ -152,9 +166,13 @@ COMMODITY_PRICE = RowSpec(
         "observed_label",        # the date string printed on the page
         # What the SITE calls this material, in its own words — «بنزين 91»
         # — and in English when it publishes both (standing bilingual
-        # rule). The material_key stays the machine identity.
+        # rule). The material_key stays the machine identity. The unmarked
+        # name is English, like everywhere else; these two invert with the
+        # product pair and NOT one release later, because both are additive
+        # today and a post-sweep spec would otherwise accept an old commodity
+        # header and read «بنزين ٩١» into the new English material_label.
         "material_label",
-        "material_label_en",
+        "material_label_ar",
         # --- added 2026-07-20 -----------------------------------------------
         # globalpetrolprices renders BOTH the currency and the unit from user
         # dropdowns (156 currencies, 4 units), so `effective_price` above is a
@@ -198,7 +216,9 @@ COMMODITY_PRICE = RowSpec(
                         "provenance", "as_of_date", "source_date",
                         "official_source_name", "official_source_url",
                         "converted_usd_price",
-                        "material_label", "material_label_en"}),
+                        # material_label_ar is NOT additive, for the same
+                        # reason as the product _ar columns.
+                        "material_label"}),
 )
 
 _BY_KIND = {spec.kind: spec for spec in (PRODUCT_PRICES, COMMODITY_PRICE, ENRICHMENT)}

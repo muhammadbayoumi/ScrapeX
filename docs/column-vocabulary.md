@@ -17,6 +17,29 @@ Two rules produce every name below:
    only Arabic fills only the `_ar` column and its heading says so, because the
    label describes the content, not the presence of a counterpart.
 
+## Status
+
+The LANGUAGE half of rule 2 has **landed** — migrations 0038 (storage),
+0039 (attribute codes) and 0040 (saved layouts), with `PAYLOAD_VERSION 2`
+refusing anything captured before it. Every `_ar` row in the map below is
+now the product, not the plan.
+
+What remains is the non-language half: `region -> country_code`, the
+`price_*` family, `tax_label -> tax`, `curation_status -> curation`, and
+`open`/`product_url -> product_link`. Two of those need a decision before
+they can move, and both reasons are load-bearing:
+
+- **`region` is inside `pricekey.IDENTITY_FIELDS` and is hashed BY NAME.**
+  `build()` writes the field name into the hashed dict and `parse_fields`
+  filters stored `price_fields` against the known names, so every existing
+  row's `region` entry would be dropped on read, `comparable()` would
+  return False, and pricehistory would open a fresh price period on every
+  affected offer. That is a `PRICE_KEY_VERSION` bump and a full
+  re-baseline, not a rename.
+- **`open` and `product_url` both target `product_link`**, which is an
+  unavoidable `dataset_field` UNIQUE collision. Which column survives is
+  the owner's call.
+
 ## The map
 
 | today | key | label |

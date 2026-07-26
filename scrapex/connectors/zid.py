@@ -95,7 +95,10 @@ class ZidConnector:
         pid = _product_id(url, node)
         return builder.row(
             external_product_id=pid, external_variant_id=pid,
-            external_sku=str(node.get("sku") or ""), product_name=str(node.get("name") or ""),
+            external_sku=str(node.get("sku") or ""),
+            # Arabic only, same rule as salla: fill the marked column and
+            # leave the unmarked one empty.
+            product_name_ar=str(node.get("name") or ""),
             brand_raw=brand_name(node), product_url=url,
             region=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
             regular_price=price, sale_price="", effective_price=price,
@@ -103,5 +106,5 @@ class ZidConnector:
             # Zid states the product's filing in the SAME JSON-LD the price
             # comes from — «أنظمة الإطفاء > طفايات الحريق اليدوية» — and it
             # was being read and thrown away. No extra request.
-            category_path=category_path(node),
+            category_path_ar=category_path(node),
         )

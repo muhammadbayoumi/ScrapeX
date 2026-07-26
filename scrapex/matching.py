@@ -90,8 +90,12 @@ def _candidates_for(conn: sqlite3.Connection, product: sqlite3.Row) -> list[dict
             offer(row["material_id"], ALIAS_CONFIDENCE, "alias",
                   {"alias_type": alias["alias_type"], "alias_value": alias["alias_value"]})
 
-    name = product["product_name_ar"] or ""
-    if name:
+    # EVERY name the product carries against EVERY name the material carries.
+    # Reading one side only was a real gap: a source that publishes English
+    # alone (GPP) and a material named in Arabic alone would never be offered to
+    # each other, and the languages a source fills differ per source.
+    names = [n for n in (product["product_name"], product["product_name_ar"]) if n]
+    for name in names:
         for row in conn.execute("SELECT material_id, material_name_ar, material_name FROM material"):
             score = max(name_similarity(name, row["material_name_ar"]),
                         name_similarity(name, row["material_name"]))
@@ -144,7 +148,8 @@ def pending_reviews(conn: sqlite3.Connection, source_key: str | None = None,
     """The review queue: incoming record, suggested match, confidence, evidence."""
     sql = (
         "SELECT m.source_product_match_id, m.confidence, m.match_method, m.evidence_json, "
-        "       sp.source_product_id, sp.product_name_ar AS incoming_name, sp.external_sku, "
+        "       sp.source_product_id, sp.product_name AS incoming_name, "
+        "       sp.product_name_ar AS incoming_name_ar, sp.external_sku, "
         "       sp.product_url, sp.brand_raw, ss.source_key, "
         "       mat.material_id, COALESCE(mat.material_name, mat.material_name_ar) AS material_name "
         "FROM source_product_match m "
@@ -175,11 +180,14 @@ def _field_comparison(conn: sqlite3.Connection, row: sqlite3.Row) -> tuple[list[
         "SELECT material_name_ar, material_name, gtin, manufacturer_part_number "
         "FROM material WHERE material_id = ?", (row["material_id"],)).fetchone()
     matched, conflicting = [], []
-    incoming_name = row["incoming_name"] or ""
-    if name_similarity(incoming_name, material["material_name_ar"]) >= MIN_SUGGEST or \
-       name_similarity(incoming_name, material["material_name"]) >= MIN_SUGGEST:
+    # Either name the product carries against either name the material carries:
+    # a source that fills one language only must still be comparable.
+    incoming = [n for n in (row["incoming_name"], row["incoming_name_ar"]) if n]
+    if any(name_similarity(n, material["material_name_ar"]) >= MIN_SUGGEST
+           or name_similarity(n, material["material_name"]) >= MIN_SUGGEST
+           for n in incoming):
         matched.append("name")
-    elif incoming_name:
+    elif incoming:
         conflicting.append("name")
     sku = (row["external_sku"] or "").strip()
     if sku and sku in {material["gtin"], material["manufacturer_part_number"]}:
@@ -197,7 +205,8 @@ def decide(conn: sqlite3.Connection, source_product_match_id: int, decision: str
     ignored, so the audit trail of what was proposed and refused survives.
     """
     row = conn.execute(
-        "SELECT m.*, sp.product_name_ar, sp.brand_raw FROM source_product_match m "
+        "SELECT m.*, sp.product_name, sp.product_name_ar, sp.brand_raw "
+        "FROM source_product_match m "
         "JOIN source_product sp ON sp.source_product_id = m.source_product_id "
         "WHERE m.source_product_match_id = ?", (source_product_match_id,)).fetchone()
     if row is None:
@@ -223,7 +232,9 @@ def decide(conn: sqlite3.Connection, source_product_match_id: int, decision: str
     if decision == Decision.NEW:
         cur = conn.execute(
             "INSERT INTO material (material_name_ar, material_type) VALUES (?, 'product')",
-            (row["product_name_ar"],))
+            # Whichever the source published: a new material is named after
+            # the product that minted it.
+            (row["product_name"] or row["product_name_ar"],))
         material_id = int(cur.lastrowid)
     elif decision == Decision.APPROVE:
         material_id = material_id or row["material_id"]

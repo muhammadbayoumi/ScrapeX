@@ -150,8 +150,8 @@ def _with_product_sku(r) -> dict:
     """The row plus the derived product sku, for the field-diff comparison."""
     incoming = {key: r.get(key) for key in
                 ("product_name", "product_url", "brand_raw", "external_sku",
-                 "category_path", "category_path_en", "category_external_id",
-                 "product_name_en", "lang", "parent_sku")}
+                 "category_path", "category_path_ar", "category_external_id",
+                 "product_name_ar", "lang", "parent_sku")}
     incoming["product_sku"] = _product_sku(r)
     return incoming
 
@@ -229,21 +229,24 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
         # written last (76ec8c8572f0-6 instead of 76ec8c8572f0).
         "external_sku": _product_sku(r) or None,
         "parent_sku": r.get("parent_sku") or "",
-        "product_name_ar": r["product_name"] or None,
+        "product_name_ar": r.get("product_name_ar") or None,
         "product_url": r["product_url"] or None,
         "brand_raw": r["brand_raw"] or None,
         # .get: the commodity spec has no classification columns, and old
         # payloads predate the contract widening that added them.
-        "category_path_ar": r.get("category_path") or "",
-        "category_path": r.get("category_path_en") or "",
+        "category_path_ar": r.get("category_path_ar") or "",
+        "category_path": r.get("category_path") or "",
         "category_external_id": r.get("category_external_id") or "",
-        "product_name": r.get("product_name_en") or "",
+        "product_name": r["product_name"] or "",
         "product_name_lang": r.get("lang") or "",
         "has_variants": 1 if r["external_variant_id"] or r["option_fingerprint"] else 0,
         "curation_status": CurationStatus.INVENTORIED.value,
     })
     record_change(conn, ChangeType.NEW, "source_product", source_product_id=pid,
-                  new_value=r["product_name"] or r["external_product_id"],
+                  # Either name, whichever the source publishes: an
+                  # Arabic-only shop fills only product_name_ar.
+                  new_value=(r["product_name"] or r.get("product_name_ar")
+                             or r["external_product_id"]),
                   run_id=run_id, job_id=job_id)
     return pid, CurationStatus.INVENTORIED.value, True
 
@@ -270,7 +273,7 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         )
     if found is not None:
         _touch_last_seen(conn, "source_variant", "source_variant_id", found)
-        if r["option_label"]:
+        if r["variant_ar"]:
             # The label is the site's CURRENT wording for which variant this
             # is — when a connector learns to say it better (axis names came
             # 2026-07-23), the next crawl rewrites it. Identity never moves:
@@ -278,7 +281,7 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
             conn.execute(
                 "UPDATE source_variant SET variant_ar = ? "
                 "WHERE source_variant_id = ? AND COALESCE(variant_ar,'') != ?",
-                (r["option_label"], found, r["option_label"]))
+                (r["variant_ar"], found, r["variant_ar"]))
         if r["external_sku"]:
             # Same rule for the SKU, and it was missing: a variant recorded
             # before its connector could read a sku kept a NULL forever, because
@@ -291,11 +294,11 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
                 "UPDATE source_variant SET external_sku = ? "
                 "WHERE source_variant_id = ? AND COALESCE(external_sku,'') != ?",
                 (r["external_sku"], found, r["external_sku"]))
-        if r.get("option_axes"):
+        if r.get("variant_axes_ar"):
             conn.execute(
                 "UPDATE source_variant SET variant_axes_ar = ? "
                 "WHERE source_variant_id = ? AND COALESCE(variant_axes_ar,'') != ?",
-                (r["option_axes"], found, r["option_axes"]))
+                (r["variant_axes_ar"], found, r["variant_axes_ar"]))
         # The same variation in English (0036). Same rule as every other
         # learned fact: written when the source states it, never blanked when
         # it does not, and identity untouched.
@@ -326,12 +329,12 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
         "external_variant_id": ext,
         "external_sku": r["external_sku"] or None,
         "option_fingerprint": fp,
-        "variant_ar": r["option_label"] or None,
+        "variant_ar": r["variant_ar"] or None,
         # The axes as the site states them, as structure. The column has
         # existed since the first schema and was NULL on every row ever
         # written: connectors composed "Color: أحمر" and dropped the parts, so
         # nothing downstream could put the axis and its value in two columns.
-        "variant_axes_ar": r.get("option_axes") or None,
+        "variant_axes_ar": r.get("variant_axes_ar") or None,
         "variant": r.get("variant") or "",
         "variant_axes": r.get("variant_axes") or "",
         # The variation's OWN page (0037). It used to be written onto the
@@ -801,7 +804,7 @@ def _commodity_to_product_row(c: dict) -> dict:
         # otherwise. A machine identity is not a name (owner's report on
         # ARAMCO: the Arabic page was read and only English keys were kept).
         "product_name": c.get("material_label") or c["material_key"],
-        "product_name_en": c.get("material_label_en", ""),
+        "product_name_ar": c.get("material_label_ar", ""),
         "region": c["region"],
         "currency": c["currency"],
         "vat_included": c.get("vat_included", ""),
@@ -902,7 +905,7 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
     if variant_created:
         result.variants += 1
         record_change(conn, ChangeType.NEW, "source_variant", source_product_id=product_id,
-                      source_variant_id=variant_id, new_value=r["option_label"] or None,
+                      source_variant_id=variant_id, new_value=r["variant_ar"] or None,
                       run_id=run_id, job_id=job_id)
 
     offer_id = _get_offer_id(conn, variant_id, r)

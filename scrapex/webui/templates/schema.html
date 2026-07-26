@@ -23,24 +23,22 @@
        hiding a field moves it into the container rather than losing it.</p>
   </section>
 
-  {# The vocabulary is APPROVED and NOT YET APPLIED, and the page says which
-     columns are waiting rather than describing the plan as if it were the
-     product. The owner read the first version, saw product_name described as
-     English while it holds Arabic, and asked why the agreement had been
-     reversed — it had not, the page was just ahead of the code. #}
+  {# The LANGUAGE half of the vocabulary has LANDED (0038-0040). The same
+     rule that once kept this page from describing the plan as the product
+     now keeps it from describing the product as a plan: what is left is
+     the non-language half, and only that is shown as pending. #}
   {% if schema.pending_renames %}
   <section class="card">
-    <h2>Waiting on one rename</h2>
-    <p>The vocabulary below is agreed and written down in
-       <code>docs/column-vocabulary.md</code>: the key and the label are the same
-       word, and a name states the LANGUAGE of its content — English unmarked,
-       Arabic marked <code>_ar</code>.</p>
-    <p><strong>It has not been applied yet.</strong> {{ schema.pending_renames }}
-       columns still carry the old names, and today
-       <code>product_name</code> holds ARABIC while <code>product_name_en</code>
-       holds English — the reverse of where they are going. Every column that is
-       due to change shows its new name beside its current one below, so nothing
-       here reads as a promise.</p>
+    <h2>Still to rename</h2>
+    <p>Every column name now states the LANGUAGE of its content — English
+       unmarked, Arabic marked <code>_ar</code>, in the table, the export and
+       the warehouse itself.</p>
+    <p>{{ schema.pending_renames }} columns are still due a NON-language
+       rename, listed with their new names below. They are deferred with their
+       reasons in <code>docs/column-vocabulary.md</code> — chiefly
+       <code>region</code>, which is part of the price identity and is hashed
+       by name, so renaming it opens a fresh price period on every affected
+       record and needs its own decision.</p>
   </section>
   {% endif %}
 

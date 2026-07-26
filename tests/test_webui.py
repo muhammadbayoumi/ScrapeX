@@ -279,21 +279,20 @@ def test_the_schema_page_is_derived_not_written(client):
 
 def test_the_schema_page_never_reads_a_plan_as_a_fact(client):
     """The owner read the first version of this page, saw product_name described
-    as "the product's name, in English" while it holds Arabic, and asked why the
-    agreed vocabulary had been reversed. It had not: the rename has not run yet,
+    as "the product's name, in English" while it held Arabic, and asked why the
+    agreed vocabulary had been reversed. It had not: the rename had not run yet,
     and the page had written the plan's meaning onto today's columns.
 
-    A page whose whole claim is that it cannot drift from the product must
-    describe the product AS IT IS, and say plainly where it is going."""
+    The rename HAS run now (0038-0040), so the same rule cuts the other way: the
+    page must not still describe the landed vocabulary as pending."""
     body = client.get("/schema").text
 
-    assert "Arabic on every bilingual source today" in body, \
-        "product_name is described as English while it holds Arabic"
-    assert "It has not been applied yet" in body, \
-        "the page presents the pending vocabulary as if it were live"
-    # Current name and future name, side by side, for every column that moves.
+    assert "Arabic on every bilingual source today" not in body, \
+        "the page still describes the English column as Arabic"
+    # product_name_ar is a REAL column now, listed under its own name.
     assert "<code>product_name_ar</code>" in body
-    assert "Becomes" in body
+    assert "Product name (AR)" in body, \
+        "the Arabic column must say so in its heading, always"
 
 
 def test_the_schema_page_shows_the_whole_warehouse(client):

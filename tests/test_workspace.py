@@ -97,10 +97,10 @@ def test_no_arabic_sits_under_an_unmarked_column_key(db_path):
     # A genuinely bilingual row: the site publishes both, so we capture both.
     ingest_payloads(conn, entry, [make_payload([one_row(
         external_product_id="9001", external_variant_id="9501",
-        product_name="كشاف ليد ٤٠٠ وات",
-        product_name_en="LED Floodlight 400W",
-        category_path="إضاءة/كشافات",
-        category_path_en="Lighting/Floodlights",
+        product_name_ar="كشاف ليد ٤٠٠ وات",
+        product_name="LED Floodlight 400W",
+        category_path_ar="إضاءة/كشافات",
+        category_path="Lighting/Floodlights",
     )])])
     conn.commit()
 

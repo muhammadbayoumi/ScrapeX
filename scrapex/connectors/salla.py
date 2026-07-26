@@ -137,12 +137,16 @@ class SallaConnector:
         pid = m.group(1) if m else str(node.get("sku") or url)
         return builder.row(
             external_product_id=pid, external_variant_id=pid,
-            external_sku=str(node.get("sku") or ""), product_name=str(node.get("name") or ""),
+            external_sku=str(node.get("sku") or ""),
+            # Arabic only: this store publishes no English name, so the
+            # unmarked column stays EMPTY rather than carrying Arabic under
+            # a name that asserts English.
+            product_name_ar=str(node.get("name") or ""),
             brand_raw=brand_name(node), product_url=url,
             region=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
             regular_price=price, sale_price="", effective_price=price,
             availability=availability_status(availability),
-            category_path=category_path(node),
+            category_path_ar=category_path(node),
         )
 
 

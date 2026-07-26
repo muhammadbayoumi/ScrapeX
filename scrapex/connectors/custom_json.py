@@ -446,11 +446,16 @@ class CustomJsonConnector:
         # SKU". See the module docstring for the census behind the rule.
         return builder.row(
             external_product_id=pid, external_variant_id=pid,
-            external_sku=str(product.get("sku") or "") or pid, product_name=name,
-            product_name_en=english if english != name else "",
+            external_sku=str(product.get("sku") or "") or pid,
+            # The unmarked column is English; the Arabic name is marked. This
+            # shop publishes both, so both are filled — and where it repeats
+            # itself the English column stays empty rather than faking a
+            # translation.
+            product_name=english if english != name else "",
+            product_name_ar=name,
             lang="ar" if arabic and name == arabic else ("en" if name == english else ""),
-            category_path=category,
-            category_path_en=category_en if category_en != category else "",
+            category_path=category_en if category_en != category else "",
+            category_path_ar=category,
             category_external_id=category_id if category else "",
             brand_raw=str(product.get("brand") or ""), product_url=url,
             region=region, currency=currency, vat_included=vat,

@@ -575,20 +575,20 @@ class MagentoGraphqlConnector:
                 return  # a product with no price — skip, don't emit an empty required field
             out.append(builder.row(
                 external_product_id=pid, external_variant_id=vid, external_sku=sku or "",
-                product_name=name or "",
                 # The PRODUCT's English name, never the child's — madar names
                 # its variant children by internal SKU string in BOTH stores,
                 # so asking the child first put "618097 1 GANG RJ11 SOCKET
                 # WHITE ELOE LEGRAND" where the page says "Legrand Eloe
                 # telephone and data sockets". Same rule as the Arabic name.
-                product_name_en=names_en.get(str(pid)) or names_en.get(str(vid)) or "",
-                option_label=label, option_fingerprint=fp,
+                product_name=names_en.get(str(pid)) or names_en.get(str(vid)) or "",
+                product_name_ar=name or "",
+                variant_ar=label, option_fingerprint=fp,
                 # The axes as STRUCTURE beside the sentence built from them.
                 # `_option_text` composes «السماكة (مم): 2.2، العرض (مم): 24»
                 # for a person to read; a spreadsheet needs one column per
                 # axis, and the parts were being discarded the moment the
                 # sentence existed (the owner's report, fixed at the root).
-                option_axes=option_axes_json(axes or {}),
+                variant_axes_ar=option_axes_json(axes or {}),
                 # The same variation in English, when the en_SA store publishes
                 # it. Composed with the SAME rule as the Arabic label so the two
                 # read alike — «العرض (ملم): 610» / "Width (mm): 610" — instead
@@ -605,7 +605,7 @@ class MagentoGraphqlConnector:
                 regular_price=reg if reg is not None else effective,
                 sale_price=fin if (reg is not None and fin is not None and reg != fin) else "",
                 effective_price=effective, availability=_availability(stock),
-                category_path=category_path, category_path_en=category_path_en,
+                category_path=category_path_en, category_path_ar=category_path,
                 category_external_id=category_id,
             ))
 

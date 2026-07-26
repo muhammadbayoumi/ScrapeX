@@ -328,7 +328,9 @@ def test_header_sort_cycles_back_to_the_original_row_order():
     assert "columnHeaderSortMulti: false" in script
     assert 'persistence: pinned.size ? false : {columns: ["width"]}' in script, (
         "a saved sorter can make the next click cycle start in an old state")
-    assert 'PERSISTENCE_ID = "scrapex-grid-v2-"' in script
+    # v3: the vocabulary sweep renamed the columns whose widths this key
+    # remembers, so the stored layout is about columns that no longer exist.
+    assert 'PERSISTENCE_ID = "scrapex-grid-v3-"' in script
 
 
 def test_no_sort_state_does_not_preview_an_arrow_on_hover():

@@ -251,7 +251,9 @@ def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_pa
 
     grid = table_payload(conn, "SAMEHGABRIEL")
     keys = [c["key"] for c in grid["columns"]]
-    for key in ("brand", "category", "discount"):
+    # samehgabriel publishes Arabic only, so its classification column is
+    # the marked one; an unmarked "category" here would assert English.
+    for key in ("brand", "category_ar", "discount"):
         assert key in keys, f"{key} missing from the columns"
     # A Details COLUMN is gone (owner ruling 2026-07-23): selecting a row
     # opens one container under the table with the details first and the
@@ -265,7 +267,7 @@ def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_pa
 
     row = next(r for r in grid["rows"] if r["discount"])
     assert row["brand"] == "السويدي اليكتريك"
-    assert row["category"]
+    assert row["category_ar"]
     assert float(row["was_price"]) > float(row["effective_price"])
     # The discount is TWO numbers now, in the table as it already was in the
     # export (the owner's ask). This used to assert one string - "-84.67
