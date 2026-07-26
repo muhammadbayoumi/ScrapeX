@@ -2061,7 +2061,7 @@
 
       const active = definitions.find((item) => item.key === activeKey);
       const contentHead = el("header", "record-inspector-content-head");
-      contentHead.appendChild(el("h3", "", active.label));
+      if (isHistory) contentHead.appendChild(el("h3", "", active.label));
       contentHead.appendChild(el("p", "record-inspector-context",
         isHistory ? "Recorded over time" : "Collected from the source"));
       inspectorContent.appendChild(contentHead);
@@ -2142,29 +2142,29 @@
           const paired = pairByLanguage(fullRows.length
             ? fullRows
             : (withoutShort.length ? withoutShort : items));
-          const box = card("", "record-card-wide record-card-prose");
-          paired.forEach((entry) => {
+          const databaseTitle = text((paired.find((entry) =>
+            text(entry.label)) || {}).label);
+          const box = card(databaseTitle, "record-card-wide record-card-prose");
+          paired.forEach((entry, index) => {
             const label = (entry.label || "").trim();
-            const generic = ["description", "full description", "product description"];
-            if (label && !generic.includes(label.toLowerCase())) {
+            if (index > 0 && label &&
+                label.toLowerCase() !== databaseTitle.toLowerCase()) {
               box.appendChild(el("h4", "record-prose-title", label));
             }
-            box.appendChild(prose(entry.value, generic));
+            box.appendChild(prose(entry.value, databaseTitle ? [databaseTitle] : []));
           });
           detailSections.get("description").push(box);
           return;
         }
         if (name === "Attachments") {
           const paired = pairByLanguage(items);
-          const box = card("", "record-card-wide");
+          const box = card(name, "record-card-wide");
           box.appendChild(fileCards(paired));
           detailSections.get("attachments").push(box);
           return;
         }
         const paired = pairByLanguage(items);
-        const sectionName = ["Specifications", "Specs"].includes(name) ? "" :
-          (name === "Details" ? "Additional details" : name);
-        const box = card(sectionName);
+        const box = card(name);
         box.appendChild(specList(paired));
         detailSections.get("specifications").push(box);
       });

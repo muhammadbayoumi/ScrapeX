@@ -125,8 +125,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # animated inspector with the redundant media section removed.
     # design-system-20/20: the product and inspector became one visual shell,
     # description hierarchy was flattened, and numeric display was unified.
-    assert '/static/grid.js?v=design-system-20' in page
-    assert '/static/grid-theme.css?v=design-system-20' in page
+    # design-system-21/21: detail tabs no longer impose a generic heading;
+    # each section displays the title stored with its source data instead.
+    assert '/static/grid.js?v=design-system-21' in page
+    assert '/static/grid-theme.css?v=design-system-21' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -613,6 +615,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"record-inspector-tab"' not in script
     assert '"record-inspector-head"' not in script
     assert '"record-card-wide record-card-prose"' in script
+    assert "const databaseTitle" in script
+    assert 'if (isHistory) contentHead.appendChild(el("h3", "", active.label))' in script
     assert '"selected-product-category"' in script
     assert ".selected-product-card" in css
     assert ".record-product-workspace.has-inspector" in css
