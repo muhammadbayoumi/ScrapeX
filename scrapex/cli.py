@@ -408,6 +408,15 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 
 def _cmd_ui(args: argparse.Namespace) -> int:
+    # THE ENGINE FIRST OF ALL. Launched from the Startup folder it runs
+    # under pythonw, which hands the process no stdout and no stderr at
+    # all — and the worker loop reports its failures with
+    # traceback.print_exc(file=sys.stderr). Writing to None raises INSIDE
+    # the handler, so the act of reporting the fault killed the thread
+    # that hit it: the pages went on being served while nothing could
+    # crawl, and no line was written anywhere explaining why. This one
+    # call is what makes the worker able to speak at all.
+    _bind_log_streams()
     try:
         import uvicorn
         from .webui.app import create_app

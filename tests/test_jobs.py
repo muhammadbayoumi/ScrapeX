@@ -5,6 +5,7 @@ lifecycle is deterministic. Capture is injected, so nothing touches the network.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from types import SimpleNamespace
 
@@ -485,3 +486,96 @@ def test_locked_capture_forwards_every_capture_keyword(tmp_path):
     params = inspect.signature(JobRunner._locked_capture).parameters
     assert any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()), \
         "the capture seam must forward **extras, not a fixed keyword set"
+
+
+# ---- a fault that hides itself costs more than the fault ----------------------
+
+def test_a_worker_failure_is_recorded_where_a_person_can_find_it(conn):
+    """The owner watched pages answer on the port while no crawl could start,
+    and waited. The worker HAD failed and HAD said so — to stderr, from a
+    process launched with pythonw, which has no console and no redirect. The
+    diagnosis was produced and discarded in the same breath.
+
+    So a failure now lands in the warehouse, which is the one place both the
+    engine and the interface can already reach.
+    """
+    from scrapex.jobs import WORKER_ERROR_KEY, record_worker_failure, worker_health
+
+    record_worker_failure(conn, RuntimeError("the connector exploded"), fatal=False)
+
+    stored = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                          (WORKER_ERROR_KEY,)).fetchone()
+    assert stored, "the failure was not written anywhere a person can look"
+    failure = json.loads(stored[0])
+    assert failure["error"] == "RuntimeError: the connector exploded"
+    assert "the connector exploded" in failure["traceback"]
+    assert failure["fatal"] is False
+
+    # And the health answer CARRIES the reason, instead of a bare "not running"
+    # that leaves the owner to guess.
+    health = worker_health(conn)
+    assert health["alive"] is False
+    assert "the connector exploded" in health["detail"]
+
+
+def test_a_recovered_worker_stops_showing_the_fault_it_survived(conn):
+    from scrapex.jobs import (WORKER_ERROR_KEY, clear_worker_failure,
+                              record_worker_failure)
+
+    record_worker_failure(conn, RuntimeError("transient"), fatal=False)
+    clear_worker_failure(conn)
+    conn.commit()
+
+    assert conn.execute("SELECT COUNT(*) FROM scrapex_meta WHERE key = ?",
+                        (WORKER_ERROR_KEY,)).fetchone()[0] == 0
+
+
+def test_a_live_port_is_never_taken_as_proof_the_worker_runs(conn):
+    """The distinction that cost an afternoon. The heartbeat is written by the
+    LOOP, so it is the only signal that can prove a crawl could start — the port
+    answering proves the web server and nothing else.
+    """
+    from scrapex.jobs import HEARTBEAT_MAX_AGE_S, touch_runtime_heartbeat, worker_health
+
+    assert worker_health(conn)["alive"] is False, "never beaten = not running"
+    assert "never reported" in worker_health(conn)["detail"]
+
+    touch_runtime_heartbeat(conn)
+    conn.commit()
+    fresh = worker_health(conn)
+    assert fresh["alive"] is True and fresh["age_s"] <= HEARTBEAT_MAX_AGE_S
+
+    # A stale beat is NOT alive, and says so in the owner's terms.
+    conn.execute("UPDATE scrapex_meta SET value = '2020-01-01T00:00:00Z' "
+                 "WHERE key = 'runtime_heartbeat'")
+    conn.commit()
+    stale = worker_health(conn)
+    assert stale["alive"] is False
+    assert "Pages may still open" in stale["detail"]
+
+
+def test_the_worker_can_still_report_when_stderr_is_gone():
+    """The root cause, pinned. Under pythonw sys.stderr IS None, and the worker
+    reports with traceback.print_exc(file=sys.stderr) — writing to None raises
+    inside the handler, so the act of reporting a fault killed the thread that
+    hit it. The engine then served pages while nothing could crawl, and said
+    nothing anywhere.
+
+    Two things now stand between that and the owner: the engine binds its
+    streams to ~/.scrapex/engine.log before it starts, and the failure is
+    written to the warehouse regardless of whether any stream exists.
+    """
+    import sys as _sys
+
+    from scrapex.cli import _bind_log_streams
+
+    out, err = _sys.stdout, _sys.stderr
+    try:
+        _sys.stdout = None      # exactly what pythonw hands a process
+        _sys.stderr = None
+        _bind_log_streams()
+        assert _sys.stdout is not None and _sys.stderr is not None, \
+            "the engine would have no way to say anything at all"
+        _sys.stderr.write("")   # must not raise
+    finally:
+        _sys.stdout, _sys.stderr = out, err

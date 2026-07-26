@@ -31,7 +31,8 @@ from ..databases import (
     DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
     DatabaseUnavailableError, GeneralDatabase, MarketLensDatabase,
 )
-from ..jobs import JobRunner, create_job, get_job, job_logs, list_jobs, set_control
+from ..jobs import (JobRunner, create_job, get_job, job_logs, list_jobs,
+                    set_control, worker_health)
 from ..fields import (
     delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
     set_display_name, set_visibility, visible_columns,
@@ -871,11 +872,30 @@ def create_app(
                 databases = {"ok": False, "detail": "status unavailable"}
         runner = getattr(app.state, "runner", None)
         try:
-            worker_alive = bool(runner and runner.is_alive)
+            thread_alive = bool(runner and runner.is_alive)
         except Exception:  # noqa: BLE001 - health must survive worker state reads
-            worker_alive = False
+            thread_alive = False
+        # The THREAD being alive is not the same question as the worker
+        # doing its work, and neither is the port answering. The heartbeat
+        # is written by the loop itself, so it is the only one of the three
+        # that can prove a crawl could start — and when it cannot, the
+        # reason the loop recorded travels with it instead of dying on a
+        # stderr that pythonw discards.
+        worker = {"alive": thread_alive, "detail": "", "failure": None}
+        try:
+            conn = read_conn()
+            try:
+                worker = worker_health(conn)
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001 - health must not take health down
+            pass
+        worker["thread_alive"] = thread_alive
         return {"ok": True, "app": "scrapex", "version": __version__,
-                "sources_with_data": n, "worker_alive": worker_alive,
+                "sources_with_data": n,
+                # Kept for the panel that already reads it.
+                "worker_alive": bool(worker.get("alive")),
+                "worker": worker,
                 "databases": databases}
 
     @app.get("/api/features")
@@ -1438,11 +1458,15 @@ def create_app(
         from ..contract import CONTRACT_VERSION
         from ..jobs import worker_is_alive
 
+        worker = worker_health(conn)
         return {
             "version": __version__,
             "contract_version": CONTRACT_VERSION,
             "schema_version": dbmod.schema_version(conn),
             "worker_alive": worker_is_alive(conn),
+            # Says WHY when the answer is no, instead of leaving the owner
+            # to infer it from a port that answers regardless.
+            "worker": worker,
             "default_user_agent": DEFAULT_USER_AGENT,
             "db_path": str(app.state.db_path),
             "log_entries": conn.execute(

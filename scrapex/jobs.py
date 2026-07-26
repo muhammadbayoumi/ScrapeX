@@ -371,6 +371,77 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
 HEARTBEAT_KEY = "runtime_heartbeat"
 HEARTBEAT_MAX_AGE_S = 30.0
 
+# Where the worker writes WHY it stopped. It used to write that to stderr
+# only, and the engine runs under pythonw so there is no console and no
+# redirect: the diagnosis was produced and discarded in the same breath.
+# The owner then saw pages answering on the port — which proves the web
+# server, never the worker — and waited for crawls that could not start.
+# A fault that hides itself costs more than the fault.
+WORKER_ERROR_KEY = "runtime_worker_error"
+
+
+def record_worker_failure(conn: sqlite3.Connection, exc: BaseException,
+                          *, fatal: bool) -> None:
+    """Write the failure where a PERSON can find it: the warehouse.
+
+    On its own connection, because the caller's is usually the thing that
+    just broke — recording the failure inside the failed transaction is how
+    a failure record gets rolled away with what it was reporting.
+    """
+    payload = json.dumps({
+        "at": utc_now_iso(),
+        "fatal": fatal,       # fatal = the loop is gone, not just this pass
+        "error": f"{type(exc).__name__}: {exc}",
+        "traceback": "".join(traceback.format_exception(exc))[-4000:],
+    }, ensure_ascii=False)
+    try:
+        conn.rollback()
+        conn.execute(
+            "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (WORKER_ERROR_KEY, payload))
+        conn.commit()
+    except Exception:  # noqa: BLE001 — never let the reporter kill the worker
+        traceback.print_exc(file=sys.stderr)
+
+
+def clear_worker_failure(conn: sqlite3.Connection) -> None:
+    """A pass that completes clears the last error, so a recovered worker
+    does not go on showing a fault it already survived."""
+    conn.execute("DELETE FROM scrapex_meta WHERE key = ?", (WORKER_ERROR_KEY,))
+
+
+def worker_health(conn: sqlite3.Connection) -> dict:
+    """Is the WORKER alive — which is a different question from whether the
+    port answers, and the difference is what cost the owner an afternoon.
+    """
+    rows = dict(conn.execute(
+        "SELECT key, value FROM scrapex_meta WHERE key IN (?,?)",
+        (HEARTBEAT_KEY, WORKER_ERROR_KEY)).fetchall())
+    beat = rows.get(HEARTBEAT_KEY)
+    failure = json.loads(rows[WORKER_ERROR_KEY]) if rows.get(WORKER_ERROR_KEY) else None
+    age = None
+    if beat:
+        try:
+            then = datetime.strptime(beat, "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - then).total_seconds()
+        except ValueError:
+            age = None
+    alive = age is not None and age <= HEARTBEAT_MAX_AGE_S
+    if alive:
+        detail = "The worker is running."
+    elif failure:
+        detail = f"The worker stopped: {failure['error']}"
+    elif beat:
+        detail = (f"The worker last reported {int(age)}s ago and should report "
+                  f"every {int(HEARTBEAT_MAX_AGE_S)}s. Pages may still open — "
+                  "that is the web server, not the worker.")
+    else:
+        detail = "The worker has never reported. Nothing can crawl until it does."
+    return {"alive": alive, "last_beat": beat, "age_s": age,
+            "detail": detail, "failure": failure}
+
 
 def touch_runtime_heartbeat(conn: sqlite3.Connection) -> None:
     """Proof of life from the ONLY process that can execute jobs."""
@@ -547,6 +618,11 @@ class JobRunner:
                 try:
                     conn = self._follow_the_warehouse(conn)
                     touch_runtime_heartbeat(conn)   # proof of life for enqueue-only clients
+                    # Reaching here IS the recovery: the loop is running and
+                    # the warehouse is writable. Clearing later would leave an
+                    # idle worker showing a fault it already survived, because
+                    # an idle pass `continue`s before it gets there.
+                    clear_worker_failure(conn)
                     conn.commit()
                     # The local runtime IS the scheduler (spec 26) — browser
                     # alarms cannot be relied on to wake anything.
@@ -561,10 +637,21 @@ class JobRunner:
                     # ...but NEVER silently. Swallowing this used to leave the job
                     # 'running' forever (blocking its source's schedules) or spin
                     # the loop on it at poll speed with nothing written anywhere.
-                    conn.rollback()
                     traceback.print_exc(file=sys.stderr)
+                    record_worker_failure(conn, exc, fatal=False)
                     if job_ref is not None:
                         self._fail_orphan(conn, job_ref, exc)
+        except BaseException as exc:  # noqa: BLE001
+            # The loop itself is gone — the connect, the orphan reclaim, or
+            # anything the inner handler could not hold. This is the case
+            # that produced a live port and a dead worker with nothing said
+            # anywhere, so it is recorded before the thread unwinds.
+            traceback.print_exc(file=sys.stderr)
+            try:
+                record_worker_failure(dbmod.connect(self._db_path), exc, fatal=True)
+            except Exception:  # noqa: BLE001
+                traceback.print_exc(file=sys.stderr)
+            raise
         finally:
             conn.close()
 
