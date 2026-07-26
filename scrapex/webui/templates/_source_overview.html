@@ -1,0 +1,75 @@
+{# The selected source's operational summary. This partial is placed inside
+   the grid frame when records exist and above the empty state otherwise. #}
+{% set overview_domain = (summary.base_url or "")|source_domain %}
+<details class="data-source-overview" open>
+  <summary class="data-source-overview-trigger" aria-controls="dataset-overview-panel">
+    <span class="data-source-overview-trigger-main">
+      {{ icon("dns") }}
+      <span>
+        <strong>Source overview</strong>
+        <small dir="auto">{{ overview_domain or summary.source_name or summary.source_key }}</small>
+      </span>
+    </span>
+    <span class="data-source-overview-trigger-meta">
+      <span>{{ "{:,}".format(summary.observations) }} data rows</span>
+      {{ icon("expand-more", "data-source-overview-chevron") }}
+    </span>
+  </summary>
+
+  <div class="data-source-overview-body" id="dataset-overview-panel">
+    {# Identity, then "is what I am reading current?". last_run and last_status
+       are computed into SourceSummary and remain visible in the grid footer. #}
+    <div class="idblock">
+      <div class="dataset-identity">
+        {{ source_identity(summary) }}
+        {% if source_site %}
+          <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
+             rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
+        {% endif %}
+      </div>
+    </div>
+
+    {# The watch strip: what needs attention before what merely exists. #}
+    {% if watch %}
+    <div class="watch">
+      {% macro tile(count, label, href, zero_text, elsewhere=false) %}
+        {% if count %}
+          <a class="tile" href="{{ href }}">
+            <span class="n">{{ "{:,}".format(count) }}</span>
+            <span class="l">{{ label }}{% if elsewhere %} {{ icon("chevron-right", "inline-icon") }}{% endif %}</span>
+          </a>
+        {% else %}
+          <span class="tile zero">
+            <span class="n">0</span>
+            <span class="l">{{ zero_text }}</span>
+          </span>
+        {% endif %}
+      {% endmacro %}
+
+      {% if not watch.history_built %}
+        <span class="tile zero">
+          <span class="n">—</span>
+          <span class="l">Price history not built yet</span>
+        </span>
+      {% else %}
+        {{ tile(watch.moved, "moved in 7 days", "/changes?source_key=" ~ source_key,
+                "no price moved this week", elsewhere=true) }}
+      {% endif %}
+      {{ tile(watch.missing, "missing from the site", "/changes?source_key=" ~ source_key,
+              "none missing", elsewhere=true) }}
+      {{ tile(watch.state_not_derived, "state not derived",
+              "/source/" ~ source_key, "all states derived") }}
+      {{ tile(watch.needs_curation, "not curated yet",
+              query(**{"f.curation_status": "is:inventoried"}),
+              "everything is curated") }}
+    </div>
+    {% endif %}
+
+    <div class="metrics">
+      <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">Products</div></div>
+      <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">Variants</div></div>
+      <div class="metric"><div class="n">{{ "{:,}".format(summary.observations) }}</div><div class="l">Data rows</div></div>
+      <div class="metric"><div class="n">{{ summary.matched_variants }}</div><div class="l">Matched (unified)</div></div>
+    </div>
+  </div>
+</details>

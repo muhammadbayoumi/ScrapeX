@@ -68,6 +68,11 @@ def test_overview_summarizes_the_workspace_and_data_uses_one_dropdown(client):
     assert selected.index('class="dataset-menu"') < selected.index('id="grid-features"')
     for region in ("data-source-overview", "data-records"):
         assert f'class="{region}"' in selected
+    assert 'class="data-source-overview-trigger"' in selected
+    assert selected.index('class="data-grid-frame-head"') < selected.index(
+        'class="data-source-overview"') < selected.index(
+        'class="data-grid-commandbar"')
+    assert 'class="dataset-menu saved-views-menu" id="saved-views"' in selected
     assert "Workspace tools" not in selected
     assert 'class="data-controls"' not in selected
     assert 'class="data-grid-frame-head"' in selected
@@ -88,6 +93,8 @@ def test_data_canvas_stays_centered_and_the_dataset_menu_is_a_popover():
     assert "--data-canvas-width:82rem" in styles
     assert "width:min(100%,var(--data-canvas-width))" in styles
     assert ".dataset-menu-popover{position:absolute" in styles
+    assert ".dataset-popover{position:absolute" in styles
+    assert ".data-grid-frame>.data-source-overview" in styles
     assert "datasets-collapsed" not in styles
     assert "grid-template-columns:15.25rem" not in styles
     assert styles.count("var(--data-canvas-width)") >= 1

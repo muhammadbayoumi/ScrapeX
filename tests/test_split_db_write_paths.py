@@ -331,8 +331,15 @@ def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
     Tiles that ARE a filter of this table now link to this table filtered; tiles
     whose answer lives elsewhere say so with an arrow instead of pretending.
     """
-    page = (Path(__file__).resolve().parent.parent / "scrapex" / "webui"
-            / "templates" / "source.html").read_text(encoding="utf-8")
+    templates = (Path(__file__).resolve().parent.parent / "scrapex" / "webui"
+                 / "templates")
+    # The overview is a reusable disclosure partial now; read the composed
+    # template sources because these assertions intentionally guard its links
+    # without needing a particular fixture's watch counts.
+    page = "\n".join(
+        (templates / name).read_text(encoding="utf-8")
+        for name in ("source.html", "_source_overview.html")
+    )
 
     assert 'f.curation_status": "is:inventoried"' in page, \
         "the curation tile must open this table filtered, not another page"

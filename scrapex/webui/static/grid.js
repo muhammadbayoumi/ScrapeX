@@ -1468,20 +1468,33 @@
     wrap.className = "grid-lang-toggle";
     wrap.setAttribute("role", "group");
     wrap.setAttribute("aria-label", "Display language");
+    wrap.appendChild(materialIconElement("language", "grid-lang-icon"));
     const note = document.createElement("span");
-    note.className = "muted";
-    note.textContent = "Language:";
-    wrap.append(note);
+    note.className = "visually-hidden";
+    note.textContent = "Display language";
+    wrap.appendChild(note);
+    const segments = document.createElement("span");
+    segments.className = "grid-lang-segments";
     const buttons = {};
-    for (const [code, label] of [["en", "EN"], ["ar", "AR"]]) {
+    for (const [code, label, title] of [
+      ["en", "EN", "Show English fields"],
+      ["ar", "عربي", "Show Arabic fields"],
+    ]) {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "chip";
+      b.className = "grid-lang-option";
       b.textContent = label;
+      b.title = title;
+      b.setAttribute("aria-label", title);
+      if (code === "ar") {
+        b.lang = "ar";
+        b.dir = "rtl";
+      }
       b.addEventListener("click", () => apply(code, true));
       buttons[code] = b;
-      wrap.append(b);
+      segments.appendChild(b);
     }
+    wrap.appendChild(segments);
     host.append(wrap);
     function apply(code, save) {
       nameLang = code;
@@ -1501,7 +1514,6 @@
       }
       for (const [c, b] of Object.entries(buttons)) {
         b.setAttribute("aria-pressed", String(c === nameLang));
-        b.classList.toggle("pill", c === nameLang);
       }
       // The record open underneath is showing the other language's details;
       // leaving it as it was would make the switch look half-connected.

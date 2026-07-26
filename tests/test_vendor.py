@@ -129,8 +129,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # each section displays the title stored with its source data instead.
     # design-system-23/23: the established detail-card headings remain in
     # place, with Keywords added only inside the Description card.
-    assert '/static/grid.js?v=design-system-23' in page
-    assert '/static/grid-theme.css?v=design-system-23' in page
+    # design-system-24/24: the language picker is a compact segmented control
+    # and the saved-views content opens as a real anchored panel.
+    assert '/static/grid.js?v=design-system-24' in page
+    assert '/static/grid-theme.css?v=design-system-24' in page
 
 
 def test_material_header_icons_are_local_and_dry():
