@@ -950,9 +950,15 @@ def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[
     `aggregations` with exactly its facet list) and files their values under the
     flags is_site_filter; here they become columns, named as the SHOP names them.
 
-    Nothing is inferred: a source whose connector publishes no Filters group
-    gets no such columns, and a product missing one of them gets an empty cell
-    rather than a guess.
+    OR the owner promoted it. Which detail deserved a column used to be
+    decided entirely by the SHOP: madar gets 64 columns because Magento
+    publishes its facet list, and sika got none of its 18 attribute codes
+    because its shop publishes no facets at all. The mechanism was never
+    the obstacle — the owner simply had no say in it (0044).
+
+    Nothing is inferred: a source with neither flagged nor promoted
+    attributes gets no such columns, and a product missing one of them gets
+    an empty cell rather than a guess.
     """
     rows = conn.execute(
         "SELECT spa.source_product_id, "
@@ -960,9 +966,11 @@ def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[
         "FROM source_product_attribute spa "
         "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND spa.is_site_filter = 1 "
+        "WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN "
+        "     (SELECT attribute_code FROM source_attribute_promotion "
+        "       WHERE source_key = ?)) "
         "ORDER BY spa.source_product_id",
-        (source_key,)).fetchall()
+        (source_key, source_key)).fetchall()
     found: dict[int, dict[str, str]] = {}
     for product_id, label, value in rows:
         if label and value:
@@ -1442,7 +1450,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # Appended LAST on purpose: every index above is positional and a column
         # inserted mid-list silently shifts the lot.
         "       po.vat_included, sv.variant, sv.variant_url, "
-        "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar) "
+        "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar), "
+        "       sp.source_product_id "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1498,7 +1507,9 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "was_price": r[4] if _discounted(r[4], r[3]) else "",
                "discount": _discount_amount(r[4], r[3]),
                "discount_pct": _discount_pct(r[4], r[3]),
-               "tax_ref": tax_ref(r[11] or "", r[32] or r[0] or "", bool(r[29]))}
+               "tax_ref": tax_ref(r[11] or "", r[32] or r[0] or "", bool(r[29])),
+               # Carried only as far as the attribute join below, then popped.
+               "source_product_id": r[33]}
               for r in rows]
 
     present = column_presence(conn, source_key)
@@ -1518,10 +1529,29 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     # about a language nobody stated).
     labels = dict(BROWSE_COLUMNS)
 
+    # The per-source columns the EXPORT has always carried, now on the page
+    # too: one per site facet, one per detail the owner promoted (0044).
+    # The owner asked for the main table to hold everything, and a column
+    # that exists in the file and not on the screen is the same split he
+    # keeps having to work around.
+    pivoted = _filter_values(conn, source_key)
+    extra: list[str] = []
+    for row in shaped:
+        for label in pivoted.get(row.get("source_product_id") or -1, {}):
+            if label not in extra and label not in labels:
+                extra.append(label)
+    for row in shaped:
+        values = pivoted.get(row.pop("source_product_id", None) or -1, {})
+        for label in extra:
+            row[label] = values.get(label, "")
+
     return {
         "source_key": source_key,
         "columns": [{"key": key, "label": labels[key]} for key, label in BROWSE_COLUMNS
-                    if key in present and key not in hidden],
+                    if key in present and key not in hidden]
+                   # Named the way the SITE names them, like the export.
+                   + [{"key": label, "label": label} for label in extra
+                      if label not in hidden],
         "rows": shaped,
         "tax_states": tax_states,
         "total": total,

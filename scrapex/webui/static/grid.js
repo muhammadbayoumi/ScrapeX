@@ -596,6 +596,75 @@
       list.append(section);
       zones[zone] = body;
     }
+    // A THIRD zone, for facts that are not columns yet. Madar's export already
+    // carries 64 columns pivoted straight out of the details table, because
+    // Magento publishes its facet list and those rows get flagged. Sika's shop
+    // publishes no facets, so none of its 18 attribute codes could ever rise —
+    // the machine was never the obstacle, the owner just had no say in it.
+    const promoteZone = document.createElement("section");
+    promoteZone.className = "column-chooser-zone";
+    promoteZone.dataset.zone = "promote";
+    promoteZone.hidden = true;
+    const promoteTitle = document.createElement("h3");
+    promoteTitle.textContent = "Details you can promote";
+    const promoteHint = document.createElement("p");
+    promoteHint.className = "muted";
+    promoteHint.textContent =
+      "Facts this source publishes that are not columns yet. Tick one to make it " +
+      "a real column, in the table and the export. Untick to send it back.";
+    const promoteBody = document.createElement("div");
+    promoteBody.className = "column-chooser-zone-body";
+    promoteZone.append(promoteTitle, promoteHint, promoteBody);
+    list.append(promoteZone);
+
+    function renderPromotable(attributes) {
+      promoteBody.replaceChildren();
+      const offer = (attributes || []).filter((a) => !a.by_the_site);
+      promoteZone.hidden = offer.length === 0;
+      for (const attribute of offer) {
+        const row = document.createElement("label");
+        row.className = "column-chooser-row";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = !!attribute.promoted;
+        const name = document.createElement("span");
+        name.dir = "auto";
+        name.textContent = attribute.label;
+        // The count BEFORE the choice: an attribute two products carry is a
+        // column of blanks, and that is worth seeing in advance, not after.
+        const count = document.createElement("span");
+        count.className = "muted";
+        count.textContent = ` ${attribute.products} of ${attribute.of_products}`;
+        box.addEventListener("change", () => {
+          box.disabled = true;
+          status.textContent = "Saving…";
+          fetch("/api/promotable/" + encodeURIComponent(SOURCE), {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({attribute_code: attribute.attribute_code,
+                                  promote: box.checked}),
+          }).then((response) => {
+            if (!response.ok) throw new Error("promote failed");
+            return response.json();
+          }).then((body) => {
+            dirty = true;
+            attribute.promoted = box.checked;
+            renderPromotable(body.attributes);
+            status.textContent = "Saved. Close to refresh the grid.";
+          }).catch(() => {
+            box.checked = !box.checked;
+            status.textContent = "Could not change that column. Try again.";
+          }).finally(() => { box.disabled = false; });
+        });
+        row.append(box, name, count);
+        promoteBody.append(row);
+      }
+    }
+
+    fetch("/api/promotable/" + encodeURIComponent(SOURCE))
+      .then((response) => (response.ok ? response.json() : {attributes: []}))
+      .then((body) => renderPromotable(body.attributes))
+      .catch(() => { promoteZone.hidden = true; });
+
     const status = document.createElement("p");
     status.className = "column-chooser-status muted";
     status.setAttribute("role", "status");

@@ -353,3 +353,84 @@ def test_hiding_a_column_never_registers_absent_ones(client):
     assert "category_l1" not in keys and "category_l4" not in keys, \
         "columns this source never publishes were registered by a POST"
     assert "sku" in keys
+
+
+# ---- promoting a DETAIL to a COLUMN ------------------------------------------
+
+@pytest.fixture()
+def client_with_details(db_path, tmp_path) -> TestClient:
+    """A source that publishes DETAILS, which is what can be promoted."""
+    import sqlite3
+
+    conn = dbmod.connect(db_path)
+    # On MORE THAN ONE product, deliberately. A code that covers exactly one
+    # is that product's own row, not a KIND of fact, and the chooser leaves
+    # those out — sika publishes 535 image_N codes that way and the list was
+    # 760 lines nobody could read. A one-product fixture was not a small
+    # test, it was the wrong shape.
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_product_id="P2", external_variant_id="V2",
+                product_name="Second cable")])])
+    pids = [r[0] for r in conn.execute(
+        "SELECT source_product_id FROM source_product ORDER BY source_product_id")]
+    assert len(pids) >= 2, "this fixture needs two products to be honest"
+    for value, pid in zip(("2.5 mm", "4 mm"), pids):
+        conn.execute(
+            "INSERT INTO source_product_attribute (source_product_id, attribute_code, "
+            " attribute_label, raw_value, attribute_group, lang, is_site_filter) "
+            "VALUES (?,?,?,?,?,?,0)",
+            (pid, "cable_gauge", "Cable gauge", value, "Specifications", "en"))
+    conn.commit(); conn.close()
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    return TestClient(create_app(db_path, manifest_path=manifest))
+
+
+def test_the_owner_can_promote_a_detail_to_a_column_and_send_it_back(client_with_details):
+    """The owner's question: are the exported tables not already assembled from
+    the system's own tables? They are. Madar's export is 56 declared columns
+    plus 64 pivoted straight out of source_product_attribute — the details table
+    itself. The machine that turns a detail into a column runs in production.
+
+    What was missing was a voice in it. An attribute rose only where the SHOP
+    published it as a facet, so madar got 64 and sika, whose shop publishes
+    none, got none of its 18. Now the owner chooses, and can unchoose.
+    """
+    listed = client_with_details.get("/api/promotable/ELSEWEDYSHOP").json()["attributes"]
+    assert listed, "a source with details must offer them for promotion"
+    first = listed[0]
+    # The count is shown BEFORE the choice: an attribute two products carry is
+    # a column of blanks, and that is worth seeing in advance.
+    assert first["products"] >= 1 and first["of_products"] >= first["products"]
+    assert first["promoted"] is False and first["is_column"] is False
+
+    code = first["attribute_code"]
+    up = client_with_details.post(f"/api/promotable/ELSEWEDYSHOP",
+                     json={"attribute_code": code, "promote": True}).json()
+    assert up["promoted"] is True
+    now = {a["attribute_code"]: a for a in up["attributes"]}[code]
+    assert now["promoted"] is True and now["is_column"] is True
+
+    # It reaches the MAIN TABLE, which is what was asked for — not the file only.
+    columns = {c["key"] for c in client_with_details.get("/api/table/ELSEWEDYSHOP").json()["columns"]}
+    assert first["label"] in columns, "a promoted detail must appear as a real column"
+
+    # And back again. The row IS the promotion, so demoting deletes it and
+    # nothing has to remember a previous shape.
+    down = client_with_details.post(f"/api/promotable/ELSEWEDYSHOP",
+                       json={"attribute_code": code, "promote": False}).json()
+    assert down["promoted"] is False
+    columns = {c["key"] for c in client_with_details.get("/api/table/ELSEWEDYSHOP").json()["columns"]}
+    assert first["label"] not in columns
+
+
+def test_promotion_is_per_source_because_the_facts_are(client_with_details):
+    """A detail worth a column on one site is noise on another."""
+    listed = client_with_details.get("/api/promotable/ELSEWEDYSHOP").json()["attributes"]
+    code = listed[0]["attribute_code"]
+    client_with_details.post("/api/promotable/ELSEWEDYSHOP",
+                json={"attribute_code": code, "promote": True})
+
+    other = client_with_details.get("/api/promotable/MADAR").json()["attributes"]
+    assert all(not a["promoted"] for a in other), \
+        "promoting on one source must not promote on another"

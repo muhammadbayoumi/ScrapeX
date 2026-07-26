@@ -34,8 +34,9 @@ from ..databases import (
 from ..jobs import (JobRunner, create_job, get_job, job_logs, list_jobs,
                     set_control, worker_health)
 from ..fields import (
-    delete_view, ensure_fields, list_fields, list_views, reorder, reset_view, save_view,
-    set_display_name, set_visibility, visible_columns,
+    delete_view, ensure_fields, list_fields, list_views, promotable_attributes,
+    reorder, reset_view, save_view, set_display_name, set_promotion,
+    set_visibility, visible_columns,
 )
 from ..features import manifest as feature_manifest
 from ..extract.api import create_extraction_router
@@ -1104,6 +1105,40 @@ def create_app(
                     "views": list_views(conn, source_key)}
         finally:
             conn.close()
+
+    @app.get("/api/promotable/{source_key}")
+    def api_promotable(source_key: str):
+        """Every detail this source publishes that COULD be a column.
+
+        The owner asked whether the exported tables are not already assembled
+        from the system's own tables. They are: madar's export is 56 declared
+        columns plus 64 pivoted straight out of the details table. What he could
+        not do was CHOOSE — an attribute rose only where the shop published it
+        as a facet, so sika, whose shop publishes none, got none of its 18.
+        """
+        conn = read_conn()
+        try:
+            return {"source_key": source_key,
+                    "attributes": promotable_attributes(conn, source_key)}
+        finally:
+            conn.close()
+
+    @app.post("/api/promotable/{source_key}")
+    def api_promote(source_key: str, body: dict):
+        """Promote a detail to a column, or send it back. Reversible: the row
+        IS the promotion, so demoting deletes it and nothing has to remember a
+        previous shape."""
+        body = body or {}
+        code = str(body.get("attribute_code") or "").strip()
+        if not code:
+            raise HTTPException(status_code=422, detail="attribute_code is required")
+        promote = bool(body.get("promote", True))
+
+        def apply(conn):
+            set_promotion(conn, source_key, code, promote)
+            return {"attribute_code": code, "promoted": promote,
+                    "attributes": promotable_attributes(conn, source_key)}
+        return _write(apply)
 
     @app.post("/api/fields/{source_key}")
     def api_update_fields(source_key: str, body: dict):

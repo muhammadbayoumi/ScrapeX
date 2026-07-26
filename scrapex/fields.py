@@ -173,3 +173,89 @@ def apply_schema(conn: sqlite3.Connection, source_key: str, header: list[str],
     labels = {f["field_key"]: f["label"] for f in list_fields(conn, source_key)}
     index = [header.index(c) for c in keep]
     return [labels.get(c, c) for c in keep], [[row[i] for i in index] for row in rows]
+
+
+# ---- promoting a DETAIL to a COLUMN (0044) -----------------------------------
+#
+# The owner's question: are the exported tables not already assembled from the
+# system's own tables? They are — madar's export is 56 declared columns plus 64
+# pivoted out of source_product_attribute, the details table itself. What was
+# missing was never the machine. It was that the SHOP decided which detail rose:
+# an attribute became a column only where the site published it as a facet, so
+# madar got 64 and sika, whose shop publishes none, got nothing at all.
+
+def promotable_attributes(conn: sqlite3.Connection, source_key: str) -> list[dict]:
+    """Every detail this source publishes that COULD be a column, with the
+    count of products that actually fill it, and whether it is a column now.
+
+    The count is the point: an attribute two products carry is a column of
+    blanks, and the owner should see that before choosing, not after
+    exporting.
+
+    Single-product codes are left out, and the measurement is why: sika
+    publishes 535 `image_N` and 202 `attachment_N` codes, one per file, so
+    737 of its 760 details belong to exactly one product. Those are that
+    product's own rows, not KINDS of fact, and offering them turned the
+    chooser into 760 lines nobody can read. Sika drops to 23, madar to 16 —
+    which is the list a person can actually decide from.
+    """
+    rows = conn.execute(
+        "SELECT spa.attribute_code, "
+        "       COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code) AS label, "
+        "       spa.attribute_group, spa.lang, "
+        "       COUNT(DISTINCT spa.source_product_id) AS products, "
+        "       MAX(spa.is_site_filter) AS by_the_site "
+        "FROM source_product_attribute spa "
+        "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND sp.status = 'active' "
+        "GROUP BY spa.attribute_code "
+        "ORDER BY products DESC, label",
+        (source_key,)).fetchall()
+    chosen = promoted_attributes(conn, source_key)
+    total = conn.execute(
+        "SELECT COUNT(*) FROM source_product sp "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND sp.status = 'active'", (source_key,)).fetchone()[0] or 0
+    offered = [{"attribute_code": r[0], "label": r[1], "group": r[2], "lang": r[3] or "",
+                "products": r[4], "of_products": total,
+                # Two different reasons a detail is a column, and the owner
+                # should tell them apart: the site said so, or he did.
+                "by_the_site": bool(r[5]), "promoted": r[0] in chosen,
+                "is_column": bool(r[5]) or r[0] in chosen}
+               for r in rows
+               # A code that covers exactly ONE product is that product's own
+               # row, not a KIND of fact — sika publishes 535 image_N and 202
+               # attachment_N codes that way, and 737 of its 760 details are
+               # single-product. A column for one of them is 86 blanks and one
+               # value, and 760 of them is a chooser nobody can read. Anything
+               # already a column stays listed whatever its coverage, so a
+               # choice can always be undone.
+               if r[4] > 1 or bool(r[5]) or r[0] in chosen]
+    return offered
+
+
+def promoted_attributes(conn: sqlite3.Connection, source_key: str) -> set[str]:
+    return {r[0] for r in conn.execute(
+        "SELECT attribute_code FROM source_attribute_promotion WHERE source_key = ?",
+        (source_key,))}
+
+
+def set_promotion(conn: sqlite3.Connection, source_key: str,
+                  attribute_code: str, promote: bool) -> bool:
+    """Promote a detail to a column, or send it back. Returns the new state.
+
+    Reversible by construction — the row IS the promotion, so demoting deletes
+    it and nothing has to remember a previous shape. The opposite direction for
+    a column that was always a column already works: hiding it moves it to the
+    details panel, showing it brings it back.
+    """
+    if promote:
+        conn.execute(
+            "INSERT OR IGNORE INTO source_attribute_promotion (source_key, attribute_code) "
+            "VALUES (?,?)", (source_key, attribute_code))
+    else:
+        conn.execute(
+            "DELETE FROM source_attribute_promotion WHERE source_key = ? AND attribute_code = ?",
+            (source_key, attribute_code))
+    return promote
