@@ -878,7 +878,7 @@
 
 .selected-product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 24rem));
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
   align-items: stretch;
   gap: var(--sp-4);
   padding: 0;

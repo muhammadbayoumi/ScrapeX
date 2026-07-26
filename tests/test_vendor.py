@@ -119,8 +119,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # removed, and the details navigation became an icon rail.
     # design-system-18/17: the media gallery returned to the theme's original
     # surface colours without changing its larger layout.
+    # design-system-18/18: multiple product cards stretch evenly to the table's
+    # full width, so their outer edges share the same alignment.
     assert '/static/grid.js?v=design-system-18' in page
-    assert '/static/grid-theme.css?v=design-system-17' in page
+    assert '/static/grid-theme.css?v=design-system-18' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -605,6 +607,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
     assert ".record-product-workspace .selected-product-card" in css
+    assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 
