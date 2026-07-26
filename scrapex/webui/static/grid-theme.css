@@ -796,81 +796,327 @@
 .record-panel {
   display: block;
   margin-top: var(--sp-3, .75rem);
-  padding: var(--sp-4, 1rem);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius, .5625rem);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
   /* Selecting a row scrolls the panel into view, and the workspace's sticky
      top bar would otherwise land exactly on the record's name and controls. */
   scroll-margin-top: 5rem;
 }
 .record-panel:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.record-panel.is-loading {
+  min-height: 8rem;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-5);
+  color: var(--muted);
+}
 
-.record-head {
+.record-selection-bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--sp-3, .75rem);
-  padding-bottom: var(--sp-3, .75rem);
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
 }
-.record-identity { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline;
-                   gap: var(--sp-1, .25rem) var(--sp-3, .75rem); }
-.record-name {
+.record-selection-copy { min-width: 0; }
+.record-selection-kicker {
+  display: block;
+  margin-bottom: var(--sp-1);
+  color: var(--accent-ink);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.record-selection-title {
   margin: 0;
   font-size: var(--fs-lg, 1.125rem);
   font-weight: var(--fw-bold, 600);
   line-height: var(--lh-tight, 1.25);
-  /* A product name can be a paragraph; it wraps rather than pushing the
-     header's controls off the edge. */
   overflow-wrap: anywhere;
 }
-.record-sub {
-  flex-basis: 100%;
-  margin: 0;
+.record-selection-sub {
+  margin: var(--sp-1) 0 0;
   color: var(--muted);
-  font-size: var(--fs-xs, .75rem);
+  font-size: var(--fs-sm);
 }
-.record-price {
-  font-size: var(--fs-md, 1rem);
-  font-weight: var(--fw-bold, 600);
+.record-selection-actions,
+.selected-product-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+#offer-panel .record-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height-sm);
+  padding: .45rem .75rem;
   color: var(--text);
-  background: var(--chip);
-  border-radius: var(--radius-pill, 999px);
-  padding: .1rem var(--sp-3, .75rem);
-  white-space: nowrap;
+  background: var(--control-bg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.15;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease),
+              border-color var(--dur-fast) var(--ease),
+              transform var(--dur-fast) var(--ease);
 }
-.record-head-actions { display: flex; align-items: center; gap: var(--sp-3, .75rem); }
+#offer-panel .record-action:hover {
+  color: var(--text);
+  background: var(--control-hover);
+  border-color: var(--accent);
+  text-decoration: none;
+}
+#offer-panel .record-action:active { transform: translateY(1px); }
+#offer-panel .record-action-primary {
+  color: var(--button-text);
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+}
+#offer-panel .record-action-primary:hover {
+  color: var(--button-text);
+  background: var(--button-hover);
+  border-color: var(--button-hover);
+}
+#offer-panel .record-action-subtle { background: transparent; }
+#offer-panel .record-action:disabled {
+  opacity: .55;
+  cursor: wait;
+  transform: none;
+}
 
-/* auto-fit, so a narrow window stacks the cards and a wide one sets the
-   specification and attachment cards side by side without any breakpoint. */
+.selected-product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 22rem));
+  align-items: start;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+.selected-product-grid.is-single {
+  grid-template-columns: minmax(0, 24rem);
+}
+.selected-product-card {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease),
+              transform var(--dur) var(--ease);
+}
+.selected-product-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.selected-product-card.has-error { border-style: dashed; }
+.selected-product-media {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(14rem, 1fr) auto;
+  min-height: 14rem;
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+}
+.selected-product-media > img {
+  width: 100%;
+  height: 100%;
+  min-height: 14rem;
+  max-height: 19rem;
+  padding: var(--sp-4);
+  object-fit: contain;
+  background: var(--surface);
+}
+.selected-product-image-count {
+  position: absolute;
+  top: var(--sp-3);
+  inset-inline-end: var(--sp-3);
+  padding: .2rem .45rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+.selected-product-thumbs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--surface-subtle);
+  border-top: 1px solid var(--line);
+}
+.selected-product-thumbs button {
+  min-width: 0;
+  aspect-ratio: 1;
+  padding: 2px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.selected-product-thumbs button:hover,
+.selected-product-thumbs button.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.selected-product-thumbs img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: calc(var(--radius-sm) - 2px);
+}
+.selected-product-image-empty {
+  display: grid;
+  place-items: center;
+  min-height: 14rem;
+  padding: var(--sp-5);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.selected-product-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+.selected-product-name {
+  margin: 0;
+  font-size: var(--fs-lg);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+.selected-product-description {
+  display: -webkit-box;
+  min-height: 2.6em;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.selected-product-meta {
+  margin: 0;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+.selected-product-price {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+.selected-product-price-label {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.selected-product-price strong {
+  color: var(--text);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+}
+.selected-product-actions { padding-top: var(--sp-1); }
+.selected-product-actions .record-action-primary { flex: 1 1 9rem; }
+
+.record-expanded {
+  width: 100%;
+  padding: var(--sp-5);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+.record-expanded[hidden] { display: none; }
+.record-expanded-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.record-expanded-head h3 {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+.record-expanded-head p {
+  max-width: 46rem;
+  margin: var(--sp-1) 0 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
 .record-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
-  gap: var(--sp-3, .75rem);
-  margin-top: var(--sp-3, .75rem);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--sp-4);
 }
 .record-card {
+  grid-column: span 6;
   min-width: 0;
-  padding: var(--sp-3, .75rem);
-  background: var(--surface-subtle);
+  padding: var(--sp-4);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm, .375rem);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
 }
 /* Pictures, prose and the price tables are read across, not beside: they take
    the whole row however many columns the grid happens to have. */
 .record-card-wide { grid-column: 1 / -1; }
+.record-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.record-card-marker {
+  width: .28rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+}
 .record-card-title {
-  margin: 0 0 var(--sp-2, .5rem);
+  margin: 0;
   font-size: var(--fs-xs, .75rem);
-  font-weight: var(--fw-bold, 600);
-  letter-spacing: .04em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: .06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text);
 }
 .record-card .tablewrap { margin: 0; }
+.record-table-wrap {
+  width: 100%;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.record-mini-table { margin: 0; border: 0; border-radius: 0; }
+.record-mini-table th,
+.record-mini-table td { white-space: normal; }
 
 /* One fact per line, label left and value right — the shape the shops' own
    "Specifications" cards use, and unlike a table it never asks the reader to
@@ -935,18 +1181,30 @@
 /* The record panel's picture gallery: thumbnails that open the full image.
    Sized in rem so a long gallery wraps instead of pushing the panel wide. */
 .detail-gallery {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2, .5rem);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--sp-3);
 }
 .detail-image {
-  width: 7.5rem;
-  height: 7.5rem;
+  width: 100%;
+  height: 10rem;
   object-fit: contain;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm, .375rem);
-  padding: .25rem;
+  border-radius: var(--radius);
+  padding: var(--sp-2);
+}
+
+@media (max-width: 760px) {
+  .record-selection-bar,
+  .record-expanded-head { align-items: stretch; flex-direction: column; }
+  .record-selection-actions,
+  .record-selection-actions .record-action { width: 100%; }
+  .selected-product-grid { padding: var(--sp-4); }
+  .selected-product-grid,
+  .selected-product-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+  .record-expanded { padding: var(--sp-4); }
+  .record-card { grid-column: 1 / -1; }
 }
 
 /* Choose Columns is two places a field can live, not a list of ticks: the

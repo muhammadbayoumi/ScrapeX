@@ -111,8 +111,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-15/13: row checkboxes now accumulate selection, the header
     # checkbox reports partial/all state, and the frozen selection divider is
     # removed from the shared table frame.
-    assert '/static/grid.js?v=design-system-15' in page
-    assert '/static/grid-theme.css?v=design-system-13' in page
+    # design-system-16/14: selected rows now become product summary cards and
+    # the full descriptions/history open in one wide details surface.
+    assert '/static/grid.js?v=design-system-16' in page
+    assert '/static/grid-theme.css?v=design-system-14' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -573,8 +575,23 @@ def test_history_opens_inline_and_the_full_page_link_survives():
 
     assert 'id="offer-panel"' in page
     assert "openOfferPanel" in script and "/api/offer/" in script
-    assert 'el("a", "", "Open full page")' in script
+    assert 'el("a", "record-action record-action-subtle", "Full record")' in script
     assert 'full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/"' in script
+
+
+def test_selected_rows_render_as_product_cards_before_expanding_details():
+    """Selection starts with a compact product view; the dense record content
+    remains available on demand and uses the panel's full horizontal width."""
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    css = (VENDOR.parent / "grid-theme.css").read_text(encoding="utf-8")
+
+    assert 'el("article", "selected-product-card")' in script
+    assert 'el("section", "record-expanded")' in script
+    assert '"View details"' in script and '"Compare selected"' in script
+    assert "summaryDescription" in script
+    assert ".selected-product-card" in css
+    assert ".record-expanded" in css
+    assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 
 def test_the_panel_never_renders_scraped_values_as_html():

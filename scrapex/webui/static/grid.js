@@ -1465,8 +1465,9 @@
   }
 
   function miniTable(headers, rows) {
-    const wrap = el("div", "tablewrap");
+    const wrap = el("div", "tablewrap record-table-wrap");
     const table = document.createElement("table");
+    table.className = "record-mini-table";
     const head = table.createTHead().insertRow();
     headers.forEach((h) => head.appendChild(el("th", "", h)));
     const body = table.createTBody();
@@ -1523,8 +1524,13 @@
     panel.appendChild(el("p", "muted", "Loading this record…"));
     fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + offerId)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
-      .then((data) => renderOfferPanel(panel, data, offerId, mode))
+      .then((data) => {
+        if (openOfferId === offerId && openOfferMode === mode) {
+          renderOfferPanel(panel, data, offerId, mode);
+        }
+      })
       .catch((err) => {
+        if (openOfferId !== offerId || openOfferMode !== mode) return;
         panel.textContent = "";
         panel.className = "record-panel";
         panel.appendChild(el("p", "err",
@@ -1574,7 +1580,12 @@
 
   function card(titleText, className) {
     const box = el("article", "record-card" + (className ? " " + className : ""));
-    if (titleText) box.appendChild(el("h3", "record-card-title", titleText));
+    if (titleText) {
+      const heading = el("header", "record-card-head");
+      heading.appendChild(el("span", "record-card-marker"));
+      heading.appendChild(el("h3", "record-card-title", titleText));
+      box.appendChild(heading);
+    }
     return box;
   }
 
@@ -1707,24 +1718,124 @@
     return wrap;
   }
 
-  function panelHead(titleNode, subtitle, actions) {
-    const head = el("header", "record-head");
-    const identity = el("div", "record-identity");
-    identity.appendChild(titleNode);
-    if (subtitle) {
-      const line = el("p", "record-sub", subtitle);
-      line.dir = "auto";
-      identity.appendChild(line);
+  function summaryDescription(details) {
+    const descriptions = (details || []).filter((item) =>
+      (item.group || "").toLowerCase() === "description");
+    const paired = pairByLanguage(descriptions);
+    return paired.map((item) => text(item.value)).filter(Boolean).join(" ");
+  }
+
+  function productSummaryCard(row, data, onDetails) {
+    const offer = (data && data.offer) || {};
+    const details = (data && data.details) || [];
+    const box = el("article", "selected-product-card");
+    const media = el("div", "selected-product-media");
+    const images = details
+      .filter((item) => (item.group || "") === "Media" && safeUrl(item.url))
+      .map((item) => ({url: safeUrl(item.url), alt: text(item.value || "")}));
+    if (images.length) {
+      const main = document.createElement("img");
+      main.src = images[0].url;
+      main.alt = images[0].alt;
+      main.loading = "lazy";
+      media.appendChild(main);
+      if (images.length > 1) {
+        media.appendChild(el("span", "selected-product-image-count", "1 / " + images.length));
+        const thumbs = el("div", "selected-product-thumbs");
+        images.slice(0, 6).forEach((image, index) => {
+          const thumb = el("button", index === 0 ? "is-active" : "");
+          thumb.type = "button";
+          thumb.setAttribute("aria-label", "Show image " + (index + 1));
+          const picture = document.createElement("img");
+          picture.src = image.url;
+          picture.alt = "";
+          picture.loading = "lazy";
+          thumb.appendChild(picture);
+          thumb.addEventListener("click", () => {
+            main.src = image.url;
+            main.alt = image.alt;
+            thumbs.querySelectorAll("button").forEach((item) => item.classList.remove("is-active"));
+            thumb.classList.add("is-active");
+            media.querySelector(".selected-product-image-count").textContent =
+              (index + 1) + " / " + images.length;
+          });
+          thumbs.appendChild(thumb);
+        });
+        media.appendChild(thumbs);
+      }
+    } else {
+      const empty = el("div", "selected-product-image-empty",
+        data ? "No product image" : "Loading product image…");
+      media.appendChild(empty);
     }
-    head.appendChild(identity);
-    const controls = el("div", "record-head-actions");
+    box.appendChild(media);
+
+    const body = el("div", "selected-product-body");
+    const name = el("h3", "selected-product-name",
+      text(pickLang(row.product_name, row.product_name_ar) || offer.name || "Unnamed record"));
+    name.dir = "auto";
+    body.appendChild(name);
+    const description = summaryDescription(details);
+    const short = el("p", "selected-product-description",
+      description || (data ? "No short description was published for this product."
+                           : "Loading product details…"));
+    short.dir = "auto";
+    body.appendChild(short);
+
+    const meta = [row.sku || offer.sku || "", pickLang(row.category, row.category_ar)]
+      .filter(Boolean).join(" · ");
+    if (meta) {
+      const line = el("p", "selected-product-meta", meta);
+      line.dir = "auto";
+      body.appendChild(line);
+    }
+
+    const price = el("div", "selected-product-price");
+    price.appendChild(el("span", "selected-product-price-label", "Current price"));
+    const value = el("strong", "");
+    value.appendChild(money(row.effective_price, row.currency || offer.currency,
+                            offer.unit || row.unit));
+    price.appendChild(value);
+    body.appendChild(price);
+
+    const actions = el("div", "selected-product-actions");
+    const detailsButton = el("button", "record-action record-action-primary", "View details");
+    detailsButton.type = "button";
+    detailsButton.disabled = !data;
+    detailsButton.addEventListener("click", () => onDetails(data, row, detailsButton));
+    actions.appendChild(detailsButton);
+    const live = safeUrl(row.product_url || offer.product_url || "");
+    if (live) {
+      const visit = el("a", "record-action", "Open on site");
+      visit.href = live;
+      visit.target = "_blank";
+      visit.rel = "noopener noreferrer";
+      actions.appendChild(visit);
+    }
+    const full = el("a", "record-action record-action-subtle", "Full record");
+    full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + row.offer_id;
+    actions.appendChild(full);
+    body.appendChild(actions);
+    box.appendChild(body);
+    return box;
+  }
+
+  function selectionBar(titleText, subtitle, actions) {
+    const head = el("header", "record-selection-bar");
+    const copy = el("div", "record-selection-copy");
+    const kicker = el("span", "record-selection-kicker", "Selected from the table");
+    copy.appendChild(kicker);
+    copy.appendChild(el("h2", "record-selection-title", titleText));
+    if (subtitle) copy.appendChild(el("p", "record-selection-sub", subtitle));
+    head.appendChild(copy);
+    const controls = el("div", "record-selection-actions");
     actions.forEach((node) => controls.appendChild(node));
     head.appendChild(controls);
     return head;
   }
 
   function closeButton() {
-    const close = el("button", "ghost", "Close");
+    const close = el("button", "record-action record-action-subtle", "Clear selection");
     close.type = "button";
     close.addEventListener("click", () => {
       if (table) { try { table.deselectRow(); } catch (err) { /* not selectable */ } }
@@ -1746,47 +1857,52 @@
     openCompareRows = null;
     const offer = data.offer || {};
     const row = openOfferRow || {};
+    const details = showDetails ? (data.details || []) : [];
+
+    panel.appendChild(selectionBar(
+      "1 record selected",
+      "The card is a quick view. Open details only when you need the full record.",
+      [closeButton()]));
+
+    const productGrid = el("div", "selected-product-grid is-single");
+    const expanded = el("section", "record-expanded");
+    expanded.hidden = true;
+    const expandedHead = el("header", "record-expanded-head");
+    const expandedCopy = el("div", "");
+    expandedCopy.appendChild(el("span", "record-selection-kicker", "Full record"));
+    expandedCopy.appendChild(el("h3", "", "Product details and history"));
+    expandedCopy.appendChild(el("p", "",
+      "Descriptions, specifications, attachments, price changes, and recorded evidence."));
+    expandedHead.appendChild(expandedCopy);
+    const hideDetails = el("button", "record-action record-action-subtle", "Hide details");
+    hideDetails.type = "button";
+    expandedHead.appendChild(hideDetails);
+    expanded.appendChild(expandedHead);
+    const cards = el("div", "record-cards");
+    expanded.appendChild(cards);
+
+    function toggleDetails(button, forceOpen) {
+      const opening = forceOpen === undefined ? expanded.hidden : !!forceOpen;
+      expanded.hidden = !opening;
+      panel.classList.toggle("has-expanded-details", opening);
+      if (button) button.textContent = opening ? "Hide details" : "View details";
+      if (opening) expanded.scrollIntoView({behavior: "smooth", block: "nearest"});
+    }
+    const summary = productSummaryCard(row, data, (_data, _row, button) =>
+      toggleDetails(button));
+    productGrid.appendChild(summary);
+    panel.append(productGrid, expanded);
+    hideDetails.addEventListener("click", () => {
+      const button = summary.querySelector(".record-action-primary");
+      toggleDetails(button, false);
+      summary.scrollIntoView({behavior: "smooth", block: "nearest"});
+    });
 
     // Name and classification in the language the toggle is set to, falling
     // back to the one the source published when it published only one.
-    const title = el("h2", "record-name",
-                     text(pickLang(row.product_name, row.product_name_ar)
-                          || offer.name || ""));
-    title.dir = "auto";
-    const facts = [offer.region_name || offer.region || "", row.sku || "",
-                   pickLang(row.category, row.category_ar)]
-      .filter(Boolean).join(" · ");
-    const full = el("a", "", "Open full page");
-    full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + offerId;
-    const actions = [full, closeButton()];
-    // The owner checks what we stored against what the shop shows constantly;
-    // the product's own page is one click from the record it describes.
-    const live = safeUrl(row.product_url || offer.product_url || "");
-    if (live) {
-      const visit = el("a", "", "Open on the site");
-      visit.href = live;
-      visit.target = "_blank";
-      visit.rel = "noopener noreferrer";
-      actions.unshift(visit);
-    }
-    const head = panelHead(title, facts, actions);
-    // The price is the reason this table exists: it belongs in the record's
-    // header, not buried in the timeline further down.
-    if (row.effective_price !== undefined && row.effective_price !== null && row.effective_price !== "") {
-      const chip = el("span", "record-price");
-      chip.appendChild(money(row.effective_price, row.currency, offer.unit || row.unit));
-      head.querySelector(".record-identity").appendChild(chip);
-    }
-    panel.appendChild(head);
-
-    const cards = el("div", "record-cards");
-    panel.appendChild(cards);
-
     // The details the source printed for this product — colours, lengths,
     // categories, warranties — grouped as the page grouped them. Scraped
     // content throughout: names as text, URLs linked only when they parse.
-    const details = showDetails ? (data.details || []) : [];
-
     // The PICTURE leads — the same shape the sites themselves use, and the
     // same shape for every source (owner's ruling: one output, not one panel
     // per connector). Media is pulled out of the attribute groups below so it
@@ -1969,19 +2085,62 @@
     openCompareRows = rowsData;
     openOfferData = null;
     const shown = rowsData.slice(0, COMPARE_LIMIT);
-    const title = el("h2", "record-name", rowsData.length + " records selected");
-    const clear = el("button", "ghost", "Clear selection");
-    clear.type = "button";
-    clear.addEventListener("click", () => {
-      if (table) { try { table.deselectRow(); } catch (err) { /* not selectable */ } }
-      closeOfferPanel();
-    });
-    panel.appendChild(panelHead(
-      title,
+    const compareButton = el("button", "record-action record-action-primary", "Compare selected");
+    compareButton.type = "button";
+    panel.appendChild(selectionBar(
+      rowsData.length + " records selected",
       rowsData.length > COMPARE_LIMIT
-        ? "Comparing the first " + COMPARE_LIMIT + " — deselect some to compare the rest"
-        : "Rows that differ are marked",
-      [clear, closeButton()]));
+        ? "Showing the first " + COMPARE_LIMIT + ". Deselect some records to see the rest."
+        : "Each selected row has its own quick product card.",
+      [compareButton, closeButton()]));
+
+    const productGrid = el("div", "selected-product-grid");
+    panel.appendChild(productGrid);
+    const selection = rowsData;
+    const focusRecord = (row) => {
+      let component = null;
+      try {
+        component = table.getRows().find((candidate) =>
+          candidate.getData().offer_id === row.offer_id);
+        table.deselectRow();
+        if (component) component.select();
+      } catch (err) { /* the direct open below is the safe fallback */ }
+      if (!component) openOfferPanel(row.offer_id, "record", row);
+    };
+    shown.forEach((row) => {
+      const placeholder = productSummaryCard(row, null, () => {});
+      productGrid.appendChild(placeholder);
+      fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + row.offer_id)
+        .then((response) => response.ok
+          ? response.json()
+          : Promise.reject(new Error("HTTP " + response.status)))
+        .then((data) => {
+          if (openCompareRows !== selection || !placeholder.isConnected) return;
+          placeholder.replaceWith(productSummaryCard(row, data, () => focusRecord(row)));
+        })
+        .catch(() => {
+          if (openCompareRows !== selection || !placeholder.isConnected) return;
+          placeholder.classList.add("has-error");
+          const empty = placeholder.querySelector(".selected-product-image-empty");
+          const description = placeholder.querySelector(".selected-product-description");
+          if (empty) empty.textContent = "No product image";
+          if (description) description.textContent = "Product details are unavailable right now.";
+        });
+    });
+
+    const comparison = el("section", "record-expanded record-comparison");
+    comparison.hidden = true;
+    const comparisonHead = el("header", "record-expanded-head");
+    const comparisonCopy = el("div", "");
+    comparisonCopy.appendChild(el("span", "record-selection-kicker", "Comparison"));
+    comparisonCopy.appendChild(el("h3", "", "Selected records side by side"));
+    comparisonCopy.appendChild(el("p", "",
+      "The comparison uses the columns currently visible in the table."));
+    comparisonHead.appendChild(comparisonCopy);
+    const hideComparison = el("button", "record-action record-action-subtle", "Hide comparison");
+    hideComparison.type = "button";
+    comparisonHead.appendChild(hideComparison);
+    comparison.appendChild(comparisonHead);
 
     const cards = el("div", "record-cards");
     const box = card("Side by side", "record-card-wide");
@@ -2028,7 +2187,21 @@
     });
     box.appendChild(miniTable(headers, body));
     cards.appendChild(box);
-    panel.appendChild(cards);
+    comparison.appendChild(cards);
+    panel.appendChild(comparison);
+
+    const toggleComparison = (open) => {
+      const opening = open === undefined ? comparison.hidden : !!open;
+      comparison.hidden = !opening;
+      compareButton.textContent = opening ? "Hide comparison" : "Compare selected";
+      panel.classList.toggle("has-expanded-details", opening);
+      if (opening) comparison.scrollIntoView({behavior: "smooth", block: "nearest"});
+    };
+    compareButton.addEventListener("click", () => toggleComparison());
+    hideComparison.addEventListener("click", () => {
+      toggleComparison(false);
+      productGrid.scrollIntoView({behavior: "smooth", block: "nearest"});
+    });
     panel.focus({preventScroll: true});
     panel.scrollIntoView({behavior: "smooth", block: "nearest"});
   }
