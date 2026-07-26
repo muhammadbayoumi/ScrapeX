@@ -1361,8 +1361,14 @@
       // several rows asks: how do they compare.
       const chosen = rows.map((row) => row.getData()).filter((row) => row.offer_id);
       if (!chosen.length) { closeOfferPanel(); return; }
-      if (chosen.length > 1) { renderComparePanel(chosen); return; }
-      openOfferPanel(chosen[0].offer_id, "record", chosen[0]);
+      if (chosen.length > 1) {
+        nextSelectionPanelMode = null;
+        renderComparePanel(chosen);
+        return;
+      }
+      const requestedMode = nextSelectionPanelMode || "record";
+      nextSelectionPanelMode = null;
+      openOfferPanel(chosen[0].offer_id, requestedMode, chosen[0]);
     });
   }
 
@@ -1492,6 +1498,7 @@
   }
 
   let openOfferRow = null;
+  let nextSelectionPanelMode = null;
   // What the panel on screen was drawn FROM, so a language switch can redraw it
   // without another round trip. Exactly one of the two is ever set.
   let openOfferData = null;
@@ -1725,11 +1732,13 @@
     return paired.map((item) => text(item.value)).filter(Boolean).join(" ");
   }
 
-  function productSummaryCard(row, data, onDetails) {
+  function productSummaryCard(row, data, onDetails, onHistory) {
     const offer = (data && data.offer) || {};
     const details = (data && data.details) || [];
     const box = el("article", "selected-product-card");
     const media = el("div", "selected-product-media");
+    const imageStage = el("div", "selected-product-image-stage");
+    media.appendChild(imageStage);
     const images = details
       .filter((item) => (item.group || "") === "Media" && safeUrl(item.url))
       .map((item) => ({url: safeUrl(item.url), alt: text(item.value || "")}));
@@ -1738,11 +1747,30 @@
       main.src = images[0].url;
       main.alt = images[0].alt;
       main.loading = "lazy";
-      media.appendChild(main);
+      imageStage.appendChild(main);
+      const count = el("span", "selected-product-image-count", "1 / " + images.length);
+      imageStage.appendChild(count);
       if (images.length > 1) {
-        media.appendChild(el("span", "selected-product-image-count", "1 / " + images.length));
         const thumbs = el("div", "selected-product-thumbs");
-        images.slice(0, 6).forEach((image, index) => {
+        let current = 0;
+        const showImage = (index) => {
+          current = (index + images.length) % images.length;
+          main.src = images[current].url;
+          main.alt = images[current].alt;
+          count.textContent = (current + 1) + " / " + images.length;
+          thumbs.querySelectorAll("button").forEach((item, itemIndex) =>
+            item.classList.toggle("is-active", itemIndex === current));
+        };
+        const previous = el("button", "selected-product-image-nav is-previous", "‹");
+        previous.type = "button";
+        previous.setAttribute("aria-label", "Previous product image");
+        previous.addEventListener("click", () => showImage(current - 1));
+        const next = el("button", "selected-product-image-nav is-next", "›");
+        next.type = "button";
+        next.setAttribute("aria-label", "Next product image");
+        next.addEventListener("click", () => showImage(current + 1));
+        imageStage.append(previous, next);
+        images.forEach((image, index) => {
           const thumb = el("button", index === 0 ? "is-active" : "");
           thumb.type = "button";
           thumb.setAttribute("aria-label", "Show image " + (index + 1));
@@ -1751,14 +1779,7 @@
           picture.alt = "";
           picture.loading = "lazy";
           thumb.appendChild(picture);
-          thumb.addEventListener("click", () => {
-            main.src = image.url;
-            main.alt = image.alt;
-            thumbs.querySelectorAll("button").forEach((item) => item.classList.remove("is-active"));
-            thumb.classList.add("is-active");
-            media.querySelector(".selected-product-image-count").textContent =
-              (index + 1) + " / " + images.length;
-          });
+          thumb.addEventListener("click", () => showImage(index));
           thumbs.appendChild(thumb);
         });
         media.appendChild(thumbs);
@@ -1766,7 +1787,7 @@
     } else {
       const empty = el("div", "selected-product-image-empty",
         data ? "No product image" : "Loading product image…");
-      media.appendChild(empty);
+      imageStage.appendChild(empty);
     }
     box.appendChild(media);
 
@@ -1801,9 +1822,17 @@
     const actions = el("div", "selected-product-actions");
     const detailsButton = el("button", "record-action record-action-primary", "View details");
     detailsButton.type = "button";
+    detailsButton.dataset.inspectorView = "details";
     detailsButton.disabled = !data;
     detailsButton.addEventListener("click", () => onDetails(data, row, detailsButton));
     actions.appendChild(detailsButton);
+    const historyButton = el("button", "record-action", "History");
+    historyButton.type = "button";
+    historyButton.dataset.inspectorView = "history";
+    historyButton.disabled = !data;
+    historyButton.addEventListener("click", () =>
+      (onHistory || onDetails)(data, row, historyButton));
+    actions.appendChild(historyButton);
     const live = safeUrl(row.product_url || offer.product_url || "");
     if (live) {
       const visit = el("a", "record-action", "Open on site");
@@ -1845,58 +1874,152 @@
   }
 
   function renderOfferPanel(panel, data, offerId, mode) {
-    // The owner separated the two asks: History is the price story (periods,
-    // changes, observations); Details is what the product IS (attributes,
-    // classification, measurements). One panel, one ask at a time.
-    // "record" is the whole story in the owner's order: Details, then history.
-    const showHistory = mode !== "details";
-    const showDetails = mode !== "history";
     panel.textContent = "";
     panel.className = "record-panel";
     openOfferData = data;
     openCompareRows = null;
     const offer = data.offer || {};
     const row = openOfferRow || {};
-    const details = showDetails ? (data.details || []) : [];
+    const details = data.details || [];
+    const detailSections = new Map([
+      ["description", []],
+      ["specifications", []],
+      ["attachments", []],
+      ["media", []],
+    ]);
+    const historySections = new Map([
+      ["price", []],
+      ["changes", []],
+      ["observations", []],
+    ]);
 
     panel.appendChild(selectionBar(
       "1 record selected",
-      "The card is a quick view. Open details only when you need the full record.",
+      "Open product details or history without leaving the selected row.",
       [closeButton()]));
 
+    const workspace = el("div", "record-product-workspace");
     const productGrid = el("div", "selected-product-grid is-single");
-    const expanded = el("section", "record-expanded");
-    expanded.hidden = true;
-    const expandedHead = el("header", "record-expanded-head");
-    const expandedCopy = el("div", "");
-    expandedCopy.appendChild(el("span", "record-selection-kicker", "Full record"));
-    expandedCopy.appendChild(el("h3", "", "Product details and history"));
-    expandedCopy.appendChild(el("p", "",
-      "Descriptions, specifications, attachments, price changes, and recorded evidence."));
-    expandedHead.appendChild(expandedCopy);
-    const hideDetails = el("button", "record-action record-action-subtle", "Hide details");
-    hideDetails.type = "button";
-    expandedHead.appendChild(hideDetails);
-    expanded.appendChild(expandedHead);
-    const cards = el("div", "record-cards");
-    expanded.appendChild(cards);
+    const inspector = el("section", "record-inspector");
+    inspector.hidden = true;
+    inspector.setAttribute("aria-label", "Selected product information");
 
-    function toggleDetails(button, forceOpen) {
-      const opening = forceOpen === undefined ? expanded.hidden : !!forceOpen;
-      expanded.hidden = !opening;
-      panel.classList.toggle("has-expanded-details", opening);
-      if (button) button.textContent = opening ? "Hide details" : "View details";
-      if (opening) expanded.scrollIntoView({behavior: "smooth", block: "nearest"});
-    }
-    const summary = productSummaryCard(row, data, (_data, _row, button) =>
-      toggleDetails(button));
+    const inspectorHead = el("header", "record-inspector-head");
+    const inspectorTitle = el("div", "record-inspector-heading");
+    inspectorTitle.appendChild(el("span", "record-selection-kicker", "Product record"));
+    inspectorTitle.appendChild(el("h3", "", "Details"));
+    inspectorHead.appendChild(inspectorTitle);
+    const inspectorControls = el("div", "record-inspector-controls");
+    const detailsTab = el("button", "record-inspector-tab", "Details");
+    detailsTab.type = "button";
+    const historyTab = el("button", "record-inspector-tab", "History");
+    historyTab.type = "button";
+    const closeInspector = el("button", "record-action record-action-subtle", "Close");
+    closeInspector.type = "button";
+    inspectorControls.append(detailsTab, historyTab, closeInspector);
+    inspectorHead.appendChild(inspectorControls);
+    inspector.appendChild(inspectorHead);
+
+    const inspectorMain = el("div", "record-inspector-main");
+    const inspectorNav = el("nav", "record-inspector-nav");
+    inspectorNav.setAttribute("aria-label", "Product information sections");
+    const inspectorContent = el("div", "record-inspector-content");
+    inspectorMain.append(inspectorNav, inspectorContent);
+    inspector.appendChild(inspectorMain);
+
+    const summary = productSummaryCard(
+      row,
+      data,
+      () => openInspector("details"),
+      () => openInspector("history"));
     productGrid.appendChild(summary);
-    panel.append(productGrid, expanded);
-    hideDetails.addEventListener("click", () => {
-      const button = summary.querySelector(".record-action-primary");
-      toggleDetails(button, false);
+    workspace.append(productGrid, inspector);
+    panel.appendChild(workspace);
+
+    const detailDefinitions = [
+      {key: "description", label: "Description"},
+      {key: "specifications", label: "Specifications"},
+      {key: "attachments", label: "Attachments"},
+      {key: "media", label: "Media"},
+    ];
+    const historyDefinitions = [
+      {key: "price", label: "Price history"},
+      {key: "changes", label: "Changes"},
+      {key: "observations", label: "Observations"},
+    ];
+
+    function setSummaryMode(view) {
+      summary.querySelectorAll("[data-inspector-view]").forEach((button) => {
+        const active = !inspector.hidden && button.dataset.inspectorView === view;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+    }
+
+    function renderInspector(view, requestedKey) {
+      const isHistory = view === "history";
+      const definitions = isHistory ? historyDefinitions : detailDefinitions;
+      const sections = isHistory ? historySections : detailSections;
+      const firstWithContent = definitions.find((item) => sections.get(item.key).length);
+      const validRequested = definitions.some((item) => item.key === requestedKey);
+      const activeKey = validRequested
+        ? requestedKey
+        : (firstWithContent ? firstWithContent.key : definitions[0].key);
+      inspector.dataset.view = view;
+      inspectorTitle.querySelector("h3").textContent = isHistory ? "History" : "Details";
+      detailsTab.classList.toggle("is-active", !isHistory);
+      historyTab.classList.toggle("is-active", isHistory);
+      detailsTab.setAttribute("aria-pressed", String(!isHistory));
+      historyTab.setAttribute("aria-pressed", String(isHistory));
+      setSummaryMode(view);
+      inspectorNav.textContent = "";
+      inspectorContent.textContent = "";
+
+      definitions.forEach((item) => {
+        const button = el("button", item.key === activeKey ? "is-active" : "", item.label);
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(item.key === activeKey));
+        button.addEventListener("click", () => renderInspector(view, item.key));
+        inspectorNav.appendChild(button);
+      });
+
+      const active = definitions.find((item) => item.key === activeKey);
+      const contentHead = el("header", "record-inspector-content-head");
+      contentHead.appendChild(el("span", "record-selection-kicker",
+        isHistory ? "Recorded over time" : "Collected from the source"));
+      contentHead.appendChild(el("h4", "", active.label));
+      inspectorContent.appendChild(contentHead);
+      const sectionCards = sections.get(activeKey);
+      if (!sectionCards.length) {
+        inspectorContent.appendChild(el("div", "record-inspector-empty",
+          "No " + active.label.toLowerCase() + " are available for this product."));
+        return;
+      }
+      const cards = el("div", "record-cards");
+      sectionCards.forEach((section) => cards.appendChild(section));
+      inspectorContent.appendChild(cards);
+    }
+
+    function openInspector(view) {
+      openOfferMode = view;
+      inspector.hidden = false;
+      workspace.classList.add("has-inspector");
+      panel.classList.add("has-expanded-details");
+      renderInspector(view);
+      inspector.scrollIntoView({behavior: "smooth", block: "nearest"});
+    }
+
+    function hideInspector() {
+      openOfferMode = "record";
+      inspector.hidden = true;
+      workspace.classList.remove("has-inspector");
+      panel.classList.remove("has-expanded-details");
+      setSummaryMode("");
       summary.scrollIntoView({behavior: "smooth", block: "nearest"});
-    });
+    }
+    detailsTab.addEventListener("click", () => renderInspector("details"));
+    historyTab.addEventListener("click", () => renderInspector("history"));
+    closeInspector.addEventListener("click", hideInspector);
 
     // Name and classification in the language the toggle is set to, falling
     // back to the one the source published when it published only one.
@@ -1907,7 +2030,7 @@
     // same shape for every source (owner's ruling: one output, not one panel
     // per connector). Media is pulled out of the attribute groups below so it
     // can never end up buried under a table of text.
-    if (showDetails) {
+    if (details.length) {
       const gallery = el("div", "detail-gallery");
       let shown = 0;
       details.filter((d) => (d.group || "") === "Media" && d.url).forEach((d) => {
@@ -1930,7 +2053,7 @@
       if (shown) {
         const box = card(shown === 1 ? "Picture" : "Pictures (" + shown + ")", "record-card-wide");
         box.appendChild(gallery);
-        cards.appendChild(box);
+        detailSections.get("media").push(box);
       }
     }
 
@@ -1970,96 +2093,87 @@
             // repeat the same paragraph in two languages.
             box.appendChild(prose(entry.value));
           });
-          cards.appendChild(box);
+          detailSections.get("description").push(box);
           return;
         }
         if (name === "Attachments") {
           const box = card("Attachments", "record-card-wide");
           box.appendChild(fileCards(paired));
-          cards.appendChild(box);
+          detailSections.get("attachments").push(box);
           return;
         }
         const box = card(name);
         box.appendChild(specList(paired));
-        cards.appendChild(box);
+        detailSections.get(name === "Media" ? "media" : "specifications").push(box);
       });
     }
 
     // Fields the owner moved OUT of the table (Choose Columns -> hide) are
     // shown here instead, so nothing is ever lost by tidying the grid: hide
     // moves a field into the details, show moves it back.
-    const moved = showDetails ? (payload.moved_to_details || []) : [];
+    const moved = payload.moved_to_details || [];
     if (moved.length && openOfferRow) {
       const box = card("Moved out of the table");
       box.appendChild(specList(moved.map((column) => ({
         label: column.label || column.key, value: text(openOfferRow[column.key]),
       }))));
-      cards.appendChild(box);
-    }
-    if (showDetails && !details.length && !moved.length) {
-      const box = card("Details");
-      box.appendChild(el("p", "muted",
-        "This source has not published any details for this record."));
-      cards.appendChild(box);
+      detailSections.get("specifications").push(box);
     }
 
-    if (showHistory) {
-      // 1. The change-only timeline: the first price and each REAL move.
-      const periods = data.periods || [];
-      const timeline = card("Price changes", "record-card-wide");
-      if (!periods.length) {
-        timeline.appendChild(el("p", "muted", "No derived history yet for this record."));
-      } else {
-        timeline.appendChild(miniTable(
-          ["From", "Until", "Price", "Why it opened"],
-          periods.map((p) => [
-            (p.first_detected_at || "").slice(0, 10),
-            (p.closed_at || "").slice(0, 10) || "current",
-            money(p.effective_price, p.currency, offer.unit),
-            (p.opened_because || "").replace(/_/g, " "),
-          ])));
-      }
-      cards.appendChild(timeline);
-
-      // 2. What the change feed recorded about THIS record — the same shaping
-      // the Changes page uses, so the two can never tell different stories.
-      const changes = data.changes || [];
-      const feed = card("Changes", "record-card-wide");
-      if (!changes.length) {
-        feed.appendChild(el("p", "muted", "No change events recorded yet."));
-      } else {
-        feed.appendChild(miniTable(
-          ["Detected", "What", "Previous", "New", "Change"],
-          changes.map((c) => {
-            const when = el("span", "muted", (c.detected_at || "").slice(0, 16).replace("T", " "));
-            when.dir = "ltr";
-            return [
-              when,
-              c.field_label || "",
-              c.display_previous || "—",
-              (c.display_new || "—") + (c.unit && c.field_label === "price" ? " / " + c.unit : ""),
-              c.display_change || "—",
-            ];
-          })));
-      }
-      cards.appendChild(feed);
-
-      // 3. Every observation behind the story, provenance spelled out.
-      const observations = data.observations || [];
-      const recorded = card("What was recorded", "record-card-wide");
-      if (!observations.length) {
-        recorded.appendChild(el("p", "muted", "No observations recorded yet."));
-      } else {
-        recorded.appendChild(miniTable(
-          ["Date", "Price", "Where it came from"],
-          observations.map((o) => [
-            o.business_date || "",
-            money(o.effective_price, o.currency, offer.unit),
-            o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
-          ])));
-      }
-      cards.appendChild(recorded);
+    // The change-only timeline: the first price and each REAL move.
+    const periods = data.periods || [];
+    const timeline = card("Price changes", "record-card-wide");
+    if (!periods.length) {
+      timeline.appendChild(el("p", "muted", "No derived history yet for this record."));
+    } else {
+      timeline.appendChild(miniTable(
+        ["From", "Until", "Price", "Why it opened"],
+        periods.map((p) => [
+          (p.first_detected_at || "").slice(0, 10),
+          (p.closed_at || "").slice(0, 10) || "current",
+          money(p.effective_price, p.currency, offer.unit),
+          (p.opened_because || "").replace(/_/g, " "),
+        ])));
     }
+    historySections.get("price").push(timeline);
+
+    const changes = data.changes || [];
+    const feed = card("Changes", "record-card-wide");
+    if (!changes.length) {
+      feed.appendChild(el("p", "muted", "No change events recorded yet."));
+    } else {
+      feed.appendChild(miniTable(
+        ["Detected", "What", "Previous", "New", "Change"],
+        changes.map((c) => {
+          const when = el("span", "muted", (c.detected_at || "").slice(0, 16).replace("T", " "));
+          when.dir = "ltr";
+          return [
+            when,
+            c.field_label || "",
+            c.display_previous || "—",
+            (c.display_new || "—") + (c.unit && c.field_label === "price" ? " / " + c.unit : ""),
+            c.display_change || "—",
+          ];
+        })));
+    }
+    historySections.get("changes").push(feed);
+
+    const observations = data.observations || [];
+    const recorded = card("What was recorded", "record-card-wide");
+    if (!observations.length) {
+      recorded.appendChild(el("p", "muted", "No observations recorded yet."));
+    } else {
+      recorded.appendChild(miniTable(
+        ["Date", "Price", "Where it came from"],
+        observations.map((o) => [
+          o.business_date || "",
+          money(o.effective_price, o.currency, offer.unit),
+          o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
+        ])));
+    }
+    historySections.get("observations").push(recorded);
+
+    if (mode === "details" || mode === "history") openInspector(mode);
 
     panel.focus({preventScroll: true});
     panel.scrollIntoView({behavior: "smooth", block: "nearest"});
@@ -2097,18 +2211,22 @@
     const productGrid = el("div", "selected-product-grid");
     panel.appendChild(productGrid);
     const selection = rowsData;
-    const focusRecord = (row) => {
+    const focusRecord = (row, view) => {
       let component = null;
       try {
         component = table.getRows().find((candidate) =>
           candidate.getData().offer_id === row.offer_id);
+        nextSelectionPanelMode = view;
         table.deselectRow();
         if (component) component.select();
       } catch (err) { /* the direct open below is the safe fallback */ }
-      if (!component) openOfferPanel(row.offer_id, "record", row);
+      if (!component) {
+        nextSelectionPanelMode = null;
+        openOfferPanel(row.offer_id, view, row);
+      }
     };
     shown.forEach((row) => {
-      const placeholder = productSummaryCard(row, null, () => {});
+      const placeholder = productSummaryCard(row, null, () => {}, () => {});
       productGrid.appendChild(placeholder);
       fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + row.offer_id)
         .then((response) => response.ok
@@ -2116,7 +2234,11 @@
           : Promise.reject(new Error("HTTP " + response.status)))
         .then((data) => {
           if (openCompareRows !== selection || !placeholder.isConnected) return;
-          placeholder.replaceWith(productSummaryCard(row, data, () => focusRecord(row)));
+          placeholder.replaceWith(productSummaryCard(
+            row,
+            data,
+            () => focusRecord(row, "details"),
+            () => focusRecord(row, "history")));
         })
         .catch(() => {
           if (openCompareRows !== selection || !placeholder.isConnected) return;

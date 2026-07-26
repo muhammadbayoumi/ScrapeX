@@ -113,8 +113,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # removed from the shared table frame.
     # design-system-16/14: selected rows now become product summary cards and
     # the full descriptions/history open in one wide details surface.
-    assert '/static/grid.js?v=design-system-16' in page
-    assert '/static/grid-theme.css?v=design-system-14' in page
+    # design-system-17/15: the product gallery gained previous/next controls,
+    # while details and history now share a wide side inspector.
+    assert '/static/grid.js?v=design-system-17' in page
+    assert '/static/grid-theme.css?v=design-system-15' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -579,18 +581,22 @@ def test_history_opens_inline_and_the_full_page_link_survives():
     assert 'full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/"' in script
 
 
-def test_selected_rows_render_as_product_cards_before_expanding_details():
-    """Selection starts with a compact product view; the dense record content
-    remains available on demand and uses the panel's full horizontal width."""
+def test_selected_rows_render_as_product_cards_with_a_side_inspector():
+    """Selection starts with a compact product view; Details and History share
+    a side card whose detail mode has the four stable content sections."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     css = (VENDOR.parent / "grid-theme.css").read_text(encoding="utf-8")
 
     assert 'el("article", "selected-product-card")' in script
-    assert 'el("section", "record-expanded")' in script
-    assert '"View details"' in script and '"Compare selected"' in script
+    assert 'el("section", "record-inspector")' in script
+    assert '"View details"' in script and '"History"' in script
+    assert '"Description"' in script and '"Specifications"' in script
+    assert '"Attachments"' in script and '"Media"' in script
+    assert "Previous product image" in script and "Next product image" in script
     assert "summaryDescription" in script
     assert ".selected-product-card" in css
-    assert ".record-expanded" in css
+    assert ".record-product-workspace.has-inspector" in css
+    assert ".record-inspector-nav" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 
