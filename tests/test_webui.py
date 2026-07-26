@@ -260,6 +260,23 @@ def test_exporting_a_source_with_nothing_ingested_says_so(client):
     assert "crawl" in r.json()["detail"]
 
 
+def test_exports_page_is_a_guided_multi_source_workspace(client):
+    response = client.get("/exports")
+
+    assert response.status_code == 200
+    body = response.text
+    assert 'class="exports-page"' in body
+    assert "Build your Excel workbook" in body
+    assert body.count("data-exports-step=") == 3
+    for step in ("sources", "settings", "export"):
+        assert f'data-exports-step="{step}"' in body
+    assert "data-export-source" in body
+    assert 'id="select-all"' in body
+    assert 'id="clear-selection"' in body
+    assert 'id="run"' in body
+    assert "/static/pages/exports.css" in body
+
+
 def test_the_schema_page_is_derived_not_written(client):
     """The owner asked for a page he can read and review with me. Written by
     hand it would be wrong within a week, so it is derived: the columns come

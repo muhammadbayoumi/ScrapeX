@@ -1,175 +1,454 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
-{% block title %}Excel export — ScrapeX{% endblock %}
+{% block title %}Excel exports — ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/exports.css?v=exports-workspace-1">
+{% endblock %}
 {% block content %}
-<header class="page-header">
-  <div class="page-heading">
-    <span class="page-eyebrow">Outputs</span>
-    <h1 class="page-title">Excel export</h1>
-    <p class="page-description">Create a local workbook from the full schema or
-      the visible columns in your current data view.</p>
-  </div>
-</header>
-
-{% with label=status.label, ready=status.ready, blocker=status.blocker %}
-  {% include "_destination.html" %}
-{% endwith %}
-
-<h2>What the workbook looks like</h2>
-{# Spec 21 asks the interface to state the structure and the update behaviour
-   before anything is written, because both are surprising if assumed. #}
-<table>
-  <tr><th>Structure</th><td>{{ status.structure }}</td></tr>
-  <tr><th>When you export again</th><td>{{ status.update_behaviour }}</td></tr>
-  <tr><th>Columns</th>
-      <td>{{ "Original schema — every column, raw names" if status.schema == "original"
-             else "Current view — your visible columns, in your order" }}</td></tr>
-</table>
-
-<h2>Where it is saved</h2>
-<form id="loc" class="stack" onsubmit="return false">
-  <div class="field">
-    <label for="excel_folder">Folder</label>
-    <input id="excel_folder" name="excel_folder" value="{{ settings.excel_folder.value }}"
-           placeholder="{{ status.folder }}" dir="ltr" spellcheck="false">
-    <span class="hint">Leave empty to use the default: <code>{{ status.folder }}</code></span>
-  </div>
-  <div class="field">
-    <label for="excel_workbook">Workbook name</label>
-    <input id="excel_workbook" name="excel_workbook" value="{{ settings.excel_workbook.value }}"
-           dir="auto">
-    <span class="hint"><code>.xlsx</code> is added for you.</span>
-  </div>
-  <div class="field">
-    <label for="excel_schema">Columns to write</label>
-    <select id="excel_schema" name="excel_schema">
-      <option value="original" {{ "selected" if status.schema == "original" }}>
-        Original schema — every column, raw names</option>
-      <option value="current" {{ "selected" if status.schema == "current" }}>
-        Current view — only the columns you kept visible</option>
-    </select>
-  </div>
-  <div class="field">
-    <label for="excel_structure">Workbook structure</label>
-    <select id="excel_structure" name="excel_structure">
-      <option value="combined" {{ "selected" if status.structure_key == "combined" }}>
-        One workbook for all sites, one tab each</option>
-      <option value="per_site" {{ "selected" if status.structure_key == "per_site" }}>
-        A separate workbook for each site</option>
-    </select>
-  </div>
-  <div class="field">
-    <label for="excel_update">When you export again</label>
-    <select id="excel_update" name="excel_update">
-      <option value="replace" {{ "selected" if status.update_key == "replace" }}>
-        Replace that site's tab</option>
-      <option value="snapshot" {{ "selected" if status.update_key == "snapshot" }}>
-        Add a new dated tab and keep the previous ones</option>
-    </select>
-  </div>
-  <div class="row">
-    <button id="save-loc">Save location</button>
-    <button id="open-folder" class="ghost">Open output folder</button>
-    <span id="save-out" class="hint" role="status" aria-live="polite"></span>
-  </div>
-</form>
-
-<p class="muted small">Current file: <code>{{ status.path }}</code>
-  {% if status.exists %}— exists, {{ "{:,}".format(status.size_bytes) }} bytes
-  {% else %}— not created yet; it appears after the first export{% endif %}</p>
-
-<h2>Export now</h2>
-{% if not sources %}
-  <div class="empty">No source has data yet. Crawl one first, then export it.</div>
-{% else %}
-  <form id="pick" class="stack" onsubmit="return false">
-    <fieldset class="source-selection-list">
-      <legend class="hint">Each source becomes one tab</legend>
-      {% for s in sources %}
-        <label class="source-selection-row">
-          <input type="checkbox" name="src" value="{{ s.source_key }}"
-                 {{ "checked" if source_key and s.source_key == source_key }}>
-          {{ source_identity(s, metric_value="{:,}".format(s.observations)) }}
-        </label>
-      {% endfor %}
-    </fieldset>
-    <div class="row">
-      <button id="run" {{ "disabled" if not status.ready }}>Export to Excel</button>
-      <span id="run-out" class="hint" role="status" aria-live="polite"></span>
+<div class="exports-page">
+  <header class="exports-hero">
+    <div class="exports-hero-copy">
+      <span class="page-eyebrow">Outputs</span>
+      <h1 class="page-title">Build your Excel workbook</h1>
+      <p class="page-description">Choose one or more collected sources, control how their
+        columns and tabs are written, then export a workbook that is ready to share.</p>
+      <div class="exports-hero-actions">
+        <a class="button icon-label" href="#export-workspace">
+          {{ icon("file-download", "sm") }} Create export
+        </a>
+        <button id="open-folder" class="button ghost icon-label" type="button">
+          {{ icon("insert-drive-file", "sm") }} Open output folder
+        </button>
+      </div>
+      <span id="folder-out" class="hint exports-action-output"
+            role="status" aria-live="polite"></span>
     </div>
-  </form>
-{% endif %}
 
-<h2>Last export</h2>
-{% if not status.last %}
-  <div class="empty">Nothing exported yet from this workspace.</div>
-{% else %}
-  <table>
-    <tr><th>Result</th>
-        <td><span class="badge {{ 'ok' if status.last.ok else 'off' }}">
-          {{ "Succeeded" if status.last.ok else "Did not write" }}</span></td></tr>
-    <tr><th>When</th><td class="num">{{ status.last.at }}</td></tr>
-    <tr><th>Rows</th><td class="num">{{ "{:,}".format(status.last.rows) }}</td></tr>
-    <tr><th>Details</th><td>{{ status.last.detail }}</td></tr>
-    {% if status.last.location %}
-      <tr><th>File</th><td><code>{{ status.last.location }}</code></td></tr>
-    {% endif %}
-  </table>
-{% endif %}
+    <div class="exports-hero-summary" aria-label="Excel export status">
+      <div class="exports-summary-card">
+        <span class="exports-summary-icon {{ 'is-ready' if status.ready else 'is-warning' }}">
+          {{ icon("check" if status.ready else "info") }}
+        </span>
+        <span>
+          <small>Exporter</small>
+          <strong>{{ "Ready" if status.ready else "Needs setup" }}</strong>
+        </span>
+        <span class="badge {{ 'ok' if status.ready else 'off' }}">
+          {{ "Available" if status.ready else "Blocked" }}
+        </span>
+      </div>
+      <div class="exports-summary-card">
+        <span class="exports-summary-icon">{{ icon("view-stream") }}</span>
+        <span>
+          <small>Workbook structure</small>
+          <strong>{{ "One workbook" if status.structure_key == "combined" else "One per source" }}</strong>
+        </span>
+      </div>
+      <div class="exports-summary-card">
+        <span class="exports-summary-icon">{{ icon("history") }}</span>
+        <span>
+          <small>Next export</small>
+          <strong>{{ "Replace current tabs" if status.update_key == "replace" else "Keep dated snapshots" }}</strong>
+        </span>
+      </div>
+    </div>
+  </header>
 
-<h2>From the command line</h2>
-<table>
-  <tr><td>Export one source</td><td><code>scrapex export &lt;SOURCE&gt;</code></td></tr>
-  <tr><td>Use your saved column view</td><td><code>scrapex export &lt;SOURCE&gt; --schema current</code></td></tr>
-</table>
+  {% if status.blocker %}
+    <aside class="exports-blocker" role="alert">
+      {{ icon("info") }}
+      <div>
+        <strong>Excel export needs one setup step.</strong>
+        <p>{{ status.blocker }}</p>
+      </div>
+    </aside>
+  {% endif %}
+
+  <main id="export-workspace" class="exports-workspace">
+    <div class="exports-main">
+      <section class="exports-step" data-exports-step="sources"
+               aria-labelledby="exports-sources-title">
+        <header class="exports-step-header">
+          <span class="exports-step-number">1</span>
+          <div>
+            <span class="exports-step-kicker">Choose data</span>
+            <h2 id="exports-sources-title">Select sources</h2>
+            <p>Each selected source becomes a tab in a combined workbook, or its own
+              workbook when separate files are enabled.</p>
+          </div>
+          {% if sources %}
+            <span id="selected-count" class="exports-step-count">0 selected</span>
+          {% endif %}
+        </header>
+
+        {% if not sources %}
+          <div class="exports-empty">
+            <span class="exports-empty-icon">{{ icon("storage") }}</span>
+            <div>
+              <strong>No collected sources yet</strong>
+              <p>Crawl a source first. It will appear here as soon as data is saved.</p>
+            </div>
+            <a class="button ghost" href="/jobs">Open jobs</a>
+          </div>
+        {% else %}
+          <form id="pick" onsubmit="return false">
+            <div class="exports-source-tools">
+              <label class="exports-search" for="source-search">
+                {{ icon("search", "sm") }}
+                <input id="source-search" type="search"
+                       placeholder="Search by domain, name, or source key"
+                       autocomplete="off">
+              </label>
+              <div class="exports-selection-actions">
+                <button id="select-all" class="button ghost compact" type="button">Select all</button>
+                <button id="clear-selection" class="button ghost compact" type="button">Clear</button>
+              </div>
+              <span id="source-filter-count" class="hint">
+                Showing {{ sources|length }} of {{ sources|length }} sources
+              </span>
+            </div>
+
+            <fieldset class="exports-source-list">
+              <legend class="visually-hidden">Sources to export</legend>
+              {% for s in sources %}
+                <label class="exports-source-card"
+                       data-export-source
+                       data-search="{{ (s.base_url ~ ' ' ~ s.source_name_en ~ ' ' ~ s.source_name ~ ' ' ~ s.source_key)|lower }}">
+                  <input type="checkbox" name="src" value="{{ s.source_key }}"
+                         {{ "checked" if source_key and s.source_key == source_key }}>
+                  {{ source_identity(s, metric_value="{:,}".format(s.observations)) }}
+                  <span class="exports-source-check" aria-hidden="true">{{ icon("check", "sm") }}</span>
+                </label>
+              {% endfor %}
+            </fieldset>
+          </form>
+        {% endif %}
+      </section>
+
+      <section class="exports-step" data-exports-step="settings"
+               aria-labelledby="exports-settings-title">
+        <header class="exports-step-header">
+          <span class="exports-step-number">2</span>
+          <div>
+            <span class="exports-step-kicker">Configure file</span>
+            <h2 id="exports-settings-title">Workbook settings</h2>
+            <p>These choices are saved for the next export, so you only configure them
+              when the destination or workbook format changes.</p>
+          </div>
+        </header>
+
+        <form id="loc" class="exports-settings-form" onsubmit="return false">
+          <fieldset class="exports-settings-group">
+            <legend>
+              <span class="exports-group-icon">{{ icon("insert-drive-file") }}</span>
+              <span><strong>File destination</strong><small>Where the workbook is written.</small></span>
+            </legend>
+            <div class="exports-field-grid">
+              <div class="field exports-field-wide">
+                <label for="excel_folder">Output folder</label>
+                <input id="excel_folder" name="excel_folder"
+                       value="{{ settings.excel_folder.value }}"
+                       placeholder="{{ status.folder }}" dir="ltr" spellcheck="false">
+                <span class="hint">Leave empty to use <code>{{ status.folder }}</code></span>
+              </div>
+              <div class="field">
+                <label for="excel_workbook">Workbook name</label>
+                <div class="exports-input-suffix">
+                  <input id="excel_workbook" name="excel_workbook"
+                         value="{{ settings.excel_workbook.value }}" dir="auto">
+                  <span>.xlsx</span>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="exports-settings-group">
+            <legend>
+              <span class="exports-group-icon">{{ icon("view-column") }}</span>
+              <span><strong>Data and tabs</strong><small>How the workbook is organised.</small></span>
+            </legend>
+            <div class="exports-field-grid">
+              <div class="field">
+                <label for="excel_schema">Columns to write</label>
+                <select id="excel_schema" name="excel_schema">
+                  <option value="original" {{ "selected" if status.schema == "original" }}>
+                    Original schema — every column</option>
+                  <option value="current" {{ "selected" if status.schema == "current" }}>
+                    Current view — visible columns only</option>
+                </select>
+                <span class="hint">Choose between the complete record and your saved view.</span>
+              </div>
+              <div class="field">
+                <label for="excel_structure">Workbook structure</label>
+                <select id="excel_structure" name="excel_structure">
+                  <option value="combined" {{ "selected" if status.structure_key == "combined" }}>
+                    One workbook — one tab per source</option>
+                  <option value="per_site" {{ "selected" if status.structure_key == "per_site" }}>
+                    A separate workbook for each source</option>
+                </select>
+                <span class="hint">Combined is best for comparing sources in one file.</span>
+              </div>
+              <div class="field">
+                <label for="excel_update">When the same source is exported again</label>
+                <select id="excel_update" name="excel_update">
+                  <option value="replace" {{ "selected" if status.update_key == "replace" }}>
+                    Replace its existing tab</option>
+                  <option value="snapshot" {{ "selected" if status.update_key == "snapshot" }}>
+                    Add a new dated tab</option>
+                </select>
+                <span class="hint">Snapshot mode keeps previous exports inside the workbook.</span>
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="exports-settings-actions">
+            <button id="save-loc" class="icon-label" type="button">
+              {{ icon("check", "sm") }} Save workbook settings
+            </button>
+            <span id="save-out" class="hint" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      </section>
+
+      <details class="exports-advanced">
+        <summary>
+          <span>{{ icon("description") }} Command-line export</span>
+          {{ icon("expand-more") }}
+        </summary>
+        <div class="exports-command-list">
+          <div>
+            <span>Export one source</span>
+            <code>scrapex export &lt;SOURCE&gt;</code>
+          </div>
+          <div>
+            <span>Use the saved column view</span>
+            <code>scrapex export &lt;SOURCE&gt; --schema current</code>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <aside class="exports-sidebar" aria-label="Export summary">
+      <section class="exports-run-card" data-exports-step="export">
+        <span class="page-eyebrow">Final step</span>
+        <h2>Ready to export</h2>
+        <p>Review the output summary, then create the workbook.</p>
+
+        <dl class="exports-run-summary">
+          <div>
+            <dt>Sources</dt>
+            <dd id="run-source-count">0 selected</dd>
+          </div>
+          <div>
+            <dt>Format</dt>
+            <dd>Excel workbook <code>.xlsx</code></dd>
+          </div>
+          <div>
+            <dt>Structure</dt>
+            <dd id="run-structure">
+              {{ "One workbook, one tab per source" if status.structure_key == "combined"
+                 else "A separate workbook per source" }}
+            </dd>
+          </div>
+          <div>
+            <dt>Update</dt>
+            <dd id="run-update">
+              {{ "Replace existing source tabs" if status.update_key == "replace"
+                 else "Add new dated tabs" }}
+            </dd>
+          </div>
+        </dl>
+
+        <div class="exports-path">
+          <span>Configured output</span>
+          <code dir="ltr">{{ status.path }}</code>
+          <small>
+            {% if status.exists %}
+              Existing file · {{ "{:,}".format(status.size_bytes) }} bytes
+            {% else %}
+              The file will be created after the first successful export.
+            {% endif %}
+          </small>
+        </div>
+
+        {% if sources %}
+          <button id="run" class="exports-run-button icon-label" type="button"
+                  {{ "disabled" if not status.ready }}>
+            {{ icon("file-download", "sm") }} Export to Excel
+          </button>
+          <span id="run-out" class="hint exports-run-output"
+                role="status" aria-live="polite"></span>
+        {% endif %}
+      </section>
+
+      <section class="exports-last-card" aria-labelledby="exports-last-title">
+        <header>
+          <span class="exports-last-icon">{{ icon("history") }}</span>
+          <div>
+            <span class="page-eyebrow">Activity</span>
+            <h2 id="exports-last-title">Last export</h2>
+          </div>
+        </header>
+
+        {% if not status.last %}
+          <div class="exports-last-empty">
+            <strong>No export yet</strong>
+            <p>The latest result and its file location will appear here.</p>
+          </div>
+        {% else %}
+          <dl class="exports-last-details">
+            <div>
+              <dt>Result</dt>
+              <dd><span class="badge {{ 'ok' if status.last.ok else 'off' }}">
+                {{ "Succeeded" if status.last.ok else "Did not write" }}</span></dd>
+            </div>
+            <div>
+              <dt>When</dt>
+              <dd class="num">{{ status.last.at }}</dd>
+            </div>
+            <div>
+              <dt>Rows</dt>
+              <dd class="num">{{ "{:,}".format(status.last.rows) }}</dd>
+            </div>
+            <div class="exports-last-wide">
+              <dt>Details</dt>
+              <dd>{{ status.last.detail }}</dd>
+            </div>
+            {% if status.last.location %}
+              <div class="exports-last-wide">
+                <dt>File</dt>
+                <dd><code dir="ltr">{{ status.last.location }}</code></dd>
+              </div>
+            {% endif %}
+          </dl>
+        {% endif %}
+      </section>
+    </aside>
+  </main>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 
 async function post(url, body) {
-  const res = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"},
-                               body: JSON.stringify(body || {})});
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body || {}),
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || res.statusText);
   return data;
 }
 
-// Every action follows the same three-state contract: working -> result, and a
-// failure prints the reason instead of leaving the button looking untouched.
-async function act(button, out, label, fn) {
-  const original = button.textContent;
-  button.disabled = true; button.textContent = "Working…";
-  out.textContent = ""; out.className = "hint";
+async function act(button, out, fn) {
+  const original = button.innerHTML;
+  button.disabled = true;
+  button.textContent = "Working…";
+  out.textContent = "";
+  out.classList.remove("err");
   try {
     out.textContent = await fn();
   } catch (err) {
-    out.textContent = err.message; out.className = "hint err";
+    out.textContent = err.message;
+    out.classList.add("err");
   } finally {
-    button.disabled = false; button.textContent = original;
+    button.disabled = false;
+    button.innerHTML = original;
+    updateSelection();
   }
 }
 
-$("save-loc").addEventListener("click", () => act($("save-loc"), $("save-out"), "", async () => {
-  await post("/api/settings", {
-    excel_folder: $("excel_folder").value,
-    excel_workbook: $("excel_workbook").value,
-    excel_schema: $("excel_schema").value,
-    excel_structure: $("excel_structure").value,
-    excel_update: $("excel_update").value,
+function sourceCheckboxes() {
+  return [...document.querySelectorAll('input[name="src"]')];
+}
+
+function visibleSourceCards() {
+  return [...document.querySelectorAll("[data-export-source]")]
+    .filter((card) => !card.hidden);
+}
+
+function updateSelection() {
+  const checked = sourceCheckboxes().filter((input) => input.checked);
+  const label = `${checked.length} selected`;
+  if ($("selected-count")) $("selected-count").textContent = label;
+  if ($("run-source-count")) $("run-source-count").textContent = label;
+  if ($("run")) $("run").disabled = {{ "false" if status.ready else "true" }} || !checked.length;
+}
+
+function filterSources() {
+  const query = ($("source-search").value || "").trim().toLowerCase();
+  const cards = [...document.querySelectorAll("[data-export-source]")];
+  let shown = 0;
+  cards.forEach((card) => {
+    card.hidden = query && !card.dataset.search.includes(query);
+    if (!card.hidden) shown += 1;
   });
-  setTimeout(() => location.reload(), 400);
-  return "Saved.";
-}));
+  $("source-filter-count").textContent = `Showing ${shown} of ${cards.length} sources`;
+}
 
-$("open-folder").addEventListener("click", () => act($("open-folder"), $("save-out"), "", async () =>
-  (await post("/api/storage/open-folder", {which: "exports"})).detail));
+if ($("source-search")) {
+  $("source-search").addEventListener("input", filterSources);
+  sourceCheckboxes().forEach((input) => input.addEventListener("change", updateSelection));
+  $("select-all").addEventListener("click", () => {
+    visibleSourceCards().forEach((card) => {
+      card.querySelector('input[name="src"]').checked = true;
+    });
+    updateSelection();
+  });
+  $("clear-selection").addEventListener("click", () => {
+    sourceCheckboxes().forEach((input) => { input.checked = false; });
+    updateSelection();
+  });
+}
 
-if ($("run")) $("run").addEventListener("click", () => act($("run"), $("run-out"), "", async () => {
-  const keys = [...document.querySelectorAll('input[name="src"]:checked')].map(c => c.value);
-  if (!keys.length) throw new Error("Pick at least one source first.");
-  const r = await post("/api/outputs/excel/export", {source_keys: keys});
-  setTimeout(() => location.reload(), 900);
-  return r.detail;
-}));
+$("excel_structure").addEventListener("change", () => {
+  $("run-structure").textContent = $("excel_structure").value === "combined"
+    ? "One workbook, one tab per source"
+    : "A separate workbook per source";
+});
+
+$("excel_update").addEventListener("change", () => {
+  $("run-update").textContent = $("excel_update").value === "replace"
+    ? "Replace existing source tabs"
+    : "Add new dated tabs";
+});
+
+$("save-loc").addEventListener("click", () =>
+  act($("save-loc"), $("save-out"), async () => {
+    await post("/api/settings", {
+      excel_folder: $("excel_folder").value,
+      excel_workbook: $("excel_workbook").value,
+      excel_schema: $("excel_schema").value,
+      excel_structure: $("excel_structure").value,
+      excel_update: $("excel_update").value,
+    });
+    setTimeout(() => location.reload(), 400);
+    return "Workbook settings saved.";
+  })
+);
+
+$("open-folder").addEventListener("click", () =>
+  act($("open-folder"), $("folder-out"), async () =>
+    (await post("/api/storage/open-folder", {which: "exports"})).detail
+  )
+);
+
+if ($("run")) {
+  $("run").addEventListener("click", () =>
+    act($("run"), $("run-out"), async () => {
+      const keys = sourceCheckboxes()
+        .filter((input) => input.checked)
+        .map((input) => input.value);
+      if (!keys.length) throw new Error("Pick at least one source first.");
+      const result = await post("/api/outputs/excel/export", {source_keys: keys});
+      setTimeout(() => location.reload(), 900);
+      return result.detail;
+    })
+  );
+}
+
+updateSelection();
 </script>
 {% endblock %}
