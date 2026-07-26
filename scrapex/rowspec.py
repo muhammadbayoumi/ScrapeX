@@ -148,9 +148,18 @@ ENRICHMENT = RowSpec(
         "unit_raw",              # "meters" — the unit AS WRITTEN, not normalised here
         "value_url",             # attribute values are often links; keep the link
         "lang",                  # ar | en — the language of label and raw_value
-        "attribute_group",       # the page's own grouping: "Specifications"
+        # WHERE a reader looks for it: one of vocab.DetailGroup's five, for
+        # every source. Connectors used to invent their own headings.
+        "attribute_group",
+        # "the shop offers this as a filter" — a property of the FACT, not
+        # a place to file it. It drives the per-source filter columns.
+        "is_site_filter",
     ),
     required=frozenset({"external_product_id", "attribute_code", "raw_value"}),
+    # A payload captured before the flag existed simply does not set it,
+    # which reads as "not a filter" — the truthful answer for a source
+    # whose facets we had not asked about yet.
+    additive=frozenset({"is_site_filter"}),
 )
 
 # ---- commodity_price: globalpetrolprices / aramco fuel rows -----------------

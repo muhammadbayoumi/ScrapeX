@@ -97,7 +97,7 @@ from typing import Iterable
 from ..config import SourceEntry
 from ..normalize import selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability, ExtractKind
+from ..vocab import DetailGroup, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 # A page is 12 products; 8 pages today. This cap is a runaway guard, not a
@@ -493,24 +493,24 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     # is English, `_ar` is Arabic, and `lang` beside it says the same thing
     # in the column the migration reads.
     add("description_ar", "Description (AR)", product.get("short_description_ar"),
-        lang="ar", group="Description")
+        lang="ar", group=DetailGroup.DESCRIPTION)
     add("description", "Description", product.get("short_description_en"),
-        lang="en", group="Description")
+        lang="en", group=DetailGroup.DESCRIPTION)
     add("keywords_ar", "Keywords (AR)", product.get("keywords_ar"), lang="ar",
-        group="Description")
+        group=DetailGroup.DESCRIPTION)
     add("keywords", "Keywords", product.get("keywords_en"), lang="en",
-        group="Description")
+        group=DetailGroup.DESCRIPTION)
     # The LONG description — the DESCRIPTION / USES / CHARACTERISTICS body of
     # the product page, newline-separated — is detail-only. The `_en` suffix is
     # not decoration: the panel pairs `code` with `code + "_ar"` to print one
     # bilingual entry, the same convention description/description_ar set.
     add("full_description_ar", "Full description (AR)",
-        product.get("full_description_ar"), lang="ar", group="Description")
+        product.get("full_description_ar"), lang="ar", group=DetailGroup.DESCRIPTION)
     add("full_description", "Full description",
-        product.get("full_description_en"), lang="en", group="Description")
-    add("sku", "SKU", product.get("sku"), group="Specs")
+        product.get("full_description_en"), lang="en", group=DetailGroup.DESCRIPTION)
+    add("sku", "SKU", product.get("sku"), group=DetailGroup.SPECIFICATIONS)
     add("weight", "Weight", product.get("weight"), numeric=product.get("weight"),
-        unit="kg", group="Specs")
+        unit="kg", group=DetailGroup.SPECIFICATIONS)
     # `add` skips a falsy value, so a stock_quantity of 0 emits no row. That is
     # a real omission and it is left standing: the fact is NOT lost, because
     # _availability reads the same number and the price row states
@@ -518,7 +518,7 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     # the guard to let this 0 through would also start writing "Maximum stock
     # level: 0" on 85 of 87 products (below), which would be a lie.
     add("stock_quantity", "Stock quantity", product.get("stock_quantity"),
-        numeric=product.get("stock_quantity"), group="Specs")
+        numeric=product.get("stock_quantity"), group=DetailGroup.SPECIFICATIONS)
     # The shop's own reorder thresholds, detail-only. Emitted only when
     # populated, and the falsy guard is the RIGHT rule for both rather than an
     # accident: across all 87 live products (2026-07-25) min_stock_level is
@@ -526,16 +526,16 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     # A max of 0 is the field left unset, not a ceiling of zero units — writing
     # it down would state a limit the shop does not impose.
     add("min_stock_level", "Minimum stock level", product.get("min_stock_level"),
-        numeric=product.get("min_stock_level"), group="Specs")
+        numeric=product.get("min_stock_level"), group=DetailGroup.SPECIFICATIONS)
     add("max_stock_level", "Maximum stock level", product.get("max_stock_level"),
-        numeric=product.get("max_stock_level"), group="Specs")
+        numeric=product.get("max_stock_level"), group=DetailGroup.SPECIFICATIONS)
     # `specail_price` is the TRADE-TIER price: the storefront charges it only to
     # a logged-in customer whose customerTypeId is 2 (rule + live proof in
     # _prices). Recorded as exactly that fact — a price for a group we are not —
     # so nothing is lost and no row calls it a public discount.
     add("trade_tier_price", "Trade-tier price (customer type 2 only)",
         product.get("specail_price"), numeric=product.get("specail_price"),
-        group="Specs")
+        group=DetailGroup.SPECIFICATIONS)
 
     # The site's own "Technical Specifications" card (colour, consumption rate,
     # product attributes, suitable applications...), detail-only, in BOTH
@@ -555,9 +555,9 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         # the values ("Product Attributes ", "1 Meter "). `add` strips the
         # value; the label is stripped here.
         add(f"attr_{code}_ar", str(attribute.get("name_ar") or "").strip(),
-            assignment.get("value_ar"), lang="ar", group="Specifications")
+            assignment.get("value_ar"), lang="ar", group=DetailGroup.SPECIFICATIONS)
         add(f"attr_{code}", str(attribute.get("name_en") or "").strip(),
-            assignment.get("value_en"), lang="en", group="Specifications")
+            assignment.get("value_en"), lang="en", group=DetailGroup.SPECIFICATIONS)
 
     # EVERY attachment the response states. Images lead the panel as the
     # gallery ("Media"); datasheets, videos and anything else are files to
@@ -587,10 +587,10 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         ident = str(attachment.get("attachment_id") or "")
         if kind.startswith("image/"):
             add(f"image_{ident}" if ident else "image", "Image",
-                attachment.get("file_name"), url=href, group="Media")
+                attachment.get("file_name"), url=href, group=DetailGroup.MEDIA)
         else:
             size = attachment.get("file_size") or ""
             add(f"attachment_{ident}" if ident else "attachment", "Attachment",
-                attachment.get("file_name"), url=href, group="Attachments",
+                attachment.get("file_name"), url=href, group=DetailGroup.ATTACHMENTS,
                 numeric=size, unit="bytes" if size else "")
     return rows

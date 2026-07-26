@@ -20,7 +20,7 @@ from ..config import SourceEntry
 # without it ever being in scope, so a salla source that declared an
 # enrichment extract would have died on NameError after the whole crawl.
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import ExtractKind
+from ..vocab import DetailGroup, ExtractKind
 from .base import HttpFetcher, ScrapedTable
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
 # generic; the /p{id} id scheme below is the salla-specific part.
@@ -173,7 +173,7 @@ def enrichment_rows(builder: RowBuilder, node: dict, url: str) -> list[list[str]
         if not isinstance(href, str) or not href.startswith("http"):
             continue
         add(f"image_{position}" if position else "image", "Image",
-            href.rsplit("/", 1)[-1], url_value=href, group="Media")
+            href.rsplit("/", 1)[-1], url_value=href, group=DetailGroup.MEDIA)
 
     add("description", "Description", node.get("description"), group="Description")
     add("sku", "SKU", node.get("sku"), group="Specs")

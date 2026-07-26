@@ -67,7 +67,7 @@ def test_fresh_registry_creates_two_typed_databases_without_domain_tables_crossi
     assert applied["general"] == list(
         range(1, registry.general.latest_schema_version + 1)
     )
-    assert applied["marketlens"] == list(range(1, 41))   # ... +40 the country column says what it holds
+    assert applied["marketlens"] == list(range(1, 42))   # ... +41 the details groups are a closed vocabulary
     assert registry.health()["general"]["status"] == "Healthy"
     assert registry.health()["marketlens"]["status"] == "Healthy"
 

@@ -174,6 +174,12 @@ class SourceEntry(BaseModel):
     # field: the warehouse remembers both, the display layer chooses. Optional,
     # so a source that answers in one language only stays valid.
     source_name_ar: str = ""
+    # A single-brand shop: every product it sells IS that brand, and the
+    # pages never repeat it because on that site it is not information.
+    # Stated here, per source, and applied ONLY where the connector found
+    # nothing — a shop that names brands per product always wins, so this
+    # can never overwrite a real answer with a guess.
+    brand: str = ""
     base_url: str
     family: ConnectorFamily
     cadence: Cadence = Cadence.MANUAL

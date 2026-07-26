@@ -445,8 +445,11 @@ def test_the_technical_specifications_arrive_in_BOTH_languages():
                            details={"252": DETAIL_252})
 
     rows = details_of(crawl(fetcher, make_entry(enrichment=True)))
+    # The SHOP's own assigned attributes, which all carry an attr_ code.
+    # The group no longer isolates them: since the vocabulary closed to
+    # five, sku/weight/stock file under Specifications too.
     specs = {r["attribute_code"]: r for r in rows
-             if r["attribute_group"] == "Specifications"}
+             if r["attribute_code"].startswith("attr_")}
 
     # the five attributes the shop assigns to product 252, each in both
     # languages. The codes are the shop's own attribute_ids (1, 2, 4, 5, 6),
@@ -823,10 +826,14 @@ def test_the_enrichment_table_carries_the_whole_record_for_one_product():
     for r in rows:
         groups[r["attribute_group"]] = groups.get(r["attribute_group"], 0) + 1
 
+    # FIVE groups for every source (owner ruling 2026-07-26). This shop used
+    # to file into "Specs" AND "Specifications" — two headings for one
+    # question, on one site.
+    assert set(groups) <= {"Description", "Specifications", "Attachments",
+                           "More information", "Media"}
     assert groups == {
         "Description": 6,        # short ar/en + full ar/en + keywords ar/en
-        "Specs": 5,              # sku, weight, stock quantity, min level, trade tier
-        "Specifications": 10,    # 5 attributes x 2 languages
+        "Specifications": 15,    # sku, weight, stock, trade tier + 5 attrs x2
         "Media": 9,              # every photograph
         "Attachments": 2,        # both datasheets
     }

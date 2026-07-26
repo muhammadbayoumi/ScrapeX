@@ -948,7 +948,7 @@ def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[
     for them, so he can slice the table the way the shop lets him slice its own.
     The connector asks the site which attributes those are (Magento answers
     `aggregations` with exactly its facet list) and files their values under the
-    group "Filters"; here they become columns, named as the SHOP names them.
+    flags is_site_filter; here they become columns, named as the SHOP names them.
 
     Nothing is inferred: a source whose connector publishes no Filters group
     gets no such columns, and a product missing one of them gets an empty cell
@@ -960,7 +960,7 @@ def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[
         "FROM source_product_attribute spa "
         "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND spa.attribute_group = 'Filters' "
+        "WHERE ss.source_key = ? AND spa.is_site_filter = 1 "
         "ORDER BY spa.source_product_id",
         (source_key,)).fetchall()
     found: dict[int, dict[str, str]] = {}
@@ -1606,7 +1606,12 @@ COLUMN_NOTES: dict[str, str] = {
     "discount": "How much the listing takes off, as an amount.",
     "discount_pct": "The same discount as a percentage.",
     "currency": "The currency the source quotes in — never converted.",
-    "usd_price": "An approximate US-dollar figure, so many currencies can be ranked.",
+    "usd_price": "An approximate US-dollar figure, so many currencies can be "
+                 "ranked in one column. UNDER REVIEW — the owner has flagged "
+                 "this column for a decision: the rate it uses is implied by "
+                 "a fuel site's own arithmetic, not quoted by any source, so "
+                 "what it is FOR has to be settled before it is trusted. "
+                 "Shown only where a source spans more than one currency.",
     "previous_price": "The price that held immediately before the current one.",
     "price_change": "The move from that previous price to this one.",
     "min_price": "The lowest price ever recorded for this record.",
@@ -1722,7 +1727,7 @@ def schema_report(conn: sqlite3.Connection) -> dict:
             "SELECT COUNT(DISTINCT spa.attribute_label) FROM source_product_attribute spa "
             "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
             "JOIN source_site ss ON ss.source_id = sp.source_id "
-            "WHERE ss.source_key = ? AND spa.attribute_group = 'Filters'",
+            "WHERE ss.source_key = ? AND spa.is_site_filter = 1",
             (key,)).fetchone()[0]
         groups = [row[0] for row in conn.execute(
             "SELECT DISTINCT spa.attribute_group FROM source_product_attribute spa "

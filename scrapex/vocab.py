@@ -52,6 +52,28 @@ class Cadence(StrEnum):
     MONTHLY = "monthly"
 
 
+class DetailGroup(StrEnum):
+    """Where a detail is filed in the record panel. Owner ruling
+    2026-07-26: FIVE groups, and anything a future site publishes goes
+    under one of them.
+
+    Closed on purpose. Every connector used to invent its own headings,
+    so one warehouse held ten — Specifications AND Specs on the same
+    source, beside Measurements, Attributes, Classification and Filters.
+    A reader learning where to look had to learn it again per site.
+
+    "The site filters by this" is NOT a group: it is a property of the
+    row (`is_site_filter`), because it says something about the fact
+    rather than about where a person should look for it.
+    """
+
+    DESCRIPTION = "Description"            # prose the site wrote
+    SPECIFICATIONS = "Specifications"      # stated properties, measurements, facets
+    ATTACHMENTS = "Attachments"            # files to open: datasheets, manuals
+    MORE_INFORMATION = "More information"  # everything else the site states
+    MEDIA = "Media"                        # images
+
+
 class ExtractKind(StrEnum):
     """What a manifest extract block is allowed to produce."""
 

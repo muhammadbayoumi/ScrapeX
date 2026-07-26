@@ -20,7 +20,8 @@ from . import pricekey, tax
 from .normalize import parse_money, record_hash
 from .payload import FunnelPayload
 from .rowspec import PRODUCT_PRICES, RowView, spec_for
-from .vocab import Availability, ChangeType, CurationStatus, ExtractKind, RunStatus
+from .vocab import (Availability, ChangeType, CurationStatus, DetailGroup,
+                    ExtractKind, RunStatus)
 
 
 @dataclass
@@ -713,18 +714,22 @@ def _ingest_enrichment_row(conn, entry, source_id, run_id, r, observed_at,
     conn.execute(
         "INSERT INTO source_product_attribute "
         "(source_product_id, attribute_code, attribute_label, raw_value, "
-        " numeric_value, unit_raw, value_url, attribute_group, lang) "
-        "VALUES (?,?,?,?,?,?,?,?,?) "
+        " numeric_value, unit_raw, value_url, attribute_group, lang, is_site_filter) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(source_product_id, attribute_code, raw_value) DO UPDATE SET "
         "  attribute_label = excluded.attribute_label, "
         "  numeric_value = excluded.numeric_value, "
         "  unit_raw = excluded.unit_raw, "
         "  value_url = excluded.value_url, "
         "  attribute_group = excluded.attribute_group, "
+        "  is_site_filter = excluded.is_site_filter, "
         "  last_seen_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')",
         (row[0], r["attribute_code"], r.get("attribute_label", ""),
          r["raw_value"], r.get("numeric_value", ""), r.get("unit_raw", ""),
-         r.get("value_url", ""), r.get("attribute_group", ""), r.get("lang", "")))
+         r.get("value_url", ""),
+         r.get("attribute_group", "") or DetailGroup.MORE_INFORMATION.value,
+         r.get("lang", ""),
+         1 if str(r.get("is_site_filter", "")).strip() in {"1", "true", "True"} else 0))
     result.attributes += 1
 
 
@@ -735,6 +740,12 @@ def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at,
         result.rejected_out_of_scope += 1
         result.errors.append(f"out of scope: {reason}")
         return
+    # A single-brand shop states its brand once, in the manifest, because
+    # its pages never repeat what is not information there. It fills the GAP
+    # and never the answer: a shop that publishes a brand per product keeps
+    # it, so this can never overwrite a real value with a standing one.
+    if entry.brand and not (r.get("brand_raw") or "").strip():
+        r = {**r, "brand_raw": entry.brand}
     _persist_row(conn, source_id, run_id, r, observed_at, result, job_id)
 
 

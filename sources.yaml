@@ -239,6 +239,10 @@ sources:
 
   # ---- probed: custom Next.js shop with open unauthenticated JSON API ----
   - source_key: SIKAEGSHOP
+    # Single-brand shop: the pages never print a brand because on this
+    # site it is not information. Stated once, applied only where the
+    # connector found nothing.
+    brand: SIKA
     source_name_ar: سيكا مصر شوب
     source_name: Sika Egypt Shop
     base_url: https://www.sikaegshop.com

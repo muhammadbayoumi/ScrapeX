@@ -70,7 +70,11 @@ def test_category_and_tag_keep_their_links():
     """Attribute values are links on these sites, and re-scraping every product
     later to recover one is the expensive way to learn that."""
     rows = shaped(LIVE[0])
-    classified = [r for r in rows if r["attribute_group"] == "Classification"]
+    # Where the site FILES a product is information ABOUT it, not a
+    # property OF it, so it lands in the catch-all now that the groups
+    # closed to five. The codes are what identify it.
+    classified = [r for r in rows
+                  if r["attribute_code"] in ("category", "tag", "brand")]
 
     assert classified
     assert any(r["value_url"].startswith("http") for r in classified)
@@ -315,3 +319,39 @@ def test_wiping_a_source_with_details_wipes_them_too(tmp_path):
     assert result.ok
     assert conn.execute("SELECT COUNT(*) FROM source_product_attribute").fetchone()[0] == 0
     conn.close()
+
+
+def test_every_detail_is_filed_under_one_of_the_five_groups():
+    """Owner ruling 2026-07-26: the record panel has FIVE groups —
+    Description, Specifications, Attachments, More information, Media — and
+    anything a future site publishes goes under one of them.
+
+    Closed on purpose, and this is the guard that keeps it closed. Every
+    connector used to invent its own headings, so one warehouse held ten:
+    Specifications AND Specs on the SAME source, beside Measurements,
+    Attributes, Classification and Filters. A reader learning where to look
+    had to learn it again per site. A new connector that invents an eleventh
+    fails here, before its first crawl, rather than in the panel.
+    """
+    from scrapex.vocab import DetailGroup
+
+    allowed = {g.value for g in DetailGroup}
+    for row in shaped(LIVE[0]):
+        assert row["attribute_group"] in allowed, (
+            f"{row['attribute_code']!r} is filed under "
+            f"{row['attribute_group']!r}, which is not one of the five")
+
+
+def test_a_site_filter_is_a_property_of_the_fact_not_a_place_to_file_it():
+    """`Filters` used to be a GROUP, doing two jobs at once: a heading that
+    named nothing a reader recognises, and the mechanism that finds the
+    per-source filter columns. Folding it into Specifications without moving
+    that fact would have silently deleted the feature, so it became a column.
+    """
+    from scrapex.rowspec import ENRICHMENT
+
+    assert "is_site_filter" in ENRICHMENT.columns
+    # Additive: a payload captured before the flag existed simply does not set
+    # it, which reads as "not a filter" — the truthful answer for a source
+    # whose facets we had not asked about yet.
+    assert "is_site_filter" in ENRICHMENT.additive

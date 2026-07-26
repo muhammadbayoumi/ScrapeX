@@ -20,7 +20,7 @@ from typing import Iterable
 from ..config import SourceEntry
 from ..normalize import option_axes_json, option_fingerprint
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability, ExtractKind
+from ..vocab import DetailGroup, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PER_PAGE = 100
@@ -370,17 +370,17 @@ def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
             continue
         for term in attribute.get("terms") or []:
             add(code, label, term.get("name"), url=term.get("link") or "",
-                group="Attributes")
+                group=DetailGroup.SPECIFICATIONS)
 
     for category in product.get("categories") or []:
         add("category", "Category", category.get("name"),
-            url=category.get("link") or "", group="Classification")
+            url=category.get("link") or "", group=DetailGroup.MORE_INFORMATION)
     for tag in product.get("tags") or []:
         add("tag", "Tag", tag.get("name"), url=tag.get("link") or "",
-            group="Classification")
+            group=DetailGroup.MORE_INFORMATION)
     for brand in product.get("brands") or []:
         add("brand", "Brand", brand.get("name"), url=brand.get("link") or "",
-            group="Classification")
+            group=DetailGroup.MORE_INFORMATION)
 
     # Measurements arrive both raw and formatted. The raw number is kept as the
     # numeric value and the formatted string as what the site actually printed,
@@ -388,13 +388,13 @@ def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
     weight = product.get("weight")
     if weight:
         add("weight", "Weight", product.get("formatted_weight") or weight,
-            numeric=weight, group="Measurements")
+            numeric=weight, group=DetailGroup.SPECIFICATIONS)
     dimensions = product.get("dimensions") or {}
     for axis in ("length", "width", "height"):
         if dimensions.get(axis):
             add(axis, axis.title(), dimensions[axis], numeric=dimensions[axis],
-                group="Measurements")
+                group=DetailGroup.SPECIFICATIONS)
 
     add("description", "Description", _clean(product.get("short_description")),
-        group="Description")
+        group=DetailGroup.DESCRIPTION)
     return rows

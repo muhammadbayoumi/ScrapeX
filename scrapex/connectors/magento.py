@@ -36,7 +36,7 @@ from typing import Iterable
 from ..config import SourceEntry
 from ..normalize import option_axes_json, option_fingerprint, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability, ExtractKind
+from ..vocab import Availability, DetailGroup, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 100
@@ -776,15 +776,20 @@ def _enrichment_rows(builder: RowBuilder, product: dict,
     def add(code, label, value, *, numeric="", unit="", url=""):
         if not value:
             return
-        group = ("Media" if code.startswith("image")
-                 else "Description" if "desc" in code
-                 else "Measurements" if code == "weight"
-                 else "Filters" if code in facets
-                 else "More information")
+        # WHERE a reader looks for it — one of five, for every source.
+        group = (DetailGroup.MEDIA if code.startswith("image")
+                 else DetailGroup.DESCRIPTION if "desc" in code
+                 else DetailGroup.SPECIFICATIONS if code == "weight" or code in facets
+                 else DetailGroup.MORE_INFORMATION)
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,
-            value_url=url, lang="", attribute_group=group))
+            value_url=url, lang="", attribute_group=group,
+            # SEPARATE from the group: this says something about the FACT
+            # (the shop offers it as a facet, so a column for it lets the
+            # owner slice the table the way the shop slices its listing),
+            # not about where a person should look for it.
+            is_site_filter="1" if code in facets else ""))
 
     # The product's pictures, primary first. A placeholder is the site saying
     # "no image" — storing it would put a grey box where a product belongs.
