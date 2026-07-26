@@ -768,6 +768,27 @@ _EXPORT_SELECT: dict[str, str] = {
     "option_axes": "sv.variant_axes_ar",
     "variant_en": "sv.variant",
     "option_axes_en": "sv.variant_axes",
+    "curation_status": "sp.curation_status",
+    # The history statistics the TABLE has always shown and the export
+    # never carried. Scoped to the current observation's currency, exactly
+    # as table_payload scopes them: after a currency flip, 0.40 USD in the
+    # same Min column as 20.50 EGP is the corruption the flip guard exists
+    # to prevent, and the guard has to hold in the spreadsheet too.
+    "observations": ("(SELECT COUNT(*) FROM price_observation ph "
+                     " WHERE ph.offer_id = so.offer_id AND ph.currency = po.currency)"),
+    "min_price": ("(SELECT MIN(ph2.effective_price) FROM price_observation ph2 "
+                   " WHERE ph2.offer_id = so.offer_id AND ph2.currency = po.currency)"),
+    "max_price": ("(SELECT MAX(ph3.effective_price) FROM price_observation ph3 "
+                   " WHERE ph3.offer_id = so.offer_id AND ph3.currency = po.currency)"),
+    "previous_price": ("(SELECT ph4.effective_price FROM price_observation ph4 "
+                        " WHERE ph4.offer_id = so.offer_id "
+                        " AND ph4.currency = po.currency "
+                        " AND ph4.effective_price != po.effective_price "
+                        " ORDER BY ph4.business_date DESC, "
+                        "          ph4.price_observation_id DESC LIMIT 1)"),
+    "per_usd": ("(SELECT cr.per_usd FROM currency_rate cr "
+                 " WHERE cr.currency = po.currency "
+                 " ORDER BY cr.as_of DESC LIMIT 1)"),
     # Not an exported column: the key the site's own filter values are joined on.
     "source_product_id": "sp.source_product_id",
 }
@@ -822,7 +843,7 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # single cell cannot be summed, sorted or filtered by a spreadsheet, which
     # is the only reason the column exists (owner's report). Both stay empty
     # when there is no discount — a zero would claim "checked, none" in ink.
-    ("discount_amount", lambda r, s: _discount_amount(r["regular_price"], r["effective_price"])),
+    ("discount", lambda r, s: _discount_amount(r["regular_price"], r["effective_price"])),
     ("discount_pct", lambda r, s: _discount_pct(r["regular_price"], r["effective_price"])),
     ("currency", lambda r, s: r["currency"] or ""),
     ("availability", lambda r, s: r["availability"] or ""),
@@ -845,6 +866,32 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # source publishes one, the product's page otherwise. Storing the right link
     # and then exporting the wrong one would be the defect with extra steps.
     ("product_url", lambda r, s: r["variant_url"] or r["product_url"] or ""),
+    # ---- everything the TABLE shows and the export used to drop -------
+    # Owner ruling 2026-07-26: the exported main table carries EVERY
+    # column, including the ones that are empty for this source. On screen
+    # an empty column is noise to read past; in a spreadsheet an ABSENT
+    # column is a formula that breaks and a header that moves between
+    # sources. A stable full header costs a blank cell and buys a file the
+    # owner can build on.
+    ("tax_label", lambda r, s: s.label()),
+    ("curation_status", lambda r, s: r["curation_status"] or ""),
+    ("previous_price", lambda r, s: _or_blank(r["previous_price"])),
+    ("price_change", lambda r, s: _change_text(r["previous_price"],
+                                               r["effective_price"])),
+    ("min_price", lambda r, s: _or_blank(r["min_price"])),
+    ("max_price", lambda r, s: _or_blank(r["max_price"])),
+    ("observations", lambda r, s: r["observations"] or 0),
+    ("usd_price", lambda r, s: _usd_value(r["effective_price"], r["currency"],
+                                          r["per_usd"])),
+    # The classification split into its levels, exactly as the table
+    # splits it, so a spreadsheet can pivot on a layer without parsing the
+    # path. English then Arabic, level by level.
+    *[(name, (lambda level, suffix, path_key: (
+          lambda r, s: _category_levels(r[path_key]).get(f"category_l{level}", "")))(
+              lvl, sfx, key))
+      for lvl in range(1, CATEGORY_LEVELS + 1)
+      for name, sfx, key in ((f"category_l{lvl}", "", "category_path_en"),
+                             (f"category_l{lvl}_ar", "_ar", "category_path"))],
 ]
 
 EXPORT_HEADER = [name for name, _ in EXPORT_COLUMNS]

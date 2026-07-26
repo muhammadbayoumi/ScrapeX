@@ -155,7 +155,7 @@ def test_every_exported_column_holds_its_own_field(conn):
     # The six variations of one cable differ only in the SKU suffix; the id
     # they share is what lets a spreadsheet group them without parsing text.
     assert row["product_id"] == "9797" and row["sku"] == "76ec8c8572f0-1"
-    assert row["discount_amount"] == -84.67 and row["discount_pct"] == -7.0
+    assert row["discount"] == -84.67 and row["discount_pct"] == -7.0
 
 
 def test_product_sources_show_no_country_rather_than_a_star(conn):

@@ -113,6 +113,6 @@ def test_export_source_table_shape():
     # The discount used to be published as one sentence, "-250.00 (-17.2%)",
     # which a spreadsheet can neither sum nor sort — the owner's report. Two
     # numeric columns now carry the same fact.
-    assert row["discount_amount"] == -250.0
+    assert row["discount"] == -250.0
     assert row["discount_pct"] == -17.2
     assert row["category"] == "" and row["official_source"] == ""
