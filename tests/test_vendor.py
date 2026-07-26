@@ -127,8 +127,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # description hierarchy was flattened, and numeric display was unified.
     # design-system-21/21: detail tabs no longer impose a generic heading;
     # each section displays the title stored with its source data instead.
-    assert '/static/grid.js?v=design-system-21' in page
-    assert '/static/grid-theme.css?v=design-system-21' in page
+    # design-system-22/22: all detail views place their stored title in one
+    # header position, and Keywords remains a section inside Description.
+    assert '/static/grid.js?v=design-system-22' in page
+    assert '/static/grid-theme.css?v=design-system-22' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -616,7 +618,9 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"record-inspector-head"' not in script
     assert '"record-card-wide record-card-prose"' in script
     assert "const databaseTitle" in script
-    assert 'if (isHistory) contentHead.appendChild(el("h3", "", active.label))' in script
+    assert "const detailSectionTitles = new Map()" in script
+    assert "keywordSection" in script and '"record-keywords"' in script
+    assert "code.startsWith(\"keywords\")" in script
     assert '"selected-product-category"' in script
     assert ".selected-product-card" in css
     assert ".record-product-workspace.has-inspector" in css
@@ -625,6 +629,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert "transform: translateX(-.75rem)" in css
     assert "width: min(24rem, 100%)" in css
     assert ".record-prose-list" in css
+    assert ".record-detail-subsection" in css and ".record-keyword" in css
     assert ".record-product-workspace .selected-product-card" in css
     assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css

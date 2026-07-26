@@ -1778,6 +1778,26 @@
     return box;
   }
 
+  function keywordSection(entries) {
+    const section = el("section", "record-detail-subsection");
+    const first = entries.find((entry) => text(entry.value)) || entries[0] || {};
+    const title = text(first.label) || "Keywords";
+    const heading = el("h4", "record-detail-subsection-title", title);
+    heading.dir = "auto";
+    section.appendChild(heading);
+    const keywords = el("div", "record-keywords");
+    const terms = text(first.value).split(/[,;\r\n]+/).map((term) => term.trim())
+      .filter(Boolean);
+    terms.forEach((term) => {
+      const chip = el("span", "record-keyword", term);
+      chip.dir = "auto";
+      keywords.appendChild(chip);
+    });
+    if (!terms.length) keywords.appendChild(el("span", "muted", "No keywords recorded."));
+    section.appendChild(keywords);
+    return section;
+  }
+
   function fileSize(bytes) {
     const size = Number(bytes);
     if (!isFinite(size) || size <= 0) return "";
@@ -1984,6 +2004,7 @@
       ["specifications", []],
       ["attachments", []],
     ]);
+    const detailSectionTitles = new Map();
     const historySections = new Map([
       ["price", []],
       ["changes", []],
@@ -2061,7 +2082,10 @@
 
       const active = definitions.find((item) => item.key === activeKey);
       const contentHead = el("header", "record-inspector-content-head");
-      if (isHistory) contentHead.appendChild(el("h3", "", active.label));
+      const sectionTitle = isHistory
+        ? active.label
+        : text(detailSectionTitles.get(activeKey));
+      if (sectionTitle) contentHead.appendChild(el("h3", "", sectionTitle));
       contentHead.appendChild(el("p", "record-inspector-context",
         isHistory ? "Recorded over time" : "Collected from the source"));
       inspectorContent.appendChild(contentHead);
@@ -2135,16 +2159,30 @@
       names.forEach((name) => {
         const items = groups.get(name);
         if (name === "Description") {
+          const isKeyword = (item) => {
+            const code = (item.code || "").toLowerCase();
+            const label = (item.label || "").trim().toLowerCase();
+            return code.startsWith("keywords") || label === "keywords";
+          };
           const fullRows = items.filter((item) =>
             (item.code || "").toLowerCase().startsWith("full_description"));
-          const withoutShort = items.filter((item) =>
-            !(item.code || "").toLowerCase().startsWith("short_description"));
-          const paired = pairByLanguage(fullRows.length
+          const shortRows = items.filter((item) => {
+            const code = (item.code || "").toLowerCase();
+            return code.startsWith("short_description") ||
+              (fullRows.length && ["description", "description_ar"].includes(code));
+          });
+          const keywordRows = items.filter(isKeyword);
+          const primaryRows = fullRows.length
             ? fullRows
-            : (withoutShort.length ? withoutShort : items));
+            : items.filter((item) => !shortRows.includes(item) && !isKeyword(item));
+          const shownRows = primaryRows.length
+            ? primaryRows
+            : items.filter((item) => !isKeyword(item));
+          const paired = pairByLanguage(shownRows);
           const databaseTitle = text((paired.find((entry) =>
             text(entry.label)) || {}).label);
-          const box = card(databaseTitle, "record-card-wide record-card-prose");
+          detailSectionTitles.set("description", databaseTitle || name);
+          const box = card("", "record-card-wide record-card-prose");
           paired.forEach((entry, index) => {
             const label = (entry.label || "").trim();
             if (index > 0 && label &&
@@ -2153,18 +2191,33 @@
             }
             box.appendChild(prose(entry.value, databaseTitle ? [databaseTitle] : []));
           });
+          const auxiliaryRows = items.filter((item) =>
+            !shownRows.includes(item) && !shortRows.includes(item) && !isKeyword(item));
+          pairByLanguage(auxiliaryRows).forEach((entry) => {
+            const section = el("section", "record-detail-subsection");
+            const heading = el("h4", "record-detail-subsection-title",
+              text(entry.label) || "Additional description");
+            heading.dir = "auto";
+            section.append(heading, prose(entry.value));
+            box.appendChild(section);
+          });
+          const keywords = pairByLanguage(keywordRows);
+          if (keywords.length) box.appendChild(keywordSection(keywords));
           detailSections.get("description").push(box);
           return;
         }
         if (name === "Attachments") {
           const paired = pairByLanguage(items);
-          const box = card(name, "record-card-wide");
+          detailSectionTitles.set("attachments", name);
+          const box = card("", "record-card-wide");
           box.appendChild(fileCards(paired));
           detailSections.get("attachments").push(box);
           return;
         }
         const paired = pairByLanguage(items);
-        const box = card(name);
+        const existingTitle = detailSectionTitles.get("specifications");
+        if (!existingTitle) detailSectionTitles.set("specifications", name);
+        const box = card(existingTitle && existingTitle !== name ? name : "");
         box.appendChild(specList(paired));
         detailSections.get("specifications").push(box);
       });
@@ -2175,6 +2228,9 @@
     // moves a field into the details, show moves it back.
     const moved = payload.moved_to_details || [];
     if (moved.length && openOfferRow) {
+      if (!detailSectionTitles.has("specifications")) {
+        detailSectionTitles.set("specifications", "Additional fields");
+      }
       const box = card("Moved out of the table");
       box.appendChild(specList(moved.map((column) => ({
         label: column.label || column.key, value: text(openOfferRow[column.key]),

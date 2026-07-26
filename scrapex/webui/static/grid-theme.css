@@ -1381,6 +1381,34 @@
 .record-prose-list li::marker {
   color: var(--accent);
 }
+.record-detail-subsection {
+  max-width: 76ch;
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+.record-detail-subsection-title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+}
+.record-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.record-keyword {
+  max-width: 100%;
+  padding: .32rem .6rem;
+  overflow-wrap: anywhere;
+  color: var(--text-subtle);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  line-height: 1.25;
+}
 
 /* Datasheets: a card each with its real size, because a bare filename in a
    table cell gives no clue that it is a file you can open. */
