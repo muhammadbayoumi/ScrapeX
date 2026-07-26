@@ -23,18 +23,15 @@
 
   const SOURCE = mount.dataset.source;
   const text = (v) => (v === null || v === undefined) ? "" : String(v);
-  // Money in the shop's own convention — dot for thousands, comma for the
-  // decimals ("1.433,39"), exactly how samehgabriel itself prints "3,8
-  // كيلوجرام". Stored precision is PRESERVED, never padded or cut: GPP's
-  // 0.404 must stay "0,404" — rounding it to two places would re-lose the
-  // precision the local-currency work exists to keep.
+  // One numeric convention across the workspace: comma for thousands and dot
+  // for decimals. Stored precision is preserved, never padded or rounded.
   function formatMoney(raw) {
     const s = text(raw);
     if (!s || isNaN(Number(s))) return s;
     const negative = s.startsWith("-");
     const parts = (negative ? s.slice(1) : s).split(".");
-    const grouped = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-    return (negative ? "-" : "") + grouped + (parts[1] ? "," + parts[1] : "");
+    const grouped = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return (negative ? "-" : "") + grouped + (parts[1] ? "." + parts[1] : "");
   }
   const GRID_MIN_COLUMN_WIDTH = 128;
   // v2 intentionally forgets column widths and sort state saved by the older
@@ -1078,11 +1075,9 @@
       return (cell) => {
         const span = document.createElement("span");
         span.dir = "ltr";
-        // Server-computed "+5.00 (+32.3%)" re-rendered in the shop's own
-        // number convention.
+        // Server-computed "+5.00 (+32.3%)" uses the workspace convention too.
         span.textContent = String(cell.getValue() || "").replace(
-          /-?\d+\.\d+/g, (m) => formatMoney(m)).replace(/\((.*)\)/,
-          (m, inner) => "(" + inner.replace(".", ",") + ")");
+          /-?\d+\.\d+/g, (m) => formatMoney(m));
         return span;
       };
     }
@@ -1097,7 +1092,7 @@
         const span = document.createElement("span");
         span.dir = "ltr";
         span.textContent = key === "discount_pct"
-          ? String(value).replace(".", ",") + "%"
+          ? String(value).replace(",", ".") + "%"
           : formatMoney(value);
         return span;
       };
@@ -1743,14 +1738,39 @@
     return list;
   }
 
-  // Descriptions arrive as one string with newlines (the shop's own paragraph
-  // breaks). Printing that into a table cell collapsed a datasheet into one
-  // unreadable line; the breaks the source wrote are kept as paragraphs.
-  function prose(value) {
+  // Descriptions arrive as one string with newlines. Preserve real paragraphs,
+  // turn source bullet glyphs into a semantic list, and remove headings that
+  // merely repeat the section title already visible above the card.
+  function prose(value, skippedHeadings) {
     const box = el("div", "record-prose");
+    const skipped = new Set((skippedHeadings || []).map((item) =>
+      String(item).trim().toLowerCase()));
+    let list = null;
     String(value == null ? "" : value).split(/\r?\n/).forEach((line) => {
       const trimmed = line.trim();
       if (!trimmed) return;
+      if (skipped.has(trimmed.toLowerCase())) return;
+      const bullet = trimmed.match(/^[•▪■□●◦‣∙·\uf0a7\-–—]\s*(.+)$/);
+      if (bullet) {
+        if (!list) {
+          list = el("ul", "record-prose-list");
+          box.appendChild(list);
+        }
+        const item = el("li", "", bullet[1]);
+        item.dir = "auto";
+        list.appendChild(item);
+        return;
+      }
+      list = null;
+      const isSectionHeading = /[A-Z]/.test(trimmed) &&
+        !/[a-z]/.test(trimmed) && trimmed.length <= 72 &&
+        !/[.!?]$/.test(trimmed);
+      if (isSectionHeading) {
+        const heading = el("h5", "record-prose-section-title", trimmed);
+        heading.dir = "auto";
+        box.appendChild(heading);
+        return;
+      }
       const paragraph = el("p", "", trimmed);
       paragraph.dir = "auto";
       box.appendChild(paragraph);
@@ -1822,6 +1842,12 @@
     return "";
   }
 
+  function displayProductName(value) {
+    return text(value).replace(/\s+/g, " ").trim().replace(
+      /-\s*(\d+(?:[.,]\d+)?)\s*(ml|l|kg|g)\s*$/i,
+      (match, amount, unit) => " · " + amount + " " + unit);
+  }
+
   function productSummaryCard(row, data, onDetails, onHistory) {
     const offer = (data && data.offer) || {};
     const details = (data && data.details) || [];
@@ -1883,8 +1909,10 @@
 
     const body = el("div", "selected-product-body");
     const titleRow = el("div", "selected-product-title-row");
-    const name = el("h3", "selected-product-name",
-      text(pickLang(row.product_name, row.product_name_ar) || offer.product_name || offer.product_name_ar || "Unnamed record"));
+    const name = el("h3", "selected-product-name", displayProductName(
+      pickLang(row.product_name, row.product_name_ar) ||
+      pickLang(offer.product_name, offer.product_name_ar) ||
+      offer.name || "Unnamed record"));
     name.dir = "auto";
     titleRow.appendChild(name);
     const live = safeUrl(row.product_url || offer.product_url || "");
@@ -1908,9 +1936,12 @@
 
     const categoryLevel = deepestCategoryLevel(row);
     if (categoryLevel) {
-      const line = el("p", "selected-product-meta", categoryLevel);
-      line.dir = "auto";
-      body.appendChild(line);
+      const category = el("div", "selected-product-category");
+      category.appendChild(materialIconElement("account-tree", "selected-product-category-icon"));
+      const label = el("span", "", categoryLevel);
+      label.dir = "auto";
+      category.appendChild(label);
+      body.appendChild(category);
     }
 
     const price = el("div", "selected-product-price");
@@ -1966,13 +1997,6 @@
     inspector.setAttribute("aria-hidden", "true");
     inspector.inert = true;
 
-    const inspectorHead = el("header", "record-inspector-head");
-    const inspectorTitle = el("div", "record-inspector-heading");
-    inspectorTitle.appendChild(el("span", "record-selection-kicker", "Product record"));
-    inspectorTitle.appendChild(el("h3", "", "Details"));
-    inspectorHead.appendChild(inspectorTitle);
-    inspector.appendChild(inspectorHead);
-
     const inspectorMain = el("div", "record-inspector-main");
     const inspectorNav = el("nav", "record-inspector-nav");
     inspectorNav.setAttribute("aria-label", "Product information sections");
@@ -2020,7 +2044,6 @@
         ? requestedKey
         : (firstWithContent ? firstWithContent.key : definitions[0].key);
       inspector.dataset.view = view;
-      inspectorTitle.querySelector("h3").textContent = isHistory ? "History" : "Details";
       setSummaryMode(view);
       inspectorNav.textContent = "";
       inspectorContent.textContent = "";
@@ -2038,24 +2061,29 @@
 
       const active = definitions.find((item) => item.key === activeKey);
       const contentHead = el("header", "record-inspector-content-head");
-      contentHead.appendChild(el("span", "record-selection-kicker",
+      contentHead.appendChild(el("h3", "", active.label));
+      contentHead.appendChild(el("p", "record-inspector-context",
         isHistory ? "Recorded over time" : "Collected from the source"));
-      contentHead.appendChild(el("h4", "", active.label));
-      if (isHistory) {
-        const full = el("a", "record-action record-action-subtle", "Full record");
-        full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + row.offer_id;
-        contentHead.appendChild(full);
-      }
       inspectorContent.appendChild(contentHead);
       const sectionCards = sections.get(activeKey);
       if (!sectionCards.length) {
         inspectorContent.appendChild(el("div", "record-inspector-empty",
           "No " + active.label.toLowerCase() + " are available for this product."));
+        if (isHistory) inspectorContent.appendChild(fullRecordAction());
         return;
       }
       const cards = el("div", "record-cards");
       sectionCards.forEach((section) => cards.appendChild(section));
       inspectorContent.appendChild(cards);
+      if (isHistory) inspectorContent.appendChild(fullRecordAction());
+    }
+
+    function fullRecordAction() {
+      const footer = el("footer", "record-inspector-footer");
+      const full = el("a", "record-action record-action-subtle", "Full record");
+      full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/" + row.offer_id;
+      footer.appendChild(full);
+      return footer;
     }
 
     function toggleInspector(view) {
@@ -2106,32 +2134,37 @@
       });
       names.forEach((name) => {
         const items = groups.get(name);
-        const paired = pairByLanguage(items);
         if (name === "Description") {
-          const box = card("Description", "record-card-wide");
+          const fullRows = items.filter((item) =>
+            (item.code || "").toLowerCase().startsWith("full_description"));
+          const withoutShort = items.filter((item) =>
+            !(item.code || "").toLowerCase().startsWith("short_description"));
+          const paired = pairByLanguage(fullRows.length
+            ? fullRows
+            : (withoutShort.length ? withoutShort : items));
+          const box = card("", "record-card-wide record-card-prose");
           paired.forEach((entry) => {
-            // "DESCRIPTION / Description" said twice is the card title read
-            // back to the reader; a label only earns a line when it adds one.
             const label = (entry.label || "").trim();
-            if (label && label.toLowerCase() !== name.toLowerCase()) {
+            const generic = ["description", "full description", "product description"];
+            if (label && !generic.includes(label.toLowerCase())) {
               box.appendChild(el("h4", "record-prose-title", label));
             }
-            // One language — whichever the toggle is set to. This briefly
-            // showed both, side by side, and the owner's answer was that the
-            // switch exists precisely so the tables under the table do not
-            // repeat the same paragraph in two languages.
-            box.appendChild(prose(entry.value));
+            box.appendChild(prose(entry.value, generic));
           });
           detailSections.get("description").push(box);
           return;
         }
         if (name === "Attachments") {
-          const box = card("Attachments", "record-card-wide");
+          const paired = pairByLanguage(items);
+          const box = card("", "record-card-wide");
           box.appendChild(fileCards(paired));
           detailSections.get("attachments").push(box);
           return;
         }
-        const box = card(name);
+        const paired = pairByLanguage(items);
+        const sectionName = ["Specifications", "Specs"].includes(name) ? "" :
+          (name === "Details" ? "Additional details" : name);
+        const box = card(sectionName);
         box.appendChild(specList(paired));
         detailSections.get("specifications").push(box);
       });
@@ -2167,7 +2200,7 @@
     historySections.get("price").push(timeline);
 
     const changes = data.changes || [];
-    const feed = card("Changes", "record-card-wide");
+    const feed = card("", "record-card-wide");
     if (!changes.length) {
       feed.appendChild(el("p", "muted", "No change events recorded yet."));
     } else {

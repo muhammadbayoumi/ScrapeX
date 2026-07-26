@@ -123,8 +123,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # full width, so their outer edges share the same alignment.
     # design-system-19/19: Details and History now toggle one attached,
     # animated inspector with the redundant media section removed.
-    assert '/static/grid.js?v=design-system-19' in page
-    assert '/static/grid-theme.css?v=design-system-19' in page
+    # design-system-20/20: the product and inspector became one visual shell,
+    # description hierarchy was flattened, and numeric display was unified.
+    assert '/static/grid.js?v=design-system-20' in page
+    assert '/static/grid-theme.css?v=design-system-20' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -605,14 +607,20 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert 'materialIconElement(item.icon, "record-inspector-nav-icon")' in script
     assert 'materialIconElement("open-in-new", "selected-product-site-icon")' in script
     assert "shortDescription" in script and "deepestCategoryLevel" in script
+    assert "displayProductName" in script
     assert "toggleInspector" in script and "openInspector" not in script
     assert '{key: "media", label: "Media"' not in script
     assert '"record-inspector-tab"' not in script
+    assert '"record-inspector-head"' not in script
+    assert '"record-card-wide record-card-prose"' in script
+    assert '"selected-product-category"' in script
     assert ".selected-product-card" in css
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
     assert "grid-template-columns: minmax(0, 24rem) minmax(0, 0fr)" in css
     assert "transform: translateX(-.75rem)" in css
+    assert "width: min(24rem, 100%)" in css
+    assert ".record-prose-list" in css
     assert ".record-product-workspace .selected-product-card" in css
     assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
