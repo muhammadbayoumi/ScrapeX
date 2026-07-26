@@ -329,7 +329,7 @@ def test_an_unknown_sort_key_falls_back_instead_of_reaching_sql(client, db_path)
         default = browse_observations(conn, SOURCE)
     finally:
         conn.close()
-    assert [r["name"] for r in crafted.rows] == [r["name"] for r in default.rows]
+    assert [r["product_name_ar"] for r in crafted.rows] == [r["product_name_ar"] for r in default.rows]
     assert crafted.total == default.total
 
 

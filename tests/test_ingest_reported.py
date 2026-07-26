@@ -237,7 +237,7 @@ def test_the_offers_face_is_the_observed_price_not_the_last_inserted_anchor(conn
     page = browse_observations(conn, "GPP_ENERGY")
     assert len(page.rows) == 1
     assert float(page.rows[0]["effective_price"]) == 20.50
-    assert page.rows[0]["business_date"] != "2025-07-21"
+    assert page.rows[0]["price_changed_on"] != "2025-07-21"
 
     grid = table_payload(conn, "GPP_ENERGY")
     assert float(grid["rows"][0]["effective_price"]) == 20.50
@@ -255,7 +255,7 @@ def test_a_pure_backfill_offer_speaks_with_its_newest_dated_claim(conn):
     page = browse_observations(conn, "GPP_ENERGY")
     assert len(page.rows) == 1
     assert float(page.rows[0]["effective_price"]) == 20.50   # the 1M claim, newest
-    assert page.rows[0]["business_date"] == "2026-06-21"
+    assert page.rows[0]["price_changed_on"] == "2026-06-21"
 
 
 def test_the_official_source_lands_on_the_observation_and_reaches_the_grid(conn):

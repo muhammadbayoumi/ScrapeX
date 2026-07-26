@@ -430,12 +430,12 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
     ).fetchall()
     tax_rules = tax.load_rules(conn, source_key)
     shaped = [
-        {"name": r[0], "option_label": r[1], "sku": r[2], "effective_price": r[3],
+        {"product_name_ar": r[0], "variant_ar": r[1], "sku": r[2], "effective_price": r[3],
          "regular_price": r[4], "sale_price": r[5], "currency": r[6], "availability": r[7],
-         "vat_included": bool(r[8]), "business_date": r[9], "product_url": r[10],
+         "vat_included": bool(r[8]), "price_changed_on": r[9], "product_url": r[10],
          "curation_status": r[11], "country_code_alpha2": r[12] or "", "country": region_name(r[12]),
          # When the price was last CONFIRMED, which is not when it last changed.
-         "last_confirmed": (r[13] or "")[:10],
+         "last_confirmed_on": (r[13] or "")[:10],
          # A price without its unit is not a comparable number: 325 per tonne and
          # 325 per bag are different facts that look identical on screen.
          "unit": price_unit(r[14], r[15]),
@@ -1074,7 +1074,7 @@ def recent_observations(conn: sqlite3.Connection, source_key: str, limit: int = 
         (source_key, limit),
     ).fetchall()
     return [
-        {"name": r[0], "price": r[1], "currency": r[2], "availability": r[3],
+        {"product_name_ar": r[0], "effective_price": r[1], "currency": r[2], "availability": r[3],
          "vat_included": bool(r[4]), "business_date": r[5],
          "country_code_alpha2": r[6] or "", "country": region_name(r[6]),
          "unit": price_unit(r[7], r[8])}
@@ -1220,7 +1220,7 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
         (offer_id, source_key)).fetchone()
     if row is None:
         return None
-    return {"name": row[9] or row[0] or "", "name_ar": row[0] or "",
+    return {"product_name": row[9] or "", "product_name_ar": row[0] or "",
             "variant": row[10] or "", "variant_ar": row[1] or "",
             "sku": row[2] or "",
             "country_code_alpha2": row[3] or "", "country": region_name(row[3]),

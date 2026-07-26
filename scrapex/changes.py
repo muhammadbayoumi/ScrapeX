@@ -142,11 +142,11 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
                    limit: int = 50) -> list[dict]:
     """Newest-first change feed, always bounded (A8).
 
-    The offer's region is resolved here because product_name alone is ambiguous
+    The offer's country is resolved here because the name alone is ambiguous
     for a commodity source: a price move on Egyptian diesel and one on Saudi
     diesel would otherwise both read as just "DIESEL".
     """
-    sql = ("SELECT c.*, sp.product_name_ar AS product_name, so.country_code_alpha2 AS region, "
+    sql = ("SELECT c.*, sp.product_name_ar, sp.product_name, so.country_code_alpha2, "
            "       su.unit_code AS unit_code, so.basis_quantity AS basis_quantity "
            "FROM change_event c "
            "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
@@ -166,8 +166,8 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     out = []
     for row in conn.execute(sql, params):
         item = dict(row)
-        item["region"] = item.get("region") or ""
-        item["region_name"] = region_name(item["region"])
+        item["country_code_alpha2"] = item.get("country_code_alpha2") or ""
+        item["country"] = region_name(item["country_code_alpha2"])
         item["unit"] = price_unit(item.pop("unit_code", None),
                                   item.pop("basis_quantity", 1))
         _describe(item)
@@ -254,7 +254,7 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
     from .reports import price_unit, region_name
 
     rows = conn.execute(
-        "SELECT c.*, sp.product_name_ar AS product_name, so2.country_code_alpha2 AS region, "
+        "SELECT c.*, sp.product_name_ar, sp.product_name, so2.country_code_alpha2, "
         "       su.unit_code AS unit_code, so2.basis_quantity AS basis_quantity "
         "FROM change_event c "
         "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
@@ -268,8 +268,8 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
     out = []
     for row in rows:
         item = dict(row)
-        item["region"] = item.get("region") or ""
-        item["region_name"] = region_name(item["region"])
+        item["country_code_alpha2"] = item.get("country_code_alpha2") or ""
+        item["country"] = region_name(item["country_code_alpha2"])
         item["unit"] = price_unit(item.pop("unit_code", None),
                                   item.pop("basis_quantity", 1))
         _describe(item)

@@ -1794,7 +1794,7 @@
     const body = el("div", "selected-product-body");
     const titleRow = el("div", "selected-product-title-row");
     const name = el("h3", "selected-product-name",
-      text(pickLang(row.product_name, row.product_name_ar) || offer.name || "Unnamed record"));
+      text(pickLang(row.product_name, row.product_name_ar) || offer.product_name || offer.product_name_ar || "Unnamed record"));
     name.dir = "auto";
     titleRow.appendChild(name);
     const live = safeUrl(row.product_url || offer.product_url || "");

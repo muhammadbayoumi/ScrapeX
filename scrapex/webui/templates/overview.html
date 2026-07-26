@@ -260,7 +260,7 @@
             <a class="overview-activity-row" href="/changes">
               <span class="overview-activity-icon">{{ icon("trending-up") }}</span>
               <span>
-                <strong dir="auto">{{ change.product_name or "Unnamed record" }}</strong>
+                <strong dir="auto">{{ change.product_name or change.product_name_ar or "Unnamed record" }}</strong>
                 <small>{{ change.change_type.replace("_", " ") }}
                   {% if change.display_change %} · {{ change.display_change }}{% endif %}</small>
               </span>

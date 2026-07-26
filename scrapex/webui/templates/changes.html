@@ -38,7 +38,7 @@
     {% for c in changes %}
       <tr>
         <td class="num muted" dir="ltr">{{ c.detected_at[:16].replace("T", " ") }}</td>
-        <td dir="auto">{{ c.product_name or "—" }}</td>
+        <td dir="auto">{{ c.product_name or c.product_name_ar or "—" }}</td>
         <td>{{ c.country or c.country_code_alpha2 or "—" }}</td>
         <td class="muted">{{ c.field_label }}</td>
         <td class="num">{{ c.display_previous or "—" }}</td>

@@ -196,7 +196,7 @@ def test_both_tax_states_of_one_source_render_side_by_side(conn):
     ingest_payloads(conn, entry([STATED]),
                     [payload([row(**SIMPLE), row(**CONFIGURABLE)])])
 
-    shown = {r["name"]: r for r in browse_observations(conn, "SHOP").rows}
+    shown = {r["product_name_ar"]: r for r in browse_observations(conn, "SHOP").rows}
 
     assert shown["معجون"]["tax_label"] == "Incl. 15% tax"
     assert shown["خشب أبلكاش"]["tax_label"] == "Excl. 15% tax"

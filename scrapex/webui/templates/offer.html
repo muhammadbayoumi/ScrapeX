@@ -7,8 +7,8 @@
 <p class="muted back-link">
   <a class="icon-label" href="/source/{{ source_key }}">{{ icon("arrow-back", "sm") }} Back to {{ source_key }}</a></p>
 
-<h1 dir="auto">{{ offer.name }}</h1>
-{% if offer.name_ar and offer.name_ar != offer.name %}<p dir="auto" class="muted">{{ offer.name_ar }}</p>{% endif %}
+<h1 dir="auto">{{ offer.product_name or offer.product_name_ar }}</h1>
+{% if offer.product_name and offer.product_name_ar %}<p dir="auto" class="muted">{{ offer.product_name_ar }}</p>{% endif %}
 <p class="muted context-line">
   {% if offer.country %}{{ offer.country }}<span class="code">{{ offer.country_code_alpha2 }}</span> · {% endif %}
   {% if offer.variant or offer.variant_ar %}<span dir="auto">{{ offer.variant or offer.variant_ar }}</span> · {% endif %}

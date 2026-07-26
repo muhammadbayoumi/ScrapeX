@@ -314,8 +314,8 @@ def test_browse_reports_when_a_price_was_last_confirmed_not_only_when_it_moved(c
     crawl(conn, price="100.00", day="2026-07-01")
     crawl(conn, price="100.00", day="2026-07-20")
     row = browse_observations(conn, "ELSEWEDYSHOP").rows[0]
-    assert row["business_date"] == "2026-07-01", "the price last moved then"
-    assert row["last_confirmed"] == "2026-07-20", "...and was still true then"
+    assert row["price_changed_on"] == "2026-07-01", "the price last moved then"
+    assert row["last_confirmed_on"] == "2026-07-20", "...and was still true then"
 
 
 def test_a_currency_flip_opens_a_period_named_for_what_happened(conn):

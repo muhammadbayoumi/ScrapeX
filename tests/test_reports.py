@@ -42,7 +42,8 @@ def test_recent_observations_is_bounded_and_shaped(conn):
     ingest_payloads(conn, make_entry(), [make_payload(rows)])
     sample = recent_observations(conn, "ELSEWEDYSHOP", limit=3)
     assert len(sample) == 3
-    assert set(sample[0]) == {"name", "price", "currency", "availability", "vat_included",
+    assert set(sample[0]) == {"product_name_ar", "effective_price", "currency",
+                              "availability", "vat_included",
                               "business_date", "country_code_alpha2", "country", "unit"}
     assert sample[0]["currency"] == "EGP"
 
@@ -294,3 +295,59 @@ def test_a_product_without_variations_keeps_its_own_link(conn):
         one_row(product_url="https://shop.example/floodlight/")])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
     assert dict(zip(header, table[0]))["product_url"] == "https://shop.example/floodlight/"
+
+
+def test_every_read_path_names_a_fact_the_same_way(conn):
+    """The owner's question, turned into a guard: is a column called the same
+    thing on EVERY path it appears on?
+
+    It was not. The declared lists agreed perfectly — table, export, filters,
+    bilingual pairs, details and history headers — while four read paths kept a
+    private vocabulary underneath them: browse_observations said `name` and
+    `option_label` and `last_confirmed` for what table_payload calls
+    product_name_ar, variant_ar and last_confirmed_on; offer_identity said
+    `name`/`name_ar`; recent_observations said `name`/`price`; and
+    recent_changes aliased the ARABIC name to `product_name` — a key asserting
+    English over a column holding Arabic, which is the exact defect the whole
+    vocabulary exists to delete, reappearing one layer down.
+
+    Comparing the declared lists to each other could never have caught that,
+    because they were consistent. This compares what the code actually RETURNS.
+    """
+    from scrapex.changes import recent_changes
+    from scrapex.reports import (browse_observations, offer_identity,
+                                 recent_observations, table_payload)
+
+    ingest_payloads(conn, make_entry(), [make_payload([one_row(
+        product_name="Copper wire", product_name_ar="سلك نحاس")])])
+
+    payload = table_payload(conn, "ELSEWEDYSHOP", limit=1)
+    offer_id = payload["rows"][0]["offer_id"]
+    shapes = {
+        "table_payload": payload["rows"][0],
+        "browse_observations": browse_observations(conn, "ELSEWEDYSHOP", limit=1).rows[0],
+        "offer_identity": offer_identity(conn, "ELSEWEDYSHOP", offer_id),
+        "recent_observations": recent_observations(conn, "ELSEWEDYSHOP", 1)[0],
+        "recent_changes": recent_changes(conn, "ELSEWEDYSHOP", limit=1)[0],
+    }
+
+    # Words that were private names for a fact the vocabulary already names.
+    retired = {"name": "product_name / product_name_ar",
+               "name_ar": "product_name_ar",
+               "option_label": "variant_ar",
+               "option_axes": "variant_axes_ar",
+               "last_confirmed": "last_confirmed_on",
+               # `business_date` is NOT retired: on a history row it is the
+               # date that price applied, which HISTORY_HEADER names, and
+               # that is a different question from "when did it last move".
+               # It was only wrong on browse_observations, where it stood
+               # for price_changed_on.
+               "region": "country_code_alpha2",
+               "region_name": "country",
+               "product_name_en": "product_name",
+               "category_en": "category"}
+    for path, row in shapes.items():
+        for key in retired:
+            assert key not in row, (
+                f"{path} still calls it {key!r}; the rest of the product calls "
+                f"it {retired[key]!r}")

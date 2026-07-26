@@ -242,7 +242,7 @@ def test_the_offer_api_serves_identity_periods_observations_and_changes(client, 
 
     body = client.get(f"/api/offer/{SOURCE}/{offer_id}").json()
     assert body["offer"]["offer_id"] == offer_id
-    assert body["offer"]["name"]
+    assert body["offer"]["product_name"] or body["offer"]["product_name_ar"]
     assert isinstance(body["periods"], list)
     assert isinstance(body["observations"], list) and body["observations"]
     assert isinstance(body["changes"], list)
