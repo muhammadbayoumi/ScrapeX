@@ -121,8 +121,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # surface colours without changing its larger layout.
     # design-system-18/18: multiple product cards stretch evenly to the table's
     # full width, so their outer edges share the same alignment.
-    assert '/static/grid.js?v=design-system-18' in page
-    assert '/static/grid-theme.css?v=design-system-18' in page
+    # design-system-19/19: Details and History now toggle one attached,
+    # animated inspector with the redundant media section removed.
+    assert '/static/grid.js?v=design-system-19' in page
+    assert '/static/grid-theme.css?v=design-system-19' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -589,7 +591,7 @@ def test_history_opens_inline_and_the_full_page_link_survives():
 
 def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     """Selection starts with a compact product view; Details and History share
-    a side card whose detail mode has the four stable content sections."""
+    an attached side card with three focused detail sections."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     css = (VENDOR.parent / "grid-theme.css").read_text(encoding="utf-8")
 
@@ -597,15 +599,20 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert 'el("section", "record-inspector")' in script
     assert '"View details"' in script and '"History"' in script
     assert '"Description"' in script and '"Specifications"' in script
-    assert '"Attachments"' in script and '"Media"' in script
+    assert '"Attachments"' in script
     assert "Previous product image" in script and "Next product image" in script
     assert '"Compare selected"' not in script and '"Side by side"' not in script
     assert 'materialIconElement(item.icon, "record-inspector-nav-icon")' in script
     assert 'materialIconElement("open-in-new", "selected-product-site-icon")' in script
-    assert "summaryDescription" in script
+    assert "shortDescription" in script and "deepestCategoryLevel" in script
+    assert "toggleInspector" in script and "openInspector" not in script
+    assert '{key: "media", label: "Media"' not in script
+    assert '"record-inspector-tab"' not in script
     assert ".selected-product-card" in css
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
+    assert "grid-template-columns: minmax(0, 24rem) minmax(0, 0fr)" in css
+    assert "transform: translateX(-.75rem)" in css
     assert ".record-product-workspace .selected-product-card" in css
     assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css

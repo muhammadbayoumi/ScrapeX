@@ -859,16 +859,6 @@
   text-decoration: none;
 }
 #offer-panel .record-action:active { transform: translateY(1px); }
-#offer-panel .record-action-primary {
-  color: var(--button-text);
-  background: var(--button-bg);
-  border-color: var(--button-bg);
-}
-#offer-panel .record-action-primary:hover {
-  color: var(--button-text);
-  background: var(--button-hover);
-  border-color: var(--button-hover);
-}
 #offer-panel .record-action-subtle { background: transparent; }
 #offer-panel .record-action:disabled {
   opacity: .55;
@@ -889,10 +879,11 @@
 .record-product-workspace {
   --record-workspace-height: clamp(44rem, 78vh, 50rem);
   display: grid;
-  grid-template-columns: minmax(0, 24rem);
+  grid-template-columns: minmax(0, 24rem) minmax(0, 0fr);
   align-items: stretch;
-  gap: var(--sp-4);
+  gap: 0;
   padding: 0;
+  transition: grid-template-columns var(--dur-slow) var(--ease);
 }
 .record-product-workspace.has-inspector {
   grid-template-columns: minmax(20rem, 24rem) minmax(0, 1fr);
@@ -921,6 +912,16 @@
   border-color: var(--line-strong);
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
+}
+.record-product-workspace.has-inspector .selected-product-card {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+  box-shadow: none;
+}
+.record-product-workspace.has-inspector .selected-product-card:hover {
+  border-color: var(--line);
+  box-shadow: none;
+  transform: none;
 }
 .selected-product-card.has-error { border-style: dashed; }
 .selected-product-media {
@@ -1026,7 +1027,7 @@
   flex-direction: column;
   flex: 1 1 auto;
   gap: var(--sp-3);
-  padding: var(--sp-4);
+  padding: var(--sp-4) var(--sp-4) var(--sp-5);
 }
 .selected-product-title-row {
   display: flex;
@@ -1119,15 +1120,29 @@
   min-width: 0;
   overflow: hidden;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
+  border: 1px solid transparent;
+  border-inline-start: 0;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-.75rem);
+  transition: opacity var(--dur) var(--ease),
+              transform var(--dur-slow) var(--ease),
+              border-color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
 }
-.record-inspector[hidden] { display: none; }
+.record-product-workspace.has-inspector .record-inspector {
+  border-color: var(--line);
+  box-shadow: var(--shadow-xs);
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
 .record-inspector-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--sp-4);
   min-height: 4.25rem;
   padding: var(--sp-3) var(--sp-4);
@@ -1137,33 +1152,6 @@
 .record-inspector-heading h3 {
   margin: 0;
   font-size: var(--fs-lg);
-}
-.record-inspector-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-}
-.record-inspector-tab {
-  min-height: var(--control-height-sm);
-  padding: .4rem .75rem;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  font: inherit;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  cursor: pointer;
-}
-.record-inspector-tab:hover {
-  color: var(--text);
-  background: var(--control-hover);
-}
-.record-inspector-tab.is-active {
-  color: var(--accent-ink);
-  background: var(--accent-weak);
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 .record-inspector-main {
   display: grid;
@@ -1352,29 +1340,29 @@
 .file-meta { color: var(--muted); font-size: var(--fs-xs, .75rem); }
 .file-open { align-self: flex-start; font-size: var(--fs-sm, .8125rem); }
 
-/* The record panel's picture gallery: thumbnails that open the full image.
-   Sized in rem so a long gallery wraps instead of pushing the panel wide. */
-.detail-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
-  gap: var(--sp-3);
-}
-.detail-image {
-  width: 100%;
-  height: 10rem;
-  object-fit: contain;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: var(--sp-2);
-}
-
 @media (max-width: 900px) {
+  .record-product-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .record-product-workspace.has-inspector {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-4);
   }
   .record-product-workspace .selected-product-grid {
     max-width: 24rem;
+  }
+  .record-product-workspace .record-inspector {
+    height: 0;
+    border: 0;
+    border-radius: var(--radius-lg);
+  }
+  .record-product-workspace.has-inspector .record-inspector {
+    height: var(--record-workspace-height);
+    border: 1px solid var(--line);
+  }
+  .record-product-workspace.has-inspector .selected-product-card {
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
   }
 }
 
@@ -1383,8 +1371,6 @@
   .selected-product-grid.is-single { grid-template-columns: minmax(0, 1fr); }
   .record-product-workspace { grid-template-columns: minmax(0, 1fr); }
   .record-product-workspace .selected-product-grid { max-width: none; }
-  .record-inspector-head { align-items: stretch; flex-direction: column; }
-  .record-inspector-controls .record-inspector-tab { flex: 1 1 auto; }
   .record-inspector-main { grid-template-columns: 3.75rem minmax(0, 1fr); }
   .record-card { grid-column: 1 / -1; }
 }

@@ -1725,11 +1725,32 @@
     return wrap;
   }
 
-  function summaryDescription(details) {
+  function shortDescription(details) {
     const descriptions = (details || []).filter((item) =>
       (item.group || "").toLowerCase() === "description");
-    const paired = pairByLanguage(descriptions);
-    return paired.map((item) => text(item.value)).filter(Boolean).join(" ");
+    let shortRows = descriptions.filter((item) =>
+      (item.code || "").toLowerCase().startsWith("short_description"));
+    const hasSeparateFullDescription = descriptions.some((item) =>
+      (item.code || "").toLowerCase().startsWith("full_description"));
+    if (!shortRows.length && hasSeparateFullDescription) {
+      shortRows = descriptions.filter((item) =>
+        ["description", "description_ar"].includes((item.code || "").toLowerCase()));
+    }
+    const paired = pairByLanguage(shortRows);
+    const first = paired.find((item) => text(item.value));
+    return first ? text(first.value) : "";
+  }
+
+  function deepestCategoryLevel(row) {
+    const levels = Object.keys(row || {}).map((key) => {
+      const match = /^category_l(\d+)(?:_ar)?$/.exec(key);
+      return match ? Number(match[1]) : 0;
+    }).filter(Boolean).sort((a, b) => b - a);
+    for (const level of [...new Set(levels)]) {
+      const value = pickLang(row["category_l" + level], row["category_l" + level + "_ar"]);
+      if (value) return value;
+    }
+    return "";
   }
 
   function productSummaryCard(row, data, onDetails, onHistory) {
@@ -1809,17 +1830,16 @@
       titleRow.appendChild(visit);
     }
     body.appendChild(titleRow);
-    const description = summaryDescription(details);
-    const short = el("p", "selected-product-description",
-      description || (data ? "No short description was published for this product."
-                           : "Loading product details…"));
-    short.dir = "auto";
-    body.appendChild(short);
+    const description = shortDescription(details);
+    if (description) {
+      const short = el("p", "selected-product-description", description);
+      short.dir = "auto";
+      body.appendChild(short);
+    }
 
-    const meta = [row.sku || offer.sku || "", pickLang(row.category, row.category_ar)]
-      .filter(Boolean).join(" · ");
-    if (meta) {
-      const line = el("p", "selected-product-meta", meta);
+    const categoryLevel = deepestCategoryLevel(row);
+    if (categoryLevel) {
+      const line = el("p", "selected-product-meta", categoryLevel);
       line.dir = "auto";
       body.appendChild(line);
     }
@@ -1833,7 +1853,7 @@
     body.appendChild(price);
 
     const actions = el("div", "selected-product-actions");
-    const detailsButton = el("button", "record-action record-action-primary", "View details");
+    const detailsButton = el("button", "record-action", "View details");
     detailsButton.type = "button";
     detailsButton.dataset.inspectorView = "details";
     detailsButton.disabled = !data;
@@ -1863,7 +1883,6 @@
       ["description", []],
       ["specifications", []],
       ["attachments", []],
-      ["media", []],
     ]);
     const historySections = new Map([
       ["price", []],
@@ -1874,23 +1893,15 @@
     const workspace = el("div", "record-product-workspace");
     const productGrid = el("div", "selected-product-grid is-single");
     const inspector = el("section", "record-inspector");
-    inspector.hidden = true;
     inspector.setAttribute("aria-label", "Selected product information");
+    inspector.setAttribute("aria-hidden", "true");
+    inspector.inert = true;
 
     const inspectorHead = el("header", "record-inspector-head");
     const inspectorTitle = el("div", "record-inspector-heading");
     inspectorTitle.appendChild(el("span", "record-selection-kicker", "Product record"));
     inspectorTitle.appendChild(el("h3", "", "Details"));
     inspectorHead.appendChild(inspectorTitle);
-    const inspectorControls = el("div", "record-inspector-controls");
-    const detailsTab = el("button", "record-inspector-tab", "Details");
-    detailsTab.type = "button";
-    const historyTab = el("button", "record-inspector-tab", "History");
-    historyTab.type = "button";
-    const closeInspector = el("button", "record-action record-action-subtle", "Close");
-    closeInspector.type = "button";
-    inspectorControls.append(detailsTab, historyTab, closeInspector);
-    inspectorHead.appendChild(inspectorControls);
     inspector.appendChild(inspectorHead);
 
     const inspectorMain = el("div", "record-inspector-main");
@@ -1903,8 +1914,8 @@
     const summary = productSummaryCard(
       row,
       data,
-      () => openInspector("details"),
-      () => openInspector("history"));
+      () => toggleInspector("details"),
+      () => toggleInspector("history"));
     productGrid.appendChild(summary);
     workspace.append(productGrid, inspector);
     panel.appendChild(workspace);
@@ -1913,7 +1924,6 @@
       {key: "description", label: "Description", icon: "description"},
       {key: "specifications", label: "Specifications", icon: "tune"},
       {key: "attachments", label: "Attachments", icon: "insert-drive-file"},
-      {key: "media", label: "Media", icon: "photo-camera"},
     ];
     const historyDefinitions = [
       {key: "price", label: "Price history", icon: "trending-up"},
@@ -1923,9 +1933,11 @@
 
     function setSummaryMode(view) {
       summary.querySelectorAll("[data-inspector-view]").forEach((button) => {
-        const active = !inspector.hidden && button.dataset.inspectorView === view;
+        const active = workspace.classList.contains("has-inspector") &&
+          button.dataset.inspectorView === view;
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-pressed", String(active));
+        button.setAttribute("aria-expanded", String(active));
       });
     }
 
@@ -1940,10 +1952,6 @@
         : (firstWithContent ? firstWithContent.key : definitions[0].key);
       inspector.dataset.view = view;
       inspectorTitle.querySelector("h3").textContent = isHistory ? "History" : "Details";
-      detailsTab.classList.toggle("is-active", !isHistory);
-      historyTab.classList.toggle("is-active", isHistory);
-      detailsTab.setAttribute("aria-pressed", String(!isHistory));
-      historyTab.setAttribute("aria-pressed", String(isHistory));
       setSummaryMode(view);
       inspectorNav.textContent = "";
       inspectorContent.textContent = "";
@@ -1981,70 +1989,41 @@
       inspectorContent.appendChild(cards);
     }
 
-    function openInspector(view) {
+    function toggleInspector(view) {
+      const open = workspace.classList.contains("has-inspector");
+      if (open && inspector.dataset.view === view) {
+        hideInspector();
+        return;
+      }
       openOfferMode = view;
-      inspector.hidden = false;
+      inspector.inert = false;
+      inspector.setAttribute("aria-hidden", "false");
       workspace.classList.add("has-inspector");
       panel.classList.add("has-expanded-details");
       renderInspector(view);
-      inspector.scrollIntoView({behavior: "smooth", block: "nearest"});
     }
 
     function hideInspector() {
       openOfferMode = "record";
-      inspector.hidden = true;
+      inspector.inert = true;
+      inspector.setAttribute("aria-hidden", "true");
       workspace.classList.remove("has-inspector");
       panel.classList.remove("has-expanded-details");
       setSummaryMode("");
-      summary.scrollIntoView({behavior: "smooth", block: "nearest"});
     }
-    detailsTab.addEventListener("click", () => renderInspector("details"));
-    historyTab.addEventListener("click", () => renderInspector("history"));
-    closeInspector.addEventListener("click", hideInspector);
 
     // Name and classification in the language the toggle is set to, falling
     // back to the one the source published when it published only one.
     // The details the source printed for this product — colours, lengths,
     // categories, warranties — grouped as the page grouped them. Scraped
     // content throughout: names as text, URLs linked only when they parse.
-    // The PICTURE leads — the same shape the sites themselves use, and the
-    // same shape for every source (owner's ruling: one output, not one panel
-    // per connector). Media is pulled out of the attribute groups below so it
-    // can never end up buried under a table of text.
-    if (details.length) {
-      const gallery = el("div", "detail-gallery");
-      let shown = 0;
-      details.filter((d) => (d.group || "") === "Media" && d.url).forEach((d) => {
-        const href = safeUrl(d.url);
-        if (!href) return;                    // the spec list still names it
-        const frame = document.createElement("a");
-        frame.href = href;
-        frame.target = "_blank";
-        frame.rel = "noopener noreferrer";
-        frame.title = text(d.value || "");
-        const picture = document.createElement("img");
-        picture.src = href;
-        picture.alt = text(d.value || "");
-        picture.loading = "lazy";
-        picture.className = "detail-image";
-        frame.appendChild(picture);
-        gallery.appendChild(frame);
-        shown += 1;
-      });
-      if (shown) {
-        const box = card(shown === 1 ? "Picture" : "Pictures (" + shown + ")", "record-card-wide");
-        box.appendChild(gallery);
-        detailSections.get("media").push(box);
-      }
-    }
-
     if (details.length) {
       const groups = new Map();
       details.forEach((d) => {
         const key = d.group || "Details";
-        // Media already leads the panel as pictures; listing the same rows
-        // again as file names would be the record said twice.
-        if (key === "Media" && d.url) return;
+        // The product card already owns the complete gallery. Repeating media
+        // inside the inspector wastes the space reserved for product facts.
+        if (key === "Media") return;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(d);
       });
@@ -2085,7 +2064,7 @@
         }
         const box = card(name);
         box.appendChild(specList(paired));
-        detailSections.get(name === "Media" ? "media" : "specifications").push(box);
+        detailSections.get("specifications").push(box);
       });
     }
 
@@ -2154,7 +2133,7 @@
     }
     historySections.get("observations").push(recorded);
 
-    if (mode === "details" || mode === "history") openInspector(mode);
+    if (mode === "details" || mode === "history") toggleInspector(mode);
 
     panel.focus({preventScroll: true});
     panel.scrollIntoView({behavior: "smooth", block: "nearest"});
