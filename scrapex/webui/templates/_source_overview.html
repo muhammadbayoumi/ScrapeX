@@ -17,59 +17,93 @@
   </summary>
 
   <div class="data-source-overview-body" id="dataset-overview-panel">
-    {# Identity, then "is what I am reading current?". last_run and last_status
-       are computed into SourceSummary and remain visible in the grid footer. #}
-    <div class="idblock">
+    <div class="data-source-overview-identity">
       <div class="dataset-identity">
         {{ source_identity(summary) }}
-        {% if source_site %}
-          <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
-             rel="noopener noreferrer">Visit website {{ icon("open-in-new", "inline-icon") }}</a>
-        {% endif %}
       </div>
-    </div>
-
-    {# The watch strip: what needs attention before what merely exists. #}
-    {% if watch %}
-    <div class="watch">
-      {% macro tile(count, label, href, zero_text, elsewhere=false) %}
-        {% if count %}
-          <a class="tile" href="{{ href }}">
-            <span class="n">{{ "{:,}".format(count) }}</span>
-            <span class="l">{{ label }}{% if elsewhere %} {{ icon("chevron-right", "inline-icon") }}{% endif %}</span>
-          </a>
-        {% else %}
-          <span class="tile zero">
-            <span class="n">0</span>
-            <span class="l">{{ zero_text }}</span>
-          </span>
-        {% endif %}
-      {% endmacro %}
-
-      {% if not watch.history_built %}
-        <span class="tile zero">
-          <span class="n">—</span>
-          <span class="l">Price history not built yet</span>
-        </span>
-      {% else %}
-        {{ tile(watch.moved, "moved in 7 days", "/changes?source_key=" ~ source_key,
-                "no price moved this week", elsewhere=true) }}
+      {% if source_site %}
+        <a class="dataset-site-link" href="{{ source_site }}" target="_blank"
+           rel="noopener noreferrer">
+          {{ icon("language") }}
+          <span>Visit website</span>
+          {{ icon("open-in-new", "inline-icon") }}
+        </a>
       {% endif %}
-      {{ tile(watch.missing, "missing from the site", "/changes?source_key=" ~ source_key,
-              "none missing", elsewhere=true) }}
-      {{ tile(watch.state_not_derived, "state not derived",
-              "/source/" ~ source_key, "all states derived") }}
-      {{ tile(watch.needs_curation, "not curated yet",
-              query(**{"f.curation_status": "is:inventoried"}),
-              "everything is curated") }}
     </div>
-    {% endif %}
 
-    <div class="metrics">
-      <div class="metric"><div class="n">{{ "{:,}".format(summary.products) }}</div><div class="l">Products</div></div>
-      <div class="metric"><div class="n">{{ "{:,}".format(summary.variants) }}</div><div class="l">Variants</div></div>
-      <div class="metric"><div class="n">{{ "{:,}".format(summary.observations) }}</div><div class="l">Data rows</div></div>
-      <div class="metric"><div class="n">{{ summary.matched_variants }}</div><div class="l">Matched (unified)</div></div>
+    <div class="data-source-overview-layout">
+      {% if watch %}
+      <section class="data-source-overview-panel" aria-labelledby="source-status-title">
+        <header class="data-source-overview-panel-head">
+          <span>
+            <small>Health</small>
+            <strong id="source-status-title">Source status</strong>
+          </span>
+          <span class="data-source-overview-panel-note">Latest dataset</span>
+        </header>
+        <div class="data-source-overview-statuses">
+        {% macro status_item(count, label, detail, href="", elsewhere=false, unknown=false) %}
+          {% set status_class = "is-unknown" if unknown else ("is-attention" if count else "is-clear") %}
+          {% if href and count %}
+            <a class="data-source-status {{ status_class }}" href="{{ href }}">
+          {% else %}
+            <span class="data-source-status {{ status_class }}">
+          {% endif %}
+              <span class="data-source-status-indicator" aria-hidden="true">
+                {{ icon("info" if unknown or count else "check") }}
+              </span>
+              <span class="data-source-status-copy">
+                <strong>{{ label }}</strong>
+                <small>{{ detail }}</small>
+              </span>
+              <span class="data-source-status-value">
+                {{ "—" if unknown else "{:,}".format(count) }}
+                {% if href and count and elsewhere %}{{ icon("chevron-right", "inline-icon") }}{% endif %}
+              </span>
+          {% if href and count %}
+            </a>
+          {% else %}
+            </span>
+          {% endif %}
+        {% endmacro %}
+
+        {% if not watch.history_built %}
+          {{ status_item(0, "Price changes", "History not built yet", unknown=true) }}
+        {% else %}
+          {{ status_item(watch.moved, "Price changes", "Moved in the last 7 days",
+                         "/changes?source_key=" ~ source_key, elsewhere=true) }}
+        {% endif %}
+        {{ status_item(watch.missing, "Missing records", "Missing from the latest crawl",
+                       "/changes?source_key=" ~ source_key, elsewhere=true) }}
+        {{ status_item(watch.state_not_derived, "State coverage", "Records not derived",
+                       "/source/" ~ source_key) }}
+        {{ status_item(watch.needs_curation, "Curation", "Records waiting for review",
+                       query(**{"f.curation_status": "is:inventoried"})) }}
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="data-source-overview-panel" aria-labelledby="dataset-totals-title">
+        <header class="data-source-overview-panel-head">
+          <span>
+            <small>Inventory</small>
+            <strong id="dataset-totals-title">Dataset totals</strong>
+          </span>
+        </header>
+        <dl class="data-source-overview-totals">
+          {% for value, label in [
+            (summary.products, "Products"),
+            (summary.variants, "Variants"),
+            (summary.observations, "Data rows"),
+            (summary.matched_variants, "Matched")
+          ] %}
+          <div>
+            <dt>{{ label }}</dt>
+            <dd>{{ "{:,}".format(value) }}</dd>
+          </div>
+          {% endfor %}
+        </dl>
+      </section>
     </div>
   </div>
 </details>
