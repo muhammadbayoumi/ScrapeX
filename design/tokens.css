@@ -13,8 +13,6 @@
   --surface: #ffffff;
   --surface-subtle: #f9fafb;
   --surface-raised: #ffffff;
-  --media-surface: #f4f5f7;
-  --media-surface-raised: #ffffff;
   --line: #dfe3e8;
   --line-strong: #c5cbd3;
   --text: #171a1f;
@@ -109,8 +107,6 @@
     --surface: #171b21;
     --surface-subtle: #1c2128;
     --surface-raised: #20262e;
-    --media-surface: #f4f5f7;
-    --media-surface-raised: #ffffff;
     --line: #2c333d;
     --line-strong: #434d5a;
     --text: #e9edf2;

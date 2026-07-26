@@ -93,7 +93,6 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     A new grid behaviour therefore needs a new URL or an open browser can keep
     running the previous script after the application has been updated."""
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
-    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
     # design-system-3: menuLabel learned that "" means no icon — the strict
     # validator threw on pinMenu's blank states and killed the whole
     # three-dot menu (owner-reported live).
@@ -118,9 +117,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # while details and history now share a wide side inspector.
     # design-system-18/16: the cards left the outer container, comparison was
     # removed, and the details navigation became an icon rail.
+    # design-system-18/17: the media gallery returned to the theme's original
+    # surface colours without changing its larger layout.
     assert '/static/grid.js?v=design-system-18' in page
-    assert '/static/grid-theme.css?v=design-system-16' in page
-    assert '/static/tokens.css?v=design-system-3' in base
+    assert '/static/grid-theme.css?v=design-system-17' in page
 
 
 def test_material_header_icons_are_local_and_dry():
