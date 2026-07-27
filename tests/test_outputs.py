@@ -278,6 +278,10 @@ def test_the_script_to_paste_verifies_signatures_without_locking_anyone_out():
 # ---- Google (spec 23) --------------------------------------------------------
 
 def test_google_status_explains_each_missing_step_in_order(conn, monkeypatch, tmp_path):
+    # Without the extra, google_status stops at "needs the extra" and never
+    # reaches the steps under test. Skipping says that; failing blamed the code.
+    # The [google] client libraries are too heavy to pull into [dev] for one test.
+    pytest.importorskip("google_auth_oauthlib")
     monkeypatch.setattr("scrapex.gdrive.CLIENT_SECRET_PATH", tmp_path / "client_secret.json")
     monkeypatch.setattr("scrapex.gdrive.TOKEN_PATH", tmp_path / "token.json")
     assert "Missing" in outputs.google_status(conn)["blocker"]

@@ -30,7 +30,11 @@ google = ["google-api-python-client>=2.100", "google-auth-oauthlib>=1.2", "googl
 local = ["openpyxl>=3.1"]
 # Commodity connectors (globalpetrolprices) — country-name -> ISO alpha-2 region.
 commodity = ["pycountry>=23.12"]
-dev = ["pytest>=8.2", "fastapi>=0.110", "jinja2>=3.1", "httpx>=0.27", "openpyxl>=3.1", "pycountry>=23.12"]
+# uvicorn is here and not only in [ui] because a test drives `scrapex ui` to prove
+# the engine REFUSES to serve a database it cannot read. Without it the CLI exits
+# earlier, on "needs the ui extra", and the guard silently stops being tested.
+dev = ["pytest>=8.2", "fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3.1", "httpx>=0.27",
+       "openpyxl>=3.1", "pycountry>=23.12"]
 
 [project.scripts]
 scrapex = "scrapex.cli:main"
