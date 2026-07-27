@@ -119,8 +119,14 @@ _AGGREGATIONS_QUERY = """query{products(filter:{price:{from:"0"}},pageSize:1,cur
 # asked for them (aggregations covers what the shop FILTERS by, nothing
 # else). An empty attributes list asks for all of them: one request per
 # store view, and the answer is the whole vocabulary.
-_ATTRIBUTE_LABELS_QUERY = """query{customAttributeMetadataV2(attributes:[]){
-  items{code label}}}"""
+# NAMED codes, never an empty list: probed live 2026-07-27, madar's Magento
+# refuses attributes:[] with 'Required parameters "attribute_code" and
+# "entity_type"' — and answers perfectly for named codes («المصنع» for
+# manufacturer, exactly the word the owner's screenshot shows). The codes
+# are free: every product the crawl already fetched states its own.
+_ATTRIBUTE_LABELS_QUERY = """query{{customAttributeMetadataV2(attributes:[{attrs}]){{
+  items{{code label}}}}}}"""
+_ATTRIBUTE_CODE_SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 
 # The en_SA store view returns English names for the same uids (verified
 # live: "اسمنت الرياض" -> "Riyadh Cement"). uid + name ONLY — the bilingual
@@ -363,8 +369,12 @@ class MagentoGraphqlConnector:
             # The human label for EVERY attribute, in each store's own
             # words — «المصنع» beside "Manufacturer" — where the facet list
             # only ever labelled what the shop filters by.
-            labels_ar = self._attribute_labels(endpoint, None, notes)
-            labels_en = self._attribute_labels(endpoint, _ENGLISH_STORE, notes)
+            codes = {str(a.get("code") or "")
+                     for product in fetched
+                     for a in ((product.get("custom_attributesV2") or {})
+                               .get("items")) or []} - {""}
+            labels_ar = self._attribute_labels(endpoint, None, notes, codes)
+            labels_en = self._attribute_labels(endpoint, _ENGLISH_STORE, notes, codes)
             for product in fetched:
                 attribute_rows.extend(_enrichment_rows(
                     extra, product, filterable,
@@ -378,7 +388,7 @@ class MagentoGraphqlConnector:
                 )
 
     def _attribute_labels(self, endpoint: str, store: str | None,
-                          notes: list) -> dict:
+                          notes: list, codes: "set[str] | None" = None) -> dict:
         """attribute code -> the store's own human label, for EVERY attribute.
 
         The owner's report, with a screenshot: the site prints «المصنع»,
@@ -387,14 +397,18 @@ class MagentoGraphqlConnector:
         for its words. Failure costs the labels and nothing else: the codes
         still identify the facts, exactly as before.
         """
+        safe = sorted(c for c in (codes or set()) if _ATTRIBUTE_CODE_SAFE.match(c))
+        if not safe:
+            return {}
+        query = _ATTRIBUTE_LABELS_QUERY.format(attrs=",".join(
+            '{attribute_code:"%s",entity_type:"catalog_product"}' % c
+            for c in safe))
         try:
             headers = {"Store": store} if store else None
-            answer = (self._fetcher.post(endpoint,
-                                         json={"query": _ATTRIBUTE_LABELS_QUERY},
+            answer = (self._fetcher.post(endpoint, json={"query": query},
                                          headers=headers)
                       if headers else
-                      self._fetcher.post(endpoint,
-                                         json={"query": _ATTRIBUTE_LABELS_QUERY})
+                      self._fetcher.post(endpoint, json={"query": query})
                       ).json() or {}
             items = (((answer.get("data") or {})
                       .get("customAttributeMetadataV2")) or {}).get("items") or []
