@@ -830,15 +830,18 @@ code {
     border: 1px solid CanvasText;
   }
 }
-/* One appearance system shared by the Workspace and Chrome side panel. */
+/* Appearance is one token-driven setting component shared by Workspace and
+   Android-style side panel. The controls map to three distinct jobs:
+   connected buttons choose one scheme, radio cards choose one full colour
+   style, and a switch independently enables the browser/device accent. */
 .appearance-editor {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
   padding: var(--sp-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--surface-subtle);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-xl);
+  background: var(--surface-container-low);
 }
 
 .appearance-heading {
@@ -850,10 +853,10 @@ code {
 
 .appearance-heading h3,
 .appearance-heading p { margin: 0; }
-.appearance-heading h3 { color: var(--text); font-size: var(--fs-md); }
+.appearance-heading h3 { color: var(--on-surface); font-size: var(--fs-md); }
 .appearance-heading p {
   margin-top: var(--sp-1);
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font-size: var(--fs-sm);
 }
 
@@ -861,7 +864,7 @@ code {
 .appearance-popover-eyebrow {
   display: block;
   margin-bottom: var(--sp-1);
-  color: var(--accent-ink);
+  color: var(--on-primary-container);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-bold);
   letter-spacing: .08em;
@@ -870,61 +873,60 @@ code {
 
 .appearance-status {
   flex: none;
-  padding: .25rem .5rem;
+  padding: .25rem .625rem;
   border-radius: var(--radius-pill);
   background: var(--chip);
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font-size: var(--fs-2xs);
   white-space: nowrap;
 }
 
+/* M3 Expressive connected single-select button group. */
 .appearance-scheme-picker {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--line-strong);
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  border: 1px solid var(--outline);
   border-radius: var(--radius-pill);
-  background: var(--surface);
+  background: var(--surface-container);
 }
 
 .appearance-scheme-picker button {
-  min-height: 2.25rem;
+  min-height: 2.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: .35rem;
-  padding: .35rem .45rem;
+  padding: var(--sp-2) var(--sp-3);
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font: inherit;
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   cursor: pointer;
-  transition: background var(--dur), color var(--dur),
-    box-shadow var(--dur), transform var(--dur-fast);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform var(--dur-fast) var(--ease);
 }
 
-.appearance-scheme-picker button:hover {
+.appearance-scheme-picker button:hover:not(:disabled) {
   background: var(--control-hover);
-  color: var(--text);
+  color: var(--on-surface);
 }
-.appearance-scheme-picker button:active { transform: scale(.98); }
+.appearance-scheme-picker button:active:not(:disabled) {
+  transform: scale(.96);
+}
 .appearance-scheme-picker button.is-active {
-  background: var(--accent-weak);
-  color: var(--accent-ink);
-  box-shadow: var(--shadow-xs);
+  background: var(--primary-container);
+  color: var(--on-primary-container);
+  transform: scale(1.02);
 }
-.appearance-scheme-icon,
-.appearance-scheme-check {
-  width: 1rem;
-  height: 1rem;
-  display: grid;
-  place-items: center;
-  flex: none;
-  line-height: 1;
+.appearance-scheme-picker button.is-active:hover {
+  background: color-mix(in srgb, var(--primary) 16%, var(--primary-container));
+  color: var(--on-primary-container);
 }
 
 .appearance-palette-browser {
@@ -934,150 +936,143 @@ code {
   gap: var(--sp-3);
 }
 
-.appearance-palette-groups {
-  display: flex;
-  gap: var(--sp-1);
-  overflow-x: auto;
-  padding: var(--sp-1);
-  border-radius: var(--radius);
-  background: var(--chip);
-  scrollbar-width: thin;
+.appearance-palette-heading strong,
+.appearance-palette-heading small {
+  display: block;
 }
-
-.appearance-palette-groups button {
-  flex: none;
-  min-height: 1.75rem;
-  padding: .25rem .65rem;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  cursor: pointer;
-  transition: background var(--dur), color var(--dur), box-shadow var(--dur);
+.appearance-palette-heading strong {
+  color: var(--on-surface);
+  font-size: var(--fs-sm);
 }
-.appearance-palette-groups button:hover { color: var(--text); }
-.appearance-palette-groups button.is-active {
-  background: var(--surface-raised);
-  color: var(--text);
-  box-shadow: var(--shadow-xs);
+.appearance-palette-heading small {
+  margin-top: 2px;
+  color: var(--on-surface-variant);
+  font-size: var(--fs-xs);
 }
 
 .appearance-palette-options {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-2);
 }
 
 .appearance-palette-tile {
   position: relative;
   min-width: 0;
-  min-height: 4rem;
+  min-height: 5.5rem;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
   gap: var(--sp-2);
-  padding: var(--sp-2);
+  padding: var(--sp-3);
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--outline-variant);
   border-radius: var(--radius-lg);
-  background: var(--surface);
-  color: var(--text);
+  background: var(--surface-container);
+  color: var(--on-surface);
   font: inherit;
+  text-align: start;
+  white-space: normal;
   cursor: pointer;
-  transition: transform var(--dur-fast), border-color var(--dur-fast),
-    background var(--dur-fast), opacity var(--dur-fast);
+  transition:
+    transform var(--dur-fast) var(--ease),
+    border-color var(--dur-fast),
+    background-color var(--dur-fast);
 }
 .appearance-palette-tile:hover:not(:disabled) {
-  border-color: var(--line-strong);
+  border-color: var(--outline);
   background: var(--control-hover);
+  color: var(--on-surface);
   transform: translateY(-1px);
 }
-.appearance-palette-tile.is-active {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+.appearance-palette-tile:active:not(:disabled) {
+  transform: scale(.98);
 }
-.appearance-palette-tile.is-active::after {
+.appearance-palette-tile::after {
   position: absolute;
-  top: .25rem;
-  right: .25rem;
+  top: var(--sp-2);
+  right: var(--sp-2);
   width: 1rem;
   height: 1rem;
-  display: grid;
-  place-items: center;
+  border: 2px solid var(--outline);
   border-radius: 50%;
-  content: "\2713";
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-size: .65rem;
-  font-weight: var(--fw-heavy);
+  content: "";
+  background: var(--surface-container);
+  box-shadow: inset 0 0 0 3px var(--surface-container);
 }
-.appearance-palette-tile small {
+.appearance-palette-tile.is-active {
+  border-color: var(--primary);
+  background: var(--primary-container);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.appearance-palette-tile.is-active::after {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+.appearance-palette-copy strong,
+.appearance-palette-copy small {
+  display: block;
   overflow: hidden;
-  color: var(--muted);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  line-height: var(--lh-tight);
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.appearance-palette-copy strong {
+  color: var(--on-surface);
+  font-size: var(--fs-sm);
+}
+.appearance-palette-copy small {
+  margin-top: 2px;
+  color: var(--on-surface-variant);
+  font-size: var(--fs-2xs);
+  line-height: var(--lh-tight);
 }
 .appearance-palette-strip {
-  height: 1.75rem;
+  height: 2rem;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-right: var(--sp-5);
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--outline-variant);
   border-radius: var(--radius-pill);
 }
 .appearance-palette-strip i {
   min-width: 0;
   background: var(--palette-swatch);
 }
-.appearance-palette-tile:disabled,
-.appearance-custom-tile:has(input:disabled) {
-  opacity: .42;
-  cursor: not-allowed;
-}
-.appearance-custom-tile input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-.appearance-custom-strip {
-  grid-template-columns: 1fr;
-}
-.appearance-custom-strip i {
-  background: var(--custom-accent);
-}
 
 .appearance-follow-row {
+  min-height: 4rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
-  padding-top: var(--sp-3);
-  border-top: 1px solid var(--line);
+  padding: var(--sp-3);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-lg);
+  background: var(--surface-container);
 }
 .appearance-follow-row strong,
 .appearance-follow-row small { display: block; }
-.appearance-follow-row strong { color: var(--text); font-size: var(--fs-xs); }
+.appearance-follow-row strong {
+  color: var(--on-surface);
+  font-size: var(--fs-sm);
+}
 .appearance-follow-row small {
   margin-top: 2px;
-  color: var(--muted);
+  color: var(--on-surface-variant);
   font-size: var(--fs-2xs);
   line-height: var(--lh-tight);
 }
+
+/* M3 switch proportions, wrapped in a 48px Android touch target. */
 .appearance-switch {
   position: relative;
-  width: 2.25rem;
-  height: 1.25rem;
+  width: var(--touch-target);
+  height: var(--touch-target);
+  display: grid;
+  place-items: center;
   flex: none;
+  cursor: pointer;
 }
 .appearance-switch input {
   position: absolute;
@@ -1086,42 +1081,54 @@ code {
   opacity: 0;
 }
 .appearance-switch span {
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--line-strong);
+  position: relative;
+  width: 2.5rem;
+  height: 2rem;
+  display: block;
+  border: 2px solid var(--outline);
   border-radius: var(--radius-pill);
-  background: var(--chip);
-  cursor: pointer;
-  transition: background var(--dur), border-color var(--dur);
+  background: var(--surface-container-high);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
 .appearance-switch span::after {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: .875rem;
-  height: .875rem;
+  top: .3125rem;
+  left: .3125rem;
+  width: 1.125rem;
+  height: 1.125rem;
   border-radius: 50%;
   content: "";
-  background: var(--muted);
-  transition: transform var(--dur) var(--ease), background var(--dur);
+  background: var(--on-surface-variant);
+  transition:
+    transform var(--dur) var(--ease),
+    width var(--dur-fast) var(--ease),
+    background-color var(--dur);
+}
+.appearance-switch:hover span {
+  background: var(--control-hover);
+}
+.appearance-switch:active span::after {
+  width: 1.375rem;
 }
 .appearance-switch input:checked + span {
-  border-color: var(--accent);
-  background: var(--accent-weak);
+  border-color: var(--primary);
+  background: var(--primary);
 }
 .appearance-switch input:checked + span::after {
-  background: var(--accent);
-  transform: translateX(1rem);
+  background: var(--on-primary);
+  transform: translateX(.5rem);
 }
 .appearance-switch input:focus-visible + span {
-  outline: 2px solid var(--focus);
+  outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
   outline-offset: 2px;
 }
 
 .appearance-note {
   margin: 0;
-  color: var(--text-subtle);
-  font-size: var(--fs-2xs);
+  color: var(--on-surface-variant);
+  font-size: var(--fs-xs);
   line-height: var(--lh);
 }
 .appearance-editor + table { margin-top: var(--sp-4); }
@@ -1132,12 +1139,11 @@ code {
     flex-direction: column;
   }
   .appearance-status { align-self: flex-start; }
-  .appearance-palette-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .appearance-mode-choice,
-  .appearance-manual,
-  .appearance-segmented button,
-  .appearance-swatch { transition: none; }
+  .appearance-scheme-picker button,
+  .appearance-palette-tile,
+  .appearance-switch span,
+  .appearance-switch span::after { transition: none; }
 }

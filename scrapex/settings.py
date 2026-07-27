@@ -66,6 +66,10 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     Setting("crawl_min_interval_s", "1.0", label="Minimum seconds between requests"),
     Setting("crawl_timeout_s", "30", label="Request timeout in seconds"),
     Setting("crawl_user_agent", "", label="User agent"),
+    # UI-only preference shared by the local Workspace and Chrome side panel.
+    # It lives with the engine because browser localStorage is origin-scoped:
+    # a chrome-extension:// page and http://127.0.0.1 cannot read each other.
+    Setting("ui_appearance", "", label="Shared appearance"),
     # --- Storage (spec 17) ---
     Setting("backup_folder", "", label="Folder for backups"),
     # --- Logs and diagnostics (spec 33) ---

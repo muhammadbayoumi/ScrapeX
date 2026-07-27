@@ -1,6 +1,10 @@
 :root {
   --brand-mark: url("icons/x-mark.png");
   --panel-rail-width: 3.5rem;
+  /* The extension behaves like a compact Android app: every primary touch
+     target remains at least 48px even when the visual icon is smaller. */
+  --control-height: var(--touch-target);
+  --control-height-sm: 2.5rem;
 }
 
 /* Page layout only — primitives and tokens live in the shared sheets. */
@@ -592,7 +596,7 @@
     inset-block-start: 0;
     inset-inline-start: 0;
     width: 3px;
-    height: 2.5rem;
+    height: var(--touch-target);
     border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
     background: var(--text);
     opacity: 0;
@@ -608,12 +612,12 @@
     z-index: 2;
     display: grid;
     place-items: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    min-height: 2.5rem;
+    width: var(--touch-target);
+    height: var(--touch-target);
+    min-height: var(--touch-target);
     padding: 0;
     border: 0;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     background: transparent;
     color: var(--muted);
     transition:
@@ -645,35 +649,61 @@
   .rail-spacer { flex: 1 0 var(--sp-3); }
   .rail-tablist-bottom { margin-top: auto; }
 
-  /* Chrome-style appearance popover. It belongs to the rail button, so it
-     floats over the current page instead of navigating away from the task. */
+  /* Appearance is secondary settings content in a compact window. Material 3
+     maps that job to a modal bottom sheet, not a full-height side popover. */
+  .appearance-backdrop {
+    position: fixed;
+    z-index: calc(var(--z-modal) - 1);
+    inset: 0 var(--panel-rail-width) 0 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--overlay);
+    animation: appearance-backdrop-in var(--dur) var(--ease);
+  }
+  .appearance-backdrop.is-closing {
+    pointer-events: none;
+    animation: appearance-backdrop-out var(--dur-fast) ease forwards;
+  }
   .appearance-popover {
     position: fixed;
-    right: calc(var(--panel-rail-width) + var(--sp-2));
-    top: var(--sp-2);
-    bottom: var(--sp-2);
+    inset-inline: 0 var(--panel-rail-width);
+    bottom: 0;
     z-index: var(--z-modal);
-    width: min(21rem, calc(100vw - var(--panel-rail-width) - var(--sp-4)));
+    width: min(40rem, calc(100vw - var(--panel-rail-width)));
+    max-height: calc(100vh - var(--sp-5));
+    margin-inline: auto;
     overflow-y: auto;
-    padding: var(--sp-4);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius-xl);
-    background: var(--surface-raised);
+    padding: var(--sp-4) var(--sp-4) var(--sp-5);
+    border: 1px solid var(--outline-variant);
+    border-bottom: 0;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+    background: var(--surface-container-high);
     box-shadow: var(--shadow-lg);
-    transform-origin: right bottom;
+    transform-origin: center bottom;
     animation: appearance-popover-in var(--dur-slow) var(--ease);
+    overscroll-behavior: contain;
   }
   .appearance-popover.is-closing {
     pointer-events: none;
     animation: appearance-popover-out var(--dur-fast) ease forwards;
   }
   @keyframes appearance-popover-in {
-    from { opacity: 0; transform: translateX(.75rem) scale(.97); }
-    to { opacity: 1; transform: translateX(0) scale(1); }
+    from { opacity: 0; clip-path: inset(100% 0 0 0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
+    to { opacity: 1; clip-path: inset(0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
   }
   @keyframes appearance-popover-out {
-    from { opacity: 1; transform: translateX(0) scale(1); }
-    to { opacity: 0; transform: translateX(.5rem) scale(.98); }
+    from { opacity: 1; clip-path: inset(0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
+    to { opacity: 0; clip-path: inset(100% 0 0 0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
+  }
+  @keyframes appearance-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes appearance-backdrop-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
   }
   .appearance-popover-head {
     display: flex;
@@ -681,12 +711,12 @@
     justify-content: space-between;
     gap: var(--sp-3);
     padding-bottom: var(--sp-3);
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--outline-variant);
   }
   .appearance-popover-head h2 {
     margin: 1px 0 0;
-    color: var(--text);
-    font-size: var(--fs-md);
+    color: var(--on-surface);
+    font-size: var(--fs-lg);
     letter-spacing: 0;
     text-transform: none;
   }
@@ -696,6 +726,11 @@
     font-weight: var(--fw-bold);
     letter-spacing: .08em;
     text-transform: uppercase;
+  }
+  .appearance-popover #appearance-close {
+    width: var(--touch-target);
+    min-width: var(--touch-target);
+    height: var(--touch-target);
   }
   .appearance-popover .appearance-scheme-picker { margin-top: var(--sp-4); }
   .appearance-popover .appearance-palette-browser { margin-top: var(--sp-4); }

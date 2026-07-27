@@ -90,6 +90,24 @@ def test_general_settings_offer_device_and_manual_appearance(client):
     assert "Follow Chrome" not in body
 
 
+def test_appearance_is_synchronized_through_one_validated_local_contract(client):
+    assert client.get("/api/appearance").json() == {"appearance": None}
+    choice = {
+        "mode": "manual",
+        "scheme": "dark",
+        "palette": "whatsapp",
+        "deviceColors": False,
+        "updatedAt": 123456,
+    }
+    response = client.post("/api/appearance", json=choice)
+    assert response.status_code == 200
+    assert response.json()["appearance"] == choice
+    assert client.get("/api/appearance").json()["appearance"] == choice
+
+    invalid = {**choice, "palette": "popular-blush"}
+    assert client.post("/api/appearance", json=invalid).status_code == 400
+
+
 def test_settings_is_reachable_from_the_workspace_tabs(client):
     assert '/settings"' in client.get("/").text
 

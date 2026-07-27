@@ -117,7 +117,7 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert len(opened) == 1 and opened[0].endswith("/changes")
 
 
-def test_the_palette_button_opens_the_chrome_style_appearance_picker(open_panel):
+def test_the_palette_button_opens_the_android_style_appearance_sheet(open_panel):
     page = open_panel()
     toggle = page.locator("#appearance-toggle")
     popover = page.locator("#appearance-popover")
@@ -131,24 +131,36 @@ def test_the_palette_button_opens_the_chrome_style_appearance_picker(open_panel)
     toggle.click()
     assert toggle.get_attribute("aria-expanded") == "true"
     assert popover.is_visible()
+    assert popover.get_attribute("aria-modal") == "true"
+    assert page.locator("#appearance-backdrop").is_visible()
     assert page.locator('#appearance-popover [data-appearance-scheme-mode="device"]').get_attribute(
         "aria-pressed") == "true"
     assert device_colours.is_checked()
-    assert page.locator("#appearance-popover [data-appearance-group]").count() == 9
-    assert page.locator("#appearance-popover [data-appearance-palette]").count() == 3
+    assert page.locator("#appearance-popover [data-appearance-group]").count() == 0
+    assert page.locator("#appearance-popover [data-appearance-palette]").count() == 2
+    sheet_bounds = popover.bounding_box()
+    assert sheet_bounds
+    assert sheet_bounds["y"] + sheet_bounds["height"] == pytest.approx(800, abs=1)
+    assert sheet_bounds["height"] < 800
+    for selector in (
+        "#appearance-close",
+        '#appearance-popover [data-appearance-scheme-mode="light"]',
+        "#appearance-popover .appearance-switch",
+    ):
+        bounds = page.locator(selector).bounding_box()
+        assert bounds and bounds["height"] >= 40
 
     page.click('#appearance-popover [data-appearance-scheme-mode="light"]')
     assert page.locator("html").get_attribute("data-theme") == "light"
     device_colours.uncheck(force=True)
-    page.click('#appearance-popover [data-appearance-palette="popular-blush"]')
-    assert page.locator("html").get_attribute("data-palette") == "popular-blush"
+    page.click('#appearance-popover [data-appearance-palette="whatsapp"]')
+    assert page.locator("html").get_attribute("data-palette") == "whatsapp"
     assert page.locator("html").get_attribute("data-color-mode") == "manual"
-    blush_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    whatsapp_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
 
-    page.click('#appearance-popover [data-appearance-group="apps"]')
     page.click('#appearance-popover [data-appearance-palette="github"]')
     github_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
-    assert github_light != blush_light
+    assert github_light != whatsapp_light
 
     page.click('#appearance-popover [data-appearance-scheme-mode="dark"]')
     github_dark = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
@@ -165,6 +177,58 @@ def test_the_palette_button_opens_the_chrome_style_appearance_picker(open_panel)
     page.wait_for_timeout(180)
     assert toggle.get_attribute("aria-expanded") == "false"
     assert not popover.is_visible()
+    assert not page.locator("#appearance-backdrop").is_visible()
+
+
+def _contrast(first: str, second: str) -> float:
+    def luminance(colour: str) -> float:
+        channels = [int(colour[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [
+            value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+            for value in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    high, low = sorted((luminance(first), luminance(second)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+@pytest.mark.parametrize("palette", ["whatsapp", "github"])
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_every_manual_theme_keeps_text_controls_and_focus_legible(
+        open_panel, palette, scheme):
+    page = open_panel()
+    values = page.evaluate("""([palette, scheme]) => {
+        window.ScrapeXAppearance.set({
+          mode: "manual", scheme, palette, deviceColors: false,
+        });
+        const style = getComputedStyle(document.documentElement);
+        const read = (name) => style.getPropertyValue(name).trim().toUpperCase();
+        return {
+          text: read("--text"), muted: read("--muted"),
+          subtle: read("--text-subtle"), surface: read("--surface"),
+          bg: read("--bg"), accent: read("--accent"),
+          accentHover: read("--accent-hover"),
+          accentInk: read("--accent-ink"),
+          accentContrast: read("--accent-contrast"),
+          lineStrong: read("--line-strong"), focus: read("--focus"),
+        };
+    }""", [palette, scheme])
+
+    text_pairs = (
+        ("text", "bg"),
+        ("text", "surface"),
+        ("muted", "surface"),
+        ("subtle", "surface"),
+        ("accentInk", "surface"),
+        ("accentContrast", "accent"),
+        ("accentContrast", "accentHover"),
+    )
+    for foreground, background in text_pairs:
+        assert _contrast(values[foreground], values[background]) >= 4.5, (
+            f"{palette} {scheme}: {foreground} on {background} is not WCAG AA")
+    assert _contrast(values["lineStrong"], values["surface"]) >= 3
+    assert _contrast(values["focus"], values["bg"]) >= 3
 
 
 def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):

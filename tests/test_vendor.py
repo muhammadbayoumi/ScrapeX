@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 VENDOR = ROOT / "scrapex" / "webui" / "static" / "vendor"
 TEMPLATES = ROOT / "scrapex" / "webui" / "templates"
 MATERIAL_ICONS = VENDOR.parent / "material-icons"
+CANONICAL_ICON_SPRITE = ROOT / "design" / "material-icons.svg"
 
 # name -> (minimum plausible size, a string that must appear in it)
 EXPECTED = {
@@ -81,7 +82,7 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
 def test_appearance_colour_rebuilds_the_whole_tonal_surface_family():
     tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
     appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
-    tonal = tokens.split("/* Chrome-style tonal palettes", 1)[1].split(
+    tonal = tokens.split("/* Device-derived tonal surfaces", 1)[1].split(
         "@media (prefers-contrast: more)", 1)[0]
 
     assert ':root[data-color-mode="device"]' in tonal
@@ -106,24 +107,31 @@ def test_appearance_colour_rebuilds_the_whole_tonal_surface_family():
     assert 'bg: "#0D1117"' in appearance  # GitHub dark
 
 
-def test_curated_palette_groups_and_ranked_colour_hunt_choices_are_canonical():
+def test_only_the_two_reviewed_application_palettes_are_available():
     appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
 
-    for group in (
-        "popular", "light", "dark", "warm", "earth", "cold",
-        "coolors", "apps", "custom",
+    assert appearance.count('description: "') == 2
+    assert '["whatsapp", {' in appearance
+    assert '["github", {' in appearance
+    for removed in (
+        "popular-blush", "light-rose", "dark-harbour", "warm-coral",
+        "earth-clay", "cold-ocean", "coolors-sunset", 'id: "custom"',
     ):
-        assert f'id: "{group}"' in appearance
-    for palette in (
-        "fbefefffe2e2f5cbcbc5b3d3",
-        "fcf8f8fbefeff9dfdff5afaf",
-        "222831393e46948979dfd0b8",
-        "feeac9ffcdc9fdacacfd7979",
-        "ffcdb2ffb4a2e5989bb5828c",
-        "0f28541c4d8d4988c4bde8f5",
-    ):
-        assert all(f"#{palette[index:index + 6].upper()}" in appearance
-                   for index in range(0, 24, 6))
+        assert removed not in appearance
+    assert 'data-accent="' not in (
+        ROOT / "design" / "tokens.css"
+    ).read_text(encoding="utf-8")
+
+
+def test_appearance_has_one_cross_surface_sync_contract():
+    appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
+    panel = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    server = (ROOT / "scrapex" / "webui" / "app.py").read_text(encoding="utf-8")
+
+    assert 'const SYNC_PATH = "/api/appearance"' in appearance
+    assert "window.ScrapeXAppearance?.connect(backend)" in panel
+    assert '@app.get("/api/appearance")' in server
+    assert '@app.post("/api/appearance")' in server
 
 
 def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
@@ -150,6 +158,34 @@ def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
                 if colour.search(line):
                     offenders.append(f"{path.relative_to(ROOT)}:{number}")
     assert offenders == [], f"colour literals outside the shared system: {offenders}"
+
+
+def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
+    """An icon is a component, not decoration: missing IDs leave an invisible
+    control while the button remains clickable. Keep the two distributed
+    copies byte-for-byte equal to the reviewed canonical sprite, then verify
+    every static reference against its symbol IDs."""
+    canonical = CANONICAL_ICON_SPRITE.read_bytes()
+    assert (ROOT / "extension" / "icons" / "material-icons.svg").read_bytes() == canonical
+    assert (
+        ROOT / "scrapex" / "webui" / "static" / "material-icons" / "material-icons.svg"
+    ).read_bytes() == canonical
+
+    symbols = set(re.findall(
+        r'<symbol\b[^>]*\bid="([A-Za-z0-9_-]+)"',
+        canonical.decode("utf-8"),
+    ))
+    referenced: set[str] = set()
+    for folder in (ROOT / "extension", ROOT / "scrapex" / "webui"):
+        for path in folder.rglob("*"):
+            if path.suffix not in {".html", ".js"}:
+                continue
+            referenced.update(re.findall(
+                r"material-icons\.svg#([A-Za-z0-9_-]+)",
+                path.read_text(encoding="utf-8"),
+            ))
+    assert referenced
+    assert referenced <= symbols, f"missing material icon symbols: {sorted(referenced - symbols)}"
 
 
 def test_the_datasets_page_loads_the_grid_from_our_own_origin():

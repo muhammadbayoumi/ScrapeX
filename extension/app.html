@@ -559,17 +559,14 @@
                 <div class="appearance-scheme-picker" role="group" aria-label="Theme">
                   <button type="button" data-appearance-scheme-mode="light"
                           aria-pressed="false">
-                    <span class="appearance-scheme-icon" aria-hidden="true">&#9788;</span>
                     <span>Light</span>
                   </button>
                   <button type="button" data-appearance-scheme-mode="dark"
                           aria-pressed="false">
-                    <span class="appearance-scheme-icon" aria-hidden="true">&#9680;</span>
                     <span>Dark</span>
                   </button>
                   <button type="button" data-appearance-scheme-mode="device"
                           aria-pressed="false">
-                    <span class="appearance-scheme-check" aria-hidden="true">&#10003;</span>
                     <span>Device</span>
                   </button>
                 </div>
@@ -585,8 +582,8 @@
                     <span aria-hidden="true"></span>
                   </label>
                 </footer>
-                <p class="appearance-note">The Workspace and extension use this same
-                  complete theme. Device follows Light/Dark and the available system accent.</p>
+                <p class="appearance-note">Your choice is synchronized with the Workspace
+                  while the local engine is running.</p>
               </section>
             </div>
           </article>
@@ -825,8 +822,10 @@
     </div>
   </nav>
 
+  <button id="appearance-backdrop" class="appearance-backdrop hidden" type="button"
+          tabindex="-1" aria-label="Close appearance"></button>
   <section id="appearance-popover" class="appearance-popover hidden"
-           data-appearance-control role="dialog" aria-modal="false" aria-hidden="true"
+           data-appearance-control role="dialog" aria-modal="true" aria-hidden="true"
            aria-labelledby="appearance-popover-title">
     <header class="appearance-popover-head">
       <div>
@@ -843,15 +842,12 @@
 
     <div class="appearance-scheme-picker" role="group" aria-label="Theme">
       <button type="button" data-appearance-scheme-mode="light" aria-pressed="false">
-        <span class="appearance-scheme-icon" aria-hidden="true">☼</span>
         <span>Light</span>
       </button>
       <button type="button" data-appearance-scheme-mode="dark" aria-pressed="false">
-        <span class="appearance-scheme-icon" aria-hidden="true">◐</span>
         <span>Dark</span>
       </button>
       <button type="button" data-appearance-scheme-mode="device" aria-pressed="false">
-        <span class="appearance-scheme-check" aria-hidden="true">&#10003;</span>
         <span>Device</span>
       </button>
     </div>

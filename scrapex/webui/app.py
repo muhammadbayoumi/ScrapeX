@@ -85,6 +85,38 @@ from ..vocab import (
 from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
 
+
+def _appearance_value(body: dict | None) -> dict:
+    """Validate the small cross-surface appearance contract.
+
+    Only two complete themes are supported. Keeping this allowlist at the
+    boundary prevents an old or modified extension from persisting arbitrary
+    CSS values for the Workspace to consume.
+    """
+    candidate = body if isinstance(body, dict) else {}
+    mode = candidate.get("mode")
+    scheme = candidate.get("scheme")
+    palette = candidate.get("palette")
+    device_colors = candidate.get("deviceColors")
+    updated_at = candidate.get("updatedAt")
+    if mode not in {"manual", "device"}:
+        raise HTTPException(status_code=400, detail="mode must be manual or device")
+    if scheme not in {"light", "dark"}:
+        raise HTTPException(status_code=400, detail="scheme must be light or dark")
+    if palette not in {"whatsapp", "github"}:
+        raise HTTPException(status_code=400, detail="palette must be whatsapp or github")
+    if not isinstance(device_colors, bool):
+        raise HTTPException(status_code=400, detail="deviceColors must be true or false")
+    if isinstance(updated_at, bool) or not isinstance(updated_at, (int, float)) or updated_at < 0:
+        raise HTTPException(status_code=400, detail="updatedAt must be a positive timestamp")
+    return {
+        "mode": mode,
+        "scheme": scheme,
+        "palette": palette,
+        "deviceColors": device_colors,
+        "updatedAt": int(updated_at),
+    }
+
 def database_state(request: Request) -> dict:
     """Runtime status for every page, derived from the request's own app.
 
@@ -1411,6 +1443,37 @@ def create_app(
             return {"settings": public_settings(conn)}
         finally:
             conn.close()
+
+    @app.get("/api/appearance")
+    def api_appearance():
+        conn = read_conn()
+        try:
+            raw = settings_get(conn, "ui_appearance")
+        finally:
+            conn.close()
+        if not raw:
+            return {"appearance": None}
+        try:
+            return {"appearance": _appearance_value(json.loads(raw))}
+        except (json.JSONDecodeError, HTTPException):
+            # A stale preference must never keep either interface from opening.
+            return {"appearance": None}
+
+    @app.post("/api/appearance")
+    def api_save_appearance(body: dict):
+        appearance = _appearance_value(body)
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                save_settings(conn, {
+                    "ui_appearance": json.dumps(
+                        appearance, separators=(",", ":"), sort_keys=True,
+                    ),
+                })
+                conn.commit()
+            finally:
+                conn.close()
+        return {"appearance": appearance}
 
     @app.post("/api/settings")
     def api_save_settings(body: dict):
