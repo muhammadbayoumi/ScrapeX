@@ -351,3 +351,24 @@ def test_every_read_path_names_a_fact_the_same_way(conn):
             assert key not in row, (
                 f"{path} still calls it {key!r}; the rest of the product calls "
                 f"it {retired[key]!r}")
+
+
+def test_the_table_catalogue_covers_every_table_the_schema_creates(conn):
+    """TABLE_GROUPS is a hand-written second copy of the DDL inventory, and it
+    had already drifted. `source_attribute_promotion` shipped in migration 0044,
+    is written by fields.py and read by reports.py itself — and was missing from
+    the catalogue, so /data-model showed a live, actively-written table under
+    "Other tables" with a blank purpose. Nothing failed; the page just quietly
+    degraded, and the append-to-Other bucket was the only feedback there was.
+    """
+    from scrapex.reports import TABLE_GROUPS
+
+    live = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' "
+        "AND name NOT LIKE 'sqlite_%'")}
+    catalogued = {name for *_head, rows in TABLE_GROUPS for name, _purpose in rows}
+
+    missing = sorted(live - catalogued)
+    assert not missing, (
+        "these tables exist in the warehouse and are not described in "
+        f"TABLE_GROUPS, so /data-model files them under Other with no purpose: {missing}")

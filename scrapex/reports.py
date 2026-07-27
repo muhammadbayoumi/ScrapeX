@@ -1870,6 +1870,7 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
          ("retention_run", "What a retention pass actually removed."),
          ("retention_pin", "What you pinned so retention never touches it."),
          ("dataset_field", "Every column a source has, and whether you hide it."),
+         ("source_attribute_promotion", "Details you promoted into columns of their own."),
          ("saved_view", "A filter and column arrangement you saved."),
          ("database_migration", "Every schema change this database has applied."),
          ("scrapex_meta", "The database's own identity and version."),
