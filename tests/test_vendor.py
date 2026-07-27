@@ -72,7 +72,8 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     assert extension.index("appearance.js") < extension.index("tokens.css")
     script = canonical.decode("utf-8")
     assert 'mode: "follow"' in script
-    assert 'data-appearance-quick-toggle' in script
+    assert "followColors: true" in script
+    assert "data-appearance-scheme-mode" in script
 
 
 def test_the_datasets_page_loads_the_grid_from_our_own_origin():

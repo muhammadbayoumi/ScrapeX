@@ -816,13 +816,14 @@
     </button>
     <span class="rail-spacer" aria-hidden="true"></span>
 
-    <button class="rail-item appearance-quick-toggle" id="appearance-toggle" type="button"
-            data-appearance-quick-toggle aria-pressed="false"
-            aria-label="Follow Chrome appearance" title="Follow Chrome appearance">
+    <button class="rail-item appearance-popover-toggle" id="appearance-toggle" type="button"
+            data-appearance-popover-toggle aria-expanded="false"
+            aria-controls="appearance-popover"
+            aria-label="Customize appearance" title="Customize appearance">
       <svg class="sx-icon" aria-hidden="true">
         <use href="icons/material-icons.svg#palette"></use>
       </svg>
-      <span class="visually-hidden">Toggle Chrome appearance</span>
+      <span class="visually-hidden">Customize appearance</span>
     </button>
 
     <div class="rail-tablist rail-tablist-bottom" role="tablist"
@@ -845,6 +846,90 @@
       </button>
     </div>
   </nav>
+
+  <section id="appearance-popover" class="appearance-popover hidden"
+           data-appearance-control role="dialog" aria-modal="false" aria-hidden="true"
+           aria-labelledby="appearance-popover-title">
+    <header class="appearance-popover-head">
+      <div>
+        <span class="appearance-popover-eyebrow">Personalize</span>
+        <h2 id="appearance-popover-title">Appearance</h2>
+      </div>
+      <button id="appearance-close" class="icon-button ghost" type="button"
+              aria-label="Close appearance" title="Close">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#close"></use>
+        </svg>
+      </button>
+    </header>
+
+    <div class="appearance-scheme-picker" role="group" aria-label="Theme">
+      <button type="button" data-appearance-scheme-mode="light" aria-pressed="false">
+        <span class="appearance-scheme-icon" aria-hidden="true">☼</span>
+        <span>Light</span>
+      </button>
+      <button type="button" data-appearance-scheme-mode="dark" aria-pressed="false">
+        <span class="appearance-scheme-icon" aria-hidden="true">◐</span>
+        <span>Dark</span>
+      </button>
+      <button type="button" data-appearance-scheme-mode="follow" aria-pressed="false">
+        <span class="appearance-scheme-check" aria-hidden="true">✓</span>
+        <span>Follow Chrome</span>
+      </button>
+    </div>
+
+    <div class="appearance-palette-grid" role="group" aria-label="Workspace colour">
+      <button type="button" class="appearance-palette-tile appearance-swatch-blue"
+              data-appearance-accent="blue" aria-label="Blue" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-slate"
+              data-appearance-accent="slate" aria-label="Slate" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-indigo"
+              data-appearance-accent="indigo" aria-label="Indigo" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-cyan"
+              data-appearance-accent="cyan" aria-label="Cyan" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-teal"
+              data-appearance-accent="teal" aria-label="Teal" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-green"
+              data-appearance-accent="green" aria-label="Green" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-forest"
+              data-appearance-accent="forest" aria-label="Forest" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-olive"
+              data-appearance-accent="olive" aria-label="Olive" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-gold"
+              data-appearance-accent="gold" aria-label="Gold" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-orange"
+              data-appearance-accent="orange" aria-label="Orange" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-brown"
+              data-appearance-accent="brown" aria-label="Brown" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-rose"
+              data-appearance-accent="rose" aria-label="Rose" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-burgundy"
+              data-appearance-accent="burgundy" aria-label="Burgundy" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-plum"
+              data-appearance-accent="plum" aria-label="Plum" aria-pressed="false"><span></span></button>
+      <button type="button" class="appearance-palette-tile appearance-swatch-violet"
+              data-appearance-accent="violet" aria-label="Violet" aria-pressed="false"><span></span></button>
+      <label class="appearance-palette-tile appearance-custom-tile" title="Custom colour">
+        <input type="color" data-appearance-custom-color value="#4f7fc9"
+               aria-label="Choose a custom colour">
+        <span aria-hidden="true">
+          <svg class="sx-icon"><use href="icons/material-icons.svg#palette"></use></svg>
+        </span>
+      </label>
+    </div>
+
+    <footer class="appearance-follow-row">
+      <span>
+        <strong>Follow Chrome colors</strong>
+        <small>Use the colour preference shared by Chrome</small>
+      </span>
+      <label class="appearance-switch">
+        <input type="checkbox" data-appearance-follow-colors
+               aria-label="Follow Chrome colors">
+        <span aria-hidden="true"></span>
+      </label>
+    </footer>
+  </section>
 
   <button id="workspace-backdrop" class="workspace-menu-backdrop" type="button"
           tabindex="-1" aria-label="Close Workspace pages"></button>

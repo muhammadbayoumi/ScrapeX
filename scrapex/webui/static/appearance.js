@@ -3,8 +3,17 @@
 
   const STORAGE_KEY = "scrapex-appearance-v1";
   const SCHEMES = new Set(["light", "dark"]);
-  const ACCENTS = new Set(["cyan", "blue", "violet", "rose", "orange", "green"]);
-  const DEFAULTS = Object.freeze({mode: "follow", scheme: "light", accent: "cyan"});
+  const ACCENTS = new Set([
+    "cyan", "blue", "slate", "indigo", "teal", "green", "forest", "olive",
+    "gold", "orange", "brown", "rose", "burgundy", "plum", "violet", "custom",
+  ]);
+  const DEFAULTS = Object.freeze({
+    mode: "follow",
+    scheme: "light",
+    accent: "cyan",
+    followColors: true,
+    customAccent: "#4f7fc9",
+  });
   const schemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const listeners = new Set();
   let current = read();
@@ -15,6 +24,12 @@
       mode: candidate.mode === "manual" ? "manual" : "follow",
       scheme: SCHEMES.has(candidate.scheme) ? candidate.scheme : DEFAULTS.scheme,
       accent: ACCENTS.has(candidate.accent) ? candidate.accent : DEFAULTS.accent,
+      followColors: typeof candidate.followColors === "boolean"
+        ? candidate.followColors
+        : candidate.mode !== "manual",
+      customAccent: /^#[0-9a-f]{6}$/i.test(candidate.customAccent || "")
+        ? candidate.customAccent
+        : DEFAULTS.customAccent,
     };
   }
 
@@ -43,12 +58,17 @@
   function apply(value) {
     const root = document.documentElement;
     root.dataset.appearance = value.mode;
+    root.dataset.colorMode = value.followColors ? "follow" : "manual";
+    root.style.setProperty("--custom-accent", value.customAccent);
     if (value.mode === "manual") {
       root.dataset.theme = value.scheme;
-      root.dataset.accent = value.accent;
     } else {
       root.removeAttribute("data-theme");
+    }
+    if (value.followColors) {
       root.removeAttribute("data-accent");
+    } else {
+      root.dataset.accent = value.accent;
     }
   }
 
@@ -68,10 +88,12 @@
   }
 
   function statusText(value = current) {
-    if (value.mode === "follow") {
+    if (value.mode === "follow" && value.followColors) {
       return `Following Chrome · ${effectiveScheme(value)}`;
     }
-    return `Manual · ${value.scheme} · ${value.accent}`;
+    const theme = value.mode === "follow" ? "Chrome theme" : value.scheme;
+    const colour = value.followColors ? "Chrome colours" : value.accent;
+    return `${theme} · ${colour}`;
   }
 
   function syncControls() {
@@ -92,26 +114,38 @@
         const active = button.dataset.appearanceAccent === current.accent;
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-pressed", String(active));
-        button.disabled = current.mode === "follow";
+        button.disabled = current.followColors;
+      });
+      control.querySelectorAll("[data-appearance-scheme-mode]").forEach((button) => {
+        const choice = button.dataset.appearanceSchemeMode;
+        const active = choice === "follow"
+          ? current.mode === "follow"
+          : current.mode === "manual" && current.scheme === choice;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+      control.querySelectorAll("[data-appearance-follow-colors]").forEach((input) => {
+        input.checked = current.followColors;
+      });
+      control.querySelectorAll("[data-appearance-custom-color]").forEach((input) => {
+        input.value = current.customAccent;
+        input.disabled = current.followColors;
+        input.closest(".appearance-custom-tile")
+          ?.classList.toggle("is-active", current.accent === "custom");
       });
       control.querySelectorAll("[data-appearance-status]").forEach((status) => {
         status.textContent = statusText();
       });
     });
 
-    document.querySelectorAll("[data-appearance-quick-toggle]").forEach((button) => {
-      const following = current.mode === "follow";
-      const label = following ? "Use manual appearance" : "Follow Chrome appearance";
-      button.classList.toggle("is-active", following);
-      button.setAttribute("aria-pressed", String(following));
-      button.setAttribute("aria-label", label);
-      button.setAttribute("title", label);
-    });
   }
 
   function bindControls() {
     document.querySelectorAll("[data-appearance-mode]").forEach((button) => {
-      button.addEventListener("click", () => set({mode: button.dataset.appearanceMode}));
+      button.addEventListener("click", () => {
+        const mode = button.dataset.appearanceMode;
+        set({mode, followColors: mode === "follow"});
+      });
     });
     document.querySelectorAll("[data-appearance-scheme]").forEach((button) => {
       button.addEventListener("click", () =>
@@ -119,16 +153,24 @@
     });
     document.querySelectorAll("[data-appearance-accent]").forEach((button) => {
       button.addEventListener("click", () =>
-        set({mode: "manual", accent: button.dataset.appearanceAccent}));
+        set({followColors: false, accent: button.dataset.appearanceAccent}));
     });
-    document.querySelectorAll("[data-appearance-quick-toggle]").forEach((button) => {
+    document.querySelectorAll("[data-appearance-scheme-mode]").forEach((button) => {
       button.addEventListener("click", () => {
-        if (current.mode === "follow") {
-          set({mode: "manual", scheme: effectiveScheme()});
-        } else {
+        const choice = button.dataset.appearanceSchemeMode;
+        if (choice === "follow") {
           set({mode: "follow"});
+        } else {
+          set({mode: "manual", scheme: choice});
         }
       });
+    });
+    document.querySelectorAll("[data-appearance-follow-colors]").forEach((input) => {
+      input.addEventListener("change", () => set({followColors: input.checked}));
+    });
+    document.querySelectorAll("[data-appearance-custom-color]").forEach((input) => {
+      input.addEventListener("input", () =>
+        set({followColors: false, accent: "custom", customAccent: input.value}));
     });
     syncControls();
   }

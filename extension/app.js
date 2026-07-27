@@ -45,6 +45,48 @@ const state = {
   engineUp: false,
 };
 
+let appearanceCloseTimer = null;
+
+function closeAppearancePopover(returnFocus = false) {
+  const popover = $("appearance-popover");
+  const toggle = $("appearance-toggle");
+  if (!popover || popover.classList.contains("hidden")) return;
+  clearTimeout(appearanceCloseTimer);
+  toggle.setAttribute("aria-expanded", "false");
+  popover.setAttribute("aria-hidden", "true");
+  const finish = () => {
+    popover.classList.add("hidden");
+    popover.classList.remove("is-closing");
+    if (returnFocus) toggle.focus();
+  };
+  if (reduceMotion.matches) {
+    finish();
+    return;
+  }
+  popover.classList.add("is-closing");
+  appearanceCloseTimer = setTimeout(finish, 130);
+}
+
+function openAppearancePopover() {
+  const popover = $("appearance-popover");
+  const toggle = $("appearance-toggle");
+  clearTimeout(appearanceCloseTimer);
+  closeWorkspaceMenu();
+  popover.classList.remove("hidden", "is-closing");
+  popover.setAttribute("aria-hidden", "false");
+  toggle.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() =>
+    popover.querySelector("[data-appearance-scheme-mode]")?.focus());
+}
+
+function toggleAppearancePopover() {
+  if ($("appearance-popover").classList.contains("hidden")) {
+    openAppearancePopover();
+  } else {
+    closeAppearancePopover(true);
+  }
+}
+
 // ---- views ----------------------------------------------------------------
 const VIEWS = ["source", "run", "data", "sources", "source-edit", "settings"];
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
@@ -144,6 +186,7 @@ function closeWorkspaceMenu(returnFocus = false) {
 function showView(name, animate = true) {
   const current = VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden"));
   const navigationName = name === "source-edit" ? "sources" : name;
+  closeAppearancePopover();
   closeWorkspaceMenu();
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
   const activeButton = document.querySelector(
@@ -1391,8 +1434,18 @@ async function init() {
   });
   $("workspace-close").addEventListener("click", () => closeWorkspaceMenu(true));
   $("workspace-backdrop").addEventListener("click", () => closeWorkspaceMenu(true));
+  $("appearance-toggle").addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleAppearancePopover();
+  });
+  $("appearance-popover").addEventListener("click", (event) => event.stopPropagation());
+  $("appearance-close").addEventListener("click", () => closeAppearancePopover(true));
+  document.addEventListener("click", () => closeAppearancePopover());
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeWorkspaceMenu(true);
+    if (event.key === "Escape") {
+      closeAppearancePopover(true);
+      closeWorkspaceMenu(true);
+    }
   });
   document.querySelector("nav.tabs").addEventListener("keydown", (event) => {
     if (!event.target.matches("button[data-view]")) return;

@@ -117,29 +117,42 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert len(opened) == 1 and opened[0].endswith("/changes")
 
 
-def test_the_rail_can_switch_between_follow_chrome_and_manual_appearance(open_panel):
+def test_the_palette_button_opens_the_chrome_style_appearance_picker(open_panel):
     page = open_panel()
     toggle = page.locator("#appearance-toggle")
+    popover = page.locator("#appearance-popover")
+    follow_colours = page.locator("[data-appearance-follow-colors]")
 
-    assert toggle.get_attribute("aria-pressed") == "true"
+    page.evaluate("() => window.ScrapeXAppearance.set({mode: 'follow', followColors: true})")
     assert page.locator("html").get_attribute("data-appearance") == "follow"
+    assert toggle.get_attribute("aria-expanded") == "false"
+    assert not popover.is_visible()
 
     toggle.click()
-    assert toggle.get_attribute("aria-pressed") == "false"
-    assert page.locator("html").get_attribute("data-appearance") == "manual"
-    assert page.locator("html").get_attribute("data-theme") in {"light", "dark"}
+    assert toggle.get_attribute("aria-expanded") == "true"
+    assert popover.is_visible()
+    assert page.locator('[data-appearance-scheme-mode="follow"]').get_attribute(
+        "aria-pressed") == "true"
+    assert follow_colours.is_checked()
 
-    page.click(SETTINGS_TAB)
-    page.click('[data-sect="s-appearance"]')
-    page.click('[data-appearance-scheme="dark"]')
-    page.click('[data-appearance-accent="violet"]')
-    assert page.locator("html").get_attribute("data-theme") == "dark"
+    page.click('[data-appearance-scheme-mode="light"]')
+    assert page.locator("html").get_attribute("data-theme") == "light"
+    follow_colours.uncheck(force=True)
+    page.click('#appearance-popover [data-appearance-accent="violet"]')
     assert page.locator("html").get_attribute("data-accent") == "violet"
+    assert page.locator("html").get_attribute("data-color-mode") == "manual"
 
-    toggle.click()
-    assert toggle.get_attribute("aria-pressed") == "true"
+    page.click('[data-appearance-scheme-mode="follow"]')
     assert page.locator("html").get_attribute("data-appearance") == "follow"
     assert page.locator("html").get_attribute("data-theme") is None
+    follow_colours.check(force=True)
+    assert page.locator("html").get_attribute("data-color-mode") == "follow"
+    assert page.locator("html").get_attribute("data-accent") is None
+
+    page.click("#appearance-close")
+    page.wait_for_timeout(180)
+    assert toggle.get_attribute("aria-expanded") == "false"
+    assert not popover.is_visible()
 
 
 def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):

@@ -154,11 +154,111 @@
   --focus: light-dark(#16834a, #6ee7a2);
 }
 
+:root[data-accent="slate"] {
+  --accent: light-dark(#64748b, #94a3b8);
+  --accent-hover: light-dark(#536278, #b0bac6);
+  --accent-active: light-dark(#475569, #7f8ea3);
+  --accent-ink: light-dark(#475569, #cbd5e1);
+  --accent-contrast: light-dark(#ffffff, #111827);
+  --accent-weak: light-dark(#e2e8f0, #263140);
+  --focus: light-dark(#64748b, #94a3b8);
+}
+
+:root[data-accent="indigo"] {
+  --accent: light-dark(#4f46e5, #a5b4fc);
+  --accent-hover: light-dark(#4338ca, #c7d2fe);
+  --accent-active: light-dark(#3730a3, #818cf8);
+  --accent-ink: light-dark(#4338ca, #c7d2fe);
+  --accent-contrast: light-dark(#ffffff, #1d234d);
+  --accent-weak: light-dark(#e0e7ff, #25284c);
+  --focus: light-dark(#4f46e5, #a5b4fc);
+}
+
+:root[data-accent="teal"] {
+  --accent: light-dark(#0f766e, #5eead4);
+  --accent-hover: light-dark(#0d655e, #7df2df);
+  --accent-active: light-dark(#0b554f, #2dd4bf);
+  --accent-ink: light-dark(#0d655e, #99f6e4);
+  --accent-contrast: light-dark(#ffffff, #092f2c);
+  --accent-weak: light-dark(#ccfbf1, #123b38);
+  --focus: light-dark(#0f766e, #5eead4);
+}
+
+:root[data-accent="forest"] {
+  --accent: light-dark(#166534, #86efac);
+  --accent-hover: light-dark(#14582e, #a7f3c1);
+  --accent-active: light-dark(#124b28, #4ade80);
+  --accent-ink: light-dark(#14582e, #bbf7d0);
+  --accent-contrast: light-dark(#ffffff, #0b321c);
+  --accent-weak: light-dark(#dcfce7, #173923);
+  --focus: light-dark(#166534, #86efac);
+}
+
+:root[data-accent="olive"] {
+  --accent: light-dark(#66752f, #c7d58a);
+  --accent-hover: light-dark(#586629, #d7e3a3);
+  --accent-active: light-dark(#4a5723, #aeba69);
+  --accent-ink: light-dark(#586629, #e1e9b5);
+  --accent-contrast: light-dark(#ffffff, #2d3515);
+  --accent-weak: light-dark(#edf2d6, #343a20);
+  --focus: light-dark(#66752f, #c7d58a);
+}
+
+:root[data-accent="gold"] {
+  --accent: light-dark(#a16207, #facc15);
+  --accent-hover: light-dark(#8b5307, #fde047);
+  --accent-active: light-dark(#744607, #eab308);
+  --accent-ink: light-dark(#845006, #fef08a);
+  --accent-contrast: light-dark(#ffffff, #3c2c03);
+  --accent-weak: light-dark(#fef3c7, #463708);
+  --focus: light-dark(#a16207, #facc15);
+}
+
+:root[data-accent="brown"] {
+  --accent: light-dark(#8b5e3c, #d6a77a);
+  --accent-hover: light-dark(#774f33, #e4bc95);
+  --accent-active: light-dark(#63422b, #bf8b5e);
+  --accent-ink: light-dark(#704a30, #ebc8aa);
+  --accent-contrast: light-dark(#ffffff, #38251a);
+  --accent-weak: light-dark(#f2e5da, #3d2d24);
+  --focus: light-dark(#8b5e3c, #d6a77a);
+}
+
+:root[data-accent="burgundy"] {
+  --accent: light-dark(#8f294d, #f0a4bf);
+  --accent-hover: light-dark(#7b2343, #f5bfd1);
+  --accent-active: light-dark(#661d38, #dc7fa0);
+  --accent-ink: light-dark(#74213f, #f8cada);
+  --accent-contrast: light-dark(#ffffff, #401421);
+  --accent-weak: light-dark(#f6dde6, #43232f);
+  --focus: light-dark(#8f294d, #f0a4bf);
+}
+
+:root[data-accent="plum"] {
+  --accent: light-dark(#7e3a76, #d8a4d1);
+  --accent-hover: light-dark(#6b3265, #e5bddd);
+  --accent-active: light-dark(#592a54, #c181b8);
+  --accent-ink: light-dark(#672f61, #ebc9e6);
+  --accent-contrast: light-dark(#ffffff, #35172f);
+  --accent-weak: light-dark(#f0e0ee, #3b2639);
+  --focus: light-dark(#7e3a76, #d8a4d1);
+}
+
+:root[data-accent="custom"] {
+  --accent: var(--custom-accent, #4f7fc9);
+  --accent-hover: color-mix(in srgb, var(--accent) 84%, var(--text));
+  --accent-active: color-mix(in srgb, var(--accent) 72%, var(--text));
+  --accent-ink: color-mix(in srgb, var(--accent) 76%, var(--text));
+  --accent-contrast: #ffffff;
+  --accent-weak: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  --focus: var(--accent);
+}
+
 /* Follow Chrome uses the colour preference exposed by the browser/operating
    system. Chrome does not expose the private Customize Chrome palette to
    extensions, so the system accent is the closest truthful automatic colour. */
 @supports (color: AccentColor) {
-  :root[data-appearance="follow"] {
+  :root[data-color-mode="follow"] {
     --accent: AccentColor;
     --accent-hover: color-mix(in srgb, AccentColor 84%, var(--text));
     --accent-active: color-mix(in srgb, AccentColor 72%, var(--text));

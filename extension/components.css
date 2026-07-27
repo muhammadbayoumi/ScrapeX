@@ -1037,10 +1037,19 @@ code {
 }
 .appearance-swatch-cyan { --swatch: #00adb5; }
 .appearance-swatch-blue { --swatch: #1a73e8; }
+.appearance-swatch-slate { --swatch: #64748b; }
+.appearance-swatch-indigo { --swatch: #4f46e5; }
+.appearance-swatch-teal { --swatch: #0f766e; }
 .appearance-swatch-violet { --swatch: #7c3aed; }
 .appearance-swatch-rose { --swatch: #db2777; }
 .appearance-swatch-orange { --swatch: #d97706; }
 .appearance-swatch-green { --swatch: #16834a; }
+.appearance-swatch-forest { --swatch: #166534; }
+.appearance-swatch-olive { --swatch: #66752f; }
+.appearance-swatch-gold { --swatch: #a16207; }
+.appearance-swatch-brown { --swatch: #8b5e3c; }
+.appearance-swatch-burgundy { --swatch: #8f294d; }
+.appearance-swatch-plum { --swatch: #7e3a76; }
 .appearance-manual button:disabled { cursor: not-allowed; }
 .appearance-note {
   margin: 0;
