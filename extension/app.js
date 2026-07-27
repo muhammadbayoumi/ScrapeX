@@ -331,7 +331,7 @@ function renderSourceManager() {
   }
   if (!shown.length) {
     box.innerHTML = `<div class="source-manager-empty">
-      No source matches â€œ${esc(state.sourceFilter)}â€.
+      No source matches “${esc(state.sourceFilter)}”.
     </div>`;
     return;
   }
@@ -345,7 +345,7 @@ function renderSourceManager() {
         <span class="source-manager-card-meta muted text-xs">
           <span class="dot ${source.implemented ? "on" : "off"}" aria-hidden="true"></span>
           <span>${status}</span>
-          <span aria-hidden="true">Â·</span>
+          <span aria-hidden="true">·</span>
           <span>Automation ${source.active ? "on" : "off"}</span>
         </span>
       </div>
@@ -372,12 +372,12 @@ function renderSourceEditor(source) {
   $("source-edit-readiness").innerHTML =
     `<span class="dot ${ready ? "on" : "off"}" aria-hidden="true"></span>
      <span>${ready ? "Ready" : "Connector unavailable"}</span>`;
-  $("source-edit-domain").textContent = sourceDomain(source.base_url) || "â€”";
-  $("source-edit-name").textContent = source.source_name || "â€”";
-  $("source-edit-name-ar").textContent = source.source_name_ar || "â€”";
-  $("source-edit-key").textContent = source.source_key || "â€”";
-  $("source-edit-family").textContent = source.family || "â€”";
-  $("source-edit-url").textContent = source.base_url || "â€”";
+  $("source-edit-domain").textContent = sourceDomain(source.base_url) || "—";
+  $("source-edit-name").textContent = source.source_name || "—";
+  $("source-edit-name-ar").textContent = source.source_name_ar || "—";
+  $("source-edit-key").textContent = source.source_key || "—";
+  $("source-edit-family").textContent = source.family || "—";
+  $("source-edit-url").textContent = source.base_url || "—";
 
   const active = $("source-edit-active");
   active.checked = Boolean(source.active);
@@ -408,7 +408,7 @@ async function saveSourceEditor() {
   const button = $("source-edit-save");
   const wanted = $("source-edit-active").checked;
   button.disabled = true;
-  out("source-edit-result", "Savingâ€¦", "muted");
+  out("source-edit-result", "Saving…", "muted");
   try {
     if (wanted !== Boolean(source.active)) {
       await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",

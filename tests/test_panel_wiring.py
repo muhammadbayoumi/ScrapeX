@@ -162,3 +162,18 @@ def test_the_host_failure_reason_is_defined_once():
     assert JS.count("function hostFailureReason") == 1
     for kind in ("absent", "forbidden", "crashed", "timeout"):
         assert f'kind === "{kind}"' in JS, f"hostFailureReason does not name {kind}"
+
+
+def test_no_surface_ships_double_encoded_text():
+    """Nine strings in the source editor and Sources tab shipped as mojibake -
+    an em dash, curly quotes, an ellipsis and a middot that were encoded to
+    UTF-8 and then re-decoded as Latin-1, so every empty field painted a
+    literal `â€”` on screen. The correct spellings of the same glyphs
+    were a few lines away in the same file, which is how a copy-paste from the
+    wrong half spreads it."""
+    mojibake = ("â€”", "â€œ", "â€",
+                "â€¦", "Â·", "â€™")
+    for name, text in (("app.js", JS), ("app.html", HTML)):
+        for bad in mojibake:
+            assert bad not in text, (
+                f"{name} ships double-encoded text ({bad!r}) - it renders as garbage")
