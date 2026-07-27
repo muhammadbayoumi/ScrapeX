@@ -156,6 +156,7 @@ function closeWorkspaceMenu(returnFocus = false) {
 function showView(name, animate = true) {
   const current = VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden"));
   const navigationName = name === "source-edit" ? "sources" : name;
+  runModeSelectUi?.close();
   closeWorkspaceMenu();
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
   const activeButton = document.querySelector(
@@ -487,6 +488,110 @@ const MODES = {
     null],
 };
 
+let runModeSelectUi = null;
+
+function setupRunModeSelect() {
+  const shell = document.querySelector('[data-select-control="run-mode"]');
+  const select = $("run-mode");
+  const trigger = $("run-mode-trigger");
+  const list = $("run-mode-list");
+  const label = trigger.querySelector("[data-select-label]");
+
+  function buttons() {
+    return [...list.querySelectorAll("[data-select-value]")];
+  }
+
+  function close({restoreFocus = false} = {}) {
+    if (list.classList.contains("hidden")) return;
+    list.classList.add("hidden");
+    trigger.setAttribute("aria-expanded", "false");
+    shell.classList.remove("is-open");
+    if (restoreFocus) trigger.focus({preventScroll: true});
+  }
+
+  function focusOption(direction = 1) {
+    const enabled = buttons().filter((button) => !button.disabled);
+    if (!enabled.length) return;
+    const current = enabled.indexOf(document.activeElement);
+    const selected = enabled.findIndex((button) => button.getAttribute("aria-selected") === "true");
+    const start = current >= 0 ? current : Math.max(selected, 0);
+    enabled[(start + direction + enabled.length) % enabled.length]
+      .focus({preventScroll: true});
+  }
+
+  function open() {
+    list.classList.remove("hidden");
+    trigger.setAttribute("aria-expanded", "true");
+    shell.classList.add("is-open");
+    requestAnimationFrame(() => {
+      const selected = list.querySelector('[aria-selected="true"]:not(:disabled)');
+      (selected || buttons().find((button) => !button.disabled))
+        ?.focus({preventScroll: true});
+    });
+  }
+
+  function choose(value) {
+    const option = [...select.options].find((candidate) => candidate.value === value);
+    if (!option || option.disabled) return;
+    select.value = value;
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+    close({restoreFocus: true});
+  }
+
+  function sync() {
+    const selected = select.selectedOptions[0];
+    label.textContent = selected?.textContent || "";
+    trigger.setAttribute("aria-label", `Run mode: ${label.textContent}`);
+    list.replaceChildren(...[...select.options].map((option) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "sx-select-option";
+      item.dataset.selectValue = option.value;
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(option.selected));
+      item.disabled = option.disabled;
+      item.innerHTML = `<span>${esc(option.textContent)}</span>
+        <svg class="sx-icon sm" aria-hidden="true">
+          <use href="icons/material-icons.svg#check"></use>
+        </svg>`;
+      item.addEventListener("click", () => choose(option.value));
+      return item;
+    }));
+  }
+
+  trigger.addEventListener("click", () => {
+    if (list.classList.contains("hidden")) open();
+    else close();
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (list.classList.contains("hidden")) open();
+      else focusOption(event.key === "ArrowDown" ? 1 : -1);
+    }
+  });
+  list.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close({restoreFocus: true});
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const enabled = buttons().filter((button) => !button.disabled);
+      const target = event.key === "Home" ? enabled[0] : enabled[enabled.length - 1];
+      target?.focus({preventScroll: true});
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!shell.contains(event.target)) close();
+  });
+  select.addEventListener("change", sync);
+  sync();
+  return {close, sync};
+}
+
 // The copy above ships BUILT-IN so the panel works with the engine down; when
 // the engine answers, the shared UI contract (/api/ui — the same module the
 // workspace sidebar renders from) overlays it, so the two surfaces can never
@@ -558,6 +663,7 @@ function syncModeChoices() {
     // the note above says what happened and why.
     select.value = withData > 0 ? "update" : "initial_crawl";
   }
+  runModeSelectUi?.sync();
   renderModeTexts(note);
 }
 
@@ -1510,6 +1616,7 @@ async function init() {
     .addEventListener("click", loadCurrentPage);
   $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") probe(); });
 
+  runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);
   $("run").addEventListener("click", startRun);
 

@@ -50,6 +50,17 @@ def test_every_tab_renders(client, path):
     assert r.status_code == 200 and 'class="wstabs"' in r.text
 
 
+def test_header_and_sidebar_form_one_non_repeating_workspace_scaffold(client):
+    page = client.get("/data").text
+    css = Path("scrapex/webui/static/webui.css").read_text(encoding="utf-8")
+
+    assert 'class="topbar-leading"' in page
+    assert "#menu" in page
+    assert "workspace-sidebar-head" not in page
+    assert "--workspace-sidebar-width" in css
+    assert "grid-template-columns:var(--workspace-sidebar-width)" in css
+
+
 @pytest.mark.parametrize("path", TABS + ["/", f"/source/{SOURCE}", "/manage"])
 def test_no_arabic_leaks_into_the_interface(client, path):
     """Spec 1: the interface is English only.

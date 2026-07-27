@@ -137,6 +137,7 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert device_colours.is_checked()
     assert view.locator("[data-appearance-group]").count() == 0
     assert view.locator("[data-appearance-palette]").count() == 2
+    assert view.locator(".appearance-scheme-picker svg").count() == 0
     assert page.locator("#appearance-popover").count() == 0
     assert page.locator("#appearance-backdrop").count() == 0
     assert page.locator("#s-appearance").count() == 0
@@ -673,6 +674,44 @@ def _pick(page, key):
     page.wait_for_timeout(400)
     page.check(f'input[data-key="{key}"]')
     page.wait_for_timeout(200)
+
+
+def test_run_mode_uses_the_themed_listbox_instead_of_the_native_blue_popup(open_panel):
+    page = open_panel()
+    page.click(RUN_TAB)
+    page.wait_for_timeout(200)
+
+    native_proxy = page.locator("#run-mode").evaluate("""element => {
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return {
+        pointerEvents: style.pointerEvents,
+        clipped: style.clipPath !== "none",
+        width: box.width,
+        height: box.height,
+      };
+    }""")
+    assert native_proxy["pointerEvents"] == "none"
+    assert native_proxy["clipped"]
+    assert native_proxy["width"] <= 1 and native_proxy["height"] <= 1
+    page.click("#run-mode-trigger")
+    assert page.locator("#run-mode-list").is_visible()
+    assert page.locator("#run-mode-list [role=option]").count() == 4
+    selected = page.locator('#run-mode-list [aria-selected="true"]')
+    assert selected.count() == 1
+    assert selected.text_content().strip() == "Update existing data"
+    themed = selected.evaluate("""element => {
+      const probe = document.createElement("i");
+      probe.style.background = "var(--primary-container)";
+      document.body.append(probe);
+      const expected = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return getComputedStyle(element).backgroundColor === expected;
+    }""")
+    assert themed, "the selected row escaped the active theme"
+
+    page.keyboard.press("Escape")
+    assert not page.locator("#run-mode-list").is_visible()
 
 
 def test_update_is_not_on_offer_for_a_site_with_no_data(open_panel):

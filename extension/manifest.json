@@ -4,16 +4,16 @@
   "version": "0.1.0",
   "description": "A local scraping tool: capture prices from the sites you browse into a warehouse on your own machine.",
   "icons": {
-    "16": "icons/x-mark.png",
-    "32": "icons/x-mark.png",
-    "48": "icons/x-mark.png",
-    "128": "icons/x-mark.png"
+    "16": "icons/x-mark-adaptive-16.png",
+    "32": "icons/x-mark-adaptive-32.png",
+    "48": "icons/x-mark-adaptive-48.png",
+    "128": "icons/x-mark-adaptive-128.png"
   },
   "action": {
     "default_title": "Open ScrapeX",
     "default_icon": {
-      "16": "icons/x-mark.png",
-      "32": "icons/x-mark.png"
+      "16": "icons/x-mark-adaptive-16.png",
+      "32": "icons/x-mark-adaptive-32.png"
     }
   },
   "side_panel": {

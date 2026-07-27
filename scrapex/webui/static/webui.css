@@ -1,7 +1,8 @@
 :root {
   --brand-mark: url("/static/x-mark.png");
   /* Measured by base.html because the topbar height can change responsively. */
-  --sticky-tabs: 3.625rem;
+  --sticky-tabs: 4rem;
+  --workspace-sidebar-width: 17.75rem;
 }
 
 body {
@@ -12,15 +13,24 @@ body {
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
+  display: grid;
+  grid-template-columns: var(--workspace-sidebar-width) minmax(0, 1fr);
+  min-height: 4rem;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: var(--shadow-xs);
+  backdrop-filter: blur(12px);
+}
+
+.topbar-leading {
+  min-width: 0;
+  min-height: 4rem;
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  min-height: 3.625rem;
   padding: var(--sp-2) var(--sp-4);
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  box-shadow: var(--shadow-xs);
-  backdrop-filter: blur(12px);
+  border-inline-end: 1px solid var(--line);
 }
 
 .topbar-brand {
@@ -93,7 +103,7 @@ h3 {
        from page actions. It can disappear completely without leaving a dead
        gutter, and the content then reclaims the whole viewport. */
     .workspace-shell{min-height:calc(100vh - var(--sticky-tabs));display:grid;
-      grid-template-columns:17.75rem minmax(0,1fr);align-items:stretch;
+      grid-template-columns:var(--workspace-sidebar-width) minmax(0,1fr);align-items:stretch;
       transition:grid-template-columns var(--dur) var(--ease)}
     .workspace-main{grid-column:2;grid-row:1;display:flex;min-width:0;min-height:100%;
       flex-direction:column}
@@ -102,28 +112,23 @@ h3 {
       top:var(--sticky-tabs);height:calc(100vh - var(--sticky-tabs));overflow-y:auto;
       border-inline-end:1px solid var(--line);background:var(--surface);z-index:4;
       transition:transform var(--dur) var(--ease),opacity var(--dur-fast) ease}
-    .workspace-sidebar-head{padding:var(--sp-4);border-bottom:1px solid var(--line)}
-    .workspace-sidebar-brand{display:inline-flex;align-items:center;gap:.55rem;
-      color:var(--accent-ink);font-size:1.08rem;font-weight:600;text-decoration:none}
-    .workspace-sidebar-brand .brand-logo{width:21px;height:21px}
-    .workspace-sidebar-sub{display:block;margin:.22rem 0 0 1.75rem;color:var(--muted);font-size:.72rem}
     .sidebar-toggle{display:grid;place-items:center}
     .sidebar-toggle:hover:not(:disabled){background:var(--accent-weak);color:var(--accent-ink)}
-    .sidebar-toggle svg{width:1.125rem;height:1.125rem;fill:currentColor}
-    .wstabs{display:flex;flex-direction:column;gap:1rem;padding:.85rem .9rem 1rem}
+    .sidebar-toggle svg{width:1.5rem;height:1.5rem;fill:currentColor}
+    .wstabs{display:flex;flex-direction:column;gap:1rem;padding:var(--sp-3) var(--sp-3) var(--sp-4)}
     .wsnav-group{min-width:0}
     .wsnav-label{display:block;padding:.15rem .7rem .3rem;color:var(--muted);
       font-size:.64rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
     .wsnav-links{display:flex;flex-direction:column;gap:.14rem}
-    .wstabs a{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;
-      gap:.65rem;min-height:40px;padding:.52rem .7rem;border-radius:9px;
+    .wstabs a{display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;
+      gap:.7rem;min-height:44px;padding:.55rem .75rem;border-radius:var(--radius-pill);
       color:var(--muted);font-size:.84rem;text-decoration:none}
-    .wsnav-icon{width:1.125rem;height:1.125rem;fill:currentColor}
-    .wstabs a:hover{background:var(--bg);color:var(--text)}
-    .wstabs a[aria-current=page]{background:var(--accent-weak);color:var(--accent-ink);
-      font-weight:600;box-shadow:inset 3px 0 var(--accent)}
+    .wsnav-icon{width:1.25rem;height:1.25rem;fill:currentColor}
+    .wstabs a:hover{background:var(--control-hover);color:var(--text)}
+    .wstabs a[aria-current=page]{background:var(--primary-container);
+      color:var(--on-primary-container);font-weight:600}
     .runtime-status{display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-2);
-      margin-inline-start:auto;min-width:0}
+      min-width:0;padding:var(--sp-2) var(--sp-4)}
     .runtime-chip,.dbchip{display:inline-flex;align-items:center;gap:.3rem;text-decoration:none}
     .runtime-chip .sx-icon,.dbchip .sx-icon{width:.9rem;height:.9rem;fill:currentColor}
     .workspace-footer{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
@@ -146,6 +151,9 @@ h3 {
     }
     .sidebar-backdrop{display:none}
     @media(max-width:900px){
+      .topbar{grid-template-columns:minmax(0,1fr) auto}
+      .topbar-leading{border-inline-end:0}
+      .runtime-status{padding-inline-start:0}
       .topbar .sub{display:none}
       .workspace-shell{display:block}
       .workspace-main{width:100%}

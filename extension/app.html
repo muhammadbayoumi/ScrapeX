@@ -65,12 +65,25 @@
           </div>
         </div>
         <div class="field">
-          <select id="run-mode" aria-label="Run mode">
-            <option value="update">Update existing data</option>
-            <option value="initial_crawl">Initial crawl</option>
-            <option value="full_rebuild">Full rebuild</option>
-            <option value="history_backfill">History backfill</option>
-          </select>
+          <div class="sx-select" data-select-control="run-mode">
+            <select id="run-mode" class="sx-select-native" tabindex="-1"
+                    aria-hidden="true">
+              <option value="update">Update existing data</option>
+              <option value="initial_crawl">Initial crawl</option>
+              <option value="full_rebuild">Full rebuild</option>
+              <option value="history_backfill">History backfill</option>
+            </select>
+            <button id="run-mode-trigger" class="sx-select-trigger" type="button"
+                    aria-haspopup="listbox" aria-expanded="false"
+                    aria-controls="run-mode-list">
+              <span data-select-label>Update existing data</span>
+              <svg class="sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#expand-more"></use>
+              </svg>
+            </button>
+            <div id="run-mode-list" class="sx-select-list hidden" role="listbox"
+                 aria-label="Run mode"></div>
+          </div>
         </div>
         <div id="mode-help" class="muted text-xs mt-1"></div>
         <div id="mode-warn" class="hidden mt-2"></div>

@@ -4,6 +4,9 @@
     Source: https://github.com/google/material-design-icons
     This curated sprite is the canonical icon source for both ScrapeX UIs.
   -->
+  <symbol id="menu" viewBox="0 0 24 24">
+    <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+  </symbol>
   <symbol id="menu-open" viewBox="0 0 24 24">
     <path d="M3 18h13v-2H3v2zm0-5h10v-2H3v2zm0-7v2h13V6H3zm15.59 1.41L17.17 6l-5 5 5 5 1.41-1.41L15 11l3.59-3.59z"/>
   </symbol>

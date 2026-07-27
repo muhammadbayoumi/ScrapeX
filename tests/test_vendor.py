@@ -9,8 +9,10 @@ being truncated by a bad checkout, or losing their licence text.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
+import struct
 
 import pytest
 
@@ -186,6 +188,17 @@ def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
             ))
     assert referenced
     assert referenced <= symbols, f"missing material icon symbols: {sorted(referenced - symbols)}"
+
+
+def test_chrome_header_logo_has_a_real_high_contrast_icon_at_every_size():
+    manifest = json.loads((ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
+
+    for size, relative in manifest["icons"].items():
+        data = (ROOT / "extension" / relative).read_bytes()
+        assert data.startswith(b"\x89PNG\r\n\x1a\n")
+        width, height = struct.unpack(">II", data[16:24])
+        assert (width, height) == (int(size), int(size))
+        assert "adaptive" in relative
 
 
 def test_the_datasets_page_loads_the_grid_from_our_own_origin():

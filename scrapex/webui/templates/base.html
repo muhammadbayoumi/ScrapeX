@@ -9,21 +9,23 @@
   <script src="/static/appearance.js?v=appearance-3"></script>
   <link rel="stylesheet" href="/static/tokens.css?v=appearance-3">
   <link rel="stylesheet" href="/static/components.css?v=appearance-3">
-  <link rel="stylesheet" href="/static/webui.css?v=source-ui-6">
+  <link rel="stylesheet" href="/static/webui.css?v=layout-7">
   <link rel="stylesheet" href="/static/table-theme.css">
   <script src="/static/ui.js?v=appearance-1"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
   <header class="topbar">
-    <button type="button" class="sidebar-toggle icon-button ghost" aria-label="Hide navigation"
-            aria-controls="workspace-sidebar" aria-expanded="true">
-      {{ icon("menu-open") }}
-    </button>
-    <a href="/" class="brand topbar-brand">
-      <span class="brand-logo" aria-hidden="true"></span>
-      <span>ScrapeX</span>
-    </a>
+    <div class="topbar-leading">
+      <button type="button" class="sidebar-toggle icon-button ghost" aria-label="Hide navigation"
+              aria-controls="workspace-sidebar" aria-expanded="true">
+        {{ icon("menu") }}
+      </button>
+      <a href="/" class="brand topbar-brand">
+        <span class="brand-logo" aria-hidden="true"></span>
+        <span>ScrapeX</span>
+      </a>
+    </div>
     <div class="runtime-status" aria-label="Runtime status">
       {% if engine_state %}
         <a class="chip runtime-chip {{ 'accent' if engine_state.connected else 'amber' }}"
@@ -46,12 +48,6 @@
   {% set ctx = ("?source_key=" ~ source_key) if source_key else "" %}
   <div class="workspace-shell">
     <aside class="workspace-sidebar" id="workspace-sidebar" aria-label="Workspace navigation">
-      <div class="workspace-sidebar-head">
-        <a href="/" class="workspace-sidebar-brand">
-          <span class="brand-logo" aria-hidden="true"></span>ScrapeX
-        </a>
-        <span class="workspace-sidebar-sub">Collect. Analyze. Grow.</span>
-      </div>
       <nav class="wstabs" aria-label="Workspace">
         {# The sidebar is DATA (scrapex/ui_manifest.py): one contract feeds
            this loop and /api/ui, so the workspace and the panel cannot drift.

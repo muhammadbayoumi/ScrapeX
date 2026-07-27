@@ -883,16 +883,45 @@ code {
 
 /* M3 Expressive connected single-select button group. */
 .appearance-scheme-picker {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--sp-1);
+  gap: 0;
   padding: var(--sp-1);
   border: 1px solid var(--outline);
   border-radius: var(--radius-pill);
   background: var(--surface-container);
 }
 
+.appearance-scheme-picker::before {
+  position: absolute;
+  z-index: 0;
+  inset-block: var(--sp-1);
+  inset-inline-start: var(--sp-1);
+  width: calc((100% - (2 * var(--sp-1))) / 3);
+  border-radius: var(--radius-pill);
+  background: var(--primary-container);
+  content: "";
+  transform: translateX(0);
+  transition:
+    transform var(--dur-slow) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.appearance-scheme-picker:has(
+  [data-appearance-scheme-mode="dark"].is-active
+)::before {
+  transform: translateX(100%);
+}
+.appearance-scheme-picker:has(
+  [data-appearance-scheme-mode="device"].is-active
+)::before {
+  transform: translateX(200%);
+}
+
 .appearance-scheme-picker button {
+  position: relative;
+  z-index: 1;
   min-height: 2.5rem;
   display: flex;
   align-items: center;
@@ -907,25 +936,20 @@ code {
   font-weight: var(--fw-bold);
   cursor: pointer;
   transition:
-    background-color var(--dur) var(--ease),
     color var(--dur) var(--ease),
-    transform var(--dur-fast) var(--ease);
+    background-color var(--dur-fast) var(--ease);
 }
 
 .appearance-scheme-picker button:hover:not(:disabled) {
-  background: var(--control-hover);
+  background: color-mix(in srgb, var(--on-surface) 7%, transparent);
   color: var(--on-surface);
 }
-.appearance-scheme-picker button:active:not(:disabled) {
-  transform: scale(.96);
-}
 .appearance-scheme-picker button.is-active {
-  background: var(--primary-container);
+  background: transparent;
   color: var(--on-primary-container);
-  transform: scale(1.02);
 }
 .appearance-scheme-picker button.is-active:hover {
-  background: color-mix(in srgb, var(--primary) 16%, var(--primary-container));
+  background: color-mix(in srgb, var(--on-primary-container) 7%, transparent);
   color: var(--on-primary-container);
 }
 
@@ -1142,6 +1166,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .appearance-scheme-picker::before,
   .appearance-scheme-picker button,
   .appearance-palette-tile,
   .appearance-switch span,
