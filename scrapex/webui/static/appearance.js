@@ -509,14 +509,12 @@
         const active = button.dataset.appearancePalette === current.palette;
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-pressed", String(active));
-        button.disabled = current.deviceColors;
       });
       control.querySelectorAll("[data-appearance-device-colors]").forEach((input) => {
         input.checked = current.deviceColors;
       });
       control.querySelectorAll("[data-appearance-custom-color]").forEach((input) => {
         input.value = current.customAccent;
-        input.disabled = current.deviceColors;
         input.closest(".appearance-custom-tile")
           ?.classList.toggle("is-active", current.palette === "custom");
       });
