@@ -34,7 +34,8 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import option_axes_json, option_fingerprint, selling_unit_from
+from ..normalize import (option_axes_json, option_fingerprint, selling_unit_from,
+                         strip_markup)
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, DetailGroup, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -171,18 +172,9 @@ def _option_text(attrs: list[dict], option_labels: dict[str, str]) -> str:
 
 
 def _clean(html: str) -> str:
-    """Tag-stripped text: scraped content is untrusted (spec 34), and the text
-    carries the meaning anyway — same rationale as the woo connector.
-
-    Entities are unescaped FIRST: madar returns its description already
-    escaped (`&lt;article lang="ar"&gt;…`), so stripping tags before
-    unescaping left the markup sitting in the value as literal text."""
-    if not html:
-        return ""
-    import html as html_module
-
-    text = html_module.unescape(html)
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()
+    """Tag-stripped text — see normalize.strip_markup for why <style> and
+    <script> go content and all, and why entities are unescaped first."""
+    return strip_markup(html)
 
 
 def _classification(product: dict) -> tuple[str, str]:

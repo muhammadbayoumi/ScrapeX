@@ -122,3 +122,59 @@ def test_record_hash_deterministic_and_order_insensitive():
 
 def test_record_hash_changes_with_content():
     assert record_hash({"price": "168.78"}) != record_hash({"price": "170.00"})
+
+
+# ---- the CSS the owner read in a product description -------------------------
+
+def test_a_style_block_leaves_with_its_contents_not_just_its_tags():
+    """Owner-reported, from madar's record panel: the Description opened with a
+    paragraph of CSS before the Arabic text.
+
+        #html-body [data-pb-style=JHMUASU]{justify-content:flex-start;…}
+
+    Magento Page Builder writes a <style> block at the top of every description
+    it composes. Stripping tags alone deletes `<style>` and `</style>` and keeps
+    EVERYTHING BETWEEN THEM — a rule that removes the wrapper and keeps the
+    payload is not a strip, it is a leak.
+    """
+    from scrapex.normalize import strip_markup
+
+    raw = ("<style>#html-body [data-pb-style=JHMUASU],#html-body "
+           "[data-pb-style=LHRGWPE]{justify-content:flex-start;display:flex;"
+           "background-size:auto}</style>"
+           "<div data-pb-style='JHMUASU'><p>حديد تسليح ابوكسي</p></div>")
+
+    out = strip_markup(raw)
+
+    assert "data-pb-style" not in out and "flex-start" not in out
+    assert out == "حديد تسليح ابوكسي"
+
+
+def test_an_unclosed_style_does_not_let_the_whole_tail_through():
+    """The half-fix: removing only `<style>…</style>` pairs leaves an unclosed
+    opener publishing the rest of the document as text."""
+    from scrapex.normalize import strip_markup
+
+    assert strip_markup("<style>p{color:red}<div>tail") == ""
+
+
+def test_entities_are_unescaped_before_the_tags_go():
+    """madar returns its description already escaped, so stripping first left
+    the markup sitting in the value as literal text."""
+    from scrapex.normalize import strip_markup
+
+    assert strip_markup("&lt;article lang=&quot;ar&quot;&gt;نص&lt;/article&gt;") == "نص"
+
+
+def test_every_connector_shares_one_stripper():
+    """Three connectors had written this rule three times and one of them was
+    wrong — the one that drifted is what put CSS in madar's description. The
+    guard is the import, because a fourth copy is how it comes back."""
+    from pathlib import Path
+
+    root = Path(__file__).parents[1] / "scrapex" / "connectors"
+    for name in ("magento.py", "woocommerce.py", "aramco.py"):
+        body = (root / name).read_text(encoding="utf-8")
+        assert "strip_markup" in body, f"{name} must use the shared stripper"
+        assert 're.sub(r"<[^>]+>"' not in body, (
+            f"{name} strips tags on its own again — that is the copy that drifts")

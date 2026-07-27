@@ -17,6 +17,7 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
+from ..normalize import strip_markup
 from ..rowspec import COMMODITY_PRICE, RowBuilder
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
@@ -57,11 +58,12 @@ _MATERIALS = {
 
 
 def page_lines(html: str) -> list[str]:
-    """The page as reading-order text lines, styles and scripts removed."""
-    html = re.sub(r"<style[^>]*>.*?</style>", " ", html, flags=re.S)
-    html = re.sub(r"<script[^>]*>.*?</script>", " ", html, flags=re.S)
-    text = re.sub(r"\n\s*", "\n",
-                  re.sub(r"<[^>]+>", "\n", re.sub(r"\s+", " ", html)))
+    """The page as reading-order text lines, styles and scripts removed.
+
+    This connector had the rule right and the other two did not, which is
+    exactly why it now shares theirs: three copies of one rule drift, and the
+    one that drifted put a paragraph of CSS in madar's description."""
+    text = strip_markup(html, separator="\n")
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 

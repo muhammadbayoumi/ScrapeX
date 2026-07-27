@@ -240,8 +240,20 @@ def test_the_engines_own_pages_and_local_tools_still_work(client):
     assert client.get("/").status_code == 200
 
 
-def test_the_extension_is_still_allowed(client):
-    origin = "chrome-extension://" + ("a" * 32)
+def test_the_extension_is_still_allowed(tmp_path, monkeypatch, db_path, manifest_copy):
+    """The panel's HTTP fallback must not be locked out.
+
+    Pinned to a manifest this test WRITES. It used to read the real one on the
+    developer's machine and assert that an invented id was accepted, so it
+    passed only where ScrapeX was not installed — and failed the moment the
+    engine registered its native host, which is the product correctly refusing
+    an untrusted extension. A test whose answer depends on whether the app is
+    installed on the machine running it is not a test.
+    """
+    trusted = "a" * 32
+    client = _client_trusting_only(tmp_path, monkeypatch, db_path,
+                                   manifest_copy, trusted)
+    origin = "chrome-extension://" + trusted
     r = client.get("/api/health", headers={"Origin": origin})
     assert r.status_code == 200, "the panel's HTTP fallback was locked out"
     assert r.headers.get("access-control-allow-origin") == origin, \

@@ -12,6 +12,7 @@ counter-example.
 from __future__ import annotations
 
 import hashlib
+import html as html_module
 import json
 import re
 from decimal import Decimal, InvalidOperation
@@ -220,3 +221,36 @@ def record_hash(payload: dict) -> str:
     """
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def strip_markup(html: str, *, separator: str = " ") -> str:
+    """HTML -> text, with <style> and <script> removed CONTENT AND ALL.
+
+    Declared once because three connectors had written it three times and one
+    of them was wrong. Stripping tags alone deletes `<style>` and `</style>`
+    and keeps everything between them, so madar's Page Builder — which opens
+    every description with its own stylesheet — published a paragraph of CSS
+    ahead of the Arabic text, and the owner read it in the record panel:
+
+        #html-body [data-pb-style=JHMUASU]{justify-content:flex-start;…}
+
+    A rule that removes the wrapper and keeps the payload is not a strip, it is
+    a leak. Entities are unescaped FIRST: madar returns its description already
+    escaped (`&lt;article lang="ar"&gt;…`), so stripping before unescaping left
+    the markup in the value as literal text.
+
+    Scraped content is untrusted (spec 34), which is the other half of why the
+    text and not the markup is what gets stored.
+    """
+    if not html:
+        return ""
+    text = html_module.unescape(html)
+    text = re.sub(r"<(style|script)\b[^>]*>.*?</\1\s*>", " ", text,
+                  flags=re.IGNORECASE | re.DOTALL)
+    # An unclosed opener would otherwise let the whole tail through.
+    text = re.sub(r"<(style|script)\b[^>]*>.*", " ", text,
+                  flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<[^>]+>", separator, text)
+    if separator == "\n":
+        return re.sub(r"\n\s*", "\n", re.sub(r"[^\S\n]+", " ", text)).strip()
+    return re.sub(r"\s+", " ", text).strip()

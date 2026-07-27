@@ -18,7 +18,7 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import option_axes_json, option_fingerprint
+from ..normalize import option_axes_json, option_fingerprint, strip_markup
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import DetailGroup, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -331,9 +331,7 @@ def _clean(html: str) -> str:
     untrusted). Storing the raw HTML and letting a template render it later is
     how that becomes an injection; the text is what carries the meaning anyway.
     """
-    if not html:
-        return ""
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
+    return strip_markup(html)
 
 
 def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
