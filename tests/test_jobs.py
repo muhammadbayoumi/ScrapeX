@@ -579,3 +579,88 @@ def test_the_worker_can_still_report_when_stderr_is_gone():
         _sys.stderr.write("")   # must not raise
     finally:
         _sys.stdout, _sys.stderr = out, err
+
+
+# ---- a reopen that fails must stay recoverable --------------------------------
+# The worker released its only connection, could not get a new one, and kept the
+# CLOSED object: every later pass took the same dead handle (the reopen guard
+# matched again because the path had already been committed), the failure
+# recorder's own rollback raised on it, and the loop spun at poll speed with no
+# crawls, no scheduler, no heartbeat and nothing written anywhere. A transient
+# fault — the instant during a restore's os.replace when the file is absent —
+# became permanent until the engine was restarted, and /api/health went on
+# saying the worker was fine.
+
+@pytest.fixture()
+def warehouse(tmp_path):
+    """A real file — the reopen path renames and reopens one, which :memory: cannot."""
+    path = tmp_path / "harvest.db"
+    c = dbmod.connect(path)
+    dbmod.migrate(c)
+    c.commit()
+    c.close()
+    return path
+
+
+def _runner(path) -> JobRunner:
+    return JobRunner(str(path), lambda: {}, path_provider=lambda: str(path))
+
+
+def test_a_failed_reopen_does_not_commit_the_new_path_or_clear_the_request(warehouse, monkeypatch):
+    runner = _runner(warehouse)
+    runner._db_path = str(warehouse.parent / "old.db")   # a move is in progress
+    runner.release_database()
+    conn = dbmod.connect(warehouse)
+
+    monkeypatch.setattr(dbmod, "connect", _refuse)
+    with pytest.raises(sqlite3.OperationalError):
+        runner._follow_the_warehouse(conn)
+
+    assert runner._reopen.is_set(), \
+        "the reopen request was consumed by an attempt that failed — nothing will retry"
+    assert str(runner._db_path) != str(warehouse), \
+        "the worker committed to a database it never managed to open, so the guard " \
+        "will short-circuit every later pass and hand back the closed handle"
+
+
+def _refuse(_path):
+    raise sqlite3.OperationalError("unable to open database file")
+
+
+def test_a_reopen_that_succeeds_after_a_failure_recovers_fully(warehouse, monkeypatch):
+    runner = _runner(warehouse)
+    runner._db_path = str(warehouse.parent / "old.db")
+    runner.release_database()
+
+    real = dbmod.connect
+    monkeypatch.setattr(dbmod, "connect", _refuse)
+    with pytest.raises(sqlite3.OperationalError):
+        runner._follow_the_warehouse(real(warehouse))
+
+    # The fault has passed (the restore finished). The next pass must go through.
+    monkeypatch.setattr(dbmod, "connect", real)
+    fresh = runner._follow_the_warehouse(real(warehouse))
+    try:
+        assert fresh.execute("SELECT 1").fetchone()[0] == 1
+        assert not runner._reopen.is_set(), "a successful reopen must clear the request"
+        assert str(runner._db_path) == str(warehouse)
+    finally:
+        fresh.close()
+
+
+def test_the_failure_is_recorded_even_with_no_connection_left(warehouse):
+    """The pass with no handle is the one whose reason the owner most needs, and
+    it was the only pass that recorded nothing."""
+    from scrapex.jobs import WORKER_ERROR_KEY
+
+    _runner(warehouse)._record_failure(
+        None, sqlite3.OperationalError("unable to open database file"))
+
+    conn = dbmod.connect(warehouse)
+    try:
+        row = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                           (WORKER_ERROR_KEY,)).fetchone()
+    finally:
+        conn.close()
+    assert row is not None, "a worker that lost its database left no trace of why"
+    assert "unable to open database file" in json.loads(row[0])["error"]

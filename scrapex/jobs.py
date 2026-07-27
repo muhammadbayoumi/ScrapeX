@@ -588,14 +588,25 @@ class JobRunner:
         Checked between jobs, never during one: a crawl that started against one
         file must finish against it, and the switch is only safe at the same
         boundary the pause and cancel controls already use.
+
+        NOTHING IS COMMITTED UNTIL THE NEW HANDLE EXISTS. The handle really does
+        have to be released before the reopen — a restore renames the file and
+        Windows will not rename what anyone holds — so the failure window cannot
+        be closed by opening first. What CAN be fixed is what a failed reopen
+        leaves behind. Clearing `_reopen` and moving `_db_path` up front meant
+        that a connect which raised (the instant during `os.replace` when the
+        path does not exist, a migration mismatch, a locked file) left the loop
+        holding a CLOSED connection that the guard above then returned on every
+        later pass: no crawls, no scheduler, no heartbeat, and the failure
+        recorder's own rollback raising on the same dead handle, so nothing was
+        written anywhere. Both are now committed only on success, and the caller
+        drops the dead handle — so a transient fault stays transient.
         """
         current = str(self._path_provider())
         if current == str(self._db_path) and not self._reopen.is_set():
             return conn
-        self._reopen.clear()
         conn.commit()
         conn.close()
-        self._db_path = current
         # Give the file up for a moment: a restore renames it while we wait, and
         # reopening immediately would take the handle straight back.
         if self._stop.wait(self._poll_interval_s):
@@ -603,6 +614,8 @@ class JobRunner:
         fresh = dbmod.connect(current)
         reclaim_orphaned_jobs(fresh)     # anything left running belongs to the old file
         fresh.commit()
+        self._db_path = current
+        self._reopen.clear()
         return fresh
 
     def _loop(self) -> None:
@@ -616,7 +629,21 @@ class JobRunner:
             while not self._stop.wait(self._poll_interval_s):
                 job_ref = None
                 try:
-                    conn = self._follow_the_warehouse(conn)
+                    if conn is None:
+                        # A previous pass released the handle and could not get
+                        # a new one. Retrying here is the whole recovery: the
+                        # fault that broke the reopen (a restore mid-rename, an
+                        # unplugged drive) is usually over by the next poll.
+                        conn = dbmod.connect(self._db_path)
+                        reclaim_orphaned_jobs(conn)
+                    try:
+                        conn = self._follow_the_warehouse(conn)
+                    except BaseException:
+                        # The old handle is closed and the new one never opened.
+                        # Holding the dead object is what turned a passing fault
+                        # into a permanently silent worker, so let it go.
+                        conn = None
+                        raise
                     touch_runtime_heartbeat(conn)   # proof of life for enqueue-only clients
                     # Reaching here IS the recovery: the loop is running and
                     # the warehouse is writable. Clearing later would leave an
@@ -638,8 +665,8 @@ class JobRunner:
                     # 'running' forever (blocking its source's schedules) or spin
                     # the loop on it at poll speed with nothing written anywhere.
                     traceback.print_exc(file=sys.stderr)
-                    record_worker_failure(conn, exc, fatal=False)
-                    if job_ref is not None:
+                    self._record_failure(conn, exc)
+                    if job_ref is not None and conn is not None:
                         self._fail_orphan(conn, job_ref, exc)
         except BaseException as exc:  # noqa: BLE001
             # The loop itself is gone — the connect, the orphan reclaim, or
@@ -653,7 +680,29 @@ class JobRunner:
                 traceback.print_exc(file=sys.stderr)
             raise
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
+
+    def _record_failure(self, conn: sqlite3.Connection | None, exc: BaseException) -> None:
+        """Write the failure even when the worker no longer holds a connection.
+
+        The pass that has no handle is exactly the pass whose reason the owner
+        most needs — a reopen that failed — and it was the one pass that
+        recorded nothing, because the recorder was handed the closed handle and
+        its rollback raised on the way in.
+        """
+        if conn is not None:
+            record_worker_failure(conn, exc, fatal=False)
+            return
+        try:
+            spare = dbmod.connect(self._db_path)
+        except Exception:  # noqa: BLE001 — the database itself is what is unreachable
+            traceback.print_exc(file=sys.stderr)
+            return
+        try:
+            record_worker_failure(spare, exc, fatal=False)
+        finally:
+            spare.close()
 
     @staticmethod
     def _fail_orphan(conn: sqlite3.Connection, job_ref: str, exc: BaseException) -> None:
