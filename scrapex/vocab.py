@@ -57,6 +57,28 @@ class DetailGroup(StrEnum):
     2026-07-26: FIVE groups, and anything a future site publishes goes
     under one of them.
 
+    === THE OWNER'S FILING RULES — THIS IS THE FIXED PLACE ==============
+    Recorded here at his explicit instruction («سجل المعلومات هذه فى مكان
+    ثابت فى الكود بحيث لا ينسى اى شخص من استخدامها») so no connector
+    author can miss them:
+
+    1. APPROVED, NOT YET BUILT — a sixth group `STORE`, for facts about
+       THIS store's handling of the product rather than the product
+       itself: availability (متوفر أم لا), stock quantity (sika states
+       its piece count), shipping method (madar's «طريقة الشحن»).
+
+    2. THE BOUNDARY between Specifications and More information is what
+       the fact DESCRIBES: a property OF the product (coating, grade,
+       thickness) files under SPECIFICATIONS; information ABOUT the
+       product (manufacturer, origin, country of manufacture) files
+       under MORE_INFORMATION.
+
+    3. STANDING RULE — a NEW kind of fact, from any site, is NEVER filed
+       by a developer's judgement. ASK THE OWNER which group it belongs
+       to, or whether it needs a new group. He said exactly this: «اى
+       معلومة نلاقيها عن منتج فى المستقبل اسالنى نحطها فى انهو جروب».
+    ====================================================================
+
     Closed on purpose. Every connector used to invent its own headings,
     so one warehouse held ten — Specifications AND Specs on the same
     source, beside Measurements, Attributes, Classification and Filters.

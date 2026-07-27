@@ -112,6 +112,16 @@ _QUERY_ENRICHED = _QUERY_TEMPLATE.format(
 _AGGREGATIONS_QUERY = """query{products(filter:{price:{from:"0"}},pageSize:1,currentPage:1){
   aggregations{attribute_code label}}}"""
 
+# EVERY attribute's human label, in the store's own language — the owner's
+# screenshot of madar's «المزيد من المعلومات» tab shows «المصنع», «بلد
+# المنشأ», «الطول (متر)» where the panel showed manufacturer, origin,
+# length_cm. The site publishes the words; only the facet subset was ever
+# asked for them (aggregations covers what the shop FILTERS by, nothing
+# else). An empty attributes list asks for all of them: one request per
+# store view, and the answer is the whole vocabulary.
+_ATTRIBUTE_LABELS_QUERY = """query{customAttributeMetadataV2(attributes:[]){
+  items{code label}}}"""
+
 # The en_SA store view returns English names for the same uids (verified
 # live: "اسمنت الرياض" -> "Riyadh Cement"). uid + name ONLY — the bilingual
 # table costs pages, never payloads.
@@ -120,6 +130,23 @@ _EN_QUERY = """query($pageSize:Int!,$currentPage:Int!){
   products(filter:{price:{from:"0"}},pageSize:$pageSize,currentPage:$currentPage){
     page_info{current_page total_pages}
     items{uid name ... on ConfigurableProduct{
+      configurable_options{attribute_code label}
+      variants{product{uid name} attributes{code label}}}}
+  }
+}"""
+
+# The SAME en pass when enrichment is on: descriptions and attribute values
+# ride pages the names already cost, so the English half of every detail is
+# free. The standing rule: a translation the site publishes and we drop is
+# a defect — and madar publishes every description and attribute twice.
+_EN_QUERY_ENRICHED = """query($pageSize:Int!,$currentPage:Int!){
+  products(filter:{price:{from:"0"}},pageSize:$pageSize,currentPage:$currentPage){
+    page_info{current_page total_pages}
+    items{uid name description{html} short_description{html}
+      custom_attributesV2(filters:{is_visible_on_front:true}){items{
+        code ... on AttributeValue{value}
+        ... on AttributeSelectedOptions{selected_options{label}}}}
+      ... on ConfigurableProduct{
       configurable_options{attribute_code label}
       variants{product{uid name} attributes{code label}}}}
   }
@@ -276,12 +303,13 @@ class MagentoGraphqlConnector:
         # found — no second product listing, no second crawl (owner's standing
         # bilingual rule).
         ctx["paths_en"] = self._category_labels(endpoint, notes)
-        english = self._english_names(endpoint, notes)
+        wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
+                               for spec in source.extract)
+        english = self._english_names(endpoint, notes,
+                                      enriched=wants_enrichment)
         ctx["names_en"] = english["names"]
         ctx["axis_labels_en"] = english["axis_labels"]
         ctx["axis_values_en"] = english["axis_values"]
-        wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
-                               for spec in source.extract)
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
         fetched: list[dict] = []      # kept so enrichment needs no second fetch
         page = 1
@@ -332,14 +360,52 @@ class MagentoGraphqlConnector:
             extra = RowBuilder(ENRICHMENT)
             attribute_rows: list[list[str]] = []
             filterable = self._filterable(endpoint, notes)
+            # The human label for EVERY attribute, in each store's own
+            # words — «المصنع» beside "Manufacturer" — where the facet list
+            # only ever labelled what the shop filters by.
+            labels_ar = self._attribute_labels(endpoint, None, notes)
+            labels_en = self._attribute_labels(endpoint, _ENGLISH_STORE, notes)
             for product in fetched:
-                attribute_rows.extend(_enrichment_rows(extra, product, filterable))
+                attribute_rows.extend(_enrichment_rows(
+                    extra, product, filterable,
+                    labels_ar=labels_ar, labels_en=labels_en,
+                    english=english.get("details", {})))
             if attribute_rows:
                 yield ScrapedTable(
                     source_key=source.source_key, kind=ENRICHMENT.kind,
                     source_url=endpoint, header=extra.header,
                     rows=attribute_rows,
                 )
+
+    def _attribute_labels(self, endpoint: str, store: str | None,
+                          notes: list) -> dict:
+        """attribute code -> the store's own human label, for EVERY attribute.
+
+        The owner's report, with a screenshot: the site prints «المصنع»,
+        «بلد المنشأ», «الطول (متر)» — and the panel showed manufacturer,
+        origin, length_cm, because only the facet subset had ever been asked
+        for its words. Failure costs the labels and nothing else: the codes
+        still identify the facts, exactly as before.
+        """
+        try:
+            headers = {"Store": store} if store else None
+            answer = (self._fetcher.post(endpoint,
+                                         json={"query": _ATTRIBUTE_LABELS_QUERY},
+                                         headers=headers)
+                      if headers else
+                      self._fetcher.post(endpoint,
+                                         json={"query": _ATTRIBUTE_LABELS_QUERY})
+                      ).json() or {}
+            items = (((answer.get("data") or {})
+                      .get("customAttributeMetadataV2")) or {}).get("items") or []
+            return {str(i.get("code") or ""): str(i.get("label") or "")
+                    for i in items if i.get("code") and i.get("label")}
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — labels are additive
+            notes.append(f"attribute labels unavailable for "
+                         f"{store or 'the default store'} — codes stand in: {exc}")
+            return {}
 
     def _filterable(self, endpoint: str, notes: list) -> dict:
         """attribute_code -> the site's own label, for every attribute it FILTERS by.
@@ -375,11 +441,18 @@ class MagentoGraphqlConnector:
             found[code] = str(aggregation.get("label") or "") or code
         return found
 
-    def _english_names(self, endpoint: str, notes: list) -> dict:
+    def _english_names(self, endpoint: str, notes: list,
+                       enriched: bool = False) -> dict:
         """The en_SA store view, read once, for everything it says in English.
 
         Returns {"names": {uid: name}, "axis_labels": {code: label},
-                 "axis_values": {child_uid: {code: label}}}.
+                 "axis_values": {child_uid: {code: label}},
+                 "details": {uid: {"description": str, "short_description": str,
+                                   "attributes": {code: value}}}}.
+
+        `enriched` swaps in the query that also carries descriptions and
+        attribute values — the same pages the names already cost, so the
+        English half of every detail is free.
 
         Verified live: "اسمنت الرياض" -> "Riyadh Cement", and «العرض (ملم)» ->
         "Width (mm)". The axes ride the SAME pages the names already cost, so
@@ -392,10 +465,11 @@ class MagentoGraphqlConnector:
         names: dict[str, str] = {}
         axis_labels: dict[str, str] = {}
         axis_values: dict[str, dict[str, str]] = {}
+        details: dict[str, dict] = {}
         try:
             page = 1
             while True:
-                body = {"query": _EN_QUERY,
+                body = {"query": _EN_QUERY_ENRICHED if enriched else _EN_QUERY,
                         "variables": {"pageSize": PAGE_SIZE, "currentPage": page}}
                 answer = (self._fetcher.post(endpoint, json=body,
                                              headers={"Store": _ENGLISH_STORE})
@@ -408,6 +482,25 @@ class MagentoGraphqlConnector:
                     uid = str(item.get("uid") or "")
                     if uid and item.get("name"):
                         names[uid] = str(item["name"])
+                    if enriched and uid:
+                        attributes: dict[str, str] = {}
+                        for a in ((item.get("custom_attributesV2") or {})
+                                  .get("items")) or []:
+                            code = str(a.get("code") or "")
+                            value = a.get("value") or ", ".join(
+                                str(o.get("label") or "")
+                                for o in a.get("selected_options") or []
+                                if o.get("label"))
+                            if code and value:
+                                attributes[code] = str(value)
+                        details[uid] = {
+                            "description": _clean(((item.get("description") or {})
+                                                   .get("html")) or ""),
+                            "short_description": _clean(
+                                ((item.get("short_description") or {})
+                                 .get("html")) or ""),
+                            "attributes": attributes,
+                        }
                     # The axis NAME is per attribute and shared by every product
                     # that varies by it, so one map serves the whole crawl.
                     for option in item.get("configurable_options") or []:
@@ -435,8 +528,10 @@ class MagentoGraphqlConnector:
         except Exception as exc:  # noqa: BLE001 — bilingual is additive, prices are vital
             notes.append(f"english-names pass failed — names and variations stay "
                          f"Arabic-only this run: {exc}")
-            return {"names": {}, "axis_labels": {}, "axis_values": {}}
-        return {"names": names, "axis_labels": axis_labels, "axis_values": axis_values}
+            return {"names": {}, "axis_labels": {}, "axis_values": {},
+                    "details": {}}
+        return {"names": names, "axis_labels": axis_labels,
+                "axis_values": axis_values, "details": details}
 
     def _category_labels(self, endpoint: str, notes: list) -> dict:
         """leaf uid -> English path, from the en_SA tree. {} when unavailable."""
@@ -744,8 +839,10 @@ class MagentoGraphqlConnector:
         return out
 
 
-def _enrichment_rows(builder: RowBuilder, product: dict,
-                     filterable: dict | None = None) -> list:
+def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
+                     *, labels_ar: dict | None = None,
+                     labels_en: dict | None = None,
+                     english: dict | None = None) -> list:
     """Descriptions and per-variant weights the census already carried.
 
     The weight lands here ONLY when it is not the selling basis: cement's 50
@@ -764,27 +861,33 @@ def _enrichment_rows(builder: RowBuilder, product: dict,
     rows: list = []
 
     facets = filterable or {}
+    labels_ar = labels_ar or {}
+    labels_en = labels_en or {}
+    mine = (english or {}).get(pid, {})
 
-    def add(code, label, value, *, numeric="", unit="", url=""):
+    def add(code, label, value, *, numeric="", unit="", url="", lang=""):
         if not value:
             return
-        # WHERE a reader looks for it — one of five, for every source.
-        group = (DetailGroup.MEDIA if code.startswith("image")
-                 else DetailGroup.DESCRIPTION if "desc" in code
-                 else DetailGroup.SPECIFICATIONS if code == "weight" or code in facets
+        # The GROUP is where a reader looks; the facet check runs on the BARE
+        # code because `width` and `width_ar` are one fact in two languages.
+        base = code.removesuffix("_ar")
+        group = (DetailGroup.MEDIA if base.startswith("image")
+                 else DetailGroup.DESCRIPTION if "desc" in base
+                 else DetailGroup.SPECIFICATIONS if base == "weight" or base in facets
                  else DetailGroup.MORE_INFORMATION)
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,
-            value_url=url, lang="", attribute_group=group,
+            value_url=url, lang=lang, attribute_group=group,
             # SEPARATE from the group: this says something about the FACT
             # (the shop offers it as a facet, so a column for it lets the
             # owner slice the table the way the shop slices its listing),
             # not about where a person should look for it.
-            is_site_filter="1" if code in facets else ""))
+            is_site_filter="1" if base in facets else ""))
 
     # The product's pictures, primary first. A placeholder is the site saying
     # "no image" — storing it would put a grey box where a product belongs.
+    # Language-neutral: a file is a file, so lang stays unstated.
     for position, media in enumerate([product.get("image") or {},
                                       *(product.get("media_gallery") or [])]):
         href = str(media.get("url") or "")
@@ -793,22 +896,44 @@ def _enrichment_rows(builder: RowBuilder, product: dict,
         add(f"image_{position}" if position else "image", "Image",
             str(media.get("label") or "") or href.rsplit("/", 1)[-1], url=href)
 
-    add("description", "Description",
-        _clean(((product.get("description") or {}).get("html")) or ""))
-    add("short_description", "Summary",
-        _clean(((product.get("short_description") or {}).get("html")) or ""))
+    # The code states the language of its content (0039): the unmarked name is
+    # English, `_ar` is Arabic, and `lang` beside it says the same thing in the
+    # column the migrations read. This crawl reads the DEFAULT (Arabic) store;
+    # the English half arrives from the en_SA pass, on pages the names already
+    # paid for.
+    add("description_ar", "Description (AR)",
+        _clean(((product.get("description") or {}).get("html")) or ""),
+        lang="ar")
+    add("description", "Description", mine.get("description", ""), lang="en")
+    add("short_description_ar", "Summary (AR)",
+        _clean(((product.get("short_description") or {}).get("html")) or ""),
+        lang="ar")
+    add("short_description", "Summary", mine.get("short_description", ""),
+        lang="en")
+
     # The "More information" panel, one row per stated fact — manufacturer,
-    # origin, grade, coating... — in the site's own values.
+    # origin, grade, coating... — in the site's own values, labelled in the
+    # site's own words per store: «المصنع» beside "Manufacturer" where the
+    # panel used to print the raw code (the owner's report, with the page's
+    # own tab as evidence).
+    english_attributes = dict(mine.get("attributes", {}))
     for attribute in ((product.get("custom_attributesV2") or {}).get("items")) or []:
         code = str(attribute.get("code") or "")
         value = attribute.get("value") or ", ".join(
             str(o.get("label") or "")
             for o in attribute.get("selected_options") or [] if o.get("label"))
         if code:
-            # The site's own label when it has published one (it does for every
-            # attribute it filters by); the bare code otherwise, which is all
-            # there was for any of them until now.
-            add(code, facets.get(code) or code, value)
+            add(f"{code}_ar", labels_ar.get(code) or facets.get(code) or code,
+                value, lang="ar")
+            en_value = english_attributes.pop(code, "")
+            add(code, labels_en.get(code) or facets.get(code) or code,
+                en_value, lang="en")
+    # An attribute the en store states and the ar store does not — rare, but
+    # dropping it would violate the standing rule from the other side.
+    for code, value in english_attributes.items():
+        add(code, labels_en.get(code) or facets.get(code) or code, value,
+            lang="en")
+
     for v in product.get("variants") or []:
         child = v.get("product") or {}
         weight = child.get("weight")
@@ -818,5 +943,7 @@ def _enrichment_rows(builder: RowBuilder, product: dict,
         if basis:
             continue      # already the selling basis on the price row
         sku = child.get("sku") or ""
-        add("weight", f"Weight — {sku}", weight, numeric=weight, unit="kg")
+        # A number with an English label of ours: lang says so.
+        add("weight", f"Weight — {sku}", weight, numeric=weight, unit="kg",
+            lang="en")
     return rows

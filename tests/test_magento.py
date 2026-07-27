@@ -376,11 +376,18 @@ def test_the_more_information_panel_lands_as_enrichment_when_asked():
     view = RowView(ENRICHMENT, tables[1].header)
     rows = [view.as_dict(r) for r in tables[1].rows]
     by_code = {r["attribute_code"]: r for r in rows if r["external_product_id"] == "Q0VNMg=="}
-    assert by_code["manufacturer"]["raw_value"] == "اسمنت الرياض"
-    assert by_code["grade"]["raw_value"] == "A500"          # dropdown -> label
-    assert by_code["size"]["raw_value"] == "50 Kg"
-    assert by_code["manufacturer"]["attribute_group"] == "More information"
-    assert "توفر شركة" in by_code["short_description"]["raw_value"]
+    # This stub answers the DEFAULT store only, which serves Arabic — so
+    # every fact lands under its _ar code with lang declared, and the bare
+    # English codes are absent rather than filled with the wrong language.
+    # The code and the lang beside it say the same thing (0039/0045).
+    assert by_code["manufacturer_ar"]["raw_value"] == "اسمنت الرياض"
+    assert by_code["manufacturer_ar"]["lang"] == "ar"
+    assert "manufacturer" not in by_code, \
+        "an unmarked code must never carry the Arabic edition"
+    assert by_code["grade_ar"]["raw_value"] == "A500"       # dropdown -> label
+    assert by_code["size_ar"]["raw_value"] == "50 Kg"
+    assert by_code["manufacturer_ar"]["attribute_group"] == "More information"
+    assert "توفر شركة" in by_code["short_description_ar"]["raw_value"]
     # The plywood piece-mass rides as a weight measurement (not a unit).
     weights = [r for r in rows if r["attribute_code"] == "weight"]
     assert weights and all(r["unit_raw"] == "kg" for r in weights)
@@ -771,3 +778,83 @@ def test_a_note_raised_on_a_later_page_is_not_thrown_away():
     assert not any("configurable prices recorded" in w for w in tables[0].warnings)
     assert any("configurable prices recorded" in w for w in tables[1].warnings), \
         "page 2 must carry the note page 2 raised"
+
+
+class _BilingualEnrichedFetcher(_StubFetcher):
+    """Both stores answer: the default (Arabic) pass serves the fixture, the
+    en_SA pass serves English names AND details, and each store names its
+    attributes in its own words — which is what madar actually does."""
+
+    LABELS_AR = {"manufacturer": "المصنع", "origin": "بلد المنشأ",
+                 "grade": "تصنيف المواد", "size": "الحجم"}
+    LABELS_EN = {"manufacturer": "Manufacturer", "origin": "Country of Origin",
+                 "grade": "Material Grade", "size": "Size"}
+
+    def post(self, url, json=None, **kwargs):
+        query = (json or {}).get("query", "")
+        store = (kwargs.get("headers") or {}).get("Store")
+        if "customAttributeMetadataV2" in query:
+            labels = self.LABELS_EN if store else self.LABELS_AR
+            return _StubResponse({"data": {"customAttributeMetadataV2": {
+                "items": [{"code": c, "label": l} for c, l in labels.items()]}}})
+        if store:
+            page = (json or {}).get("variables", {}).get("currentPage", 1)
+            if page != 1:
+                return _StubResponse({"data": {"products": {"items": []}}})
+            return _StubResponse({"data": {"products": {
+                "page_info": {"total_pages": 1},
+                "items": [{
+                    "uid": "Q0VNMg==",
+                    "name": "Riyadh Cement",
+                    "description": {"html": "<p>Portland cement for structures.</p>"},
+                    "short_description": {"html": "<p>The company provides cement.</p>"},
+                    "custom_attributesV2": {"items": [
+                        {"code": "manufacturer", "value": "Riyadh Cement Co."},
+                        {"code": "grade",
+                         "selected_options": [{"label": "A500"}]},
+                    ]},
+                }]}}})
+        return super().post(url, json=json, **kwargs)
+
+
+def test_the_more_information_labels_are_the_sites_words_in_both_stores():
+    """The owner's report, with the site's own tab as evidence: madar prints
+    «المصنع», «بلد المنشأ», «الطول (متر)» — and the panel showed manufacturer,
+    origin, length_cm. The label existed for every attribute; only the facet
+    subset had ever been ASKED for its words (aggregations covers what the
+    shop filters by, nothing else). customAttributeMetadataV2 answers for all
+    of them, once per store."""
+    from scrapex.rowspec import ENRICHMENT
+
+    entry = SourceEntry.model_validate(dict(
+        source_key="MADAR", source_name="المدار", base_url="https://www.madar.com",
+        family="magento-graphql", currency="SAR", default_region="SA", vat_mode="excl",
+        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS),
+                 ExtractSpec(kind=ExtractKind.ENRICHMENT, scope=ExtractScope.CENSUS)],
+    ))
+    tables = list(MagentoGraphqlConnector(_BilingualEnrichedFetcher()).fetch(entry))
+    view = RowView(ENRICHMENT, tables[-1].header)
+    rows = [view.as_dict(r) for r in tables[-1].rows
+            if view.as_dict(r)["external_product_id"] == "Q0VNMg=="]
+    by_code = {r["attribute_code"]: r for r in rows}
+
+    # The Arabic edition, under the marked code, in the site's Arabic words.
+    assert by_code["manufacturer_ar"]["attribute_label"] == "المصنع"
+    assert by_code["manufacturer_ar"]["raw_value"] == "اسمنت الرياض"
+    assert by_code["manufacturer_ar"]["lang"] == "ar"
+    # The English edition, under the unmarked code, from the en_SA pass —
+    # value AND label, on pages the names already paid for.
+    assert by_code["manufacturer"]["attribute_label"] == "Manufacturer"
+    assert by_code["manufacturer"]["raw_value"] == "Riyadh Cement Co."
+    assert by_code["manufacturer"]["lang"] == "en"
+    # Descriptions pair the same way, in OUR labels, marked per 0041. The
+    # fixture's cement publishes a SHORT description only in Arabic, so
+    # description_ar is rightly absent — an empty value never mints a row.
+    assert by_code["description"]["raw_value"] == "Portland cement for structures."
+    assert by_code["description"]["attribute_label"] == "Description"
+    assert "description_ar" not in by_code
+    assert by_code["short_description_ar"]["attribute_label"] == "Summary (AR)"
+    assert by_code["short_description"]["raw_value"] == "The company provides cement."
+    # A dropdown the en store answers as selected_options keeps working.
+    assert by_code["grade"]["raw_value"] == "A500"
+    assert by_code["grade"]["attribute_label"] == "Material Grade"

@@ -722,6 +722,9 @@ def _ingest_enrichment_row(conn, entry, source_id, run_id, r, observed_at,
         "  unit_raw = excluded.unit_raw, "
         "  value_url = excluded.value_url, "
         "  attribute_group = excluded.attribute_group, "
+        # A connector that LEARNS a row's language must be able to say so
+        # on the stored row — the madar lang-fill rides exactly this.
+        "  lang = excluded.lang, "
         "  is_site_filter = excluded.is_site_filter, "
         "  last_seen_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')",
         (row[0], r["attribute_code"], r.get("attribute_label", ""),
