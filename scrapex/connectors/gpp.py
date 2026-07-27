@@ -297,14 +297,21 @@ class GlobalPetrolPricesConnector:
                 if not (detail.price and detail.currency):
                     failures += 1
                     # An EMPTY tokenized table: the warning needs a carrier and
-                    # the checkpoint needs the token — this week's page answered
-                    # "nothing", and re-asking on resume would not change that.
+                    # the checkpoint needs the token — re-asking on resume would
+                    # only fetch the same bytes again (a parser gap is fixed by
+                    # a code change, not a retry). The wording claims only what
+                    # the parser KNOWS: it recognized no price table. "Published
+                    # no local price" asserted more than that, and hid the Libya
+                    # false negative — a compact-template page refused for a
+                    # price it plainly publishes — behind a confident answer.
                     yield ScrapedTable(
                         source.source_key, COMMODITY_PRICE.kind, base + href,
                         builder.header, [],
-                        warnings=[f"{material_key}/{region}: country page "
-                                  "published no local price — no row this week "
-                                  "(never the conversion)"],
+                        warnings=[f"{material_key}/{region}: no local-price "
+                                  "table recognized on the country page — the "
+                                  "page may publish none, or publish it in a "
+                                  "layout the parser does not know — no row "
+                                  "this week (never the conversion)"],
                         page_token=token)
                     continue
                 crows = country_rows(builder, material_key, region, detail,
@@ -527,6 +534,33 @@ _AGO_LABELS = {
 }
 _CURRENCY_UNIT = re.compile(r"Price\s*\(([A-Za-z]{3})\s*/\s*([^)]+)\)", re.I)
 
+# GPP has a SECOND country-page template — COMPACT — for Libya, Venezuela and
+# evidently much of the regulated cheap-fuel cohort. Verified live 2026-07-27
+# on /Libya/gasoline_prices/ and /Venezuela/diesel_prices/: ONE small table,
+# no overview, no history anchors, no analytics, and NONE of the full
+# template's anchor strings ("Price (LYD/Liter)", "Current price", "Last
+# update"). Its header names the units and each body row is keyed by a
+# 3-letter currency code (captured markup, attributes trimmed):
+#
+#   <tr bgcolor="#f8f8f8">
+#   <th><div>Libya Gasoline prices</div></th>
+#   <td><b>Liter</b></td> <td><b>Gallon</b></td>
+#   </tr>
+#   <tr><th>&nbsp;LYD</th> <td>0.150</td> <td>0.568</td></tr>
+#   <tr><th>&nbsp;USD</th> <td>0.023</td> <td>0.087</td></tr>
+#   <tr><th>&nbsp;EUR</th> <td>0.021</td> <td>0.079</td></tr>
+#
+# The single non-USD/EUR row IS the published local price; USD and EUR are the
+# site's own conversions. The page's only date is in its <h1> — "Libya
+# Gasoline prices, liter, 20-Jul-2026". A parser that knew only the full
+# template read this page as empty, so the crawl recorded "no local price"
+# for countries whose price is right there — the Libya false negative, and a
+# large share of the 92 country/material pairs ruled "no local price".
+_CURRENCY_CODE = re.compile(r"^[A-Z]{3}$")
+_HEADER_DATE = re.compile(r"(\d{1,2})-([A-Za-z]{3})-(\d{4})")
+_MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+           "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
 
 @dataclass(frozen=True)
 class CountryPrice:
@@ -553,12 +587,72 @@ def _rows_of(table) -> list[list[str]]:
             for tr in table.find_all("tr")]
 
 
+def _compact_local_price(rows: list[list[str]]) -> tuple[str, str, str, str] | None:
+    """(price, currency, unit, usd_price) from the compact template, or None.
+
+    Guarded tightly — this must recognize the shape, never approximate one:
+    a header cell that IS the unit ("Liter"), and EVERY body row keyed by a
+    distinct 3-letter currency code with a numeric value in that column. The
+    local price is the single row whose code is neither USD nor EUR. Zero such
+    rows (a genuinely conversion-only table) or two or more (which currency is
+    the country's?) is NOT this template — return None and let the caller's
+    refusal stand, because a guessed currency filed as "original" would be
+    worse than the false negative this parser exists to remove.
+    """
+    header = [c.strip().lower() for c in rows[0]]
+    if "liter" not in header:
+        return None
+    column = header.index("liter")
+    prices: dict[str, str] = {}
+    for row in rows[1:]:
+        if len(row) <= column:
+            return None
+        code = row[0].strip()
+        if (not _CURRENCY_CODE.match(code) or code in prices
+                or not _PRICE_TEXT.match(row[column])):
+            return None
+        prices[code] = row[column]
+    local = [code for code in prices if code not in ("USD", "EUR")]
+    if len(local) != 1:
+        return None
+    return prices[local[0]], local[0], header[column], prices.get("USD", "")
+
+
+def _header_date(soup) -> str:
+    """The <h1> date ('20-Jul-2026') as ISO — or '' when it does not parse.
+
+    The compact page states no other date anywhere. House rule: the source's
+    own dating or nothing — a header that fails to parse cleanly leaves the
+    field EMPTY rather than being stamped with the crawl date, and an
+    impossible date (day 32, an unknown month) is a failure, not a guess.
+    """
+    h1 = soup.find("h1")
+    if h1 is None:
+        return ""
+    found = _HEADER_DATE.search(h1.get_text(" ", strip=True))
+    if not found:
+        return ""
+    month = _MONTHS.get(found.group(2).lower())
+    if month is None:
+        return ""
+    try:
+        return date(int(found.group(3)), month, int(found.group(1))).isoformat()
+    except ValueError:
+        return ""
+
+
 def parse_country_page(html: str) -> CountryPrice:
-    """Read one country page. Absent fields come back empty, never guessed."""
+    """Read one country page — full OR compact template (see the shapes above).
+
+    Absent fields come back empty, never guessed. A page matching neither
+    template parses as empty, which the caller reports as "no price table
+    recognized" — a claim about the parser, not about the page.
+    """
     soup = BeautifulSoup(html, "lxml")
     price = currency = unit = usd = source_date = available = frequency = ""
     history: list[tuple[int, str]] = []
     analytics: list[tuple[str, str]] = []
+    compact: tuple[str, str, str, str] | None = None
 
     for table in soup.find_all("table"):
         rows = _rows_of(table)
@@ -587,8 +681,25 @@ def parse_country_page(html: str) -> CountryPrice:
                     history.append((days, labelled[label][0]))
             continue
 
+        # The compact template's single table (Libya, Venezuela). Only
+        # REMEMBERED here — adopted after the loop, and only when the full
+        # template never appeared: on a full page these fields must keep
+        # coming from the tables that state them explicitly.
+        if compact is None:
+            compact = _compact_local_price(rows)
+            if compact is not None:
+                continue
+
         if "analytics" in header:
             analytics.extend((r[0], r[1]) for r in rows[1:] if len(r) >= 2)
+
+    if not price and compact:
+        # The single non-USD/EUR row is the published price; the USD row is
+        # the site's own conversion, kept under the same field the full
+        # template fills from "Current price". The page's only date is its
+        # <h1>, taken only when it parses cleanly — never the crawl date.
+        price, currency, unit, usd = compact
+        source_date = _header_date(soup)
 
     # The official attribution is NOT in any table: it is a bare div right
     # after the metadata table — `Source: <a href>Ministry of ...</a>`. It is

@@ -480,6 +480,210 @@ def test_the_country_link_is_read_off_the_page_never_rebuilt_from_the_name():
     assert links["Egypt"] == "/Egypt/diesel_prices/"   # label cleaned of * and nbsp
 
 
+# ---- the COMPACT country page: Libya was refused a price it publishes --------
+#
+# The owner asked why Libya's gasoline was absent when the live page publishes
+# LYD 0.150 per liter. The crawl HAD fetched that page — and then refused it:
+# GPP has a SECOND country-page template (Libya, Venezuela, and evidently much
+# of the regulated cheap-fuel cohort) with ONE small table keyed by currency
+# codes and NONE of the full template's anchors ("Price (LYD/Liter)",
+# "Current price", "Last update"). The parser knew only the full template, so
+# it read the page as empty and the crawl recorded "published no local price"
+# — a false negative that the 92-pair "no local price" ruling largely rests
+# on. Markup below CAPTURED live 2026-07-27 from /Libya/gasoline_prices/;
+# /Venezuela/diesel_prices/ is byte-for-byte the same shape (VEF 0.100).
+
+_COMPACT_LIBYA = """\
+<div id="content">
+<div id="graphPageLeft">
+<h1>Libya Gasoline prices, liter, 20-Jul-2026</h1>
+<table style="font-size: 13px; margin: 20px 0 20px -2px; padding: 0; width: 100%; text-align: left; max-width: 1650px" cellpadding="0" cellspacing="0">
+<thead>
+<tr bgcolor="#f8f8f8">
+<th width="33%" height="30"><div style="padding:2px 0 2px 4px;">Libya Gasoline prices</div></th>
+<td width="33%" height="30" align="center"><b>Liter</b></td>
+<td width="33%" height="30" align="center"><b>Gallon</b></td>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th height="30">&nbsp;LYD</th>
+<td height="30" align="center">0.150</td>
+<td height="30" align="center">0.568</td>
+</tr>
+<tr bgcolor="#f8f8f8">
+<th height="30">&nbsp;USD</th>
+<td height="30" align="center">0.023</td>
+<td height="30" align="center">0.087</td>
+</tr>
+<tr >
+<th height="30" style="border-bottom: 1px solid #f8f8f8">&nbsp;EUR</th>
+<td height="30" style="border-bottom: 1px solid #f8f8f8" align="center">0.021</td>
+<td height="30" style="border-bottom: 1px solid #f8f8f8" align="center">0.079</td>
+</tr>
+</tbody>
+</table>
+<div class="tipInfo">
+<div style="margin: 0 0 0px 0;">
+Libya: The price of octane-95 gasoline is 0.15 Libyan Dinar per liter.
+</div>
+</div>
+</div>
+</div>
+"""
+
+
+def _ccy_row(code: str, liter: str, gallon: str) -> str:
+    """One body row in the captured shape: the code sits in a <th> with a
+    leading &nbsp;, the values in centered <td>s."""
+    return (f'<tr><th height="30">&nbsp;{code}</th>'
+            f'<td height="30" align="center">{liter}</td>'
+            f'<td height="30" align="center">{gallon}</td></tr>')
+
+
+def _compact_page(tbody: str,
+                  h1: str = "Libya Gasoline prices, liter, 20-Jul-2026") -> str:
+    """The captured compact skeleton with only the scenario's rows swapped in."""
+    return (f"<h1>{h1}</h1>"
+            '<table cellpadding="0" cellspacing="0">'
+            '<thead><tr bgcolor="#f8f8f8">'
+            '<th><div>Libya Gasoline prices</div></th>'
+            '<td align="center"><b>Liter</b></td>'
+            '<td align="center"><b>Gallon</b></td>'
+            f"</tr></thead><tbody>{tbody}</tbody></table>")
+
+
+def test_the_compact_template_yields_the_published_local_price():
+    """Libya, as captured: the single non-USD/EUR row is the published price
+    (LYD, per liter, from the header column), the USD row is the site's own
+    conversion — the same field the full template fills from 'Current price'
+    — and the only date the page states, the <h1>'s, becomes source_date."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page(_COMPACT_LIBYA)
+
+    assert page.price == "0.150" and page.currency == "LYD"
+    assert page.unit == "liter"
+    assert page.usd_price == "0.023", "the site's own conversion must be kept"
+    assert page.source_date == "2026-07-20"
+    assert page.history == (), "the compact page publishes no history anchors"
+
+
+def test_a_conversion_only_compact_table_still_refuses():
+    """No third currency row means no published local price to read — e.g. a
+    country whose domestic currency IS the dollar. Zero non-USD/EUR rows is
+    NOT the template; the parser must fall through to the refusal, never
+    promote a conversion to 'original'."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page(_compact_page(
+        _ccy_row("USD", "0.023", "0.087") + _ccy_row("EUR", "0.021", "0.079")))
+
+    assert page.price == "" and page.currency == ""
+
+
+def test_two_local_currency_rows_are_ambiguous_and_never_guessed():
+    """Two non-USD/EUR rows: which one is the country's? A guessed currency
+    filed as 'original' would be worse than the false negative this parser
+    exists to remove — refuse and let the warning name the page."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page(_compact_page(
+        _ccy_row("LYD", "0.150", "0.568") + _ccy_row("TND", "2.525", "9.558")
+        + _ccy_row("USD", "0.023", "0.087")))
+
+    assert page.price == "" and page.currency == ""
+
+
+def test_the_header_date_is_the_sources_own_or_nothing():
+    """House rule: the source's dating or nothing. A header without a date, an
+    impossible day, or an unknown month leaves source_date EMPTY — the crawl
+    date must never be stamped in as if the site had said it."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    rows = _ccy_row("LYD", "0.150", "0.568") + _ccy_row("USD", "0.023", "0.087")
+
+    for bad_h1 in ("Libya Gasoline prices, liter",          # no date at all
+                   "Libya Gasoline prices, liter, 32-Jul-2026",   # day 32
+                   "Libya Gasoline prices, liter, 20-Foo-2026"):  # no such month
+        page = parse_country_page(_compact_page(rows, h1=bad_h1))
+        assert page.price == "0.150", "the price must survive a bad header"
+        assert page.source_date == "", f"a date was invented from {bad_h1!r}"
+
+
+def test_the_full_template_never_takes_its_date_from_the_header():
+    """The FULL template's page also carries an <h1> date. Its source_date must
+    keep coming from the 'Last update' row the page states explicitly — here
+    the two deliberately disagree, and the table must win."""
+    from scrapex.connectors.gpp import parse_country_page
+
+    page = parse_country_page("""
+    <h1>Egypt Diesel prices, 20-Jul-2026</h1>
+    <table><thead><tr><th>Egypt</th><th><b>Diesel prices</b></th></tr></thead>
+    <tbody>
+    <tr><td>&nbsp;Current price</td><td>0.40</td></tr>
+    <tr><td>&nbsp;Last update</td><td>2026-07-13</td></tr>
+    </tbody></table>
+    <table><thead><tr><th>Diesel prices</th><th><b>Price (EGP/Liter)</b></th>
+    <th><b>Percent change</b></th></tr></thead>
+    <tbody><tr><td>&nbsp;Current price</td><td>20.50</td><td>-</td></tr></tbody>
+    </table>""")
+
+    assert page.price == "20.50" and page.currency == "EGP"
+    assert page.source_date == "2026-07-13", "the h1 date leaked into the full template"
+
+
+def test_libya_lands_a_row_instead_of_a_false_refusal():
+    """The owner's question, end to end. The list page links Libya at 0.023
+    USD (the canary); the country page is the compact template. Before this
+    fix the crawl fetched that page, read it as empty, and recorded
+    'published no local price' — while the page publishes LYD 0.150."""
+    list_html = (
+        '<div id="outsideLinks"><div>'
+        '<div><a href="/Libya/gasoline_prices/">Libya</a></div>'
+        '</div></div>'
+        '<div id="graphic"><div>'
+        '<div style="bar"><div>0.023</div></div>'
+        '</div></div>')
+
+    class _LibyaFetcher:
+        requests_count = 0
+
+        def get(self, url, **kwargs):
+            self.requests_count += 1
+            path = url.split(".com", 1)[-1]
+            if path == "/gasoline_prices/":
+                return _Resp(list_html)
+            if path == "/Libya/gasoline_prices/":
+                return _Resp(_COMPACT_LIBYA)
+            raise RuntimeError("404 " + url)
+
+        def close(self): pass
+
+    fetcher = _LibyaFetcher()
+    table = crawl(GlobalPetrolPricesConnector(fetcher),
+                  make_entry(materials=("GASOLINE",)))
+
+    assert fetcher.requests_count == 2          # the list + Libya's own page
+    assert not any("no local-price" in w for w in table.warnings), \
+        "Libya was refused again"
+    view = RowView(COMMODITY_PRICE, table.header)
+    rows = [view.as_dict(r) for r in table.rows]
+    observed = [r for r in rows if r["provenance"] == "observed"]
+    assert len(observed) == 1
+    libya = observed[0]
+    assert libya["country_code_alpha2"] == "LY"
+    assert libya["effective_price"] == "0.150" and libya["currency"] == "LYD"
+    assert libya["unit"] == "liter" and libya["price_basis"] == "original"
+    assert libya["converted_usd_price"] == "0.023"
+    assert libya["source_date"] == "2026-07-20"
+    # The header date is the source's dating of its figure, so it also lands
+    # as a reported anchor on that date — exactly as 'Last update' does.
+    anchors = [(r["as_of_date"], r["effective_price"])
+               for r in rows if r["provenance"] == "reported"]
+    assert anchors == [("2026-07-20", "0.150")]
+
+
 def test_a_blocked_crawl_stops_instead_of_marching_through_the_frontier():
     """CrawlBlocked is the fetcher saying the SITE said no. The per-page guard
     exists to survive one bad page; catching the stop signal under it would turn
@@ -698,9 +902,13 @@ def test_skip_tokens_skip_the_request_itself_not_just_the_rows():
 
 
 def test_an_empty_country_page_is_tokenized_so_resume_never_reasks():
-    """A page that ANSWERED "no local price" is a fact for this week — carried
-    as an empty tokenized table so the warning has a carrier and the resume
-    does not ask again."""
+    """A page the parser found no price table on is a fact for this week —
+    carried as an empty tokenized table so the warning has a carrier and the
+    resume does not ask again (the same bytes would come back; a parser gap is
+    fixed by code, not by retrying). The warning claims only what the parser
+    KNOWS — no table RECOGNIZED — because the old wording, "published no local
+    price", asserted more than the parser knew and kept the Libya false
+    negative invisible for weeks."""
     class _EgyptEmptyFetcher(_StubFetcher):
         def get(self, url, **kwargs):
             if "/Egypt/" in url:
@@ -712,7 +920,7 @@ def test_an_empty_country_page_is_tokenized_so_resume_never_reasks():
 
     empty = [t for t in tables if t.page_token == "DIESEL--EG"]
     assert empty and empty[0].rows == []
-    assert any("published no local price" in w for w in empty[0].warnings)
+    assert any("no local-price table recognized" in w for w in empty[0].warnings)
 
 
 def test_a_failed_country_page_is_not_tokenized_so_resume_retries_it():
