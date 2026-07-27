@@ -121,33 +121,45 @@ def test_the_palette_button_opens_the_chrome_style_appearance_picker(open_panel)
     page = open_panel()
     toggle = page.locator("#appearance-toggle")
     popover = page.locator("#appearance-popover")
-    follow_colours = page.locator("[data-appearance-follow-colors]")
+    device_colours = page.locator("#appearance-popover [data-appearance-device-colors]")
 
-    page.evaluate("() => window.ScrapeXAppearance.set({mode: 'follow', followColors: true})")
-    assert page.locator("html").get_attribute("data-appearance") == "follow"
+    page.evaluate("() => window.ScrapeXAppearance.set({mode: 'device', deviceColors: true})")
+    assert page.locator("html").get_attribute("data-appearance") == "device"
     assert toggle.get_attribute("aria-expanded") == "false"
     assert not popover.is_visible()
 
     toggle.click()
     assert toggle.get_attribute("aria-expanded") == "true"
     assert popover.is_visible()
-    assert page.locator('[data-appearance-scheme-mode="follow"]').get_attribute(
+    assert page.locator('#appearance-popover [data-appearance-scheme-mode="device"]').get_attribute(
         "aria-pressed") == "true"
-    assert follow_colours.is_checked()
+    assert device_colours.is_checked()
+    assert page.locator("#appearance-popover [data-appearance-group]").count() == 9
+    assert page.locator("#appearance-popover [data-appearance-palette]").count() == 3
 
-    page.click('[data-appearance-scheme-mode="light"]')
+    page.click('#appearance-popover [data-appearance-scheme-mode="light"]')
     assert page.locator("html").get_attribute("data-theme") == "light"
-    follow_colours.uncheck(force=True)
-    page.click('#appearance-popover [data-appearance-accent="violet"]')
-    assert page.locator("html").get_attribute("data-accent") == "violet"
+    device_colours.uncheck(force=True)
+    page.click('#appearance-popover [data-appearance-palette="popular-blush"]')
+    assert page.locator("html").get_attribute("data-palette") == "popular-blush"
     assert page.locator("html").get_attribute("data-color-mode") == "manual"
+    blush_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
 
-    page.click('[data-appearance-scheme-mode="follow"]')
-    assert page.locator("html").get_attribute("data-appearance") == "follow"
+    page.click('#appearance-popover [data-appearance-group="apps"]')
+    page.click('#appearance-popover [data-appearance-palette="github"]')
+    github_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    assert github_light != blush_light
+
+    page.click('#appearance-popover [data-appearance-scheme-mode="dark"]')
+    github_dark = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
+    assert github_dark != github_light
+
+    page.click('#appearance-popover [data-appearance-scheme-mode="device"]')
+    assert page.locator("html").get_attribute("data-appearance") == "device"
     assert page.locator("html").get_attribute("data-theme") is None
-    follow_colours.check(force=True)
-    assert page.locator("html").get_attribute("data-color-mode") == "follow"
-    assert page.locator("html").get_attribute("data-accent") is None
+    device_colours.check(force=True)
+    assert page.locator("html").get_attribute("data-color-mode") == "device"
+    assert page.locator("html").get_attribute("data-palette") is None
 
     page.click("#appearance-close")
     page.wait_for_timeout(180)

@@ -650,10 +650,10 @@
   .appearance-popover {
     position: fixed;
     right: calc(var(--panel-rail-width) + var(--sp-2));
-    bottom: var(--sp-3);
+    top: var(--sp-2);
+    bottom: var(--sp-2);
     z-index: var(--z-modal);
-    width: min(20rem, calc(100vw - var(--panel-rail-width) - var(--sp-4)));
-    max-height: calc(100vh - var(--sp-6));
+    width: min(21rem, calc(100vw - var(--panel-rail-width) - var(--sp-4)));
     overflow-y: auto;
     padding: var(--sp-4);
     border: 1px solid var(--line-strong);
@@ -697,185 +697,9 @@
     letter-spacing: .08em;
     text-transform: uppercase;
   }
-  .appearance-scheme-picker {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 2px;
-    margin-top: var(--sp-4);
-    padding: 3px;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius-pill);
-    background: var(--surface);
-  }
-  .appearance-scheme-picker button {
-    min-height: 2.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: .35rem;
-    padding: .35rem .45rem;
-    border: 0;
-    border-radius: var(--radius-pill);
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: var(--fs-2xs);
-    font-weight: var(--fw-bold);
-    cursor: pointer;
-    transition: background var(--dur), color var(--dur), box-shadow var(--dur);
-  }
-  .appearance-scheme-picker button:hover { color: var(--text); }
-  .appearance-scheme-picker button.is-active {
-    background: var(--accent-weak);
-    color: var(--accent-ink);
-    box-shadow: var(--shadow-xs);
-  }
-  .appearance-scheme-icon,
-  .appearance-scheme-check {
-    width: 1rem;
-    height: 1rem;
-    display: grid;
-    place-items: center;
-    flex: none;
-    font-size: .9rem;
-    line-height: 1;
-  }
-  .appearance-palette-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--sp-2);
-    margin-top: var(--sp-4);
-    padding-bottom: var(--sp-4);
-    border-bottom: 1px solid var(--line);
-  }
-  .appearance-palette-tile {
-    position: relative;
-    min-height: 4.5rem;
-    display: grid;
-    place-items: center;
-    padding: var(--sp-2);
-    border: 1px solid transparent;
-    border-radius: var(--radius-lg);
-    background: var(--chip);
-    color: var(--text);
-    cursor: pointer;
-    transition: transform var(--dur-fast), border-color var(--dur-fast),
-      opacity var(--dur-fast);
-  }
-  .appearance-palette-tile:hover:not(:disabled) {
-    border-color: var(--line-strong);
-    transform: translateY(-1px);
-  }
-  .appearance-palette-tile.is-active {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-  }
-  .appearance-palette-tile.is-active::after {
-    position: absolute;
-    top: .28rem;
-    right: .28rem;
-    width: 1.15rem;
-    height: 1.15rem;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    content: "✓";
-    background: var(--accent);
-    color: var(--accent-contrast);
-    font-size: .7rem;
-    font-weight: var(--fw-heavy);
-  }
-  .appearance-palette-tile > span {
-    width: 3rem;
-    height: 3rem;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background:
-      linear-gradient(to bottom,
-        color-mix(in srgb, var(--swatch) 72%, #121722) 0 50%,
-        color-mix(in srgb, var(--swatch) 56%, #ffffff) 50% 100%);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / .12);
-  }
-  .appearance-palette-tile:disabled,
-  .appearance-custom-tile:has(input:disabled) {
-    opacity: .38;
-    cursor: not-allowed;
-  }
-  .appearance-custom-tile { overflow: hidden; }
-  .appearance-custom-tile input {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    cursor: pointer;
-  }
-  .appearance-custom-tile > span {
-    color: #ffffff;
-    background: var(--custom-accent, #4f7fc9);
-  }
-  .appearance-custom-tile .sx-icon { width: 1.15rem; height: 1.15rem; }
-  .appearance-follow-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-3);
-    padding-top: var(--sp-4);
-  }
-  .appearance-follow-row strong,
-  .appearance-follow-row small { display: block; }
-  .appearance-follow-row strong { font-size: var(--fs-xs); }
-  .appearance-follow-row small {
-    margin-top: 2px;
-    color: var(--muted);
-    font-size: var(--fs-2xs);
-    line-height: var(--lh-tight);
-  }
-  .appearance-switch {
-    position: relative;
-    width: 2.25rem;
-    height: 1.25rem;
-    flex: none;
-  }
-  .appearance-switch input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-  }
-  .appearance-switch span {
-    position: absolute;
-    inset: 0;
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius-pill);
-    background: var(--chip);
-    cursor: pointer;
-    transition: background var(--dur), border-color var(--dur);
-  }
-  .appearance-switch span::after {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: .875rem;
-    height: .875rem;
-    border-radius: 50%;
-    content: "";
-    background: var(--muted);
-    transition: transform var(--dur) var(--ease), background var(--dur);
-  }
-  .appearance-switch input:checked + span {
-    border-color: var(--accent);
-    background: var(--accent-weak);
-  }
-  .appearance-switch input:checked + span::after {
-    background: var(--accent);
-    transform: translateX(1rem);
-  }
-  .appearance-switch input:focus-visible + span {
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
-  }
+  .appearance-popover .appearance-scheme-picker { margin-top: var(--sp-4); }
+  .appearance-popover .appearance-palette-browser { margin-top: var(--sp-4); }
+  .appearance-popover .appearance-follow-row { margin-top: var(--sp-4); }
 
   /* One Workspace launcher replaces the wall of unlabeled destinations. The
      full list opens as a grouped sheet to the left of the rail. */

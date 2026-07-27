@@ -544,7 +544,7 @@
               <span class="settings-index" aria-hidden="true">01</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Appearance</span>
-                <span class="settings-description">Follow Chrome or use your own theme</span>
+                <span class="settings-description">Use Device or your own complete palette</span>
               </span>
               <svg class="settings-chevron sx-icon" aria-hidden="true">
                 <use href="icons/material-icons.svg#chevron-right"></use>
@@ -556,59 +556,37 @@
                   <strong>Colour and theme</strong>
                   <span class="appearance-status" data-appearance-status aria-live="polite"></span>
                 </div>
-                <div class="appearance-mode" role="group" aria-label="Appearance control">
-                  <button type="button" class="appearance-mode-choice"
-                          data-appearance-mode="follow" aria-pressed="false">
-                    <span class="appearance-preview appearance-preview-follow" aria-hidden="true">
-                      <i></i><i></i>
-                    </span>
-                    <span><strong>Follow Chrome</strong><small>Automatic</small></span>
+                <div class="appearance-scheme-picker" role="group" aria-label="Theme">
+                  <button type="button" data-appearance-scheme-mode="light"
+                          aria-pressed="false">
+                    <span class="appearance-scheme-icon" aria-hidden="true">&#9788;</span>
+                    <span>Light</span>
                   </button>
-                  <button type="button" class="appearance-mode-choice"
-                          data-appearance-mode="manual" aria-pressed="false">
-                    <span class="appearance-preview appearance-preview-manual" aria-hidden="true">
-                      <i></i><i></i>
-                    </span>
-                    <span><strong>Manual</strong><small>Your choices</small></span>
+                  <button type="button" data-appearance-scheme-mode="dark"
+                          aria-pressed="false">
+                    <span class="appearance-scheme-icon" aria-hidden="true">&#9680;</span>
+                    <span>Dark</span>
+                  </button>
+                  <button type="button" data-appearance-scheme-mode="device"
+                          aria-pressed="false">
+                    <span class="appearance-scheme-check" aria-hidden="true">&#10003;</span>
+                    <span>Device</span>
                   </button>
                 </div>
-                <div class="appearance-manual">
-                  <div class="appearance-option-row">
-                    <span class="appearance-option-label">Theme</span>
-                    <div class="appearance-segmented" role="group" aria-label="Manual theme">
-                      <button type="button" data-appearance-scheme="light"
-                              aria-pressed="false">Light</button>
-                      <button type="button" data-appearance-scheme="dark"
-                              aria-pressed="false">Dark</button>
-                    </div>
-                  </div>
-                  <div class="appearance-option-row">
-                    <span class="appearance-option-label">Colour</span>
-                    <div class="appearance-swatches" role="group" aria-label="Workspace colour">
-                      <button type="button" class="appearance-swatch appearance-swatch-cyan"
-                              data-appearance-accent="cyan" aria-label="ScrapeX cyan"
-                              aria-pressed="false"><span aria-hidden="true"></span></button>
-                      <button type="button" class="appearance-swatch appearance-swatch-blue"
-                              data-appearance-accent="blue" aria-label="Blue"
-                              aria-pressed="false"><span aria-hidden="true"></span></button>
-                      <button type="button" class="appearance-swatch appearance-swatch-violet"
-                              data-appearance-accent="violet" aria-label="Violet"
-                              aria-pressed="false"><span aria-hidden="true"></span></button>
-                      <button type="button" class="appearance-swatch appearance-swatch-rose"
-                              data-appearance-accent="rose" aria-label="Rose"
-                              aria-pressed="false"><span aria-hidden="true"></span></button>
-                      <button type="button" class="appearance-swatch appearance-swatch-orange"
-                              data-appearance-accent="orange" aria-label="Orange"
-                              aria-pressed="false"><span aria-hidden="true"></span></button>
-                      <button type="button" class="appearance-swatch appearance-swatch-green"
-                              data-appearance-accent="green" aria-label="Green"
-                              aria-pressed="false"><span aria-hidden="true"></span></button>
-                    </div>
-                  </div>
-                </div>
-                <p class="appearance-note">Chrome shares its theme and accessibility
-                  preferences. Its private Customize Chrome colour is not available to
-                  extensions, so automatic colour uses the browser or device accent.</p>
+                <div data-appearance-palettes></div>
+                <footer class="appearance-follow-row">
+                  <span>
+                    <strong>Device colours</strong>
+                    <small>Use the colour preference shared by your browser and system</small>
+                  </span>
+                  <label class="appearance-switch">
+                    <input type="checkbox" data-appearance-device-colors
+                           aria-label="Use device colours">
+                    <span aria-hidden="true"></span>
+                  </label>
+                </footer>
+                <p class="appearance-note">The Workspace and extension use this same
+                  complete theme. Device follows Light/Dark and the available system accent.</p>
               </section>
             </div>
           </article>
@@ -872,60 +850,22 @@
         <span class="appearance-scheme-icon" aria-hidden="true">◐</span>
         <span>Dark</span>
       </button>
-      <button type="button" data-appearance-scheme-mode="follow" aria-pressed="false">
-        <span class="appearance-scheme-check" aria-hidden="true">✓</span>
-        <span>Follow Chrome</span>
+      <button type="button" data-appearance-scheme-mode="device" aria-pressed="false">
+        <span class="appearance-scheme-check" aria-hidden="true">&#10003;</span>
+        <span>Device</span>
       </button>
     </div>
 
-    <div class="appearance-palette-grid" role="group" aria-label="Workspace colour">
-      <button type="button" class="appearance-palette-tile appearance-swatch-blue"
-              data-appearance-accent="blue" aria-label="Blue" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-slate"
-              data-appearance-accent="slate" aria-label="Slate" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-indigo"
-              data-appearance-accent="indigo" aria-label="Indigo" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-cyan"
-              data-appearance-accent="cyan" aria-label="Cyan" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-teal"
-              data-appearance-accent="teal" aria-label="Teal" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-green"
-              data-appearance-accent="green" aria-label="Green" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-forest"
-              data-appearance-accent="forest" aria-label="Forest" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-olive"
-              data-appearance-accent="olive" aria-label="Olive" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-gold"
-              data-appearance-accent="gold" aria-label="Gold" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-orange"
-              data-appearance-accent="orange" aria-label="Orange" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-brown"
-              data-appearance-accent="brown" aria-label="Brown" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-rose"
-              data-appearance-accent="rose" aria-label="Rose" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-burgundy"
-              data-appearance-accent="burgundy" aria-label="Burgundy" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-plum"
-              data-appearance-accent="plum" aria-label="Plum" aria-pressed="false"><span></span></button>
-      <button type="button" class="appearance-palette-tile appearance-swatch-violet"
-              data-appearance-accent="violet" aria-label="Violet" aria-pressed="false"><span></span></button>
-      <label class="appearance-palette-tile appearance-custom-tile" title="Custom colour">
-        <input type="color" data-appearance-custom-color value="#4f7fc9"
-               aria-label="Choose a custom colour">
-        <span aria-hidden="true">
-          <svg class="sx-icon"><use href="icons/material-icons.svg#palette"></use></svg>
-        </span>
-      </label>
-    </div>
+    <div data-appearance-palettes></div>
 
     <footer class="appearance-follow-row">
       <span>
-        <strong>Follow Chrome colors</strong>
-        <small>Use the colour preference shared by Chrome</small>
+        <strong>Device colours</strong>
+        <small>Use the colour preference shared by your browser and system</small>
       </span>
       <label class="appearance-switch">
-        <input type="checkbox" data-appearance-follow-colors
-               aria-label="Follow Chrome colors">
+        <input type="checkbox" data-appearance-device-colors
+               aria-label="Use device colours">
         <span aria-hidden="true"></span>
       </label>
     </footer>

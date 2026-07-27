@@ -154,6 +154,7 @@ function renderWorkspaceNavigation(navigation) {
 }
 
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+let workspaceFocusFrame = null;
 
 function positionRailIndicator(button, immediate = false) {
   if (!button) return;
@@ -166,15 +167,24 @@ function positionRailIndicator(button, immediate = false) {
 }
 
 function openWorkspaceMenu() {
+  if (workspaceFocusFrame !== null) cancelAnimationFrame(workspaceFocusFrame);
   $("workspace-menu").classList.add("is-open");
   $("workspace-backdrop").classList.add("is-open");
   $("workspace-menu").setAttribute("aria-hidden", "false");
   $("workspace-toggle").setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() =>
-    $("workspace-links").querySelector("button")?.focus());
+  workspaceFocusFrame = requestAnimationFrame(() => {
+    workspaceFocusFrame = null;
+    if ($("workspace-toggle").getAttribute("aria-expanded") === "true") {
+      $("workspace-links").querySelector("button")?.focus();
+    }
+  });
 }
 
 function closeWorkspaceMenu(returnFocus = false) {
+  if (workspaceFocusFrame !== null) {
+    cancelAnimationFrame(workspaceFocusFrame);
+    workspaceFocusFrame = null;
+  }
   const wasOpen = $("workspace-toggle").getAttribute("aria-expanded") === "true";
   $("workspace-menu").classList.remove("is-open");
   $("workspace-backdrop").classList.remove("is-open");
@@ -1443,6 +1453,7 @@ async function init() {
   document.addEventListener("click", () => closeAppearancePopover());
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      event.preventDefault();
       closeAppearancePopover(true);
       closeWorkspaceMenu(true);
     }

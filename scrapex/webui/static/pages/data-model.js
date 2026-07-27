@@ -24,13 +24,13 @@
   const PAD = 32;
   const MIN_SCALE = .42;
   const MAX_SCALE = 1.35;
-  const GROUP_COLORS = {
-    source: "#42c6cf",
-    general: "#8b7cf6",
-    pricing: "#f2b95f",
-    unified: "#ec7ba8",
-    operations: "#74b88a",
-    other: "#9ca3af",
+  const GROUP_COLOR_TOKENS = {
+    source: "--diagram-source",
+    general: "--diagram-general",
+    pricing: "--diagram-pricing",
+    unified: "--diagram-unified",
+    operations: "--diagram-operations",
+    other: "--diagram-other",
   };
 
   const databases = new Map(model.databases.map((database) => [database.key, database]));
@@ -63,6 +63,11 @@
       '"': "&quot;", "'": "&#39;",
     }[character]),
   );
+
+  function groupColor(group) {
+    const token = GROUP_COLOR_TOKENS[group] || GROUP_COLOR_TOKENS.other;
+    return getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  }
 
   function activeDatabase() {
     return databases.get(state.database);
@@ -127,7 +132,7 @@
       card.classList.remove("is-selected", "is-dimmed");
       if (shown) {
         card.style.setProperty(
-          "--lane-color", GROUP_COLORS[table.group_key] || GROUP_COLORS.other);
+          "--lane-color", groupColor(table.group_key));
       }
     });
 
@@ -151,7 +156,7 @@
       heading.style.left = `${x}px`;
       heading.style.top = `${PAD}px`;
       heading.style.setProperty(
-        "--lane-color", GROUP_COLORS[group.key] || GROUP_COLORS.other);
+        "--lane-color", groupColor(group.key));
       stage.appendChild(heading);
 
       group.tables.forEach((table, rowIndex) => {
@@ -231,9 +236,9 @@
     context.clearRect(0, 0, state.width, state.height);
 
     const styles = getComputedStyle(document.documentElement);
-    const normal = styles.getPropertyValue("--line").trim() || "#39414d";
-    const accent = styles.getPropertyValue("--accent").trim() || "#42c6cf";
-    const label = styles.getPropertyValue("--muted").trim() || "#8b949e";
+    const normal = styles.getPropertyValue("--line").trim();
+    const accent = styles.getPropertyValue("--accent").trim();
+    const label = styles.getPropertyValue("--muted").trim();
     const selected = state.selected ? tableById.get(state.selected) : null;
 
     activeDatabase().relationships.forEach((relation) => {
@@ -409,6 +414,7 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => layoutModel(), 120);
   });
+  window.addEventListener("scrapexappearancechange", () => layoutModel());
 
   populateLayers();
   layoutModel({fit: true});

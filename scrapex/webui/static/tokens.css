@@ -35,6 +35,12 @@
   --danger-contrast: #ffffff;
   --focus: light-dark(#007b83, #69e1e5);
   --selection: color-mix(in srgb, var(--accent) 20%, transparent);
+  --diagram-source: var(--accent);
+  --diagram-general: color-mix(in srgb, var(--accent) 64%, var(--muted));
+  --diagram-pricing: color-mix(in srgb, var(--accent) 58%, var(--amber));
+  --diagram-unified: color-mix(in srgb, var(--accent) 60%, var(--red));
+  --diagram-operations: color-mix(in srgb, var(--accent) 62%, var(--text-subtle));
+  --diagram-other: color-mix(in srgb, var(--accent) 48%, var(--line-strong));
 
   /* Controls */
   --button-bg: var(--accent);
@@ -254,11 +260,11 @@
   --focus: var(--accent);
 }
 
-/* Follow Chrome uses the colour preference exposed by the browser/operating
-   system. Chrome does not expose the private Customize Chrome palette to
-   extensions, so the system accent is the closest truthful automatic colour. */
+/* Device colours use the colour preference exposed by the browser/operating
+   system. Browsers do not expose their private new-tab palette to extensions,
+   so the system accent is the truthful automatic colour source. */
 @supports (color: AccentColor) {
-  :root[data-color-mode="follow"] {
+  :root[data-color-mode="device"] {
     --accent: AccentColor;
     --accent-hover: color-mix(in srgb, AccentColor 84%, var(--text));
     --accent-active: color-mix(in srgb, AccentColor 72%, var(--text));
@@ -328,6 +334,49 @@
     --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.48);
     --overlay: rgb(0 0 0 / 0.62);
   }
+}
+
+/* Chrome-style tonal palettes
+ *
+ * A colour choice is not only a button colour. It supplies a quiet family of
+ * page, surface, border and hover tones. Light mode keeps that family close to
+ * white; dark mode mixes more of the hue into the neutral dark foundation.
+ * Text remains neutral so records and long descriptions stay easy to read.
+ */
+:root[data-color-mode="device"] {
+  --bg: light-dark(
+    color-mix(in srgb, var(--accent) 2%, #ffffff),
+    color-mix(in srgb, var(--accent) 12%, #0f1216)
+  );
+  --surface: light-dark(
+    color-mix(in srgb, var(--accent) 4%, #ffffff),
+    color-mix(in srgb, var(--accent) 15%, #171b21)
+  );
+  --surface-subtle: light-dark(
+    color-mix(in srgb, var(--accent) 7%, #ffffff),
+    color-mix(in srgb, var(--accent) 18%, #1c2128)
+  );
+  --surface-raised: light-dark(
+    color-mix(in srgb, var(--accent) 5%, #ffffff),
+    color-mix(in srgb, var(--accent) 17%, #20262e)
+  );
+  --line: light-dark(
+    color-mix(in srgb, var(--accent) 16%, #dfe3e8),
+    color-mix(in srgb, var(--accent) 18%, #2c333d)
+  );
+  --line-strong: light-dark(
+    color-mix(in srgb, var(--accent) 28%, #c5cbd3),
+    color-mix(in srgb, var(--accent) 26%, #434d5a)
+  );
+  --chip: light-dark(
+    color-mix(in srgb, var(--accent) 10%, #edf1f4),
+    color-mix(in srgb, var(--accent) 18%, #242b34)
+  );
+  --control-bg: var(--surface);
+  --control-hover: light-dark(
+    color-mix(in srgb, var(--accent) 9%, #f9fafb),
+    color-mix(in srgb, var(--accent) 22%, #20262e)
+  );
 }
 
 @media (prefers-contrast: more) {

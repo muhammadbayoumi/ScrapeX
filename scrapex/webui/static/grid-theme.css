@@ -1,7 +1,7 @@
 /* Dress the grid in THIS project's table, exactly.
  *
- * Tabulator ships a light theme with every colour hardcoded — #fff rows,
- * #efefef stripes, #bbb hover, #f3f3f3 calc rows, several of them !important —
+ * Tabulator ships a light theme with hardcoded row, stripe, hover, and
+ * calculation colours, several of them marked !important —
  * and it exposes no CSS variables to redirect. Inside a dark page that showed
  * as light-grey rows on a dark surface: the table's colours changed because a
  * renderer changed, which is not a thing a renderer is allowed to do.
@@ -537,7 +537,7 @@
   width: calc(50% - 3px);
   border-radius: calc(var(--radius) - 4px);
   background: var(--accent);
-  box-shadow: 0 1px 3px color-mix(in srgb, #000 22%, transparent);
+  box-shadow: var(--shadow-xs);
   transform: translateX(0);
   transition: transform .2s var(--ease);
 }
@@ -1557,12 +1557,12 @@
 .column-chooser-zone > p { margin: 0 0 var(--sp-1, .25rem); font-size: var(--fs-xs, .75rem); }
 .column-chooser-zone-body {
   min-height: 3rem;
-  border: 1px dashed var(--border, #d8dee9);
+  border: 1px dashed var(--line);
   border-radius: var(--radius-sm, 4px);
   padding: var(--sp-1, .25rem);
 }
 .column-chooser-zone-body.is-drop-target {
   border-style: solid;
-  border-color: var(--accent, #b8860b);
-  background: var(--surface-2, #f6f7f9);
+  border-color: var(--accent);
+  background: var(--surface-subtle);
 }

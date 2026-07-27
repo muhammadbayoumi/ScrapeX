@@ -10,6 +10,7 @@ being truncated by a bad checkout, or losing their licence text.
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import pytest
 
@@ -71,9 +72,84 @@ def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
     assert base.index("appearance.js") < base.index("tokens.css")
     assert extension.index("appearance.js") < extension.index("tokens.css")
     script = canonical.decode("utf-8")
-    assert 'mode: "follow"' in script
-    assert "followColors: true" in script
+    assert 'mode: "device"' in script
+    assert "deviceColors: true" in script
     assert "data-appearance-scheme-mode" in script
+    assert "data-appearance-palettes" in script
+
+
+def test_appearance_colour_rebuilds_the_whole_tonal_surface_family():
+    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
+    appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
+    tonal = tokens.split("/* Chrome-style tonal palettes", 1)[1].split(
+        "@media (prefers-contrast: more)", 1)[0]
+
+    assert ':root[data-color-mode="device"]' in tonal
+    for token in (
+        "--bg",
+        "--surface",
+        "--surface-subtle",
+        "--surface-raised",
+        "--line",
+        "--line-strong",
+        "--chip",
+        "--control-bg",
+        "--control-hover",
+    ):
+        assert f"{token}:" in tonal
+    assert "light-dark(" in tonal
+    assert "color-mix(in srgb, var(--accent)" in tonal
+    assert "const THEME_PROPERTIES" in appearance
+    assert 'bg: "#F0F2F5"' in appearance  # WhatsApp light
+    assert 'bg: "#0B141A"' in appearance  # WhatsApp dark
+    assert 'bg: "#FFFFFF"' in appearance  # GitHub light
+    assert 'bg: "#0D1117"' in appearance  # GitHub dark
+
+
+def test_curated_palette_groups_and_ranked_colour_hunt_choices_are_canonical():
+    appearance = (ROOT / "design" / "appearance.js").read_text(encoding="utf-8")
+
+    for group in (
+        "popular", "light", "dark", "warm", "earth", "cold",
+        "coolors", "apps", "custom",
+    ):
+        assert f'id: "{group}"' in appearance
+    for palette in (
+        "fbefefffe2e2f5cbcbc5b3d3",
+        "fcf8f8fbefeff9dfdff5afaf",
+        "222831393e46948979dfd0b8",
+        "feeac9ffcdc9fdacacfd7979",
+        "ffcdb2ffb4a2e5989bb5828c",
+        "0f28541c4d8d4988c4bde8f5",
+    ):
+        assert all(f"#{palette[index:index + 6].upper()}" in appearance
+                   for index in range(0, 24, 6))
+
+
+def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
+    allowed = {
+        ROOT / "design" / "tokens.css",
+        ROOT / "design" / "appearance.js",
+        ROOT / "extension" / "tokens.css",
+        ROOT / "extension" / "appearance.js",
+        ROOT / "scrapex" / "webui" / "static" / "tokens.css",
+        ROOT / "scrapex" / "webui" / "static" / "appearance.js",
+    }
+    colour = re.compile(
+        r"(?<![&A-Za-z0-9_-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|"
+        r"[0-9a-fA-F]{3})(?![A-Za-z0-9_-])|rgba?\(",
+    )
+    offenders = []
+    for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui"):
+        for path in folder.rglob("*"):
+            if path.suffix not in {".css", ".js", ".html"} or path in allowed:
+                continue
+            if "vendor" in path.parts:
+                continue
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if colour.search(line):
+                    offenders.append(f"{path.relative_to(ROOT)}:{number}")
+    assert offenders == [], f"colour literals outside the shared system: {offenders}"
 
 
 def test_the_datasets_page_loads_the_grid_from_our_own_origin():
