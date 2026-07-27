@@ -73,7 +73,9 @@ def test_overview_summarizes_the_workspace_and_data_uses_one_dropdown(client):
     assert 'class="data-source-overview-statuses"' in selected
     assert 'class="data-source-overview-totals"' in selected
     assert "Source status" in selected and "Dataset totals" in selected
-    assert '/static/pages/data-workspace.css?v=source-ui-7' in selected
+    assert '/static/pages/data-workspace.css?v=source-ui-8' in selected
+    assert '<details class="data-source-overview">' in selected
+    assert '<details class="data-source-overview" open>' not in selected
     assert selected.index('class="data-grid-frame-head"') < selected.index(
         'class="data-source-overview"') < selected.index(
         'class="data-grid-commandbar"')

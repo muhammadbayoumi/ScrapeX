@@ -131,8 +131,9 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # place, with Keywords added only inside the Description card.
     # design-system-24/24: the language picker is a compact segmented control
     # and the saved-views content opens as a real anchored panel.
-    assert '/static/grid.js?v=design-system-24' in page
-    assert '/static/grid-theme.css?v=design-system-24' in page
+    # design-system-25/25: EN/AR now share one animated sliding indicator.
+    assert '/static/grid.js?v=design-system-25' in page
+    assert '/static/grid-theme.css?v=design-system-25' in page
 
 
 def test_material_header_icons_are_local_and_dry():

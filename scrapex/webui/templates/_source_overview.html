@@ -1,7 +1,7 @@
 {# The selected source's operational summary. This partial is placed inside
    the grid frame when records exist and above the empty state otherwise. #}
 {% set overview_domain = (summary.base_url or "")|source_domain %}
-<details class="data-source-overview" open>
+<details class="data-source-overview">
   <summary class="data-source-overview-trigger" aria-controls="dataset-overview-panel">
     <span class="data-source-overview-trigger-main">
       {{ icon("dns") }}

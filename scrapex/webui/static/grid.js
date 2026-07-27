@@ -1478,7 +1478,7 @@
     const buttons = {};
     for (const [code, label, title] of [
       ["en", "EN", "Show English fields"],
-      ["ar", "عربي", "Show Arabic fields"],
+      ["ar", "AR", "Show Arabic fields"],
     ]) {
       const b = document.createElement("button");
       b.type = "button";
@@ -1486,10 +1486,6 @@
       b.textContent = label;
       b.title = title;
       b.setAttribute("aria-label", title);
-      if (code === "ar") {
-        b.lang = "ar";
-        b.dir = "rtl";
-      }
       b.addEventListener("click", () => apply(code, true));
       buttons[code] = b;
       segments.appendChild(b);
@@ -1497,7 +1493,8 @@
     wrap.appendChild(segments);
     host.append(wrap);
     function apply(code, save) {
-      nameLang = code;
+      nameLang = code === "ar" ? "ar" : "en";
+      segments.dataset.activeLang = nameLang;
       if (save) { try { localStorage.setItem(LANG_KEY, code); } catch (err) {} }
       for (const [arabic, english] of pairs) {
         // Belt and braces. The server already gates `bilingual` to pairs
