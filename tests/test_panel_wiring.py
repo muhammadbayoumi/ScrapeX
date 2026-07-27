@@ -127,3 +127,38 @@ def test_the_schedules_section_is_an_editor_not_a_list():
     # 0=Monday, the server's convention — a drifted weekday list would fire
     # runs a day away from what the owner picked.
     assert '"Monday", "Tuesday"' in JS
+
+
+def test_the_autostart_control_says_which_failure_it_hit():
+    """Two silences in one control, both of them shipped.
+
+    The click handlers were `try { await setAutostart(...) } finally { ... }` —
+    a try/finally with NO catch — so a host answering ok:false rejected, the
+    throw unwound past the re-render, and the label went on saying "off" with
+    nothing said anywhere. And the render's own `catch (_)` reported all five
+    failure classes as "needs the one-time launcher install", which sends the
+    owner to Setup for a `forbidden` (reloaded from another folder) or a
+    `timeout` (cold start) that Setup does not repair. transport.js:19-24
+    records that exact incident on a machine where the launcher was working.
+    """
+    block = JS[JS.index("async function renderAutostart"):JS.index("// ---- shell")]
+
+    assert "catch (_)" not in block, \
+        "the autostart control still discards the error object it needs"
+    assert block.count("catch (err)") >= 3, \
+        "both click handlers and the render must each name their failure"
+    assert "hostFailureReason" in block, \
+        "the kind->sentence mapping must be the shared one, not a second copy"
+    # Only `absent` may be reported as a missing install.
+    assert '"absent"' in block, "the render no longer distinguishes a missing helper"
+    for other in ("forbidden", "crashed", "timeout"):
+        assert f'"{other}"' in JS, f"the panel has no message for {other}"
+
+
+def test_the_host_failure_reason_is_defined_once():
+    """A second copy is how the two controls came to disagree about the same
+    failure: startEngine branched on all five kinds while the autostart control
+    called every one of them 'not installed'."""
+    assert JS.count("function hostFailureReason") == 1
+    for kind in ("absent", "forbidden", "crashed", "timeout"):
+        assert f'kind === "{kind}"' in JS, f"hostFailureReason does not name {kind}"

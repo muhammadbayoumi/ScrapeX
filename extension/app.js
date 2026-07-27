@@ -1284,6 +1284,23 @@ async function startEngineFromPanel() {
   }
 }
 
+// The five ways a call to the native host can fail, each said as itself.
+// transport.js tags four of them on `err.kind` (absent / forbidden / crashed /
+// timeout); the fifth is a host that ANSWERED and refused, which arrives as a
+// plain Error carrying the host's own detail and no kind. Collapsing them into
+// one sentence is precisely how "the launcher is not installed" got printed on
+// a machine where the launcher was installed and answering — see transport.js.
+// Callers add their own remedy; this names only the cause, so the two controls
+// cannot drift into two different diagnoses of the same failure.
+function hostFailureReason(err) {
+  const kind = err && err.kind;
+  if (kind === "absent") return "Chrome cannot find the ScrapeX helper on this machine";
+  if (kind === "forbidden") return "the helper does not recognise this extension yet";
+  if (kind === "crashed") return "the helper started and stopped";
+  if (kind === "timeout") return "the helper did not answer in time — it may still be starting";
+  return (err && err.message) || "the helper refused without saying why";
+}
+
 // ---- start with Windows ------------------------------------------------------
 // One launcher file on the machine decides it; the native host is the only
 // hand that reaches it, so without the host the control honestly says why it
@@ -1299,23 +1316,47 @@ async function renderAutostart() {
       : "Start with Windows: off — after a reboot the engine waits for you.";
     toggle.textContent = s.installed ? "Turn off" : "Turn on";
     toggle.classList.remove("hidden");
+    // try/finally with no catch made this the quietest control in the panel:
+    // SET_AUTOSTART answering ok:false (Defender blocking the Startup folder,
+    // a redirected profile) rejected, the throw unwound past renderAutostart(),
+    // and the label went on reading "off". The owner clicked, the button
+    // flickered, and nothing happened and nothing was said.
     toggle.onclick = async () => {
       toggle.disabled = true;
-      try { await setAutostart(!s.installed); } finally { toggle.disabled = false; }
-      renderAutostart();
+      try {
+        await setAutostart(!s.installed);
+        renderAutostart();
+      } catch (err) {
+        state.textContent = "Start with Windows: could not be changed — " +
+          hostFailureReason(err) + ".";
+      } finally {
+        toggle.disabled = false;
+      }
     };
     if (offer) {
       offer.classList.toggle("hidden", s.installed);
       offer.onclick = async () => {
         offer.disabled = true;
-        try { await setAutostart(true); } finally { offer.disabled = false; }
-        renderAutostart();
+        try {
+          await setAutostart(true);
+          renderAutostart();
+        } catch (err) {
+          state.textContent = "Start with Windows: could not be turned on — " +
+            hostFailureReason(err) + ".";
+        } finally {
+          offer.disabled = false;
+        }
       };
     }
-  } catch (_) {
-    // No native host installed: nothing here can write the launcher.
-    state.textContent =
-      "Start with Windows: needs the one-time launcher install (Setup).";
+  } catch (err) {
+    // Only `absent` means "not installed". A `forbidden` (the extension was
+    // reloaded from another folder, so the helper's allowlist no longer names
+    // it) and a `timeout` (a cold start) were both reported here as a missing
+    // install, and Setup repairs neither — it sends the owner to fix a
+    // component that is working.
+    state.textContent = (err && err.kind) === "absent"
+      ? "Start with Windows: needs the one-time launcher install (Setup)."
+      : "Start with Windows: unavailable — " + hostFailureReason(err) + ".";
     toggle.classList.add("hidden");
     if (offer) offer.classList.add("hidden");
   }
