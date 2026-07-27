@@ -393,6 +393,24 @@ class BrowserFetcher:
                 "BrowserFetcher requires the browser extra: "
                 "pip install -e .[browser] && playwright install chromium"
             ) from exc
+        # The two members every caller reads unconditionally. They were missing,
+        # and the consequence was worse than a missing number: capture.py:220
+        # and cli.py:212 call close() from a `finally`, so the AttributeError
+        # was raised BY the release path and replaced whatever the crawl had
+        # actually failed with. The owner would have read
+        # "'BrowserFetcher' object has no attribute 'close'" instead of the
+        # real cause, on the one path built to guarantee release.
+        self.requests_count = 0   # recorded into crawl_run, same as HttpFetcher
+        self.robots_warnings: list[str] = []
+
+    def close(self) -> None:
+        """Nothing outlives a fetch, so there is nothing to release.
+
+        Deliberate and stated rather than absent: each get_html opens its own
+        playwright context and browser and closes both in its own `finally`
+        (below), so no handle survives the call. The method exists because the
+        callers' guaranteed-release path is allowed to assume it does.
+        """
 
     def get_html(self, url: str, wait_selector: str | None = None, retries: int = 2) -> str:
         """Fetch a fully-rendered page. S7: selector waits (never fixed sleeps),
@@ -401,6 +419,7 @@ class BrowserFetcher:
 
         last_error: Exception | None = None
         for attempt in range(retries + 1):
+            self.requests_count += 1   # every attempt is a real page load
             try:
                 with sync_playwright() as pw:
                     browser = pw.chromium.launch()
