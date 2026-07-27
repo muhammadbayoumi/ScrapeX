@@ -1,6 +1,8 @@
 """JSON API for the Chrome extension: health/sources/resolve/capture."""
 from __future__ import annotations
 
+import json
+import re
 import shutil
 import sqlite3
 from pathlib import Path
@@ -201,3 +203,110 @@ def test_health_never_reports_the_thread_flag_as_the_workers_liveness(client, mo
     assert "DatabaseError" in body["worker"]["detail"], \
         "the reason for not knowing was thrown away"
     assert "malformed" in body["worker"]["detail"]
+
+
+# ---- who may drive this engine ------------------------------------------------
+# Binding to 127.0.0.1 was treated as the boundary. It is not: every page the
+# owner opens runs inside the browser that can reach the port, and with
+# allow_origins=["*"] any site could POST /api/storage/start-fresh, re-point the
+# helper with /api/native-host/register, or mint AND READ the funnel token.
+
+HOSTILE = "https://evil.example"
+
+
+def test_a_web_page_cannot_reach_a_destructive_route(client):
+    """The damage is done by the request arriving, not by the reply being read —
+    so CORS response headers alone were never a defence for a write route."""
+    blocked = client.post("/api/storage/start-fresh", json={"confirm": True},
+                          headers={"Origin": HOSTILE})
+    assert blocked.status_code == 403, \
+        "a page on the internet could wipe the warehouse on this machine"
+    assert "another site" in blocked.json()["detail"]
+
+
+def test_a_web_page_cannot_read_the_funnel_token_or_repoint_the_helper(client):
+    for method, path in (("post", "/api/outputs/apps-script/token"),
+                         ("post", "/api/native-host/register"),
+                         ("post", "/api/settings"),
+                         ("get", "/api/health")):
+        r = getattr(client, method)(path, headers={"Origin": HOSTILE})
+        assert r.status_code == 403, f"{path} answered a hostile origin"
+
+
+def test_the_engines_own_pages_and_local_tools_still_work(client):
+    """No Origin header at all is the engine's own page, curl, or the CLI —
+    refusing those would break the product to fix the boundary."""
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_the_extension_is_still_allowed(client):
+    origin = "chrome-extension://" + ("a" * 32)
+    r = client.get("/api/health", headers={"Origin": origin})
+    assert r.status_code == 200, "the panel's HTTP fallback was locked out"
+    assert r.headers.get("access-control-allow-origin") == origin, \
+        "the panel may reach the engine but cannot read the answer"
+
+
+def test_a_rebinding_host_header_is_refused(client):
+    """A DNS-rebinding page points its OWN name at 127.0.0.1, so the request
+    arrives with the attacker's host — a same-origin request as far as the
+    browser is concerned, carrying no Origin for the check above to catch."""
+    assert client.get("/api/health",
+                      headers={"Host": "attacker.example"}).status_code == 400
+
+
+def test_the_allowlist_is_the_native_host_manifest_not_a_second_copy(tmp_path, monkeypatch):
+    """One file decides which extension may drive this machine. A second
+    allowlist here would be a copy to keep in step — the DRY defect this
+    codebase names in Q1."""
+    from scrapex.webui import app as webapp
+
+    manifest = tmp_path / "com.scrapex.engine.json"
+    manifest.write_text(json.dumps({"allowed_origins": [
+        "chrome-extension://" + "b" * 32 + "/"]}), encoding="utf-8")
+    monkeypatch.setattr(webapp.nativehost, "manifest_path", lambda platform=None: manifest)
+
+    assert webapp.allowed_extension_ids() == ["b" * 32]
+    pattern = webapp.extension_origin_regex()
+    assert re.match(pattern, "chrome-extension://" + "b" * 32)
+    assert not re.match(pattern, "chrome-extension://" + "c" * 32), \
+        "an extension the helper does not trust was accepted over HTTP"
+
+
+def _client_trusting_only(tmp_path, monkeypatch, db_path, manifest_copy, extension_id):
+    from scrapex.webui import app as webapp
+
+    host_manifest = tmp_path / "com.scrapex.engine.json"
+    host_manifest.write_text(
+        json.dumps({"allowed_origins": [f"chrome-extension://{extension_id}/"]}),
+        encoding="utf-8")
+    monkeypatch.setattr(webapp.nativehost, "manifest_path",
+                        lambda platform=None: host_manifest)
+    return TestClient(create_app(db_path, manifest_path=manifest_copy))
+
+
+def test_an_extension_the_helper_does_not_trust_is_refused(tmp_path, monkeypatch,
+                                                          db_path, manifest_copy):
+    client = _client_trusting_only(tmp_path, monkeypatch, db_path, manifest_copy, "b" * 32)
+    stale = {"Origin": "chrome-extension://" + "c" * 32}
+    assert client.get("/api/health", headers=stale).status_code == 403
+    assert client.get("/api/health",
+                      headers={"Origin": "chrome-extension://" + "b" * 32}).status_code == 200
+
+
+def test_the_relink_route_stays_reachable_to_the_extension_it_would_repair(
+        tmp_path, monkeypatch, db_path, manifest_copy):
+    """Held to the stale allowlist, the repair would be locked out by the very
+    fault it repairs — a dead panel with no route back."""
+    client = _client_trusting_only(tmp_path, monkeypatch, db_path, manifest_copy, "b" * 32)
+    new_id = "d" * 32
+    monkeypatch.setattr("scrapex.nativehost.install",
+                        lambda ids, **kw: tmp_path / "written.json")
+
+    r = client.post("/api/native-host/register", json={"extension_id": new_id},
+                    headers={"Origin": f"chrome-extension://{new_id}"})
+    assert r.status_code == 200, "the panel could not re-link itself and is stranded"
+    # ...and it is still only extensions, never a web page.
+    assert client.post("/api/native-host/register", json={"extension_id": new_id},
+                       headers={"Origin": HOSTILE}).status_code == 403

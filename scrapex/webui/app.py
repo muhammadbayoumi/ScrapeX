@@ -9,7 +9,9 @@ Bound to 127.0.0.1 by the CLI — a local, single-machine surface.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -18,11 +20,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db as dbmod
+from .. import nativehost
 from ..capture import capture_source
 from ..changes import change_summary, changes_for_offer, recent_changes
 from ..config import MANIFEST_FILE, SourceEntry, load_manifest
@@ -138,6 +143,88 @@ AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
 # would be a lie told by a dropdown.
 PER_PAGE_OPTIONS = (25, 50, 100, 200)
 
+# ---- who may talk to this engine ---------------------------------------------
+# Binding to 127.0.0.1 keeps the port off the network. It does NOT keep the port
+# away from the internet: every page the owner opens runs inside the browser that
+# can reach it, so any site could fetch() this API. That is why the origin is
+# checked here rather than trusted.
+
+# Chrome extension ids are 32 characters drawn from a-p.
+_ANY_EXTENSION = r"^chrome-extension://[a-p]{32}$"
+# Hosts a loopback URL can carry. A DNS-rebinding page resolves its OWN name to
+# 127.0.0.1 and so arrives with `Host: attacker.example`, which is refused.
+# "testserver" is Starlette's TestClient default and resolves nowhere.
+LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1", "testserver"]
+
+
+def allowed_extension_ids() -> list[str]:
+    """The extension ids the native-messaging manifest already trusts.
+
+    Reusing that file means there is ONE allowlist deciding which extension may
+    drive this machine, instead of a second one here to keep in step with it.
+    """
+    try:
+        manifest = json.loads(nativehost.manifest_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    ids = []
+    for origin in manifest.get("allowed_origins") or []:
+        candidate = str(origin).removeprefix("chrome-extension://").rstrip("/")
+        if candidate.isalnum():
+            ids.append(candidate)
+    return ids
+
+
+def extension_origin_regex() -> str:
+    """One pattern, used both to answer CORS and to refuse everything else.
+
+    With no manifest the owner has not run the one-time installer yet — a state
+    transport.js deliberately supports — so any extension origin is accepted and
+    every web origin is still refused. That leaves the attack that mattered
+    closed (a page on the internet reaching this port) without stranding a panel
+    whose engine is reachable only over HTTP.
+    """
+    ids = allowed_extension_ids()
+    if not ids:
+        return _ANY_EXTENSION
+    return r"^chrome-extension://(%s)$" % "|".join(re.escape(i) for i in sorted(set(ids)))
+
+
+class RefuseForeignOrigins(BaseHTTPMiddleware):
+    """Refuse a browser origin that is not the extension, BEFORE any handler.
+
+    CORS alone is not enough: the browser blocks the attacker from READING the
+    reply, but the request has already run by then — and the routes that matter
+    here are writes (start-fresh, restore, settings, native-host/register), where
+    doing the work IS the damage. A request with no Origin header at all is the
+    engine's own pages and local tools, and is left alone.
+    """
+
+    # The one exception, and why it has to exist: when the helper's allowlist no
+    # longer names this extension — a reload from another folder gives it a new
+    # id — the panel repairs that by posting its own id to the re-link route. Held
+    # to the same stale allowlist, the repair would be locked out by the exact
+    # fault it repairs, and the owner would be left with a dead panel and no
+    # route back. Any EXTENSION may reach it. No web page can.
+    RELINK_PATH = "/api/native-host/register"
+
+    def __init__(self, app, pattern: str) -> None:
+        super().__init__(app)
+        self._pattern = re.compile(pattern)
+        self._any_extension = re.compile(_ANY_EXTENSION)
+
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+        pattern = (self._any_extension if request.url.path == self.RELINK_PATH
+                   else self._pattern)
+        if origin and not pattern.match(origin):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "This engine answers its own pages and the ScrapeX "
+                                   "extension only. A page from another site may not "
+                                   "drive the warehouse on this machine."})
+        return await call_next(request)
+
 
 def create_app(
     db_path: Path | str | None = None,
@@ -178,11 +265,30 @@ def create_app(
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # The extension calls from a chrome-extension:// origin. Local-only server,
-    # no credentials — permissive CORS is acceptable here (A9: still 127.0.0.1).
+    # "Local-only" was never a boundary. Every page the owner browses runs in the
+    # same browser that can reach 127.0.0.1, so allow_origins=["*"] handed every
+    # site on the internet this engine's whole command surface: one fetch() to
+    # POST /api/storage/start-fresh wipes the warehouse, /api/native-host/register
+    # re-points the helper's allowlist, /api/outputs/apps-script/token mints the
+    # funnel token AND — with the wildcard — lets the calling page read it back.
+    #
+    # A web origin is now refused before any handler runs. The extension is not:
+    # its own id is read from the native-messaging manifest, the file that
+    # already decides which extension may drive this machine, so there is one
+    # allowlist rather than a second one to keep in step.
+    origin_pattern = extension_origin_regex()
+    # CORS answers any extension origin so the re-link route's reply is readable
+    # by the panel that needs it; which origins may actually DO anything is
+    # decided below, before a handler runs.
     app.add_middleware(
-        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+        CORSMiddleware, allow_origin_regex=_ANY_EXTENSION,
+        allow_methods=["*"], allow_headers=["*"],
     )
+    # Added last, so it runs first: a refused origin never reaches a handler.
+    app.add_middleware(RefuseForeignOrigins, pattern=origin_pattern)
+    # And the Host header, against DNS rebinding — Starlette's own, not a
+    # hand-rolled check (X8: the dependency already ships one).
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=LOOPBACK_HOSTS)
 
     if databases is not None:
         app.include_router(create_database_router(lambda: app.state.databases))
