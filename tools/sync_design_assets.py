@@ -18,6 +18,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 ASSETS = {
+    ROOT / "design" / "appearance.js": (
+        ROOT / "extension" / "appearance.js",
+        ROOT / "scrapex" / "webui" / "static" / "appearance.js",
+    ),
     ROOT / "design" / "tokens.css": (
         ROOT / "extension" / "tokens.css",
         ROOT / "scrapex" / "webui" / "static" / "tokens.css",

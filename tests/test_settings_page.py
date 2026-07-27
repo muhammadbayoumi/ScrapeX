@@ -79,6 +79,17 @@ def test_the_sections_are_collapsed_not_one_long_screen(client):
     assert "<details class=\"sect\" open" not in body
 
 
+def test_general_settings_offer_follow_chrome_and_manual_appearance(client):
+    body = client.get("/settings").text
+
+    assert 'data-appearance-mode="follow"' in body
+    assert 'data-appearance-mode="manual"' in body
+    assert 'data-appearance-scheme="light"' in body
+    assert 'data-appearance-scheme="dark"' in body
+    for accent in ("cyan", "blue", "violet", "rose", "orange", "green"):
+        assert f'data-appearance-accent="{accent}"' in body
+
+
 def test_settings_is_reachable_from_the_workspace_tabs(client):
     assert '/settings"' in client.get("/").text
 

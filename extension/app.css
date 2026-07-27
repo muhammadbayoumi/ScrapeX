@@ -633,6 +633,11 @@
     background: var(--control-hover);
     color: var(--text);
   }
+  .side-rail .appearance-quick-toggle.is-active {
+    color: var(--accent-ink);
+    background: var(--accent-weak);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  }
   .side-rail .rail-item:active:not(:disabled) { transform: scale(.94); }
   .side-rail .rail-item .sx-icon { width: 1.2rem; height: 1.2rem; }
   .rail-divider {

@@ -166,6 +166,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         f"{sprite_body}</svg>{body}"
     )
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
+    appearance_js = (EXT / "appearance.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
 
     # Flatten the ES module: drop the import and inline engine.js's exports.
@@ -179,6 +180,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         "<style>html,body{margin:0}</style>"
         f"<style>{tokens_css}</style><style>{components_css}</style>"
         f"<style>{style}</style>\n{body}\n"
+        f"<script>{appearance_js}</script>\n"
         f"<script>{stub_js}</script>\n"
         # No manual DOMContentLoaded dispatch: this inline script is parsed
         # BEFORE the browser fires the real event, so dispatching one as well

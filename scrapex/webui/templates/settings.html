@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Settings — ScrapeX{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="/static/pages/settings.css">
+  <link rel="stylesheet" href="/static/pages/settings.css?v=appearance-1">
 {% endblock %}
 {% block content %}
 <header class="settings-hero">
@@ -82,6 +82,62 @@
   <summary><span class="sect-name">General</span>
     <span class="sect-sub">Language and what leaves this machine</span></summary>
   <div class="sect-body">
+    <section class="appearance-editor" data-appearance-control
+             aria-labelledby="appearance-heading">
+      <div class="appearance-heading">
+        <div>
+          <span class="appearance-eyebrow">Appearance</span>
+          <h3 id="appearance-heading">Make ScrapeX feel at home</h3>
+          <p>Follow Chrome automatically, or choose the theme and workspace colour yourself.</p>
+        </div>
+        <span class="appearance-status" data-appearance-status aria-live="polite"></span>
+      </div>
+
+      <div class="appearance-mode" role="group" aria-label="Appearance control">
+        <button type="button" class="appearance-mode-choice"
+                data-appearance-mode="follow" aria-pressed="false">
+          <span class="appearance-preview appearance-preview-follow" aria-hidden="true">
+            <i></i><i></i>
+          </span>
+          <span><strong>Follow Chrome</strong>
+            <small>Automatic theme, contrast, and motion</small></span>
+        </button>
+        <button type="button" class="appearance-mode-choice"
+                data-appearance-mode="manual" aria-pressed="false">
+          <span class="appearance-preview appearance-preview-manual" aria-hidden="true">
+            <i></i><i></i>
+          </span>
+          <span><strong>Manual</strong>
+            <small>Your theme and colour stay fixed</small></span>
+        </button>
+      </div>
+
+      <div class="appearance-manual">
+        <div class="appearance-option-row">
+          <span class="appearance-option-label">Theme</span>
+          <div class="appearance-segmented" role="group" aria-label="Manual theme">
+            <button type="button" data-appearance-scheme="light" aria-pressed="false">Light</button>
+            <button type="button" data-appearance-scheme="dark" aria-pressed="false">Dark</button>
+          </div>
+        </div>
+        <div class="appearance-option-row">
+          <span class="appearance-option-label">Workspace colour</span>
+          <div class="appearance-swatches" role="group" aria-label="Workspace colour">
+            {% for accent, label in [
+              ("cyan", "ScrapeX cyan"), ("blue", "Blue"), ("violet", "Violet"),
+              ("rose", "Rose"), ("orange", "Orange"), ("green", "Green")
+            ] %}
+              <button type="button" class="appearance-swatch appearance-swatch-{{ accent }}"
+                      data-appearance-accent="{{ accent }}" aria-label="{{ label }}"
+                      aria-pressed="false"><span aria-hidden="true"></span></button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <p class="appearance-note">Chrome exposes its Light/Dark and accessibility preferences.
+        Its private “Customize Chrome” palette is not exposed to extensions, so automatic
+        colour uses the browser or device accent when available.</p>
+    </section>
     <table>
       <tr><th>Interface language</th>
           <td>English. Scraped names and values are shown in whatever language

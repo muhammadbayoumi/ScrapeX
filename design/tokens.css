@@ -6,7 +6,7 @@
  * but this file is the only authored source of token values.
  * ======================================================================== */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   /* Surfaces and text */
   --bg: #f5f7f9;
@@ -21,19 +21,19 @@
   --chip: #edf1f4;
 
   /* Brand and semantic colour */
-  --accent: #00adb5;
-  --accent-hover: #009ba3;
-  --accent-active: #008990;
-  --accent-ink: #006b70;
-  --accent-contrast: #062b2d;
-  --accent-weak: #d8f4f5;
+  --accent: light-dark(#00adb5, #35c8ce);
+  --accent-hover: light-dark(#009ba3, #51d3d8);
+  --accent-active: light-dark(#008990, #21b9c0);
+  --accent-ink: light-dark(#006b70, #69e1e5);
+  --accent-contrast: light-dark(#062b2d, #071f20);
+  --accent-weak: light-dark(#d8f4f5, #073a3d);
   --amber: #9a5c0a;
   --amber-weak: #fff4d6;
   --red: #b8322a;
   --red-hover: #9f2923;
   --red-weak: #fde9e7;
   --danger-contrast: #ffffff;
-  --focus: #007b83;
+  --focus: light-dark(#007b83, #69e1e5);
   --selection: color-mix(in srgb, var(--accent) 20%, transparent);
 
   /* Controls */
@@ -101,8 +101,108 @@
   --z-modal: 30;
 }
 
+/* Manual appearance palettes. `light-dark()` follows the resolved colour
+   scheme, so one palette definition serves both the web workspace and the
+   extension without the two surfaces drifting apart. */
+:root[data-accent="blue"] {
+  --accent: light-dark(#1a73e8, #8ab4f8);
+  --accent-hover: light-dark(#1765cc, #aecbfa);
+  --accent-active: light-dark(#1557b0, #669df6);
+  --accent-ink: light-dark(#1454a3, #aecbfa);
+  --accent-contrast: light-dark(#ffffff, #10233e);
+  --accent-weak: light-dark(#e8f0fe, #172a46);
+  --focus: light-dark(#1a73e8, #8ab4f8);
+}
+
+:root[data-accent="violet"] {
+  --accent: light-dark(#7c3aed, #c4b5fd);
+  --accent-hover: light-dark(#6d28d9, #d8b4fe);
+  --accent-active: light-dark(#5b21b6, #a78bfa);
+  --accent-ink: light-dark(#6d28d9, #ddd6fe);
+  --accent-contrast: light-dark(#ffffff, #241348);
+  --accent-weak: light-dark(#ede9fe, #2e1d4f);
+  --focus: light-dark(#7c3aed, #c4b5fd);
+}
+
+:root[data-accent="rose"] {
+  --accent: light-dark(#db2777, #f9a8d4);
+  --accent-hover: light-dark(#be185d, #fbcfe8);
+  --accent-active: light-dark(#9d174d, #f472b6);
+  --accent-ink: light-dark(#a91557, #fbcfe8);
+  --accent-contrast: light-dark(#ffffff, #451027);
+  --accent-weak: light-dark(#fce7f3, #4a1830);
+  --focus: light-dark(#db2777, #f9a8d4);
+}
+
+:root[data-accent="orange"] {
+  --accent: light-dark(#d97706, #fbbf24);
+  --accent-hover: light-dark(#b45309, #fcd34d);
+  --accent-active: light-dark(#92400e, #f59e0b);
+  --accent-ink: light-dark(#9a4c08, #fde68a);
+  --accent-contrast: light-dark(#ffffff, #3b2404);
+  --accent-weak: light-dark(#fff3d6, #432b09);
+  --focus: light-dark(#d97706, #fbbf24);
+}
+
+:root[data-accent="green"] {
+  --accent: light-dark(#16834a, #6ee7a2);
+  --accent-hover: light-dark(#12713f, #86efac);
+  --accent-active: light-dark(#0f5e35, #4ade80);
+  --accent-ink: light-dark(#0f6639, #a7f3c1);
+  --accent-contrast: light-dark(#ffffff, #092c1b);
+  --accent-weak: light-dark(#dcfce7, #123a26);
+  --focus: light-dark(#16834a, #6ee7a2);
+}
+
+/* Follow Chrome uses the colour preference exposed by the browser/operating
+   system. Chrome does not expose the private Customize Chrome palette to
+   extensions, so the system accent is the closest truthful automatic colour. */
+@supports (color: AccentColor) {
+  :root[data-appearance="follow"] {
+    --accent: AccentColor;
+    --accent-hover: color-mix(in srgb, AccentColor 84%, var(--text));
+    --accent-active: color-mix(in srgb, AccentColor 72%, var(--text));
+    --accent-ink: color-mix(in srgb, AccentColor 78%, var(--text));
+    --accent-contrast: AccentColorText;
+    --accent-weak: color-mix(in srgb, AccentColor 14%, var(--surface));
+    --focus: AccentColor;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0f1216;
+  --surface: #171b21;
+  --surface-subtle: #1c2128;
+  --surface-raised: #20262e;
+  --line: #2c333d;
+  --line-strong: #434d5a;
+  --text: #e9edf2;
+  --muted: #a9b2bf;
+  --text-subtle: #8994a3;
+  --chip: #242b34;
+
+  --amber: #f0bc63;
+  --amber-weak: #302610;
+  --red: #ef8278;
+  --red-hover: #f49a92;
+  --red-weak: #351715;
+  --danger-contrast: #24100f;
+
+  --control-bg: #171b21;
+  --control-hover: #20262e;
+  --shadow-color: rgb(0 0 0 / 0.32);
+  --shadow-xs: 0 1px 2px var(--shadow-color);
+  --shadow-sm: 0 4px 14px var(--shadow-color);
+  --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.48);
+  --overlay: rgb(0 0 0 / 0.62);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
     --bg: #0f1216;
     --surface: #171b21;
     --surface-subtle: #1c2128;
@@ -114,20 +214,12 @@
     --text-subtle: #8994a3;
     --chip: #242b34;
 
-    --accent: #35c8ce;
-    --accent-hover: #51d3d8;
-    --accent-active: #21b9c0;
-    --accent-ink: #69e1e5;
-    --accent-contrast: #071f20;
-    --accent-weak: #073a3d;
     --amber: #f0bc63;
     --amber-weak: #302610;
     --red: #ef8278;
     --red-hover: #f49a92;
     --red-weak: #351715;
     --danger-contrast: #24100f;
-    --focus: #69e1e5;
-
     --control-bg: #171b21;
     --control-hover: #20262e;
     --shadow-color: rgb(0 0 0 / 0.32);

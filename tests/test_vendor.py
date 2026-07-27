@@ -60,6 +60,21 @@ def test_nothing_in_the_ui_loads_code_from_the_internet():
     assert offenders == [], f"remote code referenced: {offenders}"
 
 
+def test_appearance_manager_is_shared_and_runs_before_the_design_tokens():
+    canonical = (ROOT / "design" / "appearance.js").read_bytes()
+    panel = (ROOT / "extension" / "appearance.js").read_bytes()
+    workspace = (ROOT / "scrapex" / "webui" / "static" / "appearance.js").read_bytes()
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    extension = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
+
+    assert panel == canonical == workspace
+    assert base.index("appearance.js") < base.index("tokens.css")
+    assert extension.index("appearance.js") < extension.index("tokens.css")
+    script = canonical.decode("utf-8")
+    assert 'mode: "follow"' in script
+    assert 'data-appearance-quick-toggle' in script
+
+
 def test_the_datasets_page_loads_the_grid_from_our_own_origin():
     page = (TEMPLATES / "datasets.html").read_text(encoding="utf-8")
     assert '/static/vendor/tabulator.min.js' in page
@@ -150,6 +165,7 @@ def test_material_header_icons_are_local_and_dry():
         'id="account-tree"', 'id="view-column"', 'id="restart-alt"',
         'id="unfold-less"', 'id="close"', 'id="search"',
         'id="drag-indicator"', 'id="settings"',
+        'id="palette"',
     }
 
     assert all(token in sprite for token in expected_symbols)

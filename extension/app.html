@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ScrapeX</title>
 <link rel="icon" href="icons/x-mark.png">
+<script src="appearance.js"></script>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="app.css">
@@ -539,8 +540,81 @@
         </div>
         <div class="settings-list">
           <article class="settings-item">
-            <button class="link sect settings-toggle" data-sect="s-engine" aria-expanded="false">
+            <button class="link sect settings-toggle" data-sect="s-appearance" aria-expanded="false">
               <span class="settings-index" aria-hidden="true">01</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Appearance</span>
+                <span class="settings-description">Follow Chrome or use your own theme</span>
+              </span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
+            </button>
+            <div id="s-appearance" class="settings-panel hidden">
+              <section class="appearance-editor" data-appearance-control aria-label="Appearance">
+                <div class="appearance-heading">
+                  <strong>Colour and theme</strong>
+                  <span class="appearance-status" data-appearance-status aria-live="polite"></span>
+                </div>
+                <div class="appearance-mode" role="group" aria-label="Appearance control">
+                  <button type="button" class="appearance-mode-choice"
+                          data-appearance-mode="follow" aria-pressed="false">
+                    <span class="appearance-preview appearance-preview-follow" aria-hidden="true">
+                      <i></i><i></i>
+                    </span>
+                    <span><strong>Follow Chrome</strong><small>Automatic</small></span>
+                  </button>
+                  <button type="button" class="appearance-mode-choice"
+                          data-appearance-mode="manual" aria-pressed="false">
+                    <span class="appearance-preview appearance-preview-manual" aria-hidden="true">
+                      <i></i><i></i>
+                    </span>
+                    <span><strong>Manual</strong><small>Your choices</small></span>
+                  </button>
+                </div>
+                <div class="appearance-manual">
+                  <div class="appearance-option-row">
+                    <span class="appearance-option-label">Theme</span>
+                    <div class="appearance-segmented" role="group" aria-label="Manual theme">
+                      <button type="button" data-appearance-scheme="light"
+                              aria-pressed="false">Light</button>
+                      <button type="button" data-appearance-scheme="dark"
+                              aria-pressed="false">Dark</button>
+                    </div>
+                  </div>
+                  <div class="appearance-option-row">
+                    <span class="appearance-option-label">Colour</span>
+                    <div class="appearance-swatches" role="group" aria-label="Workspace colour">
+                      <button type="button" class="appearance-swatch appearance-swatch-cyan"
+                              data-appearance-accent="cyan" aria-label="ScrapeX cyan"
+                              aria-pressed="false"><span aria-hidden="true"></span></button>
+                      <button type="button" class="appearance-swatch appearance-swatch-blue"
+                              data-appearance-accent="blue" aria-label="Blue"
+                              aria-pressed="false"><span aria-hidden="true"></span></button>
+                      <button type="button" class="appearance-swatch appearance-swatch-violet"
+                              data-appearance-accent="violet" aria-label="Violet"
+                              aria-pressed="false"><span aria-hidden="true"></span></button>
+                      <button type="button" class="appearance-swatch appearance-swatch-rose"
+                              data-appearance-accent="rose" aria-label="Rose"
+                              aria-pressed="false"><span aria-hidden="true"></span></button>
+                      <button type="button" class="appearance-swatch appearance-swatch-orange"
+                              data-appearance-accent="orange" aria-label="Orange"
+                              aria-pressed="false"><span aria-hidden="true"></span></button>
+                      <button type="button" class="appearance-swatch appearance-swatch-green"
+                              data-appearance-accent="green" aria-label="Green"
+                              aria-pressed="false"><span aria-hidden="true"></span></button>
+                    </div>
+                  </div>
+                </div>
+                <p class="appearance-note">Chrome shares its theme and accessibility
+                  preferences. Its private Customize Chrome colour is not available to
+                  extensions, so automatic colour uses the browser or device accent.</p>
+              </section>
+            </div>
+          </article>
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-engine" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">02</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Engine connection</span>
                 <span class="settings-description">Local runtime URL and privacy</span>
@@ -575,7 +649,7 @@
           </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-storage" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">02</span>
+              <span class="settings-index" aria-hidden="true">03</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Storage</span>
                 <span class="settings-description">Database health, backups, and source management</span>
@@ -616,7 +690,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-sched" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">03</span>
+              <span class="settings-index" aria-hidden="true">04</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Jobs and scheduling</span>
                 <span class="settings-description">Run cadence and worker availability</span>
@@ -632,7 +706,7 @@
           </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-output" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">04</span>
+              <span class="settings-index" aria-hidden="true">05</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Data output settings</span>
                 <span class="settings-description">Local exports and external sync</span>
@@ -658,7 +732,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-about" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">05</span>
+              <span class="settings-index" aria-hidden="true">06</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">About</span>
                 <span class="settings-description">Version and product details</span>
@@ -741,6 +815,15 @@
       <span class="visually-hidden">Workspace pages</span>
     </button>
     <span class="rail-spacer" aria-hidden="true"></span>
+
+    <button class="rail-item appearance-quick-toggle" id="appearance-toggle" type="button"
+            data-appearance-quick-toggle aria-pressed="false"
+            aria-label="Follow Chrome appearance" title="Follow Chrome appearance">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#palette"></use>
+      </svg>
+      <span class="visually-hidden">Toggle Chrome appearance</span>
+    </button>
 
     <div class="rail-tablist rail-tablist-bottom" role="tablist"
          aria-label="Extension settings">

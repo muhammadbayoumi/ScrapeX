@@ -98,7 +98,7 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["height"] == pytest.approx(800, abs=1)
 
     assert page.locator("nav.side-rail button[data-view]").count() == 5
-    assert page.locator("nav.side-rail button.rail-item").count() == 6
+    assert page.locator("nav.side-rail button.rail-item").count() == 7
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
     # Rolled 10 -> 11 when Data Model joined System: the panel mirrors the
@@ -115,6 +115,31 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     page.wait_for_timeout(100)
     opened = page.evaluate("() => window.__opened")
     assert len(opened) == 1 and opened[0].endswith("/changes")
+
+
+def test_the_rail_can_switch_between_follow_chrome_and_manual_appearance(open_panel):
+    page = open_panel()
+    toggle = page.locator("#appearance-toggle")
+
+    assert toggle.get_attribute("aria-pressed") == "true"
+    assert page.locator("html").get_attribute("data-appearance") == "follow"
+
+    toggle.click()
+    assert toggle.get_attribute("aria-pressed") == "false"
+    assert page.locator("html").get_attribute("data-appearance") == "manual"
+    assert page.locator("html").get_attribute("data-theme") in {"light", "dark"}
+
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-appearance"]')
+    page.click('[data-appearance-scheme="dark"]')
+    page.click('[data-appearance-accent="violet"]')
+    assert page.locator("html").get_attribute("data-theme") == "dark"
+    assert page.locator("html").get_attribute("data-accent") == "violet"
+
+    toggle.click()
+    assert toggle.get_attribute("aria-pressed") == "true"
+    assert page.locator("html").get_attribute("data-appearance") == "follow"
+    assert page.locator("html").get_attribute("data-theme") is None
 
 
 def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):
