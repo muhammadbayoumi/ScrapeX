@@ -473,7 +473,12 @@
     const request = ++autosizeRequest;
     fields.forEach((field) => widths.delete(field));
     table.redraw(true);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    // A TIMER, not requestAnimationFrame. rAF never fires while the tab is
+    // hidden or the window is occluded/throttled — the measurement was
+    // parked indefinitely and the command did nothing at all, which is the
+    // other half of "sometimes it does not work". A timer always fires,
+    // and 50ms is comfortably past the redraw it waits for.
+    setTimeout(() => {
       if (!table || request !== autosizeRequest) return;
       fields.forEach((field) => {
         const column = table.getColumn(field);
@@ -487,8 +492,13 @@
         column.setWidth(measured);
         widths.set(field, measured);
       });
-      table.redraw(false);
-    }));
+      // A rebuild, not a redraw: the measured widths enter the column
+      // DEFINITIONS (width + widthGrow 0), which is the only place a
+      // fitColumns layout can never override them. redraw(false) left the
+      // width as a live-table property that the next layout pass — a
+      // window resize, a toggle, new data — re-stretched at will.
+      build();
+    }, 50);
   }
   function autosize(field) { autosizeColumns([field]); }
   function autosizeAll() {
@@ -1208,7 +1218,17 @@
         sorterParams: {alignEmptyValues: "bottom"},
         // A ceiling as well as a floor: without one, fitColumns hands a short
         // column like Unit the same share as a long one like Record.
-        widthGrow: col.key === "product_name" || col.key === "product_name_ar"
+        //
+        // And an OWNER'S width opts out of the sharing entirely. This was
+        // the whole "Autosize sometimes works" mystery: fitColumns
+        // re-stretches every column with widthGrow >= 1 on every layout
+        // pass, so an autosized width held only while the columns
+        // overflowed the viewport — the moment there was spare room, the
+        // very next pass quietly re-inflated it, and the command looked
+        // random. A width the owner set (by autosize or by dragging) is a
+        // decision, not a suggestion for the layout to spend.
+        widthGrow: widths.has(col.key) ? 0
+                   : col.key === "product_name" || col.key === "product_name_ar"
                    || col.key === "country_code_alpha2" ? 2 : 1,
       };
       // Numbers and dates read right-aligned; text reads from its own side.

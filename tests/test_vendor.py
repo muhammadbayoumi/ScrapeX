@@ -272,9 +272,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # place, with Keywords added only inside the Description card.
     # design-system-24/24: the language picker is a compact segmented control
     # and the saved-views content opens as a real anchored panel.
-    # design-system-25/25: EN/AR now share one animated sliding indicator.
-    assert '/static/grid.js?v=design-system-25' in page
-    assert '/static/grid-theme.css?v=design-system-25' in page
+    # design-system-26: an owner's width (autosize or drag) is widthGrow 0,
+    # so fitColumns can never quietly re-stretch it — the intermittent
+    # Autosize the owner reported was the cache AND the layout both.
+    assert '/static/grid.js?v=design-system-26' in page
+    assert '/static/grid-theme.css?v=design-system-26' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -650,7 +652,17 @@ def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
     assert 'menuLabel("view-column", "Choose Columns")' in script
     assert 'menuLabel("restart-alt", "Reset Columns")' in script
     assert "column.setWidth(true)" in script
-    assert "requestAnimationFrame(() => requestAnimationFrame(() =>" in script
+    # A TIMER, not rAF: requestAnimationFrame never fires while the tab is
+    # hidden or the window is throttled, so the measurement was parked
+    # indefinitely and Autosize did nothing at all — one of the owner's
+    # three "sometimes it does not work" causes. And the deferred pass now
+    # ends in build(), because only a width in the column DEFINITIONS
+    # (width + widthGrow 0) survives every later fitColumns pass.
+    autosize_body = script.split("function autosizeColumns")[1].split("function autosize(")[0]
+    assert "requestAnimationFrame(" not in autosize_body, \
+        "the deferred measure went back to a frame that hidden tabs never paint"
+    assert "setTimeout(() => {" in script
+    assert "widths.has(col.key) ? 0" in script
     assert "column.setWidth(measured)" in script
     assert "function measureHeaderWidth(column)" in script
     assert "label.scrollWidth" in script
