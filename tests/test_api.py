@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -170,3 +172,32 @@ def test_manage_page_renders(client):
     r = client.get("/manage")
     # The served UI is English only (spec 1); Arabic appears solely as DATA.
     assert r.status_code == 200 and "Add a source" in r.text
+
+
+def test_health_never_reports_the_thread_flag_as_the_workers_liveness(client, monkeypatch):
+    """The fallback used to be seeded with `alive = thread_alive`, and the read
+    that would have corrected it was swallowed by `except Exception: pass`. So a
+    worker spinning on a dead handle — the exact state jobs.py records in
+    runtime_worker_error — was published as `worker_alive: true`, and the panel
+    printed the engine as running while nothing could crawl."""
+    import scrapex.webui.app as webapp
+
+    def unreadable(_conn):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+
+    monkeypatch.setattr(webapp, "worker_health", unreadable)
+    # The dangerous shape, not a convenient one: a thread object that is still
+    # alive while the loop behind it spins on a dead handle. Without this the
+    # test would pass on the old code for the wrong reason, because the fixture
+    # starts no worker and thread_alive is False anyway.
+    client.app.state.runner = SimpleNamespace(is_alive=True)
+    body = client.get("/api/health").json()
+
+    assert body["ok"] is True, "health must survive the thing it reports on"
+    assert body["worker"]["thread_alive"] is True, "the scenario under test did not arise"
+    assert body["worker_alive"] is False, \
+        "health published the THREAD flag as the worker's liveness"
+    assert body["worker"]["alive"] is None, "unknown must be said as unknown, not as False"
+    assert "DatabaseError" in body["worker"]["detail"], \
+        "the reason for not knowing was thrown away"
+    assert "malformed" in body["worker"]["detail"]

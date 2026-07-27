@@ -882,20 +882,28 @@ def create_app(
         # that can prove a crawl could start — and when it cannot, the
         # reason the loop recorded travels with it instead of dying on a
         # stderr that pythonw discards.
-        worker = {"alive": thread_alive, "detail": "", "failure": None}
         try:
             conn = read_conn()
             try:
                 worker = worker_health(conn)
             finally:
                 conn.close()
-        except Exception:  # noqa: BLE001 - health must not take health down
-            pass
+        except Exception as exc:  # noqa: BLE001 - health must not take health down
+            # NOT `pass` onto a fallback seeded with thread_alive. That published
+            # the thread flag AS the worker's liveness - the one conflation the
+            # comment above forbids - and it did it on exactly the failure the
+            # loop had already recorded: a worker spinning on a dead handle read
+            # as "running" because its thread object was still alive. Unknown is
+            # now said as unknown, and the reason for not knowing travels with it.
+            worker = {"alive": None, "failure": None,
+                      "detail": "the worker's state could not be read: "
+                                f"{type(exc).__name__}: {exc}"}
         worker["thread_alive"] = thread_alive
         return {"ok": True, "app": "scrapex", "version": __version__,
                 "sources_with_data": n,
-                # Kept for the panel that already reads it.
-                "worker_alive": bool(worker.get("alive")),
+                # Kept for the panel that already reads it. Unknown answers false:
+                # this endpoint may never claim a health it could not read.
+                "worker_alive": worker.get("alive") is True,
                 "worker": worker,
                 "databases": databases}
 
