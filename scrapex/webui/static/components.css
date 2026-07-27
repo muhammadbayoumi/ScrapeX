@@ -977,6 +977,7 @@ code {
   min-height: 4rem;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   justify-content: center;
   gap: var(--sp-2);
   padding: var(--sp-2);
