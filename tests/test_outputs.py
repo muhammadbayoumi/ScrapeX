@@ -458,6 +458,85 @@ def test_an_older_script_degrades_to_an_honest_not_confirmed(conn):
     assert "did not confirm" in result.detail and "Copy Script" in result.detail
 
 
+def test_a_refused_details_tab_is_named_and_fails_the_run(conn):
+    """The sheet files the details under 'ELSEWEDYSHOP — details'
+    (tableSuffix_ in the pasted script), never under the bare source_key. The
+    old matching compared the bare key alone, so this exact reply — prices
+    written, details refused — recorded ok=True and mentioned the refusal
+    nowhere: a silent failure, the class of defect the owner has twice lost
+    hours to."""
+    class _RefusingDetails(FakeFunnel):
+        def call_action(self, action, **fields):
+            return {"ok": True, "report": {
+                "written": [{"source": SOURCE, "rows": 1}],
+                "skipped": [{"source": f"{SOURCE} — details",
+                             "reason": "row 3 has 4 cells, header has 5"}]}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_RefusingDetails())
+    assert result.ok is False, "one refused tab must fail the whole run"
+    assert f"{SOURCE} — details" in result.detail, \
+        "the detail must name WHICH tab the sheet refused"
+    assert "row 3 has 4 cells" in result.detail, "the sheet's reason travels verbatim"
+    last = outputs.apps_script_status(conn)["last"]
+    assert last["ok"] is False, "the recorded state must carry the failure too"
+
+
+def test_a_report_covering_all_four_tabs_reports_all_four(conn):
+    """When the sheet confirms the whole family, the run result says so tab by
+    tab — the owner reads ONE line and knows the spreadsheet is whole."""
+    class _AllFour(FakeFunnel):
+        def call_action(self, action, **fields):
+            return {"ok": True, "report": {"written": [
+                {"source": SOURCE, "rows": 1},
+                {"source": f"{SOURCE} — details", "rows": 2},
+                {"source": f"{SOURCE} — history", "rows": 3},
+                {"source": f"{SOURCE} — about", "rows": 9},
+            ], "skipped": []}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_AllFour())
+    assert result.ok is True
+    for tab in (SOURCE, f"{SOURCE} — details",
+                f"{SOURCE} — history", f"{SOURCE} — about"):
+        assert tab in result.detail, f"{tab} must be accounted for by name"
+    assert "1 row(s)" in result.detail and "3 row(s)" in result.detail, \
+        "each tab reports its own row count, not one shared number"
+
+
+def test_a_companion_refusal_can_no_longer_vanish_from_the_report(conn):
+    """Regression pin for the old behaviour itself: a skipped entry for any
+    suffixed family tab matched neither `written` nor `refused`, so the run
+    fell through to the ok=True 'did not confirm' fallback. Whatever the
+    wording becomes, the invariant is that every refused family tab is NAMED
+    with its reason and the run is a failure — never the fallback."""
+    refusals = [{"source": f"{SOURCE} — history", "reason": "no complete batch"},
+                {"source": f"{SOURCE} — about", "reason": "batch carries no header"}]
+
+    class _RefusingTwo(FakeFunnel):
+        def call_action(self, action, **fields):
+            return {"ok": True, "report": {"written": [{"source": SOURCE, "rows": 1}],
+                                           "skipped": list(refusals)}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_RefusingTwo())
+    assert result.ok is False
+    for entry in refusals:
+        assert entry["source"] in result.detail
+        assert entry["reason"] in result.detail
+    assert "did not confirm" not in result.detail, \
+        "a refusal must never be presented as the benign not-confirmed case"
+
+
+def test_the_engine_and_the_sheet_agree_on_the_tab_suffixes():
+    """FUNNEL_TABLE_SUFFIXES is how outputs.py knows which tab names the
+    sheet's sync report can answer in; SYNC_TABLE_SUFFIXES is how the sheet
+    builds them. Let them drift and a refusal of the missing suffix turns
+    invisible again — the exact defect this family of tests exists to keep
+    dead."""
+    script = (Path(__file__).resolve().parent.parent / "apps_script" /
+              "StagingAppScript.txt").read_text(encoding="utf-8")
+    expected = "[" + ", ".join(f'"{s}"' for s in outputs.FUNNEL_TABLE_SUFFIXES) + "]"
+    assert f"SYNC_TABLE_SUFFIXES = {expected}" in script
+
+
 def test_the_funnel_sends_every_table_the_workbook_has(conn):
     """The owner's ruling: Apps Script sends every piece of information
     collected.

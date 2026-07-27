@@ -43,6 +43,15 @@ GOOGLE = "google_drive"
 # apps_script_send says so instead of pretending the limit is here.
 FUNNEL_MAX_ROWS = 20_000
 
+# The three companion tables that ride behind the prices, and therefore the
+# three tab names the sheet can answer a sync report in BEYOND the bare
+# source_key ("KEY — details" and so on). Mirrors SYNC_TABLE_SUFFIXES in the
+# pasted script (apps_script/StagingAppScript.txt: tableSuffix_): the sheet
+# answers in tab names, not source keys, so this list is how apps_script_send
+# knows which report entries belong to the source it just sent. The two lists
+# drifting apart would reopen the silent-refusal gap a test now pins shut.
+FUNNEL_TABLE_SUFFIXES = ("details", "history", "about")
+
 
 class NotConfiguredError(RuntimeError):
     """The destination is missing something the owner must supply first.
@@ -315,6 +324,7 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
         # the details are enrichment; the history is price observations; the
         # provenance sheet describes the export itself, and rides under the
         # kind it describes rather than inventing a vocabulary for one tab.
+        delivered = [source_key]
         for name, extra_header, extra_rows in tables[1:]:
             if not extra_rows:
                 continue
@@ -324,6 +334,11 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
             chunks += deliver(
                 suffix, extra_header, extra_rows,
                 ExtractKind.ENRICHMENT if suffix == "details" else ExtractKind.PRODUCT_PRICES)
+            # The sheet will file this batch under "KEY — suffix" (its
+            # tableSuffix_), so that exact tab name is the vocabulary its sync
+            # report answers in — recorded here so the answer can be checked
+            # tab by tab instead of taking the bare key as the whole story.
+            delivered.append(f"{source_key} — {suffix}")
     except (FunnelDeliveryError, OutboxAlarm) as exc:
         return _record(conn, "apps_script_last", RunResult(
             ok=False, rows=len(rows),
@@ -338,25 +353,53 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
     answer = (client.call_action("staging_sync")
               if hasattr(client, "call_action") else {})
     report = (answer or {}).get("report") or {}
-    written = next((w for w in report.get("written") or []
-                    if w.get("source") == source_key), None)
-    refused = next((s2 for s2 in report.get("skipped") or []
-                    if s2.get("source") == source_key), None)
-    if written:
-        return _record(conn, "apps_script_last", RunResult(
-            ok=True, rows=len(rows),
-            detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s); the sheet "
-                    f"wrote {written.get('rows')} row(s) to {source_key}.{oversized}")))
+    # The sheet does not answer in source_keys: it answers in TAB names, and
+    # one source owns up to four of them — the bare key for the prices, plus
+    # "KEY — details/history/about" for the companions (StagingAppScript.txt:
+    # tableSuffix_ + SYNC_TABLE_SUFFIXES). This used to match the bare key
+    # alone, so a refusal of a companion tab landed in NEITHER branch below
+    # and the run recorded ok while that tab sat stale or short — the silent
+    # failure the owner has twice lost hours to. Every tab in the family is
+    # now accounted for by name, and one refused tab fails the WHOLE run,
+    # because "ok" over a partly stale export is exactly the lie at issue.
+    family = [source_key] + [f"{source_key} — {suffix}"
+                             for suffix in FUNNEL_TABLE_SUFFIXES]
+    written = {w.get("source"): w for w in report.get("written") or []
+               if w.get("source") in family}
+    refused = {s2.get("source"): s2 for s2 in report.get("skipped") or []
+               if s2.get("source") in family}
     if refused:
+        reasons = "; ".join(f"{tab}: {refused[tab].get('reason')}"
+                            for tab in family if tab in refused)
+        landed = ", ".join(tab for tab in family if tab in written)
         return _record(conn, "apps_script_last", RunResult(
             ok=False, rows=len(rows),
             detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s), but the "
-                    f"sheet REFUSED to write {source_key}: {refused.get('reason')}. "
+                    f"sheet REFUSED to write {reasons}. "
+                    + (f"It did write {landed}. " if landed else "")
                     # Truthful but useless without this: the commonest
                     # cause is a sheet still running an older script.
-                    "Open Settings and re-paste the Apps Script (Copy "
-                    "Script), then sync again."
-                    f"{oversized}")))
+                    + "Open Settings and re-paste the Apps Script (Copy "
+                      "Script), then sync again."
+                    + oversized)))
+    if written:
+        confirmed = ", ".join(f"{written[tab].get('rows')} row(s) to {tab}"
+                              for tab in family if tab in written)
+        detail = (f"Delivered {len(rows)} rows in {chunks} chunk(s); the sheet "
+                  f"wrote {confirmed}.")
+        # A tab this run DELIVERED that the report never mentions is not a
+        # refusal — the commonest cause is an older pasted script filing every
+        # table under the bare key — so the run stands. But saying nothing
+        # about it here would be the same silence this block was rebuilt to
+        # end, so the missing tabs are named alongside the cure.
+        unmentioned = [tab for tab in delivered
+                       if tab not in written and tab not in refused]
+        if unmentioned:
+            detail += (" The sheet did not mention " + ", ".join(unmentioned) +
+                       " — re-paste the Apps Script (Copy Script) to get "
+                       "per-tab confirmations.")
+        return _record(conn, "apps_script_last", RunResult(
+            ok=True, rows=len(rows), detail=detail + oversized))
     return _record(conn, "apps_script_last", RunResult(
         ok=True, rows=len(rows),
         detail=(f"Delivered {len(rows)} rows in {chunks} chunk(s). The sheet did "
