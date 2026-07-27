@@ -518,6 +518,69 @@
       </form>
     </section>
 
+    <!-- ========================= APPEARANCE ========================= -->
+    <section id="view-appearance" class="hidden appearance-page" role="tabpanel"
+             aria-labelledby="tab-appearance" tabindex="0" data-appearance-control>
+      <header class="view-heading appearance-page-heading">
+        <span class="appearance-page-eyebrow">Personalize</span>
+        <h1>Appearance</h1>
+        <p>Choose how the extension and Workspace look.</p>
+      </header>
+
+      <section class="appearance-page-card" aria-label="Appearance controls">
+        <div class="appearance-live-preview" aria-label="Theme preview">
+          <div class="appearance-preview-frame" aria-hidden="true">
+            <div class="appearance-preview-topbar">
+              <span class="appearance-preview-logo"></span>
+              <span class="appearance-preview-title">ScrapeX</span>
+              <span class="appearance-preview-dot"></span>
+            </div>
+            <div class="appearance-preview-body">
+              <span class="appearance-preview-line is-heading"></span>
+              <span class="appearance-preview-line"></span>
+              <span class="appearance-preview-line is-short"></span>
+              <span class="appearance-preview-action"></span>
+            </div>
+          </div>
+          <span class="appearance-status" data-appearance-status aria-live="polite"></span>
+        </div>
+
+        <div class="appearance-page-section">
+          <div class="appearance-section-heading">
+            <strong>Theme</strong>
+            <small>Choose a fixed mode or follow your device</small>
+          </div>
+          <div class="appearance-scheme-picker" role="group" aria-label="Theme">
+            <button type="button" data-appearance-scheme-mode="light" aria-pressed="false">
+              <span>Light</span>
+            </button>
+            <button type="button" data-appearance-scheme-mode="dark" aria-pressed="false">
+              <span>Dark</span>
+            </button>
+            <button type="button" data-appearance-scheme-mode="device" aria-pressed="false">
+              <span>Device</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="appearance-page-section" data-appearance-palettes></div>
+
+        <footer class="appearance-follow-row">
+          <span>
+            <strong>Device colours</strong>
+            <small>Use the colour preference shared by your browser and system</small>
+          </span>
+          <label class="appearance-switch">
+            <input type="checkbox" data-appearance-device-colors
+                   aria-label="Use device colours">
+            <span aria-hidden="true"></span>
+          </label>
+        </footer>
+        <p class="appearance-note">Your selection is synchronized with the Workspace
+          while the local engine is running.</p>
+      </section>
+    </section>
+
     <!-- ========================== SETTINGS ========================== -->
     <section id="view-settings" class="hidden" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
       <header class="view-heading">
@@ -540,56 +603,8 @@
         </div>
         <div class="settings-list">
           <article class="settings-item">
-            <button class="link sect settings-toggle" data-sect="s-appearance" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">01</span>
-              <span class="settings-toggle-copy">
-                <span class="settings-title">Appearance</span>
-                <span class="settings-description">Use Device or your own complete palette</span>
-              </span>
-              <svg class="settings-chevron sx-icon" aria-hidden="true">
-                <use href="icons/material-icons.svg#chevron-right"></use>
-              </svg>
-            </button>
-            <div id="s-appearance" class="settings-panel hidden">
-              <section class="appearance-editor" data-appearance-control aria-label="Appearance">
-                <div class="appearance-heading">
-                  <strong>Colour and theme</strong>
-                  <span class="appearance-status" data-appearance-status aria-live="polite"></span>
-                </div>
-                <div class="appearance-scheme-picker" role="group" aria-label="Theme">
-                  <button type="button" data-appearance-scheme-mode="light"
-                          aria-pressed="false">
-                    <span>Light</span>
-                  </button>
-                  <button type="button" data-appearance-scheme-mode="dark"
-                          aria-pressed="false">
-                    <span>Dark</span>
-                  </button>
-                  <button type="button" data-appearance-scheme-mode="device"
-                          aria-pressed="false">
-                    <span>Device</span>
-                  </button>
-                </div>
-                <div data-appearance-palettes></div>
-                <footer class="appearance-follow-row">
-                  <span>
-                    <strong>Device colours</strong>
-                    <small>Use the colour preference shared by your browser and system</small>
-                  </span>
-                  <label class="appearance-switch">
-                    <input type="checkbox" data-appearance-device-colors
-                           aria-label="Use device colours">
-                    <span aria-hidden="true"></span>
-                  </label>
-                </footer>
-                <p class="appearance-note">Your choice is synchronized with the Workspace
-                  while the local engine is running.</p>
-              </section>
-            </div>
-          </article>
-          <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-engine" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">02</span>
+              <span class="settings-index" aria-hidden="true">01</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Engine connection</span>
                 <span class="settings-description">Local runtime URL and privacy</span>
@@ -624,7 +639,7 @@
           </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-storage" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">03</span>
+              <span class="settings-index" aria-hidden="true">02</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Storage</span>
                 <span class="settings-description">Database health, backups, and source management</span>
@@ -665,7 +680,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-sched" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">04</span>
+              <span class="settings-index" aria-hidden="true">03</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Jobs and scheduling</span>
                 <span class="settings-description">Run cadence and worker availability</span>
@@ -681,7 +696,7 @@
           </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-output" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">05</span>
+              <span class="settings-index" aria-hidden="true">04</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Data output settings</span>
                 <span class="settings-description">Local exports and external sync</span>
@@ -707,7 +722,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-about" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">06</span>
+              <span class="settings-index" aria-hidden="true">05</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">About</span>
                 <span class="settings-description">Version and product details</span>
@@ -791,18 +806,16 @@
     </button>
     <span class="rail-spacer" aria-hidden="true"></span>
 
-    <button class="rail-item appearance-popover-toggle" id="appearance-toggle" type="button"
-            data-appearance-popover-toggle aria-expanded="false"
-            aria-controls="appearance-popover"
-            aria-label="Customize appearance" title="Customize appearance">
-      <svg class="sx-icon" aria-hidden="true">
-        <use href="icons/material-icons.svg#palette"></use>
-      </svg>
-      <span class="visually-hidden">Customize appearance</span>
-    </button>
-
     <div class="rail-tablist rail-tablist-bottom" role="tablist"
          aria-label="Extension settings">
+      <button class="rail-item" id="tab-appearance" role="tab" data-view="appearance"
+              aria-controls="view-appearance" aria-selected="false" tabindex="-1"
+              aria-label="Appearance" title="Appearance">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#palette"></use>
+        </svg>
+        <span class="visually-hidden">Appearance</span>
+      </button>
       <button class="rail-item" id="tab-sources" role="tab" data-view="sources"
               aria-controls="view-sources" aria-selected="false" tabindex="-1"
               aria-label="Add or edit sources" title="Add or edit sources">
@@ -821,51 +834,6 @@
       </button>
     </div>
   </nav>
-
-  <button id="appearance-backdrop" class="appearance-backdrop hidden" type="button"
-          tabindex="-1" aria-label="Close appearance"></button>
-  <section id="appearance-popover" class="appearance-popover hidden"
-           data-appearance-control role="dialog" aria-modal="true" aria-hidden="true"
-           aria-labelledby="appearance-popover-title">
-    <header class="appearance-popover-head">
-      <div>
-        <span class="appearance-popover-eyebrow">Personalize</span>
-        <h2 id="appearance-popover-title">Appearance</h2>
-      </div>
-      <button id="appearance-close" class="icon-button ghost" type="button"
-              aria-label="Close appearance" title="Close">
-        <svg class="sx-icon" aria-hidden="true">
-          <use href="icons/material-icons.svg#close"></use>
-        </svg>
-      </button>
-    </header>
-
-    <div class="appearance-scheme-picker" role="group" aria-label="Theme">
-      <button type="button" data-appearance-scheme-mode="light" aria-pressed="false">
-        <span>Light</span>
-      </button>
-      <button type="button" data-appearance-scheme-mode="dark" aria-pressed="false">
-        <span>Dark</span>
-      </button>
-      <button type="button" data-appearance-scheme-mode="device" aria-pressed="false">
-        <span>Device</span>
-      </button>
-    </div>
-
-    <div data-appearance-palettes></div>
-
-    <footer class="appearance-follow-row">
-      <span>
-        <strong>Device colours</strong>
-        <small>Use the colour preference shared by your browser and system</small>
-      </span>
-      <label class="appearance-switch">
-        <input type="checkbox" data-appearance-device-colors
-               aria-label="Use device colours">
-        <span aria-hidden="true"></span>
-      </label>
-    </footer>
-  </section>
 
   <button id="workspace-backdrop" class="workspace-menu-backdrop" type="button"
           tabindex="-1" aria-label="Close Workspace pages"></button>

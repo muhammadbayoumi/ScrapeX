@@ -84,7 +84,8 @@
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-data, #view-sources, #view-source-edit, #view-settings {
+  #view-run, #view-data, #view-sources, #view-source-edit,
+  #view-appearance, #view-settings {
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
@@ -649,92 +650,129 @@
   .rail-spacer { flex: 1 0 var(--sp-3); }
   .rail-tablist-bottom { margin-top: auto; }
 
-  /* Appearance is secondary settings content in a compact window. Material 3
-     maps that job to a modal bottom sheet, not a full-height side popover. */
-  .appearance-backdrop {
-    position: fixed;
-    z-index: calc(var(--z-modal) - 1);
-    inset: 0 var(--panel-rail-width) 0 0;
-    min-height: 0;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: var(--overlay);
-    animation: appearance-backdrop-in var(--dur) var(--ease);
-  }
-  .appearance-backdrop.is-closing {
-    pointer-events: none;
-    animation: appearance-backdrop-out var(--dur-fast) ease forwards;
-  }
-  .appearance-popover {
-    position: fixed;
-    inset-inline: 0 var(--panel-rail-width);
-    bottom: 0;
-    z-index: var(--z-modal);
-    width: min(40rem, calc(100vw - var(--panel-rail-width)));
-    max-height: calc(100vh - var(--sp-5));
-    margin-inline: auto;
-    overflow-y: auto;
-    padding: var(--sp-4) var(--sp-4) var(--sp-5);
-    border: 1px solid var(--outline-variant);
-    border-bottom: 0;
-    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-    background: var(--surface-container-high);
-    box-shadow: var(--shadow-lg);
-    transform-origin: center bottom;
-    animation: appearance-popover-in var(--dur-slow) var(--ease);
-    overscroll-behavior: contain;
-  }
-  .appearance-popover.is-closing {
-    pointer-events: none;
-    animation: appearance-popover-out var(--dur-fast) ease forwards;
-  }
-  @keyframes appearance-popover-in {
-    from { opacity: 0; clip-path: inset(100% 0 0 0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
-    to { opacity: 1; clip-path: inset(0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
-  }
-  @keyframes appearance-popover-out {
-    from { opacity: 1; clip-path: inset(0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
-    to { opacity: 0; clip-path: inset(100% 0 0 0 round var(--radius-sheet) var(--radius-sheet) 0 0); }
-  }
-  @keyframes appearance-backdrop-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  @keyframes appearance-backdrop-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
-  }
-  .appearance-popover-head {
+  /* Appearance is a complete Android-style destination. It uses the same
+     persistent page model as Source, Data and Settings; it is not a modal
+     floating above whichever task happened to be open. */
+  .appearance-page {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
     gap: var(--sp-3);
-    padding-bottom: var(--sp-3);
-    border-bottom: 1px solid var(--outline-variant);
   }
-  .appearance-popover-head h2 {
-    margin: 1px 0 0;
-    color: var(--on-surface);
-    font-size: var(--fs-lg);
-    letter-spacing: 0;
-    text-transform: none;
-  }
-  .appearance-popover-eyebrow {
+  .appearance-page-eyebrow {
     color: var(--accent-ink);
     font-size: var(--fs-2xs);
     font-weight: var(--fw-bold);
     letter-spacing: .08em;
     text-transform: uppercase;
   }
-  .appearance-popover #appearance-close {
-    width: var(--touch-target);
-    min-width: var(--touch-target);
-    height: var(--touch-target);
+  .appearance-page-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    padding: var(--sp-3);
+    border: 1px solid var(--outline-variant);
+    border-radius: var(--radius-xl);
+    background: var(--surface-container-low);
   }
-  .appearance-popover .appearance-scheme-picker { margin-top: var(--sp-4); }
-  .appearance-popover .appearance-palette-browser { margin-top: var(--sp-4); }
-  .appearance-popover .appearance-follow-row { margin-top: var(--sp-4); }
+  .appearance-live-preview {
+    display: grid;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    border: 1px solid var(--outline-variant);
+    border-radius: var(--radius-lg);
+    background: var(--surface-container);
+  }
+  .appearance-preview-frame {
+    overflow: hidden;
+    border: 1px solid var(--outline);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+  }
+  .appearance-preview-topbar {
+    min-height: 2.75rem;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding-inline: var(--sp-3);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-raised);
+  }
+  .appearance-preview-logo {
+    width: 1.25rem;
+    height: 1.25rem;
+    background: var(--text);
+    -webkit-mask: var(--brand-mark) center / contain no-repeat;
+    mask: var(--brand-mark) center / contain no-repeat;
+  }
+  .appearance-preview-title {
+    color: var(--text);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+  }
+  .appearance-preview-dot {
+    width: .5rem;
+    height: .5rem;
+    margin-inline-start: auto;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .appearance-preview-body {
+    min-height: 7.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: var(--sp-4);
+    background:
+      linear-gradient(135deg, var(--surface) 0 70%, var(--accent-weak) 100%);
+  }
+  .appearance-preview-line {
+    width: 78%;
+    height: .5rem;
+    border-radius: var(--radius-pill);
+    background: var(--line-strong);
+  }
+  .appearance-preview-line.is-heading {
+    width: 54%;
+    height: .75rem;
+    background: var(--text);
+  }
+  .appearance-preview-line.is-short { width: 42%; }
+  .appearance-preview-action {
+    width: 42%;
+    height: 1.75rem;
+    margin-top: auto;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+  }
+  .appearance-live-preview .appearance-status {
+    justify-self: center;
+    background: transparent;
+  }
+  .appearance-page-section {
+    display: grid;
+    gap: var(--sp-3);
+  }
+  .appearance-section-heading strong,
+  .appearance-section-heading small {
+    display: block;
+  }
+  .appearance-section-heading strong {
+    color: var(--on-surface);
+    font-size: var(--fs-sm);
+  }
+  .appearance-section-heading small {
+    margin-top: 2px;
+    color: var(--on-surface-variant);
+    font-size: var(--fs-xs);
+  }
+  .appearance-page .appearance-scheme-picker button {
+    min-height: var(--touch-target);
+  }
+  .appearance-page .appearance-palette-tile {
+    min-height: 7rem;
+  }
 
   /* One Workspace launcher replaces the wall of unlabeled destinations. The
      full list opens as a grouped sheet to the left of the rail. */
@@ -888,7 +926,6 @@
   @keyframes pulse { 0%,100% { opacity: .45 } 50% { opacity: .9 } }
   @media (prefers-reduced-motion: reduce) {
     .skeleton { animation: none; }
-    .appearance-popover { animation: none; }
     .source-choice, .source-choice-label, .source-choice-icon, .source-choice-check,
     .source-choice-panel, .source-choice-panel-inner, .settings-chevron,
     .rail-indicator, .side-rail .rail-item, .workspace-menu,

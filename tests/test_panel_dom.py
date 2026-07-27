@@ -97,7 +97,7 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["y"] == pytest.approx(0, abs=1)
     assert bounds["height"] == pytest.approx(800, abs=1)
 
-    assert page.locator("nav.side-rail button[data-view]").count() == 5
+    assert page.locator("nav.side-rail button[data-view]").count() == 6
     assert page.locator("nav.side-rail button.rail-item").count() == 7
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
@@ -117,67 +117,66 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert len(opened) == 1 and opened[0].endswith("/changes")
 
 
-def test_the_palette_button_opens_the_android_style_appearance_sheet(open_panel):
+def test_appearance_is_a_complete_android_style_destination(open_panel):
     page = open_panel()
-    toggle = page.locator("#appearance-toggle")
-    popover = page.locator("#appearance-popover")
-    device_colours = page.locator("#appearance-popover [data-appearance-device-colors]")
+    tab = page.locator("#tab-appearance")
+    view = page.locator("#view-appearance")
+    device_colours = view.locator("[data-appearance-device-colors]")
 
     page.evaluate("() => window.ScrapeXAppearance.set({mode: 'device', deviceColors: true})")
     assert page.locator("html").get_attribute("data-appearance") == "device"
-    assert toggle.get_attribute("aria-expanded") == "false"
-    assert not popover.is_visible()
+    assert not view.is_visible()
 
-    toggle.click()
-    assert toggle.get_attribute("aria-expanded") == "true"
-    assert popover.is_visible()
-    assert popover.get_attribute("aria-modal") == "true"
-    assert page.locator("#appearance-backdrop").is_visible()
-    assert page.locator('#appearance-popover [data-appearance-scheme-mode="device"]').get_attribute(
+    tab.click()
+    assert view.is_visible()
+    assert tab.get_attribute("aria-selected") == "true"
+    assert tab.get_attribute("aria-current") == "page"
+    assert view.locator(".appearance-live-preview").is_visible()
+    assert view.locator('[data-appearance-scheme-mode="device"]').get_attribute(
         "aria-pressed") == "true"
     assert device_colours.is_checked()
-    assert page.locator("#appearance-popover [data-appearance-group]").count() == 0
-    assert page.locator("#appearance-popover [data-appearance-palette]").count() == 2
-    sheet_bounds = popover.bounding_box()
-    assert sheet_bounds
-    assert sheet_bounds["y"] + sheet_bounds["height"] == pytest.approx(800, abs=1)
-    assert sheet_bounds["height"] < 800
-    for selector in (
-        "#appearance-close",
-        '#appearance-popover [data-appearance-scheme-mode="light"]',
-        "#appearance-popover .appearance-switch",
-    ):
-        bounds = page.locator(selector).bounding_box()
-        assert bounds and bounds["height"] >= 40
+    assert view.locator("[data-appearance-group]").count() == 0
+    assert view.locator("[data-appearance-palette]").count() == 2
+    assert page.locator("#appearance-popover").count() == 0
+    assert page.locator("#appearance-backdrop").count() == 0
+    assert page.locator("#s-appearance").count() == 0
 
-    page.click('#appearance-popover [data-appearance-scheme-mode="light"]')
+    view_bounds = view.bounding_box()
+    main_bounds = page.locator("main").bounding_box()
+    assert view_bounds and main_bounds
+    assert view_bounds["x"] >= main_bounds["x"]
+    assert view_bounds["x"] + view_bounds["width"] <= (
+        main_bounds["x"] + main_bounds["width"] + 1)
+    for selector in (
+        '[data-appearance-scheme-mode="light"]',
+        ".appearance-palette-tile",
+        ".appearance-switch",
+    ):
+        bounds = view.locator(selector).first.bounding_box()
+        assert bounds and bounds["height"] >= 48
+
+    view.locator('[data-appearance-scheme-mode="light"]').click()
     assert page.locator("html").get_attribute("data-theme") == "light"
     device_colours.uncheck(force=True)
-    page.click('#appearance-popover [data-appearance-palette="whatsapp"]')
+    view.locator('[data-appearance-palette="whatsapp"]').click()
     assert page.locator("html").get_attribute("data-palette") == "whatsapp"
     assert page.locator("html").get_attribute("data-color-mode") == "manual"
     whatsapp_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
 
-    page.click('#appearance-popover [data-appearance-palette="github"]')
+    view.locator('[data-appearance-palette="github"]').click()
     github_light = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
     assert github_light != whatsapp_light
 
-    page.click('#appearance-popover [data-appearance-scheme-mode="dark"]')
+    view.locator('[data-appearance-scheme-mode="dark"]').click()
     github_dark = page.evaluate("() => getComputedStyle(document.body).backgroundColor")
     assert github_dark != github_light
 
-    page.click('#appearance-popover [data-appearance-scheme-mode="device"]')
+    view.locator('[data-appearance-scheme-mode="device"]').click()
     assert page.locator("html").get_attribute("data-appearance") == "device"
     assert page.locator("html").get_attribute("data-theme") is None
     device_colours.check(force=True)
     assert page.locator("html").get_attribute("data-color-mode") == "device"
     assert page.locator("html").get_attribute("data-palette") is None
-
-    page.click("#appearance-close")
-    page.wait_for_timeout(180)
-    assert toggle.get_attribute("aria-expanded") == "false"
-    assert not popover.is_visible()
-    assert not page.locator("#appearance-backdrop").is_visible()
 
 
 def _contrast(first: str, second: str) -> float:
