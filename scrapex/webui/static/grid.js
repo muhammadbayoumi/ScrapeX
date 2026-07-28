@@ -1962,7 +1962,7 @@
         data ? "No product image" : "Loading product image…");
       imageStage.appendChild(empty);
     }
-    box.appendChild(media);
+    if (images.length) box.appendChild(media);
 
     const body = el("div", "selected-product-body");
     const titleRow = el("div", "selected-product-title-row");
@@ -2157,19 +2157,21 @@
           "record-inspector-nav-mode"));
       });
       inspectorNav.appendChild(modeGroup);
-      const divider = el("span", "record-inspector-nav-divider");
-      divider.setAttribute("role", "separator");
-      inspectorNav.appendChild(divider);
-      const sectionGroup = el("div",
-        "record-inspector-nav-group record-inspector-nav-sections");
-      populated.forEach((item) => {
-        sectionGroup.appendChild(inspectorNavButton(
-          item,
-          item.key === activeKey,
-          () => renderInspector(selectedView.key, item.key),
-          "record-inspector-nav-section"));
-      });
-      inspectorNav.appendChild(sectionGroup);
+      if (populated.length) {
+        const divider = el("span", "record-inspector-nav-divider");
+        divider.setAttribute("role", "separator");
+        inspectorNav.appendChild(divider);
+        const sectionGroup = el("div",
+          "record-inspector-nav-group record-inspector-nav-sections");
+        populated.forEach((item) => {
+          sectionGroup.appendChild(inspectorNavButton(
+            item,
+            item.key === activeKey,
+            () => renderInspector(selectedView.key, item.key),
+            "record-inspector-nav-section"));
+        });
+        inspectorNav.appendChild(sectionGroup);
+      }
 
       if (!activeKey) {
         inspectorContent.appendChild(el("div", "record-inspector-empty",

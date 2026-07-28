@@ -1023,8 +1023,11 @@
 .selected-product-card.has-error { border-style: dashed; }
 .selected-product-media {
   flex: 0 0 auto;
+  margin: var(--sp-3) var(--sp-3) 0;
+  overflow: hidden;
   background: var(--surface-subtle);
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
 .selected-product-image-stage {
   position: relative;
@@ -1075,6 +1078,13 @@
 .selected-product-image-nav:hover {
   background: var(--surface);
   border-color: var(--accent);
+  transform: translateY(-50%);
+}
+.selected-product-image-nav:active {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--accent-active);
+  transform: translateY(-50%);
 }
 .selected-product-image-nav.is-previous { inset-inline-start: var(--sp-3); }
 .selected-product-image-nav.is-next { inset-inline-end: var(--sp-3); }

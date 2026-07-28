@@ -290,11 +290,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # kept their chip rendering when 0046 refiled them out of Description, and
     # the inspector rail gained a button per group — Store and Site metadata
     # had none, so both were being stacked under Specifications.
-    # design-system-34: the fixed Details/History rail precedes only populated
-    # groups, with one background, a neutral section group box and green only
-    # on the active top-level mode.
-    assert '/static/grid.js?v=design-system-34' in page
-    assert '/static/grid-theme.css?v=design-system-34' in page
+    # design-system-35: the image gallery is one inset box and disappears when
+    # empty; the lower rail group follows the same populated-only rule.
+    assert '/static/grid.js?v=design-system-35' in page
+    assert '/static/grid-theme.css?v=design-system-35' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -789,6 +788,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"Description"' in script and '"Specifications"' in script
     assert '"Attachments"' in script
     assert "Previous product image" in script and "Next product image" in script
+    assert "if (images.length) box.appendChild(media)" in script
     assert '"Compare selected"' not in script and '"Side by side"' not in script
     assert 'materialIconElement(item.icon, "record-inspector-nav-icon")' in script
     assert 'materialIconElement("open-in-new", "selected-product-site-icon")' in script
@@ -807,6 +807,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"record-inspector-nav-divider"' in script
     assert '"record-inspector-nav-section"' in script
     assert "populated.forEach((item)" in script
+    assert "if (populated.length)" in script
     assert "button.disabled = disabled" not in script
     assert "detailSectionTitles" not in script
     assert "keywordSection" in script and '"record-keywords"' in script
@@ -815,6 +816,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"selected-product-category-label", "Category"' in script
     assert 'materialIconElement("account-tree"' not in script
     assert ".selected-product-card" in css
+    assert ".selected-product-image-nav:active" in css
+    assert "transform: translateY(-50%)" in css
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
     assert ".record-inspector-nav-primary" in css
