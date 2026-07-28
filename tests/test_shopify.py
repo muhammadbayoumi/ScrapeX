@@ -171,3 +171,74 @@ def test_shopify_end_to_end_into_warehouse():
         conn.close()
     assert result.observations == 3 and result.products == 2 and result.variants == 3
     assert not result.errors
+
+
+def test_each_variation_gets_its_own_axes_link_and_parent_sku():
+    """B11, for a Shopify shop.
+
+    Three defects with one cause — the variation's identity was thrown away
+    after being composed into a sentence:
+
+      * "Color: Red" welded into one cell cannot be filtered, grouped or
+        pivoted, which is the only reason a column exists. The owner refused
+        splitting the STRING at the far end, so the axes are stored as
+        structure. Shopify names its own axes in options[].name, so nothing is
+        inferred here.
+      * Every variation carried the PRODUCT's url, so all but one pointed at
+        something the reader did not click.
+      * A variation's own sku stood in for its parent's.
+    """
+    import json
+
+    from scrapex.connectors.shopify import ShopifyConnector
+    from scrapex.rowspec import PRODUCT_PRICES, RowBuilder, RowView
+
+    product = {
+        "id": 1, "title": "Cable", "handle": "cable", "sku": "PARENT-1",
+        "options": [{"name": "Color"}, {"name": "Length"}],
+        "variants": [
+            {"id": 11, "sku": "C-RED-1", "option1": "Red", "option2": "1m",
+             "price": "10.00", "available": True},
+            {"id": 12, "sku": "C-BLUE-2", "option1": "Blue", "option2": "2m",
+             "price": "20.00", "available": True},
+        ],
+    }
+    builder = RowBuilder(PRODUCT_PRICES)
+    view = RowView(PRODUCT_PRICES, builder.header)
+    rows = [view.as_dict(r) for r in ShopifyConnector._product_rows(
+        builder, product, "https://shop.example", "EGP", "1", "EG")]
+
+    assert len(rows) == 2
+    assert json.loads(rows[0]["variant_axes_ar"]) == {"Color": "Red", "Length": "1m"}
+    assert json.loads(rows[1]["variant_axes_ar"]) == {"Color": "Blue", "Length": "2m"}
+
+    # Each variation's own address, and they are genuinely different.
+    links = [r["variant_url"] for r in rows]
+    assert links == ["https://shop.example/products/cable?variant=11",
+                     "https://shop.example/products/cable?variant=12"]
+    assert len(set(links)) == 2
+
+    # The product's sku, not the variation's.
+    assert all(r["parent_sku"] == "PARENT-1" for r in rows)
+    assert rows[0]["external_sku"] == "C-RED-1"
+
+
+def test_a_shopify_product_with_no_real_options_claims_no_variant_identity():
+    """A single "Default Title" variant is not a variation, and giving it axes,
+    a ?variant= link and a parent would state a hierarchy the shop does not
+    have."""
+    from scrapex.connectors.shopify import ShopifyConnector
+    from scrapex.rowspec import PRODUCT_PRICES, RowBuilder, RowView
+
+    product = {"id": 2, "title": "Simple", "handle": "simple", "sku": "S-1",
+               "options": [{"name": "Title"}],
+               "variants": [{"id": 21, "sku": "S-1", "option1": "Default Title",
+                             "price": "5.00", "available": True}]}
+    builder = RowBuilder(PRODUCT_PRICES)
+    view = RowView(PRODUCT_PRICES, builder.header)
+    row = view.as_dict(ShopifyConnector._product_rows(
+        builder, product, "https://shop.example", "EGP", "1", "EG")[0])
+
+    assert row["variant_axes_ar"] == ""
+    assert row["variant_url"] == ""
+    assert row["product_link"] == "https://shop.example/products/simple"

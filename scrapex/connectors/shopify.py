@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import brand_pair, option_fingerprint
+from ..normalize import brand_pair, option_axes_json, option_fingerprint
 from ..rowspec import PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -132,8 +132,23 @@ class ShopifyConnector:
                 product_name_ar=product.get("title") or "",
                 **brand_pair(product.get("vendor") or ""),
                 variant_ar=variant.get("title") if options else "",
+                # The axes as STRUCTURE beside the sentence built from them
+                # (B11). "Color: Red" welded into one cell cannot be filtered,
+                # grouped or pivoted, which is the only reason a column exists —
+                # and splitting the string at the far end is the fix the owner
+                # explicitly refused. Shopify names its own axes in
+                # `options[].name`, so nothing is inferred.
+                variant_axes_ar=option_axes_json(options) if options else "",
                 option_fingerprint=option_fingerprint(options) if options else "",
                 product_link=f"{base}/products/{handle}" if handle else "",
+                # Each variation's OWN link. Shopify selects a variation by
+                # query parameter, so all of them shared the product's URL and
+                # every one but the default pointed at the wrong thing.
+                variant_url=(f"{base}/products/{handle}?variant={variant.get('id')}"
+                             if handle and variant.get("id") and options else ""),
+                # The PRODUCT's sku, so a variation's own sku stops standing in
+                # for its parent's.
+                parent_sku=str(product.get("sku") or ""),
                 country_code_alpha2=region,
                 currency=currency,
                 tax_included=vat_flag,

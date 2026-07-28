@@ -710,6 +710,11 @@ class MagentoGraphqlConnector:
         option_labels = {str(o.get("attribute_code") or ""): str(o.get("label") or "")
                          for o in product.get("configurable_options") or []}
 
+        # The CONFIGURABLE's own sku, so a child's sku stops standing in for its
+        # parent's (B11). Magento children carry their own skus and nothing else
+        # recorded which product they belonged to.
+        parent_sku = str(product.get("sku") or "")
+
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp="",
                 basis="", unit="", vat=None, axes=None, axes_en=None):
             effective = fin if fin is not None else reg
@@ -725,6 +730,15 @@ class MagentoGraphqlConnector:
                 product_name=names_en.get(str(pid)) or names_en.get(str(vid)) or "",
                 product_name_ar=name or "",
                 brand=brand_en, brand_ar=brand_ar,
+                # Only on a real child: a simple product is its own parent, and
+                # writing its sku here would invent a hierarchy it does not have.
+                parent_sku=parent_sku if str(vid) != str(pid) else "",
+                # NOT variant_url. Magento selects a configurable's child by
+                # option rather than by address, and the variants{} selection
+                # asks for no url_key because the child has no page of its own to
+                # link to. An empty column here is the truth; inventing
+                # `?option=` would be a link that answers with the parent.
+                variant_url="",
                 variant_ar=label, option_fingerprint=fp,
                 # The axes as STRUCTURE beside the sentence built from them.
                 # `_option_text` composes «السماكة (مم): 2.2، العرض (مم): 24»
