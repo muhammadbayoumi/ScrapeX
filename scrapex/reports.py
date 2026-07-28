@@ -526,6 +526,7 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("product_name_ar", "Product name (AR)"),
     ("country_code_alpha2", "Country code"),
     ("brand", "Brand"),
+    ("brand_ar", "Brand (AR)"),
     # Classification (owner ruling 2026-07-22): part of the MAIN table, with
     # every level the source publishes. "category" carries the source's full
     # path ("Cables > Low voltage") or, for a source that only files products
@@ -584,6 +585,10 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
 # destructures `for (const [arabic, english] of pairs)`.
 BILINGUAL_COLUMNS: dict[str, str] = {
     "product_name_ar": "product_name",
+    # ALSWEED publishes «لوكسيفاي» beside "LUXIFY" and madar «هيونداي»
+    # beside "Hyundai Power Products" — one brand, two languages, so the
+    # one switch that governs the page governs this too (0047).
+    "brand_ar": "brand",
     # The variation reads «العرض (ملم): 610» in Arabic and "Width (mm): 610" in
     # English, and madar publishes both — so the switch flips it too.
     "variant_ar": "variant",
@@ -629,7 +634,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         # a column of noise. No information is not information.
         "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')), "
         "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')), "
-        "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_raw,'')),'')), "
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.brand,'')),'')), "
         "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END), "
         "       COUNT(DISTINCT po.currency), "
         "       COUNT(NULLIF(TRIM(COALESCE(sp.product_name,'')),'')), "
@@ -638,7 +643,11 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(TRIM(COALESCE(sv.variant,'')),'')), "
         # Appended LAST again: the ENGLISH name is empty on an Arabic-only
         # source, which it never was while this column held Arabic.
-        "       COUNT(NULLIF(TRIM(COALESCE(sp.product_name_ar,'')),'')) "
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.product_name_ar,'')),'')), "
+        # Appended LAST, as every count before it: the Arabic brand is
+        # empty on MASDAR and full on SAMEHGABRIEL, so the two halves are
+        # gated apart or one source shows a column of nothing.
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_ar,'')),'')) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("variant_ar", row[0]), ("sku", row[1]),
@@ -647,7 +656,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
                           ("brand", row[6]), ("discount", row[7]),
                           ("discount_pct", row[7]),
                           ("product_name", row[9]), ("variant", row[10]),
-                          ("product_name_ar", row[11])):
+                          ("product_name_ar", row[11]), ("brand_ar", row[12])):
         if not count:
             present.discard(column)
     # USD est. exists to make many currencies RANKABLE in one column. A source
@@ -756,7 +765,8 @@ _EXPORT_SELECT: dict[str, str] = {
     "last_confirmed_at": "ost.last_confirmed_at",
     "unit_code": "su.unit_code",
     "basis_quantity": "so.basis_quantity",
-    "brand": "sp.brand_raw",
+    "brand": "sp.brand",
+    "brand_ar": "sp.brand_ar",
     "category_path": "sp.category_path_ar",
     "category_flat": (
         "(SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
@@ -814,6 +824,7 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     ("country_code_alpha2", lambda r, s: (r["country_code_alpha2"] or "") if r["country_code_alpha2"] != "*" else ""),
     ("country", lambda r, s: region_name(r["country_code_alpha2"])),
     ("brand", lambda r, s: r["brand"] or ""),
+    ("brand_ar", lambda r, s: r["brand_ar"] or ""),
     # path-or-flat-labels is NOT a language fallback — both are the same
     # language, and a shop with flat labels and no path has only the labels.
     ("category", lambda r, s: r["category_path_en"] or ""),
@@ -1417,7 +1428,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       po.regular_price, po.sale_price, po.currency, po.availability, "
         "       po.business_date, sp.product_url, sp.curation_status, so.country_code_alpha2, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
-        "       po.official_source_name, po.official_source_url, sp.brand_raw, "
+        "       po.official_source_name, po.official_source_url, sp.brand, "
         # Every history statistic is scoped to the CURRENT observation's
         # currency (po IS the latest row, so po.currency IS the current one):
         # after a currency flip, 0.40 USD in the same Min column as 20.50 EGP
@@ -1451,7 +1462,10 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # inserted mid-list silently shifts the lot.
         "       po.vat_included, sv.variant, sv.variant_url, "
         "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar), "
-        "       sp.source_product_id "
+        "       sp.source_product_id, "
+        # Appended LAST, obeying the rule the comment above states: adding it
+        # beside sp.brand shifted observations/min/max/previous by one.
+        "       sp.brand_ar "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1489,6 +1503,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "official_source": r[16] or "",
                "official_source_url": r[17] or "",
                "brand": r[18] or "",
+               "brand_ar": r[-1] or "",
                # The full stated path when the source classifies in levels;
                # the flat labels otherwise. The per-level keys split the path
                # so any layer can be sorted or grouped on its own.

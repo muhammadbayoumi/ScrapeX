@@ -314,6 +314,10 @@ class MagentoGraphqlConnector:
         english = self._english_names(endpoint, notes,
                                       enriched=wants_enrichment)
         ctx["names_en"] = english["names"]
+        # The English attribute values, for the brand on the price row. They
+        # were already fetched for the enrichment pass; the price row simply
+        # had no way to reach them.
+        ctx["details_en"] = english.get("details", {})
         ctx["axis_labels_en"] = english["axis_labels"]
         ctx["axis_values_en"] = english["axis_values"]
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
@@ -654,6 +658,14 @@ class MagentoGraphqlConnector:
     @staticmethod
     def _product_rows(builder: RowBuilder, product: dict, ctx: dict) -> list[list[str]]:
         url_key = product.get("url_key") or ""
+        # THE BRAND. madar states it as the `manufacturer` attribute — on 536
+        # of its 763 products, in both stores — and this connector emitted no
+        # brand at all, so the column sat empty on the largest source in the
+        # warehouse while the answer was sitting in the details panel.
+        # Read per language from the store that published it, never split by
+        # script: the two stores ARE the two languages, so there is nothing to
+        # guess at.
+        brand_ar, brand_en = _manufacturer(product, ctx.get("details_en") or {})
         url = f"{ctx['base']}/{url_key}.html" if url_key else ""
         variants = product.get("variants") or []
         # Classification belongs to the PRODUCT: every variant of it files in
@@ -694,6 +706,7 @@ class MagentoGraphqlConnector:
                 # telephone and data sockets". Same rule as the Arabic name.
                 product_name=names_en.get(str(pid)) or names_en.get(str(vid)) or "",
                 product_name_ar=name or "",
+                brand=brand_en, brand_ar=brand_ar,
                 variant_ar=label, option_fingerprint=fp,
                 # The axes as STRUCTURE beside the sentence built from them.
                 # `_option_text` composes «السماكة (مم): 2.2، العرض (مم): 24»
@@ -862,6 +875,30 @@ class MagentoGraphqlConnector:
             row(product.get("uid"), product.get("uid"), product.get("sku"),
                 product.get("name"), reg, fin, product.get("stock_status"))
         return out
+
+
+def _manufacturer(product: dict, details_en: dict) -> tuple[str, str]:
+    """madar's brand, per language, from the store that published it.
+
+    The same `manufacturer` attribute the "More information" panel prints. It
+    stays a detail as well as becoming a column: the shop prints it on the page,
+    and removing it from the panel would hide something the page says.
+
+    Whatever the shop wrote is what travels — a country typed into the field,
+    «مصنع حديد» where a name belongs, `Gaint` for Giant. The owner's rule is
+    that the site's text is the record, because the shop will correct it and a
+    cleaning rule here would hide the day it did.
+    """
+    arabic = ""
+    for attribute in ((product.get("custom_attributesV2") or {}).get("items")) or []:
+        if str(attribute.get("code") or "") == "manufacturer":
+            arabic = str(attribute.get("value") or "") or ", ".join(
+                str(o.get("label") or "")
+                for o in attribute.get("selected_options") or [] if o.get("label"))
+            break
+    english = str((details_en.get(str(product.get("uid") or "")) or {})
+                  .get("attributes", {}).get("manufacturer", "") or "")
+    return arabic.strip(), english.strip()
 
 
 def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,

@@ -21,7 +21,11 @@ TRACKED_PRODUCT_FIELDS = (
     # this same tuple (ingest applies UPDATE source_product SET {column}).
     ("product_name_ar", "product_name_ar"),
     ("product_url", "product_url"),
-    ("brand_raw", "brand_raw"),
+    # Both halves of the brand, tracked separately: a shop that adds the
+    # English name beside an Arabic one it already published has told us
+    # something, and one combined column could not say which side moved.
+    ("brand", "brand"),
+    ("brand_ar", "brand_ar"),
     # The PRODUCT's own sku. `product_sku` is DERIVED, not a column a connector
     # fills: it is the parent's sku where the source publishes one and the row's
     # own sku where the product has no variations (ingest._product_sku). Reading

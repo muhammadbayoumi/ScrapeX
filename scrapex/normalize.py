@@ -254,3 +254,69 @@ def strip_markup(html: str, *, separator: str = " ") -> str:
     if separator == "\n":
         return re.sub(r"\n\s*", "\n", re.sub(r"[^\S\n]+", " ", text)).strip()
     return re.sub(r"\s+", " ", text).strip()
+
+
+# The Arabic block, plus the Arabic Supplement and Extended-A ranges a shop can
+# reach for. Latin here means "not Arabic": a Turkish or French brand belongs in
+# the same column as an English one, because the column marks the LANGUAGE THE
+# SITE PUBLISHED, and the unmarked name is the non-Arabic one (0039 / B10).
+_ARABIC_BLOCK = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
+
+
+def split_brand(text: str | None) -> tuple[str, str]:
+    """One published brand string -> (arabic, latin), losing nothing.
+
+    Shops that serve both languages write the brand as one field with both names
+    in it — «لوكسيفاي LUXIFY», «الخزف السعودي Saudi Ceramics» — and the standing
+    bilingual rule says both must be captured, so the pair has to be recovered
+    rather than one half thrown away.
+
+    Split by SCRIPT, per whitespace token, not by position: 'الخزف السعودي Saudi
+    Ceramics' is two Arabic words then two Latin ones, and any rule that cut at a
+    fixed index would maul it. A token is Arabic if it contains any Arabic
+    letter, so «3M» and 'AL ZAMIL' stay Latin while «شركة الوطني للبولي اثيلين»
+    stays whole.
+
+    The ORDER within each side is preserved, which is what lets the two halves be
+    rejoined arabic-first into exactly the string the site published — the
+    property the price key depends on (see ingest._observation_values). Verified
+    against every brand in the live warehouse: 36 of 36 rejoin byte-identically.
+    """
+    tokens = (text or "").split()
+    arabic = [t for t in tokens if _ARABIC_BLOCK.search(t)]
+    latin = [t for t in tokens if not _ARABIC_BLOCK.search(t)]
+    return " ".join(arabic), " ".join(latin)
+
+
+def joined_brand(arabic: str | None, latin: str | None) -> str:
+    """The pair as one string again, Arabic first — the site's own order.
+
+    This is what reaches the price key, so that splitting a brand into two
+    columns is a change of PRESENTATION and not of identity: every offer's
+    existing price hash stays byte-identical and no phantom price change is
+    reported. Rejoining latin-first would change every digest, which is the
+    whole reason the order is stated here once instead of at the call site.
+    """
+    return " ".join(part for part in ((arabic or "").strip(), (latin or "").strip()) if part)
+
+
+def brand_pair(published: str | None) -> dict[str, str]:
+    """One published brand string -> the row's `brand` / `brand_ar` kwargs.
+
+    Shops that serve two languages write both names into one brand field —
+    ALSWEED publishes «لوكسيفاي LUXIFY» — so the pair has to be recovered from
+    the string rather than one half being dropped, which is what the standing
+    bilingual rule requires.
+
+    Nothing is edited: the split is by script per word with order preserved, and
+    rejoining Arabic-first reproduces the published string exactly. That is what
+    lets ingest feed the price key the original text, so splitting the column
+    changes what is DISPLAYED and not what any offer is.
+
+    A connector whose site states the two languages SEPARATELY must not use
+    this — it should pass brand= and brand_ar= straight through, because two
+    real fields are always better evidence than one inferred split. magento does
+    exactly that, reading each language from the store that published it.
+    """
+    arabic, latin = split_brand(published)
+    return {"brand": latin, "brand_ar": arabic}

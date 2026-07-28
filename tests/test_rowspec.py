@@ -156,3 +156,25 @@ def test_a_column_cannot_be_both_additive_and_required():
     with pytest.raises(ValueError, match="both additive and required"):
         RowSpec(kind=ExtractKind.PRODUCT_PRICES, columns=("a", "b"),
                 required=frozenset({"a"}), additive=frozenset({"a"}))
+
+
+def test_a_payload_still_carrying_brand_raw_is_refused_not_misread():
+    """`brand` is non-additive on purpose, the same defence the _ar columns use.
+
+    RowView returns "" for a missing ADDITIVE column and raises for a missing
+    non-additive one. If the pair were additive, a pre-0047 payload carrying
+    brand_raw would be accepted and its brand silently dropped — a whole column
+    of every ALSWEED product gone, with no error anywhere. PAYLOAD_VERSION is
+    the other refusal; this one is independent of the version number.
+    """
+    import pytest
+
+    from scrapex.rowspec import PRODUCT_PRICES, RowView
+
+    assert "brand" not in PRODUCT_PRICES.additive
+    assert "brand_ar" not in PRODUCT_PRICES.additive
+
+    pre_sweep = [c for c in PRODUCT_PRICES.columns if c not in ("brand", "brand_ar")]
+    pre_sweep.insert(4, "brand_raw")
+    with pytest.raises(ValueError):
+        RowView(PRODUCT_PRICES, pre_sweep)

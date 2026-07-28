@@ -95,7 +95,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import selling_unit_from
+from ..normalize import brand_pair, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import DetailGroup, group_for_code, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -457,7 +457,7 @@ class CustomJsonConnector:
             category_path=category_en if category_en != category else "",
             category_path_ar=category,
             category_external_id=category_id if category else "",
-            brand_raw=str(product.get("brand") or ""), product_url=url,
+            **brand_pair(str(product.get("brand") or "")), product_url=url,
             country_code_alpha2=region, currency=currency, vat_included=vat,
             regular_price=regular, sale_price=sale, effective_price=effective,
             availability=_availability(product),

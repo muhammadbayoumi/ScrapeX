@@ -32,7 +32,12 @@ from .vocab import ExtractKind, PayloadClient
 # 3: `region` -> `country_code_alpha2`. The column is REQUIRED, so a v2
 # header fails the required-column check loudly on its own; the number moves
 # anyway, because the contract changed and the sheet has to be told once.
-PAYLOAD_VERSION = 3
+# 4: `brand_raw` -> the pair `brand` / `brand_ar`. ALSWEED published BOTH
+# names into the one column («لوكسيفاي LUXIFY»), so half of every brand it
+# sells was unreachable behind the other. Neither half is additive, so a v3
+# header fails the column check on its own; the number moves anyway, because
+# the contract changed and the sheet has to be told once.
+PAYLOAD_VERSION = 4
 
 # 40k keeps a comfortable margin under the Google Sheets 50k-char cell limit
 # even after the funnel adds its envelope columns (S1).
@@ -68,7 +73,7 @@ class FunnelPayload(BaseModel):
     # Pinned as a const so the GENERATED json-schema carries it too: a
     # consumer validating against the schema rather than the Python model
     # would otherwise still accept v1.
-    payload_version: Literal[3]
+    payload_version: Literal[4]
     source_key: str = Field(min_length=1, max_length=64)
     kind: ExtractKind
     client: PayloadClient

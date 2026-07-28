@@ -177,7 +177,7 @@ def test_what_ingest_stores_is_a_key_over_canonical_money(tmp_path):
     dbmod.migrate(conn)
     ingest_payloads(conn, make_entry(), [make_payload(
         [one_row(effective_price="1,200.00", regular_price="1,200.00",
-                 sale_price="", country_code_alpha2="EG", brand_raw="Elsewedy")])])
+                 sale_price="", country_code_alpha2="EG", brand="Elsewedy")])])
     stored = conn.execute(
         "SELECT price_hash, price_fields FROM price_observation").fetchone()
     conn.close()
@@ -186,3 +186,41 @@ def test_what_ingest_stores_is_a_key_over_canonical_money(tmp_path):
                               currency="EGP", vat=1, region="EG", brand="Elsewedy")
     assert stored["price_hash"] == expected.digest
     assert pricekey.parse_fields(stored["price_fields"]) == expected.fields
+
+
+# ---- the brand split must not move any offer's identity ----------------------
+
+def test_splitting_a_bilingual_brand_leaves_the_price_key_untouched():
+    """0047 split brand_raw into a pair. That must change what is DISPLAYED and
+    nothing else: the brand is hashed into the price key, so if the value
+    reaching it moved, 1,125 live offers would close their price period and
+    report a change on a price that never moved — and take their confirmation
+    spans with them.
+
+    ALSWEED publishes «لوكسيفاي LUXIFY» as ONE string, Arabic first. Rejoining
+    the pair in that order reproduces it exactly, which is why joined_brand
+    states the order once instead of leaving it to each call site.
+    """
+    from scrapex.normalize import joined_brand, split_brand
+
+    for published in ("لوكسيفاي LUXIFY",              # both languages, glued
+                      "الخزف السعودي Saudi Ceramics",  # two words each side
+                      "شركة الوطني للبولي اثيلين",     # Arabic only
+                      "AL ZAMIL",                     # Latin, two words
+                      "3M",                           # digits stay Latin
+                      "هيونداي Hyundai Power Products"):
+        arabic, latin = split_brand(published)
+        assert joined_brand(arabic, latin) == published, "the split lost or reordered text"
+        assert key(brand=published).digest == key(brand=joined_brand(arabic, latin)).digest
+
+
+def test_rejoining_the_brand_latin_first_would_have_changed_every_digest():
+    """Why the order is not arbitrary, kept as a live warning.
+
+    normalize_name lowercases but does not reorder, so 'لوكسيفاي luxify' and
+    'luxify لوكسيفاي' are two different keys. Latin-first recomposition looks
+    just as reasonable in a diff and would have silently re-keyed every
+    bilingual offer in the warehouse.
+    """
+    arabic, latin = "لوكسيفاي", "LUXIFY"
+    assert key(brand=f"{arabic} {latin}").digest != key(brand=f"{latin} {arabic}").digest

@@ -12,7 +12,7 @@ many rows at once and sort, filter or group by:
 
 | | |
 |---|---|
-| identity | Record (name), Record (AR), SKU, product id, Brand, Country |
+| identity | Record (name), Record (AR), SKU, product id, Brand, Brand (AR), Country |
 | classification | Category and every level the source publishes (L1–L4) |
 | the offer | Price, Unit, Discount, Status, Tax |
 | the variation | Variant, and one column per AXIS the source varies by |

@@ -18,7 +18,7 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import option_axes_json, option_fingerprint, strip_markup
+from ..normalize import brand_pair, option_axes_json, option_fingerprint, strip_markup
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import DetailGroup, group_for_code, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -271,7 +271,7 @@ class WooCommerceConnector:
             # owner's rule. Moving the value to product_name would rename
             # everything and fix nothing.
             product_name_ar=product.get("name") or carrier.get("name") or "",
-            brand_raw=brand_of(carrier),
+            **brand_pair(brand_of(carrier)),
             # The PRODUCT's page for the product column, and the VARIATION's own
             # page for the variation — they are different addresses and were
             # sharing one column, so five of every six links opened the wrong

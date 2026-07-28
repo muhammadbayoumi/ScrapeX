@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from ..config import SourceEntry
-from ..normalize import option_fingerprint
+from ..normalize import brand_pair, option_fingerprint
 from ..rowspec import PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -130,7 +130,7 @@ class ShopifyConnector:
                 # This store answers in Arabic; the English pass above fills
                 # the unmarked column from the same shop's en locale.
                 product_name_ar=product.get("title") or "",
-                brand_raw=product.get("vendor") or "",
+                **brand_pair(product.get("vendor") or ""),
                 variant_ar=variant.get("title") if options else "",
                 option_fingerprint=option_fingerprint(options) if options else "",
                 product_url=f"{base}/products/{handle}" if handle else "",

@@ -457,3 +457,4 @@ def resolve_fetcher(source: SourceEntry,
         min_interval_s=1.0 if interval is None else float(interval),
         timeout_s=30.0 if timeout is None else float(timeout),
     )
+

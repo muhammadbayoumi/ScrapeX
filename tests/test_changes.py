@@ -53,11 +53,11 @@ def test_classify_availability_ignores_unknown():
 
 
 def test_product_field_diffs_detects_and_protects():
-    stored = {"product_name_ar": "Old name", "product_url": "u", "brand_raw": "B"}
+    stored = {"product_name_ar": "Old name", "product_url": "u", "brand": "B"}
     assert product_field_diffs(stored, {"product_name_ar": "New name", "product_url": "u",
-                                        "brand_raw": "B"}) == [("product_name_ar", "Old name", "New name")]
+                                        "brand": "B"}) == [("product_name_ar", "Old name", "New name")]
     # an EMPTY incoming value means "not reported", never "cleared"
-    assert product_field_diffs(stored, {"product_name": "", "product_url": "", "brand_raw": ""}) == []
+    assert product_field_diffs(stored, {"product_name": "", "product_url": "", "brand": ""}) == []
 
 
 # ---- what ingest actually emits ---------------------------------------------

@@ -332,3 +332,35 @@ def test_multichunk_payload_sends_every_chunk(tmp_path: Path, ok_transport, rece
     # Reassembled row count must equal the original (no row lost in chunking):
     total_rows = sum(len(body["payload"]["rows"]) for body in received)
     assert total_rows == len(wide_rows)
+
+
+def test_the_payload_version_is_stated_once_and_agrees_everywhere():
+    """Three places carry this number and all three must move together.
+
+    PAYLOAD_VERSION is what a producer stamps on a payload; the `Literal[N]`
+    annotation is what the exported JSON Schema turns into a `const`, which is
+    what a consumer validates against; SYNC_PAYLOAD_VERSION is what the Apps
+    Script refuses on. Moving the constant alone shipped a schema that told
+    consumers "version 3" while the engine sent 4 — no error anywhere, just a
+    contract that quietly disagreed with itself.
+    """
+    import json
+    import pathlib
+    import typing
+
+    from scrapex.payload import PAYLOAD_VERSION, FunnelPayload, export_json_schema
+
+    annotation = typing.get_type_hints(FunnelPayload)["payload_version"]
+    assert typing.get_args(annotation) == (PAYLOAD_VERSION,), (
+        "FunnelPayload.payload_version: Literal[...] disagrees with PAYLOAD_VERSION")
+    assert export_json_schema()["properties"]["payload_version"]["const"] == PAYLOAD_VERSION
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    written = json.loads((root / "contracts" / "funnel-payload.schema.json")
+                         .read_text(encoding="utf-8"))
+    assert written["properties"]["payload_version"]["const"] == PAYLOAD_VERSION, (
+        "contracts/funnel-payload.schema.json is stale — run 'scrapex export-contract'")
+
+    apps_script = (root / "apps_script" / "StagingAppScript.txt").read_text(encoding="utf-8")
+    assert f"const SYNC_PAYLOAD_VERSION = {PAYLOAD_VERSION};" in apps_script, (
+        "the Apps Script mirror was not moved with PAYLOAD_VERSION")

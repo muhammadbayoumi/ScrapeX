@@ -43,10 +43,10 @@
     }
   },
   "additionalProperties": false,
-  "description": "Version 3. One contract for CLI + extension producers and the Apps Script consumer. See scraper/ENGINEERING.md T8.",
+  "description": "Version 4. One contract for CLI + extension producers and the Apps Script consumer. See scraper/ENGINEERING.md T8.",
   "properties": {
     "payload_version": {
-      "const": 3,
+      "const": 4,
       "title": "Payload Version",
       "type": "integer"
     },

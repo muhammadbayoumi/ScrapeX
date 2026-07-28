@@ -142,7 +142,7 @@ def test_every_exported_column_holds_its_own_field(conn):
     from scrapex.reports import export_source_table
     ingest_payloads(conn, make_entry(), [make_payload([one_row(
         product_name_ar="سلك نحاس", product_name="Copper wire", country_code_alpha2="EG",
-        brand_raw="Elsewedy", category_path_ar="أسلاك", category_path="Wires",
+        brand="Elsewedy", brand_ar="السويدي", category_path_ar="أسلاك", category_path="Wires",
         external_product_id="9797", external_sku="76ec8c8572f0-1",
         regular_price="1209.54", sale_price="1124.87", effective_price="1124.87")])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")

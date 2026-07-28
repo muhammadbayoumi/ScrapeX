@@ -48,7 +48,10 @@ def make_payload(rows: list[list[str]], source_key="ELSEWEDYSHOP", scraped_at="2
 def one_row(**over) -> list[str]:
     fields = dict(
         external_product_id="1001", external_variant_id="5001", external_sku="SKU1",
-        product_name="LED Floodlight 400W", brand_raw="Elsewedy",
+        # Latin-only, as ELSEWEDYSHOP actually publishes. Giving the shared
+        # helper an Arabic half by default would put it into the price key of
+        # every test that builds on it, which is not what this source is.
+        product_name="LED Floodlight 400W", brand="Elsewedy", brand_ar="",
         country_code_alpha2="EG", currency="EGP", vat_included="1",
         regular_price="1,200.00", sale_price="", effective_price="1,200.00",
         availability="in_stock",

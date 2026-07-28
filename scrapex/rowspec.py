@@ -58,7 +58,13 @@ PRODUCT_PRICES = RowSpec(
         # shape can tell an old product_name from a new one.
         "product_name",
         "product_name_ar",
-        "brand_raw",
+        # Same rule for the brand, and for the same reason. ALSWEED published
+        # «لوكسيفاي LUXIFY» -- BOTH names -- into the single brand_raw column,
+        # so half of every brand it sells was unreachable behind the other.
+        # Neither is additive: a pre-sweep payload carrying brand_raw is
+        # REFUSED by the header check rather than read into the wrong column.
+        "brand",
+        "brand_ar",
         "variant_ar",
         "option_fingerprint",
         "product_url",

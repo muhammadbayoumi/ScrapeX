@@ -150,7 +150,7 @@ def pending_reviews(conn: sqlite3.Connection, source_key: str | None = None,
         "SELECT m.source_product_match_id, m.confidence, m.match_method, m.evidence_json, "
         "       sp.source_product_id, sp.product_name AS incoming_name, "
         "       sp.product_name_ar AS incoming_name_ar, sp.external_sku, "
-        "       sp.product_url, sp.brand_raw, ss.source_key, "
+        "       sp.product_url, sp.brand, sp.brand_ar, ss.source_key, "
         "       mat.material_id, COALESCE(mat.material_name, mat.material_name_ar) AS material_name "
         "FROM source_product_match m "
         "JOIN source_product sp ON sp.source_product_id = m.source_product_id "
@@ -205,7 +205,7 @@ def decide(conn: sqlite3.Connection, source_product_match_id: int, decision: str
     ignored, so the audit trail of what was proposed and refused survives.
     """
     row = conn.execute(
-        "SELECT m.*, sp.product_name, sp.product_name_ar, sp.brand_raw "
+        "SELECT m.*, sp.product_name, sp.product_name_ar, sp.brand, sp.brand_ar "
         "FROM source_product_match m "
         "JOIN source_product sp ON sp.source_product_id = m.source_product_id "
         "WHERE m.source_product_match_id = ?", (source_product_match_id,)).fetchone()

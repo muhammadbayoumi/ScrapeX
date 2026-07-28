@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from ..normalize import brand_pair
 from ..config import SourceEntry
 from ..rowspec import PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability
@@ -274,7 +275,7 @@ class HybrisOccConnector:
             product_name=name_en if name_en and name_en != name else "",
             product_name_ar=name,
             lang=PRIMARY_LANG,   # not a guess: this is the lang we asked for
-            brand_raw=product.get("manufacturer") or "",
+            **brand_pair(product.get("manufacturer") or ""),
             product_url=_storefront_url(product, display_base, PRIMARY_LANG, currency),
             country_code_alpha2=region,
             currency=price.get("currencyIso") or currency,

@@ -18,7 +18,7 @@ from .changes import (
 )
 from .config import SourceEntry
 from . import pricekey, tax
-from .normalize import parse_money, record_hash
+from .normalize import brand_pair, joined_brand, parse_money, record_hash
 from .payload import FunnelPayload, utc_now_iso
 from .rowspec import PRODUCT_PRICES, RowView, spec_for
 from .vocab import (Availability, ChangeType, CurationStatus, DetailGroup,
@@ -151,7 +151,7 @@ def _product_sku(r) -> str:
 def _with_product_sku(r) -> dict:
     """The row plus the derived product sku, for the field-diff comparison."""
     incoming = {key: r.get(key) for key in
-                ("product_name", "product_url", "brand_raw", "external_sku",
+                ("product_name", "product_url", "brand", "brand_ar", "external_sku",
                  "category_path", "category_path_ar", "category_external_id",
                  "product_name_ar", "lang", "parent_sku")}
     incoming["product_sku"] = _product_sku(r)
@@ -197,7 +197,7 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
     the change was neither stored as history nor reflected in current state.
     """
     row = conn.execute(
-        "SELECT source_product_id, curation_status, product_name_ar, product_url, brand_raw, "
+        "SELECT source_product_id, curation_status, product_name_ar, product_url, brand, brand_ar, "
         "       external_sku, status, category_path_ar, category_external_id, "
         "       product_name, product_name_lang, category_path "
         "FROM source_product WHERE source_id = ? AND external_product_id = ?",
@@ -233,7 +233,8 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
         "parent_sku": r.get("parent_sku") or "",
         "product_name_ar": r.get("product_name_ar") or None,
         "product_url": r["product_url"] or None,
-        "brand_raw": r["brand_raw"] or None,
+        "brand": r["brand"] or None,
+        "brand_ar": r["brand_ar"] or None,
         # .get: the commodity spec has no classification columns, and old
         # payloads predate the contract widening that added them.
         "category_path_ar": r.get("category_path_ar") or "",
@@ -573,7 +574,13 @@ def _observation_values(r: dict, observed_at: str) -> dict:
         # promise that 15/litre and 15/gallon are different series held for
         # fuel and quietly did not hold for anything else.
         unit=_unit_with_basis(r),
-        brand=r.get("brand_raw", ""),
+        # The pair rejoined into the string the site published, Arabic
+        # first. Splitting the column must not move any offer's identity: the
+        # hash sees exactly the text it always saw, so not one of the 1,125
+        # branded offers reports a price change that did not happen. Feeding
+        # the English half alone would change every ALSWEED digest, and drop
+        # brand out of the key entirely for an Arabic-only brand.
+        brand=joined_brand(r.get("brand_ar", ""), r.get("brand", "")),
         # Not collected by any connector yet. Named here so a connector that
         # starts supplying them needs no schema change, and so their arrival is
         # a field-set widening rather than a warehouse-wide price change.
@@ -798,8 +805,8 @@ def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at,
     # its pages never repeat what is not information there. It fills the GAP
     # and never the answer: a shop that publishes a brand per product keeps
     # it, so this can never overwrite a real value with a standing one.
-    if entry.brand and not (r.get("brand_raw") or "").strip():
-        r = {**r, "brand_raw": entry.brand}
+    if entry.brand and not (r.get("brand") or "").strip()             and not (r.get("brand_ar") or "").strip():
+        r = {**r, **brand_pair(entry.brand)}
     _persist_row(conn, source_id, run_id, r, observed_at, result, job_id)
 
 
