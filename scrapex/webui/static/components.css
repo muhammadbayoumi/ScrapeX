@@ -926,6 +926,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
   border: 0;
   border-radius: var(--radius-pill);
@@ -938,6 +939,12 @@ code {
   transition:
     color var(--dur) var(--ease),
     background-color var(--dur-fast) var(--ease);
+}
+
+.appearance-scheme-picker button .sx-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
 }
 
 .appearance-scheme-picker button:hover:not(:disabled) {

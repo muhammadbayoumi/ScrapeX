@@ -299,7 +299,7 @@ def test_material_header_icons_are_local_and_dry():
         'id="account-tree"', 'id="view-column"', 'id="restart-alt"',
         'id="unfold-less"', 'id="close"', 'id="search"',
         'id="drag-indicator"', 'id="settings"',
-        'id="palette"',
+        'id="palette"', 'id="light-mode"', 'id="dark-mode"',
     }
 
     assert all(token in sprite for token in expected_symbols)

@@ -137,7 +137,13 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert device_colours.is_checked()
     assert view.locator("[data-appearance-group]").count() == 0
     assert view.locator("[data-appearance-palette]").count() == 2
-    assert view.locator(".appearance-scheme-picker svg").count() == 0
+    scheme_icons = view.locator(".appearance-scheme-picker svg use")
+    assert scheme_icons.count() == 2
+    assert scheme_icons.nth(0).get_attribute("href").endswith("#light-mode")
+    assert scheme_icons.nth(1).get_attribute("href").endswith("#dark-mode")
+    assert view.locator(
+        '[data-appearance-scheme-mode="device"] svg'
+    ).count() == 0
     assert page.locator("#appearance-popover").count() == 0
     assert page.locator("#appearance-backdrop").count() == 0
     assert page.locator("#s-appearance").count() == 0
