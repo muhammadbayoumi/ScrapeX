@@ -602,10 +602,108 @@
 .data-grid-export-copy strong { display: block; font-size: .76rem; }
 .data-grid-export-copy span { display: block; margin-top: .08rem; color: var(--muted); font-size: .64rem; }
 .data-grid-exportbar #grid-toolbar { flex: none; justify-content: flex-end; margin: 0; }
+.grid-export-menu {
+  position: relative;
+}
+.grid-export-menu > summary {
+  list-style: none;
+}
+.grid-export-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.grid-export-trigger {
+  min-width: 7.5rem;
+  gap: var(--sp-2);
+}
+.grid-export-trigger .sx-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.grid-export-chevron {
+  margin-inline-start: auto;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.grid-export-menu[open] .grid-export-chevron {
+  transform: rotate(180deg);
+}
+.grid-export-options {
+  position: absolute;
+  z-index: 120;
+  inset-inline-end: 0;
+  bottom: calc(100% + var(--sp-2));
+  display: grid;
+  gap: var(--sp-1);
+  width: min(20rem, calc(100vw - 2rem));
+  padding: var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.grid-export-option {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 3.75rem;
+  padding: var(--sp-2);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  text-align: start;
+  white-space: normal;
+}
+#grid-toolbar .grid-export-option:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--control-hover);
+  border-color: var(--line);
+}
+#grid-toolbar .grid-export-option:active:not(:disabled) {
+  color: var(--text);
+  background: var(--control-active);
+  border-color: var(--line-strong);
+  transform: none;
+}
+.grid-export-format {
+  display: grid;
+  place-items: center;
+  min-height: 2.25rem;
+  color: var(--accent-ink);
+  background: var(--accent-weak);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: .04em;
+}
+.grid-export-option-copy {
+  min-width: 0;
+}
+.grid-export-option-copy strong,
+.grid-export-option-copy small {
+  display: block;
+}
+.grid-export-option-copy strong {
+  font-size: var(--fs-sm);
+}
+.grid-export-option-copy small {
+  margin-top: .15rem;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  line-height: 1.35;
+}
 
 @media (max-width: 640px) {
   .data-grid-exportbar { align-items: flex-start; flex-direction: column; }
   .data-grid-exportbar #grid-toolbar { justify-content: flex-start; }
+  .grid-export-options {
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+  }
 }
 
 .grid-feature-popover {

@@ -2433,10 +2433,31 @@
   // ---- export ---------------------------------------------------------------
   function wireExport() {
     if (!toolbar) return;
+    const menu = toolbar.querySelector(".grid-export-menu");
+    const trigger = menu && menu.querySelector(".grid-export-trigger");
+    const closeMenu = () => {
+      if (!menu) return;
+      menu.open = false;
+      if (trigger) trigger.setAttribute("aria-expanded", "false");
+    };
+    if (menu && trigger) {
+      menu.addEventListener("toggle", () =>
+        trigger.setAttribute("aria-expanded", String(menu.open)));
+      menu.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !menu.open) return;
+        event.preventDefault();
+        closeMenu();
+        trigger.focus();
+      });
+      document.addEventListener("click", (event) => {
+        if (menu.open && !menu.contains(event.target)) closeMenu();
+      });
+    }
     toolbar.querySelectorAll("[data-export]").forEach((button) =>
       button.addEventListener("click", () => {
         const kind = button.dataset.export;
         const name = SOURCE + "-" + new Date().toISOString().slice(0, 10);
+        closeMenu();
         // CSV and JSON are THIS VIEW: your filters, your column order, your
         // hidden columns. Exporting something other than what is on screen is
         // how a spreadsheet and a screen start disagreeing.
