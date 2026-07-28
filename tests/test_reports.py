@@ -538,3 +538,15 @@ def test_the_leaf_survives_a_path_deeper_than_the_level_ceiling():
 
 def test_both_languages_get_their_own_leaf_and_the_switch_flips_them():
     assert BILINGUAL_COLUMNS["category_leaf_ar"] == "category_leaf"
+
+
+def test_two_countries_at_the_same_price_never_fold_into_one_row():
+    """GPP hangs many countries off ONE source_product. Grouping on product and
+    price alone merged two countries that charged the same amount and blanked
+    the country - 58 rows of GPP_ENERGY, measured on the live data. The country
+    is the whole point of that table."""
+    rows = [_variant_row(country_code_alpha2="EG", variant_ar="", sku=""),
+            _variant_row(country_code_alpha2="SA", variant_ar="", sku="", offer_id=2)]
+    folded = fold_variant_rows(rows)
+    assert len(folded) == 2
+    assert {r["country_code_alpha2"] for r in folded} == {"EG", "SA"}

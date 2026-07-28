@@ -1593,7 +1593,13 @@ def fold_variant_rows(rows: list[dict]) -> list[dict]:
     groups: dict[tuple, list[dict]] = {}
     order: list[tuple] = []
     for row in rows:
-        key = (row.get("source_product_id"), row.get("price"), row.get("currency"))
+        # THE COUNTRY IS PART OF THE KEY, and it has to be. GPP hangs many
+        # countries off ONE source_product, so without it two countries that
+        # happened to charge the same amount folded into a single row and the
+        # country - the whole point of that table - came out blank. Measured on
+        # the live data: 58 rows of GPP_ENERGY merged that way.
+        key = (row.get("source_product_id"), row.get("price"),
+               row.get("currency"), row.get("country_code_alpha2"))
         # A row with no product identity cannot be grouped with anything: give
         # it a key of its own rather than pooling every such row together.
         if key[0] is None:
