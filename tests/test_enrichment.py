@@ -58,11 +58,18 @@ def test_one_row_per_value_so_a_new_attribute_needs_no_schema_change():
 
 def test_the_stable_taxonomy_key_is_used_not_the_printed_label():
     """`name` is what the shop prints and can be renamed at any time. Keying on
-    it would make a rename look like a brand new attribute."""
+    it would make a rename look like a brand new attribute.
+
+    The `_ar` suffix (0050) is a LANGUAGE mark on that same taxonomy key, not a
+    second naming scheme: strip it and the shop's own "pa_color" is underneath.
+    The printed label "Color" must still appear nowhere in the code.
+    """
     rows = shaped(LIVE[0])
-    colours = [r for r in rows if r["attribute_code"] == "pa_color"]
+    colours = [r for r in rows
+               if r["attribute_code"].removesuffix("_ar") == "pa_color"]
 
     assert colours, "the colour attribute is keyed by its taxonomy"
+    assert all(r["attribute_code"] != "Color" for r in rows)
     assert colours[0]["attribute_label"] == "Color", "the label is kept for display"
 
 
@@ -74,7 +81,8 @@ def test_category_and_tag_keep_their_links():
     # property OF it, so it lands in the catch-all now that the groups
     # closed to five. The codes are what identify it.
     classified = [r for r in rows
-                  if r["attribute_code"] in ("category", "tag", "brand")]
+                  if r["attribute_code"].removesuffix("_ar")
+                  in ("category", "tag", "brand")]
 
     assert classified
     assert any(r["value_url"].startswith("http") for r in classified)
@@ -542,3 +550,46 @@ def test_no_connector_states_a_group_the_map_will_overrule():
                         f"{hint.value} but the map files it under {decided.value}")
 
     assert not disagreements, "\n".join(disagreements)
+
+
+def test_an_arabic_only_shop_marks_the_language_of_its_content():
+    """0050. Woo carries no store view and no locale header — which is exactly
+    why 0039 and 0045 both deferred this source — so the only language evidence
+    a Store API response holds is the VALUE's own script.
+
+    «مجدول» is Arabic whatever the headers say. Marking only what is
+    demonstrably Arabic claims nothing extra: a Latin or numeric value keeps its
+    unmarked code, which under 0039 is already the right one for it.
+    """
+    rows = shaped(LIVE[0])
+    by_code = {r["attribute_code"]: r for r in rows}
+
+    for code in ("pa_color_ar", "category_ar", "tag_ar", "description_ar"):
+        assert code in by_code, f"{code} should carry the language mark"
+        assert by_code[code]["lang"] == "ar"
+
+    # No unmarked code may survive over Arabic content — that is the defect
+    # itself: an unmarked name ASSERTS the non-Arabic language.
+    import re
+    arabic = re.compile(r"[\u0600-\u06FF]")
+    for row in rows:
+        if arabic.search(row["raw_value"]) and row["attribute_code"] == "weight":
+            continue        # language-neutral, see below
+        if arabic.search(row["raw_value"]):
+            assert row["attribute_code"].endswith("_ar"), row["attribute_code"]
+            assert row["lang"] == "ar"
+
+
+def test_a_language_neutral_fact_keeps_its_unmarked_code():
+    """0045's carve-out, kept: a weight's fact is its numeric_value and
+    «3,8 كيلوجرام» is only this shop's rendering of it. Marking it would also
+    silently break `weight`'s owner promotion, which keys on the code.
+    """
+    rows = shaped(LIVE[0])
+    weights = [r for r in rows if r["attribute_code"].startswith("weight")]
+
+    assert weights, "the fixture states a weight"
+    for row in weights:
+        assert row["attribute_code"] == "weight"
+        assert row["lang"] == ""
+        assert row["numeric_value"], "the numeric value is the fact"

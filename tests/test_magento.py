@@ -858,3 +858,38 @@ def test_the_more_information_labels_are_the_sites_words_in_both_stores():
     # A dropdown the en store answers as selected_options keeps working.
     assert by_code["grade"]["raw_value"] == "A500"
     assert by_code["grade"]["attribute_label"] == "Material Grade"
+
+
+def test_a_store_that_declines_to_name_an_attribute_is_reported():
+    """420 rows carried a bare code across two "fixed" crawls because nothing
+    ever said the shop had declined to name them.
+
+    _attribute_labels only appended a note when the whole request RAISED. A code
+    that came back with no label at all was silent, the panel printed the code,
+    and it read as a bug nobody had got round to. madar genuinely publishes no
+    word for voltage/wattage/cct and 17 others — in either store view — so the
+    fix is not to invent one (the owner's rule: the site's text is the record)
+    but to make the silence visible.
+    """
+    from scrapex.connectors.magento import MagentoGraphqlConnector
+
+    class _Fetcher:
+        def post(self, url, **kw):
+            class _R:
+                # The shop answers for one code and says nothing about the other.
+                @staticmethod
+                def json():
+                    return {"data": {"customAttributeMetadataV2": {"items": [
+                        {"code": "manufacturer", "label": "Manufacturer"}]}}}
+            return _R()
+
+    connector = MagentoGraphqlConnector.__new__(MagentoGraphqlConnector)
+    connector._fetcher = _Fetcher()
+    notes: list[str] = []
+    found = connector._attribute_labels(
+        "http://shop/graphql", None, notes, {"manufacturer", "voltage", "wattage"})
+
+    assert found == {"manufacturer": "Manufacturer"}
+    assert len(notes) == 1
+    assert "voltage" in notes[0] and "wattage" in notes[0]
+    assert "manufacturer" not in notes[0], "a code that WAS named must not be reported"

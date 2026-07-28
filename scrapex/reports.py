@@ -680,7 +680,12 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         present.discard("open")
     details = conn.execute(
         "SELECT COUNT(*), "
-        "SUM(CASE WHEN spa.attribute_code = 'category' THEN 1 ELSE 0 END) "
+        # The language mark (0050) rides the code, so the match has to allow
+        # it: a shop that files in Arabic stores 'category_ar'. Matching the
+        # bare literal silently gated the flat-category column off the one
+        # source that has it.
+        "SUM(CASE WHEN spa.attribute_code IN ('category','category_ar') "
+        "         THEN 1 ELSE 0 END) "
         "FROM source_product_attribute spa "
         "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
@@ -771,7 +776,7 @@ _EXPORT_SELECT: dict[str, str] = {
     "category_flat": (
         "(SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
         " WHERE spa.source_product_id = sp.source_product_id "
-        " AND spa.attribute_code = 'category')"),
+        " AND spa.attribute_code IN ('category','category_ar'))"),
     "official_source": "po.official_source_name",
     "official_source_url": "po.official_source_url",
     "category_path_en": "sp.category_path",
@@ -1454,7 +1459,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "        ORDER BY cr.as_of DESC LIMIT 1) AS per_usd, "
         "       (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
         "        WHERE spa.source_product_id = sp.source_product_id "
-        "        AND spa.attribute_code = 'category') AS category, "
+        "        AND spa.attribute_code IN ('category','category_ar')) AS category, "
         "       EXISTS(SELECT 1 FROM source_product_attribute spa2 "
         "        WHERE spa2.source_product_id = sp.source_product_id) AS has_details, "
         "       sp.category_path_ar, sp.product_name, sp.category_path, "

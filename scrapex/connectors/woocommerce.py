@@ -334,6 +334,12 @@ def _clean(html: str) -> str:
     return strip_markup(html)
 
 
+# Arabic letters, including the Supplement and the presentation forms a shop
+# can emit. Used to read the LANGUAGE OF A VALUE, which is the only language
+# evidence a WooCommerce Store API response carries.
+_ARABIC_TEXT = re.compile(r"[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]")
+
+
 def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
     """One row per attribute, category, tag and measurement of one product."""
     pid = str(product.get("id") or "")
@@ -344,15 +350,38 @@ def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
     def add(code, label, value, *, url="", group="", numeric="", unit=""):
         if not value:
             return
+        # THE CODE STATES THE LANGUAGE OF ITS CONTENT (0039): the unmarked name
+        # is the non-Arabic one, `_ar` marks Arabic, and `lang` says the same in
+        # the column the migrations read. This path used to pass lang="" and the
+        # site's raw taxonomy, so 252 Arabic facts were stored under UNMARKED
+        # codes — which under the convention ASSERTS they are English.
+        #
+        # Woo carries no store view and no locale header, which is why 0039 and
+        # 0045 both deferred this. The evidence that does exist is the VALUE's
+        # own script, and it is honest evidence: «مجدول» is Arabic whatever the
+        # shop's headers say. Marking only what is demonstrably Arabic claims
+        # nothing extra — a Latin or numeric value keeps the unmarked code,
+        # which is already the right one for it.
+        #
+        # Language-NEUTRAL facts are excluded, the same carve-out 0045 made for
+        # madar: a weight's fact is its numeric_value and "3,8 كيلوجرام" is only
+        # how this shop renders it, and a file is a file. Marking those would
+        # also silently break `weight`'s owner promotion, which keys on the code.
+        base = code.removesuffix("_ar")
+        neutral = base == "weight" or base.startswith("image")
+        arabic = bool(_ARABIC_TEXT.search(str(value))) and not neutral
+        if arabic and not code.endswith("_ar"):
+            code = f"{code}_ar"
         # The shared map decides WHERE (vocab.group_for_code), so every
-        # source files the same kind of fact in the same place. The
-        # caller's `group` remains the hint for codes this shop names in
-        # a way the map has not been taught yet.
+        # source files the same kind of fact in the same place. It strips the
+        # language mark itself, so a marked code files exactly where its
+        # unmarked twin does. The caller's `group` remains the hint for codes
+        # this shop names in a way the map has not been taught yet.
         decided, recognised = group_for_code(code)
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,
-            value_url=url, lang="",
+            value_url=url, lang="ar" if arabic else "",
             attribute_group=decided if recognised else (group or decided)))
 
     basis, _unit = selling_basis(product)

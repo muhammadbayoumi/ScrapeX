@@ -427,8 +427,26 @@ class MagentoGraphqlConnector:
                       ).json() or {}
             items = (((answer.get("data") or {})
                       .get("customAttributeMetadataV2")) or {}).get("items") or []
-            return {str(i.get("code") or ""): str(i.get("label") or "")
-                    for i in items if i.get("code") and i.get("label")}
+            found = {str(i.get("code") or ""): str(i.get("label") or "")
+                     for i in items if i.get("code") and i.get("label")}
+            # SAY when the shop declines to name an attribute. Until now only a
+            # request that RAISED was reported, so a code that came back with no
+            # label at all was silent — the panel simply printed the bare code
+            # and it read as a bug nobody had fixed. 420 rows sat like that
+            # across two "fixed" crawls precisely because nothing said anything.
+            #
+            # It is not an error and not a failure: madar publishes no word for
+            # these, and inventing one would put text on the page that the site
+            # never wrote (the owner's rule). Naming them is the whole fix — the
+            # owner can then see it is the shop's silence, not ours.
+            declined = sorted(set(safe) - set(found))
+            if declined:
+                notes.append(
+                    f"{store or 'the default store'} states no label for "
+                    f"{len(declined)} attribute(s); the code stands in: "
+                    + ", ".join(declined[:12])
+                    + (f" (+{len(declined) - 12} more)" if len(declined) > 12 else ""))
+            return found
         except CrawlBlocked:
             raise
         except Exception as exc:  # noqa: BLE001 — labels are additive
