@@ -113,7 +113,7 @@ def test_legacy_0014_remains_available_for_explicit_unified_sessions(tmp_path: P
     legacy = dbmod.connect(tmp_path / "legacy.db")
     try:
         dbmod.migrate(legacy)
-        assert dbmod.schema_version(legacy) == 52   # +0052 the trade tier is a price, not a detail
+        assert dbmod.schema_version(legacy) == 53   # +0053 the unified layer speaks the vocabulary too
         for table in ("price_observation", "generic_record"):
             assert legacy.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",

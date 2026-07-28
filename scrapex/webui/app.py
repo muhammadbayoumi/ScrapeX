@@ -502,9 +502,22 @@ def create_app(
         config = saved.get("config") or {}
         out: dict = {}
         dropped: list[str] = []
-        for key in ("q", "sort", "direction", "per_page"):
+        for key in ("q", "direction", "per_page"):
             if config.get(key):
                 out[key] = str(config[key])
+        # E3: the SORT is validated too, and its loss is announced.
+        #
+        # It was copied straight through while filters were checked, so a view
+        # saved on a column that was later renamed or hidden silently fell back
+        # to the default order. _order_by does the same fallback, so nothing
+        # broke — it just answered a different question than the one the owner
+        # saved, with nothing on screen to say so. The moment to fix it is now:
+        # zero saved views exist, so no owner arrangement is disturbed.
+        sort = str(config.get("sort") or "")
+        if sort and sort in SORTABLE:
+            out["sort"] = sort
+        elif sort:
+            dropped.append(f"sort by {sort}")
         for key, spec in (config.get("filters") or {}).items():
             if key in FILTERABLE and FILTERABLE[key][1] != "derived":
                 out[f"f.{key}"] = str(spec)

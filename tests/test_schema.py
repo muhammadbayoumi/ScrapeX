@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 52  # +0052 the trade tier is a price, not a detail
+    assert dbmod.schema_version(conn) == 53  # +0053 the unified layer speaks the vocabulary too
 
 
 def test_all_owner_tables_exist(conn):
@@ -168,7 +168,7 @@ def test_migration_0020_preserves_existing_jobs_and_their_log_references():
         upgrading.commit()
 
         assert dbmod.migrate(upgrading) == [20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-                                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]
+                                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]
 
         joined = upgrading.execute(
             "SELECT j.job_ref, j.status, l.message FROM job_log_entry l"
@@ -260,7 +260,9 @@ def test_flat_view_returns_matched_latest_observation(conn):
     conn.execute("INSERT INTO material (material_name) VALUES ('FR Plywood')")
     material_id = conn.execute("SELECT material_id FROM material").fetchone()[0]
     conn.execute(
-        "INSERT INTO material_variant (material_id, variant_name, spec_fingerprint)"
+        # variant_label since 0053: `variant` means the source-local variation
+            # of a product, and this is the curated catalogue name.
+            "INSERT INTO material_variant (material_id, variant_label, spec_fingerprint)"
         " VALUES (?, '18mm 2440x1220', 'thickness=18mm')",
         (material_id,),
     )
