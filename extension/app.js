@@ -120,6 +120,9 @@ function positionRailIndicator(button, immediate = false) {
   if (!button) return;
   const rail = document.querySelector("nav.side-rail");
   const indicator = $("rail-indicator");
+  rail.querySelectorAll(".rail-item").forEach((item) => {
+    item.classList.toggle("is-rail-active", item === button);
+  });
   if (immediate) indicator.style.transition = "none";
   rail.style.setProperty("--rail-indicator-y", `${button.offsetTop}px`);
   rail.classList.add("rail-ready");
@@ -132,6 +135,7 @@ function openWorkspaceMenu() {
   $("workspace-backdrop").classList.add("is-open");
   $("workspace-menu").setAttribute("aria-hidden", "false");
   $("workspace-toggle").setAttribute("aria-expanded", "true");
+  positionRailIndicator($("workspace-toggle"));
   workspaceFocusFrame = requestAnimationFrame(() => {
     workspaceFocusFrame = null;
     if ($("workspace-toggle").getAttribute("aria-expanded") === "true") {
@@ -150,6 +154,10 @@ function closeWorkspaceMenu(returnFocus = false) {
   $("workspace-backdrop").classList.remove("is-open");
   $("workspace-menu").setAttribute("aria-hidden", "true");
   $("workspace-toggle").setAttribute("aria-expanded", "false");
+  if (wasOpen) {
+    positionRailIndicator(document.querySelector(
+      'nav.side-rail button[data-view][aria-current="page"]'));
+  }
   if (returnFocus && wasOpen) $("workspace-toggle").focus();
 }
 

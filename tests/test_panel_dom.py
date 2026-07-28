@@ -349,9 +349,28 @@ def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel)
 
     page.click("#workspace-toggle")
     assert page.get_attribute("#workspace-menu", "aria-hidden") == "false"
+    workspace_y = page.evaluate(
+        "() => document.querySelector('#workspace-toggle').offsetTop + 'px'")
+    assert page.evaluate("""() =>
+        getComputedStyle(document.querySelector("nav.side-rail"))
+          .getPropertyValue("--rail-indicator-y").trim()
+    """) == workspace_y
+    assert page.locator("nav.side-rail .rail-item.is-rail-active").count() == 1
+    assert page.locator("#workspace-toggle").evaluate(
+        "(button) => button.classList.contains('is-rail-active')")
+    assert not page.locator(RUN_TAB).evaluate(
+        "(button) => button.classList.contains('is-rail-active')")
+
     page.keyboard.press("Escape")
     assert page.get_attribute("#workspace-menu", "aria-hidden") == "true"
     assert page.evaluate("() => document.activeElement.id") == "workspace-toggle"
+    assert page.evaluate("""() =>
+        getComputedStyle(document.querySelector("nav.side-rail"))
+          .getPropertyValue("--rail-indicator-y").trim()
+    """) == run_y
+    assert page.locator("nav.side-rail .rail-item.is-rail-active").count() == 1
+    assert page.locator(RUN_TAB).evaluate(
+        "(button) => button.classList.contains('is-rail-active')")
 
 
 def test_a_tab_that_is_not_a_website_is_refused_with_a_reason(open_panel):
