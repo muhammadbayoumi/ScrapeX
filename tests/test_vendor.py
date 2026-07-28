@@ -290,11 +290,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # kept their chip rendering when 0046 refiled them out of Description, and
     # the inspector rail gained a button per group — Store and Site metadata
     # had none, so both were being stacked under Specifications.
-    # design-system-33: the fixed Details/History rail precedes only populated
-    # groups, its mode and section zones are visually distinct, and the final
-    # category level is a labelled value rather than an icon chip.
-    assert '/static/grid.js?v=design-system-33' in page
-    assert '/static/grid-theme.css?v=design-system-33' in page
+    # design-system-34: the fixed Details/History rail precedes only populated
+    # groups, with one background, a neutral section group box and green only
+    # on the active top-level mode.
+    assert '/static/grid.js?v=design-system-34' in page
+    assert '/static/grid-theme.css?v=design-system-34' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -784,7 +784,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
 
     assert 'el("article", "selected-product-card")' in script
     assert 'el("section", "record-inspector")' in script
-    assert '"View details"' in script and '"History"' in script
+    assert '"Details"' in script and '"History"' in script
+    assert '"View details"' not in script
     assert '"Description"' in script and '"Specifications"' in script
     assert '"Attachments"' in script
     assert "Previous product image" in script and "Next product image" in script
