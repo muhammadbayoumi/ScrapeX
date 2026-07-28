@@ -20,8 +20,9 @@
    * .9rem × 1.5 line-height + .6rem on each side; 3.1875 is exactly 1.25×. */
   --grid-row-height: 2.55rem;
   --grid-header-height: 3.1875rem;
-  --grid-header-surface: var(--text);
-  --grid-header-text: var(--surface);
+  --grid-header-surface: var(--surface-container-high);
+  --grid-header-hover: var(--control-hover);
+  --grid-header-text: var(--on-surface);
   --grid-header-weight: var(--fw-heavy);
   background: var(--table-surface);
   border: var(--table-rule);
@@ -95,13 +96,6 @@
 }
 .data-grid-viewport #grid { height: 100%; }
 
-@media (prefers-color-scheme: dark) {
-  .tabulator {
-    --grid-header-surface: var(--line);
-    --grid-header-text: var(--text);
-  }
-}
-
 /* ---- the header: same as `th` ---- */
 .tabulator .tabulator-header,
 .tabulator .tabulator-header .tabulator-col {
@@ -117,7 +111,7 @@
   min-height: var(--grid-header-height);
 }
 .tabulator .tabulator-header .tabulator-col.tabulator-sortable:hover {
-  background: var(--grid-header-surface) !important;
+  background: var(--grid-header-hover) !important;
   color: var(--grid-header-text);
 }
 

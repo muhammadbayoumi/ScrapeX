@@ -190,7 +190,7 @@ def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
     assert referenced <= symbols, f"missing material icon symbols: {sorted(referenced - symbols)}"
 
 
-def test_chrome_header_logo_is_neutral_black_until_the_theme_script_runs():
+def test_chrome_header_logo_has_a_real_high_contrast_icon_at_every_size():
     manifest = json.loads((ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
 
     for size, relative in manifest["icons"].items():
@@ -198,23 +198,7 @@ def test_chrome_header_logo_is_neutral_black_until_the_theme_script_runs():
         assert data.startswith(b"\x89PNG\r\n\x1a\n")
         width, height = struct.unpack(">II", data[16:24])
         assert (width, height) == (int(size), int(size))
-        assert "black" in relative
-
-
-def test_chrome_shell_logo_switches_between_black_and_white_not_palette_colours():
-    page = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
-    script = (ROOT / "extension" / "theme-icon.js").read_text(encoding="utf-8")
-    components = (ROOT / "design" / "components.css").read_text(encoding="utf-8")
-
-    assert 'src="theme-icon.js"' in page
-    assert "prefers-color-scheme: dark" in script
-    assert 'scheme.matches ? "white" : "black"' in script
-    assert "chrome.action.setIcon" in script
-    assert "background: var(--text)" in components
-    for tone in ("black", "white"):
-        for size in (16, 32, 48, 128):
-            icon = ROOT / "extension" / "icons" / f"x-mark-{tone}-{size}.png"
-            assert icon.is_file()
+        assert "adaptive" in relative
 
 
 def test_the_datasets_page_loads_the_grid_from_our_own_origin():
@@ -478,7 +462,7 @@ def test_native_and_grid_tables_consume_one_set_of_shape_tokens():
         assert f"var({token})" in css, f"the grid does not consume {token}"
 
 
-def test_header_is_one_and_a_quarter_normal_rows_with_bold_white_text():
+def test_header_is_one_and_a_quarter_normal_rows_and_follows_the_theme():
     """The requested ratio is between the header and an ordinary unwrapped,
     non-compact data row; wrapping must still be allowed to grow."""
     import re
@@ -491,8 +475,10 @@ def test_header_is_one_and_a_quarter_normal_rows_with_bold_white_text():
     tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
     assert "--grid-header-weight: var(--fw-heavy)" in css
     assert "--fw-heavy: 700" in tokens
-    assert "--grid-header-text: var(--surface)" in css
-    assert "--grid-header-text: var(--text)" in css
+    assert "--grid-header-surface: var(--surface-container-high)" in css
+    assert "--grid-header-hover: var(--control-hover)" in css
+    assert "--grid-header-text: var(--on-surface)" in css
+    assert "@media (prefers-color-scheme: dark)" not in css
     assert ".tabulator:not(.compact):not(.wrap)" in css
     assert "min-height: var(--grid-header-height)" in css
 
