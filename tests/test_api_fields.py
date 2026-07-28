@@ -269,6 +269,12 @@ def test_flipping_active_changes_one_line_and_keeps_every_comment(client, tmp_pa
     records. The flip must be surgical: one line changes, every other byte
     survives."""
     manifest = tmp_path / "sources.yaml"
+
+    # Put it in a KNOWN state first. This used to read whatever the shipped
+    # manifest happened to say, so the day ELSEWEDYSHOP was activated for real
+    # the flip became a no-op and the test failed for a reason that had nothing
+    # to do with the behaviour it guards.
+    client.post(f"/api/sources/{SOURCE}/active", json={"active": False})
     before = manifest.read_text(encoding="utf-8")
 
     r = client.post(f"/api/sources/{SOURCE}/active", json={"active": True})
