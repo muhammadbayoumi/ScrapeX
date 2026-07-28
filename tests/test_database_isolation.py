@@ -67,7 +67,7 @@ def test_fresh_registry_creates_two_typed_databases_without_domain_tables_crossi
     assert applied["general"] == list(
         range(1, registry.general.latest_schema_version + 1)
     )
-    assert applied["marketlens"] == list(range(1, 44))   # ... +43 madar attributes state their language
+    assert applied["marketlens"] == list(range(1, 45))   # ... +44 seven detail groups
     assert registry.health()["general"]["status"] == "Healthy"
     assert registry.health()["marketlens"]["status"] == "Healthy"
 
@@ -408,3 +408,23 @@ def test_a_migration_that_orphans_rows_is_rolled_back_not_committed(tmp_path):
         "the orphaning migration committed anyway"
     assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
     conn.close()
+
+
+def test_a_missing_price_migration_is_named_not_a_nameerror():
+    """Both guards in _marketlens_plan raised an exception class that did not
+    exist, so a renamed price migration reported `NameError` and named nothing.
+    The stop was never in doubt; the diagnosis was.
+    """
+    import pytest
+    from scrapex.databases import domain
+
+    original = domain._MARKETLENS_LEGACY_NUMBERS
+    domain._MARKETLENS_LEGACY_NUMBERS = original + (9999,)
+    try:
+        with pytest.raises(domain.MigrationStreamError) as caught:
+            domain._marketlens_plan()
+    finally:
+        domain._MARKETLENS_LEGACY_NUMBERS = original
+
+    assert "9999" in str(caught.value)          # says WHICH migration is gone
+    assert issubclass(domain.MigrationStreamError, RuntimeError)

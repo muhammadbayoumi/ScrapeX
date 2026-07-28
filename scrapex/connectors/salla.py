@@ -20,7 +20,7 @@ from ..config import SourceEntry
 # without it ever being in scope, so a salla source that declared an
 # enrichment extract would have died on NameError after the whole crawl.
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import DetailGroup, ExtractKind
+from ..vocab import DetailGroup, group_for_code, ExtractKind
 from .base import HttpFetcher, ScrapedTable
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
 # generic; the /p{id} id scheme below is the salla-specific part.
@@ -161,10 +161,16 @@ def enrichment_rows(builder: RowBuilder, node: dict, url: str) -> list[list[str]
     def add(code, label, value, *, url_value="", group=""):
         if not value:
             return
+        # The shared map decides WHERE (vocab.group_for_code), so every
+        # source files the same kind of fact in the same place. The
+        # caller's `group` remains the hint for codes this shop names in
+        # a way the map has not been taught yet.
+        decided, recognised = group_for_code(code)
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value)[:2000], numeric_value="", unit_raw="",
-            value_url=url_value, lang="", attribute_group=group))
+            value_url=url_value, lang="",
+            attribute_group=decided if recognised else (group or decided)))
 
     images = node.get("image")
     if isinstance(images, str):

@@ -97,7 +97,7 @@ from typing import Iterable
 from ..config import SourceEntry
 from ..normalize import selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import DetailGroup, Availability, ExtractKind
+from ..vocab import DetailGroup, group_for_code, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 # A page is 12 products; 8 pages today. This cap is a runaway guard, not a
@@ -484,10 +484,15 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     def add(code, label, value, *, lang="", url="", group="", numeric="", unit=""):
         if not value:
             return
+        # The shared map decides WHERE, so sika and madar file the same
+        # kind of fact in the same place. The caller's `group` stays as
+        # the hint for codes this shop names in its own way.
+        decided, recognised = group_for_code(code)
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value).strip(), numeric_value=str(numeric),
-            unit_raw=unit, value_url=url, lang=lang, attribute_group=group))
+            unit_raw=unit, value_url=url, lang=lang,
+            attribute_group=decided if recognised else (group or decided)))
 
     # The code states the language of its content (0039): the unmarked name
     # is English, `_ar` is Arabic, and `lang` beside it says the same thing
@@ -497,9 +502,9 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     add("description", "Description", product.get("short_description_en"),
         lang="en", group=DetailGroup.DESCRIPTION)
     add("keywords_ar", "Keywords (AR)", product.get("keywords_ar"), lang="ar",
-        group=DetailGroup.DESCRIPTION)
+        group=DetailGroup.SITE_METADATA)
     add("keywords", "Keywords", product.get("keywords_en"), lang="en",
-        group=DetailGroup.DESCRIPTION)
+        group=DetailGroup.SITE_METADATA)
     # The LONG description — the DESCRIPTION / USES / CHARACTERISTICS body of
     # the product page, newline-separated — is detail-only. The `_en` suffix is
     # not decoration: the panel pairs `code` with `code + "_ar"` to print one
@@ -508,7 +513,7 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         product.get("full_description_ar"), lang="ar", group=DetailGroup.DESCRIPTION)
     add("full_description", "Full description",
         product.get("full_description_en"), lang="en", group=DetailGroup.DESCRIPTION)
-    add("sku", "SKU", product.get("sku"), group=DetailGroup.SPECIFICATIONS)
+    add("sku", "SKU", product.get("sku"), group=DetailGroup.STORE)
     add("weight", "Weight", product.get("weight"), numeric=product.get("weight"),
         unit="kg", group=DetailGroup.SPECIFICATIONS)
     # `add` skips a falsy value, so a stock_quantity of 0 emits no row. That is
@@ -518,7 +523,7 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     # the guard to let this 0 through would also start writing "Maximum stock
     # level: 0" on 85 of 87 products (below), which would be a lie.
     add("stock_quantity", "Stock quantity", product.get("stock_quantity"),
-        numeric=product.get("stock_quantity"), group=DetailGroup.SPECIFICATIONS)
+        numeric=product.get("stock_quantity"), group=DetailGroup.STORE)
     # The shop's own reorder thresholds, detail-only. Emitted only when
     # populated, and the falsy guard is the RIGHT rule for both rather than an
     # accident: across all 87 live products (2026-07-25) min_stock_level is
@@ -526,16 +531,16 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     # A max of 0 is the field left unset, not a ceiling of zero units — writing
     # it down would state a limit the shop does not impose.
     add("min_stock_level", "Minimum stock level", product.get("min_stock_level"),
-        numeric=product.get("min_stock_level"), group=DetailGroup.SPECIFICATIONS)
+        numeric=product.get("min_stock_level"), group=DetailGroup.STORE)
     add("max_stock_level", "Maximum stock level", product.get("max_stock_level"),
-        numeric=product.get("max_stock_level"), group=DetailGroup.SPECIFICATIONS)
+        numeric=product.get("max_stock_level"), group=DetailGroup.STORE)
     # `specail_price` is the TRADE-TIER price: the storefront charges it only to
     # a logged-in customer whose customerTypeId is 2 (rule + live proof in
     # _prices). Recorded as exactly that fact — a price for a group we are not —
     # so nothing is lost and no row calls it a public discount.
     add("trade_tier_price", "Trade-tier price (customer type 2 only)",
         product.get("specail_price"), numeric=product.get("specail_price"),
-        group=DetailGroup.SPECIFICATIONS)
+        group=DetailGroup.STORE)
 
     # The site's own "Technical Specifications" card (colour, consumption rate,
     # product attributes, suitable applications...), detail-only, in BOTH

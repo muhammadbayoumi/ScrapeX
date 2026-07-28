@@ -335,6 +335,8 @@ def test_every_detail_is_filed_under_one_of_the_five_groups():
     """
     from scrapex.vocab import DetailGroup
 
+    # Seven since 0046: STORE and SITE_METADATA joined the original five.
+    assert len(DetailGroup) == 7
     allowed = {g.value for g in DetailGroup}
     for row in shaped(LIVE[0]):
         assert row["attribute_group"] in allowed, (
@@ -441,3 +443,99 @@ def test_a_run_never_retires_details_it_did_not_fetch():
             "SELECT COUNT(*) FROM source_product_attribute").fetchone()[0] == 1
     finally:
         conn.close()
+
+
+def test_one_map_decides_where_every_known_fact_is_filed():
+    """The owner asked for the rules to live in a fixed place in the code so
+    nobody can forget to use them. That place is vocab._DETAIL_GROUP_BY_CODE,
+    and this is what makes it load-bearing rather than documentation.
+
+    His two boundaries, checked on facts the live warehouse actually holds:
+    a property OF the product files under Specifications, information ABOUT it
+    under More information, and the store's own handling of it under Store.
+    """
+    from scrapex.vocab import DetailGroup, group_for_code
+
+    for code, expected in [
+        # The store's handling — «طريقة الشحن» was filed under Specifications
+        # by 0043, which is what made the boundary worth stating.
+        ("am_shipping_type", DetailGroup.STORE),
+        ("stock_quantity", DetailGroup.STORE),
+        ("sku", DetailGroup.STORE),
+        ("pa_الضمان", DetailGroup.STORE),          # a commitment, not a property
+        # The page, not the product.
+        ("no_index", DetailGroup.SITE_METADATA),
+        ("keywords", DetailGroup.SITE_METADATA),
+        # Properties OF the product — the owner's own example first.
+        ("coating", DetailGroup.SPECIFICATIONS),
+        ("amperage", DetailGroup.SPECIFICATIONS),
+        ("moisture_content", DetailGroup.SPECIFICATIONS),
+        ("pa_المقاس", DetailGroup.SPECIFICATIONS),
+        # Information ABOUT the product — his other three.
+        ("manufacturer", DetailGroup.MORE_INFORMATION),
+        ("origin", DetailGroup.MORE_INFORMATION),
+        ("country_of_manufacture", DetailGroup.MORE_INFORMATION),
+    ]:
+        assert group_for_code(code)[0] is expected, code
+        # The language mark never changes WHERE a fact is filed: `coating` and
+        # `coating_ar` are one fact in two languages, and filing them in two
+        # places would split every bilingual source down the middle.
+        assert group_for_code(code + "_ar")[0] is expected, code + "_ar"
+
+
+def test_an_unknown_code_is_reported_so_the_owner_can_actually_be_asked():
+    """His standing rule: a NEW kind of fact is never filed by a developer's
+    judgement — he is asked. A catch-all that absorbed every new code silently
+    would make that rule unenforceable, so the fallback is observable.
+    """
+    from scrapex.vocab import DetailGroup, group_for_code
+
+    group, recognised = group_for_code("something_the_map_has_never_seen")
+    assert recognised is False
+    assert group is DetailGroup.MORE_INFORMATION      # a home, not a hole
+    assert group_for_code("coating")[1] is True
+
+
+def test_no_connector_states_a_group_the_map_will_overrule():
+    """Every connector passes `group=` as a hint, and vocab.group_for_code
+    overrules it whenever it recognises the code. That is the right precedence
+    — one map, so two shops file one kind of fact in one place — but it means a
+    hint can be WRONG and never say so: it is silently discarded at runtime and
+    goes on telling the next reader something untrue. 0046 left seven of them
+    stale in custom_json.py alone (sku and the stock fields still claimed
+    Specifications after moving to Store).
+
+    Read statically, so a hint on a line no fixture happens to exercise is
+    checked too.
+    """
+    import ast
+    import pathlib
+
+    from scrapex.vocab import DetailGroup, group_for_code
+
+    disagreements = []
+    connectors = pathlib.Path(__file__).resolve().parents[1] / "scrapex" / "connectors"
+    for path in sorted(connectors.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            # add("some_code", ..., group=DetailGroup.X) — the code is the
+            # first positional argument in every connector's emitter.
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            first = node.args[0]
+            if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "group":
+                    continue
+                value = keyword.value
+                if not (isinstance(value, ast.Attribute)
+                        and getattr(value.value, "id", "") == "DetailGroup"):
+                    continue        # a computed group; nothing static to check
+                hint = getattr(DetailGroup, value.attr)
+                decided, recognised = group_for_code(first.value)
+                if recognised and hint is not decided:
+                    disagreements.append(
+                        f"{path.name}:{node.lineno} {first.value!r} says "
+                        f"{hint.value} but the map files it under {decided.value}")
+
+    assert not disagreements, "\n".join(disagreements)

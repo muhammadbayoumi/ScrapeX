@@ -826,14 +826,22 @@ def test_the_enrichment_table_carries_the_whole_record_for_one_product():
     for r in rows:
         groups[r["attribute_group"]] = groups.get(r["attribute_group"], 0) + 1
 
-    # FIVE groups for every source (owner ruling 2026-07-26). This shop used
-    # to file into "Specs" AND "Specifications" — two headings for one
-    # question, on one site.
-    assert set(groups) <= {"Description", "Specifications", "Attachments",
-                           "More information", "Media"}
+    # A CLOSED vocabulary for every source (owner ruling 2026-07-26, widened to
+    # seven on 2026-07-28). This shop used to file into "Specs" AND
+    # "Specifications" — two headings for one question, on one site. Read from
+    # the enum rather than retyped: this line went stale the first time the
+    # vocabulary grew, which is the exact failure it exists to catch.
+    from scrapex.vocab import DetailGroup
+
+    assert set(groups) <= {g.value for g in DetailGroup}
     assert groups == {
-        "Description": 6,        # short ar/en + full ar/en + keywords ar/en
-        "Specifications": 15,    # sku, weight, stock, trade tier + 5 attrs x2
+        "Description": 4,        # short ar/en + full ar/en
+        "Specifications": 11,    # weight + 5 attrs x2
+        # This store's handling of the product, not the product itself (0046).
+        # The trade tier sits here as a holding place only: the owner ruled it
+        # becomes a real price column, being a price rather than a property.
+        "Store": 4,              # sku, stock_quantity, min_stock_level, trade tier
+        "Site metadata": 2,      # keywords ar/en — sika's search terms for ITS site
         "Media": 9,              # every photograph
         "Attachments": 2,        # both datasheets
     }

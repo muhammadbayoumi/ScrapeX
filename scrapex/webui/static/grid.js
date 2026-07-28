@@ -2173,28 +2173,40 @@
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(d);
       });
-      // Description first (it is what the product IS), then the measured
-      // specifications, then the files. Any group a connector invents that this
-      // list does not know about keeps its own card, after the known ones.
-      const order = ["Description", "Specifications", "Specs", "Details", "Attachments"];
+      // Description first (it is what the product IS), then the properties
+      // measured of it, then what is known about it, then how THIS store
+      // handles it, then facts about the page rather than the product, then
+      // the files. Any group a connector invents that this list does not know
+      // about keeps its own card, after the known ones.
+      //
+      // Kept in step with vocab.DetailGroup by hand, deliberately: order is a
+      // display judgement the enum has no opinion about, and "Details" below is
+      // not a group at all — it is the fallback above for a row that arrived
+      // without one. ("Specs" was here until 0043 merged it into
+      // Specifications; a name no source can now produce.)
+      const order = ["Description", "Specifications", "More information", "Store",
+                     "Site metadata", "Details", "Attachments"];
       const names = [...groups.keys()].sort((a, b) => {
         const rankA = order.indexOf(a), rankB = order.indexOf(b);
         return (rankA < 0 ? order.length : rankA) - (rankB < 0 ? order.length : rankB);
       });
+      // One definition, used by two branches: keywords sit under Site metadata
+      // since 0046, but a source that has not been re-crawled still has them
+      // filed under Description, and both must render them as chips.
+      const isKeywordRow = (item) => {
+        const code = (item.code || "").toLowerCase();
+        const label = (item.label || "").trim().toLowerCase();
+        return code.startsWith("keywords") || label === "keywords";
+      };
       names.forEach((name) => {
         const items = groups.get(name);
         if (name === "Description") {
-          const isKeyword = (item) => {
-            const code = (item.code || "").toLowerCase();
-            const label = (item.label || "").trim().toLowerCase();
-            return code.startsWith("keywords") || label === "keywords";
-          };
           const fullRows = items.filter((item) =>
             (item.code || "").toLowerCase().startsWith("full_description"));
-          const keywordRows = items.filter(isKeyword);
+          const keywordRows = items.filter(isKeywordRow);
           const withoutShortOrKeywords = items.filter((item) =>
             !(item.code || "").toLowerCase().startsWith("short_description") &&
-            !isKeyword(item));
+            !isKeywordRow(item));
           const paired = pairByLanguage(fullRows.length
             ? fullRows
             : (withoutShortOrKeywords.length ? withoutShortOrKeywords : items));
@@ -2221,9 +2233,20 @@
           detailSections.get("attachments").push(box);
           return;
         }
-        const paired = pairByLanguage(items);
         const box = card(name);
-        box.appendChild(specList(paired));
+        // Keywords are search terms, not a measurement, and read far better as
+        // chips than as a value in a two-column list. They were rendered that
+        // way inside Description until 0046 refiled them under Site metadata —
+        // the rendering follows the fact, not the heading it used to sit under,
+        // or the move would have quietly cost the owner the better view.
+        // Split BEFORE pairing: pairByLanguage returns display entries and does
+        // not carry `code` through, so after it the ar/en pair is unidentifiable.
+        const keywordRows = items.filter(isKeywordRow);
+        const rest = items.filter((item) => !isKeywordRow(item));
+        if (rest.length) box.appendChild(specList(pairByLanguage(rest)));
+        if (keywordRows.length) {
+          box.appendChild(keywordSection(pairByLanguage(keywordRows)));
+        }
         detailSections.get("specifications").push(box);
       });
     }

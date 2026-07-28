@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 45  # +0045 madar's attributes state their language
+    assert dbmod.schema_version(conn) == 46  # +0046 seven detail groups
 
 
 def test_all_owner_tables_exist(conn):
@@ -168,7 +168,7 @@ def test_migration_0020_preserves_existing_jobs_and_their_log_references():
         upgrading.commit()
 
         assert dbmod.migrate(upgrading) == [20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-                                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45]
+                                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46]
 
         joined = upgrading.execute(
             "SELECT j.job_ref, j.status, l.message FROM job_log_entry l"

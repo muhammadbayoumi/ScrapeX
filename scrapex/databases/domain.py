@@ -39,6 +39,18 @@ class DatabaseKindError(RuntimeError):
     """A typed boundary was given the other domain's database."""
 
 
+class MigrationStreamError(RuntimeError):
+    """A migration stream no longer matches the shape its guards require.
+
+    Raised only by _marketlens_plan(), whose two checks exist because both
+    failures renumber a database that has already shipped: a price migration
+    renamed or deleted out from under the explicit legacy list, or one added
+    below the identity boundary at v13. Both raise sites predate this class,
+    so until now they raised NameError — the program still stopped, which is
+    the important half, but it reported nothing about which migration moved.
+    """
+
+
 class DatabaseMigrationError(RuntimeError):
     """A migration stream is incomplete, newer, or has been edited in place."""
 
@@ -113,7 +125,7 @@ def _general_plan() -> tuple[Migration, ...]:
 # Listed rather than ranged: the unified chain and this one have diverged, so a
 # new price migration lands at the END of the legacy chain but in the middle of
 # this plan. A range would silently swallow whatever General adds next.
-_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45)
+_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46)
 
 # Where the identity migration sits in this stream. Everything before it is the
 # price history the unified warehouse already had; everything after is a price

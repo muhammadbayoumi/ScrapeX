@@ -20,7 +20,7 @@ from typing import Iterable
 from ..config import SourceEntry
 from ..normalize import option_axes_json, option_fingerprint, strip_markup
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import DetailGroup, Availability, ExtractKind
+from ..vocab import DetailGroup, group_for_code, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PER_PAGE = 100
@@ -344,10 +344,16 @@ def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
     def add(code, label, value, *, url="", group="", numeric="", unit=""):
         if not value:
             return
+        # The shared map decides WHERE (vocab.group_for_code), so every
+        # source files the same kind of fact in the same place. The
+        # caller's `group` remains the hint for codes this shop names in
+        # a way the map has not been taught yet.
+        decided, recognised = group_for_code(code)
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,
-            value_url=url, lang="", attribute_group=group))
+            value_url=url, lang="",
+            attribute_group=decided if recognised else (group or decided)))
 
     basis, _unit = selling_basis(product)
     for attribute in product.get("attributes") or []:

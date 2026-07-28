@@ -37,7 +37,7 @@ from ..config import SourceEntry
 from ..normalize import (option_axes_json, option_fingerprint, selling_unit_from,
                          strip_markup)
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability, DetailGroup, ExtractKind
+from ..vocab import Availability, DetailGroup, ExtractKind, group_for_code
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 100
@@ -375,11 +375,22 @@ class MagentoGraphqlConnector:
                                .get("items")) or []} - {""}
             labels_ar = self._attribute_labels(endpoint, None, notes, codes)
             labels_en = self._attribute_labels(endpoint, _ENGLISH_STORE, notes, codes)
+            unknown_codes: set[str] = set()
             for product in fetched:
                 attribute_rows.extend(_enrichment_rows(
                     extra, product, filterable,
                     labels_ar=labels_ar, labels_en=labels_en,
-                    english=english.get("details", {})))
+                    english=english.get("details", {}),
+                    unknown_codes=unknown_codes))
+            if unknown_codes:
+                # ONE line, not one per row: the owner is asked where a new
+                # kind of fact belongs, and a hundred repetitions of the
+                # same question is how a rule stops being read.
+                notes.append(
+                    "these detail codes are new and were filed under More "
+                    "information by default — decide where they belong and "
+                    "add them to vocab._DETAIL_GROUP_BY_CODE: "
+                    + ", ".join(sorted(unknown_codes)[:20]))
             if attribute_rows:
                 yield ScrapedTable(
                     source_key=source.source_key, kind=ENRICHMENT.kind,
@@ -856,7 +867,8 @@ class MagentoGraphqlConnector:
 def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
                      *, labels_ar: dict | None = None,
                      labels_en: dict | None = None,
-                     english: dict | None = None) -> list:
+                     english: dict | None = None,
+                     unknown_codes: set | None = None) -> list:
     """Descriptions and per-variant weights the census already carried.
 
     The weight lands here ONLY when it is not the selling basis: cement's 50
@@ -875,6 +887,11 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     rows: list = []
 
     facets = filterable or {}
+    # Codes the shared map did not recognise. The owner's standing rule is
+    # that a NEW kind of fact is never filed by judgement — he is asked. A
+    # fallback that absorbed them silently would make that rule
+    # unenforceable, so the run reports them once.
+    unrecognised = unknown_codes if unknown_codes is not None else set()
     labels_ar = labels_ar or {}
     labels_en = labels_en or {}
     mine = (english or {}).get(pid, {})
@@ -882,13 +899,14 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     def add(code, label, value, *, numeric="", unit="", url="", lang=""):
         if not value:
             return
-        # The GROUP is where a reader looks; the facet check runs on the BARE
-        # code because `width` and `width_ar` are one fact in two languages.
+        # WHERE a reader looks comes from ONE shared map (vocab), never from
+        # a connector's own guess. Being a site FACET no longer decides it:
+        # that says the shop filters by the fact, which is a property of
+        # the fact and now rides is_site_filter, not a place to file it.
         base = code.removesuffix("_ar")
-        group = (DetailGroup.MEDIA if base.startswith("image")
-                 else DetailGroup.DESCRIPTION if "desc" in base
-                 else DetailGroup.SPECIFICATIONS if base == "weight" or base in facets
-                 else DetailGroup.MORE_INFORMATION)
+        group, recognised = group_for_code(code)
+        if not recognised:
+            unrecognised.add(base)
         rows.append(builder.row(
             external_product_id=pid, attribute_code=code, attribute_label=label,
             raw_value=str(value), numeric_value=str(numeric), unit_raw=unit,

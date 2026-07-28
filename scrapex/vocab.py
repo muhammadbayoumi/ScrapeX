@@ -62,10 +62,10 @@ class DetailGroup(StrEnum):
     ثابت فى الكود بحيث لا ينسى اى شخص من استخدامها») so no connector
     author can miss them:
 
-    1. APPROVED, NOT YET BUILT — a sixth group `STORE`, for facts about
-       THIS store's handling of the product rather than the product
-       itself: availability (متوفر أم لا), stock quantity (sika states
-       its piece count), shipping method (madar's «طريقة الشحن»).
+    1. `STORE` — facts about THIS store's handling of the product rather
+       than the product itself: availability (متوفر أم لا), stock count
+       (sika states its pieces), shipping method (madar's «طريقة الشحن»),
+       and the store's own code for the item (sku).
 
     2. THE BOUNDARY between Specifications and More information is what
        the fact DESCRIBES: a property OF the product (coating, grade,
@@ -73,10 +73,21 @@ class DetailGroup(StrEnum):
        product (manufacturer, origin, country of manufacture) files
        under MORE_INFORMATION.
 
-    3. STANDING RULE — a NEW kind of fact, from any site, is NEVER filed
+    3. `SITE_METADATA` — facts about the PAGE, not about the product or
+       the store. madar publishes no_index / no_follow / no_archive on
+       every product: robots directives for its own site, which arrived
+       here only because the connector takes every visible attribute.
+       Kept rather than dropped (owner, 2026-07-28) so nothing the site
+       states is silently discarded — but filed where it cannot crowd
+       out a product fact. sika's search `keywords` file here too.
+
+    4. STANDING RULE — a NEW kind of fact, from any site, is NEVER filed
        by a developer's judgement. ASK THE OWNER which group it belongs
        to, or whether it needs a new group. He said exactly this: «اى
        معلومة نلاقيها عن منتج فى المستقبل اسالنى نحطها فى انهو جروب».
+       group_for_code() below reports every code it did NOT recognise so
+       the question can actually be asked, instead of the fallback
+       quietly absorbing it.
     ====================================================================
 
     Closed on purpose. Every connector used to invent its own headings,
@@ -90,10 +101,155 @@ class DetailGroup(StrEnum):
     """
 
     DESCRIPTION = "Description"            # prose the site wrote
-    SPECIFICATIONS = "Specifications"      # stated properties, measurements, facets
+    SPECIFICATIONS = "Specifications"      # properties OF the product
     ATTACHMENTS = "Attachments"            # files to open: datasheets, manuals
-    MORE_INFORMATION = "More information"  # everything else the site states
+    MORE_INFORMATION = "More information"  # information ABOUT the product
     MEDIA = "Media"                        # images
+    STORE = "Store"                        # THIS store's handling of it
+    SITE_METADATA = "Site metadata"        # about the PAGE, not the product
+
+
+# WHERE EACH KNOWN FACT IS FILED — the fixed place the owner asked for, so no
+# connector author has to remember the rules or invent an answer.
+#
+# Every code below was read out of the live warehouse, not imagined: these are
+# the facts madar, sika and samehgabriel actually publish today.
+_DETAIL_GROUP_BY_CODE: dict[str, DetailGroup] = {
+    # THIS STORE's handling of the product, not the product.
+    "am_shipping_type": DetailGroup.STORE,      # madar's «طريقة الشحن»
+    "stock_quantity": DetailGroup.STORE,
+    "min_stock_level": DetailGroup.STORE,
+    "max_stock_level": DetailGroup.STORE,
+    "availability": DetailGroup.STORE,
+    "sku": DetailGroup.STORE,                   # the store's own code for it
+    "trade_tier_price": DetailGroup.STORE,      # until it becomes a price column
+    # About the PAGE. Robots directives madar publishes per product.
+    "no_index": DetailGroup.SITE_METADATA,
+    "no_follow": DetailGroup.SITE_METADATA,
+    "no_archive": DetailGroup.SITE_METADATA,
+    "keywords": DetailGroup.SITE_METADATA,
+    # Information ABOUT the product — the owner's own three examples.
+    "manufacturer": DetailGroup.MORE_INFORMATION,
+    "origin": DetailGroup.MORE_INFORMATION,
+    "country_of_manufacture": DetailGroup.MORE_INFORMATION,
+    "brand": DetailGroup.MORE_INFORMATION,
+    "category": DetailGroup.MORE_INFORMATION,
+    "tag": DetailGroup.MORE_INFORMATION,
+    # Properties OF the product. Everything here used to sit in More
+    # information because the connector had no rule finer than "not an image,
+    # not a description, not a facet".
+    "coating": DetailGroup.SPECIFICATIONS,      # the owner's own example
+    "color": DetailGroup.SPECIFICATIONS,
+    "pa_color": DetailGroup.SPECIFICATIONS,
+    "size": DetailGroup.SPECIFICATIONS,
+    "surface": DetailGroup.SPECIFICATIONS,
+    "surface_finish": DetailGroup.SPECIFICATIONS,
+    "material_type": DetailGroup.SPECIFICATIONS,
+    "material_grade": DetailGroup.SPECIFICATIONS,
+    "reinforcement_type": DetailGroup.SPECIFICATIONS,
+    "reinforcement_weight": DetailGroup.SPECIFICATIONS,
+    "feature": DetailGroup.SPECIFICATIONS,
+    "chuck_size": DetailGroup.SPECIFICATIONS,
+    "no_load_speed": DetailGroup.SPECIFICATIONS,
+    "power_input": DetailGroup.SPECIFICATIONS,
+    "power_source": DetailGroup.SPECIFICATIONS,
+    "voltage": DetailGroup.SPECIFICATIONS,
+    "wattage": DetailGroup.SPECIFICATIONS,
+    "weight": DetailGroup.SPECIFICATIONS,
+    # The 41 the live warehouse held that the map had never been taught.
+    # Read out of madar and samehgabriel with a real value beside each, and
+    # filed under the owner's OWN boundary rather than a developer's taste:
+    # every one is a stated property of the product.
+    "amperage": DetailGroup.SPECIFICATIONS,
+    "base_type": DetailGroup.SPECIFICATIONS,
+    "battery_capacity": DetailGroup.SPECIFICATIONS,
+    "battery_type": DetailGroup.SPECIFICATIONS,
+    "blade_size": DetailGroup.SPECIFICATIONS,
+    "breaking_capacity_ka": DetailGroup.SPECIFICATIONS,
+    "cct": DetailGroup.SPECIFICATIONS,          # colour temperature, 2700K
+    "cement_type": DetailGroup.SPECIFICATIONS,
+    "conduit_type": DetailGroup.SPECIFICATIONS,
+    "cylinder_size": DetailGroup.SPECIFICATIONS,
+    "density": DetailGroup.SPECIFICATIONS,
+    "density_kgm3": DetailGroup.SPECIFICATIONS,
+    "drill_bit_type": DetailGroup.SPECIFICATIONS,
+    "drying_method": DetailGroup.SPECIFICATIONS,
+    "ff_type": DetailGroup.SPECIFICATIONS,      # film-faced type
+    "gangs": DetailGroup.SPECIFICATIONS,
+    "glue_type": DetailGroup.SPECIFICATIONS,
+    "grade": DetailGroup.SPECIFICATIONS,
+    "horse_power": DetailGroup.SPECIFICATIONS,
+    "lock_body_size": DetailGroup.SPECIFICATIONS,
+    "max_disc_diameter": DetailGroup.SPECIFICATIONS,
+    "mesh_size": DetailGroup.SPECIFICATIONS,
+    "module_capacity": DetailGroup.SPECIFICATIONS,
+    "moisture_content": DetailGroup.SPECIFICATIONS,
+    "mounting_type": DetailGroup.SPECIFICATIONS,
+    "number_of_ways": DetailGroup.SPECIFICATIONS,
+    "poles": DetailGroup.SPECIFICATIONS,
+    "port_type": DetailGroup.SPECIFICATIONS,
+    "rated_current_a": DetailGroup.SPECIFICATIONS,
+    "shape": DetailGroup.SPECIFICATIONS,
+    "socket_type": DetailGroup.SPECIFICATIONS,
+    "suction_force": DetailGroup.SPECIFICATIONS,
+    "switch_function": DetailGroup.SPECIFICATIONS,
+    "switch_type": DetailGroup.SPECIFICATIONS,
+    "treatment": DetailGroup.SPECIFICATIONS,
+    "veneer_type": DetailGroup.SPECIFICATIONS,
+    # samehgabriel names its attributes in Arabic, `pa_` prefixed.
+    "pa_المقاس": DetailGroup.SPECIFICATIONS,
+    "pa_التطبيق": DetailGroup.SPECIFICATIONS,
+    "pa_توع-الفولت": DetailGroup.SPECIFICATIONS,
+    "pa_نوع-الكابل": DetailGroup.SPECIFICATIONS,
+    # ...except the warranty, which the owner ruled is a COMMITMENT made
+    # with the sale and not a property of the goods: two shops selling the
+    # same item can warrant it differently.
+    "pa_الضمان": DetailGroup.STORE,
+}
+
+# Shapes rather than names, for the families a site invents freely. A
+# measurement is a property of the product whatever the shop calls it, and
+# waiting to be asked about `width_mm` when `length_mm` is already known would
+# be pedantry rather than care.
+_DETAIL_GROUP_BY_SUFFIX: tuple[tuple[str, DetailGroup], ...] = (
+    ("_mm", DetailGroup.SPECIFICATIONS),
+    ("_cm", DetailGroup.SPECIFICATIONS),
+    ("_inch", DetailGroup.SPECIFICATIONS),
+    ("_meters", DetailGroup.SPECIFICATIONS),
+    ("_kg", DetailGroup.SPECIFICATIONS),
+)
+_DETAIL_GROUP_BY_PREFIX: tuple[tuple[str, DetailGroup], ...] = (
+    ("image", DetailGroup.MEDIA),
+    ("attachment", DetailGroup.ATTACHMENTS),
+    ("attr_", DetailGroup.SPECIFICATIONS),      # sika's own numbered spec slots
+    ("description", DetailGroup.DESCRIPTION),
+    ("short_description", DetailGroup.DESCRIPTION),
+    ("full_description", DetailGroup.DESCRIPTION),
+    ("summary", DetailGroup.DESCRIPTION),
+)
+
+
+def group_for_code(code: str) -> "tuple[DetailGroup, bool]":
+    """(group, recognised) for one attribute code.
+
+    The language mark is stripped first: `coating` and `coating_ar` are ONE
+    fact in two languages and must never file in two places.
+
+    `recognised` is False when nothing matched and the catch-all was used. It
+    exists so the owner's standing rule can actually run — a connector reports
+    what it did not recognise, and he is asked where it belongs, instead of the
+    fallback silently absorbing every new fact forever.
+    """
+    base = code.removesuffix("_ar")
+    if base in _DETAIL_GROUP_BY_CODE:
+        return _DETAIL_GROUP_BY_CODE[base], True
+    for prefix, group in _DETAIL_GROUP_BY_PREFIX:
+        if base.startswith(prefix):
+            return group, True
+    for suffix, group in _DETAIL_GROUP_BY_SUFFIX:
+        if base.endswith(suffix):
+            return group, True
+    return DetailGroup.MORE_INFORMATION, False
 
 
 class ExtractKind(StrEnum):
