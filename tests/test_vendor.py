@@ -826,6 +826,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert 'materialIconElement("account-tree"' not in script
     assert ".selected-product-card" in css
     assert "#offer-panel button.selected-product-image-nav:active:not(:disabled)" in css
+    assert "#offer-panel button.selected-product-image-nav:focus-visible" in css
+    assert "outline-offset: -3px" in css
     assert "transform: translateY(-50%)" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-button" in css
