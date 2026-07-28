@@ -1,5 +1,5 @@
 :root {
-  --brand-mark: url("/static/x-mark.png");
+  --brand-mark: url("/static/x-mark.svg");
   --workspace-sidebar-width: 17.75rem;
 }
 

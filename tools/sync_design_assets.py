@@ -38,6 +38,10 @@ ASSETS = {
         ROOT / "extension" / "icons" / "material-icons.LICENSE.txt",
         ROOT / "scrapex" / "webui" / "static" / "material-icons" / "material-icons.LICENSE.txt",
     ),
+    ROOT / "design" / "x-mark.svg": (
+        ROOT / "extension" / "icons" / "x-mark.svg",
+        ROOT / "scrapex" / "webui" / "static" / "x-mark.svg",
+    ),
 }
 
 

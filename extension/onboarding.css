@@ -1,4 +1,4 @@
-:root { --brand-mark: url("icons/x-mark.png"); }
+:root { --brand-mark: url("icons/x-mark.svg"); }
 
 body { line-height: var(--lh-relaxed); }
   .wrap { max-width: 42.5rem; margin: 0 auto; padding: var(--sp-7) 1.3rem var(--sp-8); }

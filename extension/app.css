@@ -1,5 +1,5 @@
 :root {
-  --brand-mark: url("icons/x-mark.png");
+  --brand-mark: url("icons/x-mark.svg");
   --panel-rail-width: 3.5rem;
   /* The extension behaves like a compact Android app: every primary touch
      target remains at least 48px even when the visual icon is smaller. */
@@ -696,7 +696,7 @@
     width: 3px;
     height: var(--touch-target);
     border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-    background: var(--accent);
+    background: var(--text);
     opacity: 0;
     transform: translateY(var(--rail-indicator-y, var(--sp-2)));
     transition:
