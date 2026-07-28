@@ -1686,7 +1686,15 @@
       heading.appendChild(el("h3", "record-card-title", titleText));
       box.appendChild(heading);
     }
+    box.appendChild(el("div", "record-card-body"));
     return box;
+  }
+
+  // Every inspector section uses the same fixed-heading, scrolling-body shell.
+  // Description prose, definition lists, attachments and history tables differ
+  // only in what they place inside this shared body.
+  function cardBody(box) {
+    return box.lastElementChild;
   }
 
   // AR + EN are ONE fact in two languages, not two facts. Connectors keep them
@@ -2238,27 +2246,29 @@
           const databaseTitle = text((paired.find((entry) =>
             text(entry.label)) || {}).label);
           const box = card(databaseTitle, "record-card-wide record-card-prose");
+          const body = cardBody(box);
           paired.forEach((entry, index) => {
             const label = (entry.label || "").trim();
             if (index > 0 && label &&
                 label.toLowerCase() !== databaseTitle.toLowerCase()) {
-              box.appendChild(el("h4", "record-prose-title", label));
+              body.appendChild(el("h4", "record-prose-title", label));
             }
-            box.appendChild(prose(entry.value, databaseTitle ? [databaseTitle] : []));
+            body.appendChild(prose(entry.value, databaseTitle ? [databaseTitle] : []));
           });
           const keywords = pairByLanguage(keywordRows);
-          if (keywords.length) box.appendChild(keywordSection(keywords));
+          if (keywords.length) body.appendChild(keywordSection(keywords));
           detailSections.get("description").push(box);
           return;
         }
         if (name === "Attachments") {
           const paired = pairByLanguage(items);
           const box = card(name, "record-card-wide");
-          box.appendChild(fileCards(paired));
+          cardBody(box).appendChild(fileCards(paired));
           detailSections.get("attachments").push(box);
           return;
         }
         const box = card(name);
+        const body = cardBody(box);
         // Keywords are search terms, not a measurement, and read far better as
         // chips than as a value in a two-column list. They were rendered that
         // way inside Description until 0046 refiled them under Site metadata —
@@ -2268,9 +2278,9 @@
         // not carry `code` through, so after it the ar/en pair is unidentifiable.
         const keywordRows = items.filter(isKeywordRow);
         const rest = items.filter((item) => !isKeywordRow(item));
-        if (rest.length) box.appendChild(specList(pairByLanguage(rest)));
+        if (rest.length) body.appendChild(specList(pairByLanguage(rest)));
         if (keywordRows.length) {
-          box.appendChild(keywordSection(pairByLanguage(keywordRows)));
+          body.appendChild(keywordSection(pairByLanguage(keywordRows)));
         }
         detailSections.get(sectionForGroup(name)).push(box);
       });
@@ -2282,7 +2292,7 @@
     const moved = payload.moved_to_details || [];
     if (moved.length && openOfferRow) {
       const box = card("Moved out of the table");
-      box.appendChild(specList(moved.map((column) => ({
+      cardBody(box).appendChild(specList(moved.map((column) => ({
         label: column.label || column.key, value: text(openOfferRow[column.key]),
       }))));
       detailSections.get("specifications").push(box);
@@ -2291,10 +2301,11 @@
     // The change-only timeline: the first price and each REAL move.
     const periods = data.periods || [];
     const timeline = card("Price changes", "record-card-wide");
+    const timelineBody = cardBody(timeline);
     if (!periods.length) {
-      timeline.appendChild(el("p", "muted", "No derived history yet for this record."));
+      timelineBody.appendChild(el("p", "muted", "No derived history yet for this record."));
     } else {
-      timeline.appendChild(miniTable(
+      timelineBody.appendChild(miniTable(
         ["From", "Until", "Price", "Why it opened"],
         periods.map((p) => [
           (p.first_detected_at || "").slice(0, 10),
@@ -2307,10 +2318,11 @@
 
     const changes = data.changes || [];
     const feed = card("", "record-card-wide");
+    const feedBody = cardBody(feed);
     if (!changes.length) {
-      feed.appendChild(el("p", "muted", "No change events recorded yet."));
+      feedBody.appendChild(el("p", "muted", "No change events recorded yet."));
     } else {
-      feed.appendChild(miniTable(
+      feedBody.appendChild(miniTable(
         ["Detected", "What", "Previous", "New", "Change"],
         changes.map((c) => {
           const when = el("span", "muted", (c.detected_at || "").slice(0, 16).replace("T", " "));
@@ -2328,10 +2340,11 @@
 
     const observations = data.observations || [];
     const recorded = card("What was recorded", "record-card-wide");
+    const recordedBody = cardBody(recorded);
     if (!observations.length) {
-      recorded.appendChild(el("p", "muted", "No observations recorded yet."));
+      recordedBody.appendChild(el("p", "muted", "No observations recorded yet."));
     } else {
-      recorded.appendChild(miniTable(
+      recordedBody.appendChild(miniTable(
         ["Date", "Price", "Where it came from"],
         observations.map((o) => [
           o.business_date || "",

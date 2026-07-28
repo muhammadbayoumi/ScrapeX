@@ -1320,13 +1320,16 @@
   height: 1.15rem;
 }
 .record-inspector-content {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding: var(--sp-5);
-  overflow: auto;
-  scrollbar-gutter: stable;
+  overflow: hidden;
 }
 .record-inspector-content-head {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: var(--sp-1);
   margin-bottom: var(--sp-5);
@@ -1342,6 +1345,7 @@
 }
 .record-inspector-footer {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   margin-top: var(--sp-4);
   padding-top: var(--sp-4);
@@ -1349,6 +1353,7 @@
 }
 .record-inspector-empty {
   display: grid;
+  flex: 1 1 auto;
   place-items: center;
   min-height: 15rem;
   padding: var(--sp-5);
@@ -1359,43 +1364,31 @@
   text-align: center;
 }
 .record-inspector-content .record-cards {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   grid-template-columns: minmax(0, 1fr);
 }
 .record-inspector-content .record-card {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
   grid-column: 1 / -1;
 }
 .record-inspector-content .record-card-prose {
   padding: var(--sp-5);
 }
 
-/* Keep the inspector context and specification headings fixed. Only the long
-   definition lists scroll, including when a source provides several distinct
-   specification groups. */
-.record-inspector-content:has(.spec-list) {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.record-inspector-content:has(.spec-list) .record-inspector-content-head {
+/* One section shell for every inspector tab: context and card titles stay
+   fixed while prose, specifications, store facts, files and history scroll
+   inside the same body component. */
+.record-inspector-content .record-card-head {
   flex: 0 0 auto;
 }
-.record-inspector-content .record-cards:has(.spec-list) {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-.record-inspector-content .record-card:has(> .spec-list) {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  min-height: 0;
-}
-.record-inspector-content .record-card:has(> .spec-list) .record-card-head {
-  flex: 0 0 auto;
-}
-.record-inspector-content .record-card:has(> .spec-list) > .spec-list {
+.record-inspector-content .record-card-body {
   flex: 1 1 auto;
   min-height: 0;
   padding-inline-end: var(--sp-2);
@@ -1405,12 +1398,21 @@
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
-.record-inspector-content .record-card:has(> .spec-list) > .spec-list::-webkit-scrollbar {
+.record-inspector-content .record-card-body > :first-child {
+  margin-top: 0;
+}
+.record-inspector-content .record-card-body > :last-child {
+  margin-bottom: 0;
+}
+.record-inspector-content .record-card-body::-webkit-scrollbar {
   width: .45rem;
 }
-.record-inspector-content .record-card:has(> .spec-list) > .spec-list::-webkit-scrollbar-thumb {
+.record-inspector-content .record-card-body::-webkit-scrollbar-thumb {
   background: var(--line-strong);
   border-radius: var(--radius-pill);
+}
+.record-inspector-content .record-card-body::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .record-cards {
