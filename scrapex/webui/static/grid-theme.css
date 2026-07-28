@@ -1086,6 +1086,11 @@
   border-color: var(--accent-active);
   transform: translateY(-50%);
 }
+#offer-panel button.selected-product-image-nav:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--focus) 78%, transparent);
+  outline-offset: -3px;
+  transform: translateY(-50%);
+}
 .selected-product-image-nav.is-previous { inset-inline-start: var(--sp-3); }
 .selected-product-image-nav.is-next { inset-inline-end: var(--sp-3); }
 .selected-product-thumbs {
