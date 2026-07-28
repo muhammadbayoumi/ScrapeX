@@ -35,7 +35,15 @@ from .normalize import normalize_name, record_hash
 
 # Bumped only when the MEANING of a field changes (a different normalizer, a
 # renamed key). A bump re-baselines every offer instead of reporting a price
-# change, because nothing about the price actually moved.
+# change, because nothing about the price actually moved: the version rides in
+# field_list, and pricehistory opens the new period as 'key_version_changed'.
+#
+# That was a promise this module made and did not keep until 2026-07-28. The
+# version was hashed into the digest and stored nowhere, so after a bump the
+# field set matched, the currency matched, and every offer in the warehouse
+# reported a price change on the next crawl. The escape hatch could not be
+# used, which mattered because docs/column-vocabulary.md reasons about column
+# renames on the assumption that it could.
 PRICE_KEY_VERSION = 1
 
 # The money. Always present — a row without them cannot be ingested at all, so
@@ -57,8 +65,16 @@ class PriceKey:
 
     @property
     def field_list(self) -> str:
-        """Stored beside the hash so a later reader knows what it covered."""
-        return ",".join(self.fields)
+        """Stored beside the hash so a later reader knows what it covered.
+
+        The key VERSION rides at the front, because it was hashed into the
+        digest and recorded nowhere — so a reader could not tell a v1 key from
+        a v2 one, and a bump looked exactly like every price in the warehouse
+        moving on the same day. parse_fields ignores tokens outside its
+        vocabulary, so this changes nothing that compares field SETS, and a row
+        written before the prefix existed reads as v1, which is what it is.
+        """
+        return ",".join((f"v{PRICE_KEY_VERSION}", *self.fields))
 
 
 def _text(value) -> str:
@@ -109,6 +125,19 @@ def parse_fields(stored: str | None) -> tuple[str, ...]:
     if not stored:
         return ()
     return tuple(f for f in stored.split(",") if f in ALL_FIELDS)
+
+
+def parse_version(stored: str | None) -> int:
+    """The key version a stored field list was written under.
+
+    A row with no "v<N>" prefix predates the prefix and is therefore v1 — not
+    "unknown". Guessing anything else here would turn every historical row into
+    a version change the moment this shipped.
+    """
+    for token in (stored or "").split(","):
+        if token.startswith("v") and token[1:].isdigit():
+            return int(token[1:])
+    return 1
 
 
 def comparable(earlier: tuple[str, ...], later: tuple[str, ...]) -> bool:

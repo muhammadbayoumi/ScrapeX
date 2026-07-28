@@ -406,3 +406,44 @@ def test_rebuilding_again_never_walks_a_confirmation_backwards(conn):
 
     assert again == first
     assert first[0][1].startswith("2026-07-03")
+
+
+def test_a_key_version_bump_re_baselines_instead_of_faking_a_price_change(conn, monkeypatch):
+    """The promise pricekey's docstring made and did not keep until 0048.
+
+    PRICE_KEY_VERSION exists so the MEANING of a hashed field can change. The
+    version was hashed into the digest and recorded nowhere, so after a bump the
+    field set matched, the currency matched, and _same_price fell through to
+    "price_change" — for every offer in the warehouse, on the next crawl. The
+    one escape hatch the design offers was a warehouse-wide false alarm, which
+    is why it could never be taken.
+    """
+    from scrapex import pricekey
+
+    crawl(conn, price="100.00", day="2026-07-01")
+    monkeypatch.setattr(pricekey, "PRICE_KEY_VERSION", pricekey.PRICE_KEY_VERSION + 1)
+    crawl(conn, price="100.00", day="2026-07-02")     # SAME price, new key meaning
+    pricehistory.rebuild_all(conn)
+
+    periods = pricehistory.timeline(conn, offer(conn))
+    assert len(periods) == 2, "the keys are genuinely incomparable"
+    assert periods[1]["opened_because"] == "key_version_changed", \
+        "the owner must not be told a price moved when only our key did"
+    assert periods[0]["effective_price"] == periods[1]["effective_price"], \
+        "the price itself never moved"
+
+
+def test_a_row_written_before_the_version_prefix_reads_as_v1():
+    """Every historical row has no "v<N>" in its field list. Reading those as
+    anything but v1 would turn the whole warehouse into a version change the
+    day this shipped.
+    """
+    from scrapex import pricekey
+
+    assert pricekey.parse_version("effective,regular,sale,currency,vat,brand") == 1
+    assert pricekey.parse_version("") == 1
+    assert pricekey.parse_version(None) == 1
+    assert pricekey.parse_version("v3,effective,currency") == 3
+    # and the version must not leak into the field set it sits beside
+    assert "v3" not in pricekey.parse_fields("v3,effective,currency")
+    assert pricekey.parse_fields("v3,effective,currency") == ("effective", "currency")

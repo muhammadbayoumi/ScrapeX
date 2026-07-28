@@ -73,6 +73,14 @@ def _same_price(previous: sqlite3.Row, current: sqlite3.Row) -> tuple[bool, str]
         return False, "fields_changed"
     if old_hash == new_hash:
         return True, "price_change"
+    # Checked BEFORE the currency and before the fall-through, and only once the
+    # digests are known to differ: a key-version bump changes every digest in
+    # the warehouse while the field set and the currency stay identical, so
+    # without this it fell through to "price_change" and told the owner every
+    # price moved on the same day. The source did nothing; WE changed what a
+    # key means, and the period re-baselines under a name that says so.
+    if pricekey.parse_version(previous["price_fields"]) !=             pricekey.parse_version(current["price_fields"]):
+        return False, "key_version_changed"
     if (previous["currency"] or "") != (current["currency"] or ""):
         # Same field set, different currency: the two amounts are incomparable,
         # so the new period opens for a currency flip, not a price move — the
