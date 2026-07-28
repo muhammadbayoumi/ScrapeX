@@ -135,6 +135,8 @@ class HybrisOccConnector:
 
     def __init__(self, fetcher: HttpFetcher) -> None:
         self._fetcher = fetcher
+        # Pages already journaled by a paused attempt (capture sets this).
+        self.skip_tokens: set[str] = set()
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
         builder = RowBuilder(PRODUCT_PRICES)
@@ -153,17 +155,36 @@ class HybrisOccConnector:
         names_en = self._english_names(source, endpoint, notes)
 
         page = 0
+        skipped = 0
         while True:
+            token = f"page-{page}"
+            if token in self.skip_tokens:
+                # BEFORE the request. The English names were already fetched
+                # above the loop, so a page can be yielded on its own — which
+                # is what makes this connector resumable at all.
+                skipped += 1
+                page += 1
+                continue
             body = self._search(endpoint, page, PRIMARY_LANG)
             products = body.get("products") or []
+            page_builder = RowBuilder(PRODUCT_PRICES)
+            page_rows: list[list[str]] = []
             for product in products:
-                row = self._row(builder, product, display_base, currency, vat,
+                row = self._row(page_builder, product, display_base, currency, vat,
                                 source.default_region,
                                 names_en.get(str(product.get("code") or "")) or "")
                 if row is None:
                     unpriced += 1
                 else:
-                    rows.append(row)
+                    page_rows.append(row)
+            if page_rows:
+                # Journaled as fetched: this used to accumulate the whole
+                # catalogue and yield once, so an interrupted crawl wrote
+                # nothing at all.
+                yield ScrapedTable(
+                    source_key=source.source_key, kind=PRODUCT_PRICES.kind,
+                    source_url=endpoint, header=page_builder.header,
+                    rows=page_rows, page_token=token)
             total_pages = (body.get("pagination") or {}).get("totalPages")
             page += 1
             if not products:
@@ -182,12 +203,18 @@ class HybrisOccConnector:
             notes.append(
                 f"{unpriced} product(s) publish no price at all (inactive or "
                 "login-gated) — skipped, never guessed")
+        if skipped:
+            notes.append(f"{skipped} page(s) were already journaled by a paused "
+                         "run and were not fetched again")
 
-        yield ScrapedTable(
-            source_key=source.source_key, kind=PRODUCT_PRICES.kind,
-            source_url=endpoint, header=builder.header, rows=rows,
-            warnings=notes,
-        )
+        if notes:
+            # Untokenized: the counts describe THIS attempt, so capture drops
+            # them on resume and a resumed run reports its own.
+            yield ScrapedTable(
+                source_key=source.source_key, kind=PRODUCT_PRICES.kind,
+                source_url=endpoint, header=builder.header, rows=[],
+                warnings=notes,
+            )
 
     def _search(self, endpoint: str, page: int, lang: str) -> dict:
         return self._fetcher.get(endpoint, params={

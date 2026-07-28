@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from ..localinbox import safe_token
 from ..normalize import brand_pair
 from ..config import SourceEntry
 from ..rowspec import PRODUCT_PRICES, RowBuilder
@@ -32,17 +33,24 @@ class ZidConnector:
 
     def __init__(self, fetcher: HttpFetcher) -> None:
         self._fetcher = fetcher
+        # Same sitemap shape as salla, so the same checkpoint: the product URL,
+        # hashed because a raw URL does not survive being written into a
+        # journal filename and would never match on resume.
+        self.skip_tokens: set[str] = set()
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
-        builder = RowBuilder(PRODUCT_PRICES)
         base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
-        rows: list[list[str]] = []
         priceless = 0
         unparsed = 0
         unreachable = 0
+        skipped = 0
 
         for url in self._product_urls(f"{base}/sitemap.xml"):
+            token = safe_token(url)
+            if token in self.skip_tokens:
+                skipped += 1        # already journaled — skipped BEFORE the request
+                continue
             try:
                 html = self._fetcher.get(url).text
             except Exception:  # noqa: BLE001 — one dead page never kills the crawl (Q3)
@@ -52,11 +60,16 @@ class ZidConnector:
             if not node:
                 unparsed += 1
                 continue
+            # One table per product, journaled as fetched: accumulating the
+            # whole catalogue and yielding once at the end meant an interrupted
+            # crawl had written nothing at all.
+            builder = RowBuilder(PRODUCT_PRICES)
             row = self._row(builder, node, url, source, vat)
             if row is None:
                 priceless += 1
                 continue
-            rows.append(row)
+            yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
+                               builder.header, [row], page_token=token)
 
         # Every skip above used to be silent, so a crawl that landed half the
         # catalogue reported plain success — the GPP lesson, and the one salla
@@ -72,8 +85,15 @@ class ZidConnector:
                          "JSON-LD at all")
         if unreachable:
             notes.append(f"{unreachable} product page(s) could not be fetched")
-        yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
-                           builder.header, rows, warnings=notes)
+        if skipped:
+            notes.append(f"{skipped} product page(s) were already journaled by "
+                         "a paused run and were not fetched again")
+        if notes:
+            # Untokenized on purpose: the counts describe THIS attempt, and
+            # capture drops them on resume so a resumed run reports its own.
+            yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
+                               RowBuilder(PRODUCT_PRICES).header, [],
+                               warnings=notes)
 
     def _product_urls(self, sitemap_url: str) -> list[str]:
         try:

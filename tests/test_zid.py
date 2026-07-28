@@ -69,12 +69,31 @@ def test_resolve_fetcher_defaults_ua_when_unset():
         fetcher.close()
 
 
-def test_zid_filters_products_and_maps():
-    table = next(iter(ZidConnector(_StubFetcher()).fetch(make_entry())))
-    assert len(table.rows) == 2  # /about-us filtered out (no /products/)
-    view = RowView(PRODUCT_PRICES, table.header)
+def price_rows(connector, entry):
+    """Rows, warnings and checkpoints across every yielded table.
 
-    cement = view.as_dict(table.rows[0])
+    zid yields ONE TABLE PER PRODUCT since the resume work (#70): accumulating
+    the catalogue and yielding once at the end meant an interrupted crawl had
+    written nothing to the journal. These tests care about the rows, not the
+    granularity, so they read them the way capture does.
+    """
+    header, rows, warnings, tokens = None, [], [], []
+    for table in connector.fetch(entry):
+        header = header or table.header
+        rows.extend(table.rows)
+        warnings.extend(table.warnings)
+        if table.page_token:
+            tokens.append(table.page_token)
+    return header, rows, warnings, tokens
+
+
+def test_zid_filters_products_and_maps():
+    header, rows, _w, tokens = price_rows(ZidConnector(_StubFetcher()), make_entry())
+    assert len(rows) == 2  # /about-us filtered out (no /products/)
+    assert len(set(tokens)) == 2, "one checkpoint per product, and distinct"
+    view = RowView(PRODUCT_PRICES, header)
+
+    cement = view.as_dict(rows[0])
     assert cement["external_product_id"] == "AC-CEMENT-01"  # from JSON-LD sku
     assert cement["external_sku"] == "AC-CEMENT-01"
     assert cement["price"] == "45" and cement["currency"] == "SAR"
@@ -85,7 +104,7 @@ def test_zid_filters_products_and_maps():
     # the cell does not hold.
     assert cement["product_name_ar"] and cement["product_name"] == ""
 
-    rebar = view.as_dict(table.rows[1])
+    rebar = view.as_dict(rows[1])
     assert rebar["external_product_id"] == "rebar-12"  # no sku -> URL slug fallback
     assert rebar["external_sku"] == ""
     assert rebar["price"] == "300"  # AggregateOffer lowPrice fallback
@@ -121,12 +140,12 @@ def test_the_category_the_live_page_states_rides_the_row():
     this 2026-07-20 capture, «قفل عجلات > مخفض» on the 2026-07-23 page. The
     connector parsed the very same node for the price and dropped the filing,
     leaving category_path empty on every Zid row."""
-    table = next(iter(ZidConnector(_LiveStubFetcher()).fetch(make_entry())))
-    view = RowView(PRODUCT_PRICES, table.header)
+    header, rows, _w, _t = price_rows(ZidConnector(_LiveStubFetcher()), make_entry())
+    view = RowView(PRODUCT_PRICES, header)
 
-    assert table.rows, "the live capture must produce rows"
-    assert view.as_dict(table.rows[0])["category_path_ar"] == "كاشف دخان"
-    assert view.as_dict(table.rows[0])["availability"] == "in_stock"
+    assert rows, "the live capture must produce rows"
+    assert view.as_dict(rows[0])["category_path_ar"] == "كاشف دخان"
+    assert view.as_dict(rows[0])["availability"] == "in_stock"
 
 
 def test_a_zid_page_that_cannot_be_read_leaves_a_warning():
@@ -140,19 +159,19 @@ def test_a_zid_page_that_cannot_be_read_leaves_a_warning():
                 return _Resp("<html><body>no json-ld here</body></html>")
             return super().get(url, **kwargs)
 
-    table = next(iter(ZidConnector(_OneBadPage()).fetch(make_entry())))
+    _h, _rows, warnings, _t = price_rows(ZidConnector(_OneBadPage()), make_entry())
 
     assert any("no Product" in w and "1 product page(s)" in w
-               for w in table.warnings)
+               for w in warnings)
 
 
 def test_zid_end_to_end_into_warehouse():
     entry = make_entry()
-    table = next(iter(ZidConnector(_StubFetcher()).fetch(entry)))
+    tables = list(ZidConnector(_StubFetcher()).fetch(entry))
     conn: sqlite3.Connection = dbmod.connect(":memory:")
     try:
         dbmod.migrate(conn)
-        result = ingest_payloads(conn, entry, [table.to_payload()])
+        result = ingest_payloads(conn, entry, [t.to_payload() for t in tables])
     finally:
         conn.close()
     assert result.observations == 2 and not result.errors

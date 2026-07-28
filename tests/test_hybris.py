@@ -68,16 +68,33 @@ def test_endpoint_requires_api_config():
         _endpoint(entry)
 
 
+def price_rows(connector, entry):
+    """Rows, warnings and checkpoints across every yielded table.
+
+    hybris yields ONE TABLE PER PAGE since the resume work (#70): it used to
+    accumulate the whole catalogue and yield once, so an interrupted crawl had
+    written nothing to the journal. These tests care about the rows.
+    """
+    header, rows, warnings, tokens = None, [], [], []
+    for table in connector.fetch(entry):
+        header = header or table.header
+        rows.extend(table.rows)
+        warnings.extend(table.warnings)
+        if table.page_token:
+            tokens.append(table.page_token)
+    return header, rows, warnings, tokens
+
+
 def test_hybris_paginates_and_maps():
     fetcher = _StubFetcher()
-    table = next(iter(HybrisOccConnector(fetcher).fetch(make_entry())))
+    header, rows, warnings, tokens = price_rows(HybrisOccConnector(fetcher), make_entry())
     # /languages once, then 0-indexed pages 0 and 1 (totalPages=2). The store
     # here publishes one language, so no second pass is fetched.
     assert fetcher.requests_count == 3
-    assert len(table.rows) == 3                 # unpriced 1000300 was skipped
-    view = RowView(PRODUCT_PRICES, table.header)
+    assert len(rows) == 3                 # unpriced 1000300 was skipped
+    view = RowView(PRODUCT_PRICES, header)
 
-    cement = view.as_dict(table.rows[0])
+    cement = view.as_dict(rows[0])
     assert cement["external_product_id"] == "1000123" and cement["external_sku"] == "1000123"
     assert cement["price"] == "25.5" and cement["currency"] == "SAR"
     assert cement["tax_included"] == "0"        # excl -> "0"
@@ -85,12 +102,12 @@ def test_hybris_paginates_and_maps():
     # No salesUnit in this fixture -> the plain join stands, never a guessed prefix.
     assert cement["product_link"] == "https://www.masdaronline.com/asmnt/p/1000123"
 
-    rebar = view.as_dict(table.rows[1])
+    rebar = view.as_dict(rows[1])
     assert rebar["availability"] == "in_stock"  # lowStock is still purchasable
     assert rebar["product_link"] == "https://www.masdaronline.com/hadid/p/1000200"  # absolute kept
     assert rebar["price"] == "3100"
 
-    sand = view.as_dict(table.rows[2])          # only row on page 1
+    sand = view.as_dict(rows[2])          # only row on page 1
     assert sand["external_product_id"] == "1000400" and sand["price"] == "15"
 
 
@@ -101,10 +118,10 @@ def test_the_unpriced_products_are_skipped_OUT_LOUD():
     so they are genuinely off sale. Skipping them in silence made a crawl that
     landed 639 of 1353 report plain success.
     """
-    table = next(iter(HybrisOccConnector(_StubFetcher()).fetch(make_entry())))
+    header, rows, warnings, tokens = price_rows(HybrisOccConnector(_StubFetcher()), make_entry())
 
-    assert any("no price at all" in w for w in table.warnings)
-    assert any("1 product(s)" in w for w in table.warnings)
+    assert any("no price at all" in w for w in warnings)
+    assert any("1 product(s)" in w for w in warnings)
 
 
 # ---- live captures: api.masdaronline.com, 2026-07-23 -------------------------
@@ -134,8 +151,8 @@ class _LiveStubFetcher:
 
 
 def _live_rows():
-    table = next(iter(HybrisOccConnector(_LiveStubFetcher()).fetch(make_entry())))
-    return table, RowView(PRODUCT_PRICES, table.header)
+    header, rows, warnings, tokens = price_rows(HybrisOccConnector(_LiveStubFetcher()), make_entry())
+    return rows, RowView(PRODUCT_PRICES, header)
 
 
 def test_the_product_url_is_the_page_the_storefront_actually_serves():
@@ -145,8 +162,8 @@ def test_the_product_url_is_the_page_the_storefront_actually_serves():
     Product sitemap, which matched the composed URL for all 639 priced
     products with zero mismatches, and the page answers 200.
     """
-    table, view = _live_rows()
-    switch = view.as_dict(table.rows[0])
+    rows, view = _live_rows()
+    switch = view.as_dict(rows[0])
 
     assert switch["external_product_id"] == "1000035833"
     assert switch["product_link"] == (
@@ -155,8 +172,8 @@ def test_the_product_url_is_the_page_the_storefront_actually_serves():
         "-7-7cm-with-neon-ab104/p/1000035833")
     # The unit segment is READ from each product's salesUnit, never fixed:
     # PCE above, EA and DR here — three units across three products.
-    assert "/ar/sar/ea/" in view.as_dict(table.rows[1])["product_link"]
-    assert "/ar/sar/dr/" in view.as_dict(table.rows[2])["product_link"]
+    assert "/ar/sar/ea/" in view.as_dict(rows[1])["product_link"]
+    assert "/ar/sar/dr/" in view.as_dict(rows[2])["product_link"]
 
 
 def test_the_english_name_the_same_api_publishes_is_captured_beside_the_arabic():
@@ -164,8 +181,8 @@ def test_the_english_name_the_same_api_publishes_is_captured_beside_the_arabic()
     own /languages endpoint lists ar and en as active, so the English name
     costs one extra pass over the same endpoint — and 1331 of 1346 live
     products answered with a genuinely different name."""
-    table, view = _live_rows()
-    switch = view.as_dict(table.rows[0])
+    rows, view = _live_rows()
+    switch = view.as_dict(rows[0])
 
     assert switch["product_name_ar"] == (
         "الفنار ألف جديد مفتاح سخان مفرد 20 أمبير 7*7 سم أبيضAB104-وطني")
@@ -184,11 +201,11 @@ def test_a_single_language_store_is_never_crawled_twice():
             return super().get(url, params=params, **kwargs)
 
     fetcher = _ArabicOnly()
-    table = next(iter(HybrisOccConnector(fetcher).fetch(make_entry())))
+    header, rows, warnings, tokens = price_rows(HybrisOccConnector(fetcher), make_entry())
 
     assert fetcher.requests_count == 3   # languages + page 0 + the empty page 1
-    assert all(RowView(PRODUCT_PRICES, table.header).get(r, "product_name") == ""
-               for r in table.rows)
+    assert all(RowView(PRODUCT_PRICES, header).get(r, "product_name") == ""
+               for r in rows)
 
 
 def test_a_failed_english_pass_costs_a_note_never_the_prices():
@@ -198,19 +215,19 @@ def test_a_failed_english_pass_costs_a_note_never_the_prices():
                 raise RuntimeError("502 from the OCC host")
             return super().get(url, params=params, **kwargs)
 
-    table = next(iter(HybrisOccConnector(_EnglishBroken()).fetch(make_entry())))
+    header, rows, warnings, tokens = price_rows(HybrisOccConnector(_EnglishBroken()), make_entry())
 
-    assert len(table.rows) == 3
-    assert any("english-names pass failed" in w for w in table.warnings)
+    assert len(rows) == 3
+    assert any("english-names pass failed" in w for w in warnings)
 
 
 def test_hybris_end_to_end_into_warehouse():
     entry = make_entry()
-    table = next(iter(HybrisOccConnector(_StubFetcher()).fetch(entry)))
+    tables = list(HybrisOccConnector(_StubFetcher()).fetch(entry))
     conn: sqlite3.Connection = dbmod.connect(":memory:")
     try:
         dbmod.migrate(conn)
-        result = ingest_payloads(conn, entry, [table.to_payload()])
+        result = ingest_payloads(conn, entry, [t.to_payload() for t in tables])
     finally:
         conn.close()
     assert result.observations == 3 and not result.errors
