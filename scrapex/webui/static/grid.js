@@ -2028,11 +2028,42 @@
     const offer = data.offer || {};
     const row = openOfferRow || {};
     const details = data.details || [];
-    const detailSections = new Map([
-      ["description", []],
-      ["specifications", []],
-      ["attachments", []],
-    ]);
+    // ONE table drives three things that used to be three lists: which buttons
+    // the inspector rail carries, in what order, and which button a group's
+    // card lands under. They drifted the moment the vocabulary grew to seven --
+    // Store and Site metadata had no button and were being stacked under
+    // Specifications, three headings deep in one column.
+    //
+    // Order is a display judgement: what the product IS, then the properties
+    // measured of it, then what is known about it, then how THIS store handles
+    // it, then facts about the page rather than the product, then the files.
+    //
+    // "Details" is not a group -- it is the fallback below for a row that
+    // arrived without one. ("Specs" was a real group until 0043 merged it into
+    // Specifications; kept here so an un-recrawled source still lands somewhere
+    // rather than growing a card of its own.) Media is absent on purpose: the
+    // product card already owns the gallery.
+    const GROUP_SECTIONS = [
+      {key: "description", label: "Description", icon: "description",
+       groups: ["Description"]},
+      {key: "specifications", label: "Specifications", icon: "tune",
+       groups: ["Specifications", "Specs", "Details"]},
+      {key: "more-information", label: "More information", icon: "info",
+       groups: ["More information"]},
+      // shopping-cart, not storage: this is the shop's handling of the product.
+      {key: "store", label: "Store", icon: "shopping-cart",
+       groups: ["Store"]},
+      // dns is the sprite's site/domain glyph. NOT "language" -- that is the
+      // AR/EN toggle a few centimetres away in this same panel.
+      {key: "site-metadata", label: "Site metadata", icon: "dns",
+       groups: ["Site metadata"]},
+      {key: "attachments", label: "Attachments", icon: "insert-drive-file",
+       groups: ["Attachments"]},
+    ];
+    const sectionForGroup = (name) =>
+      (GROUP_SECTIONS.find((s) => s.groups.includes(name)) || {}).key
+        || "specifications";
+    const detailSections = new Map(GROUP_SECTIONS.map((s) => [s.key, []]));
     const historySections = new Map([
       ["price", []],
       ["changes", []],
@@ -2062,11 +2093,7 @@
     workspace.append(productGrid, inspector);
     panel.appendChild(workspace);
 
-    const detailDefinitions = [
-      {key: "description", label: "Description", icon: "description"},
-      {key: "specifications", label: "Specifications", icon: "tune"},
-      {key: "attachments", label: "Attachments", icon: "insert-drive-file"},
-    ];
+    const detailDefinitions = GROUP_SECTIONS;
     const historyDefinitions = [
       {key: "price", label: "Price history", icon: "trending-up"},
       {key: "changes", label: "Changes", icon: "history"},
@@ -2087,17 +2114,24 @@
       const isHistory = view === "history";
       const definitions = isHistory ? historyDefinitions : detailDefinitions;
       const sections = isHistory ? historySections : detailSections;
-      const firstWithContent = definitions.find((item) => sections.get(item.key).length);
-      const validRequested = definitions.some((item) => item.key === requestedKey);
+      // Only the sections this product actually HAS get a button. Three fixed
+      // buttons could all be shown blind; six cannot -- a product stating three
+      // facts would carry three dead buttons that answer "No ... are available".
+      // History keeps all three regardless: an empty timeline is itself a thing
+      // the owner opens the panel to check.
+      const populated = definitions.filter((item) => sections.get(item.key).length);
+      const shown = isHistory || !populated.length ? definitions : populated;
+      const firstWithContent = shown.find((item) => sections.get(item.key).length);
+      const validRequested = shown.some((item) => item.key === requestedKey);
       const activeKey = validRequested
         ? requestedKey
-        : (firstWithContent ? firstWithContent.key : definitions[0].key);
+        : (firstWithContent ? firstWithContent.key : shown[0].key);
       inspector.dataset.view = view;
       setSummaryMode(view);
       inspectorNav.textContent = "";
       inspectorContent.textContent = "";
 
-      definitions.forEach((item) => {
+      shown.forEach((item) => {
         const button = el("button", item.key === activeKey ? "is-active" : "");
         button.type = "button";
         button.title = item.label;
@@ -2173,19 +2207,10 @@
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(d);
       });
-      // Description first (it is what the product IS), then the properties
-      // measured of it, then what is known about it, then how THIS store
-      // handles it, then facts about the page rather than the product, then
-      // the files. Any group a connector invents that this list does not know
-      // about keeps its own card, after the known ones.
-      //
-      // Kept in step with vocab.DetailGroup by hand, deliberately: order is a
-      // display judgement the enum has no opinion about, and "Details" below is
-      // not a group at all — it is the fallback above for a row that arrived
-      // without one. ("Specs" was here until 0043 merged it into
-      // Specifications; a name no source can now produce.)
-      const order = ["Description", "Specifications", "More information", "Store",
-                     "Site metadata", "Details", "Attachments"];
+      // Order comes from GROUP_SECTIONS, so the card order and the rail order
+      // cannot disagree. A group a connector invents that the table does not
+      // know sorts last and lands under Specifications rather than vanishing.
+      const order = GROUP_SECTIONS.flatMap((s) => s.groups);
       const names = [...groups.keys()].sort((a, b) => {
         const rankA = order.indexOf(a), rankB = order.indexOf(b);
         return (rankA < 0 ? order.length : rankA) - (rankB < 0 ? order.length : rankB);
@@ -2247,7 +2272,7 @@
         if (keywordRows.length) {
           box.appendChild(keywordSection(pairByLanguage(keywordRows)));
         }
-        detailSections.get("specifications").push(box);
+        detailSections.get(sectionForGroup(name)).push(box);
       });
     }
 
