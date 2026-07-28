@@ -1491,7 +1491,17 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       sp.source_product_id, "
         # Appended LAST, obeying the rule the comment above states: adding it
         # beside sp.brand shifted observations/min/max/previous by one.
-        "       sp.brand_ar, po.price_trade "
+        "       sp.brand_ar, po.price_trade, "
+        # The rate's DATE and source, appended last. The owner's standing
+        # rule (2026-07-26) is that a converted number is never shown
+        # without the rate used AND the date of that rate — so the number
+        # cannot travel to the grid alone.
+        "       (SELECT cr.as_of FROM currency_rate cr "
+        "        WHERE cr.currency = po.currency "
+        "        ORDER BY cr.as_of DESC LIMIT 1) AS usd_rate_as_of, "
+        "       (SELECT cr.source_key FROM currency_rate cr "
+        "        WHERE cr.currency = po.currency "
+        "        ORDER BY cr.as_of DESC LIMIT 1) AS usd_rate_source "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1548,6 +1558,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "price_previous": r[22] if r[22] is not None else "",
                "price_change": _change_text(r[22], r[3]),
                "price_usd": _usd_value(r[3], r[6], r[23]),
+               # Never the number on its own: the rate and its date ride
+               # with it so the cell can say what it was converted at.
+               "usd_rate": r[23],
+               "usd_rate_as_of": (r[36] or "")[:10],
+               "usd_rate_source": r[37] or "",
                "was_price": r[4] if _discounted(r[4], r[3]) else "",
                "discount": _discount_amount(r[4], r[3]),
                "discount_pct": _discount_pct(r[4], r[3]),

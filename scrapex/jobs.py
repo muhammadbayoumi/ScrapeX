@@ -384,6 +384,11 @@ HEARTBEAT_MAX_AGE_S = 30.0
 # A fault that hides itself costs more than the fault.
 WORKER_ERROR_KEY = "runtime_worker_error"
 
+# The last exchange-rate refresh: when, how many landed, and any
+# per-currency warning. A rate that silently stopped refreshing would
+# leave the USD column quietly converting at last month's number.
+RATES_NOTE_KEY = "runtime_rates_note"
+
 
 def record_worker_failure(conn: sqlite3.Connection, exc: BaseException,
                           *, fatal: bool) -> None:
@@ -423,6 +428,8 @@ def worker_health(conn: sqlite3.Connection) -> dict:
     rows = dict(conn.execute(
         "SELECT key, value FROM scrapex_meta WHERE key IN (?,?)",
         (HEARTBEAT_KEY, WORKER_ERROR_KEY)).fetchall())
+    note = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                        (RATES_NOTE_KEY,)).fetchone()
     beat = rows.get(HEARTBEAT_KEY)
     failure = json.loads(rows[WORKER_ERROR_KEY]) if rows.get(WORKER_ERROR_KEY) else None
     age = None
@@ -444,7 +451,8 @@ def worker_health(conn: sqlite3.Connection) -> dict:
                   "that is the web server, not the worker.")
     else:
         detail = "The worker has never reported. Nothing can crawl until it does."
-    return {"alive": alive, "last_beat": beat, "age_s": age,
+    return {"rates": json.loads(note[0]) if note and note[0] else None,
+            "alive": alive, "last_beat": beat, "age_s": age,
             "detail": detail, "failure": failure}
 
 
@@ -623,6 +631,41 @@ class JobRunner:
         self._reopen.clear()
         return fresh
 
+    def _refresh_rates(self, conn) -> None:
+        """Keep the USD column's exchange rates current, quietly.
+
+        Rate-limited inside rates.refresh_if_due (six hours), so calling it every
+        poll costs one SELECT almost always. Isolated from the job loop: a
+        Google Finance outage must never stop a crawl from running — the USD
+        column is an aid to ranking, and the prices are the product.
+        """
+        from . import rates
+        from .connectors.base import HttpFetcher
+
+        try:
+            batch = rates.refresh_if_due(conn, HttpFetcher())
+        except Exception as exc:  # noqa: BLE001 — never fatal to the loop
+            traceback.print_exc(file=sys.stderr)
+            self._record_failure(conn, exc)
+            return
+        if batch is None:
+            return
+        # NOT the job log: job_log_entry.job_id is NOT NULL with a foreign key,
+        # and a rate refresh is not a job. It goes to scrapex_meta beside the
+        # heartbeat, where /api/health can read it — the same reasoning that put
+        # the worker's failure there rather than on a stderr nobody sees under
+        # pythonw. Warnings are per-currency by design (the Turkey rule), so one
+        # bad quote page is reported and the rest still land.
+        conn.execute(
+            "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (RATES_NOTE_KEY, json.dumps({
+                "at": utc_now_iso(),
+                "stored": len(batch.rates),
+                "warnings": batch.warnings[:20],
+            }, ensure_ascii=False)))
+        conn.commit()
+
     def _loop(self) -> None:
         # Imported lazily: scheduler imports this module, so a top-level import
         # here would be circular.
@@ -659,6 +702,7 @@ class JobRunner:
                     # The local runtime IS the scheduler (spec 26) — browser
                     # alarms cannot be relied on to wake anything.
                     fire_due(conn, manifest=self._manifest_provider())
+                    self._refresh_rates(conn)
                     job_ref = self._next_queued(conn)
                     if job_ref is None:
                         continue

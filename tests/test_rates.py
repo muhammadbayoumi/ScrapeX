@@ -264,3 +264,122 @@ def test_timestamped_rate_outranks_a_date_only_row_from_the_same_day(conn):
         "SELECT per_usd FROM currency_rate WHERE currency='SAR' "
         "ORDER BY as_of DESC LIMIT 1").fetchone()[0]
     assert latest == 3.747688
+
+
+# ---- the schedule half: refreshed without hammering the quote pages ----------
+
+def test_rates_refresh_only_when_the_stored_ones_have_gone_stale(tmp_path):
+    """Google Finance moves continuously, but a scraper that reloads a quote
+    page every worker poll is a scraper that gets blocked. The freshness check
+    is what makes calling this every pass cost one SELECT.
+    """
+    from scrapex import db as dbmod, rates
+
+    conn = dbmod.connect(tmp_path / "r.db")
+    dbmod.migrate(conn)
+    conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
+                 " source_name, base_url, platform, currency, timezone, authority, active) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+
+    class _Fetcher:
+        calls = 0
+        def get(self, url):
+            _Fetcher.calls += 1
+            class _R:
+                text = ('<div data-source="USD" data-target="SAR" '
+                        'data-last-price="3.75" '
+                        'data-last-normal-market-timestamp="1785167520"></div>')
+            return _R()
+
+    # Nothing priced yet: nothing to convert, so nothing is fetched.
+    assert rates.refresh_if_due(conn, _Fetcher()) is None
+    assert _Fetcher.calls == 0
+
+    conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
+    conn.execute("INSERT INTO source_product (source_product_id, source_id, "
+                 " external_product_id, product_name, product_name_ar) "
+                 "VALUES (1,1,'p','P','ب')")
+    conn.execute("INSERT INTO source_variant (source_variant_id, source_product_id, "
+                 " external_variant_id) VALUES (1,1,'v')")
+    conn.execute("INSERT INTO source_offer (offer_id, source_variant_id, "
+                 " country_code_alpha2, customer_segment, basis_quantity, currency, "
+                 " tax_included) VALUES (1,1,'SA','retail',1,'SAR',1)")
+    conn.execute("INSERT INTO price_observation (offer_id, run_id, observed_at, "
+                 " business_date, price, currency, tax_included, availability, "
+                 " record_hash, price_hash, price_fields, provenance) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','2026-07-01',100,'SAR',1,"
+                 "'in_stock','rh','ph','effective','observed')")
+    conn.commit()
+
+    first = rates.refresh_if_due(conn, _Fetcher())
+    assert first is not None and _Fetcher.calls == 1
+    assert [r.currency for r in first.rates] == ["SAR"]
+
+    # Immediately after, nothing is due — no second request.
+    assert rates.refresh_if_due(conn, _Fetcher()) is None
+    assert _Fetcher.calls == 1
+
+    # Once the stored rate is older than the window, it is due again.
+    assert rates.refresh_if_due(conn, _Fetcher(), now="2026-08-01T00:00:00Z") is not None
+    assert _Fetcher.calls == 2
+
+
+def test_only_currencies_the_warehouse_actually_prices_in_are_fetched(tmp_path):
+    """Asked of the DATA, not the manifest: a source that never ran, or whose
+    currency the owner changed after a crawl, must not send us fetching a quote
+    page for a currency no row uses."""
+    from scrapex import db as dbmod, rates
+
+    conn = dbmod.connect(tmp_path / "c.db")
+    dbmod.migrate(conn)
+    assert rates.currencies_in_use(conn) == []
+
+
+def test_a_failing_quote_page_costs_one_attempt_per_interval_not_one_per_poll():
+    """The attempt is stamped BEFORE the fetch, deliberately.
+
+    Throttling on success alone means a quote page that is down is requested on
+    every single worker poll — the hammering the interval exists to prevent,
+    arriving precisely when the site is least able to answer.
+    """
+    import sqlite3
+
+    from scrapex import db as dbmod, rates
+
+    conn = dbmod.connect(":memory:")
+    dbmod.migrate(conn)
+    conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
+                 " source_name, base_url, platform, currency, timezone, authority, active) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+    conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
+    conn.execute("INSERT INTO source_product (source_product_id, source_id, "
+                 " external_product_id, product_name, product_name_ar) VALUES (1,1,'p','P','ب')")
+    conn.execute("INSERT INTO source_variant (source_variant_id, source_product_id, "
+                 " external_variant_id) VALUES (1,1,'v')")
+    conn.execute("INSERT INTO source_offer (offer_id, source_variant_id, "
+                 " country_code_alpha2, customer_segment, basis_quantity, currency, "
+                 " tax_included) VALUES (1,1,'SA','retail',1,'SAR',1)")
+    conn.execute("INSERT INTO price_observation (offer_id, run_id, observed_at, "
+                 " business_date, price, currency, tax_included, availability, "
+                 " record_hash, price_hash, price_fields, provenance) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','2026-07-01',100,'SAR',1,"
+                 "'in_stock','rh','ph','effective','observed')")
+    conn.commit()
+
+    class _Broken:
+        calls = 0
+        def get(self, url):
+            _Broken.calls += 1
+            raise RuntimeError("quote page is down")
+
+    first = rates.refresh_if_due(conn, _Broken(), now="2026-07-28T00:00:00Z")
+    assert first is not None and first.rates == []
+    assert first.warnings and "SAR" in first.warnings[0]
+    assert _Broken.calls == 1
+
+    # Ten more polls in the same window make no further request.
+    for _ in range(10):
+        assert rates.refresh_if_due(conn, _Broken(), now="2026-07-28T00:05:00Z") is None
+    assert _Broken.calls == 1

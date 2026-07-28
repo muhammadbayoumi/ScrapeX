@@ -254,3 +254,76 @@ def store_rates(conn: sqlite3.Connection, rates: list[Rate]) -> int:
         written += 1
     conn.commit()
     return written
+
+
+# How stale a stored rate may be before the worker fetches again. Google Finance
+# moves continuously, but the owner's question is "what was this worth", not
+# "what is it worth this second" — and a scraper that reloads a quote page every
+# poll is a scraper that gets blocked. Six hours keeps the USD column honest
+# within a trading day while costing one request per currency per quarter-day.
+REFRESH_AFTER_S = 6 * 60 * 60
+
+
+# When WE last asked, which is not the same as how old the rate is. Throttling
+# on the stored rate's own market timestamp looked right and is wrong: a
+# weekend, a holiday or any closed market leaves that stamp hours old forever,
+# so every worker poll would decide a refresh was due and hammer the quote page
+# — the exact failure the interval exists to prevent.
+LAST_CHECK_KEY = "rates_last_checked"
+
+
+def last_checked(conn: sqlite3.Connection) -> str:
+    """When this module last ATTEMPTED a refresh, or "" if it never has."""
+    row = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                       (LAST_CHECK_KEY,)).fetchone()
+    return (row[0] if row and row[0] else "") or ""
+
+
+def currencies_in_use(conn: sqlite3.Connection) -> list[str]:
+    """Every currency the warehouse actually prices in.
+
+    Asked of the DATA, not the manifest: a source that has never run, or one
+    whose currency the owner changed after a crawl, would otherwise send us
+    fetching a page for a currency no row uses — or, worse, leave a currency
+    that IS in use without a rate because its manifest entry says otherwise.
+    """
+    return [r[0] for r in conn.execute(
+        "SELECT DISTINCT currency FROM price_observation "
+        "WHERE TRIM(COALESCE(currency,'')) <> '' AND currency <> 'USD' "
+        "ORDER BY currency")]
+
+
+def refresh_if_due(conn: sqlite3.Connection, fetcher, *,
+                   now: str | None = None) -> RateBatch | None:
+    """Fetch and store rates when we last asked longer ago than the interval.
+
+    Returns the batch when it fetched, or None when nothing was due — so a
+    caller can report what happened without inspecting the clock itself.
+
+    The attempt is stamped BEFORE the fetch, so a quote page that is failing
+    does not turn into a request on every single poll. A failure costs one
+    attempt per interval, exactly like a success.
+
+    Never raises for a fetch failure: the batch carries per-currency warnings
+    (the Turkey rule) and the caller reports them. CrawlBlocked still
+    propagates, because the brakes are not decorative.
+    """
+    stamp = now or utc_now_iso()
+    if not (wanted := currencies_in_use(conn)):
+        return None                  # nothing priced yet — nothing to convert
+    previous = last_checked(conn)
+    if previous:
+        try:
+            age = (datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
+                   - datetime.strptime(previous, "%Y-%m-%dT%H:%M:%SZ")).total_seconds()
+        except ValueError:
+            age = None               # an unparseable stamp is not a fresh one
+        if age is not None and 0 <= age < REFRESH_AFTER_S:
+            return None
+    conn.execute(
+        "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (LAST_CHECK_KEY, stamp))
+    batch = fetch_rates(fetcher, wanted)
+    store_rates(conn, batch.rates)
+    return batch

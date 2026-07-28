@@ -1072,8 +1072,31 @@
         return badge;
       };
     }
-    if (key === "price_usd" || key === "price_previous" ||
-        key === "price_min" || key === "price_max") {
+    if (key === "price_usd") {
+      // The owner's standing rule (2026-07-26): a converted number is NEVER
+      // shown without the rate used AND the date of that rate. The cell used to
+      // print a bare figure, which is the number pretending to be a fact.
+      return (cell) => {
+        const span = document.createElement("span");
+        span.dir = "ltr";
+        span.textContent = formatMoney(cell.getValue());
+        const row = cell.getRow().getData();
+        if (row.usd_rate) {
+          const at = row.usd_rate_as_of ? " on " + row.usd_rate_as_of : "";
+          const via = row.usd_rate_source === "google_finance"
+            ? " (google.com/finance)" : "";
+          span.title = "converted at " + row.usd_rate + " " +
+            (row.currency || "") + " per USD" + at + via;
+          span.classList.add("has-rate-note");
+        } else if (cell.getValue()) {
+          // A figure with no rate behind it cannot be explained, so it is not
+          // shown as one.
+          span.title = "no exchange rate recorded for this currency";
+        }
+        return span;
+      };
+    }
+    if (key === "price_previous" || key === "price_min" || key === "price_max") {
       return (cell) => {
         const span = document.createElement("span");
         span.dir = "ltr";
