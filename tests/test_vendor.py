@@ -290,10 +290,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # kept their chip rendering when 0046 refiled them out of Description, and
     # the inspector rail gained a button per group — Store and Site metadata
     # had none, so both were being stacked under Specifications.
-    # design-system-32: the fixed Details/History rail precedes only populated
-    # groups, and long prose uses the inspector's complete readable width.
-    assert '/static/grid.js?v=design-system-32' in page
-    assert '/static/grid-theme.css?v=design-system-32' in page
+    # design-system-33: the fixed Details/History rail precedes only populated
+    # groups, its mode and section zones are visually distinct, and the final
+    # category level is a labelled value rather than an icon chip.
+    assert '/static/grid.js?v=design-system-33' in page
+    assert '/static/grid-theme.css?v=design-system-33' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -810,9 +811,13 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert "keywordSection" in script and '"record-keywords"' in script
     assert "code.startsWith(\"keywords\")" in script
     assert '"selected-product-category"' in script
+    assert '"selected-product-category-label", "Category"' in script
+    assert 'materialIconElement("account-tree"' not in script
     assert ".selected-product-card" in css
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
+    assert ".record-inspector-nav-primary" in css
+    assert ".record-inspector-nav-sections" in css
     assert ".record-inspector-nav-divider" in css
     assert "grid-template-columns: minmax(0, 24rem) minmax(0, 0fr)" in css
     assert "transform: translateX(-.75rem)" in css

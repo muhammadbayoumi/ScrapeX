@@ -1188,32 +1188,34 @@
   border-radius: var(--radius-pill);
 }
 .selected-product-category {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  align-self: flex-start;
-  gap: var(--sp-1);
+  align-self: stretch;
+  gap: var(--sp-2);
   max-width: 100%;
   margin: 0;
-  padding: .28rem .55rem;
-  overflow: hidden;
-  color: var(--muted);
+  padding: .45rem .65rem;
   background: var(--surface-subtle);
   border: 1px solid var(--line);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius);
   font-family: var(--font);
+  line-height: 1.3;
+}
+.selected-product-category-label {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.selected-product-category-value {
+  min-width: 0;
+  color: var(--text);
   font-size: var(--fs-xs);
-  line-height: 1.2;
-}
-.selected-product-category span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.selected-product-category-icon {
-  width: .9rem;
-  height: .9rem;
-  flex: 0 0 .9rem;
-  color: var(--text-subtle);
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+  text-align: end;
 }
 .selected-product-price {
   display: flex;
@@ -1284,11 +1286,28 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-2);
+  gap: 0;
+  padding: 0;
   background: var(--surface-subtle);
   border-inline-start: 1px solid var(--line);
   border-inline-end: 1px solid var(--line);
+}
+.record-inspector-nav-group {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-2);
+}
+.record-inspector-nav-primary {
+  flex: 0 0 auto;
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line);
+}
+.record-inspector-nav-sections {
+  flex: 1 1 auto;
+  background: var(--surface-subtle);
 }
 .record-inspector-nav button {
   display: grid;
@@ -1320,11 +1339,11 @@
   border-color: var(--accent);
 }
 .record-inspector-nav-divider {
-  width: 2rem;
-  height: 1px;
-  flex: 0 0 1px;
-  margin-block: var(--sp-1);
-  background: var(--line);
+  width: 100%;
+  height: var(--sp-2);
+  flex: 0 0 var(--sp-2);
+  background: var(--bg);
+  border-block: 1px solid var(--line);
 }
 .record-inspector-nav-icon {
   width: 1.15rem;
