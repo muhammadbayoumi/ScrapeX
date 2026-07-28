@@ -95,16 +95,50 @@ def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
     fact is written at run finalisation and would be destroyed by a naive
     rebuild, quietly rolling every confirmation back to the last time the price
     actually moved.
+
+    That protection used to cover only the OPEN period, which is exactly the
+    naive case it warns about wearing a different hat: while a period stayed
+    open, offer_state held its confirmation and handed it back; the moment the
+    period CLOSED, its confirmation reverted to the last observation that
+    continued it. Every genuine price change therefore destroyed the proof that
+    the old price had been true through the quiet days before it. Every
+    period's confirmation is now carried across the rebuild, not just the last
+    one's.
     """
     held = conn.execute(
         "SELECT last_confirmed_at FROM offer_state WHERE offer_id = ?",
         (offer_id,)).fetchone()
     confirmed_through = held["last_confirmed_at"] if held else None
+    # EVERY period's confirmation is preserved, not just the open one's.
+    #
+    # A refresh that finds an unchanged price appends no observation — that is
+    # the design, the history is a timeline of changes — so a confirmation is
+    # written onto the open period's row (ingest._confirm_seen) and NOWHERE
+    # else. Rebuilding from observations alone therefore cannot re-derive it,
+    # and the rebuild deletes the only copy. While a period stayed open the
+    # damage was invisible, because offer_state carries the latest confirmation
+    # and it was handed back below. The moment a period CLOSED, its
+    # last_confirmed_at silently reverted to the last observation that
+    # continued it: proof that the price was still true through every quiet day
+    # in between, destroyed on the first real price change and unrecoverable.
+    prior = {(r["price_hash"], r["first_detected_at"]): r["last_confirmed_at"]
+             for r in conn.execute(
+                 "SELECT price_hash, first_detected_at, last_confirmed_at "
+                 "FROM price_period WHERE offer_id = ?", (offer_id,))}
+    # (price_hash, first_detected_at) is a sound key across a rebuild: both are
+    # derived deterministically from the same observations, so the same period
+    # reappears under the same key. A pre-0015 row with no hash is still told
+    # apart by the moment it opened.
     conn.execute("DELETE FROM price_period WHERE offer_id = ?", (offer_id,))
     rows = _observations(conn, offer_id)
     if not rows:
         conn.execute("DELETE FROM offer_state WHERE offer_id = ?", (offer_id,))
         return 0
+
+    def confirmed_for(row: sqlite3.Row) -> str:
+        """What this period was last known to be true, evidence and record."""
+        return max(row["observed_at"],
+                   prior.get((row["price_hash"] or UNKNOWN_KEY, row["observed_at"]), ""))
 
     periods = 0
     open_period: sqlite3.Row | None = None
@@ -117,7 +151,7 @@ def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
             if continues:
                 conn.execute(
                     "UPDATE price_period SET last_confirmed_at = ? WHERE price_period_id = ?",
-                    (row["observed_at"], open_id))
+                    (max(row["observed_at"], confirmed_for(open_period)), open_id))
                 continue
             conn.execute(
                 "UPDATE price_period SET closed_at = ? WHERE price_period_id = ?",
@@ -132,18 +166,25 @@ def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
             (offer_id, row["price_hash"] or UNKNOWN_KEY, row["price_fields"] or "",
              row["effective_price"], row["regular_price"], row["sale_price"],
              row["currency"], row["vat_included"], row["observed_at"],
-             row["observed_at"], reason))
+             confirmed_for(row), reason))
         open_id = int(cursor.lastrowid)
         open_period = row
         periods += 1
         reason = "price_change"
 
     latest = rows[-1]
-    confirmed_at = max(latest["observed_at"], confirmed_through or "")
-    if confirmed_at != latest["observed_at"] and open_id is not None:
+    # offer_state carries the LATEST confirmation, which belongs to whichever
+    # period is open now. Taken as a max against what the open period already
+    # holds, so this can only ever move a confirmation forward: the period may
+    # already carry a later one preserved above, and overwriting it here would
+    # reintroduce the very loss this function now guards against.
+    confirmed_at = max(latest["observed_at"], confirmed_through or "",
+                       confirmed_for(open_period) if open_period is not None else "")
+    if open_id is not None:
         conn.execute(
-            "UPDATE price_period SET last_confirmed_at = ? WHERE price_period_id = ?",
-            (confirmed_at, open_id))
+            "UPDATE price_period SET last_confirmed_at = ? "
+            "WHERE price_period_id = ? AND last_confirmed_at < ?",
+            (confirmed_at, open_id, confirmed_at))
     conn.execute(
         "INSERT INTO offer_state (offer_id, effective_price, currency, availability, "
         " stock_quantity, price_hash, price_fields, last_confirmed_at, last_seen_at, "

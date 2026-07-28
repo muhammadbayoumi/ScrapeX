@@ -286,8 +286,12 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # Autosize the owner reported was the cache AND the layout both.
     # design-system-27 (CSS): the light header uses a distinct semantic
     # container band instead of disappearing into the white data rows.
-    assert '/static/grid.js?v=design-system-26' in page
-    assert '/static/grid-theme.css?v=design-system-27' in page
+    # design-system-28: the seven detail groups reached the panel. Keywords
+    # kept their chip rendering when 0046 refiled them out of Description, and
+    # the inspector rail gained a button per group — Store and Site metadata
+    # had none, so both were being stacked under Specifications.
+    assert '/static/grid.js?v=design-system-28' in page
+    assert '/static/grid-theme.css?v=design-system-28' in page
 
 
 def test_material_header_icons_are_local_and_dry():

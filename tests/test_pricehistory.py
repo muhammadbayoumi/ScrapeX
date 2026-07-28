@@ -353,3 +353,56 @@ def test_at_most_one_open_period_per_offer_is_enforced_again(conn):
         conn.execute(
             "INSERT INTO price_period (offer_id, price_hash, first_detected_at, "
             "last_confirmed_at) VALUES (?, 'x', 't', 't')", (offer(conn),))
+
+
+def test_a_closed_period_keeps_the_days_it_was_confirmed_true(conn):
+    """The quiet days before a price moved are evidence, and they survive it.
+
+    An unchanged price appends no observation — that is the design — so the ONLY
+    record that 100.00 was still the price on the 4th is the confirmation
+    written onto the open period. rebuild_offer derives the timeline from
+    observations and deletes the periods first, so that record has to be
+    carried across the rebuild or it is gone.
+
+    It used to be carried for the OPEN period alone. The moment a period closed,
+    its last_confirmed_at reverted to the last observation that continued it, so
+    every genuine price change destroyed the proof that the old price had held
+    through the days before it — unrecoverable, because there is no observation
+    to re-derive it from.
+    """
+    for day in ("2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04"):
+        crawl(conn, price="100.00", day=day)
+    crawl(conn, price="250.00", day="2026-07-10")     # a real move, closing the first
+    pricehistory.rebuild_all(conn)
+
+    periods = pricehistory.timeline(conn, offer(conn))
+    assert len(periods) == 2
+    closed, open_ = periods[0], periods[1]
+    assert closed["closed_at"].startswith("2026-07-10")
+    assert closed["last_confirmed_at"].startswith("2026-07-04"), (
+        "the closed period must still say the 100.00 price was true on the 4th")
+    assert open_["last_confirmed_at"].startswith("2026-07-10")
+
+
+def test_rebuilding_again_never_walks_a_confirmation_backwards(conn):
+    """Idempotence has to hold for the preserved value too, not just the shape.
+
+    A rebuild reads the confirmations off the rows it is about to delete, so a
+    rebuild of a rebuild must land on the same answer. If it did not, every
+    derive would erode the history a little further and the damage would be
+    invisible until someone compared two runs.
+    """
+    for day in ("2026-07-01", "2026-07-02", "2026-07-03"):
+        crawl(conn, price="100.00", day=day)
+    crawl(conn, price="250.00", day="2026-07-09")
+    pricehistory.rebuild_all(conn)
+    first = [(p["first_detected_at"], p["last_confirmed_at"], p["closed_at"])
+             for p in pricehistory.timeline(conn, offer(conn))]
+
+    pricehistory.rebuild_all(conn)
+    pricehistory.rebuild_all(conn)
+    again = [(p["first_detected_at"], p["last_confirmed_at"], p["closed_at"])
+             for p in pricehistory.timeline(conn, offer(conn))]
+
+    assert again == first
+    assert first[0][1].startswith("2026-07-03")
