@@ -119,7 +119,7 @@ sources:
     family: salla-html
     cadence: daily
     authority: shop
-    active: false
+    active: true
     currency: SAR
     default_region: SA
     vat_mode: incl
@@ -159,7 +159,7 @@ sources:
     family: zid-html
     cadence: daily
     authority: shop
-    active: false
+    active: true
     currency: SAR
     default_region: SA
     vat_mode: incl
@@ -184,7 +184,7 @@ sources:
     family: shopify-json
     cadence: daily
     authority: shop
-    active: false
+    active: true
     currency: EGP
     default_region: EG
     vat_mode: incl
@@ -203,7 +203,7 @@ sources:
     family: hybris-occ
     cadence: daily
     authority: shop
-    active: false
+    active: true
     currency: SAR
     default_region: SA
     # CORRECTED 2026-07-20 against the live API: was `excl`, which was backwards.
