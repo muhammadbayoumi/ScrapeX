@@ -50,15 +50,20 @@ def test_every_tab_renders(client, path):
     assert r.status_code == 200 and 'class="wstabs"' in r.text
 
 
-def test_header_and_sidebar_form_one_non_repeating_workspace_scaffold(client):
+def test_workspace_starts_without_a_top_header_bar(client):
     page = client.get("/data").text
     css = Path("scrapex/webui/static/webui.css").read_text(encoding="utf-8")
 
-    assert 'class="topbar-leading"' in page
+    assert 'class="topbar"' not in page
+    assert "topbar-leading" not in page
+    assert "runtime-status" not in page
+    assert 'class="sidebar-toggle workspace-menu-button icon-button"' in page
+    assert 'class="workspace-sidebar-status"' in page
     assert "#menu" in page
-    assert "workspace-sidebar-head" not in page
     assert "--workspace-sidebar-width" in css
-    assert "grid-template-columns:var(--workspace-sidebar-width)" in css
+    assert ".workspace-shell{min-height:100vh" in css
+    assert ".workspace-sidebar{grid-column:1" in css
+    assert "top:0;height:100vh" in css
 
 
 @pytest.mark.parametrize("path", TABS + ["/", f"/source/{SOURCE}", "/manage"])

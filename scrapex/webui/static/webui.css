@@ -1,45 +1,10 @@
 :root {
   --brand-mark: url("/static/x-mark.png");
-  /* Measured by base.html because the topbar height can change responsively. */
-  --sticky-tabs: 4rem;
   --workspace-sidebar-width: 17.75rem;
 }
 
 body {
   min-width: 20rem;
-}
-
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: var(--z-sticky);
-  display: grid;
-  grid-template-columns: var(--workspace-sidebar-width) minmax(0, 1fr);
-  min-height: 4rem;
-  padding: 0;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
-  box-shadow: var(--shadow-xs);
-  backdrop-filter: blur(12px);
-}
-
-.topbar-leading {
-  min-width: 0;
-  min-height: 4rem;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-4);
-  border-inline-end: 1px solid var(--line);
-}
-
-.topbar-brand {
-  font-size: var(--fs-md);
-}
-
-.topbar .sub {
-  color: var(--muted);
-  font-size: var(--fs-sm);
 }
 
 .wrap {
@@ -102,20 +67,23 @@ h3 {
     /* Workspace navigation: an edge-to-edge left rail separates wayfinding
        from page actions. It can disappear completely without leaving a dead
        gutter, and the content then reclaims the whole viewport. */
-    .workspace-shell{min-height:calc(100vh - var(--sticky-tabs));display:grid;
+    .workspace-shell{min-height:100vh;display:grid;
       grid-template-columns:var(--workspace-sidebar-width) minmax(0,1fr);align-items:stretch;
-      transition:grid-template-columns var(--dur) var(--ease)}
+    }
     .workspace-main{grid-column:2;grid-row:1;display:flex;min-width:0;min-height:100%;
       flex-direction:column}
     .workspace-main>.wrap{width:100%;min-width:0;flex:1}
     .workspace-sidebar{grid-column:1;grid-row:1;align-self:start;position:sticky;
-      top:var(--sticky-tabs);height:calc(100vh - var(--sticky-tabs));overflow-y:auto;
-      border-inline-end:1px solid var(--line);background:var(--surface);z-index:4;
-      transition:transform var(--dur) var(--ease),opacity var(--dur-fast) ease}
-    .sidebar-toggle{display:grid;place-items:center}
+      top:0;height:100vh;overflow-y:auto;border-inline-end:1px solid var(--line);
+      background:var(--surface);z-index:4;display:flex;flex-direction:column}
+    .sidebar-toggle{display:none;place-items:center}
     .sidebar-toggle:hover:not(:disabled){background:var(--accent-weak);color:var(--accent-ink)}
     .sidebar-toggle svg{width:1.5rem;height:1.5rem;fill:currentColor}
-    .wstabs{display:flex;flex-direction:column;gap:1rem;padding:var(--sp-3) var(--sp-3) var(--sp-4)}
+    .workspace-menu-button{position:fixed;inset-block-start:var(--sp-3);
+      inset-inline-start:var(--sp-3);z-index:10;background:var(--surface);
+      color:var(--text);box-shadow:var(--shadow-md)}
+    .wstabs{display:flex;flex:1;flex-direction:column;gap:1rem;
+      padding:var(--sp-3) var(--sp-3) var(--sp-4)}
     .wsnav-group{min-width:0}
     .wsnav-label{display:block;padding:.15rem .7rem .3rem;color:var(--muted);
       font-size:.64rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
@@ -127,10 +95,11 @@ h3 {
     .wstabs a:hover{background:var(--control-hover);color:var(--text)}
     .wstabs a[aria-current=page]{background:var(--primary-container);
       color:var(--on-primary-container);font-weight:600}
-    .runtime-status{display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-2);
-      min-width:0;padding:var(--sp-2) var(--sp-4)}
-    .runtime-chip,.dbchip{display:inline-flex;align-items:center;gap:.3rem;text-decoration:none}
-    .runtime-chip .sx-icon,.dbchip .sx-icon{width:.9rem;height:.9rem;fill:currentColor}
+    .workspace-sidebar-status{display:grid;gap:var(--sp-1);padding:var(--sp-3);
+      border-top:1px solid var(--line);background:var(--surface-subtle)}
+    .workspace-sidebar-status a{display:flex;align-items:center;gap:var(--sp-2);
+      min-height:2rem;font-size:var(--fs-xs);text-decoration:none}
+    .workspace-sidebar-status .sx-icon{width:1rem;height:1rem;fill:currentColor}
     .workspace-footer{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
       align-items:center;gap:var(--sp-4);padding:var(--sp-4) clamp(var(--sp-3),2vw,var(--sp-5));
       border-top:1px solid var(--line);background:var(--surface);color:var(--muted);
@@ -145,27 +114,23 @@ h3 {
     .workspace-footer-health{display:flex;justify-content:flex-end;gap:var(--sp-3);flex-wrap:wrap}
     .workspace-footer-health span::before{content:"";display:inline-block;width:.45rem;height:.45rem;
       margin-inline-end:.35rem;border-radius:50%;background:currentColor;vertical-align:.08rem}
-    @media(min-width:901px){
-      .sidebar-hidden .workspace-shell{grid-template-columns:0 minmax(0,1fr)}
-      .sidebar-hidden .workspace-sidebar{transform:translateX(-102%);opacity:0;pointer-events:none}
-    }
     .sidebar-backdrop{display:none}
     @media(max-width:900px){
-      .topbar{grid-template-columns:minmax(0,1fr) auto}
-      .topbar-leading{border-inline-end:0}
-      .runtime-status{padding-inline-start:0}
-      .topbar .sub{display:none}
       .workspace-shell{display:block}
       .workspace-main{width:100%}
+      .workspace-main>.wrap{padding-top:calc(var(--sp-6) + 2.75rem)}
+      .sidebar-toggle{display:grid}
       .workspace-sidebar{position:static;width:auto;height:auto;border-inline-end:0;
         border-bottom:1px solid var(--line)}
-      .sidebar-ready .workspace-sidebar{position:fixed;inset-block:var(--sticky-tabs) 0;
+      .sidebar-ready .workspace-sidebar{position:fixed;inset-block:0;
         inset-inline:0 auto;width:min(88vw,324px);height:auto;border-bottom:0;
         border-inline-end:1px solid var(--line);box-shadow:var(--shadow-lg);
         transform:translateX(-102%);transition:transform var(--dur) var(--ease);z-index:9}
       .sidebar-ready.sidebar-open .workspace-sidebar{transform:translateX(0)}
+      .sidebar-ready .workspace-sidebar .wstabs{
+        padding-top:calc(var(--sp-6) + 2.75rem)}
       .sidebar-ready .sidebar-backdrop{display:block;position:fixed;
-        inset:var(--sticky-tabs) 0 0;background:var(--overlay);opacity:0;
+        inset:0;background:var(--overlay);opacity:0;
         pointer-events:none;transition:opacity var(--dur) ease;z-index:8}
       .sidebar-ready.sidebar-open .sidebar-backdrop{opacity:1;pointer-events:auto}
       .sidebar-ready.sidebar-open{overflow:hidden}
@@ -246,9 +211,6 @@ h3 {
     pre.script{direction:ltr;max-height:260px;overflow:auto;background:var(--chip);
       border-radius:10px;padding:.8rem;font-size:.8rem;margin:.5rem 0}
     progress{width:100%;height:.6rem}
-    /* Database status, carried in the topbar on every page. */
-    .dbchip{flex:none}
-    .dbchip:hover{color:var(--accent-ink)}
     .dblist{margin:.4rem 0 0;padding-inline-start:1.2rem}
     .dblist li+li{margin-top:.3rem}
     .dblist .tech{display:block;color:var(--muted);font-size:.85em}
@@ -272,9 +234,6 @@ h3 {
     .context-line{margin:calc(var(--sp-3) * -1) 0 var(--sp-4)}
 
     @media(max-width:640px){
-      .topbar-brand span:last-child{display:none}
-      .runtime-chip{display:none}
-      .dbchip{max-width:10rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       input[type=search]{min-width:0}
       .source-filter-trigger{grid-template-columns:minmax(0,1fr) auto}
       .source-filter-caption{grid-column:1/-1}

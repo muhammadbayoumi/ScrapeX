@@ -45,8 +45,6 @@
   window.ScrapeXUI = Object.freeze({icon, iconNode});
 
   function setupWorkspace() {
-    const root = document.documentElement;
-    const topbar = document.querySelector(".topbar");
     const body = document.body;
     const toggle = document.querySelector(".sidebar-toggle");
     const backdrop = document.querySelector(".sidebar-backdrop");
@@ -54,49 +52,17 @@
     const sidebar = document.querySelector(".workspace-sidebar");
     const narrow = window.matchMedia("(max-width: 900px)");
 
-    function measure() {
-      const top = topbar ? topbar.getBoundingClientRect().height : 0;
-      root.style.setProperty("--sticky-tabs", Math.round(top) + "px");
-    }
-
-    measure();
-    if (window.ResizeObserver) {
-      const observer = new ResizeObserver(measure);
-      if (topbar) observer.observe(topbar);
-    } else {
-      window.addEventListener("resize", measure);
-    }
-
     if (!toggle || !navigation || !sidebar) return;
     body.classList.add("sidebar-ready");
-    const sidebarPreference = "scrapex-navigation-hidden";
 
-    function desktopPreference() {
-      try {
-        return window.localStorage.getItem(sidebarPreference) !== "true";
-      } catch (error) {
-        return true;
-      }
-    }
-
-    function rememberDesktop(open) {
-      try {
-        window.localStorage.setItem(sidebarPreference, String(!open));
-      } catch (error) {
-        // A blocked preference must never block navigation.
-      }
-    }
-
-    function setSidebar(open, remember) {
+    function setSidebar(open) {
       body.classList.toggle("sidebar-open", narrow.matches && open);
-      body.classList.toggle("sidebar-hidden", !narrow.matches && !open);
       toggle.setAttribute("aria-expanded", String(open));
       toggle.setAttribute("aria-label", open ? "Hide navigation" : "Show navigation");
       toggle.setAttribute("title", open ? "Hide navigation" : "Show navigation");
       sidebar.toggleAttribute("inert", !open);
       if (!open) sidebar.setAttribute("aria-hidden", "true");
       else sidebar.removeAttribute("aria-hidden");
-      if (remember && !narrow.matches) rememberDesktop(open);
       if (open && narrow.matches) {
         const current = navigation.querySelector('[aria-current="page"]') ||
           navigation.querySelector("a");
@@ -105,25 +71,22 @@
     }
 
     toggle.addEventListener("click", function () {
-      const open = narrow.matches
-        ? !body.classList.contains("sidebar-open")
-        : body.classList.contains("sidebar-hidden");
-      setSidebar(open, true);
+      setSidebar(!body.classList.contains("sidebar-open"));
     });
     if (backdrop) {
       backdrop.addEventListener("click", function () {
-        setSidebar(false, false);
+        setSidebar(false);
         toggle.focus();
       });
     }
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && body.classList.contains("sidebar-open")) {
-        setSidebar(false, false);
+        setSidebar(false);
         toggle.focus();
       }
     });
     function syncSidebarMode() {
-      setSidebar(narrow.matches ? false : desktopPreference(), false);
+      setSidebar(!narrow.matches);
     }
     if (narrow.addEventListener) narrow.addEventListener("change", syncSidebarMode);
     syncSidebarMode();

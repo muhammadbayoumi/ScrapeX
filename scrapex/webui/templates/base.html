@@ -9,40 +9,12 @@
   <script src="/static/appearance.js?v=appearance-3"></script>
   <link rel="stylesheet" href="/static/tokens.css?v=appearance-3">
   <link rel="stylesheet" href="/static/components.css?v=appearance-3">
-  <link rel="stylesheet" href="/static/webui.css?v=layout-7">
+  <link rel="stylesheet" href="/static/webui.css?v=layout-8">
   <link rel="stylesheet" href="/static/table-theme.css">
-  <script src="/static/ui.js?v=appearance-1"></script>
+  <script src="/static/ui.js?v=layout-8"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-leading">
-      <button type="button" class="sidebar-toggle icon-button ghost" aria-label="Hide navigation"
-              aria-controls="workspace-sidebar" aria-expanded="true">
-        {{ icon("menu") }}
-      </button>
-      <a href="/" class="brand topbar-brand">
-        <span class="brand-logo" aria-hidden="true"></span>
-        <span>ScrapeX</span>
-      </a>
-    </div>
-    <div class="runtime-status" aria-label="Runtime status">
-      {% if engine_state %}
-        <a class="chip runtime-chip {{ 'accent' if engine_state.connected else 'amber' }}"
-           href="/jobs">
-          {{ icon("play-circle", "sm") }}
-          {{ "Engine connected" if engine_state.connected else "Engine stopped" }}
-        </a>
-      {% endif %}
-      {% if db_state %}
-        <a class="chip dbchip {{ 'accent' if db_state.ok else 'amber' }}"
-           href="/settings#s-storage">
-          {{ icon("storage", "sm") }}
-          {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
-        </a>
-      {% endif %}
-    </div>
-  </header>
   {# The dataset in view is carried across every tab (spec 21) so switching tabs
      never loses which source you were looking at. #}
   {% set ctx = ("?source_key=" ~ source_key) if source_key else "" %}
@@ -66,8 +38,27 @@
           </div>
         {% endfor %}
       </nav>
+      <div class="workspace-sidebar-status" aria-label="Runtime status">
+        {% if engine_state %}
+          <a class="{{ 'ok-text' if engine_state.connected else 'muted' }}" href="/jobs">
+            {{ icon("play-circle", "sm") }}
+            {{ "Engine connected" if engine_state.connected else "Engine stopped" }}
+          </a>
+        {% endif %}
+        {% if db_state %}
+          <a class="{{ 'ok-text' if db_state.ok else 'err' }}" href="/settings#s-storage">
+            {{ icon("storage", "sm") }}
+            {{ "Databases healthy" if db_state.ok else "Databases need attention" }}
+          </a>
+        {% endif %}
+      </div>
     </aside>
     <div class="workspace-main">
+      <button type="button" class="sidebar-toggle workspace-menu-button icon-button"
+              aria-label="Show navigation" aria-controls="workspace-sidebar"
+              aria-expanded="false">
+        {{ icon("menu") }}
+      </button>
       <main class="wrap{% if wide_page %} wrap-wide{% endif %}">
     {# Stating the exact database, its status and the command that fixes it beats
        a page that fails halfway through a query and blames the query. #}
