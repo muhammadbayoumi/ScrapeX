@@ -218,6 +218,15 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
           accentInk: read("--accent-ink"),
           accentContrast: read("--accent-contrast"),
           lineStrong: read("--line-strong"), focus: read("--focus"),
+          amber: read("--amber"), amberWeak: read("--amber-weak"),
+          red: read("--red"), redHover: read("--red-hover"),
+          redWeak: read("--red-weak"),
+          dangerContrast: read("--danger-contrast"),
+          switchTrack: read("--switch-track"),
+          switchTrackHover: read("--switch-track-hover"),
+          switchTrackOff: read("--switch-track-off"),
+          switchThumb: read("--switch-thumb"),
+          switchThumbOff: read("--switch-thumb-off"),
         };
     }""", [palette, scheme])
 
@@ -229,12 +238,50 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
         ("accentInk", "surface"),
         ("accentContrast", "accent"),
         ("accentContrast", "accentHover"),
+        ("amber", "amberWeak"),
+        ("red", "redWeak"),
+        ("dangerContrast", "red"),
     )
     for foreground, background in text_pairs:
         assert _contrast(values[foreground], values[background]) >= 4.5, (
             f"{palette} {scheme}: {foreground} on {background} is not WCAG AA")
     assert _contrast(values["lineStrong"], values["surface"]) >= 3
     assert _contrast(values["focus"], values["bg"]) >= 3
+    assert _contrast(values["switchThumb"], values["switchTrack"]) >= 2.9
+    assert _contrast(values["switchThumb"], values["switchTrackHover"]) >= 3
+    assert _contrast(values["switchThumbOff"], values["switchTrackOff"]) >= 2.9
+
+
+def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
+    page = open_panel()
+
+    for scheme, expected in (
+        ("light", {
+            "--bg": "#F7F5F3", "--surface": "#FFFFFF",
+            "--text": "#0A0A0A", "--accent": "#35AA65",
+            "--accent-weak": "#DBFDD5", "--red": "#B3002F",
+            "--red-weak": "#FCE5EA", "--switch-track": "#35AA65",
+            "--switch-track-off": "#FFFFFF",
+            "--switch-thumb-off": "#959393",
+        }),
+        ("dark", {
+            "--bg": "#121B21", "--surface": "#182229",
+            "--text": "#FFFFFF", "--accent": "#43D36D",
+            "--red": "#FF7892", "--red-weak": "#3A1722",
+            "--switch-track": "#35AA65", "--switch-track-off": "#182229",
+            "--switch-thumb-off": "#959393",
+        }),
+    ):
+        values = page.evaluate("""([scheme, properties]) => {
+            window.ScrapeXAppearance.set({
+              mode: "manual", scheme, palette: "whatsapp", deviceColors: false,
+            });
+            const style = getComputedStyle(document.documentElement);
+            return Object.fromEntries(properties.map((property) => [
+              property, style.getPropertyValue(property).trim().toUpperCase(),
+            ]));
+        }""", [scheme, list(expected)])
+        assert values == expected
 
 
 def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):

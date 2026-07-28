@@ -121,6 +121,11 @@
   --on-primary: var(--accent-contrast);
   --primary-container: var(--accent-weak);
   --on-primary-container: var(--accent-ink);
+  --switch-track: var(--primary);
+  --switch-track-hover: var(--accent-hover);
+  --switch-track-off: var(--surface-container);
+  --switch-thumb: var(--on-primary);
+  --switch-thumb-off: var(--on-surface-variant);
 }
 
 /* Device colours use the colour preference exposed by the browser/operating

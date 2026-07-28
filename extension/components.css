@@ -1095,7 +1095,7 @@ code {
   line-height: var(--lh-tight);
 }
 
-/* M3 switch proportions, wrapped in a 48px Android touch target. */
+/* Compact WhatsApp-style switch, wrapped in a 48px Android touch target. */
 .appearance-switch {
   position: relative;
   width: var(--touch-target);
@@ -1114,24 +1114,24 @@ code {
 .appearance-switch span {
   position: relative;
   width: 2.5rem;
-  height: 2rem;
+  height: 1.5rem;
   display: block;
   border: 2px solid var(--outline);
   border-radius: var(--radius-pill);
-  background: var(--surface-container-high);
+  background: var(--switch-track-off);
   transition:
     background-color var(--dur) var(--ease),
     border-color var(--dur) var(--ease);
 }
 .appearance-switch span::after {
   position: absolute;
-  top: .3125rem;
-  left: .3125rem;
-  width: 1.125rem;
-  height: 1.125rem;
+  top: .125rem;
+  left: .125rem;
+  width: 1rem;
+  height: 1rem;
   border-radius: 50%;
   content: "";
-  background: var(--on-surface-variant);
+  background: var(--switch-thumb-off);
   transition:
     transform var(--dur) var(--ease),
     width var(--dur-fast) var(--ease),
@@ -1141,15 +1141,19 @@ code {
   background: var(--control-hover);
 }
 .appearance-switch:active span::after {
-  width: 1.375rem;
+  width: 1.125rem;
 }
 .appearance-switch input:checked + span {
   border-color: var(--primary);
-  background: var(--primary);
+  background: var(--switch-track);
+}
+.appearance-switch:hover input:checked + span {
+  border-color: var(--switch-track-hover);
+  background: var(--switch-track-hover);
 }
 .appearance-switch input:checked + span::after {
-  background: var(--on-primary);
-  transform: translateX(.5rem);
+  background: var(--switch-thumb);
+  transform: translateX(1.125rem);
 }
 .appearance-switch input:focus-visible + span {
   outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);

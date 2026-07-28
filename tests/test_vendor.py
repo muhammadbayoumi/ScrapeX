@@ -103,8 +103,8 @@ def test_appearance_colour_rebuilds_the_whole_tonal_surface_family():
     assert "light-dark(" in tonal
     assert "color-mix(in srgb, var(--accent)" in tonal
     assert "const THEME_PROPERTIES" in appearance
-    assert 'bg: "#F0F2F5"' in appearance  # WhatsApp light
-    assert 'bg: "#0B141A"' in appearance  # WhatsApp dark
+    assert 'bg: "#F7F5F3"' in appearance  # WhatsApp light
+    assert 'bg: "#121B21"' in appearance  # WhatsApp dark
     assert 'bg: "#FFFFFF"' in appearance  # GitHub light
     assert 'bg: "#0D1117"' in appearance  # GitHub dark
 
@@ -115,6 +115,9 @@ def test_only_the_two_reviewed_application_palettes_are_available():
     assert appearance.count('description: "') == 2
     assert '["whatsapp", {' in appearance
     assert '["github", {' in appearance
+    assert 'accent: "#35AA65"' in appearance
+    assert 'red: "#B3002F"' in appearance
+    assert 'switchTrack: "#35AA65"' in appearance
     for removed in (
         "popular-blush", "light-rose", "dark-harbour", "warm-coral",
         "earth-clay", "cold-ocean", "coolors-sunset", 'id: "custom"',
