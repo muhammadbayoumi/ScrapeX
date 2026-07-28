@@ -118,6 +118,8 @@ def test_only_the_two_reviewed_application_palettes_are_available():
     assert 'accent: "#35AA65"' in appearance
     assert 'red: "#B3002F"' in appearance
     assert 'switchTrack: "#35AA65"' in appearance
+    assert 'buttonBg: "#43D36D"' in appearance
+    assert 'buttonHover: "#1C1E21"' in appearance
     for removed in (
         "popular-blush", "light-rose", "dark-harbour", "warm-coral",
         "earth-clay", "cold-ocean", "coolors-sunset", 'id: "custom"',

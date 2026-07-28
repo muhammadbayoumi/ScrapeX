@@ -47,6 +47,7 @@
   --button-hover: var(--accent-hover);
   --button-active: var(--accent-active);
   --button-text: var(--accent-contrast);
+  --button-hover-text: var(--button-text);
   --control-bg: var(--surface);
   --control-hover: var(--surface-subtle);
   --control-height: 2.5rem;

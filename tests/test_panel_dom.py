@@ -217,6 +217,10 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
           accentHover: read("--accent-hover"),
           accentInk: read("--accent-ink"),
           accentContrast: read("--accent-contrast"),
+          buttonBg: read("--button-bg"),
+          buttonHover: read("--button-hover"),
+          buttonText: read("--button-text"),
+          buttonHoverText: read("--button-hover-text"),
           lineStrong: read("--line-strong"), focus: read("--focus"),
           amber: read("--amber"), amberWeak: read("--amber-weak"),
           red: read("--red"), redHover: read("--red-hover"),
@@ -238,6 +242,8 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
         ("accentInk", "surface"),
         ("accentContrast", "accent"),
         ("accentContrast", "accentHover"),
+        ("buttonText", "buttonBg"),
+        ("buttonHoverText", "buttonHover"),
         ("amber", "amberWeak"),
         ("red", "redWeak"),
         ("dangerContrast", "red"),
@@ -263,6 +269,8 @@ def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
             "--red-weak": "#FCE5EA", "--switch-track": "#35AA65",
             "--switch-track-off": "#FFFFFF",
             "--switch-thumb-off": "#959393",
+            "--button-bg": "#43D36D", "--button-hover": "#1C1E21",
+            "--button-text": "#0A0A0A", "--button-hover-text": "#FFFFFF",
         }),
         ("dark", {
             "--bg": "#121B21", "--surface": "#182229",
@@ -270,6 +278,8 @@ def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
             "--red": "#FF7892", "--red-weak": "#3A1722",
             "--switch-track": "#35AA65", "--switch-track-off": "#182229",
             "--switch-thumb-off": "#959393",
+            "--button-bg": "#43D36D", "--button-hover": "#FFFFFF",
+            "--button-text": "#0A0A0A", "--button-hover-text": "#0A0A0A",
         }),
     ):
         values = page.evaluate("""([scheme, properties]) => {
@@ -282,6 +292,44 @@ def test_whatsapp_theme_matches_the_current_application_palette(open_panel):
             ]));
         }""", [scheme, list(expected)])
         assert values == expected
+
+
+def test_whatsapp_extension_layers_navigation_and_primary_hover(open_panel):
+    page = open_panel()
+    page.evaluate("""() => window.ScrapeXAppearance.set({
+      mode: "manual", scheme: "light", palette: "whatsapp", deviceColors: false,
+    })""")
+    page.click("#tab-data")
+    page.wait_for_timeout(220)
+
+    initial = page.evaluate("""() => {
+      const colour = (selector, property) =>
+        getComputedStyle(document.querySelector(selector))[property];
+      return {
+        main: colour("main", "backgroundColor"),
+        rail: colour("nav.side-rail", "backgroundColor"),
+        indicator: colour("#rail-indicator", "backgroundColor"),
+        active: colour("#tab-data", "color"),
+        button: colour("#open-workbook", "backgroundColor"),
+        buttonText: colour("#open-workbook", "color"),
+      };
+    }""")
+    assert initial == {
+        "main": "rgb(255, 255, 255)",
+        "rail": "rgb(247, 245, 243)",
+        "indicator": "rgb(53, 170, 101)",
+        "active": "rgb(24, 134, 75)",
+        "button": "rgb(67, 211, 109)",
+        "buttonText": "rgb(10, 10, 10)",
+    }
+
+    page.hover("#open-workbook")
+    page.wait_for_timeout(180)
+    hovered = page.evaluate("""() => {
+      const style = getComputedStyle(document.querySelector("#open-workbook"));
+      return [style.backgroundColor, style.color];
+    }""")
+    assert hovered == ["rgb(28, 30, 33)", "rgb(255, 255, 255)"]
 
 
 def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):

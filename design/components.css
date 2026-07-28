@@ -269,13 +269,14 @@ button:hover:not(:disabled),
 .button:hover:not([aria-disabled="true"]) {
   border-color: var(--button-hover);
   background: var(--button-hover);
-  color: var(--button-text);
+  color: var(--button-hover-text);
 }
 
 button:active:not(:disabled),
 .button:active:not([aria-disabled="true"]) {
   border-color: var(--button-active);
   background: var(--button-active);
+  color: var(--button-hover-text);
   transform: translateY(1px);
 }
 
