@@ -290,11 +290,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # kept their chip rendering when 0046 refiled them out of Description, and
     # the inspector rail gained a button per group — Store and Site metadata
     # had none, so both were being stacked under Specifications.
-    # design-system-31: the fixed Details/History rail precedes every group,
-    # empty groups remain visible but disabled, and every card shares one
-    # border/padding shell.
-    assert '/static/grid.js?v=design-system-31' in page
-    assert '/static/grid-theme.css?v=design-system-31' in page
+    # design-system-32: the fixed Details/History rail precedes only populated
+    # groups, and long prose uses the inspector's complete readable width.
+    assert '/static/grid.js?v=design-system-32' in page
+    assert '/static/grid-theme.css?v=design-system-32' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -805,7 +804,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"record-inspector-nav-mode"' in script
     assert '"record-inspector-nav-divider"' in script
     assert '"record-inspector-nav-section"' in script
-    assert "button.disabled = disabled" in script
+    assert "populated.forEach((item)" in script
+    assert "button.disabled = disabled" not in script
     assert "detailSectionTitles" not in script
     assert "keywordSection" in script and '"record-keywords"' in script
     assert "code.startsWith(\"keywords\")" in script
@@ -813,7 +813,6 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".selected-product-card" in css
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
-    assert ".record-inspector-nav button:disabled" in css
     assert ".record-inspector-nav-divider" in css
     assert "grid-template-columns: minmax(0, 24rem) minmax(0, 0fr)" in css
     assert "transform: translateX(-.75rem)" in css
@@ -826,6 +825,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert "function cardBody(box)" in script
     assert ".record-inspector-content .record-card-body" in css
     assert ".record-inspector-content .record-card-prose" not in css
+    assert ".record-inspector-content .record-prose," in css
+    assert "max-width: none" in css
     assert ".record-card-body::-webkit-scrollbar" in css
     assert ":has(.spec-list)" not in css
     assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css

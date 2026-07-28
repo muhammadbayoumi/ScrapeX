@@ -2079,8 +2079,8 @@
     const detailSections = new Map(DETAIL_SECTIONS.map((s) => [s.key, []]));
     const historySections = new Map(HISTORY_SECTIONS.map((s) => [s.key, []]));
     // One schema drives ordering, icons, availability and click behaviour for
-    // both primary views. That keeps empty groups visible but safely disabled
-    // without duplicating Details and History branches.
+    // both primary views. Only populated groups reach the rail, without
+    // duplicating Details and History branches.
     const INSPECTOR_VIEWS = [
       {key: "details", label: "Details", icon: "view-stream",
        definitions: DETAIL_SECTIONS, sections: detailSections},
@@ -2121,17 +2121,14 @@
       });
     }
 
-    function inspectorNavButton(item, active, disabled, onClick, className) {
+    function inspectorNavButton(item, active, onClick, className) {
       const button = el("button", (className || "") + (active ? " is-active" : ""));
       button.type = "button";
-      button.title = disabled ? item.label + " — not available" : item.label;
-      button.disabled = disabled;
-      button.setAttribute("aria-label", disabled
-        ? item.label + " — not available"
-        : item.label);
+      button.title = item.label;
+      button.setAttribute("aria-label", item.label);
       button.setAttribute("aria-pressed", String(active));
       button.appendChild(materialIconElement(item.icon, "record-inspector-nav-icon"));
-      if (!disabled) button.addEventListener("click", onClick);
+      button.addEventListener("click", onClick);
       return button;
     }
 
@@ -2154,19 +2151,16 @@
         inspectorNav.appendChild(inspectorNavButton(
           item,
           item.key === selectedView.key,
-          false,
           () => renderInspector(item.key),
           "record-inspector-nav-mode"));
       });
       const divider = el("span", "record-inspector-nav-divider");
       divider.setAttribute("role", "separator");
       inspectorNav.appendChild(divider);
-      definitions.forEach((item) => {
-        const available = Boolean(sections.get(item.key).length);
+      populated.forEach((item) => {
         inspectorNav.appendChild(inspectorNavButton(
           item,
           item.key === activeKey,
-          !available,
           () => renderInspector(selectedView.key, item.key),
           "record-inspector-nav-section"));
       });
