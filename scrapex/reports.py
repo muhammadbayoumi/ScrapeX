@@ -539,6 +539,13 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # keeps each level to the sources that actually reach that depth.
     ("category", "Category"),
     ("category_ar", "Category (AR)"),
+    # The DEEPEST level this row actually reaches, in one column. The owner's
+    # ask (2026-07-28): «عاوز عمود يكون مجمع اخر تصنيف لكل صف» — sources like
+    # MADAR and ADVANCEDCASTLE classify to different depths row by row, so no
+    # single Category L-column holds "the most specific thing this is". Reading
+    # it off the row means never asking which level to look in.
+    ("category_leaf", "Category leaf"),
+    ("category_leaf_ar", "Category leaf (AR)"),
     *_level_columns(),
     ("variant", "Variant"),
     ("variant_ar", "Variant (AR)"),
@@ -605,6 +612,7 @@ BILINGUAL_COLUMNS: dict[str, str] = {
     # English, and madar publishes both — so the switch flips it too.
     "variant_ar": "variant",
     "category_ar": "category",
+    "category_leaf_ar": "category_leaf",
     **{f"category_l{level}_ar": f"category_l{level}"
        for level in range(1, CATEGORY_LEVELS + 1)},
 }
@@ -970,6 +978,12 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     ("observations", lambda r, s: r["observations"] or 0),
     ("price_usd", lambda r, s: _usd_value(r["price"], r["currency"],
                                           r["per_usd"])),
+    # The row's own deepest level, in one column, because the levels below
+    # answer "what is at L3" and this answers "what is this, most
+    # specifically" — a different question wherever a source classifies to
+    # different depths row by row.
+    ("category_leaf", lambda r, s: _category_leaf(r["category_path_en"])),
+    ("category_leaf_ar", lambda r, s: _category_leaf(r["category_path"])),
     # The classification split into its levels, exactly as the table
     # splits it, so a spreadsheet can pivot on a layer without parsing the
     # path. English then Arabic, level by level.
@@ -1471,6 +1485,23 @@ def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7)
     return result
 
 
+def _category_leaf(path: str | None) -> str:
+    """The DEEPEST segment of a classification path — the row's own last level.
+
+    MADAR classifies some rows to three levels and others to one; ADVANCEDCASTLE
+    reaches six. So no single Category L-column answers "what is the most
+    specific thing this row is": the answer sits in a different column for
+    different rows, and a filter on L3 silently drops everything shallower.
+
+    Read off the row rather than stored, because it is not a new fact — it is
+    the last segment of a path the warehouse already holds. Nothing is invented
+    and nothing needs a re-crawl. It also survives the CATEGORY_LEVELS ceiling:
+    a path deeper than ten levels still reports its true last segment.
+    """
+    segments = [s.strip() for s in (path or "").split(">") if s.strip()]
+    return segments[-1] if segments else ""
+
+
 def _category_levels(path: str | None, prefix: str = "category_l",
                      suffix: str = "") -> dict[str, str]:
     """Split "Cables > Low voltage > Copper" into category_l1..lN.
@@ -1491,9 +1522,125 @@ def _category_levels(path: str | None, prefix: str = "category_l",
 # rather than quietly showing a prefix and letting the reader believe it is all.
 TABLE_ROW_CAP = 20_000
 
+# The variant identity: which of a product's variations this row is. These are
+# the ONLY fields a fold is allowed to join, because joining them states exactly
+# what the site published — "the site sells this at this price in red, blue and
+# green" is true, where a joined price or stock would not be.
+_FOLD_JOINED = ("variant_ar", "variant", "sku")
+# History belongs to ONE offer. Across a folded group these are aggregates of
+# different timelines, so they are recomputed for the group rather than carried
+# from whichever row happened to come first.
+_FOLD_MIN = "price_min"
+_FOLD_MAX = "price_max"
+# Kept from the first variant rather than blanked: the grid opens the record
+# panel by offer_id, and a folded row with no offer_id would open nothing. The
+# full list travels beside it as offer_ids.
+_FOLD_KEPT = ("offer_id",)
+
+
+def _shared_axis_once(values: list[str]) -> list[str]:
+    """Say the axis name once when every value in the list carries it.
+
+    A variant is stored the way the site labels it — "Color: أحمر". Joining six
+    of those gives "Color: أحمر، Color: أخضر، Color: أرضي…", which repeats the
+    word Color six times to say one thing. When EVERY value shares one label,
+    the list reads "Color: أحمر، أخضر، أرضي" instead.
+
+    Nothing is dropped and nothing is rewritten: the label is still printed, and
+    the moment two values disagree about it — a product varying by colour AND by
+    size — every value keeps its own, because then the label is information.
+    """
+    if len(values) < 2:
+        return values
+    split = [value.split(": ", 1) for value in values]
+    if any(len(part) != 2 for part in split):
+        return values
+    labels = {part[0] for part in split}
+    if len(labels) != 1:
+        return values
+    first = split[0]
+    return [f"{first[0]}: {first[1]}"] + [part[1] for part in split[1:]]
+
+
+def fold_variant_rows(rows: list[dict]) -> list[dict]:
+    """Fold a product's same-priced variations into one row.
+
+    The owner's case: samehgabriel publishes 18 products in 6 colours each, so
+    the table showed 108 rows that differed only by colour. He asked for the
+    variants to be listed together in one row instead — enabled per source,
+    because MADAR's variations are a different kind of thing.
+
+    WHAT THIS IS NOT. It does not change a single stored row: the warehouse
+    keeps all 108, because what the site published is the record. This is the
+    rule the owner set for exactly this situation — a rule decides where a fact
+    is SHOWN, never what it says.
+
+    THE GROUPING IS BY PRICE, NOT BY PRODUCT, and that matters: 17 of those 18
+    products charge one price for every colour, but one charges two, and it
+    correctly stays two rows. Nothing has to know in advance which colours are
+    priced alike.
+
+    A group folds only when the rows agree on everything else they display. Any
+    field that differs and is not part of the variant's identity is left BLANK
+    rather than guessed - a stock level or a discount that belonged to one
+    colour must not be printed against six.
+
+    The row keeps `offer_id` from its first variant so the record panel still
+    opens, and gains `offer_ids` (all of them) and `variants` (how many were
+    folded), so the surface can say what it is showing rather than imply that
+    six colours are one offer.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+    for row in rows:
+        key = (row.get("source_product_id"), row.get("price"), row.get("currency"))
+        # A row with no product identity cannot be grouped with anything: give
+        # it a key of its own rather than pooling every such row together.
+        if key[0] is None:
+            key = ("row", id(row))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(row)
+
+    folded: list[dict] = []
+    for key in order:
+        members = groups[key]
+        if len(members) == 1:
+            folded.append(members[0])
+            continue
+        merged = dict(members[0])
+        for field in members[0]:
+            if field in _FOLD_JOINED:
+                seen: list[str] = []
+                for member in members:
+                    value = str(member.get(field) or "").strip()
+                    if value and value not in seen:
+                        seen.append(value)
+                # An Arabic list reads with an Arabic comma; the rest with a
+                # plain one. Same rule the columns already follow.
+                separator = "، " if field.endswith("_ar") else ", "
+                merged[field] = separator.join(_shared_axis_once(seen))
+                continue
+            if field in _FOLD_KEPT:
+                continue
+            values = [member.get(field) for member in members]
+            if all(value == values[0] for value in values):
+                continue
+            if field in (_FOLD_MIN, _FOLD_MAX):
+                numbers = [v for v in values if isinstance(v, (int, float))]
+                if numbers:
+                    merged[field] = min(numbers) if field == _FOLD_MIN else max(numbers)
+                    continue
+            merged[field] = ""
+        merged["variants"] = len(members)
+        merged["offer_ids"] = [m.get("offer_id") for m in members]
+        folded.append(merged)
+    return folded
+
 
 def table_payload(conn: sqlite3.Connection, source_key: str,
-                  limit: int = TABLE_ROW_CAP) -> dict:
+                  limit: int = TABLE_ROW_CAP, fold_variants: bool = False) -> dict:
     """Every row of one source, shaped for a client-side grid.
 
     Deliberately LEANER than browse_observations' shape. The tax verdict, its
@@ -1606,8 +1753,10 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                # the flat labels otherwise. The per-level keys split the path
                # so any layer can be sorted or grouped on its own.
                "category_ar": r[26] or r[24] or "",
+               "category_leaf_ar": _category_leaf(r[26] or r[24]),
                **_category_levels(r[26], prefix="category_l", suffix="_ar"),
                "category": r[28] or "",
+               "category_leaf": _category_leaf(r[28]),
                **_category_levels(r[28]),
                "product_name": r[27] or "",
                "has_details": bool(r[25]),
@@ -1629,6 +1778,22 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                # Carried only as far as the attribute join below, then popped.
                "source_product_id": r[33]}
               for r in rows]
+
+    # How many rows the query actually returned, kept before any folding: the
+    # truncation flag answers "did the cap cut this off", and a fold that turned
+    # 108 rows into 18 would otherwise answer it wrongly.
+    fetched = len(shaped)
+    # Folded here, while source_product_id is still on the row and before the
+    # per-site facet columns are joined: those are per PRODUCT, so they land on
+    # the folded row identically either way.
+    #
+    # Computed even when the fold is OFF, because the page needs to know whether
+    # offering the switch would mean anything: a source with nothing to fold
+    # gets no control rather than a control that does nothing.
+    could_fold = fold_variant_rows(shaped)
+    foldable = len(could_fold) < fetched
+    if fold_variants:
+        shaped = could_fold
 
     present = column_presence(conn, source_key)
     # Two independent questions, and both must be asked. `present` answers "does
@@ -1682,9 +1847,19 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "tax_states": tax_states,
         "total": total,
         "returned": len(shaped),
+        # Stated separately so a folded table can say what it did: `total` is
+        # what the source published, `returned` is how many rows are on screen,
+        # and these two differ for a reason that is not truncation.
+        "folded": fold_variants and len(shaped) < fetched,
+        # Is the fold ON, and would it change anything — two questions the page
+        # asks separately: the first sets the switch, the second decides whether
+        # to offer it at all.
+        "fold_variants": bool(fold_variants),
+        "foldable": foldable,
         # A prefix presented as the whole is the failure this flag exists to
-        # prevent; the page states it rather than looking complete.
-        "truncated": total > len(shaped),
+        # prevent; the page states it rather than looking complete. Measured
+        # against what the QUERY returned, never against the folded count.
+        "truncated": total > fetched,
         "tree": _tree_shape(shaped),
         # The pairs actually on offer for THIS source: the grid's AR|EN
         # toggle flips exactly these, so it never hardcodes a field list.
@@ -1753,6 +1928,7 @@ COLUMN_NOTES: dict[str, str] = {
     "country_code_alpha2": "The country the price applies to, as an ISO 3166-1 alpha-2 code.",
     "country": "The same country, spelled out.",
     "brand": "The brand, as the source publishes it — never inferred from the name.",
+    "brand_ar": "The same brand in Arabic, where the source publishes one.",
     "category": "The full classification path the source files this product "
                 "under, in English where it publishes one.",
     "category_ar": "The same path in Arabic, where the source publishes one.",
@@ -1763,6 +1939,8 @@ COLUMN_NOTES: dict[str, str] = {
     "price": "What a visitor actually pays today.",
     "price_before": "The price before any discount inside this listing.",
     "price_sale": "The discounted price, when the listing has one.",
+    "price_trade": "The price for trade or wholesale buyers, where the source "
+                   "publishes a second one beside the retail price.",
     "discount": "How much the listing takes off, as an amount.",
     "discount_pct": "The same discount as a percentage.",
     "currency": "The currency the source quotes in — never converted.",

@@ -542,3 +542,46 @@ def test_the_panel_can_see_what_a_source_holds_before_deleting_it(client):
     assert body["source"]["source_key"] == SOURCE
     assert set(body["holds"]) >= {"products", "observations", "details", "runs"} \
         or body["holds"] == {}
+
+
+def test_an_edit_of_one_field_does_not_rewrite_what_the_source_extracts(client):
+    """The edit merges the whole existing entry back through the form builder,
+    and the builder reads a FLAT kind/scope while the manifest stores a LIST.
+    Rebuilding from the defaults would turn a commodity source into
+    product_prices/census and drop its materials and regions - on an edit that
+    only changed the shop's name.
+    """
+    before = client.get(f"/api/sources/{SOURCE}").json()["source"]["extract"]
+
+    r = client.post(f"/api/sources/{SOURCE}/edit", json={"source_name": "Renamed"})
+    assert r.status_code == 200, r.text
+
+    after = client.get(f"/api/sources/{SOURCE}").json()["source"]
+    assert after["source_name"] == "Renamed"
+    assert after["extract"] == before, "the extract spec was rewritten by a rename"
+
+
+def test_the_sources_list_carries_the_facts_the_editor_edits(client):
+    """The panel's source editor renders FROM this list. Without these fields it
+    painted an empty currency over a real one and offered to save it back, so an
+    edit of the name would have erased the currency, cadence and tax position.
+    """
+    listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+    entry = listed[SOURCE]
+    for field in ("currency", "cadence", "vat_mode", "fold_variants"):
+        assert field in entry, f"the editor cannot render {field} truthfully"
+    assert entry["currency"], "a source with a currency must not list an empty one"
+
+
+def test_folding_variations_is_saved_per_source_and_reaches_the_table(client):
+    """Owner ruling 2026-07-28: a per-source switch. Off by default, because it
+    is right for a shop selling one product in six colours at one price and
+    wrong for a shop whose variations mean something."""
+    assert client.get("/api/table/" + SOURCE).json().get("folded") is False
+
+    r = client.post(f"/api/sources/{SOURCE}/edit", json={"fold_variants": True})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/sources/{SOURCE}").json()["source"]["fold_variants"] is True
+
+    listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+    assert listed[SOURCE]["fold_variants"] is True

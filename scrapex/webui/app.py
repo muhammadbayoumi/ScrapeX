@@ -207,18 +207,11 @@ def allowed_extension_ids() -> list[str]:
     """The extension ids the native-messaging manifest already trusts.
 
     Reusing that file means there is ONE allowlist deciding which extension may
-    drive this machine, instead of a second one here to keep in step with it.
+    drive this machine, instead of a second one here to keep in step with it —
+    and the READER of it lives beside the file too, for the same reason: this
+    module used to carry its own copy of the parsing.
     """
-    try:
-        manifest = json.loads(nativehost.manifest_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    ids = []
-    for origin in manifest.get("allowed_origins") or []:
-        candidate = str(origin).removeprefix("chrome-extension://").rstrip("/")
-        if candidate.isalnum():
-            ids.append(candidate)
-    return ids
+    return nativehost.allowed_extension_ids()
 
 
 def extension_origin_regex() -> str:
@@ -657,16 +650,25 @@ def create_app(
             status_code=200 if summary is not None else 404)
 
     @app.get("/api/table/{source_key}")
-    def api_table(source_key: str):
+    def api_table(source_key: str, fold: bool | None = None):
         """The whole table for one source, for a grid that filters it in place.
 
         Bounded at reports.TABLE_ROW_CAP — a large number, but a number. A source
         past it reports truncated=true, because a prefix presented as the whole
         is exactly the failure the bound exists to prevent.
         """
+        # Whether this source's same-priced variations fold into one row has a
+        # per-source DEFAULT in the manifest and a live switch above the table.
+        # `fold` absent means "whatever this source is set to"; ?fold=1 or 0 is
+        # the reader saying otherwise for this view, which is why it wins.
+        if fold is None:
+            try:
+                fold = bool(app.state.manifest.get(source_key).fold_variants)
+            except KeyError:
+                fold = False
         conn = read_conn()
         try:
-            return table_payload(conn, source_key)
+            return table_payload(conn, source_key, fold_variants=fold)
         finally:
             conn.close()
 
@@ -748,6 +750,13 @@ def create_app(
         the panel's Start engine starts failing with nothing visibly broken.
         The panel knows its own id; this writes it into the host, so the repair
         needs no command and no reinstall.
+
+        It ADDS the id — see nativehost.install. Any extension may reach this
+        route (that exception is what keeps the repair reachable), so replacing
+        the list here let one extension evict another, and the two could take
+        the helper from each other indefinitely with nothing said anywhere. The
+        write is now additive, capped, and printed: stdout is the engine log,
+        which is where the owner is already sent when the helper misbehaves.
         """
         extension_id = str(payload.get("extension_id") or "").strip()
         if not extension_id.isalnum() or not (24 <= len(extension_id) <= 40):
@@ -755,11 +764,16 @@ def create_app(
                                 detail="that does not look like a Chrome extension id")
         from ..nativehost import install
 
+        before = allowed_extension_ids()
         try:
             written = install([extension_id])
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+        after = allowed_extension_ids()
+        print(f"[native-host] {extension_id} asked to be recognised; "
+              f"allowlist {before or '[]'} -> {after}", flush=True)
         return {"ok": True, "manifest": str(written), "extension_id": extension_id,
+                "allowed_extension_ids": after,
                 "message": "The helper now recognises this extension. Try Start engine again."}
 
     @app.get("/schema", response_class=HTMLResponse)
@@ -1095,6 +1109,15 @@ def create_app(
                 # A per-source CAPABILITY, not a universal mode: the panel
                 # offers History backfill only where this is true.
                 "supports_history": supports_history(entry.family),
+                # The editable facts, carried because the panel's source editor
+                # renders FROM this list. Without them it painted an empty
+                # currency over a real one and offered to save it back — an
+                # edit of the name would have erased the currency, the cadence
+                # and the tax position.
+                "currency": entry.currency or "",
+                "cadence": entry.cadence.value,
+                "vat_mode": entry.vat_mode.value,
+                "fold_variants": entry.fold_variants,
                 "observations": s.observations if s else 0,
                 "products": s.products if s else 0,
             })
@@ -2391,6 +2414,14 @@ def _entry_from_form(form: dict) -> SourceEntry:
         extract["materials"] = materials
     if regions:
         extract["regions"] = regions
+    # An EDIT arrives as the whole existing entry merged with the changed
+    # fields, so it carries `extract` as the manifest stores it — a list — and
+    # not the form's flat kind/scope. Rebuilding from the defaults here would
+    # quietly rewrite a commodity source into product_prices/census and drop
+    # its materials and regions, on an edit that only renamed the shop.
+    existing = form.get("extract")
+    if isinstance(existing, list) and existing and "kind" not in form and "scope" not in form:
+        extract = existing
     data = {
         "source_key": (form.get("source_key") or "").strip().upper(),
         "source_name": (form.get("source_name") or "").strip(),
@@ -2406,7 +2437,7 @@ def _entry_from_form(form: dict) -> SourceEntry:
         "default_region": (form.get("default_region") or "*").strip() or "*",
         "vat_mode": form.get("vat_mode", VatMode.INCLUSIVE.value),
         "active": bool(form.get("active", False)),
-        "extract": [extract],
+        "extract": extract if isinstance(extract, list) else [extract],
     }
     currency = (form.get("currency") or "").strip()
     if currency:
@@ -2418,6 +2449,8 @@ def _entry_from_form(form: dict) -> SourceEntry:
         data["fallback_families"] = fallbacks
     if form.get("auth_required"):
         data["auth_required"] = True
+    if form.get("fold_variants"):
+        data["fold_variants"] = True
     identity = {k: v for k, v in (form.get("identity") or {}).items() if v not in (None, "")}
     if identity:
         data["identity"] = identity

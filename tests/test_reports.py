@@ -6,7 +6,10 @@ import sqlite3
 import pytest
 
 from scrapex import db as dbmod
-from scrapex.reports import recent_observations, source_summary
+from scrapex.reports import (BILINGUAL_COLUMNS, CATEGORY_LEVELS,
+                            _category_leaf, fold_variant_rows,
+                            recent_observations, source_summary,
+                            table_payload)
 from tests.test_ingest import make_entry, make_payload, one_row
 from scrapex.ingest import ingest_payloads
 
@@ -372,3 +375,166 @@ def test_the_table_catalogue_covers_every_table_the_schema_creates(conn):
     assert not missing, (
         "these tables exist in the warehouse and are not described in "
         f"TABLE_GROUPS, so /data-model files them under Other with no purpose: {missing}")
+
+
+def test_every_browsable_column_says_what_it_means():
+    """The same decay as the table catalogue above, one level down.
+
+    Adding a column means touching several hand-written lists, and COLUMN_NOTES
+    is the one with no consequence for forgetting it: /schema simply prints the
+    column with an empty meaning cell. `brand_ar` shipped that way, and this
+    guard found `price_trade` sitting in the same state — which is the argument
+    for the guard rather than for fixing the two by hand.
+    """
+    from scrapex.reports import BROWSE_COLUMNS, COLUMN_NOTES
+
+    # The derived family: category_l1/_l2/... are explained by a rule in
+    # schema_page rather than one entry each, so they are covered, not missing.
+    def described(key: str) -> bool:
+        return key in COLUMN_NOTES or (key.startswith("category_") and "_l" in key)
+
+    silent = sorted(key for key, _label in BROWSE_COLUMNS if not described(key))
+    assert not silent, (
+        "these columns appear in the table and say nothing about themselves on "
+        f"/schema, so the page shows a blank meaning cell: {silent}")
+
+
+# ---- folding a product's same-priced variations (owner ruling 2026-07-28) ----
+# samehgabriel sells 18 products in 6 colours each, so the table showed 108 rows
+# that differed only by colour. The fold is a DISPLAY rule, per source: the
+# warehouse still stores every row the site published.
+
+def _variant_row(**over):
+    row = {"source_product_id": 7, "product_name_ar": "سلك نحاس", "variant_ar": "أحمر",
+           "variant": "Red", "sku": "abc-1", "price": 100.0, "currency": "EGP",
+           "availability": "in_stock", "price_min": 100.0, "price_max": 120.0,
+           "observations": 4, "offer_id": 1, "stock_quantity": 5}
+    row.update(over)
+    return row
+
+
+def test_same_priced_variations_become_one_row_listing_them():
+    rows = [_variant_row(),
+            _variant_row(variant_ar="أزرق", variant="Blue", sku="abc-2", offer_id=2),
+            _variant_row(variant_ar="أخضر", variant="Green", sku="abc-3", offer_id=3)]
+    folded = fold_variant_rows(rows)
+    assert len(folded) == 1
+    assert folded[0]["variant_ar"] == "أحمر، أزرق، أخضر"
+    assert folded[0]["variant"] == "Red, Blue, Green"
+    assert folded[0]["sku"] == "abc-1, abc-2, abc-3"
+    assert folded[0]["variants"] == 3
+    assert folded[0]["offer_ids"] == [1, 2, 3]
+    assert folded[0]["offer_id"] == 1, "the record panel must still open"
+
+
+def test_a_product_priced_differently_per_variation_stays_separate_rows():
+    """17 of samehgabriel's 18 products charge one price for every colour. One
+    charges two, and folding it into a single row would state a price the site
+    does not charge for half of them."""
+    rows = [_variant_row(), _variant_row(variant_ar="أزرق", sku="abc-2", offer_id=2),
+            _variant_row(variant_ar="أصفر", sku="abc-3", offer_id=3, price=150.0)]
+    folded = fold_variant_rows(rows)
+    assert len(folded) == 2
+    assert [r["price"] for r in folded] == [100.0, 150.0]
+    assert folded[0]["variants"] == 2
+    assert "variants" not in folded[1], "a row that folded nothing is untouched"
+
+
+def test_a_fact_that_differs_is_blanked_rather_than_guessed():
+    """A stock level that belonged to one colour must not be printed against
+    three. The record panel still holds each variation's own."""
+    rows = [_variant_row(stock_quantity=5),
+            _variant_row(variant_ar="أزرق", sku="abc-2", offer_id=2, stock_quantity=0)]
+    folded = fold_variant_rows(rows)
+    assert folded[0]["stock_quantity"] == ""
+    assert folded[0]["availability"] == "in_stock", "identical facts survive"
+
+
+def test_history_is_recomputed_for_the_group_not_carried_from_the_first_row():
+    """price_min/price_max belong to ONE offer's timeline. Across a fold they
+    are aggregates of several, so they are recomputed - carrying the first
+    row's would understate the range the group actually saw."""
+    rows = [_variant_row(price_min=100.0, price_max=110.0),
+            _variant_row(variant_ar="أزرق", sku="abc-2", offer_id=2,
+                         price_min=90.0, price_max=130.0)]
+    folded = fold_variant_rows(rows)
+    assert folded[0]["price_min"] == 90.0
+    assert folded[0]["price_max"] == 130.0
+
+
+def test_two_products_at_the_same_price_do_not_merge():
+    rows = [_variant_row(source_product_id=7), _variant_row(source_product_id=8)]
+    assert len(fold_variant_rows(rows)) == 2
+
+
+def test_rows_with_no_product_identity_are_never_pooled_together():
+    """A commodity row carries no source_product_id. Grouping them all under
+    one None key would collapse unrelated rows into one."""
+    rows = [_variant_row(source_product_id=None), _variant_row(source_product_id=None)]
+    assert len(fold_variant_rows(rows)) == 2
+
+
+def test_folding_is_off_unless_the_source_asks_for_it(conn):
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(external_product_id="1", external_variant_id="v1", variant="Red"),
+        one_row(external_product_id="1", external_variant_id="v2", variant="Blue"),
+    ])])
+    assert len(table_payload(conn, "ELSEWEDYSHOP")["rows"]) == 2
+    payload = table_payload(conn, "ELSEWEDYSHOP", fold_variants=True)
+    assert len(payload["rows"]) == 1
+    assert payload["folded"] is True
+    assert payload["total"] == 2, "what the site published is still reported"
+    assert payload["truncated"] is False, "a fold is not a truncation"
+
+
+def test_a_shared_axis_name_is_printed_once_not_per_value():
+    """A variant is stored as the site labels it - "Color: أحمر". Six of those
+    joined said the word Color six times to state one axis."""
+    rows = [_variant_row(variant_ar="Color: أحمر"),
+            _variant_row(variant_ar="Color: أخضر", sku="abc-2", offer_id=2),
+            _variant_row(variant_ar="Color: أزرق", sku="abc-3", offer_id=3)]
+    folded = fold_variant_rows(rows)
+    assert folded[0]["variant_ar"] == "Color: أحمر، أخضر، أزرق"
+
+
+def test_two_different_axes_each_keep_their_own_name():
+    """The moment the values disagree about the axis, the axis IS information
+    and every value keeps it."""
+    rows = [_variant_row(variant_ar="Color: أحمر"),
+            _variant_row(variant_ar="Size: كبير", sku="abc-2", offer_id=2)]
+    folded = fold_variant_rows(rows)
+    assert folded[0]["variant_ar"] == "Color: أحمر، Size: كبير"
+
+
+def test_values_with_no_axis_name_are_joined_untouched():
+    rows = [_variant_row(variant_ar="أحمر"),
+            _variant_row(variant_ar="أخضر", sku="abc-2", offer_id=2)]
+    assert fold_variant_rows(rows)[0]["variant_ar"] == "أحمر، أخضر"
+
+
+# ---- the row's own deepest classification (owner ask 2026-07-28) -------------
+
+def test_the_leaf_is_the_last_level_the_row_actually_reaches():
+    """MADAR classifies some rows to three levels and others to one, so no
+    single Category L-column holds "the most specific thing this row is"."""
+    assert _category_leaf("Cables > Low voltage > Copper") == "Copper"
+    assert _category_leaf("Cables") == "Cables"
+    assert _category_leaf("") == ""
+    assert _category_leaf(None) == ""
+
+
+def test_the_leaf_ignores_empty_segments_and_stray_spacing():
+    assert _category_leaf("Cables >  > Copper ") == "Copper"
+    assert _category_leaf("Cables > > ") == "Cables"
+
+
+def test_the_leaf_survives_a_path_deeper_than_the_level_ceiling():
+    """The L-columns stop at CATEGORY_LEVELS. The leaf must still be true for a
+    path deeper than that, or the one column that claims to hold the last level
+    would hold the tenth."""
+    deep = " > ".join(f"L{n}" for n in range(1, CATEGORY_LEVELS + 4))
+    assert _category_leaf(deep) == f"L{CATEGORY_LEVELS + 3}"
+
+
+def test_both_languages_get_their_own_leaf_and_the_switch_flips_them():
+    assert BILINGUAL_COLUMNS["category_leaf_ar"] == "category_leaf"

@@ -1886,7 +1886,7 @@
     wrap.className = "grid-lang-toggle grid-fold-toggle";
     wrap.setAttribute("role", "group");
     wrap.setAttribute("aria-label", "Rows per product");
-    wrap.appendChild(materialIconElement("layers", "grid-lang-icon"));
+    wrap.appendChild(materialIconElement("unfold-less", "grid-lang-icon"));
     const note = document.createElement("span");
     note.className = "visually-hidden";
     note.textContent = "Rows per product";

@@ -610,6 +610,20 @@
           </span>
           <input id="source-edit-active" type="checkbox">
         </label>
+        <!-- A DISPLAY rule, and it says so: nothing about the crawl or the
+             stored rows changes. The owner asked for it per source because it
+             is right for a shop that sells one product in six colours at one
+             price, and wrong for a shop whose variations mean something. -->
+        <label class="source-edit-switch" for="source-edit-fold">
+          <span>
+            <strong>Group same-priced variations into one row</strong>
+            <small id="source-edit-fold-help">
+              Affects the table only. Every variation is still collected and
+              still listed in the record panel, with its own code and link.
+            </small>
+          </span>
+          <input id="source-edit-fold" type="checkbox">
+        </label>
         <div class="source-edit-actions">
           <button id="source-edit-save" type="submit">Save changes</button>
           <span id="source-edit-result" class="hint" role="status" aria-live="polite"></span>

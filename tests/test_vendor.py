@@ -301,8 +301,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # and lock image-navigation controls against the global pressed transform.
     # design-system-39: the three export actions now live in one accessible,
     # dismissible format menu without changing any export behaviour.
-    assert '/static/grid.js?v=design-system-39' in page
-    assert '/static/grid-theme.css?v=design-system-39' in page
+    # design-system-40: the ALL|ONE control above the table, which folds a
+    # product's same-priced variations into one row. Without the bump the
+    # owner's browser keeps a cached grid that has no such control.
+    assert '/static/grid.js?v=design-system-40' in page
+    assert '/static/grid-theme.css?v=design-system-40' in page
 
 
 def test_material_header_icons_are_local_and_dry():

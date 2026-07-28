@@ -40,6 +40,8 @@ def entry_to_block(entry: SourceEntry) -> str:
         body["fallback_families"] = dumped["fallback_families"]
     if dumped.get("auth_required"):
         body["auth_required"] = True
+    if dumped.get("fold_variants"):
+        body["fold_variants"] = True
     identity = dumped.get("identity") or {}
     if identity != IdentityRules().model_dump(mode="json"):
         body["identity"] = identity

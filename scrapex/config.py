@@ -209,6 +209,13 @@ class SourceEntry(BaseModel):
     # vat_mode on its own is a claim, not a source.
     tax: list[TaxEvidence] = Field(default_factory=list)
     extract: list[ExtractSpec] = Field(min_length=1)
+    # DISPLAY, not capture. samehgabriel sells 18 products in 6 colours each, so
+    # the table showed 108 rows differing only by colour. With this on, the page
+    # folds a product's SAME-PRICED variations into one row and lists them
+    # together; the warehouse still stores all 108, because what the site
+    # published is the record. Per source because it is not universally right —
+    # MADAR's variations are a different kind of thing. Owner ruling 2026-07-28.
+    fold_variants: bool = False
     # F6 volume-sanity canary (generalized samehgabriel canary):
     min_expected_rows: int | None = Field(default=None, ge=0)
     max_drop_pct: int | None = Field(default=None, ge=0, le=100)

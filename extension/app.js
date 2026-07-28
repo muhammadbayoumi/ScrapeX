@@ -424,6 +424,7 @@ function renderSourceEditor(source) {
       ? `This would erase ${parts.join(", ")}.` : "";
   }).catch(() => { $("source-edit-holds").textContent = "—"; });
 
+  $("source-edit-fold").checked = Boolean(source.fold_variants);
   const active = $("source-edit-active");
   active.checked = Boolean(source.active);
   active.disabled = !ready;
@@ -465,6 +466,7 @@ async function saveSourceEditor() {
       currency: $("source-edit-currency").value.trim(),
       cadence: $("source-edit-cadence").value,
       vat_mode: $("source-edit-vat").value,
+      fold_variants: $("source-edit-fold").checked,
     };
     const changed = Object.entries(edits).some(
       ([field, value]) => String(source[field] ?? "") !== String(value));
