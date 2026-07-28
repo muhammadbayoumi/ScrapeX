@@ -1080,7 +1080,7 @@
   border-color: var(--accent);
   transform: translateY(-50%);
 }
-.selected-product-image-nav:active {
+#offer-panel button.selected-product-image-nav:active:not(:disabled) {
   color: var(--text);
   background: var(--surface);
   border-color: var(--accent-active);
@@ -1339,7 +1339,7 @@
   margin: var(--sp-2) var(--sp-1) 0;
 }
 .record-inspector-nav-sections {
-  margin: var(--sp-2) var(--sp-1) var(--sp-3);
+  margin: 0 var(--sp-1) var(--sp-3);
 }
 .record-inspector-nav button {
   display: grid;
@@ -1381,6 +1381,7 @@
   width: 2rem;
   height: 1px;
   flex: 0 0 1px;
+  margin-block: var(--sp-1);
   background: var(--line-strong);
 }
 .record-inspector-nav-icon {

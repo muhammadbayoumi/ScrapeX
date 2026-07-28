@@ -297,8 +297,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # `product_link`, the same key the export already used.
     # design-system-37: contain both inspector button groups, inset the gallery
     # scrollbar, and bridge the live server's legacy effective_price field.
-    assert '/static/grid.js?v=design-system-37' in page
-    assert '/static/grid-theme.css?v=design-system-37' in page
+    # design-system-38: centre the divider between the boxed inspector groups
+    # and lock image-navigation controls against the global pressed transform.
+    assert '/static/grid.js?v=design-system-38' in page
+    assert '/static/grid-theme.css?v=design-system-38' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -823,7 +825,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"selected-product-category-label", "Category"' in script
     assert 'materialIconElement("account-tree"' not in script
     assert ".selected-product-card" in css
-    assert ".selected-product-image-nav:active" in css
+    assert "#offer-panel button.selected-product-image-nav:active:not(:disabled)" in css
     assert "transform: translateY(-50%)" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-button" in css
@@ -833,6 +835,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-inspector-nav-sections" in css
     assert ".record-inspector-nav-primary,\n.record-inspector-nav-sections" in css
     assert ".record-inspector-nav-divider" in css
+    assert "margin-block: var(--sp-1)" in css
     assert "grid-template-columns: minmax(0, 24rem) minmax(0, 0fr)" in css
     assert "transform: translateX(-.75rem)" in css
     assert "width: min(24rem, 100%)" in css
