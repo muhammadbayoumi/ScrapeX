@@ -20,8 +20,19 @@
    * .9rem × 1.5 line-height + .6rem on each side; 3.1875 is exactly 1.25×. */
   --grid-row-height: 2.55rem;
   --grid-header-height: 3.1875rem;
-  --grid-header-surface: var(--surface-container-high);
-  --grid-header-hover: var(--control-hover);
+  /* Blend the subtle container with the outline role so the header reads as
+   * one quiet band in light themes without becoming a heavy dark bar. The
+   * same semantic blend stays naturally close to the established dark header. */
+  --grid-header-surface: color-mix(
+    in srgb,
+    var(--surface-container-low) 76%,
+    var(--outline-variant)
+  );
+  --grid-header-hover: color-mix(
+    in srgb,
+    var(--grid-header-surface) 90%,
+    var(--primary)
+  );
   --grid-header-text: var(--on-surface);
   --grid-header-weight: var(--fw-heavy);
   background: var(--table-surface);

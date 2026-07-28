@@ -279,8 +279,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-26: an owner's width (autosize or drag) is widthGrow 0,
     # so fitColumns can never quietly re-stretch it — the intermittent
     # Autosize the owner reported was the cache AND the layout both.
+    # design-system-27 (CSS): the light header uses a distinct semantic
+    # container band instead of disappearing into the white data rows.
     assert '/static/grid.js?v=design-system-26' in page
-    assert '/static/grid-theme.css?v=design-system-26' in page
+    assert '/static/grid-theme.css?v=design-system-27' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -479,8 +481,12 @@ def test_header_is_one_and_a_quarter_normal_rows_and_follows_the_theme():
     tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
     assert "--grid-header-weight: var(--fw-heavy)" in css
     assert "--fw-heavy: 700" in tokens
-    assert "--grid-header-surface: var(--surface-container-high)" in css
-    assert "--grid-header-hover: var(--control-hover)" in css
+    assert "--grid-header-surface: color-mix(" in css
+    assert "var(--surface-container-low) 76%" in css
+    assert "var(--outline-variant)" in css
+    assert "--grid-header-hover: color-mix(" in css
+    assert "var(--grid-header-surface) 90%" in css
+    assert "var(--primary)" in css
     assert "--grid-header-text: var(--on-surface)" in css
     assert "@media (prefers-color-scheme: dark)" not in css
     assert ".tabulator:not(.compact):not(.wrap)" in css
