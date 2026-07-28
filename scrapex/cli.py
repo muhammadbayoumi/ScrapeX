@@ -297,7 +297,7 @@ def _cmd_peek(args: argparse.Namespace) -> int:
     if sample:
         print(f"  {len(sample)} recent observations:")
         for row in sample:
-            vat = "incl" if row["vat_included"] else "excl"
+            vat = "incl" if row["tax_included"] else "excl"
             name = (row["name"] or "")[:48]
             per = f"/{row['unit']}" if row.get("unit") else ""
             print(f"    • {name:50} {row['price']:>10} {row['currency']}{per:<10} "

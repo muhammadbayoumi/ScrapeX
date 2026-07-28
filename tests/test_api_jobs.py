@@ -150,8 +150,8 @@ def test_changes_endpoint_reports_summary_and_feed(client, db_path):
     conn = dbmod.connect(db_path)
     try:
         entry = make_entry()
-        ingest_payloads(conn, entry, [make_payload([one_row(effective_price="100.00")])])
-        ingest_payloads(conn, entry, [make_payload([one_row(effective_price="130.00")],
+        ingest_payloads(conn, entry, [make_payload([one_row(price="100.00")])])
+        ingest_payloads(conn, entry, [make_payload([one_row(price="130.00")],
                                                    scraped_at="2026-07-17T10:00:00Z")])
         conn.commit()
     finally:

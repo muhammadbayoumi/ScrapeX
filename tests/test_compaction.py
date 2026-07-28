@@ -31,7 +31,7 @@ def db_path(tmp_path) -> Path:
     entry = make_entry()
     for date, price in HISTORY:
         ingest_payloads(conn, entry, [make_payload(
-            [one_row(effective_price=price)], scraped_at=f"{date}T10:00:00Z")])
+            [one_row(price=price)], scraped_at=f"{date}T10:00:00Z")])
     conn.commit()
     conn.close()
     return path
@@ -157,7 +157,7 @@ def test_a_successor_missing_a_protected_row_is_refused(conn, db_path, tmp_path)
     tampered = dbmod.connect(out)
     try:
         tampered.execute("DROP TRIGGER trg_price_obs_no_delete")
-        tampered.execute("DELETE FROM price_observation WHERE effective_price = 40.0")
+        tampered.execute("DELETE FROM price_observation WHERE price = 40.0")
         tampered.commit()
     finally:
         tampered.close()

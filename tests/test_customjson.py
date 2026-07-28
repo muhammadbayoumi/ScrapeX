@@ -167,7 +167,7 @@ def test_a_flash_sale_beats_a_trade_price_even_when_the_trade_price_is_lower():
 
 def test_a_flash_price_at_or_above_list_is_charged_but_is_not_called_a_discount():
     """The shop honours any positive flash_sale_price — it never checks that the
-    flash price is lower. We charge what it charges, but `sale_price` stays
+    flash price is lower. We charge what it charges, but `price_sale` stays
     empty so a mispriced flash cannot be reported as a discount it is not."""
     assert _prices({"price": 100, "flash_sale_price": 120}) == ("100", "", "120")
     assert _prices({"price": 100, "flash_sale_price": 100}) == ("100", "", "100")
@@ -190,7 +190,7 @@ def test_the_trade_price_is_kept_as_enrichment_named_for_what_it_is():
     assert trade[0]["raw_value"] == "939.38"
     assert "customer type 2" in trade[0]["attribute_label"]
     # and it is never mistaken for a price row
-    assert not any(r["attribute_code"] in ("sale_price", "effective_price") for r in rows)
+    assert not any(r["attribute_code"] in ("price_sale", "price") for r in rows)
 
 
 def test_a_product_without_a_trade_price_emits_no_trade_row():
@@ -210,7 +210,7 @@ def test_a_product_without_a_trade_price_emits_no_trade_row():
 
 def test_zero_or_null_discount_means_no_sale():
     assert _prices({"price": 120, "specail_price": 0}) == ("120", "", "120")
-    assert _prices({"price": 120, "specail_price": None, "sale_price": None}) == ("120", "", "120")
+    assert _prices({"price": 120, "specail_price": None, "price_sale": None}) == ("120", "", "120")
     assert _prices({"price": 120, "flash_sale_price": 0}) == ("120", "", "120")
 
 
@@ -238,14 +238,14 @@ def test_the_real_response_envelope_is_read():
     first = view.as_dict(table.rows[0])
     assert first["external_product_id"] == "256"
     assert first["product_name_ar"] == "سيكا فيوم 5 كيلو"      # Arabic name preferred
-    assert first["regular_price"] == "325"
+    assert first["price_before"] == "325"
     # No live flash sale -> the shop charges its listing price, and so do we.
-    assert first["sale_price"] == ""
-    assert first["effective_price"] == "325"
-    assert first["currency"] == "EGP" and first["vat_included"] == "1"
+    assert first["price_sale"] == ""
+    assert first["price"] == "325"
+    assert first["currency"] == "EGP" and first["tax_included"] == "1"
     assert first["availability"] == "in_stock"
     # /products/{id} verified live; /product/{id} returns 404.
-    assert first["product_url"] == "https://www.sikaegshop.com/products/256"
+    assert first["product_link"] == "https://www.sikaegshop.com/products/256"
 
 
 def test_an_unreadable_response_fails_loudly_instead_of_returning_zero_rows():
@@ -361,7 +361,7 @@ def test_this_shop_publishes_exactly_ONE_product_shape():
         "type", "product_type", "variants", "variations", "options",
         "attributes", "bundle", "bundle_products", "child_products",
         "has_variants", "is_bundle", "grouped", "grouped_products",
-        "price_range", "min_price", "max_price",
+        "price_range", "price_min", "price_max",
     }
     for product in PAGE1["data"]:
         found = shape_bearing & set(product)
@@ -653,7 +653,7 @@ def test_the_price_table_is_whole_without_the_detail_pass_sku_is_the_fallback():
     row = RowView(PRODUCT_PRICES, prices.header).as_dict(prices.rows[0])
 
     assert row["external_sku"] == "252"
-    assert row["effective_price"] == "10" and row["availability"] == "in_stock"
+    assert row["price"] == "10" and row["availability"] == "in_stock"
 
 
 def test_a_sibling_shop_that_DOES_publish_a_sku_on_its_list_is_believed():

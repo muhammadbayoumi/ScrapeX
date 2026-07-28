@@ -27,8 +27,8 @@ def db_path(tmp_path: Path) -> Path:
     conn = dbmod.connect(p)
     dbmod.migrate(conn)
     entry = make_entry()
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="100.00")])])
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="130.00")],
+    ingest_payloads(conn, entry, [make_payload([one_row(price="100.00")])])
+    ingest_payloads(conn, entry, [make_payload([one_row(price="130.00")],
                                                scraped_at="2026-07-20T10:00:00Z")])
     conn.commit()
     conn.close()
@@ -312,7 +312,7 @@ def test_every_sortable_column_is_declared_to_the_grid(client):
     the contract the grid is built from rather than a server-rendered link."""
     payload = client.get(f"/api/table/{SOURCE}").json()
     keys = {c["key"] for c in payload["columns"]}
-    assert "product_name" in keys and "effective_price" in keys
+    assert "product_name" in keys and "price" in keys
 
 
 def test_sorting_changes_the_order_and_is_reversible(client, db_path):
@@ -324,11 +324,11 @@ def test_sorting_changes_the_order_and_is_reversible(client, db_path):
         for i, price in enumerate(["5.00", "90.00", "40.00"]):
             ingest_payloads(conn, entry, [make_payload(
                 [one_row(external_product_id=f"p{i}", external_variant_id=f"v{i}",
-                         product_name=f"Item {i}", effective_price=price)])])
-        asc = [r["effective_price"] for r in browse_observations(
-            conn, SOURCE, sort="effective_price", direction="asc").rows]
-        desc = [r["effective_price"] for r in browse_observations(
-            conn, SOURCE, sort="effective_price", direction="desc").rows]
+                         product_name=f"Item {i}", price=price)])])
+        asc = [r["price"] for r in browse_observations(
+            conn, SOURCE, sort="price", direction="asc").rows]
+        desc = [r["price"] for r in browse_observations(
+            conn, SOURCE, sort="price", direction="desc").rows]
     finally:
         conn.close()
     assert asc == sorted(asc) and desc == sorted(desc, reverse=True)
@@ -341,7 +341,7 @@ def test_an_unknown_sort_key_falls_back_instead_of_reaching_sql(client, db_path)
 
     conn = dbmod.connect(db_path)
     try:
-        crafted = browse_observations(conn, SOURCE, sort="po.effective_price; DROP TABLE x--")
+        crafted = browse_observations(conn, SOURCE, sort="po.price; DROP TABLE x--")
         default = browse_observations(conn, SOURCE)
     finally:
         conn.close()
@@ -444,7 +444,7 @@ def test_saved_views_are_reachable_from_the_page_again(client):
 
     saved = client.post(f"/api/views/{SOURCE}",
                         json={"view_name": "غالي فقط",
-                              "config": {"filters": {"effective_price": "gte:120"},
+                              "config": {"filters": {"price": "gte:120"},
                                          "q": "", "sort": "", "direction": "",
                                          "per_page": ""}})
     assert saved.status_code == 200

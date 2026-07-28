@@ -178,8 +178,8 @@ def test_garbage_cursor_and_limit_do_not_crash(conn):
 def test_visible_fields_projects_the_payload_down(conn):
     _seed(conn, count=1)
     page = handle(conn, {"command": "GET_RECORDS", "source_key": SOURCE,
-                         "visible_fields": ["product_name_ar", "effective_price"]})
-    assert set(page["records"][0]) == {"product_name_ar", "effective_price"}
+                         "visible_fields": ["product_name_ar", "price"]})
+    assert set(page["records"][0]) == {"product_name_ar", "price"}
 
 
 def test_records_require_a_source_key(conn):

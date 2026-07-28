@@ -432,7 +432,7 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
         return None  # '-' / 'N/A' cells — skip, don't feed the money parser garbage
     fields = dict(
         material_key=material_key, country_code_alpha2=region, currency=currency, unit=unit,
-        vat_included=vat, effective_price=amount, observed_label="",
+        tax_included=vat, price=amount, observed_label="",
         provenance=provenance, as_of_date=as_of,
         price_basis="converted",
     )
@@ -449,9 +449,9 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
             source_date=country.source_date,
             price_basis="original",
         )
-        if provenance == "observed" and country.usd_price:
+        if provenance == "observed" and country.price_usd:
             # Only the CURRENT price has the printed USD twin; anchors do not.
-            fields["converted_usd_price"] = country.usd_price
+            fields["converted_usd_price"] = country.price_usd
         if country.unit:
             fields["unit"] = country.unit
     if country:
@@ -459,7 +459,7 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
         # attribution belongs to the page's figures as a set, and an absent one
         # stays empty — "not stated" is an answer, invention is not.
         fields.update(official_source_name=country.source_name,
-                      official_source_url=country.source_url)
+                      official_source_link=country.source_url)
     return builder.row(**fields)
 
 
@@ -569,7 +569,7 @@ class CountryPrice:
     price: str = ""            # in the source's own currency
     currency: str = ""
     unit: str = ""
-    usd_price: str = ""        # the site's own conversion, kept for reference
+    price_usd: str = ""        # the site's own conversion, kept for reference
     source_date: str = ""      # what the site calls "Last update"
     available_from: str = ""
     frequency: str = ""
@@ -588,7 +588,7 @@ def _rows_of(table) -> list[list[str]]:
 
 
 def _compact_local_price(rows: list[list[str]]) -> tuple[str, str, str, str] | None:
-    """(price, currency, unit, usd_price) from the compact template, or None.
+    """(price, currency, unit, price_usd) from the compact template, or None.
 
     Guarded tightly — this must recognize the shape, never approximate one:
     a header cell that IS the unit ("Liter"), and EVERY body row keyed by a
@@ -714,7 +714,7 @@ def parse_country_page(html: str) -> CountryPrice:
             source_name = link.get_text(" ", strip=True)
             source_url = (link.get("href") or "").strip()
 
-    return CountryPrice(price=price, currency=currency, unit=unit, usd_price=usd,
+    return CountryPrice(price=price, currency=currency, unit=unit, price_usd=usd,
                         source_date=source_date, available_from=available,
                         frequency=frequency, history=tuple(history),
                         analytics=tuple(analytics),

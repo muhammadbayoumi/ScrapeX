@@ -163,7 +163,7 @@ def _product_sku(r) -> str:
 def _with_product_sku(r) -> dict:
     """The row plus the derived product sku, for the field-diff comparison."""
     incoming = {key: r.get(key) for key in
-                ("product_name", "product_url", "brand", "brand_ar", "external_sku",
+                ("product_name", "product_link", "brand", "brand_ar", "external_sku",
                  "category_path", "category_path_ar", "category_external_id",
                  "product_name_ar", "lang", "parent_sku")}
     incoming["product_sku"] = _product_sku(r)
@@ -201,7 +201,7 @@ def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
 
 def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
                  job_id: int | None = None) -> tuple[int, str, bool]:
-    """(source_product_id, curation_status, created). Upserts by the owner's
+    """(source_product_id, curation, created). Upserts by the owner's
     UNIQUE(source_id, external_product_id).
 
     Also RECORDS and APPLIES changes to the tracked descriptive fields: before
@@ -209,7 +209,7 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
     the change was neither stored as history nor reflected in current state.
     """
     row = conn.execute(
-        "SELECT source_product_id, curation_status, product_name_ar, product_url, brand, brand_ar, "
+        "SELECT source_product_id, curation, product_name_ar, product_link, brand, brand_ar, "
         "       external_sku, status, category_path_ar, category_external_id, "
         "       product_name, product_name_lang, category_path "
         "FROM source_product WHERE source_id = ? AND external_product_id = ?",
@@ -233,7 +233,7 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
             # `column` comes from the fixed TRACKED_PRODUCT_FIELDS tuple, never input.
             conn.execute(f"UPDATE source_product SET {column} = ? WHERE source_product_id = ?",
                          (new, pid))
-        return pid, row["curation_status"], False
+        return pid, row["curation"], False
     pid = _insert(conn, "source_product", {
         "source_id": source_id,
         "external_product_id": r["external_product_id"],
@@ -244,7 +244,7 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
         "external_sku": _product_sku(r) or None,
         "parent_sku": r.get("parent_sku") or "",
         "product_name_ar": r.get("product_name_ar") or None,
-        "product_url": r["product_url"] or None,
+        "product_link": r["product_link"] or None,
         "brand": r["brand"] or None,
         "brand_ar": r["brand_ar"] or None,
         # .get: the commodity spec has no classification columns, and old
@@ -255,7 +255,7 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
         "product_name": r["product_name"] or "",
         "product_name_lang": r.get("lang") or "",
         "has_variants": 1 if r["external_variant_id"] or r["option_fingerprint"] else 0,
-        "curation_status": CurationStatus.INVENTORIED.value,
+        "curation": CurationStatus.INVENTORIED.value,
     })
     record_change(conn, ChangeType.NEW, "source_product", source_product_id=pid,
                   # Either name, whichever the source publishes: an
@@ -481,7 +481,7 @@ def _basis_quantity(raw: str) -> float:
 
 
 def _get_offer_id(conn, variant_id: int, r: dict) -> int:
-    vat = 1 if r["vat_included"] == "1" else 0
+    vat = 1 if r["tax_included"] == "1" else 0
     unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
     basis = _basis_quantity(r.get("basis_quantity", ""))
     # The unit is part of what an offer IS: 15 per litre and 15 per gallon are
@@ -522,7 +522,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         "source_variant_id": variant_id,
         "country_code_alpha2": r["country_code_alpha2"],
         "currency": r["currency"],
-        "vat_included": vat,
+        "tax_included": vat,
         "selling_unit_id": unit_id,
         "basis_quantity": basis,
     })
@@ -552,12 +552,12 @@ def _canon_amount(value: Decimal | None) -> str:
 
 
 def _observation_values(r: dict, observed_at: str) -> dict:
-    effective = parse_money(r["effective_price"])
+    effective = parse_money(r["price"])
     if effective is None:
-        raise ValueError("effective_price is empty after parsing")
-    regular = parse_money(r["regular_price"]) if r["regular_price"] else None
-    sale = parse_money(r["sale_price"]) if r["sale_price"] else None
-    vat = 1 if r["vat_included"] == "1" else 0
+        raise ValueError("price is empty after parsing")
+    regular = parse_money(r["price_before"]) if r["price_before"] else None
+    sale = parse_money(r["price_sale"]) if r["price_sale"] else None
+    vat = 1 if r["tax_included"] == "1" else 0
     availability = r["availability"] or Availability.UNKNOWN.value
     if availability not in {a.value for a in Availability}:
         availability = Availability.UNKNOWN.value
@@ -602,11 +602,11 @@ def _observation_values(r: dict, observed_at: str) -> dict:
     return {
         "observed_at": observed_at,
         "business_date": observed_at[:10],
-        "regular_price": _to_float(regular),
-        "sale_price": _to_float(sale),
-        "effective_price": _to_float(effective),
+        "price_before": _to_float(regular),
+        "price_sale": _to_float(sale),
+        "price": _to_float(effective),
         "currency": r["currency"],
-        "vat_included": vat,
+        "tax_included": vat,
         "availability": availability,
         "stock_quantity": stock,
         "record_hash": content_hash,
@@ -893,8 +893,8 @@ def _commodity_to_product_row(c: dict) -> dict:
         "product_name_ar": c.get("material_label_ar", ""),
         "country_code_alpha2": c["country_code_alpha2"],
         "currency": c["currency"],
-        "vat_included": c.get("vat_included", ""),
-        "effective_price": c["effective_price"],
+        "tax_included": c.get("tax_included", ""),
+        "price": c["price"],
         "unit": c.get("unit", ""),
         # A row the SOURCE dates versus a row WE date. These used to be dropped
         # here, which stamped every reported history anchor with the crawl date:
@@ -906,7 +906,7 @@ def _commodity_to_product_row(c: dict) -> dict:
         # Who states this figure, per the page it came from. Optional — a page
         # that names no source stays empty rather than being invented.
         "official_source_name": c.get("official_source_name", ""),
-        "official_source_url": c.get("official_source_url", ""),
+        "official_source_link": c.get("official_source_link", ""),
     })
     return row
 
@@ -1012,16 +1012,16 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
             return
         cur = conn.execute(
             "INSERT OR IGNORE INTO price_observation "
-            "(offer_id, observed_at, business_date, regular_price, sale_price, "
-            " effective_price, currency, vat_included, availability, stock_quantity, "
+            "(offer_id, observed_at, business_date, price_before, price_sale, "
+            " price, currency, tax_included, availability, stock_quantity, "
             " run_id, record_hash, price_hash, price_fields, provenance, "
-            " official_source_name, official_source_url) "
+            " official_source_name, official_source_link) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'reported',?,?)",
-            (offer_id, v["observed_at"], r["as_of_date"], v["regular_price"],
-             v["sale_price"], v["effective_price"], v["currency"], v["vat_included"],
+            (offer_id, v["observed_at"], r["as_of_date"], v["price_before"],
+             v["price_sale"], v["price"], v["currency"], v["tax_included"],
              v["availability"], v["stock_quantity"], run_id, v["record_hash"],
              v["price_hash"], v["price_fields"],
-             r.get("official_source_name", ""), r.get("official_source_url", "")),
+             r.get("official_source_name", ""), r.get("official_source_link", "")),
         )
         if cur.rowcount == 1:
             result.observations += 1
@@ -1044,21 +1044,21 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
     # backfill whose business_date is years old, and comparing today's price
     # against a 2016 anchor would record a change nobody's price ever made.
     previous = conn.execute(
-        "SELECT effective_price, availability, currency FROM price_observation "
+        "SELECT price, availability, currency FROM price_observation "
         "WHERE offer_id = ? AND provenance = 'observed' "
         "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1", (offer_id,)
     ).fetchone()
     cur = conn.execute(
         "INSERT OR IGNORE INTO price_observation "
-        "(offer_id, observed_at, business_date, regular_price, sale_price, effective_price, "
-        " currency, vat_included, availability, stock_quantity, run_id, record_hash, "
-        "price_hash, price_fields, provenance, official_source_name, official_source_url) "
+        "(offer_id, observed_at, business_date, price_before, price_sale, price, "
+        " currency, tax_included, availability, stock_quantity, run_id, record_hash, "
+        "price_hash, price_fields, provenance, official_source_name, official_source_link) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'observed',?,?)",
-        (offer_id, v["observed_at"], v["business_date"], v["regular_price"], v["sale_price"],
-         v["effective_price"], v["currency"], v["vat_included"], v["availability"],
+        (offer_id, v["observed_at"], v["business_date"], v["price_before"], v["price_sale"],
+         v["price"], v["currency"], v["tax_included"], v["availability"],
          v["stock_quantity"], run_id, v["record_hash"],
          v["price_hash"], v["price_fields"],
-         r.get("official_source_name", ""), r.get("official_source_url", "")),
+         r.get("official_source_name", ""), r.get("official_source_link", "")),
     )
     if cur.rowcount == 1:
         result.observations += 1
@@ -1077,11 +1077,11 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
                               previous_value=previous["currency"],
                               new_value=v["currency"], **ids)
             else:
-                moved = classify_price(previous["effective_price"], v["effective_price"])
+                moved = classify_price(previous["price"], v["price"])
                 if moved is not None:
-                    record_change(conn, moved, "effective_price",
-                                  previous_value=previous["effective_price"],
-                                  new_value=v["effective_price"], **ids)
+                    record_change(conn, moved, "price",
+                                  previous_value=previous["price"],
+                                  new_value=v["price"], **ids)
             stock_moved = classify_availability(previous["availability"], v["availability"])
             if stock_moved is not None:
                 record_change(conn, stock_moved, "availability",

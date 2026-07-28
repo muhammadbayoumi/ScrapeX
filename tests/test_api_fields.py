@@ -53,7 +53,7 @@ def test_fields_are_discovered_from_the_real_export(client):
     # from export_source_table's constant header — merely opening the panel used
     # to register columns the source does not publish, and ensure_fields is
     # additive, so they stayed in the list forever.
-    assert "effective_price" in keys and "product_name" in keys
+    assert "price" in keys and "product_name" in keys
     assert all(f["display_name"] is None and not f["is_hidden"] for f in body["fields"])
 
 
@@ -87,7 +87,7 @@ def test_reset_restores_everything(client):
 def test_saved_views_crud(client):
     client.get(f"/api/fields/{SOURCE}")
     made = client.post(f"/api/views/{SOURCE}",
-                       json={"view_name": "Prices", "config": {"columns": ["effective_price"]}})
+                       json={"view_name": "Prices", "config": {"columns": ["price"]}})
     assert made.status_code == 200
     view_id = made.json()["saved_view_id"]
     assert client.get(f"/api/fields/{SOURCE}").json()["views"][0]["view_name"] == "Prices"

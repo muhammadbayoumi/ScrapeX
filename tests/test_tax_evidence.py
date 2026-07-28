@@ -54,7 +54,7 @@ def payload(rows) -> FunnelPayload:
 
 def row(**over) -> list[str]:
     fields = dict(external_product_id="P1", product_name_ar="أسمنت", country_code_alpha2="SA",
-                  currency="SAR", vat_included="1", effective_price="325")
+                  currency="SAR", tax_included="1", price="325")
     fields.update(over)
     return RowBuilder(PRODUCT_PRICES).row(**fields)
 
@@ -149,8 +149,8 @@ def test_evidence_from_the_manifest_reaches_the_table(conn):
 
     assert shown["tax_evidence"] == "stated"
     assert shown["tax_rate_pct"] == 15
-    assert shown["tax_statement_url"] == "https://shop.example/terms"
-    assert shown["tax_label"] == "Incl. 15% tax"
+    assert shown["tax_statement"] == "https://shop.example/terms"
+    assert shown["tax"] == "Incl. 15% tax"
 
 
 def test_a_source_with_no_tax_block_reports_unverified_not_incl(conn):
@@ -162,7 +162,7 @@ def test_a_source_with_no_tax_block_reports_unverified_not_incl(conn):
 
     assert shown["tax_evidence"] == "unknown"
     assert shown["tax_verified"] is False
-    assert shown["tax_label"] == "Tax treatment unverified"
+    assert shown["tax"] == "Tax treatment unverified"
 
 
 def test_the_export_carries_the_evidence_and_where_to_read_it(conn):
@@ -170,10 +170,10 @@ def test_the_export_carries_the_evidence_and_where_to_read_it(conn):
 
     header, table = export_source_table(conn, "SHOP")
 
-    assert {"tax_evidence", "tax_rate_pct", "tax_statement_url"} <= set(header)
+    assert {"tax_evidence", "tax_rate_pct", "tax_statement"} <= set(header)
     assert table[0][header.index("tax_evidence")] == "stated"
     assert table[0][header.index("tax_rate_pct")] == 15
-    assert table[0][header.index("tax_statement_url")] == "https://shop.example/terms"
+    assert table[0][header.index("tax_statement")] == "https://shop.example/terms"
     assert all(len(r) == len(header) for r in table), "a column shifted the row"
 
 
@@ -187,9 +187,9 @@ def test_the_export_carries_the_evidence_and_where_to_read_it(conn):
 # "Incl. 15%" and half the table was false.
 
 SIMPLE = dict(external_product_id="P-SIMPLE", product_name_ar="معجون",
-              vat_included="1", effective_price="4.23")
+              tax_included="1", price="4.23")
 CONFIGURABLE = dict(external_product_id="P-CONFIG", product_name_ar="خشب أبلكاش",
-                    vat_included="0", effective_price="50.4")
+                    tax_included="0", price="50.4")
 
 
 def test_both_tax_states_of_one_source_render_side_by_side(conn):
@@ -198,15 +198,15 @@ def test_both_tax_states_of_one_source_render_side_by_side(conn):
 
     shown = {r["product_name_ar"]: r for r in browse_observations(conn, "SHOP").rows}
 
-    assert shown["معجون"]["tax_label"] == "Incl. 15% tax"
-    assert shown["خشب أبلكاش"]["tax_label"] == "Excl. 15% tax"
-    assert shown["معجون"]["tax_label"] != shown["خشب أبلكاش"]["tax_label"], \
+    assert shown["معجون"]["tax"] == "Incl. 15% tax"
+    assert shown["خشب أبلكاش"]["tax"] == "Excl. 15% tax"
+    assert shown["معجون"]["tax"] != shown["خشب أبلكاش"]["tax"], \
         "one source's two tax states collapsed into one label"
     # The rate, the sentence and the link stay the SOURCE's — only incl/excl is
     # the row's. A per-row label that also invented a per-row rate would be a
     # different lie.
     assert all(r["tax_rate_pct"] == 15 for r in shown.values())
-    assert len({r["tax_statement_url"] for r in shown.values()}) == 1
+    assert len({r["tax_statement"] for r in shown.values()}) == 1
 
 
 def test_the_data_page_sends_a_distinct_tax_state_per_answer(conn):
@@ -225,12 +225,12 @@ def test_the_data_page_sends_a_distinct_tax_state_per_answer(conn):
 
 
 def test_the_export_never_contradicts_its_own_vat_column(conn):
-    """vat_included says "no" and tax_evidence said "incl" two columns away."""
+    """tax_included says "no" and tax_evidence said "incl" two columns away."""
     ingest_payloads(conn, entry([STATED]),
                     [payload([row(**SIMPLE), row(**CONFIGURABLE)])])
 
     header, table = export_source_table(conn, "SHOP")
-    vat = header.index("vat_included")
+    vat = header.index("tax_included")
     name = header.index("product_name_ar")
     by_name = {r[name]: r for r in table}
 
@@ -255,7 +255,7 @@ def test_changing_a_rate_closes_the_old_rule_instead_of_editing_it(conn):
     silently restate the tax position of every price ever recorded under it."""
     ingest_payloads(conn, entry([STATED]), [payload([row()])])
     raised = STATED.model_copy(update={"rate_pct": 20.0})
-    ingest_payloads(conn, entry([raised]), [payload([row(effective_price="330")])])
+    ingest_payloads(conn, entry([raised]), [payload([row(price="330")])])
 
     rules = conn.execute(
         "SELECT rate_pct, valid_to FROM tax_rule ORDER BY tax_rule_id").fetchall()
@@ -267,7 +267,7 @@ def test_changing_a_rate_closes_the_old_rule_instead_of_editing_it(conn):
 
 def test_an_unchanged_rule_is_not_rewritten_every_crawl(conn):
     ingest_payloads(conn, entry([STATED]), [payload([row()])])
-    ingest_payloads(conn, entry([STATED]), [payload([row(effective_price="330")])])
+    ingest_payloads(conn, entry([STATED]), [payload([row(price="330")])])
 
     assert conn.execute("SELECT count(*) FROM tax_rule").fetchone()[0] == 1
 
@@ -275,7 +275,7 @@ def test_an_unchanged_rule_is_not_rewritten_every_crawl(conn):
 def test_only_one_rule_per_region_is_ever_current(conn):
     ingest_payloads(conn, entry([STATED]), [payload([row()])])
     ingest_payloads(conn, entry([STATED.model_copy(update={"rate_pct": 20.0})]),
-                    [payload([row(effective_price="330")])])
+                    [payload([row(price="330")])])
 
     current = conn.execute(
         "SELECT count(*) FROM tax_rule WHERE region = '*' AND valid_to IS NULL").fetchone()[0]

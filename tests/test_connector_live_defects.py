@@ -182,7 +182,7 @@ def test_a_category_shape_we_do_not_recognise_yields_nothing_invented():
     assert category_path({"category": 17}) == ""
 
 
-# ---- Hybris: every product_url was a 404 -------------------------------------
+# ---- Hybris: every product_link was a 404 -------------------------------------
 
 def test_the_masdar_product_url_carries_the_storefront_prefix():
     """Live 2026-07-23: the OCC payload states only

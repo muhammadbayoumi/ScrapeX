@@ -27,7 +27,7 @@ Field census over all 87 live products (2026-07-23):
   price                87/87 non-null   list price, what the public is charged
   specail_price        78/87 non-null   trade-tier price, always 15-40% below
                                         `price`, never equal, never above
-  sale_price            0/87            null on every product
+  price_sale            0/87            null on every product
   flash_sale_price      0/87            null today; a live flash sale fills it
   flash_sale_discount   0/87            null today; percent off, badge only
   flash_sale_info       0/87            null today; carries `min_quantity`
@@ -167,7 +167,7 @@ def _prices(product: dict) -> tuple[str, str, str]:
         return "", "", ""
     # Branch (1): the shop honours ANY positive flash_sale_price — it does not
     # check that the flash price is lower. We charge what it charges; we only
-    # call it a `sale_price` when it genuinely undercuts the list price, so a
+    # call it a `price_sale` when it genuinely undercuts the list price, so a
     # mispriced flash can never be reported as a discount it is not.
     effective = flash if flash is not None else regular
     # Branch (2) is deliberately absent: unreachable for an anonymous crawl.
@@ -457,9 +457,9 @@ class CustomJsonConnector:
             category_path=category_en if category_en != category else "",
             category_path_ar=category,
             category_external_id=category_id if category else "",
-            **brand_pair(str(product.get("brand") or "")), product_url=url,
-            country_code_alpha2=region, currency=currency, vat_included=vat,
-            regular_price=regular, sale_price=sale, effective_price=effective,
+            **brand_pair(str(product.get("brand") or "")), product_link=url,
+            country_code_alpha2=region, currency=currency, tax_included=vat,
+            price_before=regular, price_sale=sale, price=effective,
             availability=_availability(product),
             unit=unit, basis_quantity=basis,
         )

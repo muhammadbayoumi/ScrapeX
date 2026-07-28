@@ -78,7 +78,7 @@
         {{ status_item(watch.state_not_derived, "State coverage", "Records not derived",
                        "/source/" ~ source_key) }}
         {{ status_item(watch.needs_curation, "Curation", "Records waiting for review",
-                       query(**{"f.curation_status": "is:inventoried"})) }}
+                       query(**{"f.curation": "is:inventoried"})) }}
         </div>
       </section>
       {% endif %}

@@ -275,7 +275,9 @@ def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_pa
     # history below, so a column was a second door to the same room. What
     # replaced it is the arrow that opens the record on the site.
     assert "details" not in keys
-    assert "open" in keys
+    # The arrow is `product_link` since 0051 — the same key the export uses,
+    # because they were one fact behind two names.
+    assert "product_link" in keys
     # was_price is NOT a column: it rides inside the price cell, struck
     # through beside the current price (the owner's asked-for shape).
     assert "was_price" not in keys
@@ -283,7 +285,7 @@ def test_the_grid_payload_carries_brand_category_was_discount_and_details(tmp_pa
     row = next(r for r in grid["rows"] if r["discount"])
     assert row["brand_ar"] == "السويدي اليكتريك"
     assert row["category_ar"]
-    assert float(row["was_price"]) > float(row["effective_price"])
+    assert float(row["was_price"]) > float(row["price"])
     # The discount is TWO numbers now, in the table as it already was in the
     # export (the owner's ask). This used to assert one string - "-84.67
     # (-7.0%)" - which can be sorted by neither the amount saved nor how deep

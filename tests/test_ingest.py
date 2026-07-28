@@ -52,8 +52,8 @@ def one_row(**over) -> list[str]:
         # helper an Arabic half by default would put it into the price key of
         # every test that builds on it, which is not what this source is.
         product_name="LED Floodlight 400W", brand="Elsewedy", brand_ar="",
-        country_code_alpha2="EG", currency="EGP", vat_included="1",
-        regular_price="1,200.00", sale_price="", effective_price="1,200.00",
+        country_code_alpha2="EG", currency="EGP", tax_included="1",
+        price_before="1,200.00", price_sale="", price="1,200.00",
         availability="in_stock",
     )
     fields.update(over)
@@ -67,13 +67,13 @@ def test_ingest_creates_full_chain(conn):
     assert (result.products, result.variants, result.observations) == (1, 1, 1)
     assert result.status.value == "success"
     assert conn.execute("SELECT external_product_id FROM source_product").fetchone()[0] == "1001"
-    obs = conn.execute("SELECT effective_price, vat_included, currency FROM price_observation").fetchone()
+    obs = conn.execute("SELECT price, tax_included, currency FROM price_observation").fetchone()
     assert obs[0] == 1200.00 and obs[1] == 1 and obs[2] == "EGP"  # comma parsed by the shared parser
 
 
 def test_new_source_product_is_inventoried(conn):
     ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
-    status = conn.execute("SELECT curation_status FROM source_product").fetchone()[0]
+    status = conn.execute("SELECT curation FROM source_product").fetchone()[0]
     assert status == CurationStatus.INVENTORIED.value
 
 
@@ -93,7 +93,7 @@ def test_reingest_same_content_is_idempotent(conn):
 def test_changed_price_appends_new_observation(conn):
     entry = make_entry()
     ingest_payloads(conn, entry, [make_payload([one_row()])])
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="1,300.00")],
+    ingest_payloads(conn, entry, [make_payload([one_row(price="1,300.00")],
                                               scraped_at="2026-07-17T10:00:00Z")])
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 2
 
@@ -103,9 +103,9 @@ def test_changed_price_appends_new_observation(conn):
 def test_ignored_product_skips_observation(conn):
     entry = make_entry()
     ingest_payloads(conn, entry, [make_payload([one_row()])])
-    conn.execute("UPDATE source_product SET curation_status = 'ignored'")
+    conn.execute("UPDATE source_product SET curation = 'ignored'")
     result = ingest_payloads(conn, entry,
-                             [make_payload([one_row(effective_price="9,999.00")],
+                             [make_payload([one_row(price="9,999.00")],
                                            scraped_at="2026-07-18T10:00:00Z")])
     assert result.skipped_ignored == 1
     # No new observation for the ignored product:
@@ -137,7 +137,7 @@ def test_ingest_rejects_out_of_scope_row(conn):
 
 def test_one_bad_row_does_not_kill_the_batch(conn):
     good = one_row(external_product_id="1001", external_variant_id="5001")
-    bad = one_row(external_product_id="1002", external_variant_id="5002", effective_price="Call us")
+    bad = one_row(external_product_id="1002", external_variant_id="5002", price="Call us")
     result = ingest_payloads(conn, make_entry(), [make_payload([good, bad])])
     assert result.observations == 1
     assert len(result.errors) == 1 and "row 1" in result.errors[0]
@@ -154,7 +154,7 @@ def test_header_drift_payload_is_rejected_whole(conn):
     # design, so renaming whichever happens to be last no longer proves drift
     # detection — it would pass for the wrong reason.
     renamed = list(payload.header)
-    renamed[renamed.index("effective_price")] = "renamed_col"
+    renamed[renamed.index("price")] = "renamed_col"
     broken = payload.model_copy(update={"header": renamed})
     result = ingest_payloads(conn, make_entry(), [broken])
     assert result.observations == 0 and any("header drift" in e for e in result.errors)
@@ -167,8 +167,8 @@ def test_price_scale_does_not_fork_the_dedupe_hash(conn):
     kept the scale, so a source that reformatted its decimals minted a second
     record_hash and appended a phantom price change to an append-only table."""
     entry = make_entry()
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="0.620")])])
-    second = ingest_payloads(conn, entry, [make_payload([one_row(effective_price="0.62")])])
+    ingest_payloads(conn, entry, [make_payload([one_row(price="0.620")])])
+    second = ingest_payloads(conn, entry, [make_payload([one_row(price="0.62")])])
     assert second.observations == 0 and second.confirmed == 1
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
 
@@ -181,12 +181,12 @@ def test_same_day_price_change_publishes_the_newer_price(conn):
     from scrapex.reports import export_source_table
 
     entry = make_entry()
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="100.00")])])
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="130.00")])])
+    ingest_payloads(conn, entry, [make_payload([one_row(price="100.00")])])
+    ingest_payloads(conn, entry, [make_payload([one_row(price="130.00")])])
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 2
 
     header, rows = export_source_table(conn, "ELSEWEDYSHOP")
-    prices = [r[header.index("effective_price")] for r in rows]
+    prices = [r[header.index("price")] for r in rows]
     assert prices == [130.00]  # the NEWER price, not the superseded one
 
 
@@ -203,8 +203,8 @@ def test_ingest_never_updates_price_observation(conn):
     ingest_payloads(conn, entry, [make_payload([one_row()])])
     # A changed price on the SAME business_date + offer: different record_hash
     # -> a NEW row (append), not an update.
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="1,250.00")])])
-    prices = {r[0] for r in conn.execute("SELECT effective_price FROM price_observation")}
+    ingest_payloads(conn, entry, [make_payload([one_row(price="1,250.00")])])
+    prices = {r[0] for r in conn.execute("SELECT price FROM price_observation")}
     assert prices == {1200.00, 1250.00}
 
 
@@ -222,7 +222,7 @@ def test_partial_run_still_derives_offer_state_and_price_period(conn):
 
     good = one_row(external_product_id="1001", external_variant_id="5001")
     bad = one_row(external_product_id="1002", external_variant_id="5002",
-                  effective_price="Call us")
+                  price="Call us")
     result = ingest_payloads(conn, make_entry(), [make_payload([good, bad])])
     assert result.errors and result.status.value == "partial"    # the trigger
 
@@ -246,7 +246,7 @@ def test_partial_run_does_not_advance_confirmations(conn):
                           "WHERE offer_id = ?", (offer_id,)).fetchone()[0]
 
     bad = one_row(external_product_id="1002", external_variant_id="5002",
-                  effective_price="Call us")
+                  price="Call us")
     later = ingest_payloads(conn, entry, [make_payload(
         [one_row(), bad], scraped_at="2026-07-17T10:00:00Z")])
     # The unchanged price appended nothing, so errors + zero observations reads
@@ -292,10 +292,10 @@ def test_a_currency_flip_never_reaches_the_change_feed_as_a_price_move(conn):
     offer — and comparing their bare numbers would put a −98% crash in the
     change feed when nobody's price moved. The flip itself is the event."""
     ingest_payloads(conn, make_entry(), [make_payload(
-        [one_row(effective_price="0.40", currency="USD")],
+        [one_row(price="0.40", currency="USD")],
         scraped_at="2026-07-01T10:00:00Z")])
     ingest_payloads(conn, make_entry(), [make_payload(
-        [one_row(effective_price="20.50", currency="EGP")],
+        [one_row(price="20.50", currency="EGP")],
         scraped_at="2026-07-08T10:00:00Z")])
 
     events = conn.execute(
@@ -315,15 +315,15 @@ def test_a_product_that_now_publishes_real_variants_retires_its_stand_in(conn):
     product's REAL variants — and leave a change event, not a silence."""
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_product_id="10150", external_variant_id="10150",
-                effective_price="450.00", regular_price="450.00")])])
+                price="450.00", price_before="450.00")])])
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_product_id="10150", external_variant_id="10491",
-                effective_price="2,776.66", regular_price="2,776.66")])])
+                price="2,776.66", price_before="2,776.66")])])
 
     from scrapex.reports import table_payload
     grid = table_payload(conn, "ELSEWEDYSHOP")
     assert len(grid["rows"]) == 1, "the stand-in kept posing as a current offer"
-    assert grid["rows"][0]["effective_price"] == 2776.66
+    assert grid["rows"][0]["price"] == 2776.66
     event = conn.execute(
         "SELECT change_type FROM change_event WHERE field_key = 'variant_status'"
     ).fetchone()
@@ -335,17 +335,17 @@ def test_republishing_the_stand_in_reactivates_it_with_an_event(conn):
     fails; its return to the table is an event, not a secret."""
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_product_id="10150", external_variant_id="10150",
-                effective_price="450.00", regular_price="450.00")])])
+                price="450.00", price_before="450.00")])])
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_product_id="10150", external_variant_id="10491",
-                effective_price="2,776.66", regular_price="2,776.66")])])
+                price="2,776.66", price_before="2,776.66")])])
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_product_id="10150", external_variant_id="10150",
-                effective_price="455.00", regular_price="455.00")])])
+                price="455.00", price_before="455.00")])])
 
     from scrapex.reports import table_payload
     grid = table_payload(conn, "ELSEWEDYSHOP")
-    prices = sorted(r["effective_price"] for r in grid["rows"])
+    prices = sorted(r["price"] for r in grid["rows"])
     assert prices == [455.0, 2776.66], "the reactivated stand-in must be back"
     returned = conn.execute(
         "SELECT COUNT(*) FROM change_event WHERE field_key = 'variant_status' "

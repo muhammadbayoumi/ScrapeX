@@ -47,7 +47,7 @@ class TaxState:
     def verified(self) -> bool:
         return self.evidence != "unknown"
 
-    def for_row(self, vat_included: bool) -> "TaxState":
+    def for_row(self, tax_included: bool) -> "TaxState":
         """The same evidence, read for ONE row's own figure.
 
         Two different facts had been collapsed into one. The RULE says what tax
@@ -63,7 +63,7 @@ class TaxState:
         "Incl. 15%" in the same table. The rate, the sentence and the link stay
         the source's; incl/excl comes from the row.
         """
-        mode = "incl" if vat_included else "excl"
+        mode = "incl" if tax_included else "excl"
         return self if mode == self.vat_mode else replace(self, vat_mode=mode)
 
     def label(self) -> str:
@@ -95,7 +95,7 @@ class TaxState:
     def as_dict(self) -> dict:
         return {"tax_evidence": self.evidence, "tax_mode": self.vat_mode,
                 "tax_rate_pct": self.rate_pct, "tax_statement": self.statement_text,
-                "tax_statement_url": self.statement_url, "tax_label": self.label(),
+                "tax_statement": self.statement_url, "tax": self.label(),
                 "tax_short": self.short_label(), "tax_verified": self.verified}
 
 

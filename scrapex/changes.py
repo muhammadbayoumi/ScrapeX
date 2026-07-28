@@ -20,7 +20,7 @@ TRACKED_PRODUCT_FIELDS = (
     # column, one logged FIELD_UPDATED per row: the write path runs off
     # this same tuple (ingest applies UPDATE source_product SET {column}).
     ("product_name_ar", "product_name_ar"),
-    ("product_url", "product_url"),
+    ("product_link", "product_link"),
     # Both halves of the brand, tracked separately: a shop that adds the
     # English name beside an Arabic one it already published has told us
     # something, and one combined column could not say which side moved.
@@ -49,7 +49,7 @@ TRACKED_PRODUCT_FIELDS = (
 # Fields whose OLD value is an identity worth remembering (spec 14): if a site
 # re-slugs a URL or re-issues a SKU, the previous value must stay findable or a
 # re-crawl mints a duplicate and splits the price history.
-ALIAS_FIELDS = {"product_url": "product_url", "external_sku": "external_sku"}
+ALIAS_FIELDS = {"product_link": "product_link", "external_sku": "external_sku"}
 
 
 def classify_price(previous: Decimal | float | None,
@@ -209,7 +209,7 @@ def _collapse_new_pairs(items: list[dict]) -> list[dict]:
 # both sides, which states nothing. The stored keys never change (they are the
 # vocabulary); only their names for humans live here.
 _FIELD_LABELS = {
-    "effective_price": "price",
+    "price": "price",
     "availability": "availability",
     "source_product": "record",
     "source_variant": "variant",

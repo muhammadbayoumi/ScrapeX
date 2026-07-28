@@ -190,7 +190,7 @@ class WooCommerceConnector:
             # populated exactly when `prices.price` is the LOW END of a span
             # rather than a price (live proof on this very shop, 2026-07-25:
             # product 9803 carries {"min_amount":"208978","max_amount":"209072"}).
-            # Writing 2,089.78 into effective_price for a product that sells
+            # Writing 2,089.78 into price for a product that sells
             # from 2,089.78 to 2,090.72 states a price the shop does not quote.
             if _is_a_range(product):
                 notes.append(
@@ -278,7 +278,7 @@ class WooCommerceConnector:
             # colour. (This shop's colour slugs disagree with its colour names:
             # «أحمر» is slug `black`. WooCommerce selects by SLUG, so the link
             # is right and the label is right; do not reconcile them.)
-            product_url=carrier.get("permalink") or product.get("permalink") or "",
+            product_link=carrier.get("permalink") or product.get("permalink") or "",
             variant_url=(product.get("permalink") or "") if parent else "",
             parent_sku=str(carrier.get("sku") or ""),
             variant_ar=option,
@@ -293,10 +293,10 @@ class WooCommerceConnector:
             basis_quantity=basis,
             country_code_alpha2=source.default_region,
             currency=prices.get("currency_code") or source.currency or "UNKNOWN",
-            vat_included=vat,
-            regular_price=regular,
-            sale_price=sale if (sale and sale != regular) else "",
-            effective_price=effective,
+            tax_included=vat,
+            price_before=regular,
+            price_sale=sale if (sale and sale != regular) else "",
+            price=effective,
             availability=Availability.IN_STOCK.value if product.get("is_in_stock") else Availability.OUT_OF_STOCK.value,
         )
 

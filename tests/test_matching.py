@@ -102,7 +102,7 @@ def test_approve_links_and_selects_the_product(conn):
     result = decide(conn, match_id, Decision.APPROVE)
     assert result["status"] == ReviewStatus.APPROVED.value
     assert result["material_id"] == material_id
-    assert conn.execute("SELECT curation_status FROM source_product").fetchone()[0] \
+    assert conn.execute("SELECT curation FROM source_product").fetchone()[0] \
         == CurationStatus.SELECTED.value
     assert pending_reviews(conn) == []      # left the queue
 
@@ -222,14 +222,14 @@ def test_undo_retires_the_link_and_keeps_price_history(conn):
 
 def test_a_reslugged_url_becomes_an_alias(conn):
     entry = make_entry()
-    ingest_payloads(conn, entry, [make_payload([one_row(product_url="https://s.com/p/old")])])
-    ingest_payloads(conn, entry, [make_payload([one_row(product_url="https://s.com/p/new")],
+    ingest_payloads(conn, entry, [make_payload([one_row(product_link="https://s.com/p/old")])])
+    ingest_payloads(conn, entry, [make_payload([one_row(product_link="https://s.com/p/new")],
                                                scraped_at="2026-07-17T10:00:00Z")])
     pid = conn.execute("SELECT source_product_id FROM source_product").fetchone()[0]
     aliases = aliases_of(conn, pid)
     assert [(a["alias_type"], a["alias_value"]) for a in aliases] \
-        == [("product_url", "https://s.com/p/old")]
-    assert conn.execute("SELECT product_url FROM source_product").fetchone()[0] \
+        == [("product_link", "https://s.com/p/old")]
+    assert conn.execute("SELECT product_link FROM source_product").fetchone()[0] \
         == "https://s.com/p/new"
 
 

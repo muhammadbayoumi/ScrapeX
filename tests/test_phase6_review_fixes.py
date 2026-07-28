@@ -36,7 +36,7 @@ def db_path(tmp_path) -> Path:
     entry = make_entry()
     for date, price in HISTORY:
         ingest_payloads(conn, entry, [make_payload(
-            [one_row(effective_price=price)], scraped_at=f"{date}T10:00:00Z")])
+            [one_row(price=price)], scraped_at=f"{date}T10:00:00Z")])
     conn.commit()
     conn.close()
     return path
@@ -201,7 +201,7 @@ def test_a_pin_pointing_at_nothing_does_not_block_compaction(conn, db_path):
 
 def test_a_pin_that_does_match_is_still_protected(conn, db_path):
     row = conn.execute("SELECT offer_id, business_date, record_hash FROM price_observation "
-                       "WHERE effective_price = 100.0").fetchone()
+                       "WHERE price = 100.0").fetchone()
     retention.pin(conn, row[0], row[1], row[2])
     conn.commit()
     assert (row[0], row[1], row[2]) in retention.protected_keys(conn)
@@ -366,7 +366,7 @@ def test_compacting_reports_the_size_after_the_wal_is_merged(conn, db_path):
     for i in range(40):
         ingest_payloads(conn, entry, [make_payload(
             [one_row(external_product_id=f"p{i}", external_variant_id=f"v{i}",
-                     product_name=f"Item {i}", effective_price=f"{100 + i}.00")])])
+                     product_name=f"Item {i}", price=f"{100 + i}.00")])])
     conn.commit()
     assert wal.exists() and wal.stat().st_size > 0, "the fixture did not build a WAL"
 

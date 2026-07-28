@@ -53,7 +53,7 @@ def payload(rows) -> FunnelPayload:
 
 def row(**over) -> list[str]:
     fields = dict(external_product_id="P1", product_name_ar="أسمنت", country_code_alpha2="SA",
-                  currency="SAR", vat_included="1", effective_price="325")
+                  currency="SAR", tax_included="1", price="325")
     fields.update(over)
     return RowBuilder(PRODUCT_PRICES).row(**fields)
 
@@ -107,7 +107,7 @@ def test_a_source_without_units_still_lists_its_prices(conn):
 
     assert len(page.rows) == 1, "a unit-less price vanished from the table"
     assert page.rows[0]["unit"] == ""
-    assert page.rows[0]["effective_price"] == 325
+    assert page.rows[0]["price"] == 325
 
 
 def test_the_export_has_a_unit_column_beside_the_price(conn):
@@ -116,7 +116,7 @@ def test_the_export_has_a_unit_column_beside_the_price(conn):
     header, table = export_source_table(conn, "SHOP")
 
     assert "unit" in header, "exported workbooks had prices with no unit at all"
-    assert header.index("unit") == header.index("effective_price") + 1, \
+    assert header.index("unit") == header.index("price") + 1, \
         "the unit must sit beside the number it qualifies, not at the far end"
     assert table[0][header.index("unit")] == "tonne"
 
@@ -186,7 +186,7 @@ def test_the_change_feed_says_per_what(conn):
         kind=ExtractKind.PRODUCT_PRICES, client="cli",
         scraped_at="2026-07-27T10:00:00Z", source_url="https://shop.example",
         header=list(PRODUCT_PRICES.columns),
-        rows=[row(unit="tonne", effective_price="300")])])
+        rows=[row(unit="tonne", price="300")])])
 
     feed = recent_changes(conn, "SHOP")
 
@@ -216,7 +216,7 @@ def test_a_source_with_no_variants_or_skus_is_not_given_those_columns(conn):
 
     assert "variant_ar" not in present, "a Variant column of em-dashes"
     assert "sku" not in present, "an SKU column of em-dashes"
-    assert "unit" in present and "product_name_ar" in present and "effective_price" in present
+    assert "unit" in present and "product_name_ar" in present and "price" in present
 
 
 def test_a_source_that_does_supply_them_keeps_those_columns(conn):
@@ -322,5 +322,5 @@ def test_both_the_short_and_the_full_label_reach_the_page(conn):
 
     shown = browse_observations(conn, "SHOP").rows[0]
 
-    assert shown["tax_short"] and shown["tax_label"]
-    assert shown["tax_short"] != shown["tax_label"]
+    assert shown["tax_short"] and shown["tax"]
+    assert shown["tax_short"] != shown["tax"]

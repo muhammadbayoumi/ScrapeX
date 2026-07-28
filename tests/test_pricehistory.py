@@ -26,7 +26,7 @@ def conn(tmp_path):
 
 def crawl(conn, *, price="100.00", day="2026-07-01", stock="", brand="Elsewedy"):
     ingest_payloads(conn, make_entry(), [make_payload(
-        [one_row(effective_price=price, stock_quantity=stock, brand=brand)],
+        [one_row(price=price, stock_quantity=stock, brand=brand)],
         scraped_at=f"{day}T10:00:00Z")])
 
 
@@ -56,7 +56,7 @@ def test_each_real_change_opens_exactly_one_period(conn):
     pricehistory.rebuild_all(conn)
 
     periods = pricehistory.timeline(conn, offer(conn))
-    assert [p["effective_price"] for p in periods] == [100.0, 130.0]
+    assert [p["price"] for p in periods] == [100.0, 130.0]
     assert periods[0]["closed_at"].startswith("2026-07-03"), "the old period closed"
     assert periods[1]["closed_at"] is None, "the current period stays open"
     assert periods[1]["opened_because"] == "price_change"
@@ -81,7 +81,7 @@ def test_a_source_that_starts_publishing_a_manufacturer_is_not_a_price_change(co
     assert len(periods) == 2, "the keys are genuinely incomparable"
     assert periods[1]["opened_because"] == "fields_changed", \
         "...and the reason must not read as a price change"
-    assert periods[0]["effective_price"] == periods[1]["effective_price"], \
+    assert periods[0]["price"] == periods[1]["price"], \
         "the price itself never moved"
 
 
@@ -94,7 +94,7 @@ def test_current_state_holds_the_latest_price_and_availability(conn):
 
     state = conn.execute("SELECT * FROM offer_state WHERE offer_id = ?",
                          (offer(conn),)).fetchone()
-    assert state["effective_price"] == 130.0
+    assert state["price"] == 130.0
     assert state["stock_quantity"] == 9.0
     assert state["first_seen_at"].startswith("2026-07-01")
     assert state["last_confirmed_at"].startswith("2026-07-05")
@@ -150,7 +150,7 @@ def test_a_confirmed_date_returns_the_period_that_covered_it(conn):
     pricehistory.rebuild_all(conn)
 
     answer = pricehistory.price_on(conn, offer(conn), "2026-07-05")
-    assert answer["status"] == "confirmed" and answer["effective_price"] == 100.0
+    assert answer["status"] == "confirmed" and answer["price"] == 100.0
 
 
 def test_an_unconfirmed_date_says_so_instead_of_assuming_the_price_held(conn):
@@ -160,7 +160,7 @@ def test_an_unconfirmed_date_says_so_instead_of_assuming_the_price_held(conn):
 
     answer = pricehistory.price_on(conn, offer(conn), "2026-09-01")
     assert answer["status"] == "last_known"
-    assert answer["effective_price"] == 100.0, "the last known price is still useful"
+    assert answer["price"] == 100.0, "the last known price is still useful"
     assert "No reliable observation" in answer["detail"]
     assert answer["observed_at"].startswith("2026-07-01"), \
         "the answer must carry the date it was actually observed"
@@ -173,14 +173,14 @@ def test_a_date_before_tracking_began_reports_the_first_tracking_date(conn):
     answer = pricehistory.price_on(conn, offer(conn), "2020-01-01")
     assert answer["status"] == "before_tracking"
     assert "2026-07-01" in answer["detail"]
-    assert answer["effective_price"] is None, "inventing a price here would be a lie"
+    assert answer["price"] is None, "inventing a price here would be a lie"
 
 
 def test_an_offer_with_no_history_says_nothing_was_ever_recorded(conn):
     crawl(conn)
     pricehistory.rebuild_all(conn)
     answer = pricehistory.price_on(conn, 999, "2026-07-01")
-    assert answer["status"] == "no_history" and answer["effective_price"] is None
+    assert answer["status"] == "no_history" and answer["price"] is None
 
 
 # ---- warehouses written before any of this existed ---------------------------
@@ -203,7 +203,7 @@ def test_a_warehouse_of_daily_duplicates_collapses_into_its_real_changes(conn):
     for day, price in legacy[1:]:
         conn.execute(
             "INSERT INTO price_observation (offer_id, observed_at, business_date, "
-            " effective_price, currency, vat_included, availability, run_id, "
+            " price, currency, tax_included, availability, run_id, "
             " record_hash, price_hash, price_fields) "
             "VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)",
             (offer_id, f"{day}T10:00:00Z", day, price, "EGP", 1, "in_stock",
@@ -212,7 +212,7 @@ def test_a_warehouse_of_daily_duplicates_collapses_into_its_real_changes(conn):
 
     pricehistory.rebuild_all(conn)
     periods = pricehistory.timeline(conn, offer_id)
-    assert [p["effective_price"] for p in periods] == [100.0, 150.0], \
+    assert [p["price"] for p in periods] == [100.0, 150.0], \
         "four daily rows are two prices"
 
 
@@ -241,7 +241,7 @@ def test_a_failed_run_does_not_advance_the_confirmation(conn):
         rows=[[{"external_product_id": "1001", "external_variant_id": "5001",
                 "external_sku": "SKU1", "product_name": "LED",
                 "brand": "Elsewedy", "brand_ar": "", "country_code_alpha2": "EG", "currency": "EGP",
-                "vat_included": "1", "availability": "in_stock",
+                "tax_included": "1", "availability": "in_stock",
                 }.get(col, "") for col in PRODUCT_PRICES.columns]])
     result = ingest_payloads(conn, make_entry(), [broken])
 
@@ -297,7 +297,7 @@ def test_the_api_serves_the_change_only_timeline(conn, tmp_path):
 
     periods = client.get("/api/prices/timeline",
                          params={"offer_id": offer_id}).json()["periods"]
-    assert [p["effective_price"] for p in periods] == [100.0, 130.0], \
+    assert [p["price"] for p in periods] == [100.0, 130.0], \
         "three crawls of two prices are two history rows, not three"
 
     unconfirmed = client.get("/api/prices/on",
@@ -324,10 +324,10 @@ def test_a_currency_flip_opens_a_period_named_for_what_happened(conn):
     after 0.40 USD was a price move. The amounts are incomparable; the reason
     says so (0030)."""
     ingest_payloads(conn, make_entry(), [make_payload(
-        [one_row(effective_price="0.40", currency="USD")],
+        [one_row(price="0.40", currency="USD")],
         scraped_at="2026-07-01T10:00:00Z")])
     ingest_payloads(conn, make_entry(), [make_payload(
-        [one_row(effective_price="20.50", currency="EGP")],
+        [one_row(price="20.50", currency="EGP")],
         scraped_at="2026-07-08T10:00:00Z")])
     pricehistory.rebuild_all(conn)
 
@@ -429,7 +429,7 @@ def test_a_key_version_bump_re_baselines_instead_of_faking_a_price_change(conn, 
     assert len(periods) == 2, "the keys are genuinely incomparable"
     assert periods[1]["opened_because"] == "key_version_changed", \
         "the owner must not be told a price moved when only our key did"
-    assert periods[0]["effective_price"] == periods[1]["effective_price"], \
+    assert periods[0]["price"] == periods[1]["price"], \
         "the price itself never moved"
 
 

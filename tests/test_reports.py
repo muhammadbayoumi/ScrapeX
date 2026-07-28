@@ -26,7 +26,7 @@ def test_summary_none_for_unknown_source(conn):
 def test_summary_reports_source_local_layer(conn):
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_product_id="1", external_variant_id="v1"),
-        one_row(external_product_id="2", external_variant_id="v2", effective_price="50.00"),
+        one_row(external_product_id="2", external_variant_id="v2", price="50.00"),
     ])])
     s = source_summary(conn, "ELSEWEDYSHOP")
     assert s.products == 2 and s.variants == 2 and s.observations == 2
@@ -38,19 +38,19 @@ def test_summary_reports_source_local_layer(conn):
 
 def test_recent_observations_is_bounded_and_shaped(conn):
     rows = [one_row(external_product_id=str(i), external_variant_id=f"v{i}",
-                    effective_price=f"{i+1}.00") for i in range(5)]
+                    price=f"{i+1}.00") for i in range(5)]
     ingest_payloads(conn, make_entry(), [make_payload(rows)])
     sample = recent_observations(conn, "ELSEWEDYSHOP", limit=3)
     assert len(sample) == 3
-    assert set(sample[0]) == {"product_name_ar", "effective_price", "currency",
-                              "availability", "vat_included",
+    assert set(sample[0]) == {"product_name_ar", "price", "currency",
+                              "availability", "tax_included",
                               "business_date", "country_code_alpha2", "country", "unit"}
     assert sample[0]["currency"] == "EGP"
 
 
 def test_summary_curation_breakdown_reflects_ignore(conn):
     ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
-    conn.execute("UPDATE source_product SET curation_status = 'ignored'")
+    conn.execute("UPDATE source_product SET curation = 'ignored'")
     s = source_summary(conn, "ELSEWEDYSHOP")
     assert s.curation == {"ignored": 1}
 
@@ -72,7 +72,7 @@ def _commodity_rows(conn, regions=("EG", "SA"), price="0.404"):
                              materials=["DIESEL"], regions=["*"])]))
     rows = [RowBuilder(COMMODITY_PRICE).row(
         material_key="DIESEL", country_code_alpha2=r, currency="USD", unit="USD/liter",
-        vat_included="1", effective_price=price, observed_label="") for r in regions]
+        tax_included="1", price=price, observed_label="") for r in regions]
     ingest_payloads(conn, entry, [FunnelPayload(
         payload_version=PAYLOAD_VERSION, source_key="GPP_ENERGY",
         kind=ExtractKind.COMMODITY_PRICE, client="cli", scraped_at="2026-07-19T10:00:00Z",
@@ -144,7 +144,7 @@ def test_every_exported_column_holds_its_own_field(conn):
         product_name_ar="سلك نحاس", product_name="Copper wire", country_code_alpha2="EG",
         brand="Elsewedy", brand_ar="السويدي", category_path_ar="أسلاك", category_path="Wires",
         external_product_id="9797", external_sku="76ec8c8572f0-1",
-        regular_price="1209.54", sale_price="1124.87", effective_price="1124.87")])])
+        price_before="1209.54", price_sale="1124.87", price="1124.87")])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
     row = dict(zip(header, table[0]))
     assert row["product_name"] == "Copper wire"
@@ -200,9 +200,9 @@ def test_usd_est_never_leaks_onto_a_single_currency_source(conn):
     _rate(conn)
     ingest_payloads(conn, make_entry(), [make_payload([one_row()])])   # EGP only
 
-    assert "usd_price" not in column_presence(conn, "ELSEWEDYSHOP")
+    assert "price_usd" not in column_presence(conn, "ELSEWEDYSHOP")
     grid = table_payload(conn, "ELSEWEDYSHOP")
-    assert "usd_price" not in {c["key"] for c in grid["columns"]}, \
+    assert "price_usd" not in {c["key"] for c in grid["columns"]}, \
         "a one-currency shop got a USD twin of its own Price column"
 
 
@@ -216,7 +216,7 @@ def test_a_multi_currency_source_with_a_relevant_rate_keeps_usd_est(conn):
                 external_sku="SKU2", currency="USD"),
     ])])
 
-    assert "usd_price" in column_presence(conn, "ELSEWEDYSHOP"), \
+    assert "price_usd" in column_presence(conn, "ELSEWEDYSHOP"), \
         "ranking across currencies is exactly what the column exists for"
 
 
@@ -230,7 +230,7 @@ def test_multi_currency_without_any_relevant_rate_stays_without_usd_est(conn):
                 external_sku="SKU2", currency="USD"),
     ])])
 
-    assert "usd_price" not in column_presence(conn, "ELSEWEDYSHOP"), \
+    assert "price_usd" not in column_presence(conn, "ELSEWEDYSHOP"), \
         "a column that can only render empty cells was still offered"
 
 
@@ -247,7 +247,7 @@ def test_each_variation_axis_becomes_its_own_export_column(conn):
         one_row(external_variant_id="v1", variant_ar="Color: أحمر",
                 variant_axes_ar='{"Color":"أحمر"}'),
         one_row(external_variant_id="v2", variant_ar="Color: أخضر",
-                variant_axes_ar='{"Color":"أخضر"}', effective_price="99.00"),
+                variant_axes_ar='{"Color":"أخضر"}', price="99.00"),
     ])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
 
@@ -276,14 +276,14 @@ def test_a_variation_is_linked_to_its_own_page_not_the_products(conn):
     from scrapex.reports import export_source_table, table_payload
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_variant_id="v1", variant_ar="Color: أحمر",
-                product_url="https://shop.example/wire/",
+                product_link="https://shop.example/wire/",
                 variant_url="https://shop.example/wire/?attribute_pa_color=black"),
     ])])
 
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
     row = dict(zip(header, table[0]))
-    assert row["product_url"].endswith("attribute_pa_color=black")
-    assert table_payload(conn, "ELSEWEDYSHOP")["rows"][0]["product_url"].endswith(
+    assert row["product_link"].endswith("attribute_pa_color=black")
+    assert table_payload(conn, "ELSEWEDYSHOP")["rows"][0]["product_link"].endswith(
         "attribute_pa_color=black")
 
 
@@ -292,9 +292,9 @@ def test_a_product_without_variations_keeps_its_own_link(conn):
     variant_url, and the row must still link somewhere."""
     from scrapex.reports import export_source_table
     ingest_payloads(conn, make_entry(), [make_payload([
-        one_row(product_url="https://shop.example/floodlight/")])])
+        one_row(product_link="https://shop.example/floodlight/")])])
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
-    assert dict(zip(header, table[0]))["product_url"] == "https://shop.example/floodlight/"
+    assert dict(zip(header, table[0]))["product_link"] == "https://shop.example/floodlight/"
 
 
 def test_every_read_path_names_a_fact_the_same_way(conn):

@@ -23,9 +23,9 @@ def conn() -> sqlite3.Connection:
     dbmod.migrate(c)
     ingest_payloads(c, make_entry(), [make_payload([
         one_row(external_product_id="1", external_variant_id="v1", product_name="LED 400W",
-                effective_price="1,200.00"),
+                price="1,200.00"),
         one_row(external_product_id="2", external_variant_id="v2", product_name="Copper Wire",
-                effective_price="50.00", availability="out_of_stock"),
+                price="50.00", availability="out_of_stock"),
     ])])
     yield c
     c.close()
@@ -45,7 +45,7 @@ def test_export_creates_workbook_with_source_tab(tmp_path: Path, conn):
     names = {ws.cell(row=r, column=1).value for r in range(2, ws.max_row + 1)}
     assert names == {"LED 400W", "Copper Wire"}
     # numeric price stays numeric (not a string) — same as the Google sink
-    price_col = EXPORT_HEADER.index("effective_price") + 1
+    price_col = EXPORT_HEADER.index("price") + 1
     assert ws.cell(row=2, column=price_col).value in (1200.0, 50.0)
 
 

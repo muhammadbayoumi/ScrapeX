@@ -40,7 +40,7 @@ def commodity_entry(**over) -> SourceEntry:
 def commodity_row(**over) -> list[str]:
     fields = dict(
         material_key="DIESEL", country_code_alpha2="EG", currency="USD", unit="USD/liter",
-        vat_included="1", effective_price="0.620", observed_label="Mar 2026",
+        tax_included="1", price="0.620", observed_label="Mar 2026",
     )
     fields.update(over)
     return RowBuilder(COMMODITY_PRICE).row(**fields)
@@ -66,16 +66,16 @@ def test_adapter_maps_commodity_row_onto_every_product_column():
     # commodity history uses.
     assert set(r) == set(PRODUCT_PRICES.columns) | {"provenance", "as_of_date",
                                                 "official_source_name",
-                                                "official_source_url"}
+                                                "official_source_link"}
     assert r["external_product_id"] == "DIESEL" and r["product_name"] == "DIESEL"
     # The unit goes to its own column and nowhere else. It used to be stuffed
     # into option_label, where a unit was indistinguishable from a variant
     # title like "Red / Large".
     assert r["unit"] == "USD/liter"
     assert r["variant_ar"] == ""
-    assert r["country_code_alpha2"] == "EG" and r["currency"] == "USD" and r["effective_price"] == "0.620"
+    assert r["country_code_alpha2"] == "EG" and r["currency"] == "USD" and r["price"] == "0.620"
     assert r["external_variant_id"] == "" and r["option_fingerprint"] == ""  # NULL/NULL variant
-    assert r["regular_price"] == "" and r["sale_price"] == ""
+    assert r["price_before"] == "" and r["price_sale"] == ""
     assert "observed_label" not in r                      # dropped, never read
 
 
@@ -93,14 +93,14 @@ def test_commodity_creates_degenerate_chain(conn):
     # it used to borrow this column for has a real home.
     assert sv[0] is None and sv[1] is None and sv[2] is None
     so = conn.execute(
-        "SELECT so.country_code_alpha2, so.currency, so.vat_included, su.unit_code, so.basis_quantity "
+        "SELECT so.country_code_alpha2, so.currency, so.tax_included, su.unit_code, so.basis_quantity "
         "FROM source_offer so LEFT JOIN selling_unit su USING (selling_unit_id)").fetchone()
     assert so[0] == "EG" and so[1] == "USD" and so[2] == 1
     # 'USD/liter' is a currency the offer already records plus a unit. Storing
     # it whole would make 'USD/liter' and 'EGP/liter' two different litres.
     assert so[3] == "liter", "the unit was not resolved, or kept its currency"
     assert so[4] == 1
-    po = conn.execute("SELECT business_date, effective_price, regular_price, sale_price "
+    po = conn.execute("SELECT business_date, price, price_before, price_sale "
                       "FROM price_observation").fetchone()
     assert po[0] == "2026-07-16" and po[1] == 0.620 and po[2] is None and po[3] is None
 
@@ -118,7 +118,7 @@ def test_same_day_recrawl_is_idempotent(conn):
 def test_same_day_price_change_appends(conn):
     entry = commodity_entry()
     ingest_payloads(conn, entry, [commodity_payload([commodity_row()])])
-    changed = ingest_payloads(conn, entry, [commodity_payload([commodity_row(effective_price="0.700")])])
+    changed = ingest_payloads(conn, entry, [commodity_payload([commodity_row(price="0.700")])])
     assert changed.observations == 1  # same offer+business_date, new record_hash -> append
     dates = [r[0] for r in conn.execute("SELECT business_date FROM price_observation")]
     assert dates == ["2026-07-16", "2026-07-16"]  # append-only keeps both, same day
@@ -148,7 +148,7 @@ def test_a_real_weekly_change_still_appends(conn):
     entry = commodity_entry()
     ingest_payloads(conn, entry, [commodity_payload([commodity_row()])])
     moved = ingest_payloads(conn, entry, [commodity_payload(
-        [commodity_row(effective_price="0.990")], scraped_at="2026-07-23T10:00:00Z")])
+        [commodity_row(price="0.990")], scraped_at="2026-07-23T10:00:00Z")])
     assert moved.observations == 1
     assert conn.execute("SELECT COUNT(*) FROM price_period").fetchone()[0] == 2
 

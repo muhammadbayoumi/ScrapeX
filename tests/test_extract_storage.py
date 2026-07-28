@@ -113,7 +113,7 @@ def test_legacy_0014_remains_available_for_explicit_unified_sessions(tmp_path: P
     legacy = dbmod.connect(tmp_path / "legacy.db")
     try:
         dbmod.migrate(legacy)
-        assert dbmod.schema_version(legacy) == 50   # +0049 two madar labels, +0050 samehgabriel states its language
+        assert dbmod.schema_version(legacy) == 51   # +0051 the key and the label are one word
         for table in ("price_observation", "generic_record"):
             assert legacy.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
@@ -330,4 +330,4 @@ def test_generic_ingestion_and_price_ingestion_stay_in_separate_databases(
             "SELECT COUNT(*) FROM price_observation LIMIT 1"
         ).fetchone()[0] == 1
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
-            marketlens.execute("UPDATE price_observation SET effective_price=1.0")
+            marketlens.execute("UPDATE price_observation SET price=1.0")

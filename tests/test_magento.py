@@ -100,13 +100,13 @@ def test_magento_maps_variants_and_simple():
     assert v12["external_product_id"] == "NDY3Mg=="       # parent uid
     assert v12["external_variant_id"] == "NDY3MA=="        # child uid — the owner's key rule
     assert v12["external_sku"] == "120151248"
-    assert v12["effective_price"] == "112.5"
+    assert v12["price"] == "112.5"
     assert v12["option_fingerprint"] == "thickness_mm=12"
-    assert v12["currency"] == "SAR" and v12["country_code_alpha2"] == "SA" and v12["vat_included"] == "0"
+    assert v12["currency"] == "SAR" and v12["country_code_alpha2"] == "SA" and v12["tax_included"] == "0"
 
     v18 = view.as_dict(table.rows[1])
-    assert v18["effective_price"] == "168.78" and v18["regular_price"] == "200.0"  # on sale
-    assert v18["sale_price"] == "168.78"
+    assert v18["price"] == "168.78" and v18["price_before"] == "200.0"  # on sale
+    assert v18["price_sale"] == "168.78"
 
     simple = view.as_dict(table.rows[2])
     assert simple["external_product_id"] == simple["external_variant_id"] == "Q0VNQg=="
@@ -474,7 +474,7 @@ def test_the_row_carries_the_products_localized_name_never_the_child_sku_string(
     assert row["product_name_ar"] == "علب أرضية منبثقة من ليجراند"
     assert row["product_name"] == "Legrand Pop-up Floor Box Kit"
     assert row["variant_ar"] == "اللون: Aluminium"
-    assert row["effective_price"] == "194.9"      # the API figure, untouched
+    assert row["price"] == "194.9"      # the API figure, untouched
 
 
 def test_the_english_tree_relabels_every_walked_path_for_one_query():
@@ -579,7 +579,7 @@ def test_a_grouped_product_becomes_one_row_per_member_not_one_row_per_group():
     _table, rows = _shape_rows()
     members = [r for r in rows if r["product_name_ar"] == "الخشب الأحمر السويدي"]
     assert len(members) == 4, "one row per member of the captured group"
-    assert {r["effective_price"] for r in members} == {
+    assert {r["price"] for r in members} == {
         "1630.13", "1750.88", "1811.25", "1449"}
     # Each row is a distinct offer, identified by the member, and labelled with
     # the member name the page prints beside that member's price.
@@ -606,7 +606,7 @@ def test_the_groups_maximum_price_is_a_lie_the_connector_must_not_believe():
     assert max(member_prices) > min(member_prices), "the members really do differ"
 
     _table, rows = _shape_rows()
-    priced = {r["effective_price"] for r in rows
+    priced = {r["price"] for r in rows
               if r["product_name_ar"] == "الخشب الأحمر السويدي"}
     assert "1811.25" in priced, "the dearer member must reach the table"
 
@@ -631,7 +631,7 @@ def test_a_grouped_product_whose_members_carry_no_price_is_skipped_out_loud():
                 if view.as_dict(r)["product_name_ar"] == "الخشب الأحمر السويدي"]
     assert any("grouped product" in w and "11535-SRW" in w for w in table.warnings)
     # And never at the group's own figure, which is what it used to fall back to.
-    assert not [r for r in table.rows if view.as_dict(r)["effective_price"] == "1449"]
+    assert not [r for r in table.rows if view.as_dict(r)["price"] == "1449"]
 
 
 def test_a_configurable_is_stored_at_the_api_figure_and_says_it_excludes_tax():
@@ -644,18 +644,18 @@ def test_a_configurable_is_stored_at_the_api_figure_and_says_it_excludes_tax():
     storefront itself calls tax-exclusive.
 
     The owner's rule for that is not arithmetic: record what the site gives and
-    make the tax column say what it is. 50.4 goes in the row, vat_included=0
+    make the tax column say what it is. 50.4 goes in the row, tax_included=0
     goes beside it. 57.96 is never stored, because 57.96 is a number WE would
     have produced.
     """
     table, rows = _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))
     plywood = [r for r in rows if r["product_name_ar"] == "Tigercore Shuttering Plywood"]
     assert len(plywood) == 2
-    assert {r["effective_price"] for r in plywood} == {"50.4", "90.3"}
-    assert {r["regular_price"] for r in plywood} == {"50.4", "90.3"}
-    assert all(r["vat_included"] == "0" for r in plywood), \
+    assert {r["price"] for r in plywood} == {"50.4", "90.3"}
+    assert {r["price_before"] for r in plywood} == {"50.4", "90.3"}
+    assert all(r["tax_included"] == "0" for r in plywood), \
         "the figure the shop calls basePrice must not claim to include tax"
-    assert not any("57.96" in r["effective_price"] for r in plywood), \
+    assert not any("57.96" in r["price"] for r in plywood), \
         "an uplifted price is a price no madar page has printed"
     # Nothing to warn about: the manifest states the fact and every row carries it.
     assert not any("configurable" in w for w in table.warnings)
@@ -669,8 +669,8 @@ def test_the_declaration_moves_no_price_at_all_only_the_tax_flag():
     and the only defence against that is a test that reads the same numbers
     with the switch on and off.
     """
-    plain = {r["external_sku"]: r["effective_price"] for r in _shape_rows()[1]}
-    declared = {r["external_sku"]: r["effective_price"]
+    plain = {r["external_sku"]: r["price"] for r in _shape_rows()[1]}
+    declared = {r["external_sku"]: r["price"]
                 for r in _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))[1]}
 
     assert plain == declared, "declaring a tax FACT moved a price"
@@ -688,7 +688,7 @@ def test_an_undeclared_configurable_is_still_recorded_but_says_so_once():
     table, rows = _shape_rows()
     plywood = [r for r in rows if r["product_name_ar"] == "Tigercore Shuttering Plywood"]
     assert len(plywood) == 2, "an undeclared configurable is recorded, not skipped"
-    assert all(r["vat_included"] == "1" for r in plywood), "the source's own vat_mode"
+    assert all(r["tax_included"] == "1" for r in plywood), "the source's own vat_mode"
     note = next(w for w in table.warnings if "configurable prices recorded" in w)
     assert "configurable_prices_exclude_tax" in note, \
         "the note must name the declaration that makes these rows truthful"
@@ -698,16 +698,16 @@ def test_an_undeclared_configurable_is_still_recorded_but_says_so_once():
 def test_simple_and_grouped_rows_keep_the_storefronts_vat_state():
     """Only the configurable shape is quoted before tax. A simple product's
     figure and a grouped member's both matched the page exactly, so they carry
-    vat_included=1 in the very same table."""
+    tax_included=1 in the very same table."""
     _table, rows = _shape_rows(shapes_entry(configurable_prices_exclude_tax=True))
     simple = next(r for r in rows if r["external_sku"] == "71102002")
     member = next(r for r in rows if r["product_name_ar"] == "الخشب الأحمر السويدي")
     plywood = next(r for r in rows if r["product_name_ar"] == "Tigercore Shuttering Plywood")
 
-    assert simple["vat_included"] == "1"
-    assert member["vat_included"] == "1"
-    assert plywood["vat_included"] == "0"
-    assert len({simple["vat_included"], plywood["vat_included"]}) == 2, \
+    assert simple["tax_included"] == "1"
+    assert member["tax_included"] == "1"
+    assert plywood["tax_included"] == "0"
+    assert len({simple["tax_included"], plywood["tax_included"]}) == 2, \
         "one crawl of one source carries BOTH answers — that is the whole point"
 
 
@@ -718,7 +718,7 @@ def test_a_grouped_product_whose_members_agree_still_reaches_the_table():
     _table, rows = _shape_rows()
     rebar = [r for r in rows if r["product_name_ar"] == "حديد تسليح تعمير"]
     assert len(rebar) == 3
-    assert {r["effective_price"] for r in rebar} == {"3139.5"}
+    assert {r["price"] for r in rebar} == {"3139.5"}
 
 
 def test_a_product_whose_price_range_really_is_a_range_is_skipped_out_loud():

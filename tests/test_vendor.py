@@ -292,8 +292,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # had none, so both were being stacked under Specifications.
     # design-system-35: the image gallery is one inset box and disappears when
     # empty; the lower rail group follows the same populated-only rule.
-    assert '/static/grid.js?v=design-system-35' in page
-    assert '/static/grid-theme.css?v=design-system-35' in page
+    # design-system-36: the non-language vocabulary sweep (0051) reached the
+    # grid — every price and tax key moved, and the record arrow became
+    # `product_link`, the same key the export already used.
+    assert '/static/grid.js?v=design-system-36' in page
+    assert '/static/grid-theme.css?v=design-system-36' in page
 
 
 def test_material_header_icons_are_local_and_dry():

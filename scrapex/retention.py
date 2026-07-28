@@ -193,21 +193,21 @@ def protected_keys_independently(conn: sqlite3.Connection) -> set[Key]:
     offers = [r[0] for r in conn.execute("SELECT DISTINCT offer_id FROM price_observation")]
     for offer_id in offers:
         rows = conn.execute(
-            "SELECT business_date, record_hash, observed_at, effective_price "
+            "SELECT business_date, record_hash, observed_at, price "
             "FROM price_observation WHERE offer_id = ?", (offer_id,)).fetchall()
         if not rows:
             continue
         earliest = min(r["observed_at"] for r in rows)
         latest = max(r["observed_at"] for r in rows)
-        priced = [r for r in rows if r["effective_price"] is not None]
-        cheapest = min((r["effective_price"] for r in priced), default=None)
-        dearest = max((r["effective_price"] for r in priced), default=None)
+        priced = [r for r in rows if r["price"] is not None]
+        cheapest = min((r["price"] for r in priced), default=None)
+        dearest = max((r["price"] for r in priced), default=None)
         for row in rows:
             # Ties are kept, not broken: every row sharing an extreme is
             # protected. The view uses equality joins and does the same.
             if (row["observed_at"] in (earliest, latest)
-                    or (row["effective_price"] is not None
-                        and row["effective_price"] in (cheapest, dearest))):
+                    or (row["price"] is not None
+                        and row["price"] in (cheapest, dearest))):
                 keys.add((offer_id, row["business_date"], row["record_hash"]))
     # Only pins that point at an observation which is actually here. A stale
     # pin is a bookmark to something that is not in this database; treating it

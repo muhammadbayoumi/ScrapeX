@@ -62,8 +62,8 @@ def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary |
         "WHERE sp.source_id = ?", (source_id,))
     s.curation = {
         r[0]: r[1] for r in conn.execute(
-            "SELECT curation_status, COUNT(*) FROM source_product WHERE source_id = ? "
-            "GROUP BY curation_status", (source_id,))
+            "SELECT curation, COUNT(*) FROM source_product WHERE source_id = ? "
+            "GROUP BY curation", (source_id,))
     }
     run = conn.execute(
         "SELECT started_at, status FROM crawl_run WHERE source_id = ? "
@@ -326,7 +326,7 @@ def _browse_filters(search: str | None, availability: str | None,
 # can become SQL injection — the expression is looked UP, never interpolated.
 #
 # ONE table, so sorting and filtering cannot drift apart. They were separate,
-# and SORTABLE quietly omitted last_confirmed and curation_status: two columns
+# and SORTABLE quietly omitted last_confirmed and curation: two columns
 # the page rendered with no way to order by them, and nothing said so.
 #
 # kind decides what control the header offers:
@@ -342,17 +342,17 @@ FILTERABLE: dict[str, tuple[str, str]] = {
     "variant_ar": ("sv.variant_ar", "text"),
     "variant": ("sv.variant", "text"),
     "sku": ("sv.external_sku", "text"),
-    "effective_price": ("po.effective_price", "number"),
+    "price": ("po.price", "number"),
     "availability": ("po.availability", "exact"),
     "price_changed_on": ("po.business_date", "date"),
     "last_confirmed_on": ("ost.last_confirmed_at", "date"),
-    "curation_status": ("sp.curation_status", "exact"),
+    "curation": ("sp.curation", "exact"),
     # Computed in Python — price_unit() and tax.resolve(), the latter with a
     # region->wildcard fallback and valid_to temporality. Reimplementing that in
     # SQL and keeping the two in agreement across 169 regions is a correctness
     # trap, so these are honestly marked unfilterable rather than half-supported.
     "unit": ("", "derived"),
-    "tax_label": ("", "derived"),
+    "tax": ("", "derived"),
 }
 
 # Derived from the same table, so the two can never disagree about a column.
@@ -418,9 +418,9 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
 
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}{filt}", base_params).fetchone()[0])
     rows = conn.execute(
-        "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.effective_price, "
-        "       po.regular_price, po.sale_price, po.currency, po.availability, po.vat_included, "
-        "       po.business_date, sp.product_url, sp.curation_status, so.country_code_alpha2, "
+        "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price, "
+        "       po.price_before, po.price_sale, po.currency, po.availability, po.tax_included, "
+        "       po.business_date, sp.product_link, sp.curation, so.country_code_alpha2, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         # Appended LAST: every index above is positional. The tax rules are
         # keyed on the name the SOURCE publishes, whichever language that is.
@@ -430,10 +430,10 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
     ).fetchall()
     tax_rules = tax.load_rules(conn, source_key)
     shaped = [
-        {"product_name_ar": r[0], "variant_ar": r[1], "sku": r[2], "effective_price": r[3],
-         "regular_price": r[4], "sale_price": r[5], "currency": r[6], "availability": r[7],
-         "vat_included": bool(r[8]), "price_changed_on": r[9], "product_url": r[10],
-         "curation_status": r[11], "country_code_alpha2": r[12] or "", "country": region_name(r[12]),
+        {"product_name_ar": r[0], "variant_ar": r[1], "sku": r[2], "price": r[3],
+         "price_before": r[4], "price_sale": r[5], "currency": r[6], "availability": r[7],
+         "tax_included": bool(r[8]), "price_changed_on": r[9], "product_link": r[10],
+         "curation": r[11], "country_code_alpha2": r[12] or "", "country": region_name(r[12]),
          # When the price was last CONFIRMED, which is not when it last changed.
          "last_confirmed_on": (r[13] or "")[:10],
          # A price without its unit is not a comparable number: 325 per tonne and
@@ -539,18 +539,18 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("variant", "Variant"),
     ("variant_ar", "Variant (AR)"),
     ("sku", "SKU"),
-    ("effective_price", "Price"),
+    ("price", "Price"),
     # Derived from currency_rate (the publisher's own implied rates) so 128
     # currencies can be RANKED in one column. Approximate by nature and
     # labelled so.
-    ("usd_price", "USD est."),
+    ("price_usd", "Price (USD est.)"),
     # The price that held immediately before the current one, and the move
     # between them. Different questions from the DISCOUNT (which is within
     # one listing, was -> sale) — this is across TIME.
-    ("previous_price", "Previous"),
-    ("price_change", "Change"),
-    ("min_price", "Min"),
-    ("max_price", "Max"),
+    ("price_previous", "Previous price"),
+    ("price_change", "Price change"),
+    ("price_min", "Lowest price"),
+    ("price_max", "Highest price"),
     ("observations", "Observations"),
     # The pre-discount price rides INSIDE the price cell, struck through beside
     # the current one (the owner's asked-for shape) — a separate Was column
@@ -561,20 +561,27 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("discount", "Discount"),
     ("discount_pct", "Discount %"),
     ("unit", "Unit"),
-    ("availability", "Status"),
-    ("tax_label", "Tax"),
-    ("price_changed_on", "Price changed"),
-    ("last_confirmed_on", "Last confirmed"),
+    ("availability", "Availability"),
+    ("tax", "Tax"),
+    ("price_changed_on", "Price changed on"),
+    ("last_confirmed_on", "Last confirmed on"),
     # The official body the source names for its figure. Only sources that
     # actually attribute (GPP country pages) populate it; the presence sweep
     # hides it everywhere else.
-    ("official_source", "Source"),
-    ("curation_status", "Curation"),
+    ("official_source", "Official source"),
+    ("curation", "Curation"),
     # Last, and narrow: the arrow that opens the record on the site itself.
     # It replaced a Details column — the details now open UNDER the table
     # when a row is selected, so a column for them was a second door to a
     # room the row already opens (owner's ruling).
-    ("open", ""),
+    #
+    # Named `product_link` since 0051, the same key the export uses: the arrow
+    # and the export's URL column were one fact (the link to the record on the
+    # site) arriving down two seeding paths that never reconciled, and
+    # dataset_field allows one row per (source, key). The label stays blank —
+    # the cell is an icon, and the schema page reads the label from the export
+    # list where it is written out in full.
+    ("product_link", ""),
 ]
 
 # The bilingual pairs, declared ONCE (owner's standing rule: a site that
@@ -600,7 +607,7 @@ BILINGUAL_COLUMNS: dict[str, str] = {
 
 # Never hidden by the emptiness sweep: without it the table is not a price
 # list at all.
-ESSENTIAL_COLUMNS = frozenset({"effective_price"})
+ESSENTIAL_COLUMNS = frozenset({"price"})
 
 # ONE of these always survives too — a row that cannot be identified is not a
 # shorter table, it is not a table. WHICH one survives is the source's choice
@@ -620,7 +627,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
 
     INVARIANT (owner ruling 2026-07-22): every gate here asks THIS source's own
     rows — never a global table. The engine is shared; the column state is per
-    source. The one global gate this function ever had (usd_price checked
+    source. The one global gate this function ever had (price_usd checked
     whether currency_rate had ANY rows) put a fuel-implied USD estimate on
     every shop's table the moment GPP landed its first rate.
     """
@@ -635,7 +642,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')), "
         "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(sp.brand,'')),'')), "
-        "       SUM(CASE WHEN po.regular_price > po.effective_price THEN 1 ELSE 0 END), "
+        "       SUM(CASE WHEN po.price_before > po.price THEN 1 ELSE 0 END), "
         "       COUNT(DISTINCT po.currency), "
         "       COUNT(NULLIF(TRIM(COALESCE(sp.product_name,'')),'')), "
         # Appended LAST, like every count before it: this list is read by
@@ -666,18 +673,18 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
     # reported. Multi-currency alone is not enough either: without a single
     # relevant rate the column would render empty on every non-USD row.
     if (row[8] or 0) < 2:
-        present.discard("usd_price")
+        present.discard("price_usd")
     else:
         relevant_rates = conn.execute(
             "SELECT COUNT(*) FROM currency_rate WHERE currency IN ("
             "  SELECT DISTINCT po.currency " + _LATEST_PER_OFFER + ")",
             (source_key,)).fetchone()[0]
         if not relevant_rates:
-            present.discard("usd_price")
+            present.discard("price_usd")
     if not conn.execute(
-            "SELECT COUNT(NULLIF(TRIM(COALESCE(sp.product_url,'')),'')) "
+            "SELECT COUNT(NULLIF(TRIM(COALESCE(sp.product_link,'')),'')) "
             f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()[0]:
-        present.discard("open")
+        present.discard("product_link")
     details = conn.execute(
         "SELECT COUNT(*), "
         # The language mark (0050) rides the code, so the match has to allow
@@ -692,7 +699,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "WHERE ss.source_key = ?", (source_key,)).fetchone()
 
     # Classification depth is per source, from its own products (the same
-    # invariant as usd_price): a source whose deepest path is two levels gets
+    # invariant as price_usd): a source whose deepest path is two levels gets
     # exactly L1 and L2, a flat-label shop gets the single Category column, a
     # source that classifies nothing gets none of them.
     def _depth_of(column: str) -> int:
@@ -723,7 +730,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
             present.discard(f"category_l{level}_ar")
     history = conn.execute(
         "SELECT MAX(n), MAX(distinct_prices) FROM ("
-        "  SELECT COUNT(*) AS n, COUNT(DISTINCT po.effective_price) AS distinct_prices "
+        "  SELECT COUNT(*) AS n, COUNT(DISTINCT po.price) AS distinct_prices "
         "  FROM price_observation po "
         "  JOIN source_offer so ON so.offer_id = po.offer_id "
         "  JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
@@ -732,17 +739,17 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         "  WHERE ss.source_key = ? GROUP BY po.offer_id)", (source_key,)).fetchone()
     if not history[0] or history[0] < 2:
         # One observation per offer: nothing to call Min/Max/Previous.
-        for column in ("previous_price", "price_change", "min_price",
-                       "max_price", "observations"):
+        for column in ("price_previous", "price_change", "price_min",
+                       "price_max", "observations"):
             present.discard(column)
     elif not history[1] or history[1] < 2:
         # Rows exist but every price identical — a range of one number.
-        present.discard("previous_price")
+        present.discard("price_previous")
         present.discard("price_change")
     rate_known = conn.execute(
         "SELECT COUNT(*) FROM currency_rate").fetchone()[0]
     if not rate_known:
-        present.discard("usd_price")
+        present.discard("price_usd")
     return present
 
 
@@ -758,14 +765,14 @@ _EXPORT_SELECT: dict[str, str] = {
     # variation, so linking them all to the product's page sent five of every
     # six clicks to the wrong colour.
     "variant_url": "sv.variant_url",
-    "effective_price": "po.effective_price",
-    "regular_price": "po.regular_price",
-    "sale_price": "po.sale_price",
+    "price": "po.price",
+    "price_before": "po.price_before",
+    "price_sale": "po.price_sale",
     "currency": "po.currency",
     "availability": "po.availability",
-    "vat_included": "po.vat_included",
+    "tax_included": "po.tax_included",
     "business_date": "po.business_date",
-    "product_url": "sp.product_url",
+    "product_link": "sp.product_link",
     "country_code_alpha2": "so.country_code_alpha2",
     "last_confirmed_at": "ost.last_confirmed_at",
     "unit_code": "su.unit_code",
@@ -778,12 +785,12 @@ _EXPORT_SELECT: dict[str, str] = {
         " WHERE spa.source_product_id = sp.source_product_id "
         " AND spa.attribute_code IN ('category','category_ar'))"),
     "official_source": "po.official_source_name",
-    "official_source_url": "po.official_source_url",
+    "official_source_link": "po.official_source_link",
     "category_path_en": "sp.category_path",
     "option_axes": "sv.variant_axes_ar",
     "variant_en": "sv.variant",
     "option_axes_en": "sv.variant_axes",
-    "curation_status": "sp.curation_status",
+    "curation": "sp.curation",
     # The history statistics the TABLE has always shown and the export
     # never carried. Scoped to the current observation's currency, exactly
     # as table_payload scopes them: after a currency flip, 0.40 USD in the
@@ -791,14 +798,14 @@ _EXPORT_SELECT: dict[str, str] = {
     # to prevent, and the guard has to hold in the spreadsheet too.
     "observations": ("(SELECT COUNT(*) FROM price_observation ph "
                      " WHERE ph.offer_id = so.offer_id AND ph.currency = po.currency)"),
-    "min_price": ("(SELECT MIN(ph2.effective_price) FROM price_observation ph2 "
+    "price_min": ("(SELECT MIN(ph2.price) FROM price_observation ph2 "
                    " WHERE ph2.offer_id = so.offer_id AND ph2.currency = po.currency)"),
-    "max_price": ("(SELECT MAX(ph3.effective_price) FROM price_observation ph3 "
+    "price_max": ("(SELECT MAX(ph3.price) FROM price_observation ph3 "
                    " WHERE ph3.offer_id = so.offer_id AND ph3.currency = po.currency)"),
-    "previous_price": ("(SELECT ph4.effective_price FROM price_observation ph4 "
+    "price_previous": ("(SELECT ph4.price FROM price_observation ph4 "
                         " WHERE ph4.offer_id = so.offer_id "
                         " AND ph4.currency = po.currency "
-                        " AND ph4.effective_price != po.effective_price "
+                        " AND ph4.price != po.price "
                         " ORDER BY ph4.business_date DESC, "
                         "          ph4.price_observation_id DESC LIMIT 1)"),
     "per_usd": ("(SELECT cr.per_usd FROM currency_rate cr "
@@ -848,28 +855,28 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     ("variant", lambda r, s: r["variant_en"] or ""),
     ("variant_ar", lambda r, s: r["option_label"] or ""),
     ("sku", lambda r, s: r["sku"] or ""),
-    ("effective_price", lambda r, s: _or_blank(r["effective_price"])),
+    ("price", lambda r, s: _or_blank(r["price"])),
     # The unit sits beside the price it qualifies. A column of bare numbers
     # where some are per tonne and some per bag is not a price list, it is a
     # trap.
     ("unit", lambda r, s: price_unit(r["unit_code"], r["basis_quantity"])),
-    ("regular_price", lambda r, s: _or_blank(r["regular_price"])),
-    ("sale_price", lambda r, s: _or_blank(r["sale_price"])),
+    ("price_before", lambda r, s: _or_blank(r["price_before"])),
+    ("price_sale", lambda r, s: _or_blank(r["price_sale"])),
     # The discount as TWO numbers, not one sentence. "-84.67 (-7.0%)" in a
     # single cell cannot be summed, sorted or filtered by a spreadsheet, which
     # is the only reason the column exists (owner's report). Both stay empty
     # when there is no discount — a zero would claim "checked, none" in ink.
-    ("discount", lambda r, s: _discount_amount(r["regular_price"], r["effective_price"])),
-    ("discount_pct", lambda r, s: _discount_pct(r["regular_price"], r["effective_price"])),
+    ("discount", lambda r, s: _discount_amount(r["price_before"], r["price"])),
+    ("discount_pct", lambda r, s: _discount_pct(r["price_before"], r["price"])),
     ("currency", lambda r, s: r["currency"] or ""),
     ("availability", lambda r, s: r["availability"] or ""),
-    # vat_included alone was a claim with no source. The three columns beside
+    # tax_included alone was a claim with no source. The three columns beside
     # it say how well we actually know it, and where the owner can go and read
-    # it. vat_included is per ROW: one source can publish both states.
-    ("vat_included", lambda r, s: "yes" if r["vat_included"] else "no"),
+    # it. tax_included is per ROW: one source can publish both states.
+    ("tax_included", lambda r, s: "yes" if r["tax_included"] else "no"),
     ("tax_evidence", lambda r, s: s.evidence),
     ("tax_rate_pct", lambda r, s: s.rate_pct if s.rate_pct is not None else ""),
-    ("tax_statement_url", lambda r, s: s.statement_url),
+    ("tax_statement", lambda r, s: s.statement_url),
     # price_changed_on is when the price last MOVED; last_confirmed_on is when
     # a completed run last saw it still true. They are different questions, and
     # publishing only the first made a confirmed price look stale.
@@ -877,11 +884,11 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     ("last_confirmed_on", lambda r, s: (r["last_confirmed_at"] or "")[:10]),
     # The official body the source names for its figure, when it names one.
     ("official_source", lambda r, s: r["official_source"] or ""),
-    ("official_source_url", lambda r, s: r["official_source_url"] or ""),
+    ("official_source_link", lambda r, s: r["official_source_link"] or ""),
     # The most specific address this row has: the variation's own page when the
     # source publishes one, the product's page otherwise. Storing the right link
     # and then exporting the wrong one would be the defect with extra steps.
-    ("product_url", lambda r, s: r["variant_url"] or r["product_url"] or ""),
+    ("product_link", lambda r, s: r["variant_url"] or r["product_link"] or ""),
     # ---- everything the TABLE shows and the export used to drop -------
     # Owner ruling 2026-07-26: the exported main table carries EVERY
     # column, including the ones that are empty for this source. On screen
@@ -889,15 +896,15 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # column is a formula that breaks and a header that moves between
     # sources. A stable full header costs a blank cell and buys a file the
     # owner can build on.
-    ("tax_label", lambda r, s: s.label()),
-    ("curation_status", lambda r, s: r["curation_status"] or ""),
-    ("previous_price", lambda r, s: _or_blank(r["previous_price"])),
-    ("price_change", lambda r, s: _change_text(r["previous_price"],
-                                               r["effective_price"])),
-    ("min_price", lambda r, s: _or_blank(r["min_price"])),
-    ("max_price", lambda r, s: _or_blank(r["max_price"])),
+    ("tax", lambda r, s: s.label()),
+    ("curation", lambda r, s: r["curation"] or ""),
+    ("price_previous", lambda r, s: _or_blank(r["price_previous"])),
+    ("price_change", lambda r, s: _change_text(r["price_previous"],
+                                               r["price"])),
+    ("price_min", lambda r, s: _or_blank(r["price_min"])),
+    ("price_max", lambda r, s: _or_blank(r["price_max"])),
     ("observations", lambda r, s: r["observations"] or 0),
-    ("usd_price", lambda r, s: _usd_value(r["effective_price"], r["currency"],
+    ("price_usd", lambda r, s: _usd_value(r["price"], r["currency"],
                                           r["per_usd"])),
     # The classification split into its levels, exactly as the table
     # splits it, so a spreadsheet can pivot on a layer without parsing the
@@ -937,10 +944,10 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     for raw in rows:
         row = dict(zip(aliases, raw))
         # ...and read for THIS row's figure, so tax_evidence never contradicts
-        # the vat_included cell two columns to its left.
+        # the tax_included cell two columns to its left.
         state = (tax.resolve(tax_rules, row["country_code_alpha2"],
                              material=row["name_en"] or row["name"])
-                 .for_row(bool(row["vat_included"])))
+                 .for_row(bool(row["tax_included"])))
         table.append([produce(row, state) for _name, produce in EXPORT_COLUMNS])
         # The product's filterable attributes first, then this VARIANT's own
         # axes over them. Where a shop both filters by «السماكة (مم)» and varies
@@ -1032,7 +1039,7 @@ def _with_axis_columns(header: list[str], table: list[list],
 DETAILS_HEADER = ["product_name", "product_name_ar", "country_code_alpha2", "sku", "group",
                   "attribute", "value", "value_url", "last_seen_on"]
 HISTORY_HEADER = ["product_name", "product_name_ar", "country_code_alpha2", "sku",
-                  "business_date", "effective_price", "currency", "provenance"]
+                  "business_date", "price", "currency", "provenance"]
 
 
 def export_details_table(conn: sqlite3.Connection, source_key: str,
@@ -1067,7 +1074,7 @@ def export_history_table(conn: sqlite3.Connection, source_key: str,
     """Every price this source has published, oldest first per record."""
     rows = conn.execute(
         "SELECT sp.product_name, sp.product_name_ar, so.country_code_alpha2, sv.external_sku, "
-        "       po.business_date, po.effective_price, po.currency, po.provenance "
+        "       po.business_date, po.price, po.currency, po.provenance "
         "FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
@@ -1086,8 +1093,8 @@ def export_history_table(conn: sqlite3.Connection, source_key: str,
 def recent_observations(conn: sqlite3.Connection, source_key: str, limit: int = 10) -> list[dict]:
     """A bounded sample of the source-local prices (A8: always LIMIT-ed)."""
     rows = conn.execute(
-        "SELECT sp.product_name_ar, po.effective_price, po.currency, po.availability, "
-        "       po.vat_included, po.business_date, so.country_code_alpha2, su.unit_code, so.basis_quantity "
+        "SELECT sp.product_name_ar, po.price, po.currency, po.availability, "
+        "       po.tax_included, po.business_date, so.country_code_alpha2, su.unit_code, so.basis_quantity "
         "FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
@@ -1098,8 +1105,8 @@ def recent_observations(conn: sqlite3.Connection, source_key: str, limit: int = 
         (source_key, limit),
     ).fetchall()
     return [
-        {"product_name_ar": r[0], "effective_price": r[1], "currency": r[2], "availability": r[3],
-         "vat_included": bool(r[4]), "business_date": r[5],
+        {"product_name_ar": r[0], "price": r[1], "currency": r[2], "availability": r[3],
+         "tax_included": bool(r[4]), "business_date": r[5],
          "country_code_alpha2": r[6] or "", "country": region_name(r[6]),
          "unit": price_unit(r[7], r[8])}
         for r in rows
@@ -1156,16 +1163,16 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "  ORDER BY cc2.business_date DESC, cc2.price_observation_id DESC LIMIT 1))")
     rows = conn.execute(
         "SELECT sp.product_name_ar, so.country_code_alpha2, po.currency, so.offer_id, "
-        "       MIN(po.effective_price) AS min_price, MAX(po.effective_price) AS max_price, "
+        "       MIN(po.price) AS price_min, MAX(po.price) AS price_max, "
         "       COUNT(*) AS observations, "
-        "       (SELECT p2.effective_price FROM price_observation p2 WHERE p2.offer_id = so.offer_id "
+        "       (SELECT p2.price FROM price_observation p2 WHERE p2.offer_id = so.offer_id "
         f"        AND p2.currency = {current_currency} "
         "        ORDER BY p2.business_date, p2.price_observation_id LIMIT 1) AS first_price, "
         "       COALESCE("
-        "        (SELECT p3.effective_price FROM price_observation p3 "
+        "        (SELECT p3.price FROM price_observation p3 "
         "         WHERE p3.offer_id = so.offer_id AND p3.provenance = 'observed' "
         "         ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1), "
-        "        (SELECT p4.effective_price FROM price_observation p4 "
+        "        (SELECT p4.price FROM price_observation p4 "
         "         WHERE p4.offer_id = so.offer_id AND p4.provenance = 'reported' "
         "         ORDER BY p4.business_date DESC, p4.price_observation_id DESC LIMIT 1)"
         "       ) AS current_price "
@@ -1183,14 +1190,14 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
     previous_by_offer = {
         r2[0]: r2[1] for r2 in conn.execute(
             "SELECT so.offer_id, "
-            "  (SELECT ph.effective_price FROM price_observation ph "
+            "  (SELECT ph.price FROM price_observation ph "
             f"   WHERE ph.offer_id = so.offer_id AND ph.currency = {current_currency} "
-            "   AND ph.effective_price != ("
+            "   AND ph.price != ("
             "     SELECT COALESCE("
-            "      (SELECT c1.effective_price FROM price_observation c1 "
+            "      (SELECT c1.price FROM price_observation c1 "
             "       WHERE c1.offer_id = so.offer_id AND c1.provenance = 'observed' "
             "       ORDER BY c1.business_date DESC, c1.price_observation_id DESC LIMIT 1), "
-            "      (SELECT c2.effective_price FROM price_observation c2 "
+            "      (SELECT c2.price FROM price_observation c2 "
             "       WHERE c2.offer_id = so.offer_id AND c2.provenance = 'reported' "
             "       ORDER BY c2.business_date DESC, c2.price_observation_id DESC LIMIT 1))) "
             "   ORDER BY ph.business_date DESC, ph.price_observation_id DESC LIMIT 1) "
@@ -1209,7 +1216,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         # First stays as context; with change-only storage, previous is the
         # point immediately before the current price took hold.
         previous = previous_by_offer.get(item.get("offer_id"))
-        item["previous_price"] = previous
+        item["price_previous"] = previous
         item["change_abs"] = (None if previous is None
                               else round(current - previous, 6))
         item["change_pct"] = (None if not previous
@@ -1233,7 +1240,7 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
     """
     row = conn.execute(
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, so.country_code_alpha2, "
-        "       so.currency, su.unit_code, so.basis_quantity, sp.product_url, "
+        "       so.currency, su.unit_code, so.basis_quantity, sp.product_link, "
         "       ss.source_key, sp.product_name, sv.variant "
         "FROM source_offer so "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
@@ -1249,7 +1256,7 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
             "sku": row[2] or "",
             "country_code_alpha2": row[3] or "", "country": region_name(row[3]),
             "currency": row[4], "unit": price_unit(row[5], row[6]),
-            "product_url": row[7] or "", "source_key": row[8],
+            "product_link": row[7] or "", "source_key": row[8],
             "offer_id": offer_id}
 
 
@@ -1294,13 +1301,13 @@ def offer_observations(conn: sqlite3.Connection, offer_id: int,
     columns = {r[1] for r in conn.execute("PRAGMA table_info(price_observation)")}
     provenance = "provenance" if "provenance" in columns else "'observed'"
     rows = conn.execute(
-        f"SELECT business_date, effective_price, regular_price, sale_price, currency, "
+        f"SELECT business_date, price, price_before, price_sale, currency, "
         f"       observed_at, {provenance} "
         "FROM price_observation WHERE offer_id = ? "
         "ORDER BY business_date DESC, price_observation_id DESC LIMIT ?",
         (offer_id, max(1, min(limit, 500)))).fetchall()
-    return [{"business_date": r[0], "effective_price": r[1], "regular_price": r[2],
-             "sale_price": r[3], "currency": r[4], "observed_at": r[5],
+    return [{"business_date": r[0], "price": r[1], "price_before": r[2],
+             "price_sale": r[3], "currency": r[4], "observed_at": r[5],
              "provenance": r[6]} for r in rows]
 
 
@@ -1349,7 +1356,7 @@ def watch(conn: sqlite3.Connection, source_key: str, moved_within_days: int = 7)
         # has a price. Folding those into "confirmed" would under-report exactly
         # the staleness this strip exists to surface.
         "       SUM(CASE WHEN ost.last_confirmed_at IS NULL THEN 1 ELSE 0 END), "
-        "       SUM(CASE WHEN sp.curation_status = 'inventoried' THEN 1 ELSE 0 END) "
+        "       SUM(CASE WHEN sp.curation = 'inventoried' THEN 1 ELSE 0 END) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     if row:
         result["total"] = int(row[0] or 0)
@@ -1429,11 +1436,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     limit = max(1, min(limit, TABLE_ROW_CAP))
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}", (source_key,)).fetchone()[0])
     rows = conn.execute(
-        "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.effective_price, "
-        "       po.regular_price, po.sale_price, po.currency, po.availability, "
-        "       po.business_date, sp.product_url, sp.curation_status, so.country_code_alpha2, "
+        "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price, "
+        "       po.price_before, po.price_sale, po.currency, po.availability, "
+        "       po.business_date, sp.product_link, sp.curation, so.country_code_alpha2, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
-        "       po.official_source_name, po.official_source_url, sp.brand, "
+        "       po.official_source_name, po.official_source_link, sp.brand, "
         # Every history statistic is scoped to the CURRENT observation's
         # currency (po IS the latest row, so po.currency IS the current one):
         # after a currency flip, 0.40 USD in the same Min column as 20.50 EGP
@@ -1442,18 +1449,18 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       (SELECT COUNT(*) FROM price_observation ph "
         "        WHERE ph.offer_id = so.offer_id "
         "        AND ph.currency = po.currency) AS observations, "
-        "       (SELECT MIN(ph2.effective_price) FROM price_observation ph2 "
+        "       (SELECT MIN(ph2.price) FROM price_observation ph2 "
         "        WHERE ph2.offer_id = so.offer_id "
-        "        AND ph2.currency = po.currency) AS min_price, "
-        "       (SELECT MAX(ph3.effective_price) FROM price_observation ph3 "
+        "        AND ph2.currency = po.currency) AS price_min, "
+        "       (SELECT MAX(ph3.price) FROM price_observation ph3 "
         "        WHERE ph3.offer_id = so.offer_id "
-        "        AND ph3.currency = po.currency) AS max_price, "
-        "       (SELECT ph4.effective_price FROM price_observation ph4 "
+        "        AND ph3.currency = po.currency) AS price_max, "
+        "       (SELECT ph4.price FROM price_observation ph4 "
         "        WHERE ph4.offer_id = so.offer_id "
         "        AND ph4.currency = po.currency "
-        "        AND ph4.effective_price != po.effective_price "
+        "        AND ph4.price != po.price "
         "        ORDER BY ph4.business_date DESC, ph4.price_observation_id DESC "
-        "        LIMIT 1) AS previous_price, "
+        "        LIMIT 1) AS price_previous, "
         "       (SELECT cr.per_usd FROM currency_rate cr "
         "        WHERE cr.currency = po.currency "
         "        ORDER BY cr.as_of DESC LIMIT 1) AS per_usd, "
@@ -1465,7 +1472,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       sp.category_path_ar, sp.product_name, sp.category_path, "
         # Appended LAST on purpose: every index above is positional and a column
         # inserted mid-list silently shifts the lot.
-        "       po.vat_included, sv.variant, sv.variant_url, "
+        "       po.tax_included, sv.variant, sv.variant_url, "
         "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar), "
         "       sp.source_product_id, "
         # Appended LAST, obeying the rule the comment above states: adding it
@@ -1475,38 +1482,38 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         (source_key, limit)).fetchall()
 
     tax_rules = tax.load_rules(conn, source_key)
-    # One resolved state per DISTINCT (region, material, vat_included) triple,
+    # One resolved state per DISTINCT (region, material, tax_included) triple,
     # sent once and referenced by index from each row. Keyed by region alone,
     # gasoline and natural-gas rows wore the diesel page's link — the owner's
-    # exact report. Keyed without vat_included, madar's 328 tax-EXCLUSIVE
+    # exact report. Keyed without tax_included, madar's 328 tax-EXCLUSIVE
     # configurable rows shared one state with its 399 inclusive simple ones and
     # every Tax cell in the table read "Incl. 15%": still one state per distinct
     # ANSWER, but the row's own figure is part of what makes an answer distinct.
     tax_states: list[dict] = []
     tax_index: dict[tuple[str, str, bool], int] = {}
 
-    def tax_ref(region: str, material: str, vat_included: bool) -> int:
-        key = (region, material, vat_included)
+    def tax_ref(region: str, material: str, tax_included: bool) -> int:
+        key = (region, material, tax_included)
         if key not in tax_index:
             tax_index[key] = len(tax_states)
             tax_states.append(tax.resolve(tax_rules, region, material=material)
-                              .for_row(vat_included).as_dict())
+                              .for_row(tax_included).as_dict())
         return tax_index[key]
 
     shaped = [{"product_name_ar": r[0], "variant_ar": r[1] or "", "variant": r[30] or "",
                # The variation's own page where there is one; the row's arrow
                # and the record panel both open the most specific address.
-               "product_url": r[31] or r[9] or "",
+               "product_link": r[31] or r[9] or "",
                "sku": r[2] or "",
-               "effective_price": r[3], "regular_price": r[4], "sale_price": r[5],
+               "price": r[3], "price_before": r[4], "price_sale": r[5],
                "currency": r[6], "availability": r[7],
                "price_changed_on": r[8],
-               "curation_status": r[10], "country_code_alpha2": r[11] or "",
+               "curation": r[10], "country_code_alpha2": r[11] or "",
                "country": region_name(r[11]),
                "last_confirmed_on": (r[12] or "")[:10],
                "unit": price_unit(r[13], r[14]), "offer_id": r[15],
                "official_source": r[16] or "",
-               "official_source_url": r[17] or "",
+               "official_source_link": r[17] or "",
                "brand": r[18] or "",
                "brand_ar": r[-1] or "",
                # The full stated path when the source classifies in levels;
@@ -1519,11 +1526,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "product_name": r[27] or "",
                "has_details": bool(r[25]),
                "observations": r[19],
-               "min_price": r[20],
-               "max_price": r[21],
-               "previous_price": r[22] if r[22] is not None else "",
+               "price_min": r[20],
+               "price_max": r[21],
+               "price_previous": r[22] if r[22] is not None else "",
                "price_change": _change_text(r[22], r[3]),
-               "usd_price": _usd_value(r[3], r[6], r[23]),
+               "price_usd": _usd_value(r[3], r[6], r[23]),
                "was_price": r[4] if _discounted(r[4], r[3]) else "",
                "discount": _discount_amount(r[4], r[3]),
                "discount_pct": _discount_pct(r[4], r[3]),
@@ -1590,7 +1597,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # — the owner's ask, using the mechanism that already exists.
         "moved_to_details": [{"key": key, "label": label}
                              for key, label in BROWSE_COLUMNS
-                             if key in present and key in hidden and key != "open"],
+                             # The link is an icon, not a fact that can live
+                             # in the details panel, so "move it to details" was
+                             # never a real offer for it.
+                             if key in present and key in hidden
+                             and key != "product_link"],
     }
 
 
@@ -1650,69 +1661,57 @@ COLUMN_NOTES: dict[str, str] = {
     "variant_ar": "The same variation in the site's own Arabic words.",
     "sku": "The source's own code for this item.",
     "product_id": "The id its variations share, so six rows of one cable group.",
-    "effective_price": "What a visitor actually pays today.",
-    "regular_price": "The price before any discount inside this listing.",
-    "sale_price": "The discounted price, when the listing has one.",
+    "price": "What a visitor actually pays today.",
+    "price_before": "The price before any discount inside this listing.",
+    "price_sale": "The discounted price, when the listing has one.",
     "discount": "How much the listing takes off, as an amount.",
     "discount_pct": "The same discount as a percentage.",
     "currency": "The currency the source quotes in — never converted.",
-    "usd_price": "An approximate US-dollar figure, so many currencies can be "
+    "price_usd": "An approximate US-dollar figure, so many currencies can be "
                  "ranked in one column. UNDER REVIEW — the owner has flagged "
                  "this column for a decision: the rate it uses is implied by "
                  "a fuel site's own arithmetic, not quoted by any source, so "
                  "what it is FOR has to be settled before it is trusted. "
                  "Shown only where a source spans more than one currency.",
-    "previous_price": "The price that held immediately before the current one.",
+    "price_previous": "The price that held immediately before the current one.",
     "price_change": "The move from that previous price to this one.",
-    "min_price": "The lowest price ever recorded for this record.",
-    "max_price": "The highest price ever recorded for this record.",
+    "price_min": "The lowest price ever recorded for this record.",
+    "price_max": "The highest price ever recorded for this record.",
     "observations": "How many times this price has been recorded.",
     "unit": "What one price BUYS: a litre, a 50 kg bag, a 100 m roll.",
     "availability": "In stock or out, as the source states it.",
-    "tax_label": "Whether THIS figure includes tax, and at what rate.",
-    "vat_included": "The same fact as yes/no, for a spreadsheet.",
+    "tax": "Whether THIS figure includes tax, and at what rate.",
+    "tax_included": "The same fact as yes/no, for a spreadsheet.",
     "tax_evidence": "How well the tax position is known: stated, implied, unknown.",
     "tax_rate_pct": "The rate, when the source states one.",
-    "tax_statement_url": "Where the source says it, so the claim can be read.",
+    "tax_statement": "Where the source says it, so the claim can be read.",
     "price_changed_on": "When the price last MOVED.",
     "last_confirmed_on": "When a completed run last saw it still true.",
     "official_source": "The body the source attributes its figure to.",
-    "official_source_url": "Where that body publishes it.",
-    "curation_status": "Your own review state for this product.",
-    "product_url": "The product's page on the site.",
-    "open": "Opens the product's page on the site.",
+    "official_source_link": "Where that body publishes it.",
+    "curation": "Your own review state for this product.",
+    # One column since 0051, so one note: the same link is the arrow in the
+    # table and the full URL in the export.
+    "product_link": "The product's page on the site — the arrow opens it, "
+                    "and the export carries the full address.",
 }
 
 
 # The approved vocabulary (docs/column-vocabulary.md), and the columns still
 # waiting for it. Two rules produce every target name: the key and the label are
 # the same word, and the name states the LANGUAGE of the content — English
-# unmarked, Arabic marked `_ar`. The rename is one sweep, not yet run, and until
-# it is the page shows both names side by side rather than letting the owner
-# read a plan as a fact. Empty when a column's name is already correct.
-# The LANGUAGE half of this plan has LANDED (migrations 0038-0040): every
-# name above already states the language it holds, so those rows are gone
-# from here rather than left advertising a rename that has happened. What
-# remains is the non-language half, deferred with its reasons written down
-# in docs/column-vocabulary.md — chiefly `region`, which is inside
-# pricekey.IDENTITY_FIELDS and is hashed BY NAME, so renaming it opens a
-# fresh price period on every affected offer and needs its own argument.
-RENAMING_TO: dict[str, str] = {
-    "effective_price": "price",
-    "regular_price": "price_before",
-    "sale_price": "price_sale",
-    "usd_price": "price_usd",
-    "previous_price": "price_previous",
-    "min_price": "price_min",
-    "max_price": "price_max",
-    "availability": "availability",
-    "tax_label": "tax",
-    "vat_included": "tax_included",
-    "tax_statement_url": "tax_statement",
-    "official_source_url": "official_source_link",
-    "curation_status": "curation",
-    "open": "product_link",
-}
+# unmarked, Arabic marked `_ar`. While a rename is pending the schema page shows
+# both names side by side, rather than letting the owner read a plan as a fact.
+#
+# EMPTY: both halves have landed. The language half across 0038-0050, and the
+# non-language half — the price family, the tax family, curation, and the
+# product_link merge — in 0051. A row left here after its rename lands is worse
+# than no row at all: the page would go on announcing a change already made.
+#
+# `region` stays `region` and is NOT a pending rename: it SCOPES a row rather
+# than describing it (0042), and the same is true of the manifest's
+# default_region and pricekey's own field name.
+RENAMING_TO: dict[str, str] = {}
 
 
 def renaming_to(key: str) -> str:
@@ -1950,16 +1949,16 @@ _COMPUTED_FROM: dict[str, str] = {
     "category_ar": "source_product.category_path_ar",
     "variant": "source_variant.variant",
     "unit": "selling_unit + source_offer.basis_quantity",
-    "discount": "computed: price_observation.regular_price − effective_price",
+    "discount": "computed: price_observation.price_before − price",
     "discount_pct": "computed: the same two prices, as a percentage",
-    "usd_price": "computed: price_observation × currency_rate",
-    "previous_price": "computed: price_observation, the last differing price",
+    "price_usd": "computed: price_observation × currency_rate",
+    "price_previous": "computed: price_observation, the last differing price",
     "price_change": "computed: this price against the previous one",
-    "min_price": "computed: price_observation, lowest for this offer",
-    "max_price": "computed: price_observation, highest for this offer",
+    "price_min": "computed: price_observation, lowest for this offer",
+    "price_max": "computed: price_observation, highest for this offer",
     "observations": "computed: price_observation, counted",
-    "tax_label": "tax_rule + this row's price_observation.vat_included",
-    "open": "source_product.product_url",
+    "tax": "tax_rule + this row's price_observation.tax_included",
+    "open": "source_product.product_link",
 }
 
 

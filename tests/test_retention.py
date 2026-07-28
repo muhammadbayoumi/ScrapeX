@@ -36,7 +36,7 @@ def conn(tmp_path):
     entry = make_entry()
     for date, price in HISTORY:
         ingest_payloads(c, entry, [make_payload(
-            [one_row(effective_price=price)], scraped_at=f"{date}T10:00:00Z")])
+            [one_row(price=price)], scraped_at=f"{date}T10:00:00Z")])
     c.commit()
     try:
         yield c
@@ -57,7 +57,7 @@ def prices_of(conn, ids: set[int]) -> set[float]:
         return set()
     holes = ", ".join("?" for _ in ids)
     return {r[0] for r in conn.execute(
-        f"SELECT effective_price FROM price_observation WHERE price_observation_id IN ({holes})",
+        f"SELECT price FROM price_observation WHERE price_observation_id IN ({holes})",
         list(ids))}
 
 
@@ -114,14 +114,14 @@ def test_the_most_aggressive_policy_still_carries_the_extremes(conn):
 def test_a_pinned_observation_survives_archive_only(conn):
     row = conn.execute(
         "SELECT offer_id, business_date, record_hash, price_observation_id "
-        "FROM price_observation WHERE effective_price = 110.0").fetchone()
+        "FROM price_observation WHERE price = 110.0").fetchone()
     retention.pin(conn, row[0], row[1], row[2], note="the day the tender closed")
     assert row[3] in kept_ids(conn, retention.ARCHIVE_ONLY)
 
 
 def test_unpinning_removes_the_mark_and_not_the_observation(conn):
     row = conn.execute("SELECT offer_id, business_date, record_hash FROM price_observation "
-                       "WHERE effective_price = 110.0").fetchone()
+                       "WHERE price = 110.0").fetchone()
     retention.pin(conn, row[0], row[1], row[2])
     before = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
     pin_id = conn.execute("SELECT retention_pin_id FROM retention_pin").fetchone()[0]

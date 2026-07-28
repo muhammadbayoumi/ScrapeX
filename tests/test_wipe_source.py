@@ -41,7 +41,7 @@ def _entry(key: str) -> SourceEntry:
 def _seed(conn, key: str, price: str = "0.404") -> None:
     builder = RowBuilder(COMMODITY_PRICE)
     rows = [builder.row(material_key="DIESEL", country_code_alpha2="EG", currency="USD",
-                        unit="USD/liter", vat_included="1", effective_price=price,
+                        unit="USD/liter", tax_included="1", price=price,
                         price_basis="converted")]
     table = ScrapedTable(key, ExtractKind.COMMODITY_PRICE,
                          "https://www.globalpetrolprices.com", builder.header, rows)
@@ -159,16 +159,16 @@ def test_a_recrawl_after_the_wipe_starts_clean(db):
 
     builder = RowBuilder(COMMODITY_PRICE)
     rows = [builder.row(material_key="DIESEL", country_code_alpha2="EG", currency="EGP",
-                        unit="liter", vat_included="1", effective_price="20.50",
+                        unit="liter", tax_included="1", price="20.50",
                         price_basis="original")]
     table = ScrapedTable("GPP_ENERGY", ExtractKind.COMMODITY_PRICE,
                          "https://www.globalpetrolprices.com", builder.header, rows)
     ingest_payloads(conn, _entry("GPP_ENERGY"), [table.to_payload()])
 
     jumps = conn.execute(
-        "SELECT COUNT(*) FROM change_event WHERE field_key='effective_price'"
+        "SELECT COUNT(*) FROM change_event WHERE field_key='price'"
     ).fetchone()[0]
     assert jumps == 0, "the recrawl was read as a price change — the false jump is back"
     obs = conn.execute(
-        "SELECT effective_price, currency FROM price_observation").fetchall()
+        "SELECT price, currency FROM price_observation").fetchall()
     assert [(r[0], r[1]) for r in obs] == [(20.5, "EGP")]

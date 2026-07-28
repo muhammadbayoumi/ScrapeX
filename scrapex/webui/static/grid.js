@@ -979,7 +979,7 @@
         return span;
       };
     }
-    if (key === "effective_price") {
+    if (key === "price") {
       return (cell) => {
         const row = cell.getRow().getData();
         const box = document.createElement("span");
@@ -1008,7 +1008,7 @@
         return box;
       };
     }
-    if (key === "tax_label") {
+    if (key === "tax") {
       // The verdict travels once per distinct (region, material) pair and each
       // row carries only an index. Keyed by region alone, gasoline and
       // natural-gas rows wore the diesel page's link — the owner's report.
@@ -1029,8 +1029,8 @@
         // evidence really is one page (a fuel authority's tax notice), and the
         // tooltip always names which of the two you are about to open.
         const rowData = cell.getRow().getData();
-        const candidates = [[rowData.product_url, "this product's own page"],
-                            [state.tax_statement_url, "the source's own statement"]];
+        const candidates = [[rowData.product_link, "this product's own page"],
+                            [state.tax_statement, "the source's own statement"]];
         let safe = "";
         let what = "";
         for (const [candidate, describes] of candidates) {
@@ -1050,12 +1050,12 @@
           link.target = "_blank";
           link.rel = "noopener noreferrer";
           link.textContent = state.tax_short || "—";
-          link.title = (state.tax_label || "") + " — open " + what;
+          link.title = (state.tax || "") + " — open " + what;
           return link;
         }
         const span = document.createElement("span");
         span.textContent = state.tax_short || "—";
-        span.title = state.tax_label || "";
+        span.title = state.tax || "";
         if (state.tax_verified === false) span.className = "unverified";
         return span;
       };
@@ -1072,8 +1072,8 @@
         return badge;
       };
     }
-    if (key === "usd_price" || key === "previous_price" ||
-        key === "min_price" || key === "max_price") {
+    if (key === "price_usd" || key === "price_previous" ||
+        key === "price_min" || key === "price_max") {
       return (cell) => {
         const span = document.createElement("span");
         span.dir = "ltr";
@@ -1107,13 +1107,13 @@
         return span;
       };
     }
-    if (key === "open") {
+    if (key === "product_link") {
       // The arrow the owner missed: straight to the record on the site.
       return (cell) => {
-        // product_url is already the most specific address the server has for
+        // product_link is already the most specific address the server has for
         // this row — the variation's own page where the source publishes one.
         // The grid does not choose; it opens what the row was given.
-        const url = cell.getRow().getData().product_url;
+        const url = cell.getRow().getData().product_link;
         if (!url) return "";
         const link = document.createElement("a");
         link.href = url;
@@ -1133,7 +1133,7 @@
         const name = text(cell.getValue());
         if (!name) return "";
         const data = cell.getRow().getData();
-        const url = text(data.official_source_url);
+        const url = text(data.official_source_link);
         let safe = "";
         try {
           const parsed = new URL(url);
@@ -1232,24 +1232,24 @@
                    || col.key === "country_code_alpha2" ? 2 : 1,
       };
       // Numbers and dates read right-aligned; text reads from its own side.
-      if (col.key === "effective_price") def.hozAlign = "right";
+      if (col.key === "price") def.hozAlign = "right";
       if (col.key === "price_changed_on" || col.key === "last_confirmed_on" ||
           col.key === "was_price" || col.key === "discount" ||
           col.key === "discount_pct" ||
-          col.key === "usd_price" || col.key === "previous_price" ||
-          col.key === "price_change" || col.key === "min_price" ||
-          col.key === "max_price" || col.key === "observations") {
+          col.key === "price_usd" || col.key === "price_previous" ||
+          col.key === "price_change" || col.key === "price_min" ||
+          col.key === "price_max" || col.key === "observations") {
         def.hozAlign = "right";
       }
       // Numeric sort for the ranking columns: a string sort would put 9 above
       // 11 and defeat the whole point of the USD column.
-      if (col.key === "usd_price" || col.key === "previous_price" ||
-          col.key === "min_price" || col.key === "max_price" ||
+      if (col.key === "price_usd" || col.key === "price_previous" ||
+          col.key === "price_min" || col.key === "price_max" ||
           col.key === "discount" || col.key === "discount_pct" ||
           col.key === "observations") {
         def.sorter = "number";
       }
-      if (col.key === "open") {
+      if (col.key === "product_link") {
         def.headerSort = false;
         def.download = false;
         def.headerMenu = undefined;
@@ -1285,7 +1285,7 @@
       // different currencies and units would be a number with no referent, so
       // the count is what is shown for anything that is not plainly additive.
       columns.forEach((c) => {
-        if (c.field === "effective_price") { c.topCalc = "avg"; c.topCalcParams = {precision: 2}; }
+        if (c.field === "price") { c.topCalc = "avg"; c.topCalcParams = {precision: 2}; }
         else if (c.field === nameField) c.topCalc = "count";
       });
     }
@@ -1972,7 +1972,7 @@
       offer.name || "Unnamed record"));
     name.dir = "auto";
     titleRow.appendChild(name);
-    const live = safeUrl(row.product_url || offer.product_url || "");
+    const live = safeUrl(row.product_link || offer.product_link || "");
     if (live) {
       const visit = el("a", "selected-product-site-link");
       visit.href = live;
@@ -2004,7 +2004,7 @@
     const price = el("div", "selected-product-price");
     price.appendChild(el("span", "selected-product-price-label", "Current price"));
     const value = el("strong", "");
-    value.appendChild(money(row.effective_price, row.currency || offer.currency,
+    value.appendChild(money(row.price, row.currency || offer.currency,
                             offer.unit || row.unit));
     price.appendChild(value);
     body.appendChild(price);
@@ -2325,7 +2325,7 @@
         periods.map((p) => [
           (p.first_detected_at || "").slice(0, 10),
           (p.closed_at || "").slice(0, 10) || "current",
-          money(p.effective_price, p.currency, offer.unit),
+          money(p.price, p.currency, offer.unit),
           (p.opened_because || "").replace(/_/g, " "),
         ])));
       historySections.get("price").push(timeline);
@@ -2359,7 +2359,7 @@
         ["Date", "Price", "Where it came from"],
         observations.map((o) => [
           o.business_date || "",
-          money(o.effective_price, o.currency, offer.unit),
+          money(o.price, o.currency, offer.unit),
           o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
         ])));
       historySections.get("observations").push(recorded);

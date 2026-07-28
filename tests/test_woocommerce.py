@@ -63,14 +63,14 @@ def test_woo_converts_minor_units_and_maps():
 
     wire = view.as_dict(table.rows[0])
     assert wire["external_product_id"] == "10150"
-    assert wire["effective_price"] == "2776.66"  # "277666" minor_unit 2 -> 2776.66
-    assert wire["regular_price"] == "2985.66"     # on sale
-    assert wire["sale_price"] == "2776.66"
-    assert wire["currency"] == "EGP" and wire["vat_included"] == "1"
+    assert wire["price"] == "2776.66"  # "277666" minor_unit 2 -> 2776.66
+    assert wire["price_before"] == "2985.66"     # on sale
+    assert wire["price_sale"] == "2776.66"
+    assert wire["currency"] == "EGP" and wire["tax_included"] == "1"
     assert wire["availability"] == "in_stock"
 
     breaker = view.as_dict(table.rows[1])
-    assert breaker["effective_price"] == "125.50" and breaker["sale_price"] == ""
+    assert breaker["price"] == "125.50" and breaker["price_sale"] == ""
     assert breaker["availability"] == "out_of_stock"
 
 
@@ -83,7 +83,7 @@ def test_a_variable_products_variations_replace_its_range_low_end():
     view = RowView(PRODUCT_PRICES, table.header)
 
     rows = [view.as_dict(r) for r in table.rows]
-    assert not any(r["effective_price"] == "450.00" for r in rows), \
+    assert not any(r["price"] == "450.00" for r in rows), \
         "the range's low end leaked through as if it were a price"
 
     variation = rows[0]
@@ -106,7 +106,7 @@ def test_a_dead_variation_keeps_the_parent_price_and_says_so():
     rows = [view.as_dict(r) for r in table.rows]
     assert len(rows) == 2
     fallback = rows[0]
-    assert fallback["effective_price"] == "450.00"           # the low end, kept
+    assert fallback["price"] == "450.00"           # the low end, kept
     assert fallback["external_variant_id"] == "10150"        # product-level identity
     assert any("low end" in w for w in table.warnings)
     assert any("504" in w for w in table.warnings)
@@ -135,7 +135,7 @@ def test_a_variation_answering_price_zero_is_not_a_price():
             if url.endswith("/products/10491"):
                 self.requests_count += 1
                 zero = json.loads(json.dumps(VARIATION))
-                zero["prices"].update(price="0", regular_price="0", sale_price="")
+                zero["prices"].update(price="0", price_before="0", price_sale="")
                 return _StubResponse(zero)
             return super().get(url, params=params, **kwargs)
 
@@ -143,10 +143,10 @@ def test_a_variation_answering_price_zero_is_not_a_price():
     view = RowView(PRODUCT_PRICES, table.header)
     rows = [view.as_dict(r) for r in table.rows]
 
-    assert not any(r["effective_price"] == "0.00" for r in rows), \
+    assert not any(r["price"] == "0.00" for r in rows), \
         "a zero entered the table as if it were a price"
     fallback = rows[0]
-    assert fallback["effective_price"] == "450.00"      # the range low, said out loud
+    assert fallback["price"] == "450.00"      # the range low, said out loud
     assert fallback["external_variant_id"] == "10150"
     assert any("low end" in w for w in table.warnings)
 
@@ -180,8 +180,8 @@ def _grouped_entry(**over):
     product = {
         "id": 7777, "name": "طقم توصيلات", "type": "grouped", "sku": "KIT-7777",
         "permalink": "https://samehgabriel.com/product/kit/",
-        "prices": {"price": "208978", "regular_price": "208978",
-                   "sale_price": "", "currency_code": "EGP",
+        "prices": {"price": "208978", "price_before": "208978",
+                   "price_sale": "", "currency_code": "EGP",
                    "currency_minor_unit": 2,
                    "price_range": {"min_amount": "208978",
                                    "max_amount": "209072"}},
@@ -226,7 +226,7 @@ def test_a_grouped_product_with_ONE_price_is_still_recorded():
     table = next(iter(WooCommerceConnector(_Single()).fetch(make_entry())))
     view = RowView(PRODUCT_PRICES, table.header)
     assert len(table.rows) == 1
-    assert view.as_dict(table.rows[0])["effective_price"] == "2089.78"
+    assert view.as_dict(table.rows[0])["price"] == "2089.78"
     assert not any("RANGE" in w for w in table.warnings)
 
 
@@ -250,7 +250,7 @@ def test_a_range_priced_product_whose_variations_all_die_is_skipped_not_guessed(
     table = next(iter(WooCommerceConnector(_AllVariationsDown()).fetch(make_entry())))
     view = RowView(PRODUCT_PRICES, table.header)
     rows = [view.as_dict(r) for r in table.rows]
-    assert not any(r["effective_price"] == "450.00" for r in rows), \
+    assert not any(r["price"] == "450.00" for r in rows), \
         "the range's low end was kept as if the shop quoted it"
     assert [r["external_product_id"] for r in rows] == ["10200"]   # the simple one
     assert any("RANGE" in w and "450.00..2776.66" in w for w in table.warnings)

@@ -66,7 +66,7 @@ class ApiConfig(BaseModel):
     # A STATEMENT OF FACT about one product shape, not an instruction to do
     # arithmetic: "this API's ConfigurableProduct figures are the storefront's
     # tax-EXCLUSIVE ones". The connector never converts them — it records the
-    # number the API gave and marks that row vat_included = 0, so the Tax
+    # number the API gave and marks that row tax_included = 0, so the Tax
     # column says "Excl. 15%" beside a simple product's "Incl. 15%".
     #
     # There used to be a `prices_exclude_tax_pct` here (and a shape-scoped

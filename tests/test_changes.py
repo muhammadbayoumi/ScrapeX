@@ -53,11 +53,11 @@ def test_classify_availability_ignores_unknown():
 
 
 def test_product_field_diffs_detects_and_protects():
-    stored = {"product_name_ar": "Old name", "product_url": "u", "brand": "B"}
-    assert product_field_diffs(stored, {"product_name_ar": "New name", "product_url": "u",
+    stored = {"product_name_ar": "Old name", "product_link": "u", "brand": "B"}
+    assert product_field_diffs(stored, {"product_name_ar": "New name", "product_link": "u",
                                         "brand": "B"}) == [("product_name_ar", "Old name", "New name")]
     # an EMPTY incoming value means "not reported", never "cleared"
-    assert product_field_diffs(stored, {"product_name": "", "product_url": "", "brand": ""}) == []
+    assert product_field_diffs(stored, {"product_name": "", "product_link": "", "brand": ""}) == []
 
 
 # ---- what ingest actually emits ---------------------------------------------
@@ -72,10 +72,10 @@ def test_first_ingest_emits_new_for_product_and_variant(conn):
 
 def test_price_rise_and_fall_are_recorded(conn):
     entry = make_entry()
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="100.00")])])
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="130.00")],
+    ingest_payloads(conn, entry, [make_payload([one_row(price="100.00")])])
+    ingest_payloads(conn, entry, [make_payload([one_row(price="130.00")],
                                                scraped_at="2026-07-17T10:00:00Z")])
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="90.00")],
+    ingest_payloads(conn, entry, [make_payload([one_row(price="90.00")],
                                                scraped_at="2026-07-18T10:00:00Z")])
     assert _types(conn)[-2:] == [ChangeType.PRICE_INCREASE.value, ChangeType.PRICE_DECREASE.value]
     ev = conn.execute("SELECT previous_value, new_value FROM change_event "
@@ -95,10 +95,10 @@ def test_going_out_of_stock_and_returning(conn):
     entry = make_entry()
     ingest_payloads(conn, entry, [make_payload([one_row(availability="in_stock")])])
     ingest_payloads(conn, entry, [make_payload(
-        [one_row(availability="out_of_stock", effective_price="1,201.00")],
+        [one_row(availability="out_of_stock", price="1,201.00")],
         scraped_at="2026-07-17T10:00:00Z")])
     ingest_payloads(conn, entry, [make_payload(
-        [one_row(availability="in_stock", effective_price="1,202.00")],
+        [one_row(availability="in_stock", price="1,202.00")],
         scraped_at="2026-07-18T10:00:00Z")])
     types = _types(conn)
     assert ChangeType.UNAVAILABLE.value in types and ChangeType.RETURNED.value in types
@@ -132,7 +132,7 @@ def test_changes_are_linked_to_their_run_and_job(conn):
 def test_change_summary_counts_by_type(conn):
     entry = make_entry()
     ingest_payloads(conn, entry, [make_payload([one_row()])])
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="1,300.00")],
+    ingest_payloads(conn, entry, [make_payload([one_row(price="1,300.00")],
                                                scraped_at="2026-07-17T10:00:00Z")])
     summary = change_summary(conn, "ELSEWEDYSHOP")
     assert summary[ChangeType.NEW.value] == 2

@@ -97,7 +97,7 @@ def test_export_source_table_shape():
     try:
         dbmod.migrate(conn)
         ingest_payloads(conn, make_entry(), [make_payload([
-            one_row(product_name="LED 400W", effective_price="1,200.00", regular_price="1,450.00", sale_price="1,200.00"),
+            one_row(product_name="LED 400W", price="1,200.00", price_before="1,450.00", price_sale="1,200.00"),
         ])])
         header, rows = export_source_table(conn, "ELSEWEDYSHOP")
     finally:
@@ -106,8 +106,8 @@ def test_export_source_table_shape():
     assert len(rows) == 1
     row = dict(zip(header, rows[0]))
     assert row["product_name"] == "LED 400W"
-    assert row["effective_price"] == 1200.0        # numeric, not a string
-    assert row["vat_included"] == "yes"
+    assert row["price"] == 1200.0        # numeric, not a string
+    assert row["tax_included"] == "yes"
     # The 2026-07-22 widening: identity completed and the discount made visible.
     assert row["brand"] == "Elsewedy"
     # The discount used to be published as one sentence, "-250.00 (-17.2%)",

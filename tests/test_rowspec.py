@@ -16,11 +16,11 @@ def test_builder_fills_missing_optionals_with_empty_string():
     builder = RowBuilder(PRODUCT_PRICES)
     row = builder.row(
         external_product_id="1", country_code_alpha2="EG", currency="EGP",
-        vat_included="1", effective_price="10.00",
+        tax_included="1", price="10.00",
     )
     view = RowView(PRODUCT_PRICES, builder.header)
     assert view.get(row, "external_sku") == ""       # optional -> ""
-    assert view.get(row, "effective_price") == "10.00"
+    assert view.get(row, "price") == "10.00"
 
 
 def test_builder_rejects_unknown_field():
@@ -36,11 +36,11 @@ def test_builder_rejects_missing_required_field():
 def test_builder_stringifies_bool_and_number():
     row = RowBuilder(PRODUCT_PRICES).row(
         external_product_id=4672, country_code_alpha2="EG", currency="EGP",
-        vat_included=True, effective_price=168.78,
+        tax_included=True, price=168.78,
     )
     view = RowView(PRODUCT_PRICES, row and RowBuilder(PRODUCT_PRICES).header)
     assert view.get(row, "external_product_id") == "4672"
-    assert view.get(row, "vat_included") == "1"
+    assert view.get(row, "tax_included") == "1"
 
 
 def test_view_rejects_header_missing_a_column():
@@ -59,7 +59,7 @@ def test_view_tolerates_reordered_header():
     reordered = list(reversed(PRODUCT_PRICES.columns))
     builder = RowBuilder(PRODUCT_PRICES)
     row = builder.row(external_product_id="1", country_code_alpha2="EG", currency="EGP",
-                      vat_included="1", effective_price="10.00")
+                      tax_included="1", price="10.00")
     # Build a row in reordered layout, read it back by name:
     reordered_row = [row[PRODUCT_PRICES.index(col)] for col in reordered]
     view = RowView(PRODUCT_PRICES, reordered)
@@ -108,8 +108,8 @@ def test_an_attribute_with_no_code_or_value_is_refused():
 PRE_SWEEP_HEADER = [
     "external_product_id", "external_variant_id", "external_sku",
     "product_name", "brand_raw", "option_label", "option_fingerprint",
-    "product_url", "country_code_alpha2", "currency", "vat_included", "regular_price",
-    "sale_price", "effective_price", "availability", "stock_quantity",
+    "product_link", "country_code_alpha2", "currency", "tax_included", "price_before",
+    "price_sale", "price", "availability", "stock_quantity",
 ]
 
 

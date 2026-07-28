@@ -100,9 +100,9 @@ class ZidConnector:
             # Arabic only, same rule as salla: fill the marked column and
             # leave the unmarked one empty.
             product_name_ar=str(node.get("name") or ""),
-            **brand_pair(brand_name(node)), product_url=url,
-            country_code_alpha2=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
-            regular_price=price, sale_price="", effective_price=price,
+            **brand_pair(brand_name(node)), product_link=url,
+            country_code_alpha2=source.default_region, currency=currency or source.currency or "UNKNOWN", tax_included=vat,
+            price_before=price, price_sale="", price=price,
             availability=availability_status(availability),
             # Zid states the product's filing in the SAME JSON-LD the price
             # comes from — «أنظمة الإطفاء > طفايات الحريق اليدوية» — and it

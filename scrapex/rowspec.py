@@ -67,13 +67,13 @@ PRODUCT_PRICES = RowSpec(
         "brand_ar",
         "variant_ar",
         "option_fingerprint",
-        "product_url",
+        "product_link",
         "country_code_alpha2",
         "currency",
-        "vat_included",          # "0" | "1"
-        "regular_price",
-        "sale_price",
-        "effective_price",
+        "tax_included",          # "0" | "1"
+        "price_before",
+        "price_sale",
+        "price",
         "availability",          # in_stock | out_of_stock | unknown
         "stock_quantity",
         # --- added 2026-07-20, owner-approved contract widening --------------
@@ -121,7 +121,7 @@ PRODUCT_PRICES = RowSpec(
         "variant_url",
         "parent_sku",
     ),
-    required=frozenset({"external_product_id", "country_code_alpha2", "currency", "vat_included", "effective_price"}),
+    required=frozenset({"external_product_id", "country_code_alpha2", "currency", "tax_included", "price"}),
     # The four _ar columns are deliberately NOT additive. RowView returns ""
     # for a missing additive column and RAISES for a missing non-additive one,
     # so marking them additive would make a post-sweep spec ACCEPT a pre-sweep
@@ -176,8 +176,8 @@ COMMODITY_PRICE = RowSpec(
         "country_code_alpha2",                # country ISO code, or 'SA'
         "currency",
         "unit",                  # 'USD/liter' historically; 'liter' going forward
-        "vat_included",
-        "effective_price",
+        "tax_included",
+        "price",
         "observed_label",        # the date string printed on the page
         # What the SITE calls this material, in its own words — «بنزين 91»
         # — and in English when it publishes both (standing bilingual
@@ -190,7 +190,7 @@ COMMODITY_PRICE = RowSpec(
         "material_label_ar",
         # --- added 2026-07-20 -----------------------------------------------
         # globalpetrolprices renders BOTH the currency and the unit from user
-        # dropdowns (156 currencies, 4 units), so `effective_price` above is a
+        # dropdowns (156 currencies, 4 units), so `price` above is a
         # conversion the site computed for a default selection — not what the
         # source published. The original is stated on each country page:
         # "EGP 20.50 per liter or USD 0.40 per liter". Keeping them apart is
@@ -201,7 +201,7 @@ COMMODITY_PRICE = RowSpec(
         "geo_region",            # the site groups countries: 'Africa', 'Europe'
         "consumer_segment",      # 'household' | 'business' — power prices differ
         "tax_evidence",          # 'stated' | 'general' | 'unknown' — never assumed
-        "tax_statement_url",     # where that evidence can be read
+        "tax_statement",     # where that evidence can be read
         # --- added 2026-07-20 -----------------------------------------------
         # A price we READ today, versus a price the source TELLS us held on an
         # earlier date. globalpetrolprices prints, free on each country page,
@@ -218,18 +218,18 @@ COMMODITY_PRICE = RowSpec(
         # signal on the page; absent on some countries (Germany), so both are
         # optional and an empty value means "not stated" — never invented.
         "official_source_name",
-        "official_source_url",
+        "official_source_link",
         # The site's OWN USD conversion, printed beside the local price. Kept
         # because the pair IMPLIES the exchange rate the publisher used —
         # local/usd — which feeds currency_rate and the ranked USD column.
         "converted_usd_price",
     ),
-    required=frozenset({"material_key", "country_code_alpha2", "currency", "effective_price"}),
+    required=frozenset({"material_key", "country_code_alpha2", "currency", "price"}),
     additive=frozenset({"original_price", "original_currency", "price_basis",
                         "geo_region", "consumer_segment",
-                        "tax_evidence", "tax_statement_url",
+                        "tax_evidence", "tax_statement",
                         "provenance", "as_of_date", "source_date",
-                        "official_source_name", "official_source_url",
+                        "official_source_name", "official_source_link",
                         "converted_usd_price",
                         # material_label_ar is NOT additive, for the same
                         # reason as the product _ar columns.

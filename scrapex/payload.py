@@ -37,7 +37,13 @@ from .vocab import ExtractKind, PayloadClient
 # sells was unreachable behind the other. Neither half is additive, so a v3
 # header fails the column check on its own; the number moves anyway, because
 # the contract changed and the sheet has to be told once.
-PAYLOAD_VERSION = 4
+# 5: the non-language vocabulary sweep (0051). Five WIRE columns move —
+# product_url -> product_link, vat_included -> tax_included, regular_price ->
+# price_before, sale_price -> price_sale, effective_price -> price — plus
+# tax_statement_url and official_source_url. None of the five is additive, so a
+# v4 header fails the column check on its own; the number moves anyway, because
+# the contract changed and the sheet has to be told once.
+PAYLOAD_VERSION = 5
 
 # 40k keeps a comfortable margin under the Google Sheets 50k-char cell limit
 # even after the funnel adds its envelope columns (S1).
@@ -73,7 +79,7 @@ class FunnelPayload(BaseModel):
     # Pinned as a const so the GENERATED json-schema carries it too: a
     # consumer validating against the schema rather than the Python model
     # would otherwise still accept v1.
-    payload_version: Literal[4]
+    payload_version: Literal[5]
     source_key: str = Field(min_length=1, max_length=64)
     kind: ExtractKind
     client: PayloadClient

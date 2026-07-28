@@ -61,7 +61,7 @@ _PAGES = [("DIESEL--EG", "EG", "20.50"),
 
 def _page(token: str, region: str, price: str) -> ScrapedTable:
     row = _BUILDER.row(material_key="DIESEL", country_code_alpha2=region, currency="EGP",
-                       unit="liter", vat_included="1", effective_price=price,
+                       unit="liter", tax_included="1", price=price,
                        provenance="observed", price_basis="original")
     return ScrapedTable("GPP_ENERGY", ExtractKind.COMMODITY_PRICE,
                         f"https://x/{region}", _BUILDER.header, [row],

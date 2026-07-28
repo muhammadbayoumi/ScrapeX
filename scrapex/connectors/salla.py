@@ -143,9 +143,9 @@ class SallaConnector:
             # unmarked column stays EMPTY rather than carrying Arabic under
             # a name that asserts English.
             product_name_ar=str(node.get("name") or ""),
-            **brand_pair(brand_name(node)), product_url=url,
-            country_code_alpha2=source.default_region, currency=currency or source.currency or "UNKNOWN", vat_included=vat,
-            regular_price=price, sale_price="", effective_price=price,
+            **brand_pair(brand_name(node)), product_link=url,
+            country_code_alpha2=source.default_region, currency=currency or source.currency or "UNKNOWN", tax_included=vat,
+            price_before=price, price_sale="", price=price,
             availability=availability_status(availability),
             category_path_ar=category_path(node),
         )

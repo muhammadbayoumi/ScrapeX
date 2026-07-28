@@ -200,12 +200,12 @@ def test_a_crafted_filter_key_is_refused_and_named(split_client):
 
     accepted, ignored = parse_filters({
         "f.country_code_alpha2": "is:EG",
-        "f.effective_price;DROP TABLE x--": "1",
+        "f.price;DROP TABLE x--": "1",
         "f.nonexistent": "is:x",
     })
 
     assert accepted == {"country_code_alpha2": ("is", "EG")}
-    assert "f.effective_price;DROP TABLE x--" in ignored
+    assert "f.price;DROP TABLE x--" in ignored
     assert "f.nonexistent" in ignored
 
 
@@ -218,21 +218,21 @@ def test_an_unknown_operator_is_refused():
 
 
 def test_a_computed_column_is_declared_unfilterable_not_half_supported():
-    """unit and tax_label are produced in Python — price_unit() and
+    """unit and tax are produced in Python — price_unit() and
     tax.resolve(), the latter with a region->wildcard fallback and valid_to
     temporality. Half-supporting them in SQL is a correctness trap."""
     from scrapex.reports import FILTERABLE, SORTABLE, parse_filters
 
     assert FILTERABLE["unit"][1] == "derived"
-    assert FILTERABLE["tax_label"][1] == "derived"
-    assert "unit" not in SORTABLE and "tax_label" not in SORTABLE
+    assert FILTERABLE["tax"][1] == "derived"
+    assert "unit" not in SORTABLE and "tax" not in SORTABLE
     accepted, ignored = parse_filters({"f.unit": "is:liter"})
     assert accepted == {} and ignored == ["f.unit"]
 
 
 def test_sortable_is_derived_from_the_same_table_so_they_cannot_drift():
     """They were two separate lists, and SORTABLE quietly omitted
-    last_confirmed and curation_status — columns the page rendered with no way
+    last_confirmed and curation — columns the page rendered with no way
     to order by them, and nothing said so."""
     from scrapex.reports import FILTERABLE, SORTABLE
 
@@ -244,7 +244,7 @@ def test_sortable_is_derived_from_the_same_table_so_they_cannot_drift():
     from scrapex.reports import EXPORT_HEADER
     shared = {k for k, _ in __import__("scrapex.reports", fromlist=["x"]).BROWSE_COLUMNS} & set(EXPORT_HEADER)
     assert "product_name" in shared and "price_changed_on" in shared
-    assert "last_confirmed_on" in SORTABLE and "curation_status" in SORTABLE
+    assert "last_confirmed_on" in SORTABLE and "curation" in SORTABLE
 
 
 def test_filtering_by_country_uses_the_name_shown_on_screen(split_client):
@@ -341,7 +341,7 @@ def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
         for name in ("source.html", "_source_overview.html")
     )
 
-    assert 'f.curation_status": "is:inventoried"' in page, \
+    assert 'f.curation": "is:inventoried"' in page, \
         "the curation tile must open this table filtered, not another page"
     assert "elsewhere=true" in page, \
         "a tile pointing at another page must be marked as going elsewhere"
@@ -354,7 +354,7 @@ def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
 # working control was its delete ×.
 #
 # The full round trip is verified against real data rather than here: a view
-# saved as {"filters":{"country_code_alpha2":"is:Egypt"},"sort":"effective_price"} reopens to
+# saved as {"filters":{"country_code_alpha2":"is:Egypt"},"sort":"price"} reopens to
 # 5 Egyptian rows sorted by price, and ?view_id=1&f.country_code_alpha2=is:Saudi+Arabia
 # returns Saudi rows — the URL beating the view's default. What these tests
 # guard is the part that must never depend on a live crawl: what a stored blob
@@ -364,7 +364,7 @@ def test_a_tile_and_the_page_it_opens_count_the_same_rows(split_client):
 def test_a_saved_view_round_trips_through_the_api(split_client):
     saved = split_client.post("/api/views/GPP_ENERGY", json={
         "view_name": "Egyptian fuel",
-        "config": {"filters": {"country_code_alpha2": "is:Egypt"}, "sort": "effective_price",
+        "config": {"filters": {"country_code_alpha2": "is:Egypt"}, "sort": "price",
                    "direction": "desc"}})
     assert saved.status_code == 200
 
@@ -373,7 +373,7 @@ def test_a_saved_view_round_trips_through_the_api(split_client):
     assert "Egyptian fuel" in names
     stored = next(v for v in listed if v["view_name"] == "Egyptian fuel")["config"]
     assert stored["filters"] == {"country_code_alpha2": "is:Egypt"},         "a view must save the QUESTION, not only a column list"
-    assert stored["sort"] == "effective_price"
+    assert stored["sort"] == "price"
 
 
 def test_a_stored_view_is_no_more_trusted_than_a_typed_url(split_client):
@@ -381,7 +381,7 @@ def test_a_stored_view_is_no_more_trusted_than_a_typed_url(split_client):
     not privileged: a key that is not in FILTERABLE never reaches SQL."""
     from scrapex.reports import FILTERABLE, parse_filters
 
-    crafted = {"f.effective_price;DROP TABLE x--": "1", "f.ghost": "is:x",
+    crafted = {"f.price;DROP TABLE x--": "1", "f.ghost": "is:x",
                "f.country_code_alpha2": "is:EG"}
     accepted, ignored = parse_filters(crafted)
 

@@ -116,7 +116,7 @@ def _about(conn: sqlite3.Connection, source_key: str,
     # What the reader is holding, in the reader's terms.
     facts += [
         ["prices", "as the source published them — nothing is computed or converted"],
-        ["tax", "each row states vat_included, and the evidence columns beside it "
+        ["tax", "each row states tax_included, and the evidence columns beside it "
                 "say how well that is known and where the source says so"],
         ["details", "one row per fact the source stated about a product: "
                     "descriptions, specifications, images and datasheets"],

@@ -82,13 +82,13 @@ def test_aramco_emits_the_five_official_rows():
     assert set(rows) == {"GASOLINE_91", "GASOLINE_95", "GASOLINE_98",
                          "DIESEL", "KEROSENE"}
     g91 = rows["GASOLINE_91"]
-    assert g91["effective_price"] == "2.18"
+    assert g91["price"] == "2.18"
     assert g91["currency"] == "SAR" and g91["unit"] == "liter"
-    assert g91["country_code_alpha2"] == "SA" and g91["vat_included"] == "1"
+    assert g91["country_code_alpha2"] == "SA" and g91["tax_included"] == "1"
     # The heading month is the SOURCE's dating, never our crawl date.
     assert g91["source_date"] == "2026-07-01"
     assert g91["price_basis"] == "original"
-    assert rows["KEROSENE"]["effective_price"] == "1.75"
+    assert rows["KEROSENE"]["price"] == "1.75"
 
 
 def test_an_unmapped_label_is_dropped_out_loud():

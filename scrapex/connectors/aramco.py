@@ -135,7 +135,7 @@ class AramcoFuelConnector:
                 material_label_ar=label,
                 material_key=material, country_code_alpha2=source.default_region or "SA",
                 currency=source.currency or "SAR", unit="liter",
-                vat_included=vat, effective_price=price,
+                tax_included=vat, price=price,
                 provenance="observed",
                 # The heading's month is the source's own dating — the pump
                 # price it announced FOR that month, not our crawl date.

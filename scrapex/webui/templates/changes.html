@@ -69,10 +69,10 @@
         <td dir="auto">{{ e.source_name }}</td>
         <td>{{ e.country or e.country_code_alpha2 or "—" }}</td>
         <td class="num">{{ "%g"|format(e.first_price) }}</td>
-        <td class="num">{% if e.previous_price is not none %}{{ "%g"|format(e.previous_price) }}{% else %}—{% endif %}</td>
+        <td class="num">{% if e.price_previous is not none %}{{ "%g"|format(e.price_previous) }}{% else %}—{% endif %}</td>
         <td class="num price">{{ "%g"|format(e.current_price) }} {{ e.currency }}</td>
-        <td class="num">{{ "%g"|format(e.min_price) }}</td>
-        <td class="num">{{ "%g"|format(e.max_price) }}</td>
+        <td class="num">{{ "%g"|format(e.price_min) }}</td>
+        <td class="num">{{ "%g"|format(e.price_max) }}</td>
         {# Absolute and percent together, same as the change feed: either
            alone makes the reader compute the other in their head. #}
         <td class="num">{% if e.change_pct is not none %}{{ "%+.2f"|format(e.change_abs) }}
@@ -162,7 +162,7 @@
     $("tl-body").innerHTML = `<table>
       <thead><tr><th>Price</th><th>From</th><th>Confirmed through</th><th>Why it began</th></tr></thead>
       <tbody>${periods.map((p) => `<tr>
-        <td class="num price">${esc(p.effective_price)} ${esc(p.currency || "")}</td>
+        <td class="num price">${esc(p.price)} ${esc(p.currency || "")}</td>
         <td class="num">${esc((p.first_detected_at || "").slice(0, 10))}</td>
         <td class="num">${esc((p.last_confirmed_at || "").slice(0, 10))}${
           p.closed_at ? "" : ' <span class="badge ok">current</span>'}</td>
@@ -176,8 +176,8 @@
     const id = $("tl-offer").value, date = $("tl-date").value;
     if (!date) throw new Error("Pick a date first.");
     const a = await get(`/api/prices/on?offer_id=${encodeURIComponent(id)}&date=${date}`);
-    if (a.effective_price === null) return a.detail;
-    return `${a.effective_price} ${a.currency || ""} — ${a.detail}`;
+    if (a.price === null) return a.detail;
+    return `${a.price} ${a.currency || ""} — ${a.detail}`;
   }));
 })();
 </script>

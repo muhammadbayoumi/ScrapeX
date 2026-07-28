@@ -43,7 +43,7 @@ def test_recrawling_an_archived_product_revives_it_as_returned(conn):
     ingest_payloads(conn, entry, [make_payload([one_row()])])
     archive_source(conn, "ELSEWEDYSHOP")
 
-    ingest_payloads(conn, entry, [make_payload([one_row(effective_price="1,250.00")],
+    ingest_payloads(conn, entry, [make_payload([one_row(price="1,250.00")],
                                                scraped_at="2026-07-17T10:00:00Z")])
     assert conn.execute("SELECT status FROM source_product").fetchone()[0] == "active"
     kinds = [r[0] for r in conn.execute("SELECT change_type FROM change_event")]

@@ -23,7 +23,7 @@ def client(tmp_path: Path) -> TestClient:
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(external_product_id="1", external_variant_id="v1", product_name="LED Floodlight 400W"),
         one_row(external_product_id="2", external_variant_id="v2", product_name="Copper Wire",
-                effective_price="50.00", availability="out_of_stock"),
+                price="50.00", availability="out_of_stock"),
     ])])
     conn.commit()
     conn.close()
@@ -301,7 +301,7 @@ def test_the_schema_page_is_derived_not_written(client):
 
     assert r.status_code == 200
     assert "ELSEWEDYSHOP" in r.text, "the page never asked the warehouse"
-    assert "<code>effective_price</code>" in r.text
+    assert "<code>price</code>" in r.text
     assert "What one price BUYS" in r.text, "the meaning of a column is missing"
     # The rules the whole schema follows are stated on it, not left implicit.
     assert "states the language of its content" in r.text
@@ -357,8 +357,8 @@ def test_every_column_says_which_table_it_came_from(client):
     # `product_name` and still Arabic; the two meet only in FILTERABLE.
     assert "<code>source_product.product_name_ar</code>" in body
     assert "<code>source_offer.country_code_alpha2</code>" in body
-    assert "<code>price_observation.effective_price</code>" in body
-    assert "computed: price_observation.regular_price" in body, \
+    assert "<code>price_observation.price</code>" in body
+    assert "computed: price_observation.price_before" in body, \
         "a discount is not stored anywhere; saying it is would be a lie"
 
 

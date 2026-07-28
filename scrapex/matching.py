@@ -85,7 +85,7 @@ def _candidates_for(conn: sqlite3.Connection, product: sqlite3.Row) -> list[dict
                 "JOIN source_product_match spm ON spm.material_id = m.material_id "
                 "JOIN source_product sp ON sp.source_product_id = spm.source_product_id "
                 "WHERE spm.review_status = 'approved' AND spm.valid_to IS NULL "
-                "AND (sp.external_sku = ? OR sp.product_url = ?)",
+                "AND (sp.external_sku = ? OR sp.product_link = ?)",
                 (alias["alias_value"], alias["alias_value"])):
             offer(row["material_id"], ALIAS_CONFIDENCE, "alias",
                   {"alias_type": alias["alias_type"], "alias_value": alias["alias_value"]})
@@ -115,7 +115,7 @@ def suggest_for_source(conn: sqlite3.Connection, source_key: str, limit: int = 2
     """
     products = conn.execute(
         "SELECT sp.* FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND sp.curation_status != ? "
+        "WHERE ss.source_key = ? AND sp.curation != ? "
         # An IGNORED row means "not that material" — it must retire the PAIR, not
         # the whole product, or one wrong suggestion would exile the product from
         # matching forever. The per-pair blocklist lives in _candidates_for.
@@ -150,7 +150,7 @@ def pending_reviews(conn: sqlite3.Connection, source_key: str | None = None,
         "SELECT m.source_product_match_id, m.confidence, m.match_method, m.evidence_json, "
         "       sp.source_product_id, sp.product_name AS incoming_name, "
         "       sp.product_name_ar AS incoming_name_ar, sp.external_sku, "
-        "       sp.product_url, sp.brand, sp.brand_ar, ss.source_key, "
+        "       sp.product_link, sp.brand, sp.brand_ar, ss.source_key, "
         "       mat.material_id, COALESCE(mat.material_name, mat.material_name_ar) AS material_name "
         "FROM source_product_match m "
         "JOIN source_product sp ON sp.source_product_id = m.source_product_id "
@@ -245,7 +245,7 @@ def decide(conn: sqlite3.Connection, source_product_match_id: int, decision: str
         "UPDATE source_product_match SET review_status = ?, material_id = ?, match_method = ? "
         "WHERE source_product_match_id = ?",
         (ReviewStatus.APPROVED.value, material_id, "manual", source_product_match_id))
-    conn.execute("UPDATE source_product SET curation_status = ? WHERE source_product_id = ?",
+    conn.execute("UPDATE source_product SET curation = ? WHERE source_product_id = ?",
                  (CurationStatus.SELECTED.value, row["source_product_id"]))
     return {"status": ReviewStatus.APPROVED.value, "material_id": material_id}
 

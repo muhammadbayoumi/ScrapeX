@@ -79,19 +79,19 @@ def test_hybris_paginates_and_maps():
 
     cement = view.as_dict(table.rows[0])
     assert cement["external_product_id"] == "1000123" and cement["external_sku"] == "1000123"
-    assert cement["effective_price"] == "25.5" and cement["currency"] == "SAR"
-    assert cement["vat_included"] == "0"        # excl -> "0"
+    assert cement["price"] == "25.5" and cement["currency"] == "SAR"
+    assert cement["tax_included"] == "0"        # excl -> "0"
     assert cement["availability"] == "in_stock" and cement["stock_quantity"] == "120"
     # No salesUnit in this fixture -> the plain join stands, never a guessed prefix.
-    assert cement["product_url"] == "https://www.masdaronline.com/asmnt/p/1000123"
+    assert cement["product_link"] == "https://www.masdaronline.com/asmnt/p/1000123"
 
     rebar = view.as_dict(table.rows[1])
     assert rebar["availability"] == "in_stock"  # lowStock is still purchasable
-    assert rebar["product_url"] == "https://www.masdaronline.com/hadid/p/1000200"  # absolute kept
-    assert rebar["effective_price"] == "3100"
+    assert rebar["product_link"] == "https://www.masdaronline.com/hadid/p/1000200"  # absolute kept
+    assert rebar["price"] == "3100"
 
     sand = view.as_dict(table.rows[2])          # only row on page 1
-    assert sand["external_product_id"] == "1000400" and sand["effective_price"] == "15"
+    assert sand["external_product_id"] == "1000400" and sand["price"] == "15"
 
 
 def test_the_unpriced_products_are_skipped_OUT_LOUD():
@@ -149,14 +149,14 @@ def test_the_product_url_is_the_page_the_storefront_actually_serves():
     switch = view.as_dict(table.rows[0])
 
     assert switch["external_product_id"] == "1000035833"
-    assert switch["product_url"] == (
+    assert switch["product_link"] == (
         "https://www.masdaronline.com/ar/sar/pce/electrical-supplies-and-equipment"
         "/switches-and-sockets/sockets/alfanar-new-alf-switch-1gang-20a-double-pole"
         "-7-7cm-with-neon-ab104/p/1000035833")
     # The unit segment is READ from each product's salesUnit, never fixed:
     # PCE above, EA and DR here — three units across three products.
-    assert "/ar/sar/ea/" in view.as_dict(table.rows[1])["product_url"]
-    assert "/ar/sar/dr/" in view.as_dict(table.rows[2])["product_url"]
+    assert "/ar/sar/ea/" in view.as_dict(table.rows[1])["product_link"]
+    assert "/ar/sar/dr/" in view.as_dict(table.rows[2])["product_link"]
 
 
 def test_the_english_name_the_same_api_publishes_is_captured_beside_the_arabic():

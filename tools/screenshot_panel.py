@@ -98,10 +98,10 @@ def main() -> int:
     arabic_records = {
         "records": [
             {"name": "طلمبة مياه جراندفوس عالية الضغط للاستخدام الصناعي الثقيل",
-             "region": "SA", "region_name": "Saudi Arabia", "effective_price": 1450.5,
+             "region": "SA", "region_name": "Saudi Arabia", "price": 1450.5,
              "currency": "SAR", "availability": "in_stock", "sku": "GRF-9912-XL-2026"},
             {"name": "DIESEL", "region": "EG", "region_name": "Egypt",
-             "effective_price": 0.404, "currency": "USD",
+             "price": 0.404, "currency": "USD",
              "availability": "unknown", "sku": ""},
         ], "total": 2, "next_cursor": None}
 

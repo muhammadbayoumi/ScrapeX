@@ -42,7 +42,7 @@ def _payload(rows_kv: list[dict]):
     rows = []
     for kv in rows_kv:
         base = dict(material_key="DIESEL", country_code_alpha2="EG", currency="EGP",
-                    unit="liter", vat_included="1", price_basis="original")
+                    unit="liter", tax_included="1", price_basis="original")
         base.update(kv)
         rows.append(builder.row(**base))
     table = ScrapedTable("GPP_ENERGY", ExtractKind.COMMODITY_PRICE,
@@ -61,19 +61,19 @@ def conn():
 
 def _observations(conn):
     return conn.execute(
-        "SELECT business_date, effective_price, provenance FROM price_observation "
+        "SELECT business_date, price, provenance FROM price_observation "
         "ORDER BY price_observation_id").fetchall()
 
 
 def _changes(conn):
     return conn.execute(
         "SELECT change_type, previous_value, new_value FROM change_event "
-        "WHERE field_key = 'effective_price'").fetchall()
+        "WHERE field_key = 'price'").fetchall()
 
 
-CURRENT = dict(effective_price="20.50")
-ANCHOR_1M = dict(effective_price="20.50", provenance="reported", as_of_date="2026-06-21")
-ANCHOR_1Y = dict(effective_price="15.50", provenance="reported", as_of_date="2025-07-21")
+CURRENT = dict(price="20.50")
+ANCHOR_1M = dict(price="20.50", provenance="reported", as_of_date="2026-06-21")
+ANCHOR_1Y = dict(price="15.50", provenance="reported", as_of_date="2025-07-21")
 
 
 def test_a_reported_row_lands_under_the_date_the_source_names(conn):
@@ -102,7 +102,7 @@ def test_next_weeks_price_is_compared_to_our_last_observation_not_the_anchor(con
     the year-ago anchor at 15.50. Comparing 21.00 against IT would report a
     +35% jump when the real move is 20.50 -> 21.00."""
     ingest_payloads(conn, _entry(), [_payload([CURRENT, ANCHOR_1Y])])
-    ingest_payloads(conn, _entry(), [_payload([dict(effective_price="21.00")])])
+    ingest_payloads(conn, _entry(), [_payload([dict(price="21.00")])])
 
     moves = _changes(conn)
     assert len(moves) == 1
@@ -124,7 +124,7 @@ def test_reported_rows_do_not_open_or_close_derived_periods(conn):
 
 def test_a_reported_row_without_a_date_is_rejected_not_guessed(conn):
     result = ingest_payloads(conn, _entry(), [_payload([
-        dict(effective_price="19.00", provenance="reported"),   # no as_of_date
+        dict(price="19.00", provenance="reported"),   # no as_of_date
     ])])
 
     assert result.rejected_out_of_scope == 1
@@ -146,7 +146,7 @@ def test_two_anchors_same_price_different_dates_both_persist(conn):
     """20.50 a month ago and 20.50 today-per-the-source are two claims, not one.
     A dedupe that ignored the date would silently drop half the history."""
     ingest_payloads(conn, _entry(), [_payload([
-        ANCHOR_1M, dict(effective_price="20.50", provenance="reported",
+        ANCHOR_1M, dict(price="20.50", provenance="reported",
                         as_of_date="2026-07-13"),
     ])])
 
@@ -236,11 +236,11 @@ def test_the_offers_face_is_the_observed_price_not_the_last_inserted_anchor(conn
 
     page = browse_observations(conn, "GPP_ENERGY")
     assert len(page.rows) == 1
-    assert float(page.rows[0]["effective_price"]) == 20.50
+    assert float(page.rows[0]["price"]) == 20.50
     assert page.rows[0]["price_changed_on"] != "2025-07-21"
 
     grid = table_payload(conn, "GPP_ENERGY")
-    assert float(grid["rows"][0]["effective_price"]) == 20.50
+    assert float(grid["rows"][0]["price"]) == 20.50
     assert grid["rows"][0]["price_changed_on"] != "2025-07-21"
 
 
@@ -254,7 +254,7 @@ def test_a_pure_backfill_offer_speaks_with_its_newest_dated_claim(conn):
 
     page = browse_observations(conn, "GPP_ENERGY")
     assert len(page.rows) == 1
-    assert float(page.rows[0]["effective_price"]) == 20.50   # the 1M claim, newest
+    assert float(page.rows[0]["price"]) == 20.50   # the 1M claim, newest
     assert page.rows[0]["price_changed_on"] == "2026-06-21"
 
 
@@ -265,20 +265,20 @@ def test_the_official_source_lands_on_the_observation_and_reaches_the_grid(conn)
     from scrapex.reports import table_payload
 
     ingest_payloads(conn, _entry(), [_payload([
-        dict(effective_price="20.50",
+        dict(price="20.50",
              official_source_name="Ministry of Petroleum and Mineral Resources",
-             official_source_url="https://www.petroleum.gov.eg/ar-eg/Pages/HomePage.aspx"),
+             official_source_link="https://www.petroleum.gov.eg/ar-eg/Pages/HomePage.aspx"),
     ])])
 
     stored = conn.execute(
-        "SELECT official_source_name, official_source_url FROM price_observation").fetchone()
+        "SELECT official_source_name, official_source_link FROM price_observation").fetchone()
     assert stored["official_source_name"] == "Ministry of Petroleum and Mineral Resources"
 
     grid = table_payload(conn, "GPP_ENERGY")
     assert [c["key"] for c in grid["columns"]].count("official_source") == 1
     row = grid["rows"][0]
     assert row["official_source"] == "Ministry of Petroleum and Mineral Resources"
-    assert row["official_source_url"].startswith("https://www.petroleum.gov.eg/")
+    assert row["official_source_link"].startswith("https://www.petroleum.gov.eg/")
 
 
 def test_a_source_that_attributes_nothing_gets_no_source_column(conn):
@@ -302,7 +302,7 @@ def test_change_events_are_described_for_humans_not_in_schema_vocabulary(conn):
     from scrapex.changes import recent_changes
 
     ingest_payloads(conn, _entry(), [_payload([CURRENT])])
-    ingest_payloads(conn, _entry(), [_payload([dict(effective_price="22.55")])])
+    ingest_payloads(conn, _entry(), [_payload([dict(price="22.55")])])
 
     feed = recent_changes(conn, "GPP_ENERGY")
     by_type = {c["change_type"]: c for c in feed}
@@ -329,7 +329,7 @@ def test_an_offer_tells_its_own_story_including_its_first_seen_events(conn):
     from scrapex.changes import changes_for_offer
 
     ingest_payloads(conn, _entry(), [_payload([CURRENT])])
-    ingest_payloads(conn, _entry(), [_payload([dict(effective_price="22.55")])])
+    ingest_payloads(conn, _entry(), [_payload([dict(price="22.55")])])
     offer_id = conn.execute("SELECT offer_id FROM source_offer").fetchone()[0]
 
     story = changes_for_offer(conn, offer_id)
@@ -350,7 +350,7 @@ def test_price_extremes_first_and_current_are_not_inverted(conn):
     row = price_extremes(conn, "GPP_ENERGY")[0]
     assert row["first_price"] == 15.5, "First is not the earliest KNOWN price"
     assert row["current_price"] == 20.5, "Current is not what we last SAW"
-    assert row["min_price"] == 15.5 and row["max_price"] == 20.5
+    assert row["price_min"] == 15.5 and row["price_max"] == 20.5
     assert row["observations"] == 3
     assert row["change_abs"] == 5.0
     assert round(row["change_pct"], 1) == 32.3, "the site's own year figure"
@@ -507,7 +507,7 @@ def test_the_backfill_stores_change_points_not_weekly_repeats(conn):
                                    "https://www.globalpetrolprices.com",
                                    "/Egypt/diesel_prices/", "EGP", "liter", "1", [])
     view = RowView(COMMODITY_PRICE, builder.header)
-    kept = [(view.as_dict(r)["as_of_date"], view.as_dict(r)["effective_price"])
+    kept = [(view.as_dict(r)["as_of_date"], view.as_dict(r)["price"])
             for r in rows]
     assert kept == [("2016-08-01", "1.8"), ("2016-08-22", "2.1"),
                     ("2016-09-05", "20.5")], kept
@@ -521,7 +521,7 @@ def test_the_publishers_implied_rate_is_recorded_and_feeds_the_usd_column(conn):
     from scrapex.reports import table_payload
 
     ingest_payloads(conn, _entry(), [_payload([
-        dict(effective_price="20.50", original_price="20.50",
+        dict(price="20.50", original_price="20.50",
              converted_usd_price="0.40", source_date="2026-07-13"),
     ])])
 
@@ -532,7 +532,7 @@ def test_the_publishers_implied_rate_is_recorded_and_feeds_the_usd_column(conn):
 
     grid = table_payload(conn, "GPP_ENERGY")
     row = grid["rows"][0]
-    assert row["usd_price"] == "0.40", row["usd_price"]
+    assert row["price_usd"] == "0.40", row["price_usd"]
 
 
 def test_previous_and_change_read_the_move_before_the_current_price(conn):
@@ -542,20 +542,20 @@ def test_previous_and_change_read_the_move_before_the_current_price(conn):
     from scrapex.reports import price_extremes, table_payload
 
     ingest_payloads(conn, _entry(), [_payload([
-        dict(effective_price="20.50"),
-        dict(effective_price="15.50", provenance="reported", as_of_date="2025-07-21"),
-        dict(effective_price="10.00", provenance="reported", as_of_date="2016-08-01"),
+        dict(price="20.50"),
+        dict(price="15.50", provenance="reported", as_of_date="2025-07-21"),
+        dict(price="10.00", provenance="reported", as_of_date="2016-08-01"),
     ])])
 
     row = table_payload(conn, "GPP_ENERGY")["rows"][0]
-    assert row["previous_price"] == 15.5
+    assert row["price_previous"] == 15.5
     assert row["price_change"] == "+5.00 (+32.3%)"
-    assert row["min_price"] == 10.0 and row["max_price"] == 20.5
+    assert row["price_min"] == 10.0 and row["price_max"] == 20.5
     assert row["observations"] == 3
 
     ext = price_extremes(conn, "GPP_ENERGY")[0]
     assert ext["first_price"] == 10.0        # context: the earliest known
-    assert ext["previous_price"] == 15.5
+    assert ext["price_previous"] == 15.5
     assert ext["current_price"] == 20.5
     assert ext["change_pct"] == 32.26 or abs(ext["change_pct"] - 32.26) < 0.05
 
@@ -569,19 +569,19 @@ def test_a_currency_flip_does_not_leak_into_min_max_previous(conn):
     from scrapex.reports import price_extremes, table_payload
 
     ingest_payloads(conn, _entry(), [_payload([
-        dict(effective_price="0.40", original_price="0.40", currency="USD"),
+        dict(price="0.40", original_price="0.40", currency="USD"),
     ])])
     ingest_payloads(conn, _entry(), [_payload([
-        dict(effective_price="20.50", original_price="20.50"),
+        dict(price="20.50", original_price="20.50"),
     ])])
 
     row = table_payload(conn, "GPP_ENERGY")["rows"][0]
     assert row["currency"] == "EGP"
-    assert row["previous_price"] == "" and row["price_change"] == ""
-    assert row["min_price"] == 20.5 and row["max_price"] == 20.5
+    assert row["price_previous"] == "" and row["price_change"] == ""
+    assert row["price_min"] == 20.5 and row["price_max"] == 20.5
     assert row["observations"] == 1
 
     extreme = price_extremes(conn, "GPP_ENERGY")[0]
-    assert extreme["min_price"] == 20.5 and extreme["max_price"] == 20.5
+    assert extreme["price_min"] == 20.5 and extreme["price_max"] == 20.5
     assert extreme["first_price"] == 20.5 and extreme["current_price"] == 20.5
-    assert extreme["previous_price"] is None and extreme["change_pct"] is None
+    assert extreme["price_previous"] is None and extreme["change_pct"] is None

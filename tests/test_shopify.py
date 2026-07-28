@@ -54,15 +54,15 @@ def test_shopify_maps_variants_to_rows():
     assert first["external_product_id"] == "10157311557932"
     assert first["external_variant_id"] == "52388706844972"
     assert first["external_sku"] == "105003"
-    assert first["effective_price"] == "1200.00"
-    assert first["regular_price"] == "1450.00"   # compare_at_price
-    assert first["sale_price"] == "1200.00"       # on sale -> sale price present
+    assert first["price"] == "1200.00"
+    assert first["price_before"] == "1450.00"   # compare_at_price
+    assert first["price_sale"] == "1200.00"       # on sale -> sale price present
     assert first["option_fingerprint"] == "color temp=6500k"
-    assert first["vat_included"] == "1"
+    assert first["tax_included"] == "1"
     assert first["country_code_alpha2"] == "EG"
     assert first["currency"] == "EGP"
     assert first["availability"] == "in_stock"
-    assert first["product_url"] == "https://elsewedyshop.com/products/led-floodlight-400w-ip65"
+    assert first["product_link"] == "https://elsewedyshop.com/products/led-floodlight-400w-ip65"
 
 
 def test_shopify_out_of_stock_and_no_sale():
@@ -70,8 +70,8 @@ def test_shopify_out_of_stock_and_no_sale():
     view = RowView(PRODUCT_PRICES, table.header)
     second = view.as_dict(table.rows[1])  # 3000K variant
     assert second["availability"] == "out_of_stock"
-    assert second["sale_price"] == ""             # no compare_at -> not on sale
-    assert second["regular_price"] == "1180.00"
+    assert second["price_sale"] == ""             # no compare_at -> not on sale
+    assert second["price_before"] == "1180.00"
 
 
 def test_shopify_default_title_variant_has_no_fingerprint():

@@ -43,8 +43,8 @@ def _observations(conn: sqlite3.Connection, offer_id: int) -> list[sqlite3.Row]:
     history.
     """
     return conn.execute(
-        "SELECT price_observation_id, observed_at, business_date, effective_price, "
-        "       regular_price, sale_price, currency, vat_included, availability, "
+        "SELECT price_observation_id, observed_at, business_date, price, "
+        "       price_before, price_sale, currency, tax_included, availability, "
         "       stock_quantity, price_hash, price_fields "
         "FROM price_observation WHERE offer_id = ? AND provenance = 'observed' "
         "ORDER BY observed_at, price_observation_id",
@@ -65,7 +65,7 @@ def _same_price(previous: sqlite3.Row, current: sqlite3.Row) -> tuple[bool, str]
     if not old_hash or not new_hash:
         # Pre-0015 evidence. Fall back to the number itself: it is the only
         # comparable thing those rows carry.
-        return previous["effective_price"] == current["effective_price"], "price_change"
+        return previous["price"] == current["price"], "price_change"
 
     old_fields = pricekey.parse_fields(previous["price_fields"])
     new_fields = pricekey.parse_fields(current["price_fields"])
@@ -168,12 +168,12 @@ def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
 
         cursor = conn.execute(
             "INSERT INTO price_period (offer_id, price_hash, price_fields, "
-            " effective_price, regular_price, sale_price, currency, vat_included, "
+            " price, price_before, price_sale, currency, tax_included, "
             " first_detected_at, last_confirmed_at, opened_because) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (offer_id, row["price_hash"] or UNKNOWN_KEY, row["price_fields"] or "",
-             row["effective_price"], row["regular_price"], row["sale_price"],
-             row["currency"], row["vat_included"], row["observed_at"],
+             row["price"], row["price_before"], row["price_sale"],
+             row["currency"], row["tax_included"], row["observed_at"],
              confirmed_for(row), reason))
         open_id = int(cursor.lastrowid)
         open_period = row
@@ -194,18 +194,18 @@ def rebuild_offer(conn: sqlite3.Connection, offer_id: int) -> int:
             "WHERE price_period_id = ? AND last_confirmed_at < ?",
             (confirmed_at, open_id, confirmed_at))
     conn.execute(
-        "INSERT INTO offer_state (offer_id, effective_price, currency, availability, "
+        "INSERT INTO offer_state (offer_id, price, currency, availability, "
         " stock_quantity, price_hash, price_fields, last_confirmed_at, last_seen_at, "
         " first_seen_at, updated_at) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%SZ','now')) "
         "ON CONFLICT(offer_id) DO UPDATE SET "
-        " effective_price = excluded.effective_price, currency = excluded.currency, "
+        " price = excluded.price, currency = excluded.currency, "
         " availability = excluded.availability, stock_quantity = excluded.stock_quantity, "
         " price_hash = excluded.price_hash, price_fields = excluded.price_fields, "
         " last_confirmed_at = excluded.last_confirmed_at, "
         " last_seen_at = excluded.last_seen_at, first_seen_at = excluded.first_seen_at, "
         " updated_at = excluded.updated_at",
-        (offer_id, latest["effective_price"], latest["currency"], latest["availability"],
+        (offer_id, latest["price"], latest["currency"], latest["availability"],
          latest["stock_quantity"], latest["price_hash"], latest["price_fields"],
          confirmed_at, confirmed_at, rows[0]["observed_at"]))
     return periods
@@ -242,8 +242,8 @@ def timeline(conn: sqlite3.Connection, offer_id: int, limit: int = 500) -> list[
     crawl.
     """
     return [dict(r) for r in conn.execute(
-        "SELECT price_period_id, price_hash, price_fields, effective_price, "
-        "       regular_price, sale_price, currency, vat_included, "
+        "SELECT price_period_id, price_hash, price_fields, price, "
+        "       price_before, price_sale, currency, tax_included, "
         "       first_detected_at, last_confirmed_at, closed_at, opened_because "
         "FROM price_period WHERE offer_id = ? "
         "ORDER BY first_detected_at, price_period_id LIMIT ?",
@@ -259,7 +259,7 @@ def price_on(conn: sqlite3.Connection, offer_id: int, on_date: str) -> dict:
     reliable observation.
     """
     covering = conn.execute(
-        "SELECT effective_price, currency, first_detected_at, last_confirmed_at "
+        "SELECT price, currency, first_detected_at, last_confirmed_at "
         "FROM price_period WHERE offer_id = ? "
         "  AND date(first_detected_at) <= date(?) "
         "  AND date(last_confirmed_at) >= date(?) "
@@ -267,7 +267,7 @@ def price_on(conn: sqlite3.Connection, offer_id: int, on_date: str) -> dict:
         (offer_id, on_date, on_date)).fetchone()
     if covering is not None:
         return {"status": "confirmed", "date": on_date,
-                "effective_price": covering["effective_price"],
+                "price": covering["price"],
                 "currency": covering["currency"],
                 "observed_at": covering["last_confirmed_at"],
                 "detail": "A successful run confirmed this price on that date."}
@@ -276,25 +276,25 @@ def price_on(conn: sqlite3.Connection, offer_id: int, on_date: str) -> dict:
         "SELECT MIN(first_detected_at) FROM price_period WHERE offer_id = ?",
         (offer_id,)).fetchone()[0]
     if earliest is None:
-        return {"status": "no_history", "date": on_date, "effective_price": None,
+        return {"status": "no_history", "date": on_date, "price": None,
                 "currency": None, "observed_at": None,
                 "detail": "Nothing has ever been recorded for this offer."}
     if on_date < earliest[:10]:
-        return {"status": "before_tracking", "date": on_date, "effective_price": None,
+        return {"status": "before_tracking", "date": on_date, "price": None,
                 "currency": None, "observed_at": earliest,
                 "detail": f"Tracking began on {earliest[:10]}; there is nothing earlier."}
 
     previous = conn.execute(
-        "SELECT effective_price, currency, last_confirmed_at FROM price_period "
+        "SELECT price, currency, last_confirmed_at FROM price_period "
         "WHERE offer_id = ? AND date(first_detected_at) <= date(?) "
         "ORDER BY first_detected_at DESC LIMIT 1",
         (offer_id, on_date)).fetchone()
     if previous is None:
-        return {"status": "unknown", "date": on_date, "effective_price": None,
+        return {"status": "unknown", "date": on_date, "price": None,
                 "currency": None, "observed_at": None,
                 "detail": "There is no reliable observation on or before that date."}
     return {"status": "last_known", "date": on_date,
-            "effective_price": previous["effective_price"],
+            "price": previous["price"],
             "currency": previous["currency"],
             "observed_at": previous["last_confirmed_at"],
             "detail": ("No reliable observation exists for that date. This is the "

@@ -14,8 +14,8 @@
   {% if offer.variant or offer.variant_ar %}<span dir="auto">{{ offer.variant or offer.variant_ar }}</span> · {% endif %}
   {% if offer.sku %}<span class="tech">{{ offer.sku }}</span> · {% endif %}
   prices in {{ offer.currency }}{% if offer.unit %} per {{ offer.unit }}{% endif %}
-  {% if offer.product_url %}
-    · <a href="{{ offer.product_url }}" target="_blank" rel="noopener">Open on the site {{ icon("open-in-new", "inline-icon") }}</a>
+  {% if offer.product_link %}
+    · <a href="{{ offer.product_link }}" target="_blank" rel="noopener">Open on the site {{ icon("open-in-new", "inline-icon") }}</a>
   {% endif %}
 </p>
 
@@ -45,10 +45,10 @@
           {% else %}<span class="chip accent">current</span>{% endif %}
         </td>
         <td class="nowrap">
-          <span class="price">{{ "%g"|format(p.effective_price) }} {{ p.currency }}</span>
+          <span class="price">{{ "%g"|format(p.price) }} {{ p.currency }}</span>
           {% if offer.unit %}<span class="per">/ {{ offer.unit }}</span>{% endif %}
-          {% if p.sale_price and p.regular_price and p.regular_price != p.effective_price %}
-            <span class="strike">{{ "%g"|format(p.regular_price) }}</span>
+          {% if p.price_sale and p.price_before and p.price_before != p.price %}
+            <span class="strike">{{ "%g"|format(p.price_before) }}</span>
           {% endif %}
         </td>
         <td class="muted">{{ (p.opened_because or "").replace("_", " ") or "—" }}</td>
@@ -78,7 +78,7 @@
       <tr>
         <td class="num muted nowrap">{{ o.business_date }}</td>
         <td class="nowrap">
-          <span class="price">{{ "%g"|format(o.effective_price) }} {{ o.currency }}</span>
+          <span class="price">{{ "%g"|format(o.price) }} {{ o.currency }}</span>
           {% if offer.unit %}<span class="per">/ {{ offer.unit }}</span>{% endif %}
         </td>
         <td class="muted">

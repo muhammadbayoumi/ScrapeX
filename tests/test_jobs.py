@@ -124,12 +124,12 @@ def test_ingest_errors_finish_the_job_completed_with_errors(conn):
     ref = create_job(conn, ["A"], RunMode.UPDATE)
 
     def capture(c, entry, job_id=None):
-        return _result(entry.source_key, errors=("row 3: effective_price is empty",))
+        return _result(entry.source_key, errors=("row 3: price is empty",))
 
     job = run_job_once(conn, ref, _FakeManifest(["A"]), capture=capture)
     assert job["status"] == JobStatus.COMPLETED_WITH_ERRORS.value
-    assert "A: row 3: effective_price is empty" in job["error_summary"]
-    assert job["checkpoint"]["errors"] == ["A: row 3: effective_price is empty"]
+    assert "A: row 3: price is empty" in job["error_summary"]
+    assert job["checkpoint"]["errors"] == ["A: row 3: price is empty"]
     warned = [e for e in job_logs(conn, ref) if e["level"] == "warning"]
     assert any("row 3" in e["message"] and e["source_key"] == "A" for e in warned)
 

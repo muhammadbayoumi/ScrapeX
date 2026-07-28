@@ -77,9 +77,9 @@ def test_zid_filters_products_and_maps():
     cement = view.as_dict(table.rows[0])
     assert cement["external_product_id"] == "AC-CEMENT-01"  # from JSON-LD sku
     assert cement["external_sku"] == "AC-CEMENT-01"
-    assert cement["effective_price"] == "45" and cement["currency"] == "SAR"
-    assert cement["vat_included"] == "1" and cement["availability"] == "in_stock"
-    assert cement["product_url"] == "https://advancedcastle.com/products/cement-bag"
+    assert cement["price"] == "45" and cement["currency"] == "SAR"
+    assert cement["tax_included"] == "1" and cement["availability"] == "in_stock"
+    assert cement["product_link"] == "https://advancedcastle.com/products/cement-bag"
     # Arabic-only source: the marked column carries the name and the
     # unmarked one stays EMPTY, so the heading never asserts a language
     # the cell does not hold.
@@ -88,7 +88,7 @@ def test_zid_filters_products_and_maps():
     rebar = view.as_dict(table.rows[1])
     assert rebar["external_product_id"] == "rebar-12"  # no sku -> URL slug fallback
     assert rebar["external_sku"] == ""
-    assert rebar["effective_price"] == "300"  # AggregateOffer lowPrice fallback
+    assert rebar["price"] == "300"  # AggregateOffer lowPrice fallback
 
 
 # ---- live capture: advancedcastle.com, 2026-07-20 / 2026-07-23 --------------

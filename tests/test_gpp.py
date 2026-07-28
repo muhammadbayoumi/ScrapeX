@@ -133,8 +133,8 @@ def test_gpp_fetches_diesel_and_maps_regions():
     egypt = current[0]
     assert egypt["material_key"] == "DIESEL" and egypt["country_code_alpha2"] == "EG"
     # EGP 20.50 as published — NOT the list page's 0.404 USD conversion.
-    assert egypt["effective_price"] == "20.50" and egypt["currency"] == "EGP"
-    assert egypt["unit"] == "liter" and egypt["vat_included"] == "1"
+    assert egypt["price"] == "20.50" and egypt["currency"] == "EGP"
+    assert egypt["unit"] == "liter" and egypt["tax_included"] == "1"
     assert egypt["price_basis"] == "original"
     assert egypt["source_date"] == "2026-07-13"
 
@@ -376,7 +376,7 @@ def test_the_country_page_gives_the_price_in_the_currency_it_is_published_in():
     page = parse_country_page(_read("gpp_country_egypt_diesel.html"))
 
     assert page.price == "20.50" and page.currency == "EGP" and page.unit == "liter"
-    assert page.usd_price == "0.40", "the conversion is kept, but only for reference"
+    assert page.price_usd == "0.40", "the conversion is kept, but only for reference"
 
 
 def test_the_source_stamps_its_own_date_which_is_not_our_crawl_date():
@@ -421,11 +421,11 @@ def test_a_reported_price_never_passes_for_one_we_observed():
     assert len(current) == 1 and len(reported) == 4
     assert current[0]["as_of_date"] == "", "today's price needs no as-of date"
     year_ago = [r for r in reported if r["as_of_date"] == "2025-07-20"]
-    assert year_ago and year_ago[0]["effective_price"] == "15.50"
+    assert year_ago and year_ago[0]["price"] == "15.50"
     # The page's Last update (2026-07-13) is the SOURCE's claim about when this
     # price took effect — a dated claim, so it lands as reported, on that date.
     stamped = [r for r in reported if r["as_of_date"] == "2026-07-13"]
-    assert stamped and stamped[0]["effective_price"] == "20.50"
+    assert stamped and stamped[0]["price"] == "20.50"
 
 
 def test_the_amount_and_its_currency_label_always_agree():
@@ -564,7 +564,7 @@ def test_the_compact_template_yields_the_published_local_price():
 
     assert page.price == "0.150" and page.currency == "LYD"
     assert page.unit == "liter"
-    assert page.usd_price == "0.023", "the site's own conversion must be kept"
+    assert page.price_usd == "0.023", "the site's own conversion must be kept"
     assert page.source_date == "2026-07-20"
     assert page.history == (), "the compact page publishes no history anchors"
 
@@ -673,13 +673,13 @@ def test_libya_lands_a_row_instead_of_a_false_refusal():
     assert len(observed) == 1
     libya = observed[0]
     assert libya["country_code_alpha2"] == "LY"
-    assert libya["effective_price"] == "0.150" and libya["currency"] == "LYD"
+    assert libya["price"] == "0.150" and libya["currency"] == "LYD"
     assert libya["unit"] == "liter" and libya["price_basis"] == "original"
     assert libya["converted_usd_price"] == "0.023"
     assert libya["source_date"] == "2026-07-20"
     # The header date is the source's dating of its figure, so it also lands
     # as a reported anchor on that date — exactly as 'Last update' does.
-    anchors = [(r["as_of_date"], r["effective_price"])
+    anchors = [(r["as_of_date"], r["price"])
                for r in rows if r["provenance"] == "reported"]
     assert anchors == [("2026-07-20", "0.150")]
 
@@ -790,7 +790,7 @@ def test_history_mode_lands_the_series_as_reported_rows():
     # 3 mapped countries, each backfilled from its mirror (the stub serves the
     # same Egypt series for all three).
     assert len(series) == 3
-    assert all(r["currency"] == "EGP" and r["effective_price"] == "1.8"
+    assert all(r["currency"] == "EGP" and r["price"] == "1.8"
                for r in series)
     assert all(r["price_basis"] == "original" for r in series)
 

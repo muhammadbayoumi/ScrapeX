@@ -276,13 +276,13 @@ class HybrisOccConnector:
             product_name_ar=name,
             lang=PRIMARY_LANG,   # not a guess: this is the lang we asked for
             **brand_pair(product.get("manufacturer") or ""),
-            product_url=_storefront_url(product, display_base, PRIMARY_LANG, currency),
+            product_link=_storefront_url(product, display_base, PRIMARY_LANG, currency),
             country_code_alpha2=region,
             currency=price.get("currencyIso") or currency,
-            vat_included=vat_flag,
-            regular_price=_money(value),
-            sale_price="",
-            effective_price=_money(value),
+            tax_included=vat_flag,
+            price_before=_money(value),
+            price_sale="",
+            price=_money(value),
             availability=_availability(stock),
             stock_quantity=level if level is not None else "",
         )

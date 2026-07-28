@@ -19,12 +19,12 @@ today; a price_range that really is a range is refused rather than filed at its
 low end.
 
 NOTHING HERE MULTIPLIES A PRICE. The figure the API states is the figure that
-gets stored, for every shape, and what differs per shape is the vat_included
+gets stored, for every shape, and what differs per shape is the tax_included
 flag the row carries — the owner's ruling after a source-wide 15% uplift was
 declared here and put 3,312 wrong prices in the warehouse: «سجلها كما تاخذ
 البيانات من الموقع بدون تعديل ولكن عمود الضريبة يكون واضح الرقم دا شامل الضريبة
 ام لا». Record it as the site gives it; make the tax column say what it is.
-So a configurable row is stored at 50.4 with vat_included=0 and reads "Excl.
+So a configurable row is stored at 50.4 with tax_included=0 and reads "Excl.
 15%", where the old code stored 57.96 and claimed the shop had printed it.
 """
 from __future__ import annotations
@@ -292,7 +292,7 @@ class MagentoGraphqlConnector:
             "vat": "1" if source.vat_mode.value == "incl" else "0",
             "country_code_alpha2": source.default_region,
             # ...and what a CONFIGURABLE's figure is, which on this platform is
-            # a different answer (see _product_rows). vat_included is a fact
+            # a different answer (see _product_rows). tax_included is a fact
             # about the number in the row, not about the source, so the two
             # travel separately and every row states its own.
             "configurable_excl": bool(source.api
@@ -739,15 +739,15 @@ class MagentoGraphqlConnector:
                 variant=", ".join(f"{axis}: {value}" for axis, value in (axes_en or {}).items()),
                 variant_axes=option_axes_json(axes_en or {}),
                 basis_quantity=basis, unit=unit,
-                product_url=url, country_code_alpha2=ctx["country_code_alpha2"], currency=ctx["currency"],
+                product_link=url, country_code_alpha2=ctx["country_code_alpha2"], currency=ctx["currency"],
                 # PER ROW, never per source: on this platform one crawl carries
                 # both answers at once, and a source-level flag stamped on
                 # every observation is how the warehouse came to assert things
                 # the shop never said.
-                vat_included=vat if vat is not None else ctx["vat"],
-                regular_price=reg if reg is not None else effective,
-                sale_price=fin if (reg is not None and fin is not None and reg != fin) else "",
-                effective_price=effective, availability=_availability(stock),
+                tax_included=vat if vat is not None else ctx["vat"],
+                price_before=reg if reg is not None else effective,
+                price_sale=fin if (reg is not None and fin is not None and reg != fin) else "",
+                price=effective, availability=_availability(stock),
                 category_path=category_path_en, category_path_ar=category_path,
                 category_external_id=category_id,
             ))
@@ -817,7 +817,7 @@ class MagentoGraphqlConnector:
         # was right; only generalising one shape's rule to the source was not.
         #
         # What we do about it is NOT arithmetic. The row keeps 50.4 and says
-        # vat_included=0, so the Tax column reads "Excl. 15%" on this row and
+        # tax_included=0, so the Tax column reads "Excl. 15%" on this row and
         # "Incl. 15%" on the simple one beside it. Both numbers then exist on
         # the site, which is the only test a stored price has to pass.
         if variants:
@@ -880,7 +880,7 @@ class MagentoGraphqlConnector:
             # maximum_price == minimum_price, so this never fires for the shape
             # we have; it is here for the shape we do not — a BundleProduct
             # publishes a real min..max, and writing its minimum into
-            # effective_price would file "from 50" as "50". A shape we have not
+            # price would file "from 50" as "50". A shape we have not
             # studied is not a shape we may guess at.
             if _spans_a_range(product):
                 notes.append(
