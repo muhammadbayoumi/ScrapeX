@@ -427,23 +427,6 @@ sources:
       from OUR weekly observations, never from their paid feed.
 
   # ---- probed: Sika Egypt corporate (AEM) — enrichment only, no prices ----
-  - source_key: SIKA_EGYPT_DATASHEETS
-    source_name_ar: سيكا مصر (نشرات فنية)
-    source_name: Sika Egypt datasheets
-    base_url: https://egy.sika.com
-    family: datasheet-enrichment
-    cadence: monthly
-    authority: official
-    active: false
-    extract:
-      - kind: enrichment
-        scope: targeted
-    notes: >
-      310 products + ~1050 TDS PDFs with stable DMS GUIDs; sitemap lastmod
-      drives incremental re-scrape. Feeds material_attribute_value only
-      (consumption rates for pricing breakdowns) — never price_observation.
-
-  # ---- probed live 2026-07-23: official monthly prices as heading + pairs ----
   - source_key: ARAMCO_FUEL_SA
     source_name_ar: أرامكو السعودية
     source_name: Saudi Aramco
@@ -471,16 +454,3 @@ sources:
       rides source_date. robots.txt allows the path. Parsed from reading-order
       text, not selectors: the React class names churn, the words do not.
 
-  - source_key: TABLER
-    source_name_ar: tabler.io
-    source_name: Tabler
-    base_url: https://tabler.io/icons
-    family: TBD-probe
-    cadence: manual
-    authority: shop
-    default_region: '*'
-    vat_mode: incl
-    active: false
-    extract:
-    - kind: enrichment
-      scope: census

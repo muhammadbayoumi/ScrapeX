@@ -290,14 +290,43 @@ def test_flipping_active_changes_one_line_and_keeps_every_comment(client, tmp_pa
     assert listed[SOURCE]["active"] is True
 
 
-def test_a_probe_placeholder_refuses_activation_with_the_reason(client):
-    """TABLER is family TBD-probe (ARAMCO graduated to a real family):
-    pydantic refuses an active placeholder, and the refusal must reach the
-    panel as a message, not corrupt the manifest."""
-    r = client.post("/api/sources/TABLER/active", json={"active": True})
+def test_a_probe_placeholder_refuses_activation_with_the_reason(client, tmp_path):
+    """pydantic refuses an active TBD-probe placeholder, and the refusal must
+    reach the panel as a message rather than corrupt the manifest.
+
+    The placeholder is APPENDED here rather than borrowed from the shipped
+    manifest. It used to point at TABLER, which has since been removed — an MIT
+    icon library is not a price source — and a test that names a specific entry
+    dies with that entry while the rule it guards lives on.
+    """
+    manifest = tmp_path / "sources.yaml"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + """
+  - source_key: UNPROBED
+    source_name_ar: غير مفحوص
+    source_name: Unprobed
+    base_url: https://example.invalid
+    family: TBD-probe
+    cadence: manual
+    authority: shop
+    currency: EGP
+    default_region: EG
+    vat_mode: incl
+    active: false
+    extract:
+      - kind: product_prices
+        scope: census
+""", encoding="utf-8")
+
+    r = client.post("/api/sources/UNPROBED/active", json={"active": True})
     assert r.status_code == 400
-    listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
-    assert listed["TABLER"]["active"] is False, "the bad write survived"
+    assert "probe" in r.json().get("detail", "").lower()
+    # Read the FILE rather than the listing: "the bad write survived" is a claim
+    # about the manifest on disk, and asserting it directly is stronger than
+    # asking the API whether it happens to enumerate the entry.
+    after = manifest.read_text(encoding="utf-8")
+    assert "source_key: UNPROBED" in after, "the refusal must not delete the entry"
+    unprobed = after[after.index("source_key: UNPROBED"):]
+    assert "active: false" in unprobed, "the refused flip must not have been written"
 
 
 def test_activating_an_unknown_source_is_404(client):

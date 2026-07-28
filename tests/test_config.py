@@ -31,7 +31,6 @@ def test_committed_manifest_is_valid():
     # Probed live 2026-07-23 and promoted from TBD-probe to a real family.
     assert aramco.family == ConnectorFamily.ARAMCO_FUEL_PAGE
     assert aramco.extract[0].regions == ["SA"]  # feeds ONLY the Saudi rows
-    assert manifest.get("TABLER").family == ConnectorFamily.TBD_PROBE
 
 
 def test_every_committed_source_carries_an_english_name():
@@ -134,3 +133,46 @@ def test_unknown_source_lookup_fails_loud():
     manifest = Manifest.model_validate({"sources": [entry()]})
     with pytest.raises(KeyError, match="NOPE"):
         manifest.get("NOPE")
+
+
+def test_a_probe_placeholder_cannot_be_shipped_active():
+    """"No family until proven" (A3), tested as a RULE rather than by pointing
+    at whichever entry happens to be unprobed today.
+
+    It used to assert TABLER was still TBD-probe. TABLER was removed from the
+    manifest — it is an MIT icon library, not a shop — and a test that names a
+    specific entry dies with that entry while the rule it guards lives on.
+    """
+    import pytest
+    from pydantic import ValidationError
+
+    from scrapex.config import SourceEntry
+
+    fields = dict(source_key="UNPROBED", source_name="Unprobed",
+                  source_name_ar="غير مفحوص", base_url="https://example.invalid",
+                  family="TBD-probe", currency="EGP", default_region="EG",
+                  vat_mode="incl",
+                  extract=[{"kind": "product_prices", "scope": "census"}])
+
+    # Inactive is fine: that is what a placeholder IS.
+    assert SourceEntry.model_validate({**fields, "active": False}).family         == ConnectorFamily.TBD_PROBE
+
+    # Active is refused, and the refusal says what to do about it.
+    with pytest.raises(ValidationError) as caught:
+        SourceEntry.model_validate({**fields, "active": True})
+    assert "scrapex probe" in str(caught.value)
+
+
+def test_no_manifest_entry_declares_a_family_nothing_can_build():
+    """An entry whose family has no connector is a promise the engine cannot
+    keep. SIKA_EGYPT_DATASHEETS declared `datasheet-enrichment` for months with
+    no builder anywhere — it read as work in progress and was really a dead
+    entry, so the manifest said less than it appeared to.
+    """
+    from scrapex.connectors.factory import _BUILDERS
+    from scrapex.vocab import ConnectorFamily
+
+    manifest = load_manifest(MANIFEST_FILE)
+    buildable = set(_BUILDERS) | {ConnectorFamily.TBD_PROBE}
+    orphans = [s.source_key for s in manifest.sources if s.family not in buildable]
+    assert orphans == [], f"declared families with no connector: {orphans}"
