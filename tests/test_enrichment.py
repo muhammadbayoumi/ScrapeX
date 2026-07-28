@@ -355,3 +355,89 @@ def test_a_site_filter_is_a_property_of_the_fact_not_a_place_to_file_it():
     # it, which reads as "not a filter" — the truthful answer for a source
     # whose facets we had not asked about yet.
     assert "is_site_filter" in ENRICHMENT.additive
+
+
+def test_a_changed_detail_replaces_its_old_value_instead_of_sitting_beside_it():
+    """Owner-reported, the long way round: he read a paragraph of CSS in a madar
+    description. The parser was fixed to strip it — and the CSS stayed on screen,
+    because the attribute upsert keys on (product, code, RAW_VALUE). A changed
+    value therefore INSERTS a new row and orphans the old one, so 125 madar
+    descriptions were stored twice and the panel showed both.
+
+    A run that restates a product's details restates all of them, so anything
+    left with an older last_seen_at is a value the shop has stopped publishing.
+    """
+    import sqlite3
+
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+    from scrapex.rowspec import ENRICHMENT, RowBuilder
+    from scrapex.payload import PAYLOAD_VERSION, FunnelPayload
+    from scrapex.vocab import ExtractKind
+    from tests.test_ingest import make_entry, make_payload, one_row
+
+    def details(value):
+        builder = RowBuilder(ENRICHMENT)
+        return FunnelPayload(
+            payload_version=PAYLOAD_VERSION, source_key="ELSEWEDYSHOP",
+            kind=ExtractKind.ENRICHMENT, client="cli",
+            scraped_at="2026-07-16T10:00:00Z",
+            source_url="https://elsewedyshop.com/x",
+            header=builder.header,
+            rows=[builder.row(external_product_id="1001",
+                              attribute_code="description_ar",
+                              attribute_label="Description (AR)",
+                              raw_value=value, attribute_group="Description",
+                              lang="ar")])
+
+    entry = make_entry(extract=[
+        {"kind": "product_prices"}, {"kind": "enrichment"}])
+    conn = dbmod.connect(":memory:")
+    try:
+        dbmod.migrate(conn)
+        ingest_payloads(conn, entry, [make_payload([one_row()])])
+        ingest_payloads(conn, entry, [details("<style>p{}</style> نص")])
+        assert conn.execute(
+            "SELECT COUNT(*) FROM source_product_attribute").fetchone()[0] == 1
+
+        # The parser improves; the same fact comes back CLEANED.
+        ingest_payloads(conn, entry, [details("نص")])
+        rows = conn.execute(
+            "SELECT raw_value FROM source_product_attribute").fetchall()
+        assert [r[0] for r in rows] == ["نص"], \
+            "the superseded value is still stored beside its replacement"
+    finally:
+        conn.close()
+
+
+def test_a_run_never_retires_details_it_did_not_fetch():
+    """The guard on the guard. Retirement is scoped to products this run
+    restated in full, so a crawl that fetched nothing — or a source with no
+    enrichment at all — can never quietly delete what it simply did not ask
+    for. Silent data loss is the one outcome worse than a stale value.
+    """
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+    from tests.test_ingest import make_entry, make_payload, one_row
+
+    entry = make_entry(extract=[
+        {"kind": "product_prices"}, {"kind": "enrichment"}])
+    conn = dbmod.connect(":memory:")
+    try:
+        dbmod.migrate(conn)
+        ingest_payloads(conn, entry, [make_payload([one_row()])])
+        pid = conn.execute(
+            "SELECT source_product_id FROM source_product").fetchone()[0]
+        conn.execute(
+            "INSERT INTO source_product_attribute (source_product_id, "
+            " attribute_code, attribute_label, raw_value, attribute_group, "
+            " lang, last_seen_at) VALUES (?,?,?,?,?,?,'2020-01-01T00:00:00Z')",
+            (pid, "weight", "Weight", "50", "Specifications", "en"))
+        conn.commit()
+
+        # A prices-only run: it states no details, so it retires none.
+        ingest_payloads(conn, entry, [make_payload([one_row()])])
+        assert conn.execute(
+            "SELECT COUNT(*) FROM source_product_attribute").fetchone()[0] == 1
+    finally:
+        conn.close()

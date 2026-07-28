@@ -554,7 +554,7 @@ def test_a_live_port_is_never_taken_as_proof_the_worker_runs(conn):
     assert "Pages may still open" in stale["detail"]
 
 
-def test_the_worker_can_still_report_when_stderr_is_gone():
+def test_the_worker_can_still_report_when_stderr_is_gone(tmp_path, monkeypatch):
     """The root cause, pinned. Under pythonw sys.stderr IS None, and the worker
     reports with traceback.print_exc(file=sys.stderr) — writing to None raises
     inside the handler, so the act of reporting a fault killed the thread that
@@ -567,7 +567,14 @@ def test_the_worker_can_still_report_when_stderr_is_gone():
     """
     import sys as _sys
 
+    from scrapex import cli
     from scrapex.cli import _bind_log_streams
+
+    # Its own log file. Pointed at the real one, this test opened the
+    # engine's live handle and failed whenever ScrapeX was RUNNING —
+    # exactly the machine-state dependence that made the extension test
+    # pass only where the app was not installed.
+    monkeypatch.setattr(cli, "RUN_DUE_LOG", tmp_path / "engine.log")
 
     out, err = _sys.stdout, _sys.stderr
     try:

@@ -8,6 +8,7 @@ silent (Q3); a whole source never dies on one bad row.
 from __future__ import annotations
 
 import sqlite3
+from functools import partial
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -18,7 +19,7 @@ from .changes import (
 from .config import SourceEntry
 from . import pricekey, tax
 from .normalize import parse_money, record_hash
-from .payload import FunnelPayload
+from .payload import FunnelPayload, utc_now_iso
 from .rowspec import PRODUCT_PRICES, RowView, spec_for
 from .vocab import (Availability, ChangeType, CurationStatus, DetailGroup,
                     ExtractKind, RunStatus)
@@ -636,6 +637,10 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     # to remember.
     payloads = sorted(payloads,
                       key=lambda pl: 1 if pl.kind == ExtractKind.ENRICHMENT else 0)
+    # Exactly which (product, code) facts this run restated, and with what
+    # values — the record that makes retiring a superseded value safe
+    # rather than a guess about what a partial crawl did not fetch.
+    stated_details: dict = {}
     for payload in payloads:
         if payload.source_key != entry.source_key:
             result.errors.append(f"payload source_key {payload.source_key} != {entry.source_key}")
@@ -657,7 +662,8 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
             result.errors.append(f"header drift: {exc}")
             continue
         row_fn = (_ingest_commodity_row if payload.kind == ExtractKind.COMMODITY_PRICE
-                  else _ingest_enrichment_row if payload.kind == ExtractKind.ENRICHMENT
+                  else partial(_ingest_enrichment_row, stated=stated_details)
+                  if payload.kind == ExtractKind.ENRICHMENT
                   else _ingest_product_row)
         for i, raw in enumerate(payload.rows):
             try:
@@ -666,6 +672,10 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
             except Exception as exc:  # noqa: BLE001 — isolate one bad row (Q3)
                 result.errors.append(f"row {i}: {exc}")
 
+    # A detail whose VALUE changed arrived beside its old copy rather than
+    # over it, so the superseded one goes now that the run has restated
+    # everything the product publishes.
+    _retire_superseded_attributes(conn, stated_details, result)
     # Stand-ins are retired before the derive: a run that just published a
     # product's real variants must not leave the range low end posing as a
     # current offer beside them.
@@ -689,8 +699,39 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     return result
 
 
+def _retire_superseded_attributes(conn, stated: dict, result: "IngestResult") -> None:
+    """Drop the values a product no longer states, for the exact facts this run
+    restated.
+
+    Keyed on what the run SAID, never on a clock. The first attempt compared
+    last_seen_at against the run's start, and last_seen_at has second
+    granularity — a fast run stamps the replacement in the same second the
+    comparison uses, so the stale row survived by a rounding error. What the
+    payload stated is exact and needs no tie-break.
+
+    Scoped hard: only (product, code) pairs this run actually rewrote. A source
+    that publishes no enrichment, a product this payload never mentioned, and a
+    code the run did not restate are all untouched — so a partial crawl can
+    never quietly delete what it simply did not fetch. Silent data loss is the
+    one outcome worse than a stale value.
+    """
+    removed = 0
+    for (product_id, code), values in stated.items():
+        marks = ",".join("?" * len(values))
+        removed += conn.execute(
+            f"DELETE FROM source_product_attribute "
+            f"WHERE source_product_id = ? AND attribute_code = ? "
+            f"AND raw_value NOT IN ({marks})",
+            (product_id, code, *values)).rowcount
+    if removed:
+        result.errors.append(
+            f"retired {removed} superseded detail value(s) the source no longer "
+            "publishes")
+
+
 def _ingest_enrichment_row(conn, entry, source_id, run_id, r, observed_at,
-                           result: IngestResult, job_id=None) -> None:
+                           result: IngestResult, job_id=None, *,
+                           stated: dict | None = None) -> None:
     """Land one detail exactly as the shop printed it (source-local layer).
 
     The connector has emitted these since 2026-07-20 and this function's
@@ -700,7 +741,15 @@ def _ingest_enrichment_row(conn, entry, source_id, run_id, r, observed_at,
     degraded a healthy job while doing it.
 
     UPSERT on (product, code, value): a re-crawl refreshes last_seen_at, a
-    value the shop removed simply stops being refreshed. Nothing is deleted.
+    value the shop removed simply stops being refreshed.
+
+    That is right for a value the shop DROPPED and wrong for one it
+    CHANGED, and the difference was invisible until the owner read CSS in
+    a madar description. The conflict key includes raw_value, so a changed
+    value INSERTS a new row and the old one is orphaned rather than
+    replaced — 125 descriptions ended up stored twice, the stale copy still
+    carrying the Page Builder stylesheet the parser now strips. Both showed
+    in the panel. _retire_superseded_attributes closes that after the run.
     """
     row = conn.execute(
         "SELECT source_product_id FROM source_product "
@@ -734,6 +783,8 @@ def _ingest_enrichment_row(conn, entry, source_id, run_id, r, observed_at,
          r.get("lang", ""),
          1 if str(r.get("is_site_filter", "")).strip() in {"1", "true", "True"} else 0))
     result.attributes += 1
+    if stated is not None:
+        stated.setdefault((row[0], r["attribute_code"]), set()).add(r["raw_value"])
 
 
 def _ingest_product_row(conn, entry, source_id, run_id, r, observed_at,
