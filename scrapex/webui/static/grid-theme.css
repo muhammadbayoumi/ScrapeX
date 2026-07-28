@@ -799,7 +799,11 @@
   padding-bottom: .3rem;
 }
 .setfilter-row input { width: auto; flex: none; }
-.setfilter-actions { display: flex; gap: .4rem; margin-top: .5rem; }
+/* How much of the column the current ticks cover, so the reader knows what
+   Apply is about to do before pressing it. */
+.setfilter-count { margin: .4rem 0 0; font-size: .78rem; }
+.setfilter-actions { display: flex; gap: .4rem; margin-top: .4rem; }
+.setfilter-actions button[disabled] { opacity: .5; cursor: not-allowed; }
 .material-icon {
   display: block;
   width: 1.125rem;

@@ -185,13 +185,27 @@
     catch (err) { /* private mode: the table still works, it just forgets */ }
   }
 
+  // A value the source left empty is still a value. 3,325 of Madar's 3,417 rows
+  // have no Unit, and a popup that quietly omitted them turned "keep everything
+  // except 2 kg" into a table of 88 rows — the blanks were not deselected, they
+  // were never selectABLE. Blanks travel as "" and are shown under a name.
+  const BLANK_VALUE = "";
+  const BLANK_LABEL = "(Blanks)";
+  const asText = (v) => (v === null || v === undefined) ? BLANK_VALUE : String(v);
+
   function applyFilters() {
     if (!table) return;
-    table.setFilter([...active].map(([field, f]) => ({
-      field,
-      type: f.values ? "in" : "like",
-      value: f.values ? f.values : f.text,
-    })));
+    // A FUNCTION filter, not Tabulator's "in". "in" compares with indexOf —
+    // strict equality — against the popup's list, and everything the popup
+    // holds is a string. So a numeric cell never matched its own value: ticking
+    // 2 in Observations (115 rows carry it) filtered the table down to nothing,
+    // and the same was true of Price, Min price and Max price. Comparing as
+    // text on both sides is what the popup already promises the reader.
+    table.setFilter([...active].map(([field, f]) => {
+      if (!f.values) return {field, type: "like", value: f.text};
+      const wanted = new Set(f.values.map(asText));
+      return {field: (row) => wanted.has(asText(row[field]))};
+    }));
     describe();
     paintChips();
   }
@@ -227,8 +241,13 @@
       chip.type = "button";
       chip.className = "chip pill";
       const label = document.createElement("span");
-      label.textContent = column + ": " +
-        (f.values ? f.values.length + " selected" : "contains " + f.text);
+      // One chosen value is worth NAMING. "Unit: 1 selected" tells the reader
+      // that something is filtered but not what, which is half a chip.
+      const what = !f.values ? "contains " + f.text
+        : f.values.length === 1
+          ? "is " + (f.values[0] === BLANK_VALUE ? BLANK_LABEL : f.values[0])
+          : f.values.length.toLocaleString() + " selected";
+      label.textContent = column + ": " + what;
       chip.append(label);
       chip.insertAdjacentHTML("beforeend", materialIcon("close", "inline-icon"));
       chip.title = "Remove this filter";
@@ -256,9 +275,14 @@
     const box = document.createElement("div");
     box.className = "setfilter";
 
-    const values = [...new Set(payload.rows.map((r) => r[field])
-      .filter((v) => v !== "" && v !== null && v !== undefined))]
-      .map(String).sort((a, b) => a.localeCompare(b, "en", {numeric: true}));
+    // Every value as TEXT, blanks included and listed first under their own
+    // name, so the list accounts for every row in the column rather than for
+    // the rows that happen to be filled in.
+    const seen = new Set(payload.rows.map((r) => asText(r[field])));
+    const hasBlank = seen.delete(BLANK_VALUE);
+    const values = [...seen].sort((a, b) => a.localeCompare(b, "en", {numeric: true}));
+    if (hasBlank) values.unshift(BLANK_VALUE);
+    const labelOf = (v) => v === BLANK_VALUE ? BLANK_LABEL : v;
 
     const search = document.createElement("input");
     search.type = "search";
@@ -271,7 +295,21 @@
     box.append(list);
 
     const chosen = new Set(active.get(field) && active.get(field).values
-      ? active.get(field).values : values);
+      ? active.get(field).values.map(asText) : values);
+
+    const actions = document.createElement("div");
+    actions.className = "setfilter-actions";
+    const count = document.createElement("p");
+    count.className = "hint setfilter-count";
+    count.setAttribute("role", "status");
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.textContent = "Apply";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "ghost";
+    reset.textContent = "Clear";
+    actions.append(apply, reset);
 
     function row(label, checked, onChange, strong) {
       const line = document.createElement("label");
@@ -287,53 +325,104 @@
       return line;
     }
 
+    // The head checkbox has to ANSWER for the boxes under it. It did not: every
+    // value row wrote to `chosen` and re-drew nothing, so "(Select all)" still
+    // read as ticked with half the list unticked beneath it. Now it is synced
+    // in place — not by re-rendering, which would throw away the scroll
+    // position and the search focus mid-choice.
+    let master = null;
+    let shown = values;
+
+    function syncHead() {
+      const ticked = shown.reduce((n, v) => n + (chosen.has(v) ? 1 : 0), 0);
+      if (master) {
+        master.checked = shown.length > 0 && ticked === shown.length;
+        master.indeterminate = ticked > 0 && ticked < shown.length;
+      }
+      // A filter that selects nothing would empty the table and say only "0 of
+      // 3,417" — refusing it is kinder than performing it.
+      apply.disabled = chosen.size === 0;
+      apply.title = chosen.size === 0
+        ? "Tick at least one value" : "";
+      count.textContent = chosen.size === values.length
+        ? "All " + values.length.toLocaleString() + " values"
+        : chosen.size.toLocaleString() + " of " +
+          values.length.toLocaleString() + " selected";
+    }
+
     function render() {
       const needle = search.value.trim().toLowerCase();
-      const visible = needle
-        ? values.filter((v) => v.toLowerCase().includes(needle))
+      shown = needle
+        ? values.filter((v) => labelOf(v).toLowerCase().includes(needle))
         : values;
       list.replaceChildren();
-      list.append(row("(Select all)", visible.every((v) => chosen.has(v)), (on) => {
-        visible.forEach((v) => on ? chosen.add(v) : chosen.delete(v));
+      const head = row(needle ? "(Select all search results)" : "(Select all)",
+                       false, (on) => {
+        shown.forEach((v) => on ? chosen.add(v) : chosen.delete(v));
         render();
-      }, true));
+      }, true);
+      master = head.querySelector("input");
+      list.append(head);
       // Bounded on purpose: a menu of 3,000 product names is a list nobody
       // scrolls. Search narrows it; the count says what is hidden.
-      visible.slice(0, 500).forEach((v) => list.append(
-        row(v, chosen.has(v), (on) => { on ? chosen.add(v) : chosen.delete(v); })));
-      if (visible.length > 500) {
+      shown.slice(0, 500).forEach((v) => list.append(
+        row(labelOf(v), chosen.has(v), (on) => {
+          on ? chosen.add(v) : chosen.delete(v);
+          syncHead();
+        })));
+      if (shown.length > 500) {
         const more = document.createElement("p");
         more.className = "hint";
-        more.textContent = (visible.length - 500).toLocaleString() +
+        more.textContent = (shown.length - 500).toLocaleString() +
           " more — type to narrow the list";
         list.append(more);
       }
+      if (!shown.length) {
+        const none = document.createElement("p");
+        none.className = "hint";
+        none.textContent = "No value matches this search.";
+        list.append(none);
+      }
+      syncHead();
     }
-    search.addEventListener("input", render);
+
+    // TYPING EMPTIES THE SELECTION (the owner's ask, 2026-07-28). Searching used
+    // to narrow only what was DRAWN: the two matching values sat in front of you
+    // with every unseen value still ticked behind them, so Apply filtered
+    // nothing at all and the box looked broken. Entering a search now means
+    // "start from nothing and pick out of these". Emptying the box again puts
+    // back what was ticked before it, so a mistyped search costs nothing —
+    // unless something was picked while searching, which is an answer, not an
+    // accident, and is kept.
+    let searching = false;
+    let beforeSearch = null;
+    search.addEventListener("input", () => {
+      const now = search.value.trim() !== "";
+      if (now && !searching) {
+        beforeSearch = new Set(chosen);
+        chosen.clear();
+      } else if (!now && searching) {
+        if (!chosen.size && beforeSearch) beforeSearch.forEach((v) => chosen.add(v));
+        beforeSearch = null;
+      }
+      searching = now;
+      render();
+    });
     render();
 
-    const actions = document.createElement("div");
-    actions.className = "setfilter-actions";
-    const apply = document.createElement("button");
-    apply.type = "button";
-    apply.textContent = "Apply";
     apply.addEventListener("click", () => {
+      if (!chosen.size) return;
       if (chosen.size === values.length) active.delete(field);
       else active.set(field, {values: [...chosen]});
       applyFilters();
       document.body.click();          // dismiss the popup
     });
-    const reset = document.createElement("button");
-    reset.type = "button";
-    reset.className = "ghost";
-    reset.textContent = "Clear";
     reset.addEventListener("click", () => {
       active.delete(field);
       applyFilters();
       document.body.click();
     });
-    actions.append(apply, reset);
-    box.append(actions);
+    box.append(count, actions);
     return box;
   }
 
@@ -1447,6 +1536,7 @@
 
     table = new Tabulator(mount, options);
     table.on("tableBuilt", () => {
+      guardHeaderButtons();
       wireLanguageToggle();
       applyFilters();
       describe();
@@ -1560,6 +1650,35 @@
       if (save) redrawOpenPanel();
     }
     apply(nameLang, false);
+  }
+
+  // ---- why the header's two buttons only worked SOMETIMES -------------------
+  //
+  // movableColumns arms a column DRAG on mousedown anywhere in a header and
+  // starts it 250ms later. The three-dot menu and the filter icon sit inside
+  // that header, and both Tabulator's handlers and ours stop only the CLICK.
+  // So pressing either of them a shade slowly began a column move instead: the
+  // header was re-rendered under the cursor, the very button being pressed left
+  // the document, and no click event was ever delivered. Measured on this page:
+  // a 120ms press opens the menu, a 400ms press leaves the button detached and
+  // opens nothing. That is the whole of "the table's functions work sometimes
+  // and sometimes not" — not the actions, the way in.
+  //
+  // Captured on the HEADER, so it runs before the column's own mousedown
+  // listener and the drag timer is never armed for these two buttons. Dragging
+  // a column by its title is untouched, and so is the resize handle.
+  function guardHeaderButtons() {
+    const header = mount.querySelector(".tabulator-header");
+    if (!header || header.dataset.buttonsGuarded) return;
+    header.dataset.buttonsGuarded = "1";
+    const hold = (event) => {
+      const target = event.target;
+      if (target && target.closest && target.closest(".tabulator-header-popup-button")) {
+        event.stopPropagation();
+      }
+    };
+    header.addEventListener("mousedown", hold, true);
+    header.addEventListener("touchstart", hold, true);
   }
 
   function widthsFromTable() {
