@@ -15,6 +15,7 @@ never touch those.
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import uuid
 from pathlib import Path
@@ -45,6 +46,29 @@ def write_payload(base: Path | str, payload: FunnelPayload, token: str = "") -> 
     path = target / f"{stem}.json"
     path.write_text(payload.model_dump_json(), encoding="utf-8")
     return path
+
+
+def safe_token(text: str) -> str:
+    """A resume token that survives the round trip through a filename.
+
+    write_payload SANITISES a token into the stem and list_tokens reads the
+    SANITISED form back, so a connector holding the raw value compares against
+    something it will never match — the crawl would refetch every page and the
+    resume would look like it simply did not work. The docstring below warns
+    about this; nothing enforced it.
+
+    A URL is the natural checkpoint for a sitemap crawler (one request per
+    product, no page numbers to count), and a URL is exactly the shape that
+    does not survive sanitising. Hashing sidesteps both problems: the result is
+    already filename-safe, so sanitising is a no-op, and two different URLs
+    cannot collide into one token the way two sanitised URLs can.
+    """
+    return "t-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
+
+
+def token_survives_a_filename(token: str) -> bool:
+    """Does this token read back identically? The invariant resume depends on."""
+    return token == re.sub(r"[^A-Za-z0-9_-]", "-", token)
 
 
 def list_tokens(base: Path | str, source_key: str) -> set[str]:

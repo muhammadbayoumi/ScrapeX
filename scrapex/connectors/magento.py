@@ -325,40 +325,48 @@ class MagentoGraphqlConnector:
         page = 1
         while True:
             token = f"page-{page}"
+            if token in self.skip_tokens:
+                # BEFORE the request, which is the whole point. This check used
+                # to sit below the POST, so a resumed crawl re-issued every
+                # request and saved only the parsing — and because `if not
+                # items: break` was below it too, the loop's TERMINATION was
+                # driven by freshly fetched responses as well. A resumed crawl
+                # was network-identical to a cold one: resume in name only.
+                page += 1
+                continue
             body = {"query": query, "variables": {"pageSize": PAGE_SIZE, "currentPage": page}}
             products = (((self._fetcher.post(endpoint, json=body).json() or {})
                          .get("data") or {}).get("products")) or {}
             items = products.get("items") or []
             if not items:
                 break
-            if token not in self.skip_tokens:
-                # Warnings raised while building THIS page must ride this page.
-                # Pinning them all to page 1 (as before) silently dropped every
-                # skip a later page reported — and a skip nobody hears is the
-                # quiet data loss the warnings exist to prevent.
-                before = len(notes)
-                page_rows: list[list[str]] = []
-                for product in items:
-                    made = self._product_rows(builder, product, ctx)
-                    page_rows.extend(made)
-                    if made and wants_enrichment:
-                        # Details hang off the PRICE row's product, so the
-                        # enrichment set follows the priced set. A product this
-                        # page refused (a real price RANGE, a grouped product
-                        # whose members carry no figure) that still shipped its
-                        # attributes would send details for something the
-                        # warehouse has never heard of — rejected out of scope,
-                        # and looking for all the world like a contract breach.
-                        fetched.append(product)
-                # One table per page: a pause keeps every page already fetched
-                # and the resume asks only for the rest.
-                yield ScrapedTable(
-                    source_key=source.source_key, kind=PRODUCT_PRICES.kind,
-                    source_url=f"{endpoint}#page={page}", header=builder.header,
-                    rows=page_rows,
-                    warnings=list(notes) if page == 1 else notes[before:],
-                    page_token=token,
-                )
+            # Warnings raised while building THIS page must ride this page.
+            # Pinning them all to page 1 (as before) silently dropped every
+            # skip a later page reported — and a skip nobody hears is the
+            # quiet data loss the warnings exist to prevent.
+            before = len(notes)
+            page_rows: list[list[str]] = []
+            for product in items:
+                made = self._product_rows(builder, product, ctx)
+                page_rows.extend(made)
+                if made and wants_enrichment:
+                    # Details hang off the PRICE row's product, so the
+                    # enrichment set follows the priced set. A product this
+                    # page refused (a real price RANGE, a grouped product
+                    # whose members carry no figure) that still shipped its
+                    # attributes would send details for something the
+                    # warehouse has never heard of — rejected out of scope,
+                    # and looking for all the world like a contract breach.
+                    fetched.append(product)
+            # One table per page: a pause keeps every page already fetched
+            # and the resume asks only for the rest.
+            yield ScrapedTable(
+                source_key=source.source_key, kind=PRODUCT_PRICES.kind,
+                source_url=f"{endpoint}#page={page}", header=builder.header,
+                rows=page_rows,
+                warnings=list(notes) if page == 1 else notes[before:],
+                page_token=token,
+            )
             total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
             if page >= total_pages:
                 break

@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
+from ..localinbox import safe_token
 from ..normalize import brand_pair
 from ..config import SourceEntry
 # ENRICHMENT is imported eagerly: the enrichment branch below referenced it
@@ -63,17 +64,31 @@ class SallaConnector:
 
     def __init__(self, fetcher: HttpFetcher) -> None:
         self._fetcher = fetcher
+        # Pages already journaled by a paused attempt, set by capture on resume.
+        # This crawl is one REQUEST PER PRODUCT off a sitemap — there are no page
+        # numbers to count — so the checkpoint is the product URL, hashed by
+        # localinbox.safe_token because a raw URL does not survive being written
+        # into a filename and would therefore never match on resume.
+        self.skip_tokens: set[str] = set()
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
-        builder = RowBuilder(PRODUCT_PRICES)
         base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
-        rows: list[list[str]] = []
-        seen_products: list[tuple[dict, str]] = []   # kept for enrichment
+        wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
+                               for spec in source.extract)
         priceless = 0
         unparsed = 0
+        skipped = 0
 
         for url in self._product_urls(f"{base}/ar/sitemap.xml"):
+            token = safe_token(url)
+            if token in self.skip_tokens:
+                # Already journaled. Skipped BEFORE the request, which is the
+                # whole point: this shop answers about one page every ten
+                # seconds, so a resume that refetched would cost the hours it
+                # was meant to save.
+                skipped += 1
+                continue
             try:
                 html = self._fetcher.get(url).text
             except Exception:  # noqa: BLE001 — one dead product page never kills the crawl (Q3)
@@ -82,12 +97,30 @@ class SallaConnector:
             if not node:
                 unparsed += 1
                 continue
-            seen_products.append((node, url))
+
+            # ONE TABLE PER PRODUCT, journaled as fetched. This connector used
+            # to accumulate every row and yield a single table at the END, so a
+            # crawl interrupted at hour five had written nothing at all — not
+            # merely un-resumable, but a total loss, with capture's journal
+            # (which exists for exactly that interruption) never given anything
+            # to hold.
+            builder = RowBuilder(PRODUCT_PRICES)
             row = self._row(builder, node, url, source, vat)
             if row is None:
                 priceless += 1
-                continue
-            rows.append(row)
+            else:
+                yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
+                                   builder.header, [row], page_token=token)
+            if wants_enrichment:
+                # The pictures and descriptions the SAME page already carried,
+                # under the SAME token: one product is journaled once, so a
+                # resume cannot land its price without its details.
+                extra = RowBuilder(ENRICHMENT)
+                attribute_rows = enrichment_rows(extra, node, url)
+                if attribute_rows:
+                    yield ScrapedTable(source.source_key, ENRICHMENT.kind, base,
+                                       extra.header, attribute_rows,
+                                       page_token=token)
 
         # The skips were SILENT — a crawl that quietly lands fewer products
         # than the site sells is the GPP lesson again. Verified live on
@@ -103,18 +136,17 @@ class SallaConnector:
         if unparsed:
             notes.append(f"{unparsed} product page(s) carried no Product "
                          "JSON-LD at all")
-        yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
-                           builder.header, rows, warnings=notes)
-        # The pictures and descriptions the SAME pages already carried. Only
-        # when the manifest asks (same gate every connector uses).
-        if any(spec.kind == ExtractKind.ENRICHMENT for spec in source.extract):
-            extra = RowBuilder(ENRICHMENT)
-            attribute_rows: list[list[str]] = []
-            for node, url in seen_products:
-                attribute_rows.extend(enrichment_rows(extra, node, url))
-            if attribute_rows:
-                yield ScrapedTable(source.source_key, ENRICHMENT.kind, base,
-                                   extra.header, attribute_rows)
+        if skipped:
+            notes.append(f"{skipped} product page(s) were already journaled by "
+                         "a paused run and were not fetched again")
+        if notes:
+            # A summary carrying only the counts, deliberately UNTOKENIZED: the
+            # counts describe this attempt, and capture.clear_untokenized drops
+            # them on resume so a resumed run reports its own rather than
+            # inheriting numbers from the attempt before it.
+            yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
+                               RowBuilder(PRODUCT_PRICES).header, [],
+                               warnings=notes)
 
     def _product_urls(self, sitemap_url: str) -> list[str]:
         try:
