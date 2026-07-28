@@ -1302,12 +1302,17 @@
 }
 .record-inspector-nav-primary {
   flex: 0 0 auto;
-  background: var(--surface);
-  box-shadow: 0 1px 0 var(--line);
+  padding-bottom: var(--sp-2);
+  background: transparent;
 }
 .record-inspector-nav-sections {
-  flex: 1 1 auto;
-  background: var(--surface-subtle);
+  width: calc(100% - var(--sp-2));
+  flex: 0 0 auto;
+  margin: var(--sp-2) var(--sp-1) var(--sp-3);
+  padding: var(--sp-2) var(--sp-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
 }
 .record-inspector-nav button {
   display: grid;
@@ -1335,15 +1340,21 @@
   box-shadow: var(--shadow-xs);
 }
 .record-inspector-nav button.record-inspector-nav-mode.is-active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
+  color: var(--button-text);
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+  box-shadow: none;
+}
+.record-inspector-nav button.record-inspector-nav-mode.is-active:hover {
+  color: var(--button-hover-text);
+  background: var(--button-hover);
+  border-color: var(--button-hover);
 }
 .record-inspector-nav-divider {
-  width: 100%;
-  height: var(--sp-2);
-  flex: 0 0 var(--sp-2);
-  background: var(--bg);
-  border-block: 1px solid var(--line);
+  width: 2rem;
+  height: 1px;
+  flex: 0 0 1px;
+  background: var(--line-strong);
 }
 .record-inspector-nav-icon {
   width: 1.15rem;

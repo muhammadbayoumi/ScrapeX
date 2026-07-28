@@ -2010,7 +2010,7 @@
     body.appendChild(price);
 
     const actions = el("div", "selected-product-actions");
-    const detailsButton = el("button", "record-action", "View details");
+    const detailsButton = el("button", "record-action", "Details");
     detailsButton.type = "button";
     detailsButton.dataset.inspectorView = "details";
     detailsButton.disabled = !data;
