@@ -687,12 +687,12 @@ def test_column_menu_matches_the_grid_workflow_and_autosize_measures_content():
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
 
     for label in ("Sort Ascending", "Sort Descending", "Pin Column", "No Pin",
-                  "Pin Left", "Pin Right", "Autosize This Column",
-                  "Autosize All Columns", "Choose Columns", "Reset Columns"):
+                  "Pin Left", "Pin Right", "Auto-fit column width",
+                  "Auto-fit all column widths", "Choose Columns", "Reset Columns"):
         assert label in script
     assert "menu: pinMenu(field)" in script
     assert 'menuLabel("push-pin", "Pin Column")' in script
-    assert 'menuLabel("fit-screen", "Autosize This Column")' in script
+    assert 'menuLabel("fit-screen", "Auto-fit column width")' in script
     assert 'menuLabel("view-column", "Choose Columns")' in script
     assert 'menuLabel("restart-alt", "Reset Columns")' in script
     assert "column.setWidth(true)" in script

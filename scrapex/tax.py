@@ -93,8 +93,18 @@ class TaxState:
         return "Unverified"
 
     def as_dict(self) -> dict:
+        # tax_statement is WHERE the claim can be read — a URL. The vocabulary
+        # sweep renamed tax_statement_url to tax_statement and landed it on top
+        # of an existing tax_statement that carried the statement TEXT, leaving
+        # two entries under one key in a single literal. Python keeps the last,
+        # so the URL has been the published value ever since, which is what
+        # every consumer already expects: reports.py:893 builds it from
+        # statement_url, rowspec calls it "where that evidence can be read",
+        # grid.js parses it with new URL(), and test_tax_evidence asserts it
+        # equals https://shop.example/terms. The text entry was unreachable and
+        # is removed rather than left looking like it publishes something.
         return {"tax_evidence": self.evidence, "tax_mode": self.vat_mode,
-                "tax_rate_pct": self.rate_pct, "tax_statement": self.statement_text,
+                "tax_rate_pct": self.rate_pct,
                 "tax_statement": self.statement_url, "tax": self.label(),
                 "tax_short": self.short_label(), "tax_verified": self.verified}
 

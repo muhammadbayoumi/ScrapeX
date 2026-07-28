@@ -33,6 +33,126 @@
     const grouped = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     return (negative ? "-" : "") + grouped + (parts[1] ? "." + parts[1] : "");
   }
+  // ---- ONE ordering for the whole page ---------------------------------------
+  //
+  // Tabulator's string sorter calls localeCompare with the BROWSER's locale.
+  // Here that is en-US, where Arabic has no collation of its own and falls back
+  // to the order Unicode happens to store the letters in: ء آ أ إ ا instead of
+  // ء أ إ ا آ. Measured on this data, that diverges from Arabic order at the
+  // fourth of 616 Madar names. It also has no numeric option, which is why Unit
+  // read 10 kg, 12.5 kg, 14.3 kg, 16 kg, 2 kg — while the filter popup listed
+  // the SAME column's values 2 kg, 2.5 kg, 2.9 kg, because it did its own
+  // sorting with its own rules. One column, two orders, depending where you
+  // looked at it.
+  //
+  // Declaring ar first gives Arabic its collation; Latin ordering comes out
+  // byte-for-byte identical to the en collator (checked against the real
+  // names), so English readers lose nothing.
+  const COLLATOR = new Intl.Collator(["ar", "en"], {numeric: true});
+
+  /** Compare as text, the way this page lists text everywhere else.
+   *
+   * alignEmptyValues lives INSIDE each of Tabulator's built-in sorters rather
+   * than around them, so a replacement has to carry the empties contract
+   * itself. Without it an ascending sort on a sparse column floods its first
+   * screens with blanks — the exact complaint sorterParams was added to answer.
+   */
+  function textSorter(a, b, aRow, bRow, column, dir, params) {
+    const left = text(a);
+    const right = text(b);
+    if (left && right) return COLLATOR.compare(left, right);
+    let empty = left ? 1 : (right ? -1 : 0);
+    const align = (params && params.alignEmptyValues) || "bottom";
+    if ((align === "top" && dir === "desc") || (align === "bottom" && dir === "asc")) {
+      empty = -empty;
+    }
+    return empty;
+  }
+
+  // ---- what a column actually READS ------------------------------------------
+  //
+  // Two columns show something other than their own field, and sorting and
+  // filtering were both reading the field.
+  //
+  // Country prints "United Arab Emirates" and its field holds "AE", so sorting
+  // put the UAE second of 169 countries and the filter popup offered a list of
+  // ISO codes for rows whose names are the only thing on screen — you had to
+  // know the code to filter by a country you could see.
+  //
+  // Tax prints "Incl. 15%" out of payload.tax_states[tax_ref]; its own field is
+  // null on every row. Clicking that header cycled the arrow and moved nothing,
+  // and its filter offered exactly one entry: "(Blanks)".
+  //
+  // One reader, used by the sorter, the filter list and the filter itself, so
+  // all three agree with the cell.
+  const DISPLAY_VALUE = {
+    country_code_alpha2: (row) => text(row.country) || text(row.country_code_alpha2),
+    tax: (row) => text(((payload.tax_states || [])[row.tax_ref] || {}).tax_short),
+  };
+
+  function readValue(field, row) {
+    const reader = DISPLAY_VALUE[field];
+    return reader ? reader(row) : asText(row[field]);
+  }
+
+  function displaySorter(field) {
+    return (a, b, aRow, bRow, column, dir, params) => textSorter(
+      readValue(field, aRow.getData()), readValue(field, bRow.getData()),
+      aRow, bRow, column, dir, params);
+  }
+
+  /** The number a value STARTS with, for values that are not only a number. */
+  function leadingNumber(raw) {
+    const match = /^\s*([+-]?\d+(?:\.\d+)?)/.exec(text(raw));
+    return match ? Number(match[1]) : NaN;
+  }
+
+  /** Order by the number in front, then by the words after it.
+   *
+   * "+5.00 (+32.3%)" is a sentence about a number. Compared as text the minus
+   * is just a character and the digits behind it compare as unsigned
+   * magnitudes, so ascending Price change listed the SMALLEST drop first and
+   * buried the biggest one at the bottom of the negatives. The same rule fixes
+   * measurements: 3.25 kg lands before 3.5 kg, which numeric collation alone
+   * gets wrong because it compares the digit runs 25 and 5.
+   */
+  function measureSorter(a, b, aRow, bRow, column, dir, params) {
+    const left = text(a);
+    const right = text(b);
+    if (left && right) {
+      const leftNumber = leadingNumber(left);
+      const rightNumber = leadingNumber(right);
+      if (!isNaN(leftNumber) && !isNaN(rightNumber) && leftNumber !== rightNumber) {
+        return leftNumber - rightNumber;
+      }
+      return COLLATOR.compare(left, right);
+    }
+    return textSorter(a, b, aRow, bRow, column, dir, params);
+  }
+
+  /** "number" if every value in the column is one, otherwise text.
+   *
+   * A column is numeric only when NOTHING in it is a word. One real word
+   * settles it, because a numeric sorter would send every word to the same
+   * place (NaN) and lose their order entirely.
+   */
+  function sorterFor(key) {
+    if (DISPLAY_VALUE[key]) return displaySorter(key);
+    let sawNumber = false;
+    let sawText = false;
+    let everyTextLeadsWithNumber = true;
+    for (const row of payload.rows) {
+      const value = row[key];
+      if (value === "" || value === null || value === undefined) continue;
+      if (typeof value === "number") { sawNumber = true; continue; }
+      if (typeof value === "string" && !isNaN(Number(value))) { sawNumber = true; continue; }
+      sawText = true;
+      if (isNaN(leadingNumber(value))) { everyTextLeadsWithNumber = false; break; }
+    }
+    if (sawText) return everyTextLeadsWithNumber ? measureSorter : textSorter;
+    return sawNumber ? "number" : textSorter;
+  }
+
   const GRID_MIN_COLUMN_WIDTH = 128;
   // v2 intentionally forgets column widths and sort state saved by the older
   // grid. Those values could leave a header too narrow for its controls and a
@@ -204,7 +324,7 @@
     table.setFilter([...active].map(([field, f]) => {
       if (!f.values) return {field, type: "like", value: f.text};
       const wanted = new Set(f.values.map(asText));
-      return {field: (row) => wanted.has(asText(row[field]))};
+      return {field: (row) => wanted.has(readValue(field, row))};
     }));
     describe();
     paintChips();
@@ -274,13 +394,22 @@
     const field = column.getField();
     const box = document.createElement("div");
     box.className = "setfilter";
+    // Escape closes it. Tabulator binds its own escape handler, but the check
+    // reads `27 == event.key` — a number against a string, which is false for
+    // every key there is, so the popup could only ever be dismissed with the
+    // mouse. Handling it here rather than patching the vendored file.
+    box.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      dismissOpenHeaderPopups();
+    });
 
     // Every value as TEXT, blanks included and listed first under their own
     // name, so the list accounts for every row in the column rather than for
     // the rows that happen to be filled in.
-    const seen = new Set(payload.rows.map((r) => asText(r[field])));
+    const seen = new Set(payload.rows.map((r) => readValue(field, r)));
     const hasBlank = seen.delete(BLANK_VALUE);
-    const values = [...seen].sort((a, b) => a.localeCompare(b, "en", {numeric: true}));
+    const values = [...seen].sort(COLLATOR.compare);
     if (hasBlank) values.unshift(BLANK_VALUE);
     const labelOf = (v) => v === BLANK_VALUE ? BLANK_LABEL : v;
 
@@ -473,8 +602,9 @@
       {separator: true},
       {label: menuLabel("push-pin", "Pin Column"), menu: pinMenu(field)},
       {separator: true},
-      {label: menuLabel("fit-screen", "Autosize This Column"), action: () => autosize(field)},
-      {label: menuLabel("unfold-more", "Autosize All Columns"), action: autosizeAll},
+      // The owner's wording.
+      {label: menuLabel("fit-screen", "Auto-fit column width"), action: () => autosize(field)},
+      {label: menuLabel("unfold-more", "Auto-fit all column widths"), action: autosizeAll},
       {separator: true},
       {label: menuLabel(groupLevel >= 0 ? "check" : "view-stream", groupLabel),
        action: () => setGroup(field), disabled: !features.tree},
@@ -517,6 +647,8 @@
   // frozen columns after it as right, so build() orders those three bands.
   const pinned = new Map();
   const widths = new Map();
+  // Carried across build()'s destroy/recreate, in initialSort's own shape.
+  let sorters = [];
   let autosizeRequest = 0;
 
   function setPinned(field, side) {
@@ -560,7 +692,23 @@
   function autosizeColumns(fields) {
     if (!table) return;
     const request = ++autosizeRequest;
-    fields.forEach((field) => widths.delete(field));
+    // A HIDDEN column cannot be measured. Its header carries display:none, so
+    // every rectangle measureHeaderWidth reads comes back zero and
+    // setWidth(true) has no rendered content to fit to. Measuring one anyway
+    // produced the floor — 128px — and then RECORDED that as a width the owner
+    // had chosen. So "Auto-fit all column widths" pinned the hidden AR name
+    // column at 128 while every column beside it went to 182 and beyond, and
+    // switching the language later revealed "Pr…" sitting among them: the
+    // owner's report, on GPP_ENERGY, reproduced exactly. A column nobody can
+    // see is left alone, keeping its flexible width until it is on screen and
+    // can answer for itself.
+    const measurable = fields.filter((field) => {
+      const column = table.getColumn(field);
+      return column && column.isVisible() &&
+             column.getDefinition().resizable !== false;
+    });
+    if (!measurable.length) return;
+    measurable.forEach((field) => widths.delete(field));
     table.redraw(true);
     // A TIMER, not requestAnimationFrame. rAF never fires while the tab is
     // hidden or the window is occluded/throttled — the measurement was
@@ -569,9 +717,9 @@
     // and 50ms is comfortably past the redraw it waits for.
     setTimeout(() => {
       if (!table || request !== autosizeRequest) return;
-      fields.forEach((field) => {
+      measurable.forEach((field) => {
         const column = table.getColumn(field);
-        if (!column || column.getDefinition().resizable === false) return;
+        if (!column || !column.isVisible()) return;
         column.setWidth(true);
         const measured = Math.max(
           GRID_MIN_COLUMN_WIDTH,
@@ -719,18 +867,23 @@
       promoteZone.hidden = offer.length === 0;
       for (const attribute of offer) {
         const row = document.createElement("label");
-        row.className = "column-chooser-row";
+        // Its OWN grid. .column-chooser-row lays out three tracks for a row
+        // that drags — checkbox, a 2rem handle, then the name — and these rows
+        // have no handle, so the label was being squeezed into the 2rem track
+        // and printed straight over the count beside it ("Image577 of 763").
+        row.className = "column-chooser-row column-chooser-promote-row";
         const box = document.createElement("input");
         box.type = "checkbox";
         box.checked = !!attribute.promoted;
         const name = document.createElement("span");
+        name.className = "column-chooser-name";
         name.dir = "auto";
         name.textContent = attribute.label;
         // The count BEFORE the choice: an attribute two products carry is a
         // column of blanks, and that is worth seeing in advance, not after.
         const count = document.createElement("span");
-        count.className = "muted";
-        count.textContent = ` ${attribute.products} of ${attribute.of_products}`;
+        count.className = "muted column-chooser-count";
+        count.textContent = `${attribute.products} of ${attribute.of_products}`;
         box.addEventListener("change", () => {
           box.disabled = true;
           status.textContent = "Saving…";
@@ -1185,6 +1338,25 @@
         return span;
       };
     }
+    if (key === "price_trade") {
+      // The trade tier is a price and has to read like one. It reached
+      // BROWSE_COLUMNS without ever reaching this file, so on the sources that
+      // quote one it would render as a bare left-aligned "1433.39" beside a
+      // Price cell reading "1,433.39 EGP / liter" — the same quantity twice,
+      // looking like two different kinds of thing. No source in the workspace
+      // publishes it today, so this is written from the column's definition
+      // rather than from a row on screen.
+      return (cell) => {
+        const value = cell.getValue();
+        if (value === "" || value === null || value === undefined) return "";
+        const row = cell.getRow().getData();
+        const span = document.createElement("span");
+        span.dir = "ltr";
+        span.textContent = formatMoney(value) + (row.currency ? " " + text(row.currency) : "") +
+          (row.unit ? " / " + row.unit : "");
+        return span;
+      };
+    }
     if (key === "price_previous" || key === "price_min" || key === "price_max") {
       return (cell) => {
         const span = document.createElement("span");
@@ -1289,7 +1461,7 @@
   }
 
   function build() {
-    if (table) { widthsFromTable(); table.destroy(); table = null; }
+    if (table) { widthsFromTable(); sortFromTable(); table.destroy(); table = null; }
 
     // A column can be hidden from Choose Columns while it is part of a saved
     // hierarchy. Drop only unavailable levels; the remaining levels keep their
@@ -1346,21 +1518,23 @@
       // Numbers and dates read right-aligned; text reads from its own side.
       if (col.key === "price") def.hozAlign = "right";
       if (col.key === "price_changed_on" || col.key === "last_confirmed_on" ||
-          col.key === "was_price" || col.key === "discount" ||
+          col.key === "price_trade" || col.key === "discount" ||
           col.key === "discount_pct" ||
           col.key === "price_usd" || col.key === "price_previous" ||
           col.key === "price_change" || col.key === "price_min" ||
           col.key === "price_max" || col.key === "observations") {
         def.hozAlign = "right";
       }
-      // Numeric sort for the ranking columns: a string sort would put 9 above
-      // 11 and defeat the whole point of the USD column.
-      if (col.key === "price_usd" || col.key === "price_previous" ||
-          col.key === "price_min" || col.key === "price_max" ||
-          col.key === "discount" || col.key === "discount_pct" ||
-          col.key === "observations") {
-        def.sorter = "number";
-      }
+      // Which sorter, decided from the WHOLE column. This was a hand-written
+      // list of key names, and a list of key names rots: the vocabulary sweep
+      // renamed columns and any entry that stopped matching silently became a
+      // text sort, putting 9 above 11 in exactly the column the entry existed
+      // to protect. Left to itself Tabulator is no safer — it guesses by
+      // sampling activeRows[0] and nothing else, so a single empty cell at the
+      // top of a column of numbers hands the whole column to the text sorter
+      // for the rest of the session. Reading the column decides it correctly
+      // whatever anything is called.
+      def.sorter = sorterFor(col.key);
       if (col.key === "product_link") {
         def.headerSort = false;
         def.download = false;
@@ -1499,6 +1673,16 @@
       persistenceID: PERSISTENCE_ID,
     };
 
+    // The sort the reader chose has to survive the rebuild. build() destroys
+    // and re-creates the table for grouping, nesting, pinning, autosize and
+    // every switch in the features panel, and the new instance came up
+    // unsorted every time — so grouping by Brand quietly threw away "sort by
+    // SKU ascending", with nothing on screen to say it had. A column that is
+    // no longer in the table is dropped rather than handed to Tabulator, which
+    // would only warn and sort by nothing.
+    const survivingSort = sorters.filter((s) => availableFields.has(s.column));
+    if (survivingSort.length) options.initialSort = survivingSort;
+
     // GROUPING: a synthetic parent BAND above the rows, carrying the value and
     // a count. The feature switch decides only whether grouping is AVAILABLE;
     // the column decides what it groups by. The server used to supply a guess
@@ -1548,6 +1732,14 @@
       requestAnimationFrame(() => { try { table.redraw(true); } catch (err) {} });
     });
     table.on("dataFiltered", () => { describe(); updateFooter(); });
+    // Dragging a column edge is the other way an owner sets a width, and it
+    // has to be recorded as one. widthsFromTable() no longer sweeps up every
+    // column, so without this a dragged width would be forgotten at the next
+    // rebuild and the column would spring back to whatever fitColumns wanted.
+    table.on("columnResized", (column) => {
+      const field = column.getField();
+      if (field) widths.set(field, Math.round(column.getWidth()));
+    });
     table.on("rowSelectionChanged", (data, rows) => {
       updateFooter();
       // ONE container under the table, opened by SELECTING a row (the owner's
@@ -1642,6 +1834,21 @@
           try { on ? column.show() : column.hide(); } catch (err) {}
         }
       }
+      // A sort on the column that just went out of view keeps ordering the
+      // table from behind it: the rows arrive in an order the reader cannot
+      // account for, and no visible column carries an arrow to explain it.
+      // The counterpart column is the same fact in the other language, so the
+      // sort moves there and the table keeps the order it was asked for.
+      try {
+        const [current] = table.getSorters();
+        if (current && current.field) {
+          const hiddenSide = (arabic, english) => code === "ar" ? english : arabic;
+          const shownSide = (arabic, english) => code === "ar" ? arabic : english;
+          const moved = pairs.find(([arabic, english]) =>
+            current.field === hiddenSide(arabic, english));
+          if (moved) table.setSort(shownSide(moved[0], moved[1]), current.dir);
+        }
+      } catch (err) { /* an unsorted table has nothing to move */ }
       for (const [c, b] of Object.entries(buttons)) {
         b.setAttribute("aria-pressed", String(c === nameLang));
       }
@@ -1650,6 +1857,64 @@
       if (save) redrawOpenPanel();
     }
     apply(nameLang, false);
+  }
+
+  // ---- one row per product, or one per variation ----------------------------
+  //
+  // samehgabriel sells 18 products in 6 colours each, so the table showed 108
+  // rows that differed only by colour. This folds a product's SAME-PRICED
+  // variations into one row and lists them together. It is a DISPLAY rule: the
+  // warehouse keeps every row the site published, and a product priced
+  // differently per colour correctly stays several rows.
+  //
+  // It reloads rather than redrawing, and that is deliberate. The fold changes
+  // the row COUNT and adds a column, and the fold itself is computed on the
+  // server so the page, the API and the export cannot disagree about what a row
+  // means. Rebuilding a live Tabulator around a different shape is where the
+  // half-updated states come from; a reload has one shape and no doubt.
+  const FOLD_KEY = "scrapex-fold-variants-" + (mount.dataset.source || "");
+
+  function wireFoldToggle() {
+    // Offered only where it would do something. A source with nothing to fold
+    // gets no control, rather than a control that changes nothing.
+    if (!payload.foldable && !payload.fold_variants) return;
+    if (document.getElementById("grid-fold-toggle")) return;
+    const host = document.querySelector(".data-grid-commandbar");
+    if (!host) return;
+    const wrap = document.createElement("div");
+    wrap.id = "grid-fold-toggle";
+    wrap.className = "grid-lang-toggle grid-fold-toggle";
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", "Rows per product");
+    wrap.appendChild(materialIconElement("layers", "grid-lang-icon"));
+    const note = document.createElement("span");
+    note.className = "visually-hidden";
+    note.textContent = "Rows per product";
+    wrap.appendChild(note);
+    const segments = document.createElement("span");
+    segments.className = "grid-lang-segments grid-fold-segments";
+    segments.dataset.activeFold = payload.fold_variants ? "on" : "off";
+    for (const [state, label, title] of [
+      ["off", "ALL", "One row per variation, as the site publishes them"],
+      ["on", "ONE", "Group a product's same-priced variations into one row"],
+    ]) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "grid-lang-option";
+      b.textContent = label;
+      b.title = title;
+      b.setAttribute("aria-label", title);
+      b.setAttribute("aria-pressed",
+                     String((state === "on") === Boolean(payload.fold_variants)));
+      b.addEventListener("click", () => {
+        if ((state === "on") === Boolean(payload.fold_variants)) return;
+        try { localStorage.setItem(FOLD_KEY, state); } catch (err) {}
+        location.reload();
+      });
+      segments.appendChild(b);
+    }
+    wrap.appendChild(segments);
+    host.append(wrap);
   }
 
   // ---- why the header's two buttons only worked SOMETIMES -------------------
@@ -1667,27 +1932,80 @@
   // Captured on the HEADER, so it runs before the column's own mousedown
   // listener and the drag timer is never armed for these two buttons. Dragging
   // a column by its title is untouched, and so is the resize handle.
+  // ---- one popup at a time --------------------------------------------------
+  //
+  // Tabulator's popup (the filter list) and its menu (the three dots) are two
+  // independent modules. Neither knows the other exists; each closes itself
+  // only when a click or a mousedown reaches document.body, where it binds a
+  // blur listener. Tabulator's own button handler calls stopPropagation on the
+  // CLICK — it has to, or pressing the button would sort the column — so the
+  // mousedown was the only event that still travelled to body, and the guard
+  // above stops that one too. Opening the filter and then the menu therefore
+  // drew both, one over the other (the owner's report).
+  //
+  // Blurring through Tabulator's OWN listener rather than deleting the element
+  // is what runs its cleanup: unbinding the six document listeners the popup
+  // left behind and clearing the module's rootPopup reference.
+  function dismissOpenHeaderPopups() {
+    const OPEN = ".tabulator-popup-container, .tabulator-menu";
+    if (!document.querySelector(OPEN)) return;
+    document.body.dispatchEvent(new MouseEvent("mousedown"));
+    document.body.dispatchEvent(new MouseEvent("click"));
+    // Tabulator binds those blur listeners on a 100ms timer AFTER the popup
+    // opens. Reaching the other button inside that window found nothing
+    // listening, so the first popup stayed. Nothing was bound in that case,
+    // which means there is no cleanup owed and removing the element is the
+    // whole of the job — and Popup.hide() null-checks parentNode, so the
+    // module's own later hide stays safe.
+    document.querySelectorAll(OPEN).forEach((node) => node.remove());
+  }
+
   function guardHeaderButtons() {
     const header = mount.querySelector(".tabulator-header");
     if (!header || header.dataset.buttonsGuarded) return;
     header.dataset.buttonsGuarded = "1";
     const hold = (event) => {
       const target = event.target;
-      if (target && target.closest && target.closest(".tabulator-header-popup-button")) {
-        event.stopPropagation();
-      }
+      if (!target || !target.closest) return;
+      if (!target.closest(".tabulator-header-popup-button")) return;
+      event.stopPropagation();
+      // Before the button's own click opens the next one. mousedown precedes
+      // click, so the outgoing popup is gone before the incoming one is built.
+      dismissOpenHeaderPopups();
     };
     header.addEventListener("mousedown", hold, true);
     header.addEventListener("touchstart", hold, true);
   }
 
+  // Refresh only the widths the owner ALREADY owns.
+  //
+  // This captured EVERY column on every rebuild, and that one line is what
+  // made "fit" stop working. `widths` is the record of decisions — a column
+  // the owner autofitted or dragged — and a column in it is built with
+  // widthGrow 0 so no layout pass may spend it. Capturing all fifty columns
+  // turned the whole table into decisions nobody made: grouping by Brand, a
+  // command with nothing to say about widths, left all 50 at widthGrow 0
+  // (measured), and from that moment fitColumns had nothing left to
+  // distribute. Resizing the window, hiding a column, switching AR|EN — none
+  // of it could re-fit anything ever again, in a table that overflows its
+  // viewport by design.
   function widthsFromTable() {
     try {
       table.getColumns().forEach((c) => {
         const f = c.getField();
-        if (f) widths.set(f, c.getWidth());
+        if (f && widths.has(f)) widths.set(f, c.getWidth());
       });
     } catch (err) { /* a rebuild mid-render is not worth failing over */ }
+  }
+
+  // getSorters() reports `field`; initialSort expects `column`. Translating
+  // here rather than at the call site keeps the shape mismatch in one place.
+  function sortFromTable() {
+    try {
+      sorters = table.getSorters()
+        .filter((s) => s && s.field)
+        .map((s) => ({column: s.field, dir: s.dir}));
+    } catch (err) { /* nothing sorted, or a table mid-teardown */ }
   }
 
   // ---- the History panel: one offer's story, under the table ----------------
@@ -2648,7 +2966,13 @@
     });
   }
 
-  fetch("/api/table/" + encodeURIComponent(SOURCE))
+  // No stored answer means "whatever this source is set to", so the parameter
+  // is left off entirely rather than sent as a false that would override it.
+  let foldChoice = null;
+  try { foldChoice = localStorage.getItem("scrapex-fold-variants-" + SOURCE); }
+  catch (err) { foldChoice = null; }
+  fetch("/api/table/" + encodeURIComponent(SOURCE)
+        + (foldChoice === "on" ? "?fold=1" : foldChoice === "off" ? "?fold=0" : ""))
     .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
     .then((data) => {
       payload = data;
@@ -2659,6 +2983,7 @@
       build();
       wireExport();
       wireFeatures();
+      wireFoldToggle();
     })
     .catch((err) => {
       if (note) {

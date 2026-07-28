@@ -33,6 +33,14 @@
     var(--grid-header-surface) 90%,
     var(--primary)
   );
+  /* A control inside the header needs to out-state the header's own hover, or
+   * pointing at the three-dot menu looks identical to pointing at the column
+   * behind it. Twice the blend, so the button reads as its own target. */
+  --grid-header-control-hover: color-mix(
+    in srgb,
+    var(--grid-header-surface) 78%,
+    var(--primary)
+  );
   --grid-header-text: var(--on-surface);
   --grid-header-weight: var(--fw-heavy);
   background: var(--table-surface);
@@ -415,6 +423,11 @@
 .column-chooser-row.drop-before::before { top: -1px; }
 .column-chooser-row.drop-after::after { bottom: -1px; }
 .column-chooser-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* No drag handle on a promotable attribute, so no track for one: name takes
+   the room, and the count keeps its own width at the end instead of being
+   overrun by a label squeezed into the handle's 2rem. */
+.column-chooser-promote-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.column-chooser-count { white-space: nowrap; font-size: .78rem; font-weight: 400; }
 .column-chooser-status,
 .column-chooser-empty { margin: 0; padding: .65rem .9rem; font-size: .78rem; }
 .column-chooser-status { border-top: 1px solid var(--line); }
@@ -441,18 +454,28 @@
 .tabulator .tabulator-header .tabulator-col-resize-handle::after {
   content: "";
   position: absolute;
-  inset-block: .72rem;
+  /* A SHORT centred tick, not a rule down the header. inset-block tied the
+   * line's length to the header's height, so it drew 29px of the 52px header
+   * and read as a vertical border between the columns — the one thing this
+   * project's tables deliberately do not have (see .tabulator-col above). A
+   * fixed length, centred, stays the same modest mark whatever the header
+   * measures, in compact mode or when a title wraps to two lines. */
+  top: 50%;
   inset-inline-start: 50%;
   width: 1px;
+  height: 1.05rem;
   border-radius: 2px;
   background: var(--muted);
   opacity: .48;
-  transform: translateX(-50%);
-  transition: width .12s ease,background-color .12s ease,opacity .12s ease;
+  transform: translate(-50%, -50%);
+  transition: width .12s ease,height .12s ease,background-color .12s ease,opacity .12s ease;
 }
 .tabulator .tabulator-header .tabulator-col-resize-handle:hover::after,
 .tabulator .tabulator-header .tabulator-col-resize-handle:active::after {
-  width: 5px;
+  /* Grabbing is worth announcing, so it thickens and grows a little — but from
+   * a short mark, so the confirmation no longer arrives as a full-height bar. */
+  width: 3px;
+  height: 1.4rem;
   background: var(--accent);
   opacity: 1;
 }
@@ -546,9 +569,13 @@
   transform: translateX(0);
   transition: transform .2s var(--ease);
 }
-.grid-lang-segments[data-active-lang="ar"]::before {
+.grid-lang-segments[data-active-lang="ar"]::before,
+.grid-fold-segments[data-active-fold="on"]::before {
   transform: translateX(calc(100% + 2px));
 }
+/* Second control on the same bar: only the first one claims the free space,
+   or the two would sit at opposite ends of it. */
+.grid-fold-toggle { margin-inline-start: 0; }
 .grid-lang-option {
   position: relative;
   z-index: 1;
@@ -879,9 +906,38 @@
   place-items: center;
   width: 1.5rem;
   min-width: 1.5rem;
+  /* A HEIGHT, so the hover below has a square to fill. Without one the box was
+   * 24×18 and any background read as a stripe rather than a button. */
+  height: 1.5rem;
   padding: 0;
+  border-radius: var(--radius-sm);
+  transition: background-color .12s ease,opacity .12s ease,color .12s ease;
 }
-.tabulator .tabulator-header-popup-button:hover { opacity: 1; color: var(--accent-ink); }
+/* The resize divider answered the pointer and these two did not, so the header
+ * looked like it had one live control and two decorations — the owner's report.
+ * A filled target is the same promise the divider's tick makes: this is a thing
+ * you can press.
+ *
+ * THE FULL SELECTOR IS LOAD-BEARING. Tabulator ships
+ *   .tabulator .tabulator-header .tabulator-col .tabulator-col-content
+ *   .tabulator-header-popup-button:hover { opacity: .6 }
+ * at six classes, and the short `.tabulator .tabulator-header-popup-button:hover`
+ * this rule used to carry scores three — so the theme's own `opacity: 1` lost
+ * the cascade and had never once applied. Hovering moved the icon from .55 to
+ * .6 and nothing else: the whole of "the three dots and the filter do not
+ * hover". Naming .tabulator-col-title as well scores seven and settles it
+ * outright, rather than tying on six and leaning on stylesheet order. */
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content
+  .tabulator-col-title .tabulator-header-popup-button:hover {
+  opacity: 1;
+  color: var(--accent-ink);
+  background: var(--grid-header-control-hover);
+}
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content
+  .tabulator-col-title .tabulator-header-popup-button:active {
+  opacity: 1;
+  background: color-mix(in srgb, var(--grid-header-control-hover) 82%, var(--primary));
+}
 .tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
 /* The same Material arrow points down by rotation. In the no-sort state it
  * stays fully hidden even while the pointer remains over the header; the old

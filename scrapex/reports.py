@@ -6,6 +6,7 @@ owner curates). This directly answers "did anything actually land?".
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 
@@ -838,6 +839,55 @@ _EXPORT_SELECT: dict[str, str] = {
 # `country`. The spreadsheet cannot notice that; the owner did, from a row of
 # copper cable. Pairing the name with its producer makes that class of defect
 # impossible rather than merely fixed once.
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+# Text a person reads. Not URLs, not codes, not numbers — a URL has no inner
+# whitespace to collapse and an id is not ours to reshape.
+_CLEAN_TEXT_KEYS = frozenset({
+    "product_name", "product_name_ar", "variant", "variant_ar",
+    "brand", "brand_ar", "category", "category_ar", "official_source", "sku",
+})
+
+
+def clean_text(value):
+    """Collapse runs of whitespace and trim. Anything not a string is returned
+    as it came, so this can be applied across a row without knowing its types.
+
+    Scraped text arrives padded. MADAR publishes names carrying up to 17
+    leading spaces, trailing spaces and doubled inner spaces, and 23 of its
+    brand values are a single space rather than empty — neither blank nor a
+    brand. The grid sorts, filters, groups AND displays from these same
+    strings, so an ascending sort listed the padded rows first, ordered by how
+    many spaces they happened to carry, and the brand filter offered " " as a
+    value distinct from blank.
+
+    Cleaned at READ time rather than at ingest, deliberately. The stored rows
+    are already dirty and ingest could not repair them: product_field_diffs
+    strips both sides before comparing, so a cleaned incoming name reads as
+    "nothing changed" and no UPDATE ever fires. Collapsing inner doubles WOULD
+    differ, and would announce itself as hundreds of spurious "renamed"
+    events across six sources on the next crawl. Cleaning what we hand out
+    fixes today's rows with no migration, no re-crawl and no change events, and
+    every surface that reads this payload agrees by construction.
+    """
+    if not isinstance(value, str):
+        return value
+    return _WHITESPACE_RUN.sub(" ", value).strip()
+
+
+def _clean_row(row: dict, also: frozenset = frozenset()) -> dict:
+    """clean_text over a row's human-readable columns, category levels included.
+
+    `also` carries the per-source attribute columns, whose names are the shop's
+    own labels and so cannot be listed ahead of time. They are scraped off the
+    same pages as the names and arrive just as padded.
+    """
+    for key, value in row.items():
+        if key in _CLEAN_TEXT_KEYS or key in also or key.startswith("category_l"):
+            row[key] = clean_text(value)
+    return row
+
+
 EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # Identity. region/country sit right after the name: for a commodity source
     # they are what distinguishes one row from the next.
@@ -948,7 +998,10 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     select = ", ".join(f"{_EXPORT_SELECT[alias]} AS {alias}" for alias in aliases)
     rows = conn.execute(
         f"SELECT {select} {_LATEST_PER_OFFER} "
-        "ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
+        # TRIM in the ORDER BY too: the values are cleaned in Python below, but
+        # the ORDER is decided here, and sorting the raw column put the
+        # space-padded names at the top of the file however clean they printed.
+        "ORDER BY TRIM(sp.product_name_ar), so.country_code_alpha2 LIMIT ?",
         (source_key, limit),
     ).fetchall()
     tax_rules = tax.load_rules(conn, source_key)
@@ -962,7 +1015,13 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         state = (tax.resolve(tax_rules, row["country_code_alpha2"],
                              material=row["name_en"] or row["name"])
                  .for_row(bool(row["tax_included"])))
-        table.append([produce(row, state) for _name, produce in EXPORT_COLUMNS])
+        # Same clean as the grid's payload. A file that opens with the padded
+        # names at the top, and 23 cells holding a single space that Excel's
+        # own filter lists as a value distinct from blank, is the spreadsheet
+        # disagreeing with the screen it was exported from.
+        table.append([clean_text(produce(row, state)) if name in _CLEAN_TEXT_KEYS
+                      else produce(row, state)
+                      for name, produce in EXPORT_COLUMNS])
         # The product's filterable attributes first, then this VARIANT's own
         # axes over them. Where a shop both filters by «السماكة (مم)» and varies
         # by it, the variant's value is the specific one — the product-level
@@ -1603,6 +1662,14 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         values = pivoted.get(row.pop("source_product_id", None) or -1, {})
         for label in extra:
             row[label] = values.get(label, "")
+
+    # Last, so the promoted attribute columns above are cleaned too — they come
+    # from the same scraped pages as the names. This is the one payload the
+    # grid sorts, filters, groups and displays from, so cleaning it here is
+    # what makes those four agree with each other.
+    attribute_columns = frozenset(extra) | frozenset(labels)
+    for row in shaped:
+        _clean_row(row, attribute_columns)
 
     return {
         "source_key": source_key,
