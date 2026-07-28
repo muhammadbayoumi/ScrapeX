@@ -376,6 +376,12 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
 HEARTBEAT_KEY = "runtime_heartbeat"
 HEARTBEAT_MAX_AGE_S = 30.0
 
+# A JOB may go quiet for far longer than a loop pass and still be healthy:
+# a polite crawler waits out a Crawl-delay between requests, and job 40
+# logged progress every ~8 minutes against a rate-limited shop. Judging a
+# job by the loop's 30s window is what made a working crawl look dead.
+JOB_HEARTBEAT_MAX_AGE_S = 15 * 60.0
+
 # Where the worker writes WHY it stopped. It used to write that to stderr
 # only, and the engine runs under pythonw so there is no console and no
 # redirect: the diagnosis was produced and discarded in the same breath.
@@ -421,9 +427,41 @@ def clear_worker_failure(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM scrapex_meta WHERE key = ?", (WORKER_ERROR_KEY,))
 
 
+def _age_s(stamp: str | None) -> float | None:
+    """Seconds since an ISO stamp, or None when it is missing or unreadable.
+
+    An unparseable stamp is NOT treated as fresh: a clock we cannot read is a
+    clock we cannot trust.
+    """
+    if not stamp:
+        return None
+    try:
+        then = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - then).total_seconds()
+
+
 def worker_health(conn: sqlite3.Connection) -> dict:
-    """Is the WORKER alive — which is a different question from whether the
-    port answers, and the difference is what cost the owner an afternoon.
+    """Is the WORKER alive — a different question from whether the port answers,
+    and the difference once cost the owner an afternoon.
+
+    TWO heartbeats, because there are two ways to be alive and only one of them
+    was being read. `runtime_heartbeat` is written at the top of each worker
+    pass; `crawl_job.last_heartbeat_at` is written by a job while it works. The
+    loop then hands its whole pass to run_job_once, so ANY crawl longer than
+    HEARTBEAT_MAX_AGE_S left the runtime stamp stale and this function called a
+    perfectly healthy worker dead — the harder the engine worked, the deader it
+    looked.
+
+    Measured on 2026-07-28: job 40 had been crawling ELBUROJ for three hours,
+    850 requests in, its own heartbeat 4 seconds old, and /api/health said
+    worker_alive false with failure null. The message it printed then —
+    "Pages may still open, that is the web server, not the worker" — was an
+    actively WRONG explanation, and `thread_alive: true` sat beside
+    `alive: false` with nothing to reconcile them.
+
+    A busy worker is therefore alive, and says what it is busy WITH.
     """
     rows = dict(conn.execute(
         "SELECT key, value FROM scrapex_meta WHERE key IN (?,?)",
@@ -432,27 +470,46 @@ def worker_health(conn: sqlite3.Connection) -> dict:
                         (RATES_NOTE_KEY,)).fetchone()
     beat = rows.get(HEARTBEAT_KEY)
     failure = json.loads(rows[WORKER_ERROR_KEY]) if rows.get(WORKER_ERROR_KEY) else None
-    age = None
-    if beat:
-        try:
-            then = datetime.strptime(beat, "%Y-%m-%dT%H:%M:%SZ").replace(
-                tzinfo=timezone.utc)
-            age = (datetime.now(timezone.utc) - then).total_seconds()
-        except ValueError:
-            age = None
-    alive = age is not None and age <= HEARTBEAT_MAX_AGE_S
-    if alive:
+    age = _age_s(beat)
+    idle_alive = age is not None and age <= HEARTBEAT_MAX_AGE_S
+
+    # The job's own proof of life. Its window is wider on purpose: a polite
+    # crawler waits out a Crawl-delay between requests, so a job legitimately
+    # goes quiet for longer than a loop pass ever should.
+    running = conn.execute(
+        "SELECT job_ref, current_source_key, stage, last_heartbeat_at, started_at "
+        "FROM crawl_job WHERE status = 'running' "
+        "ORDER BY job_id DESC LIMIT 1").fetchone()
+    busy = None
+    if running is not None:
+        # Read by INDEX: this function is called with plain connections as well
+        # as Row ones, and name access would raise on the plain kind — inside
+        # the very call that is meant to report whether anything is wrong.
+        job_ref, source_key, stage, job_beat, started_at = running[:5]
+        job_age = _age_s(job_beat)
+        if job_age is not None and job_age <= JOB_HEARTBEAT_MAX_AGE_S:
+            busy = {"job_ref": job_ref, "source_key": source_key, "stage": stage,
+                    "age_s": job_age, "started_at": started_at}
+
+    alive = idle_alive or busy is not None
+    if busy:
+        where = busy["source_key"] or "a source"
+        detail = (f"The worker is busy: {busy['stage'] or 'working'} {where} "
+                  f"(reported {int(busy['age_s'])}s ago). The idle heartbeat is "
+                  "stale because the job holds the loop — that is the job "
+                  "running, not the worker stopping.")
+    elif idle_alive:
         detail = "The worker is running."
     elif failure:
         detail = f"The worker stopped: {failure['error']}"
     elif beat:
-        detail = (f"The worker last reported {int(age)}s ago and should report "
-                  f"every {int(HEARTBEAT_MAX_AGE_S)}s. Pages may still open — "
-                  "that is the web server, not the worker.")
+        detail = (f"The worker last reported {int(age)}s ago, should report every "
+                  f"{int(HEARTBEAT_MAX_AGE_S)}s, and no job is reporting either. "
+                  "Pages may still open — that is the web server, not the worker.")
     else:
         detail = "The worker has never reported. Nothing can crawl until it does."
     return {"rates": json.loads(note[0]) if note and note[0] else None,
-            "alive": alive, "last_beat": beat, "age_s": age,
+            "alive": alive, "busy": busy, "last_beat": beat, "age_s": age,
             "detail": detail, "failure": failure}
 
 

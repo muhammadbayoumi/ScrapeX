@@ -671,3 +671,92 @@ def test_the_failure_is_recorded_even_with_no_connection_left(warehouse):
         conn.close()
     assert row is not None, "a worker that lost its database left no trace of why"
     assert "unable to open database file" in json.loads(row[0])["error"]
+
+
+# ---- the health signal was inverted: working harder looked like being dead ---
+
+def _health_fixture(conn, *, runtime_beat: str | None, job=None):
+    """A warehouse with a given runtime heartbeat and optionally a running job."""
+    if runtime_beat:
+        conn.execute("INSERT INTO scrapex_meta (key, value) VALUES ('runtime_heartbeat', ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (runtime_beat,))
+    if job:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys, "
+            " current_source_key, stage, started_at, last_heartbeat_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            ("job_test", "initial_crawl", job["status"], '["ELBUROJ"]', "ELBUROJ",
+             "fetching", "2026-07-28T07:00:00Z", job["beat"]))
+    conn.commit()
+
+
+def test_a_worker_busy_on_a_long_crawl_is_alive_not_dead(tmp_path):
+    """The defect the owner hit on 2026-07-28, reproduced.
+
+    Two heartbeats exist and only one was read. runtime_heartbeat is written at
+    the top of each worker pass; the loop then hands the whole pass to
+    run_job_once. So ANY crawl longer than 30s left the runtime stamp stale and
+    health reported a dead worker — while job 40 was three hours into ELBUROJ,
+    850 requests in, its own heartbeat 4 seconds old.
+
+    The message was worse than the flag: "Pages may still open, that is the web
+    server, not the worker" is an actively wrong explanation in this case.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from scrapex import db as dbmod
+    from scrapex.jobs import worker_health
+
+    conn = dbmod.connect(tmp_path / "h.db")
+    dbmod.migrate(conn)
+    now = datetime.now(timezone.utc)
+    stale = (now - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fresh = (now - timedelta(seconds=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _health_fixture(conn, runtime_beat=stale, job={"status": "running", "beat": fresh})
+
+    health = worker_health(conn)
+    assert health["alive"] is True
+    assert health["busy"] and health["busy"]["source_key"] == "ELBUROJ"
+    assert health["busy"]["stage"] == "fetching"
+    assert "busy" in health["detail"]
+    # and it must NOT go on blaming the web server
+    assert "that is the web server" not in health["detail"]
+
+
+def test_a_genuinely_dead_worker_is_still_reported_dead(tmp_path):
+    """The fix must not become a blanket 'alive'. With no fresh heartbeat of
+    either kind — and no job running — the answer is still dead, because that is
+    the condition the whole signal exists to catch."""
+    from datetime import datetime, timedelta, timezone
+
+    from scrapex import db as dbmod
+    from scrapex.jobs import worker_health
+
+    conn = dbmod.connect(tmp_path / "d.db")
+    dbmod.migrate(conn)
+    stale = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _health_fixture(conn, runtime_beat=stale)
+
+    health = worker_health(conn)
+    assert health["alive"] is False and health["busy"] is None
+    assert "no job is reporting either" in health["detail"]
+
+
+def test_a_job_stuck_running_with_a_dead_heartbeat_does_not_fake_life(tmp_path):
+    """A job row left at 'running' by a killed process is exactly the state
+    reclaim_orphaned_jobs exists to clean. Treating its stale row as proof of
+    life would hide the failure behind the very record of it."""
+    from datetime import datetime, timedelta, timezone
+
+    from scrapex import db as dbmod
+    from scrapex.jobs import worker_health
+
+    conn = dbmod.connect(tmp_path / "s.db")
+    dbmod.migrate(conn)
+    long_ago = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _health_fixture(conn, runtime_beat=long_ago,
+                    job={"status": "running", "beat": long_ago})
+
+    health = worker_health(conn)
+    assert health["alive"] is False
+    assert health["busy"] is None
