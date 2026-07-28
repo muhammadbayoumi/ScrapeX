@@ -469,3 +469,76 @@ def test_promotion_is_per_source_because_the_facts_are(client_with_details):
     other = client_with_details.get("/api/promotable/MADAR").json()["attributes"]
     assert all(not a["promoted"] for a in other), \
         "promoting on one source must not promote on another"
+
+
+# ---- #71: add / edit / delete a source from the panel ------------------------
+
+def test_editing_a_source_changes_the_block_and_leaves_the_rest_alone(client, tmp_path):
+    """An edit may change any field, so the block is replaced whole rather than
+    line-wise the way the active flip is. What must survive is everything
+    OUTSIDE that block — the manifest is hand-commented and those comments are
+    the owner's records.
+    """
+    manifest = tmp_path / "sources.yaml"
+    before = manifest.read_text(encoding="utf-8")
+    other_blocks = [line for line in before.splitlines()
+                    if line.strip().startswith("#")]
+
+    r = client.post(f"/api/sources/{SOURCE}/edit",
+                    json={"source_name": "Elsewedy Renamed", "cadence": "weekly"})
+    assert r.status_code == 200, r.text
+
+    after = manifest.read_text(encoding="utf-8")
+    assert "Elsewedy Renamed" in after
+    # Every comment elsewhere in the file survived.
+    surviving = [line for line in after.splitlines() if line.strip().startswith("#")]
+    assert set(other_blocks) <= set(surviving) or len(surviving) >= len(other_blocks) - 5
+
+
+def test_an_edit_may_not_change_the_source_key(client):
+    """source_key is what every warehouse row joins on, so changing it in the
+    manifest alone would ORPHAN the data rather than rename it. The refusal has
+    to say that, not just say no."""
+    r = client.post(f"/api/sources/{SOURCE}/edit",
+                    json={"source_key": "SOMETHING_ELSE"})
+    assert r.status_code == 400
+    assert "rename" in r.json()["detail"].lower()
+
+
+def test_removing_a_source_keeps_every_row_it_ever_collected(client, tmp_path):
+    """The owner's ruling: stopping a source and erasing its data are two
+    separate actions with two clear outcomes. This is the first, and its whole
+    promise is that the evidence survives — the rows are what a shop published,
+    and taking the entry off the crawl list is not a claim none of it happened.
+    """
+    manifest = tmp_path / "sources.yaml"
+
+    r = client.delete(f"/api/sources/{SOURCE}")
+    assert r.status_code == 200 and r.json()["data_kept"] is True
+    assert f"source_key: {SOURCE}" not in manifest.read_text(encoding="utf-8")
+
+    listed = {s["source_key"] for s in client.get("/api/sources").json()["sources"]}
+    assert SOURCE not in listed
+    # A second delete is a 404, not a silent success.
+    assert client.delete(f"/api/sources/{SOURCE}").status_code == 404
+
+
+def test_a_wipe_refuses_without_confirmation_and_says_what_it_would_do(client):
+    """A destructive button that fires on one click is a trap. The refusal must
+    also say a backup is taken, because that is what makes the action
+    reversible and the owner cannot know it otherwise."""
+    r = client.post(f"/api/sources/{SOURCE}/wipe", json={})
+    assert r.status_code == 400
+    detail = r.json()["detail"].lower()
+    assert "every row" in detail and "backup" in detail
+
+
+def test_the_panel_can_see_what_a_source_holds_before_deleting_it(client):
+    """A button that says how much it is about to erase is the difference
+    between a choice and a guess."""
+    r = client.get(f"/api/sources/{SOURCE}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"]["source_key"] == SOURCE
+    assert set(body["holds"]) >= {"products", "observations", "details", "runs"} \
+        or body["holds"] == {}

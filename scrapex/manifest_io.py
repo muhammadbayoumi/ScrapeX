@@ -125,3 +125,85 @@ def set_active(source_key: str, active: bool, path: Path | str = MANIFEST_FILE) 
         path.write_text(original, encoding="utf-8")   # never a corrupted manifest
         raise
     return True
+
+
+def _block_bounds(lines: list[str], source_key: str) -> tuple[int, int]:
+    """Where one source's block starts and ends in the manifest's lines."""
+    import re
+
+    start = next((i for i, line in enumerate(lines)
+                  if re.match(rf"^  - source_key:\s*{re.escape(source_key)}\s*$", line)),
+                 None)
+    if start is None:
+        raise KeyError(source_key)
+    end = next((j for j in range(start + 1, len(lines))
+                if re.match(r"^  - source_key:", lines[j])), len(lines))
+    return start, end
+
+
+def update_source(source_key: str, entry: SourceEntry,
+                  path: Path | str = MANIFEST_FILE) -> None:
+    """Replace ONE source's block with `entry`, or raise without changing the file.
+
+    Deliberately NOT surgical the way set_active is, and the difference is worth
+    stating: flipping `active` touches one line and every hand-written comment
+    around it survives untouched, which is the whole reason that function edits
+    line-wise. An EDIT can change any field, add one, or remove one — there is
+    no single line to rewrite — so the block is replaced wholesale.
+
+    The cost is real and is the owner's to know: comments the owner wrote INSIDE
+    an edited source's block do not survive the edit. Comments elsewhere in the
+    file are untouched, because only this block's lines are replaced.
+
+    Renaming the KEY is refused here. source_key is what every warehouse row
+    joins on, so changing it in the manifest alone would orphan the data rather
+    than rename it — see sources_admin.rename_source, which moves both together.
+    """
+    if entry.source_key != source_key:
+        raise ValueError(
+            f"cannot rename {source_key!r} to {entry.source_key!r} by editing the "
+            "manifest: the warehouse joins on source_key, so the rows would be "
+            "orphaned. Use the rename path, which moves the data with the name.")
+
+    path = Path(path)
+    original = path.read_text(encoding="utf-8")
+    lines = original.splitlines(keepends=True)
+    start, end = _block_bounds(lines, source_key)
+
+    block = entry_to_block(entry)
+    if not block.endswith("\n"):
+        block += "\n"
+    lines[start:end] = [block]
+    path.write_text("".join(lines), encoding="utf-8")
+    try:
+        load_manifest(path).get(source_key)
+    except Exception:
+        path.write_text(original, encoding="utf-8")   # never a corrupted manifest
+        raise
+
+
+def remove_source(source_key: str, path: Path | str = MANIFEST_FILE) -> bool:
+    """Delete ONE source's block. Returns True when the file changed.
+
+    This removes the source from the CRAWL LIST and nothing else: its warehouse
+    rows, its price history and its crawl audit trail all survive, because they
+    are evidence of what a shop published and deleting the entry is not a claim
+    that none of it happened. Erasing the data is a separate, louder action
+    (storage.wipe_source) — the owner asked for the two to stay apart so that
+    neither can be mistaken for the other.
+    """
+    path = Path(path)
+    original = path.read_text(encoding="utf-8")
+    lines = original.splitlines(keepends=True)
+    try:
+        start, end = _block_bounds(lines, source_key)
+    except KeyError:
+        return False
+    del lines[start:end]
+    path.write_text("".join(lines), encoding="utf-8")
+    try:
+        load_manifest(path)
+    except Exception:
+        path.write_text(original, encoding="utf-8")
+        raise
+    return True

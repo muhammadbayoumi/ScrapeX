@@ -45,7 +45,9 @@ from ..fields import (
 )
 from ..features import manifest as feature_manifest
 from ..extract.api import create_extraction_router
-from ..manifest_io import DuplicateSourceError, add_source, set_active
+from ..manifest_io import (DuplicateSourceError, add_source, remove_source,
+                           set_active, update_source)
+from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..matching import (
     ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
 )
@@ -63,6 +65,7 @@ from ..settings import save as save_settings
 from .. import compaction, pricehistory, retention
 from ..storage import (
     StorageRefused, backup_folder, backup_now, check_move, export_database,
+    wipe_source,
     migrate_location, open_folder, repair, resolve_db_path, restore, start_fresh,
     storage_status,
 )
@@ -1167,6 +1170,160 @@ def create_app(
         app.state.manifest = load_manifest(app.state.manifest_path)  # reflect the new source
         return {"ok": True, "source_key": entry.source_key,
                 "implemented": entry.family in _BUILDERS}
+
+    @app.get("/api/sources/{source_key}")
+    def api_source_detail(source_key: str):
+        """One source's manifest entry PLUS what it actually holds.
+
+        The footprint is not decoration. The owner asked for "stop this source"
+        and "erase its data" to be two separate buttons, and a button that says
+        how many products and observations it is about to erase is the
+        difference between a choice and a guess.
+        """
+        try:
+            entry = app.state.manifest.get(source_key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        conn = read_conn()
+        try:
+            holds = source_footprint(conn, source_key)
+        finally:
+            conn.close()
+        return {"source": json.loads(entry.model_dump_json()), "holds": holds,
+                "implemented": entry.family in _BUILDERS}
+
+    @app.post("/api/sources/{source_key}/edit")
+    def api_edit_source(source_key: str, body: dict):
+        """Replace one source's manifest block.
+
+        Every field may change EXCEPT source_key, refused here with the reason:
+        the warehouse joins on it, so changing it in the manifest alone orphans
+        the data rather than renaming it. /rename does both together.
+
+        A cost the owner should be told rather than discover: comments written
+        INSIDE this source's block do not survive an edit. An edit can add or
+        remove any field, so there is no single line to rewrite the way the
+        active flip has — the block is replaced whole. Comments elsewhere in the
+        manifest are untouched.
+        """
+        if source_key not in {s.source_key for s in app.state.manifest.sources}:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        current = json.loads(app.state.manifest.get(source_key).model_dump_json())
+        # MERGE, never rebuild: an edit that named two fields would otherwise
+        # drop every field it did not mention, which is a wipe wearing the word
+        # "edit". Only what the form actually sends changes.
+        form = {**current, **{k: v for k, v in (body or {}).items() if v is not None}}
+        form.setdefault("source_key", source_key)
+        if str(form.get("source_key")) != source_key:
+            raise HTTPException(
+                status_code=400,
+                detail="use /rename to change a source_key: the warehouse joins "
+                       "on it, so editing it here would orphan the rows")
+        try:
+            entry = _entry_from_form(form)
+            update_source(source_key, entry, app.state.manifest_path)
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception as exc:  # pydantic refusals reach the panel as a message
+            raise HTTPException(status_code=400, detail=str(exc))
+        app.state.manifest = load_manifest(app.state.manifest_path)
+        return {"ok": True, "source_key": source_key}
+
+    @app.post("/api/sources/{source_key}/rename")
+    def api_rename_source(source_key: str, body: dict):
+        """Rename a source AND move every row that joins on it, together.
+
+        source_key appears in nine tables. Renaming the manifest alone would
+        leave it describing a shop the warehouse has never heard of while the
+        products sat under a name nothing points at — so the rows move first, in
+        one transaction, all of them or none.
+        """
+        new_key = str((body or {}).get("source_key") or "").strip()
+        if not new_key:
+            raise HTTPException(status_code=400, detail="a new source_key is required")
+        known = {s.source_key for s in app.state.manifest.sources}
+        if source_key not in known:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        if new_key in known:
+            raise HTTPException(status_code=409,
+                                detail=f"{new_key!r} already names another source")
+
+        entry = app.state.manifest.get(source_key)
+        renamed = entry.model_copy(update={"source_key": new_key})
+        # The write lock, like every other route that changes the warehouse: a
+        # rename racing an ingest would leave rows arriving under the old name
+        # while the transaction moved the rest.
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                moved = rename_source(conn, source_key, new_key)
+            except SourceKeyInUse as exc:
+                raise HTTPException(status_code=409, detail=str(exc))
+            except KeyError:
+                moved = {}      # never crawled: nothing to move, the name is free
+            finally:
+                conn.close()
+        # The manifest moves only AFTER the rows did. A manifest renamed while
+        # the data failed to move is precisely the orphaning this prevents.
+        try:
+            remove_source(source_key, app.state.manifest_path)
+            add_source(renamed, app.state.manifest_path)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"the rows moved to {new_key!r} but the manifest did not: "
+                       f"{exc}. The warehouse is consistent; fix the manifest.")
+        app.state.manifest = load_manifest(app.state.manifest_path)
+        return {"ok": True, "source_key": new_key, "moved": moved}
+
+    @app.delete("/api/sources/{source_key}")
+    def api_remove_source(source_key: str):
+        """Take a source off the crawl list. Its DATA is untouched.
+
+        The owner's ruling: stopping a source and erasing its data are two
+        separate actions with two clear outcomes, so neither can be mistaken for
+        the other. This is the first. The rows, the price history and the crawl
+        audit trail all survive — they are evidence of what a shop published,
+        and removing the entry is not a claim that none of it happened.
+        """
+        if not remove_source(source_key, app.state.manifest_path):
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        app.state.manifest = load_manifest(app.state.manifest_path)
+        return {"ok": True, "source_key": source_key, "data_kept": True}
+
+    @app.post("/api/sources/{source_key}/wipe")
+    def api_wipe_source(source_key: str, body: dict | None = None):
+        """Erase every row this source ever ingested. The ENTRY survives.
+
+        The second of the owner's two actions. A backup is taken first,
+        unconditionally — the CLI has done that since wipe-source existed, and a
+        button is not a reason to be braver than a command line.
+
+        Registration and crawl audit history are kept, matching wipe-source
+        exactly: a button must not quietly mean something different from the
+        command that does the same job.
+        """
+        if source_key not in {s.source_key for s in app.state.manifest.sources}:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        if not bool((body or {}).get("confirm")):
+            raise HTTPException(
+                status_code=400,
+                detail="this erases every row this source ever ingested; send "
+                       "confirm=true to proceed (a backup is taken first)")
+        # NO separate backup call: wipe_source takes one itself, unconditionally,
+        # and says why in its own docstring ("a wipe that cannot be undone is not
+        # a dev tool, it is a trap"). Taking a second would make the guarantee
+        # look like the caller's to remember.
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                result = wipe_source(conn, app.state.db_path, source_key)
+                conn.commit()
+            finally:
+                conn.close()
+        return {"ok": True, "source_key": source_key,
+                "detail": getattr(result, "detail", "") or str(result),
+                "entry_kept": True}
 
     # ---- schedules (spec 26: the LOCAL RUNTIME schedules, not the browser) --
 
