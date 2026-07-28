@@ -1309,15 +1309,6 @@
   color: var(--text);
   background: var(--control-hover);
 }
-.record-inspector-nav button:disabled,
-.record-inspector-nav button:disabled:hover {
-  color: var(--text-subtle);
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  opacity: .42;
-  cursor: not-allowed;
-}
 .record-inspector-nav button.is-active {
   color: var(--accent-ink);
   background: var(--surface);
@@ -1496,6 +1487,12 @@
 .record-prose {
   max-width: 76ch;
   margin: 0 0 var(--sp-2, .5rem);
+}
+.record-inspector-content .record-prose,
+.record-inspector-content .record-prose-list,
+.record-inspector-content .record-detail-subsection {
+  width: 100%;
+  max-width: none;
 }
 .record-prose p {
   margin: 0 0 var(--sp-3, .75rem);
