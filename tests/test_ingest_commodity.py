@@ -258,3 +258,47 @@ def test_a_unit_change_opens_a_new_price_period_not_a_price_change(conn):
     assert len(keys) == 2, "the same number under two units hashed to one price"
     fields = {row[0] for row in conn.execute("SELECT price_fields FROM price_observation")}
     assert all("unit" in f for f in fields), "the unit never reached the price key"
+
+
+# ---- the implied rate: isolated is not the same as silent --------------------
+
+def test_a_warehouse_that_refuses_the_rate_write_makes_the_run_say_so(conn):
+    """The partial-migration shape, reproduced rather than mocked: the table is
+    not there. Every implied rate in a run could fail this way — or on a locked
+    database — and the run closed clean, so the Data page went on ranking 128
+    currencies at last week's rate with nothing anywhere saying why."""
+    entry = commodity_entry()
+    rows = [commodity_row(currency="EGP", original_price="20.50", converted_usd_price="0.40")]
+    conn.execute("DROP TABLE currency_rate")
+    conn.commit()
+
+    result = ingest_payloads(conn, entry, [commodity_payload(rows)])
+
+    assert any("warehouse refused the write" in e for e in result.errors), \
+        f"the rate failed and the run said nothing: {result.errors}"
+    # The price is the irreplaceable half and must still have landed.
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+    # And the run is red, which is what S8 alerts on.
+    assert conn.execute(
+        "SELECT errors_count FROM crawl_run WHERE run_id = ?",
+        (result.run_id,)).fetchone()[0] >= 1
+
+
+def test_a_row_whose_own_pair_does_not_parse_is_named_not_swallowed(conn):
+    entry = commodity_entry()
+    rows = [commodity_row(currency="EGP", original_price="20.50", converted_usd_price="not a number")]
+    result = ingest_payloads(conn, entry, [commodity_payload(rows)])
+    # A NOTICE: visible, and it degrades nothing — the price landed and the run
+    # is a success. `errors` here would report a healthy crawl as PARTIAL.
+    assert any("does not parse" in n for n in result.notices), result.notices
+    assert not [e for e in result.errors if "implied rate" in e]
+    assert result.status.value == "success"
+    assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+
+
+def test_a_row_with_no_usd_pair_at_all_is_not_an_error(conn):
+    """The guard clause above the try: an absent pair is the ordinary case for
+    most sources, and reporting it would make every run red for nothing."""
+    entry = commodity_entry()
+    result = ingest_payloads(conn, entry, [commodity_payload([commodity_row()])])
+    assert not [e for e in result.errors if "implied rate" in e], result.errors

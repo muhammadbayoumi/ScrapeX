@@ -44,6 +44,14 @@ class ScrapedTable:
     # Deliberately NOT in to_payload: this describes the RUN, not the data, and
     # the payload contract is frozen across engines.
     warnings: list[str] = field(default_factory=list)
+    # A warning says something went wrong and was contained. A DEFECT says more:
+    # the data this run produced is KNOWN to be degraded, so the run may not be
+    # reported clean. capture seeds these into the ingest result's errors, which
+    # is what crawl_run.errors_count counts and what S8 alerts on. The distinction
+    # is not academic: magento's English store failing was a warning, and that
+    # warning was the only trace of a half-brand rewriting the price identity of
+    # every offer the source publishes.
+    defects: list[str] = field(default_factory=list)
     # Resume checkpoint for a multi-page source: a filename-safe id
     # ([A-Za-z0-9_-]) for the PAGE this table came from, empty when the
     # connector is single-page. The job journal embeds it in the payload's

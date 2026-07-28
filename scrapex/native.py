@@ -34,6 +34,15 @@ PROTOCOL_VERSION = 1
 MAX_PAGE = 200          # hard cap: one message is never a dataset
 MAX_LOG_TAIL = 200
 
+# The commands that need nothing but this process: no warehouse, no manifest.
+# They are EXACTLY the ones the owner reaches for when the warehouse or the
+# manifest is the thing that is broken, so serve() answers them without opening
+# either. Keep this in step with _dispatch: a command listed here that later
+# starts reading `conn` would meet None.
+STANDALONE_COMMANDS = frozenset({
+    "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART",
+})
+
 
 # ---- framing -----------------------------------------------------------------
 
@@ -250,21 +259,29 @@ def _spawn_engine(port: int) -> None:
     """
     import subprocess
 
+    from .relaunch import open_engine_log
+
     interpreter = Path(sys.executable)
     windowless = interpreter.with_name("pythonw.exe")
     runner = str(windowless if windowless.exists() else interpreter)
-    log_home = Path.home() / ".scrapex"
-    log_home.mkdir(parents=True, exist_ok=True)
-    log = open(log_home / "engine.log", "ab")
+    # Rotated at the one place it is opened: four writers append to this file and
+    # none of them used to bound it, while every failure message in the panel
+    # sends the owner to read it.
+    log = open_engine_log()
     flags = 0
     if sys.platform == "win32":
         flags = (subprocess.DETACHED_PROCESS |
                  subprocess.CREATE_NEW_PROCESS_GROUP)
-    subprocess.Popen(
-        [runner, "-m", "scrapex.cli", "ui", "--port", str(port)],
-        cwd=str(Path(__file__).resolve().parent.parent),
-        stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-        creationflags=flags)
+    try:
+        subprocess.Popen(
+            [runner, "-m", "scrapex.cli", "ui", "--port", str(port)],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            creationflags=flags)
+    finally:
+        # The engine keeps its own inherited handle. Ours was never closed, and
+        # a handle nobody closes is a file nothing can rotate.
+        log.close()
 
 
 def start_engine(message: dict) -> dict:
@@ -309,6 +326,16 @@ def serve(db_path=None, stdin: BinaryIO | None = None, stdout: BinaryIO | None =
           migrate: bool = False) -> int:
     """Read framed commands from Chrome until the pipe closes.
 
+    NOTHING IS OPENED UNTIL A COMMAND NEEDS IT. The warehouse and the manifest
+    used to be opened before the first frame was read, so a database written by
+    a newer build — or a `sources.yaml` the engine's own Manage page had just
+    made invalid — killed this process at startup. Chrome then reported a host
+    that exited, the panel said "The helper started and stopped. Open Logs",
+    and the Logs are inside the engine that START_ENGINE was the only way to
+    start. The one command that repairs the fault was the one the fault removed.
+    START_ENGINE, PING and the autostart pair touch neither, so they are answered
+    from a process that has opened nothing (STANDALONE_COMMANDS).
+
     `migrate` is for LEGACY single-file warehouses only (tests, --db sessions).
     A MarketLens database has its own numbered migration stream and was
     migrated when it was created; running the unified stream over it re-applies
@@ -319,23 +346,46 @@ def serve(db_path=None, stdin: BinaryIO | None = None, stdout: BinaryIO | None =
     """
     from .config import load_manifest
 
+    path = db_path or dbmod.DEFAULT_DB_PATH
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
-    conn = dbmod.connect(db_path or dbmod.DEFAULT_DB_PATH)
+    conn: object = None
+    manifest = None
     try:
-        if migrate:
-            dbmod.migrate(conn)
-        manifest = load_manifest()
         while True:
             message = read_message(stdin)
             if message is None:
                 return 0                      # Chrome closed the port: a normal exit
+            command = message.get("command") if isinstance(message, dict) else None
+            try:
+                if isinstance(message, dict) and command not in STANDALONE_COMMANDS:
+                    if conn is None:
+                        conn = dbmod.connect(path)
+                        if migrate:
+                            dbmod.migrate(conn)
+                    if manifest is None:
+                        manifest = load_manifest()
+            except Exception as exc:  # noqa: BLE001 — the warehouse is the fault, not us
+                # Deliberately leaves conn/manifest None, so the NEXT command
+                # tries again: the owner repairs the database from the engine
+                # this host can still start, and the repair takes effect without
+                # anyone knowing a host has to be restarted.
+                write_message(stdout, {**_error(
+                    "engine_unavailable",
+                    f"the ScrapeX warehouse or manifest could not be opened: {exc}. "
+                    "Start the engine and open its page — it says which database, "
+                    "what state, and what to do."),
+                    "request_id": message.get("request_id")})
+                continue
             try:
                 response = handle(conn, message, manifest)
-                conn.commit()
+                if conn is not None:
+                    conn.commit()
             except Exception as exc:  # noqa: BLE001 — one bad command never kills the host
-                conn.rollback()
+                if conn is not None:
+                    conn.rollback()
                 response = _error("internal", str(exc))
             write_message(stdout, response)
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()

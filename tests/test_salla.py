@@ -214,10 +214,14 @@ def test_a_sold_out_product_is_recorded_as_sold_out_not_unknown():
                       .read_text(encoding="utf-8"))
     builder = RowBuilder(PRODUCT_PRICES)
 
-    row = SallaConnector._row(
-        builder, node,
-        "https://alsweed.sa/ar/لي-سخان-اسباني-مجدول/p1754450923",
-        make_entry(), "1")
+    # The row builder is shared with zid now (it was the same code twice, with
+    # one line different), so it is asserted where it lives — with salla's own
+    # id rule handed to it, which is that one line.
+    from scrapex.connectors.jsonld import product_row
+    from scrapex.connectors.salla import _salla_id
+
+    url = "https://alsweed.sa/ar/لي-سخان-اسباني-مجدول/p1754450923"
+    row = product_row(builder, node, url, make_entry(), "1", _salla_id(url, node))
 
     fields = RowView(PRODUCT_PRICES, builder.header).as_dict(row)
     assert fields["availability"] == "out_of_stock"

@@ -249,7 +249,13 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                 append_log(conn, job_id,
                            f"archived {archived} products before rebuild",
                            source_key=entry.source_key)
-        result = ingest_payloads(conn, entry, payloads, job_id=job_id)
+        # Defects travel from the FETCH, deduplicated: a connector that pins the
+        # same defect to every page is stating one fact about the run, not one
+        # per page. Read from `tables` and not from the journal, because a defect
+        # describes what THIS attempt produced.
+        defects = list(dict.fromkeys(d for t in tables for d in t.defects))
+        result = ingest_payloads(conn, entry, payloads, job_id=job_id,
+                                 fetch_defects=defects)
     if journal:
         localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
     # rows/tables come from the PAYLOADS: on a resume the fetched tables are

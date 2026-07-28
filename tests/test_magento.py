@@ -860,6 +860,113 @@ def test_the_more_information_labels_are_the_sites_words_in_both_stores():
     assert by_code["grade"]["attribute_label"] == "Material Grade"
 
 
+class _EnglishStoreDownFetcher(_BilingualEnrichedFetcher):
+    """Both stores exist; en_SA is unreachable for the length of this run —
+    a timeout, a WAF, a deploy. The Arabic pass is untouched, which is exactly
+    what makes the failure dangerous: the prices are all there."""
+
+    def post(self, url, json=None, **kwargs):
+        if (kwargs.get("headers") or {}).get("Store") == "en_SA":
+            raise RuntimeError("en_SA did not answer")
+        return super().post(url, json=json, **kwargs)
+
+
+def _enriched_madar() -> SourceEntry:
+    return SourceEntry.model_validate(dict(
+        source_key="MADAR", source_name="المدار", base_url="https://www.madar.com",
+        family="magento-graphql", currency="SAR", default_region="SA", vat_mode="excl",
+        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS),
+                 ExtractSpec(kind=ExtractKind.ENRICHMENT, scope=ExtractScope.CENSUS)],
+    ))
+
+
+def _cement_price_row(table) -> dict:
+    view = RowView(PRODUCT_PRICES, table.header)
+    for raw in table.rows:
+        row = view.as_dict(raw)
+        if row["external_product_id"] == "Q0VNMg==":
+            return row
+    raise AssertionError("the cement product is missing from the price table")
+
+
+def test_a_dead_english_store_never_publishes_half_a_brand():
+    """The brand is HALF the en_SA store's, and the whole of it is in the price key.
+
+    Publishing the Arabic half alone leaves the key's FIELD SET identical while
+    the digest changes — and pricehistory can read that one way only: the price
+    moved. Once, into an append-only table, for every offer the source has. So
+    a failed English pass suppresses the pair whole: `brand` then drops out of
+    the field set, the two keys are not comparable, and the period that opens
+    says fields_changed, which is what actually happened.
+    """
+    from scrapex import pricekey
+    from scrapex.normalize import joined_brand
+
+    entry = _enriched_madar()
+    healthy = _cement_price_row(
+        list(MagentoGraphqlConnector(_BilingualEnrichedFetcher()).fetch(entry))[0])
+    degraded_table = list(MagentoGraphqlConnector(_EnglishStoreDownFetcher()).fetch(entry))[0]
+    degraded = _cement_price_row(degraded_table)
+
+    # What the source publishes when both stores answer.
+    assert healthy["brand_ar"] == "اسمنت الرياض"
+    assert healthy["brand"] == "Riyadh Cement Co."
+    # And when one does not: nothing, rather than half.
+    assert degraded["brand_ar"] == "", "the Arabic half was published alone"
+    assert degraded["brand"] == ""
+
+    # The property that makes the suppression worth doing, asserted where it
+    # actually decides: the field SET. Same set + different digest is the
+    # phantom price change; a different set is a comparison refused.
+    def key_of(row: dict):
+        return pricekey.build(effective=row["price"], currency=row["currency"],
+                              vat=row["tax_included"],
+                              brand=joined_brand(row["brand_ar"], row["brand"]))
+
+    assert "brand" in key_of(healthy).fields
+    assert "brand" not in key_of(degraded).fields
+    assert not pricekey.comparable(key_of(healthy).fields, key_of(degraded).fields), \
+        "a degraded round is still being compared to a healthy one as a price"
+
+    # And the run may not report clean: the rows it wrote are knowingly poorer
+    # than the source publishes.
+    assert degraded_table.defects, "a degraded round produced no defect"
+    assert "English store" in degraded_table.defects[0]
+
+
+def test_a_degraded_fetch_makes_the_run_red_not_merely_noisy():
+    """A warning is read by nobody at 2am; errors_count is what S8 alerts on.
+
+    The count is written INSIDE ingest_payloads, so a defect appended by the
+    caller afterwards would never reach crawl_run — hence the seam takes it.
+    """
+    conn: sqlite3.Connection = dbmod.connect(":memory:")
+    try:
+        dbmod.migrate(conn)
+        entry = _enriched_madar()
+        table = list(MagentoGraphqlConnector(_EnglishStoreDownFetcher()).fetch(entry))[0]
+        result = ingest_payloads(conn, entry, [table.to_payload()],
+                                 fetch_defects=table.defects)
+        assert result.errors, "the fetch defect never reached the ingest result"
+        recorded = conn.execute(
+            "SELECT errors_count FROM crawl_run WHERE run_id = ?",
+            (result.run_id,)).fetchone()[0]
+        assert recorded >= 1, "a run that wrote knowingly degraded rows reported clean"
+    finally:
+        conn.close()
+
+
+def test_a_monolingual_source_is_not_treated_as_a_degraded_one():
+    """The guard above must not fire where nothing went wrong.
+
+    A source that never asked for enrichment has an empty details map every
+    single run — that is its steady state, not a failure. Suppressing the pair
+    there would invent the instability the suppression exists to prevent.
+    """
+    table = next(iter(MagentoGraphqlConnector(_StubFetcher()).fetch(make_entry())))
+    assert table.defects == []
+
+
 def test_a_store_that_declines_to_name_an_attribute_is_reported():
     """420 rows carried a bare code across two "fixed" crawls because nothing
     ever said the shop had declined to name them.

@@ -52,15 +52,55 @@ def _engine_command(port: int) -> list[str]:
     return [str(runner), "-m", "scrapex.cli", "ui", "--port", str(int(port)), "--no-open"]
 
 
+# One file, four writers (this module twice, native._spawn_engine, and the
+# autostart launcher's shell redirect), and until now no ceiling on any of them.
+# It is also the file every failure message sends the owner to — "Open Logs to
+# see why" — so the one thing it may not become is too large to open.
+MAX_ENGINE_LOG_BYTES = 5 * 1024 * 1024
+ENGINE_LOG_KEEP = 1          # engine.log + engine.log.1: yesterday is enough
+
+
+def rotate_engine_log(path: Path | None = None) -> bool:
+    """Roll the engine log aside if it has grown past the cap. True if rolled.
+
+    Rotation NEVER blocks a start: on Windows a detached process still holding
+    the file makes the rename fail, and refusing to launch the engine because
+    its log could not be tidied would be the housekeeping outranking the point.
+    The failure is not silent either — the caller writes it INTO the log.
+    """
+    target = path or engine_log()
+    try:
+        if not target.exists() or target.stat().st_size < MAX_ENGINE_LOG_BYTES:
+            return False
+        previous = target.with_suffix(target.suffix + f".{ENGINE_LOG_KEEP}")
+        previous.unlink(missing_ok=True)
+        target.rename(previous)
+        return True
+    except OSError:
+        return False
+
+
+def open_engine_log(path: Path | None = None):
+    """The engine log, rotated if due, opened for append. The ONE way in."""
+    target = path or engine_log()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    rotate_engine_log(target)
+    return open(target, "ab")
+
+
 def _spawn_detached(command: list[str], cwd: Path, log: Path) -> int:
     """Start a process that survives this one. Its output goes to the engine log."""
-    log.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(log, "ab")
+    handle = open_engine_log(log)
     flags = 0
     if sys.platform == "win32":
         flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
-    process = subprocess.Popen(command, cwd=str(cwd), stdout=handle, stderr=handle,
-                               creationflags=flags, close_fds=True)
+    try:
+        process = subprocess.Popen(command, cwd=str(cwd), stdout=handle, stderr=handle,
+                                   creationflags=flags, close_fds=True)
+    finally:
+        # The child holds its own inherited handle; ours has no further use and
+        # an unclosed one keeps the file locked against the next rotation.
+        handle.close()
     return process.pid
 
 

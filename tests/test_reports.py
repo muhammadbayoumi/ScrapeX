@@ -193,8 +193,11 @@ def test_search_accepts_the_country_NAME_not_only_the_code(conn):
 
 def _rate(conn, currency="EGP", per_usd=51.25):
     conn.execute(
-        "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
-        "VALUES (?,?,?,?)", (currency, per_usd, "2026-07-13", "GPP_ENERGY"))
+        # 'shop': GPP_ENERGY is a storefront whose printed prices imply a rate,
+        # not a rate provider (0054).
+        "INSERT INTO currency_rate "
+        "  (currency, per_usd, as_of, source_key, source_kind) "
+        "VALUES (?,?,?,?,'shop')", (currency, per_usd, "2026-07-13", "GPP_ENERGY"))
 
 
 def test_usd_est_never_leaks_onto_a_single_currency_source(conn):

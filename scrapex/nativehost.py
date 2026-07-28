@@ -77,9 +77,49 @@ def build_manifest(extension_ids: list[str], executable: str) -> dict:
     }
 
 
+# How many extension ids the manifest may name at once. A developer reloads an
+# unpacked extension from a handful of folders over a project's life, not from
+# fifty — and an allowlist that only ever grows is an allowlist nobody prunes.
+MAX_ALLOWED_IDS = 5
+
+
+def allowed_extension_ids(platform: str | None = None,
+                          path: Path | None = None) -> list[str]:
+    """The ids this manifest currently names, newest first. [] if there is none.
+
+    Lives here, beside the file it reads, because this manifest is THE allowlist
+    deciding which extension may drive this machine — the web layer asks this
+    function rather than keeping a second parser of the same file in step.
+    """
+    target = path or manifest_path(platform)
+    try:
+        manifest = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    ids: list[str] = []
+    for origin in manifest.get("allowed_origins") or []:
+        candidate = str(origin).removeprefix("chrome-extension://").rstrip("/")
+        if candidate.isalnum() and candidate not in ids:
+            ids.append(candidate)
+    return ids
+
+
 def install(extension_ids: list[str], executable: str | None = None,
-            platform: str | None = None, write_registry: bool = True) -> Path:
-    """Write the manifest (and on Windows the registry pointer). Returns its path."""
+            platform: str | None = None, write_registry: bool = True,
+            *, replace: bool = False) -> Path:
+    """Write the manifest (and on Windows the registry pointer). Returns its path.
+
+    ADDS by default; it used to replace. Replacing meant one call could evict a
+    working extension, and /api/native-host/register is reachable from ANY
+    extension by design (the re-link route repairs an id the allowlist no longer
+    names, so holding it to that allowlist would lock out the repair). With
+    replacement, two installed extensions could take the host from each other
+    turn by turn, and the owner would see a Start-engine button that worked
+    every other time for no visible reason. Adding cannot do that.
+
+    `replace=True` is the deliberate prune, for `install-native-host` run by
+    hand — that caller means the list it passed, not the list plus history.
+    """
     if not extension_ids:
         raise ValueError("at least one extension id is required — Chrome will not "
                          "start a native host that no extension is allowed to call")
@@ -87,7 +127,15 @@ def install(extension_ids: list[str], executable: str | None = None,
     target = manifest_path(platform)
     target.parent.mkdir(parents=True, exist_ok=True)
     launcher = resolve_launcher(executable, target.parent)
-    target.write_text(json.dumps(build_manifest(extension_ids, launcher), indent=2) + "\n",
+    merged = list(extension_ids)
+    if not replace:
+        # Newest first, so the cap drops the oldest folder a developer has
+        # long stopped loading from — never the id that just asked.
+        for known in allowed_extension_ids(platform, target):
+            if known not in merged:
+                merged.append(known)
+    merged = merged[:MAX_ALLOWED_IDS]
+    target.write_text(json.dumps(build_manifest(merged, launcher), indent=2) + "\n",
                       encoding="utf-8")
 
     if platform == "win32" and write_registry:

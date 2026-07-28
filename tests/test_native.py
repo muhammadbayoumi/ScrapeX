@@ -350,3 +350,190 @@ def test_the_host_never_runs_the_unified_migrations_over_a_marketlens_database(t
     (n,) = struct.unpack("<I", reply.read(4))
     answer = json.loads(reply.read(n))
     assert answer["ok"] and answer["request_id"] == "b1"
+
+
+# ---- the host must survive the fault the owner needs it to repair ------------
+
+def _framed(*messages) -> io.BytesIO:
+    """Several commands down one pipe, exactly as Chrome frames them."""
+    request = io.BytesIO()
+    for message in messages:
+        payload = json.dumps(message).encode()
+        request.write(struct.pack("<I", len(payload)) + payload)
+    request.seek(0)
+    return request
+
+
+def _answers(reply: io.BytesIO) -> list[dict]:
+    reply.seek(0)
+    out: list[dict] = []
+    while True:
+        head = reply.read(4)
+        if len(head) < 4:
+            return out
+        (size,) = struct.unpack("<I", head)
+        out.append(json.loads(reply.read(size)))
+
+
+def test_an_unreadable_warehouse_does_not_take_start_engine_down(tmp_path, monkeypatch):
+    """The fault and its repair used to be the same command.
+
+    serve() opened the database before reading a frame, so a warehouse this
+    build cannot read killed the process — and Chrome reported a host that
+    exited, which the panel prints as "The helper started and stopped. Open
+    Logs". The Logs live in the engine, and START_ENGINE is what starts it.
+    """
+    from scrapex import native
+
+    broken = tmp_path / "marketlens.db"
+    broken.write_bytes(b"this file is not a database at all")
+    monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+
+    reply = io.BytesIO()
+    code = native.serve(broken, stdin=_framed(
+        {"command": "PING", "request_id": "p1"},
+        {"command": "START_ENGINE", "request_id": "p2"},
+        {"command": "GET_STATUS", "request_id": "p3"},
+    ), stdout=reply)
+
+    assert code == 0, "the host died on a warehouse it was never asked to open"
+    ping, start, status = _answers(reply)
+    assert ping["ok"] and ping["request_id"] == "p1"
+    assert start["ok"] and start["already_running"], \
+        "the one command that repairs the fault was refused because of it"
+    # And the command that genuinely needs the warehouse says so, in words that
+    # point at the repair — instead of the process disappearing.
+    assert status["ok"] is False and status["error"] == "engine_unavailable"
+    assert status["request_id"] == "p3"
+
+
+def test_an_invalid_manifest_does_not_take_the_host_down(tmp_path, monkeypatch):
+    """sources.yaml is written by the engine's own Manage page, so an invalid
+    one is a state the product can put itself into. It used to be fatal at
+    startup, for every command."""
+    from scrapex import config, native
+
+    db = tmp_path / "marketlens.db"
+    from scrapex.databases.domain import MarketLensDatabase
+    MarketLensDatabase(db).initialize()
+
+    def _refuse(*a, **kw):
+        raise ValueError("sources.yaml: unknown family 'magento-graphq'")
+
+    monkeypatch.setattr(config, "load_manifest", _refuse)
+    monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+
+    reply = io.BytesIO()
+    code = native.serve(db, stdin=_framed(
+        {"command": "START_ENGINE", "request_id": "m1"},
+        {"command": "GET_SOURCES", "request_id": "m2"},
+    ), stdout=reply)
+
+    assert code == 0
+    start, sources = _answers(reply)
+    assert start["ok"], "a broken manifest blocked the button that opens the fixer"
+    assert sources["error"] == "engine_unavailable"
+    assert "sources.yaml" in sources["detail"]
+
+
+def test_the_warehouse_is_opened_once_and_only_when_a_command_needs_it(tmp_path, monkeypatch):
+    """Lazy, not per-command: reopening on every frame would trade one fault
+    for a slower one."""
+    from scrapex import native
+    from scrapex.databases.domain import MarketLensDatabase
+
+    db = tmp_path / "marketlens.db"
+    MarketLensDatabase(db).initialize()
+    opened: list[str] = []
+    real_connect = dbmod.connect
+    monkeypatch.setattr(native.dbmod, "connect",
+                        lambda p: (opened.append(str(p)), real_connect(p))[1])
+    monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+
+    reply = io.BytesIO()
+    native.serve(db, stdin=_framed(
+        {"command": "PING"}, {"command": "START_ENGINE"},
+        {"command": "GET_SOURCES"}, {"command": "GET_SOURCES"},
+    ), stdout=reply)
+
+    assert opened == [str(db)], f"the warehouse was opened {len(opened)} time(s)"
+
+
+# ---- who may drive the machine: the allowlist may not be taken, only joined --
+
+def _allowlist(written: Path) -> list[str]:
+    return [o.removeprefix("chrome-extension://").rstrip("/")
+            for o in json.loads(written.read_text())["allowed_origins"]]
+
+
+def test_a_second_extension_joins_the_allowlist_it_does_not_seize_it(tmp_path, monkeypatch):
+    """/api/native-host/register is reachable from ANY extension on purpose: it
+    repairs an id the allowlist no longer names, so holding it to that allowlist
+    would lock out the repair. Replacing meant that exception could be used to
+    EVICT — two installed extensions taking the helper from each other, and a
+    Start-engine button that works every other time for no visible reason."""
+    monkeypatch.setattr("scrapex.nativehost._MANIFEST_DIRS",
+                        {"linux": tmp_path, "win32": tmp_path, "darwin": tmp_path})
+    first = "a" * 32
+    second = "b" * 32
+
+    install([first], executable="/usr/bin/scrapex", platform="linux", write_registry=False)
+    written = install([second], executable="/usr/bin/scrapex", platform="linux",
+                      write_registry=False)
+
+    assert _allowlist(written) == [second, first], \
+        "the extension that asked last evicted the one that was working"
+
+
+def test_re_registering_the_same_id_does_not_duplicate_it(tmp_path, monkeypatch):
+    monkeypatch.setattr("scrapex.nativehost._MANIFEST_DIRS",
+                        {"linux": tmp_path, "win32": tmp_path, "darwin": tmp_path})
+    same = "c" * 32
+    install([same], executable="/usr/bin/scrapex", platform="linux", write_registry=False)
+    written = install([same], executable="/usr/bin/scrapex", platform="linux",
+                      write_registry=False)
+    assert _allowlist(written) == [same]
+
+
+def test_the_allowlist_is_capped_and_drops_the_oldest_never_the_newest(tmp_path, monkeypatch):
+    """An allowlist that only grows is one nobody prunes. The cap drops the
+    folder a developer stopped loading from — never the id that just asked."""
+    from scrapex.nativehost import MAX_ALLOWED_IDS
+
+    monkeypatch.setattr("scrapex.nativehost._MANIFEST_DIRS",
+                        {"linux": tmp_path, "win32": tmp_path, "darwin": tmp_path})
+    ids = [chr(ord("a") + i) * 32 for i in range(MAX_ALLOWED_IDS + 2)]
+    for eid in ids:
+        written = install([eid], executable="/usr/bin/scrapex", platform="linux",
+                          write_registry=False)
+
+    listed = _allowlist(written)
+    assert len(listed) == MAX_ALLOWED_IDS
+    assert listed[0] == ids[-1], "the id that just asked was dropped"
+    assert ids[0] not in listed, "the oldest id was kept over a newer one"
+
+
+def test_installing_by_hand_still_means_exactly_what_it_was_given(tmp_path, monkeypatch):
+    """`scrapex install-native-host` is the deliberate prune: a person typing
+    the ids means that list, not that list plus everything before it."""
+    monkeypatch.setattr("scrapex.nativehost._MANIFEST_DIRS",
+                        {"linux": tmp_path, "win32": tmp_path, "darwin": tmp_path})
+    install(["d" * 32], executable="/usr/bin/scrapex", platform="linux",
+            write_registry=False)
+    written = install(["e" * 32], executable="/usr/bin/scrapex", platform="linux",
+                      write_registry=False, replace=True)
+    assert _allowlist(written) == ["e" * 32]
+
+
+def test_the_web_layer_reads_the_allowlist_through_the_module_that_owns_it(tmp_path, monkeypatch):
+    """One file decides who may drive this machine, and one reader parses it."""
+    from scrapex import nativehost
+    from scrapex.webui import app as webapp
+
+    monkeypatch.setattr("scrapex.nativehost._MANIFEST_DIRS",
+                        {"linux": tmp_path, "win32": tmp_path, "darwin": tmp_path})
+    monkeypatch.setattr(nativehost, "manifest_path",
+                        lambda platform=None: tmp_path / f"{HOST_NAME}.json")
+    install(["f" * 32], executable="/usr/bin/scrapex", platform=sys.platform,
+            write_registry=False)
+    assert webapp.allowed_extension_ids() == ["f" * 32]

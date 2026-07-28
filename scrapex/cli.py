@@ -349,7 +349,10 @@ def _cmd_install_native_host(args: argparse.Namespace) -> int:
     from .nativehost import install, install_instructions
 
     try:
-        written = install(args.extension_id, executable=args.executable)
+        # replace=True: run by hand, this command means the ids it was GIVEN.
+        # The panel's re-link route adds instead, because it repairs one id and
+        # has no business retiring the others (see nativehost.install).
+        written = install(args.extension_id, executable=args.executable, replace=True)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -550,6 +553,12 @@ def _bind_log_streams() -> None:
     ~/.scrapex/engine.log autostart appends to; run it from a terminal and this
     does nothing at all.
     """
+    # Rotated HERE as well, and not only where the log is opened for a spawn:
+    # the autostart launcher appends with a shell `>> engine.log` redirect that
+    # no Python call can bound. Every engine start passes through this function,
+    # so this is the one point that path can be capped at.
+    from .relaunch import rotate_engine_log
+    rotate_engine_log(RUN_DUE_LOG)
     if sys.stdout is not None and sys.stderr is not None:
         return
     RUN_DUE_LOG.parent.mkdir(parents=True, exist_ok=True)

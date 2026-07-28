@@ -125,7 +125,7 @@ def _general_plan() -> tuple[Migration, ...]:
 # Listed rather than ranged: the unified chain and this one have diverged, so a
 # new price migration lands at the END of the legacy chain but in the middle of
 # this plan. A range would silently swallow whatever General adds next.
-_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53)
+_MARKETLENS_LEGACY_NUMBERS = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54)
 
 # Where the identity migration sits in this stream. Everything before it is the
 # price history the unified warehouse already had; everything after is a price
@@ -272,6 +272,21 @@ class DomainDatabase(Generic[T]):
                     f"This database was written by a later version (schema v{version}; "
                     f"this build reads v{self.latest_schema_version}). Update ScrapeX "
                     "and retry, and do not downgrade the database.",
+                    version, None,
+                )
+            if version is not None and version == self.latest_schema_version:
+                # NOT an upgrade. The schema is exactly the one this build reads,
+                # so whatever raised had nothing to do with the version — in
+                # practice it is a migration whose FILE changed after it was
+                # applied, and _verify_checksums said so precisely. This branch
+                # used to answer "at schema v51 and this build expects v51, run
+                # init-db": a sentence that contradicts itself, naming a command
+                # that raises the very same error, because `exc` was caught and
+                # then dropped. The exception knew; the report threw it away.
+                return DatabaseHealth(
+                    self.kind, str(self.path), False, "Integrity check failed",
+                    f"The schema version is correct (v{version}), so this is not an "
+                    f"upgrade: {exc}",
                     version, None,
                 )
             return DatabaseHealth(

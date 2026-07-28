@@ -318,6 +318,28 @@ class MagentoGraphqlConnector:
         # were already fetched for the enrichment pass; the price row simply
         # had no way to reach them.
         ctx["details_en"] = english.get("details", {})
+        # The brand is HALF this store's, and the other half is in the price key.
+        # So a failed English pass may not be allowed to publish the Arabic half
+        # alone: that keeps the field set identical while the digest changes,
+        # which the history layer can only read as a price change — on prices
+        # that never moved, into an append-only table. Suppressing BOTH halves
+        # drops `brand` out of the key's field set instead, and the run is then
+        # told apart as fields_changed, which is what actually happened.
+        #
+        # Only when enrichment was asked for: without it details_en is empty by
+        # design every run, the pair is Arabic-only every run, and suppressing it
+        # would invent the very instability this prevents.
+        ctx["brand_pair_unreliable"] = wants_enrichment and not english.get("ok", True)
+        # A defect, not a warning: the rows this run is about to write are known
+        # to carry less than the source publishes, and a run that writes them
+        # may not report clean (Q3/S8).
+        defects: list[str] = []
+        if ctx["brand_pair_unreliable"]:
+            defects.append(
+                "the English store did not answer, so the brand pair was left "
+                "out of every row this run rather than published half — the "
+                "prices are correct, the brand column is empty, and re-running "
+                "when the store answers restores it")
         ctx["axis_labels_en"] = english["axis_labels"]
         ctx["axis_values_en"] = english["axis_values"]
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
@@ -365,6 +387,7 @@ class MagentoGraphqlConnector:
                 source_url=f"{endpoint}#page={page}", header=builder.header,
                 rows=page_rows,
                 warnings=list(notes) if page == 1 else notes[before:],
+                defects=list(defects),
                 page_token=token,
             )
             total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
@@ -515,7 +538,12 @@ class MagentoGraphqlConnector:
         owner's rule is that a translation the site publishes and we drop is a
         defect, and this store publishes every axis twice.
 
-        Failure degrades to Arabic-only WITH a note; prices are never at stake.
+        Failure degrades to Arabic-only WITH a note. That used to end "prices are
+        never at stake", and it stopped being true the day the brand entered the
+        price key: half a pair («السويدي» without "SWEDY") hashes to a different
+        digest under an UNCHANGED field set, which reads as every offer's price
+        moving. `ok` is therefore part of the answer, and the caller suppresses
+        the pair rather than publishing half of it — see _manufacturer.
         """
         names: dict[str, str] = {}
         axis_labels: dict[str, str] = {}
@@ -538,16 +566,12 @@ class MagentoGraphqlConnector:
                     if uid and item.get("name"):
                         names[uid] = str(item["name"])
                     if enriched and uid:
-                        attributes: dict[str, str] = {}
-                        for a in ((item.get("custom_attributesV2") or {})
-                                  .get("items")) or []:
-                            code = str(a.get("code") or "")
-                            value = a.get("value") or ", ".join(
-                                str(o.get("label") or "")
-                                for o in a.get("selected_options") or []
-                                if o.get("label"))
-                            if code and value:
-                                attributes[code] = str(value)
+                        # Empty values are dropped here and not in the shared
+                        # reader: an attribute the store answers as blank is
+                        # "the en store says nothing", and carrying it would
+                        # overwrite the Arabic half with nothing downstream.
+                        attributes = {code: value for code, value
+                                      in _attribute_values(item).items() if value}
                         details[uid] = {
                             "description": _clean(((item.get("description") or {})
                                                    .get("html")) or ""),
@@ -584,9 +608,9 @@ class MagentoGraphqlConnector:
             notes.append(f"english-names pass failed — names and variations stay "
                          f"Arabic-only this run: {exc}")
             return {"names": {}, "axis_labels": {}, "axis_values": {},
-                    "details": {}}
+                    "details": {}, "ok": False}
         return {"names": names, "axis_labels": axis_labels,
-                "axis_values": axis_values, "details": details}
+                "axis_values": axis_values, "details": details, "ok": True}
 
     def _category_labels(self, endpoint: str, notes: list) -> dict:
         """leaf uid -> English path, from the en_SA tree. {} when unavailable."""
@@ -691,7 +715,8 @@ class MagentoGraphqlConnector:
         # Read per language from the store that published it, never split by
         # script: the two stores ARE the two languages, so there is nothing to
         # guess at.
-        brand_ar, brand_en = _manufacturer(product, ctx.get("details_en") or {})
+        brand_ar, brand_en = _manufacturer(product, ctx.get("details_en") or {},
+                                           unreliable=bool(ctx.get("brand_pair_unreliable")))
         url = f"{ctx['base']}/{url_key}.html" if url_key else ""
         variants = product.get("variants") or []
         # Classification belongs to the PRODUCT: every variant of it files in
@@ -917,8 +942,38 @@ class MagentoGraphqlConnector:
         return out
 
 
-def _manufacturer(product: dict, details_en: dict) -> tuple[str, str]:
+def _attribute_values(product: dict) -> dict[str, str]:
+    """code -> value for one product's custom attributes, in ONE reading rule.
+
+    Magento answers an attribute as either a plain `value` or a set of
+    `selected_options` labels, so every reader must cover both — and this rule
+    was written out three times: the English pass, the brand, and the enrichment
+    rows. It stays HERE and not in normalize: this is the shape of a GraphQL
+    union in one platform's API, not a normalization rule shared across sources,
+    and moving it up would be the premature abstraction A3/P3 forbid.
+    """
+    values: dict[str, str] = {}
+    for attribute in ((product.get("custom_attributesV2") or {}).get("items")) or []:
+        code = str(attribute.get("code") or "")
+        if not code:
+            continue
+        value = attribute.get("value") or ", ".join(
+            str(option.get("label") or "")
+            for option in attribute.get("selected_options") or [] if option.get("label"))
+        values[code] = str(value or "")
+    return values
+
+
+def _manufacturer(product: dict, details_en: dict,
+                  *, unreliable: bool = False) -> tuple[str, str]:
     """madar's brand, per language, from the store that published it.
+
+    `unreliable` is the English store having been asked and having failed. The
+    pair is then suppressed WHOLE. Publishing the Arabic half alone would keep
+    the price key's field set identical while changing its digest, and the only
+    reading of that is "the price moved" — recorded once, in an append-only
+    table, for every offer the source publishes. An absent brand is a smaller,
+    truthful, reversible loss: the next run that reaches the store restores it.
 
     The same `manufacturer` attribute the "More information" panel prints. It
     stays a detail as well as becoming a column: the shop prints it on the page,
@@ -929,13 +984,9 @@ def _manufacturer(product: dict, details_en: dict) -> tuple[str, str]:
     that the site's text is the record, because the shop will correct it and a
     cleaning rule here would hide the day it did.
     """
-    arabic = ""
-    for attribute in ((product.get("custom_attributesV2") or {}).get("items")) or []:
-        if str(attribute.get("code") or "") == "manufacturer":
-            arabic = str(attribute.get("value") or "") or ", ".join(
-                str(o.get("label") or "")
-                for o in attribute.get("selected_options") or [] if o.get("label"))
-            break
+    if unreliable:
+        return "", ""
+    arabic = _attribute_values(product).get("manufacturer", "")
     english = str((details_en.get(str(product.get("uid") or "")) or {})
                   .get("attributes", {}).get("manufacturer", "") or "")
     return arabic.strip(), english.strip()
@@ -1026,11 +1077,7 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     # panel used to print the raw code (the owner's report, with the page's
     # own tab as evidence).
     english_attributes = dict(mine.get("attributes", {}))
-    for attribute in ((product.get("custom_attributesV2") or {}).get("items")) or []:
-        code = str(attribute.get("code") or "")
-        value = attribute.get("value") or ", ".join(
-            str(o.get("label") or "")
-            for o in attribute.get("selected_options") or [] if o.get("label"))
+    for code, value in _attribute_values(product).items():
         if code:
             add(f"{code}_ar", labels_ar.get(code) or facets.get(code) or code,
                 value, lang="ar")

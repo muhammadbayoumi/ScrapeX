@@ -8,6 +8,7 @@ silent (Q3); a whole source never dies on one bad row.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from functools import partial
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -625,7 +626,8 @@ def _observation_values(r: dict, observed_at: str) -> dict:
 # ---- the pipeline ------------------------------------------------------------
 
 def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
-                    payloads: list[FunnelPayload], job_id: int | None = None) -> IngestResult:
+                    payloads: list[FunnelPayload], job_id: int | None = None,
+                    fetch_defects: Sequence[str] = ()) -> IngestResult:
     """Ingest one source's payloads into harvest.db in a single transaction.
 
     All-or-nothing at the DB level (F1): the crawl_run and every row commit
@@ -654,6 +656,11 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     result = IngestResult(source_key=entry.source_key, run_id=run_id)
     if result_note:
         result.contained.append(result_note)
+    # Defects the FETCH already knows about, seeded before any row is read: the
+    # connector is the only layer that can tell "this data is degraded" from
+    # "this data is fine", and errors_count is written at the end of this
+    # function — so a defect appended after the call would never reach the run.
+    result.errors.extend(fetch_defects)
 
     # Prices before enrichment, whatever order the payloads ARRIVE in: a detail
     # can only attach to a product the run has registered, and the local inbox
@@ -841,12 +848,12 @@ def _ingest_commodity_row(conn, entry, source_id, run_id, c, observed_at,
         result.rejected_out_of_scope += 1
         result.errors.append(f"out of scope: {reason}")
         return
-    _record_implied_rate(conn, entry, c)
+    _record_implied_rate(conn, entry, c, result)
     _persist_row(conn, source_id, run_id, _commodity_to_product_row(c), observed_at,
                  result, job_id)
 
 
-def _record_implied_rate(conn, entry, c: dict) -> None:
+def _record_implied_rate(conn, entry, c: dict, result: "IngestResult") -> None:
     """The exchange rate the PUBLISHER used, read off the row's own pair.
 
     A row carrying the local price and the site's printed USD conversion
@@ -855,6 +862,14 @@ def _record_implied_rate(conn, entry, c: dict) -> None:
     day, source) so the Data page can rank 128 currencies in one USD column;
     never asserted where the pair is absent, and never for a USD row (a rate
     of 1 is noise). Isolated: a malformed pair must not cost the price row.
+
+    ISOLATED IS NOT SILENT. This swallowed sqlite3.DatabaseError alongside the
+    two value errors and recorded nothing, so a missing currency_rate table
+    after a partial migration — or a locked database — read exactly like a
+    number that would not parse. Every rate in a run could fail, the run closed
+    with errors_count 0, and the Data page went on ranking currencies at last
+    week's rate with nothing anywhere saying why (Q3, and the add-in's
+    BulkInsert lesson the rules name).
     """
     try:
         currency = (c.get("currency") or "").upper()
@@ -865,13 +880,31 @@ def _record_implied_rate(conn, entry, c: dict) -> None:
         from datetime import date as _date
         as_of = (c.get("source_date") or "").strip() or _date.today().isoformat()
         conn.execute(
-            "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
-            "VALUES (?,?,?,?) "
+            # 'shop': this rate is implied by a storefront's own printed prices,
+            # so it is evidence about that shop and must never be mistaken for a
+            # market rate (0054). entry.source_key names a row in source_site by
+            # construction.
+            "INSERT INTO currency_rate "
+            "  (currency, per_usd, as_of, source_key, source_kind) "
+            "VALUES (?,?,?,?,'shop') "
             "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "
             "  per_usd = excluded.per_usd",
             (currency, local / usd, as_of, entry.source_key))
-    except (ValueError, TypeError, sqlite3.DatabaseError):
-        pass
+    except (ValueError, TypeError) as exc:
+        # A NOTICE, not an error: the row said something it could not mean, the
+        # price still landed, and nothing about the run is partial. Putting this
+        # in `errors` would turn every week GPP publishes one malformed pair
+        # among 128 currencies into a PARTIAL run — the exact miscount that had
+        # run 38 reported as failed after crawling 15,848 rows correctly.
+        result.notices.append(
+            f"implied rate for {c.get('currency') or '?'} not recorded — the "
+            f"row's own pair does not parse: {exc}")
+    except sqlite3.DatabaseError as exc:
+        # Not a data problem at all: the store could not take the write. Said
+        # separately because the repair is a different one entirely.
+        result.errors.append(
+            f"implied rate for {c.get('currency') or '?'} not recorded — the "
+            f"warehouse refused the write: {exc}")
 
 
 def _commodity_to_product_row(c: dict) -> dict:

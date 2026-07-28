@@ -26,10 +26,22 @@ from ..vocab import DetailGroup, group_for_code, ExtractKind
 from .base import HttpFetcher, ScrapedTable
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
 # generic; the /p{id} id scheme below is the salla-specific part.
-from .jsonld import (availability_status, brand_name, category_path,
-                     offer_price, parse_product_jsonld, sitemap_locs)
+from .jsonld import (WalkTally, brand_name, category_path, offer_price,
+                     parse_product_jsonld, product_row, sitemap_locs,
+                     sitemap_products, walk_products)
 
 _PRODUCT_ID = re.compile(r"/p(\d{5,})")
+
+
+def _salla_id(url: str, node: dict) -> str:
+    """Salla ids are the numeric /p{id} in the URL, else whatever the page says.
+
+    THE one line that differed between salla's row builder and zid's — the rest
+    was identical, byte for byte, which is why the row now lives in jsonld and
+    this is an argument to it.
+    """
+    found = _PRODUCT_ID.search(url)
+    return found.group(1) if found else str(node.get("sku") or url)
 
 
 def one_url_per_product(urls: list[str]) -> list[str]:
@@ -76,28 +88,11 @@ class SallaConnector:
         vat = "1" if source.vat_mode.value == "incl" else "0"
         wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
                                for spec in source.extract)
-        priceless = 0
-        unparsed = 0
-        skipped = 0
+        tally = WalkTally()
 
-        for url in self._product_urls(f"{base}/ar/sitemap.xml"):
-            token = safe_token(url)
-            if token in self.skip_tokens:
-                # Already journaled. Skipped BEFORE the request, which is the
-                # whole point: this shop answers about one page every ten
-                # seconds, so a resume that refetched would cost the hours it
-                # was meant to save.
-                skipped += 1
-                continue
-            try:
-                html = self._fetcher.get(url).text
-            except Exception:  # noqa: BLE001 — one dead product page never kills the crawl (Q3)
-                continue
-            node = parse_product_jsonld(html)
-            if not node:
-                unparsed += 1
-                continue
-
+        for url, token, node in walk_products(
+                self._fetcher, self._product_urls(f"{base}/ar/sitemap.xml", tally),
+                self.skip_tokens, safe_token, tally):
             # ONE TABLE PER PRODUCT, journaled as fetched. This connector used
             # to accumulate every row and yield a single table at the END, so a
             # crawl interrupted at hour five had written nothing at all — not
@@ -105,9 +100,9 @@ class SallaConnector:
             # (which exists for exactly that interruption) never given anything
             # to hold.
             builder = RowBuilder(PRODUCT_PRICES)
-            row = self._row(builder, node, url, source, vat)
+            row = product_row(builder, node, url, source, vat, _salla_id(url, node))
             if row is None:
-                priceless += 1
+                tally.priceless += 1
             else:
                 yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
                                    builder.header, [row], page_token=token)
@@ -127,18 +122,7 @@ class SallaConnector:
         # alsweed 2026-07-23: a variant-priced page publishes price:0 with no
         # lowPrice, no meta amount, no inline figure — there is genuinely
         # nothing to read, so the skip is right and saying it is mandatory.
-        notes: list[str] = []
-        if priceless:
-            notes.append(
-                f"{priceless} product(s) publish no usable price in their "
-                "JSON-LD (variant-priced) — skipped, never guessed; their real "
-                "prices need the extension's session capture")
-        if unparsed:
-            notes.append(f"{unparsed} product page(s) carried no Product "
-                         "JSON-LD at all")
-        if skipped:
-            notes.append(f"{skipped} product page(s) were already journaled by "
-                         "a paused run and were not fetched again")
+        notes = tally.notes()
         if notes:
             # A summary carrying only the counts, deliberately UNTOKENIZED: the
             # counts describe this attempt, and capture.clear_untokenized drops
@@ -148,39 +132,13 @@ class SallaConnector:
                                RowBuilder(PRODUCT_PRICES).header, [],
                                warnings=notes)
 
-    def _product_urls(self, sitemap_url: str) -> list[str]:
-        try:
-            locs = sitemap_locs(self._fetcher.get(sitemap_url).text)
-        except Exception:  # noqa: BLE001
-            return []
-        products = [u for u in locs if _PRODUCT_ID.search(u)]
-        for sub in (u for u in locs if u.endswith(".xml")):
-            try:
-                products += [u for u in sitemap_locs(self._fetcher.get(sub).text) if _PRODUCT_ID.search(u)]
-            except Exception:  # noqa: BLE001
-                continue
-        return one_url_per_product(products)
-
-    @staticmethod
-    def _row(builder: RowBuilder, node: dict, url: str, source: SourceEntry, vat: str):
-        price, currency, availability = offer_price(node.get("offers"))
-        if not price:
-            return None  # variant-priced with no usable price — needs session capture (later)
-        m = _PRODUCT_ID.search(url)
-        pid = m.group(1) if m else str(node.get("sku") or url)
-        return builder.row(
-            external_product_id=pid, external_variant_id=pid,
-            external_sku=str(node.get("sku") or ""),
-            # Arabic only: this store publishes no English name, so the
-            # unmarked column stays EMPTY rather than carrying Arabic under
-            # a name that asserts English.
-            product_name_ar=str(node.get("name") or ""),
-            **brand_pair(brand_name(node)), product_link=url,
-            country_code_alpha2=source.default_region, currency=currency or source.currency or "UNKNOWN", tax_included=vat,
-            price_before=price, price_sale="", price=price,
-            availability=availability_status(availability),
-            category_path_ar=category_path(node),
-        )
+    def _product_urls(self, sitemap_url: str, tally: WalkTally) -> list[str]:
+        """Salla's two rules: /p{id} marks a product, and one URL per product id
+        (the sitemap lists every product once per locale). The walking is shared."""
+        return sitemap_products(
+            self._fetcher, sitemap_url, lambda url: bool(_PRODUCT_ID.search(url)),
+            dedupe=one_url_per_product,
+            unreadable_children=tally.unreadable_children)
 
 
 def enrichment_rows(builder: RowBuilder, node: dict, url: str) -> list[list[str]]:
