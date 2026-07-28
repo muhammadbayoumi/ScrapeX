@@ -290,10 +290,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # kept their chip rendering when 0046 refiled them out of Description, and
     # the inspector rail gained a button per group — Store and Site metadata
     # had none, so both were being stacked under Specifications.
-    # design-system-36: the gallery scrollbar and the inspector mode group are
-    # visually contained, and summary prices support both field vocabularies.
-    assert '/static/grid.js?v=design-system-36' in page
-    assert '/static/grid-theme.css?v=design-system-36' in page
+    # design-system-38: both inspector groups are boxed, with a centred divider
+    # that keeps equal breathing room between the two visual groups.
+    assert '/static/grid.js?v=design-system-38' in page
+    assert '/static/grid-theme.css?v=design-system-38' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -818,7 +818,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"selected-product-category-label", "Category"' in script
     assert 'materialIconElement("account-tree"' not in script
     assert ".selected-product-card" in css
-    assert ".selected-product-image-nav:active" in css
+    assert "#offer-panel button.selected-product-image-nav:active:not(:disabled)" in css
     assert "transform: translateY(-50%)" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-button" in css
@@ -828,6 +828,7 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-inspector-nav-sections" in css
     assert ".record-inspector-nav-primary,\n.record-inspector-nav-sections" in css
     assert ".record-inspector-nav-divider" in css
+    assert "margin-block: var(--sp-1)" in css
     assert "grid-template-columns: minmax(0, 24rem) minmax(0, 0fr)" in css
     assert "transform: translateX(-.75rem)" in css
     assert "width: min(24rem, 100%)" in css
