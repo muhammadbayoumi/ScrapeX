@@ -728,11 +728,9 @@
     background: var(--control-hover);
     color: var(--accent-ink);
   }
-  .side-rail .rail-item[aria-current="page"] {
-    background: var(--primary-container);
-    color: var(--accent-ink);
-  }
-  .side-rail .rail-item[aria-expanded="true"] {
+  /* Exactly one rail destination is visually active. `aria-current` continues
+     to describe the underlying page while a temporary Workspace sheet is open. */
+  .side-rail .rail-item.is-rail-active {
     background: var(--primary-container);
     color: var(--accent-ink);
   }
