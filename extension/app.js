@@ -31,6 +31,7 @@ const post = (path, body) => api(path, {
   method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body || {}),
 });
+const del = (path) => api(path, { method: "DELETE" });
 
 function out(id, html, cls) {
   $(id).innerHTML = html ? `<span class="${cls || ""}">${html}</span>` : "";
@@ -394,11 +395,34 @@ function renderSourceEditor(source) {
     `<span class="dot ${ready ? "on" : "off"}" aria-hidden="true"></span>
      <span>${ready ? "Ready" : "Connector unavailable"}</span>`;
   $("source-edit-domain").textContent = sourceDomain(source.base_url) || "—";
-  $("source-edit-name").textContent = source.source_name || "—";
-  $("source-edit-name-ar").textContent = source.source_name_ar || "—";
-  $("source-edit-key").textContent = source.source_key || "—";
   $("source-edit-family").textContent = source.family || "—";
-  $("source-edit-url").textContent = source.base_url || "—";
+  // Editable now, not read-only text: the owner asked to change a registered
+  // source rather than delete and re-add it.
+  $("source-edit-name").value = source.source_name || "";
+  $("source-edit-name-ar").value = source.source_name_ar || "";
+  $("source-edit-url").value = source.base_url || "";
+  $("source-edit-key").value = source.source_key || "";
+  $("source-edit-currency").value = source.currency || "";
+  if ($("source-edit-cadence")) $("source-edit-cadence").value = source.cadence || "manual";
+  if ($("source-edit-vat")) $("source-edit-vat").value = source.vat_mode || "incl";
+  out("source-edit-rename-result", "");
+  out("source-edit-danger-result", "");
+  $("source-edit-holds").textContent = "…";
+  $("source-edit-wipe-scope").textContent = "";
+  // What it HOLDS, fetched rather than guessed: a destructive button that says
+  // how much it is about to erase is the difference between a choice and a
+  // guess. Failure here must not block the editor, so it degrades to a dash.
+  api("/api/sources/" + encodeURIComponent(source.source_key)).then((detail) => {
+    if (state.editingSourceKey !== source.source_key) return;   // moved on
+    const holds = detail.holds || {};
+    const parts = [];
+    if (holds.products) parts.push(`${holds.products.toLocaleString()} products`);
+    if (holds.observations) parts.push(`${holds.observations.toLocaleString()} prices`);
+    if (holds.details) parts.push(`${holds.details.toLocaleString()} details`);
+    $("source-edit-holds").textContent = parts.length ? parts.join(" · ") : "nothing yet";
+    $("source-edit-wipe-scope").textContent = parts.length
+      ? `This would erase ${parts.join(", ")}.` : "";
+  }).catch(() => { $("source-edit-holds").textContent = "—"; });
 
   const active = $("source-edit-active");
   active.checked = Boolean(source.active);
@@ -431,10 +455,29 @@ async function saveSourceEditor() {
   button.disabled = true;
   out("source-edit-result", "Saving…", "muted");
   try {
+    // The manifest fields first, then the active flag. Order matters: the
+    // active flip reloads the manifest, so saving fields afterwards would
+    // write onto a copy the engine had already replaced.
+    const edits = {
+      source_name: $("source-edit-name").value.trim(),
+      source_name_ar: $("source-edit-name-ar").value.trim(),
+      base_url: $("source-edit-url").value.trim(),
+      currency: $("source-edit-currency").value.trim(),
+      cadence: $("source-edit-cadence").value,
+      vat_mode: $("source-edit-vat").value,
+    };
+    const changed = Object.entries(edits).some(
+      ([field, value]) => String(source[field] ?? "") !== String(value));
+    if (changed) {
+      await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
+      Object.assign(source, edits);
+    }
     if (wanted !== Boolean(source.active)) {
       await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",
                  {active: wanted});
       source.active = wanted;
+    }
+    if (changed || wanted !== Boolean(source.active)) {
       renderSites();
       renderSourceManager();
     }
@@ -443,6 +486,97 @@ async function saveSourceEditor() {
   } catch (error) {
     button.disabled = false;
     out("source-edit-result", `${icon("close", "sm")} ${esc(error.message)}`,
+        "err icon-label");
+  }
+}
+
+async function renameSourceKey() {
+  const source = state.sources.find((i) => i.source_key === state.editingSourceKey);
+  if (!source) return;
+  const wanted = $("source-edit-key").value.trim();
+  if (!wanted || wanted === source.source_key) {
+    out("source-edit-rename-result", "That is already its key.", "muted");
+    return;
+  }
+  // Confirmed by TYPING, not a click: this moves every stored row, and a
+  // habitual OK is not a decision.
+  const typed = window.prompt(
+    `Rename ${source.source_key} to ${wanted}?
+
+` +
+    "Every product, price, saved layout, schedule and log entry moves with " +
+    "the name, in one step.\n\nType the NEW key to confirm:");
+  if (typed !== wanted) {
+    out("source-edit-rename-result", "Not renamed.", "muted");
+    return;
+  }
+  out("source-edit-rename-result", "Moving the data…", "muted");
+  try {
+    const result = await post(
+      "/api/sources/" + encodeURIComponent(source.source_key) + "/rename",
+      {source_key: wanted});
+    const moved = Object.entries(result.moved || {})
+      .map(([table, n]) => `${n} in ${table}`).join(", ");
+    state.editingSourceKey = wanted;
+    await loadSources();
+    const renamed = state.sources.find((i) => i.source_key === wanted);
+    if (renamed) renderSourceEditor(renamed);
+    out("source-edit-rename-result",
+        `${icon("check", "sm")} Renamed. ${moved ? "Moved " + moved + "." : "No stored rows to move."}`,
+        "ok icon-label");
+  } catch (error) {
+    out("source-edit-rename-result", `${icon("close", "sm")} ${esc(error.message)}`,
+        "err icon-label");
+  }
+}
+
+async function stopTrackingSource() {
+  const source = state.sources.find((i) => i.source_key === state.editingSourceKey);
+  if (!source) return;
+  if (!window.confirm(
+      `Stop tracking ${source.source_key}?
+
+` +
+      "It comes off the crawl list. Everything it has already collected stays " +
+      "— you can still read its prices and history.")) return;
+  out("source-edit-danger-result", "Removing…", "muted");
+  try {
+    await del("/api/sources/" + encodeURIComponent(source.source_key));
+    await loadSources();
+    showView("sources");
+  } catch (error) {
+    out("source-edit-danger-result", `${icon("close", "sm")} ${esc(error.message)}`,
+        "err icon-label");
+  }
+}
+
+async function wipeSourceData() {
+  const source = state.sources.find((i) => i.source_key === state.editingSourceKey);
+  if (!source) return;
+  // Typed, like the rename and for the same reason: this one cannot be
+  // undone except from the backup it takes on the way.
+  const typed = window.prompt(
+    `Erase every row ${source.source_key} has collected?
+
+` +
+    "The source itself stays, so the next run starts clean. A backup is taken " +
+    "first.\n\nType ERASE to confirm:");
+  if (typed !== "ERASE") {
+    out("source-edit-danger-result", "Nothing was erased.", "muted");
+    return;
+  }
+  out("source-edit-danger-result", "Erasing (taking a backup first)…", "muted");
+  try {
+    const result = await post(
+      "/api/sources/" + encodeURIComponent(source.source_key) + "/wipe", {confirm: true});
+    await loadSources();
+    const same = state.sources.find((i) => i.source_key === source.source_key);
+    if (same) renderSourceEditor(same);
+    out("source-edit-danger-result",
+        `${icon("check", "sm")} ${esc(result.detail || "Erased.")} The source is still registered.`,
+        "ok icon-label");
+  } catch (error) {
+    out("source-edit-danger-result", `${icon("close", "sm")} ${esc(error.message)}`,
         "err icon-label");
   }
 }
@@ -1260,6 +1394,10 @@ async function probe() {
     $("f-cadence").value = s.cadence || "daily";
     $("f-kind").value = s.kind || "product_prices";
     $("f-scope").value = s.scope || "census";
+    // The probe suggests a MarketLens key. Re-spell it for the chosen system:
+    // a lower_snake catalogue would otherwise be handed an UPPER_SNAKE key and
+    // reject it at save time, after the form looked filled in correctly.
+    applyAddSystem();
     $("f-fetcher").value = s.fetcher || "http";
     $("add-form").classList.remove("hidden");
 
@@ -1272,16 +1410,92 @@ async function probe() {
   } finally { btn.disabled = false; btn.textContent = "Test site"; }
 }
 
+// ---- which system a new site belongs to -------------------------------------
+// MarketLens and General are two systems with two databases, not two modes of
+// one. MarketLens understands products, offers, prices and the history of every
+// change; General is the generic extractor with its own catalogue of sites,
+// datasets and fields. A site is registered in one of them, and nothing here
+// converts one into the other afterwards — so the choice is asked before the
+// form is filled, and the form follows the answer.
+//
+// They do not even spell a key the same way: MarketLens keys are UPPER_SNAKE
+// (manifest.SourceEntry), General keys are lower_snake (catalog_models
+// .KEY_PATTERN). Validating one against the other would reject a correct key
+// with a message about the wrong system.
+const SYSTEMS = {
+  store: {
+    label: "Add site",
+    keyPattern: /^[A-Z][A-Z0-9_]{2,63}$/,
+    keyHint: "UPPER_SNAKE_CASE, 3–64 characters.",
+    keyError: "Use UPPER_SNAKE_CASE, 3–64 characters, starting with a letter.",
+    normalizeKey: (v) => v.trim().toUpperCase(),
+    note: "Prices, offers and the full history of every change. Written to the " +
+          "MarketLens database.",
+  },
+  general: {
+    label: "Add to General",
+    keyPattern: /^[a-z][a-z0-9_]{1,63}$/,
+    keyHint: "lower_snake_case, 2–64 characters.",
+    keyError: "Use lower_snake_case, 2–64 characters, starting with a letter.",
+    normalizeKey: (v) => v.trim().toLowerCase(),
+    note: "Registered in the General catalogue as a draft. Its datasets and " +
+          "fields are described after registering, and none of the price " +
+          "settings below apply — General does not read prices.",
+  },
+};
+
+function addSystem() {
+  const picked = document.querySelector("input[name='add-system']:checked");
+  return SYSTEMS[picked ? picked.value : "store"] ? picked.value : "store";
+}
+
+function applyAddSystem() {
+  const which = addSystem();
+  const spec = SYSTEMS[which];
+  const price = which === "store";
+  $("add-system-note").textContent = spec.note;
+  const intro = $("add-price-intro");
+  if (intro) intro.classList.toggle("hidden", !price);
+  ["add-price-only", "add-name-ar-row"].forEach((id) => {
+    const el = $(id); if (el) el.classList.toggle("hidden", !price);
+  });
+  $("add-btn").textContent = spec.label;
+  $("err-key").textContent = spec.keyHint;
+  $("err-key").className = "hint muted";
+  // Re-spell a key that was prefilled for the other system rather than leave a
+  // value the form is about to reject.
+  const key = $("f-key");
+  if (key.value.trim()) key.value = spec.normalizeKey(key.value);
+}
+
+async function addGeneralSite(key) {
+  const payload = {
+    site_key: key,
+    display_name: $("f-name").value.trim(),
+    base_url: $("url").value.trim(),
+    lifecycle: "draft",
+  };
+  const btn = $("add-btn"); btn.disabled = true; btn.textContent = "Adding…";
+  try {
+    const r = await post("/api/general/catalog/sites", payload);
+    out("add-out", `${icon("check", "sm")} Added ${esc(r.site_key)} to General. ` +
+      `Describe its datasets in the General workspace — the price list here ` +
+      `does not track it.`, "ok icon-label");
+    $("url").value = ""; $("add-form").classList.add("hidden");
+  } catch (e) {
+    out("add-out", `${icon("close", "sm")} ${esc(e.message)}`, "err icon-label");
+  } finally { btn.disabled = false; btn.textContent = SYSTEMS[addSystem()].label; }
+}
+
 async function addSite() {
-  const key = $("f-key").value.trim().toUpperCase();
+  const spec = SYSTEMS[addSystem()];
+  const key = spec.normalizeKey($("f-key").value);
   fieldError("err-key", ""); fieldError("err-name", "");
-  if (!/^[A-Z][A-Z0-9_]{2,63}$/.test(key)) {
-    fieldError("err-key", "Use UPPER_SNAKE_CASE, 3–64 characters, starting with a letter.");
-    return;
-  }
+  if (!spec.keyPattern.test(key)) { fieldError("err-key", spec.keyError); return; }
   if (!$("f-name").value.trim()) {
     fieldError("err-name", "An English display name is required."); return;
   }
+  if (addSystem() === "general") return addGeneralSite(key);
   const payload = {
     source_key: key, source_name: $("f-name").value.trim(),
     source_name_ar: $("f-name-ar").value.trim(),
@@ -1307,7 +1521,7 @@ async function addSite() {
     $("url").value = ""; $("add-form").classList.add("hidden");
   } catch (e) {
     out("add-out", `${icon("close", "sm")} ${esc(e.message)}`, "err icon-label");
-  } finally { btn.disabled = false; btn.textContent = "Add site"; }
+  } finally { btn.disabled = false; btn.textContent = SYSTEMS[addSystem()].label; }
 }
 
 // ---- current tab ------------------------------------------------------------
@@ -1596,6 +1810,9 @@ async function init() {
     event.preventDefault();
     await saveSourceEditor();
   });
+  $("source-edit-rename").addEventListener("click", renameSourceKey);
+  $("source-edit-remove").addEventListener("click", stopTrackingSource);
+  $("source-edit-wipe").addEventListener("click", wipeSourceData);
   $("select-all").addEventListener("click", () => {
     // What is VISIBLE, not what exists: with a search term typed, taking the
     // whole catalogue left the count contradicting the list on screen.
@@ -1610,6 +1827,10 @@ async function init() {
     e.target.setAttribute("aria-expanded", String(!open));
   });
   $("add-btn").addEventListener("click", addSite);
+  document.querySelectorAll("input[name='add-system']").forEach((radio) => {
+    radio.addEventListener("change", applyAddSystem);
+  });
+  applyAddSystem();
   $("check").addEventListener("click", probe);
   $("cur-use").addEventListener("click", () => {
     showSourceDetail($("cur-url").textContent.trim());

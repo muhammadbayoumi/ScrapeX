@@ -250,15 +250,39 @@
               <use href="icons/material-icons.svg#shopping-cart"></use>
             </svg>
             <span class="source-choice-copy">
-              <span class="source-choice-title">Add Site — price tracking</span>
-              <span class="source-choice-description">Register a product site and keep
-                its price history.</span>
+              <span class="source-choice-title">Add Site</span>
+              <span class="source-choice-description">Register a site and start
+                collecting from it.</span>
             </span>
           </label>
           <div class="source-choice-panel">
             <div class="source-choice-panel-inner">
       <div id="source-detail">
-      <p class="hint">A tracked site keeps every price it ever reported. Everything
+
+      <!-- WHICH SYSTEM. They are genuinely two: a store goes to MarketLens,
+           which understands prices, offers and history; General is the generic
+           extractor with its own catalogue of sites, datasets and fields, and
+           its own database. Asked FIRST because the answer decides which form
+           the owner fills and which database the site is written to — there is
+           no converting one into the other afterwards. -->
+      <fieldset class="fieldset" id="add-system">
+        <legend>What kind of site is this?</legend>
+        <label class="check">
+          <input type="radio" name="add-system" value="store" checked>
+          <span><strong>Store — track prices</strong>
+            <span class="hint muted">Products, prices and the history of every
+              change. This is MarketLens, the system you are working in.</span></span>
+        </label>
+        <label class="check">
+          <input type="radio" name="add-system" value="general">
+          <span><strong>General — extract anything else</strong>
+            <span class="hint muted">Any page whose data is not a price list.
+              Kept in the General database with its own datasets and fields.</span></span>
+        </label>
+        <div id="add-system-note" class="hint muted"></div>
+      </fieldset>
+
+      <p class="hint" id="add-price-intro">A tracked site keeps every price it ever reported. Everything
         below is detected, not assumed — change anything that looks wrong before
         saving.</p>
 
@@ -283,7 +307,7 @@
           <input id="f-name" dir="ltr" aria-describedby="err-name">
           <div id="err-name" class="err hint" role="alert"></div>
         </div>
-        <div class="fieldset">
+        <div class="fieldset" id="add-name-ar-row">
           <label for="f-name-ar">Arabic name</label>
           <input id="f-name-ar" dir="auto" aria-describedby="hint-name-ar">
           <div id="hint-name-ar" class="hint">Optional — only if the site
@@ -294,6 +318,7 @@
           <input id="f-key" class="tech" aria-describedby="err-key">
           <div id="err-key" class="hint muted">UPPER_SNAKE_CASE, 3–64 characters.</div>
         </div>
+        <div id="add-price-only" class="stack">
         <div class="two">
           <div class="fieldset"><label for="f-kind">Extraction type</label>
             <select id="f-kind">
@@ -386,6 +411,7 @@
               <span>Ignore query strings when comparing URLs</span></label>
           </div>
         </div>
+        </div><!-- /add-price-only -->
 
         <div id="sample" class="hidden">
           <h2 class="flush">Discovered sample</h2>
@@ -500,12 +526,72 @@
         </div>
         <dl class="source-edit-facts">
           <div><dt>Domain</dt><dd id="source-edit-domain"></dd></div>
-          <div><dt>Display name</dt><dd id="source-edit-name" dir="auto"></dd></div>
-          <div><dt>Arabic name</dt><dd id="source-edit-name-ar" dir="auto"></dd></div>
-          <div><dt>Source key</dt><dd><code id="source-edit-key"></code></dd></div>
           <div><dt>Connector</dt><dd><code id="source-edit-family"></code></dd></div>
-          <div><dt>Base URL</dt><dd id="source-edit-url" class="tech"></dd></div>
+          <div><dt>Holds</dt><dd id="source-edit-holds">—</dd></div>
         </dl>
+
+        <!-- Editable, because the owner asked to change a registered source
+             rather than delete and re-add it. Everything here is a manifest
+             field; the source_key has its own section below because changing
+             it moves data, not just a label. -->
+        <div class="stack mt-2">
+          <div class="fieldset">
+            <label for="source-edit-name">Display name (English)</label>
+            <input id="source-edit-name" dir="ltr">
+          </div>
+          <div class="fieldset">
+            <label for="source-edit-name-ar">Arabic name</label>
+            <input id="source-edit-name-ar" dir="auto">
+          </div>
+          <div class="fieldset">
+            <label for="source-edit-url">Base URL</label>
+            <input id="source-edit-url" class="tech" dir="ltr">
+          </div>
+          <div class="two">
+            <div class="fieldset"><label for="source-edit-currency">Currency</label>
+              <input id="source-edit-currency" class="tech"></div>
+            <div class="fieldset"><label for="source-edit-cadence">Schedule</label>
+              <select id="source-edit-cadence">
+                <option value="manual">Manual only</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select></div>
+          </div>
+          <div class="fieldset">
+            <label for="source-edit-vat">VAT</label>
+            <select id="source-edit-vat">
+              <option value="incl">Prices include VAT</option>
+              <option value="excl">Prices exclude VAT</option>
+            </select>
+          </div>
+          <p class="hint muted">Comments you wrote inside this source's block in
+            sources.yaml are replaced when you save here. Comments elsewhere in
+            the file are untouched.</p>
+        </div>
+      </section>
+
+      <!-- The source key is NOT an ordinary field: every stored row joins on
+           it, so changing it moves data rather than renaming a label. Its own
+           section, with its own button, so it cannot be changed by accident
+           while editing a display name. -->
+      <section class="card" aria-labelledby="source-edit-key-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="source-edit-key-heading">Source key</h2>
+            <p>The name every stored row is filed under.</p>
+          </div>
+        </div>
+        <div class="fieldset">
+          <label for="source-edit-key">Key</label>
+          <input id="source-edit-key" class="tech" dir="ltr">
+          <div class="hint muted">UPPER_SNAKE_CASE. Renaming moves every row,
+            saved layout, schedule and log entry with it, in one step.</div>
+        </div>
+        <div class="source-edit-actions">
+          <button id="source-edit-rename" type="button" class="ghost">Rename and move the data</button>
+          <span id="source-edit-rename-result" class="hint" role="status" aria-live="polite"></span>
+        </div>
       </section>
 
       <form id="source-edit-form" class="card source-edit-form">
@@ -529,6 +615,36 @@
           <span id="source-edit-result" class="hint" role="status" aria-live="polite"></span>
         </div>
       </form>
+
+      <!-- TWO actions, never one. The owner's ruling: stopping a source and
+           erasing its data are different things with different outcomes, so
+           neither can be mistaken for the other. Each says what it keeps. -->
+      <section class="card" aria-labelledby="source-edit-danger-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="source-edit-danger-heading">Remove or erase</h2>
+            <p>Two different things. Read which one you want.</p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="fieldset">
+            <strong>Stop tracking this source</strong>
+            <p class="hint">Takes it off the crawl list. Every row it has already
+              collected stays — the prices, the history and the crawl log are a
+              record of what the shop published, and removing the entry does not
+              undo that.</p>
+            <button id="source-edit-remove" type="button" class="ghost">Stop tracking</button>
+          </div>
+          <div class="fieldset">
+            <strong>Erase its collected data</strong>
+            <p class="hint">Deletes every row this source ever ingested and KEEPS
+              the source itself, so the next run starts clean. A backup is taken
+              first, always. <span id="source-edit-wipe-scope"></span></p>
+            <button id="source-edit-wipe" type="button" class="ghost danger">Erase data</button>
+          </div>
+          <span id="source-edit-danger-result" class="hint" role="status" aria-live="polite"></span>
+        </div>
+      </section>
     </section>
 
     <!-- ========================= APPEARANCE ========================= -->

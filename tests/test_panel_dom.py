@@ -645,8 +645,10 @@ def test_edit_source_stays_inside_the_extension(open_panel):
 
     assert page.is_visible("#view-source-edit")
     assert text_of(page, "#source-edit-domain") == "a.co"
-    assert text_of(page, "#source-edit-name") == "A"
-    assert text_of(page, "#source-edit-key") == "SHORT"
+    # The facts became editable fields when the owner asked to change a source
+    # from the panel, so they carry a value rather than text now.
+    assert page.input_value("#source-edit-name") == "A"
+    assert page.input_value("#source-edit-key") == "SHORT"
     assert page.is_checked("#source-edit-active")
     assert page.get_attribute(SOURCES_TAB, "aria-current") == "page"
     assert page.evaluate("() => window.__opened") == []
@@ -964,3 +966,93 @@ def test_each_native_failure_is_named_rather_than_blamed_on_the_install():
     # Starting an engine is not a ping and may not be judged by a ping's budget.
     assert "START_TIMEOUT_MS = 60000" in transport
     assert "sendNative({ command: \"START_ENGINE\" }, START_TIMEOUT_MS)" in transport
+
+
+# ---- adding a site: which SYSTEM it goes to ----------------------------------
+# MarketLens and General are two systems with two databases. The panel asks
+# before the form is filled, because nothing converts one into the other
+# afterwards, and the two do not even spell a key the same way.
+
+def _open_add_form(page):
+    """Reach the filled-in Add Site form the way a person does: pick Add Site,
+    type a URL, test it. The form is revealed only by a successful probe."""
+    page.click(SOURCE_TAB)
+    page.click('label[for="source-addsite"]')
+    page.fill("#url", "https://shop.example.com")
+    # Fired through getElementById rather than clicked. The harness inlines the
+    # icon sprite ahead of the body, so `document.getElementById("check")`
+    # returns the sprite's <symbol id="check"> - and the panel binds its Test
+    # site handler to exactly that element. A real click on the button would
+    # therefore reach no listener at all. This is an artifact of the harness,
+    # not of the panel: in the extension the sprite is an external file.
+    page.evaluate("""() => document.getElementById("check")
+        .dispatchEvent(new MouseEvent("click", {bubbles: true}))""")
+    page.wait_for_selector("#add-form:not(.hidden)")
+
+
+def test_store_is_the_default_and_the_price_settings_are_shown(open_panel):
+    page = open_panel()
+    _open_add_form(page)
+    assert page.is_checked("input[name='add-system'][value='store']")
+    assert page.is_visible("#add-price-only"), "the price settings must be visible for a shop"
+    assert page.is_visible("#add-name-ar-row")
+    assert page.text_content("#add-btn").strip() == "Add site"
+
+
+def test_choosing_general_hides_every_price_setting_rather_than_ignoring_it(open_panel):
+    """General does not read prices. Leaving VAT, currency and identity rules on
+    screen would invite the owner to fill in fields that go nowhere."""
+    page = open_panel()
+    _open_add_form(page)
+    page.click("label:has(input[name='add-system'][value='general'])")
+    assert not page.is_visible("#add-price-only")
+    assert not page.is_visible("#add-name-ar-row"),         "the General catalogue stores one display name, so an Arabic one would be dropped"
+    assert page.is_visible("#f-key") and page.is_visible("#f-name")
+    assert "General" in page.text_content("#add-btn")
+    assert "General" in page.text_content("#add-system-note")
+
+
+def test_the_key_is_respelled_for_the_system_it_is_going_to(open_panel):
+    """MarketLens keys are UPPER_SNAKE, General keys are lower_snake. The probe
+    suggests the MarketLens spelling, so a General registration would be handed
+    a key its own validator rejects — after the form looked correctly filled."""
+    page = open_panel()
+    _open_add_form(page)
+    assert page.input_value("#f-key") == "SHOP_EXAMPLE"
+    page.click("label:has(input[name='add-system'][value='general'])")
+    assert page.input_value("#f-key") == "shop_example"
+    page.click("label:has(input[name='add-system'][value='store'])")
+    assert page.input_value("#f-key") == "SHOP_EXAMPLE"
+
+
+def test_each_system_registers_against_its_own_endpoint(open_panel):
+    """The two systems have two databases; posting a General site to
+    /api/sources would file it in the price warehouse."""
+    page = open_panel()
+    _open_add_form(page)
+    page.evaluate("() => { window.__calls.length = 0; }")
+    page.click("#add-btn")
+    page.wait_for_timeout(200)
+    store_calls = page.evaluate("() => window.__calls.slice()")
+    assert any(c.startswith("/api/sources") for c in store_calls), store_calls
+
+    # A finished add closes the form and moves to Run, so the General half
+    # starts from a freshly opened form rather than a screen that is gone.
+    _open_add_form(page)
+    page.click("label:has(input[name='add-system'][value='general'])")
+    page.evaluate("() => { window.__calls.length = 0; }")
+    page.click("#add-btn")
+    page.wait_for_timeout(200)
+    general_calls = page.evaluate("() => window.__calls.slice()")
+    assert any(c.startswith("/api/general/catalog/sites") for c in general_calls), general_calls
+    assert not any(c.startswith("/api/sources") for c in general_calls),         "a General site must not be filed in the price warehouse"
+
+
+def test_a_key_in_the_wrong_spelling_is_refused_with_that_system_s_rule(open_panel):
+    page = open_panel()
+    _open_add_form(page)
+    page.click("label:has(input[name='add-system'][value='general'])")
+    page.fill("#f-key", "SHOP EXAMPLE!")
+    page.click("#add-btn")
+    page.wait_for_timeout(100)
+    assert "lower_snake_case" in page.text_content("#err-key")

@@ -13,6 +13,8 @@ still connected, which is exactly what silently came apart.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -177,3 +179,24 @@ def test_no_surface_ships_double_encoded_text():
         for bad in mojibake:
             assert bad not in text, (
                 f"{name} ships double-encoded text ({bad!r}) - it renders as garbage")
+
+
+def test_every_panel_script_actually_parses():
+    """A raw line break inside a "..." string shipped a panel that threw on load
+    and rendered nothing below the Sources list.
+
+    It survived a `node --check extension/app.js`, which exits 0 on this file
+    whatever it contains - Node treats a lone .js with import statements as
+    ambiguous and does not parse it. `--input-type=module` on stdin does parse
+    it, and that is the only spelling of the check that works here.
+    """
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not on PATH")
+    for script in sorted(EXT.glob("*.js")):
+        done = subprocess.run(
+            [node, "--input-type=module", "--check"],
+            input=script.read_bytes(), capture_output=True)
+        assert done.returncode == 0, (
+            f"{script.name} does not parse: "
+            + done.stderr.decode("utf-8", "replace")[:800])
