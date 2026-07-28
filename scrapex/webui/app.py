@@ -2144,6 +2144,7 @@ def create_app(
             "observations": r.observations, "duplicates": r.duplicates,
             "products": r.products, "variants": r.variants,
             "requests": result.requests_count, "errors": len(r.errors),
+            "notices": list(r.notices),
         }
 
     return app

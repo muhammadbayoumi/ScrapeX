@@ -351,3 +351,58 @@ def test_republishing_the_stand_in_reactivates_it_with_an_event(conn):
         "SELECT COUNT(*) FROM change_event WHERE field_key = 'variant_status' "
         "AND change_type = 'returned'").fetchone()[0]
     assert returned == 1
+
+
+# ---- notices: a normal outcome that must degrade nothing ---------------------
+
+def test_a_retired_stale_detail_does_not_degrade_the_run():
+    """The owner asked what "retired 167 superseded detail value(s)" meant. It
+    means housekeeping SUCCEEDED — and it was being reported through `errors`.
+
+    `status` reads `errors`, so a healthy crawl that tidied one stale value was
+    marked PARTIAL. Worse, on the normal refresh where no price moved, nothing
+    is appended (unchanged prices are confirmed, not appended), so observations
+    is 0 and the run was marked FAILED. And _confirm_seen only runs for a
+    SUCCESS — so that run confirmed no prices at all. On 2026-07-28 run 38
+    crawled 15,848 madar rows, was shown as failed, and left last_confirmed_at
+    stuck 1h45m behind.
+    """
+    from scrapex.ingest import IngestResult
+    from scrapex.vocab import RunStatus
+
+    message = "retired 167 superseded detail value(s) the source no longer publishes"
+
+    busy = IngestResult(source_key="MADAR", run_id=1, observations=5)
+    busy.notices.append(message)
+    assert busy.status is RunStatus.SUCCESS
+
+    # The shape that used to be reported FAILED: a refresh where every price was
+    # confirmed and none moved, so nothing was appended.
+    refresh = IngestResult(source_key="MADAR", run_id=2, observations=0, confirmed=1203)
+    refresh.notices.append(message)
+    assert refresh.status is RunStatus.SUCCESS
+
+    # And a real failure still degrades, so the fix cannot hide one.
+    broken = IngestResult(source_key="MADAR", run_id=3, observations=5)
+    broken.errors.append("row 4: header drift")
+    assert broken.status is RunStatus.PARTIAL
+
+
+def test_the_retirement_sweep_speaks_through_notices_not_errors():
+    """Keyed on the channel, not the wording: the message is free to change but
+    it must never travel where `status` and errors_count can see it."""
+    from scrapex.ingest import IngestResult, _retire_superseded_attributes
+
+    class _FakeCursor:
+        rowcount = 3
+
+    class _FakeConn:
+        def execute(self, *args):
+            return _FakeCursor()
+
+    result = IngestResult(source_key="X", run_id=1, observations=1)
+    _retire_superseded_attributes(_FakeConn(), {(1, "stock_quantity"): ["8"]}, result)
+
+    assert result.errors == []
+    assert result.contained == []
+    assert len(result.notices) == 1 and "retired 3" in result.notices[0]

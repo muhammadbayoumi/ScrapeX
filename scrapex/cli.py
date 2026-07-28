@@ -265,6 +265,8 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
         print(f"  ! {err}")
     for note in result.contained:
         print(f"  ~ {note} (contained — the run itself was not degraded)")
+    for note in result.notices:
+        print(f"  . {note}")
     if not args.keep:
         localinbox.clear(base, entry.source_key)
     return 0

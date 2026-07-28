@@ -53,8 +53,20 @@ class IngestResult:
     #               run for one of these used to gate the whole derived price
     #               layer off — 18 live offers ended up with observations but
     #               no offer_state and no price_period over a contained note.
+    #   notices   — a NORMAL outcome worth saying out loud. Nothing failed and
+    #               nothing was contained: the run did something routine that
+    #               the owner should be able to see. These degrade nothing.
+    #
+    # The third channel exists because the retirement sweep had nowhere else to
+    # speak. Its message went into `errors`, and `status` reads `errors`, so a
+    # healthy crawl that tidied one stale detail value was reported PARTIAL —
+    # or FAILED, on the normal refresh where no price moved and so nothing was
+    # appended. _confirm_seen only runs for a SUCCESS, so that run also
+    # confirmed no prices at all: on 2026-07-28 run 38 crawled 15,848 madar
+    # rows, was shown as failed, and left last_confirmed_at stuck 1h45m behind.
     errors: list[str] = field(default_factory=list)
     contained: list[str] = field(default_factory=list)
+    notices: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> RunStatus:
@@ -731,7 +743,9 @@ def _retire_superseded_attributes(conn, stated: dict, result: "IngestResult") ->
             f"AND raw_value NOT IN ({marks})",
             (product_id, code, *values)).rowcount
     if removed:
-        result.errors.append(
+        # A NOTICE, not an error: this is housekeeping that succeeded. It sat in
+        # `errors` until 2026-07-28, where it silently degraded the run.
+        result.notices.append(
             f"retired {removed} superseded detail value(s) the source no longer "
             "publishes")
 

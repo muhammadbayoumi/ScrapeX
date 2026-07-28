@@ -276,6 +276,11 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
             for note in result.ingest.contained:
                 append_log(conn, job_id, note, level=LogLevel.WARNING,
                            source_key=source_key)
+            # Notices are neither: a normal outcome the owner can see, logged at
+            # INFO so it never reads as trouble and never touches the counters.
+            for note in result.ingest.notices:
+                append_log(conn, job_id, note, level=LogLevel.INFO,
+                           source_key=source_key)
             # What the connector could NOT collect belongs in this log too. The
             # CLI printed these warnings; here they were dropped, so the run
             # that lost NATURAL_GAS entirely — 47 country pages publishing no
