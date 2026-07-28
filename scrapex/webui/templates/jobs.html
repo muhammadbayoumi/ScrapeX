@@ -24,8 +24,7 @@
           <span class="job-card-label">Job</span>
           <code>{{ j.job_ref }}</code>
           <span data-cell="status" class="badge {% if j.status == 'completed' %}ok
-            {% elif j.status in ('failed', 'cancelled', 'completed_with_errors',
-                                 'partially_completed') %}off{% endif %}">
+            {% elif j.status in UNCLEAN_JOB_STATUSES %}off{% endif %}">
             {{ j.status.replace("_", " ") }}</span>
         </div>
         <a class="icon-label" href="/logs?job_ref={{ j.job_ref }}">
@@ -89,8 +88,9 @@
 <script>
 // Keep live job cards current from the existing aggregate endpoint.
 (() => {
-  const TERMINAL = new Set(["completed", "completed_with_errors",
-                            "partially_completed", "failed", "cancelled"]);
+  // From vocab.py, not re-typed: this Set is the polling stop-condition, so a
+  // status missing from it polls a finished job forever.
+  const TERMINAL = new Set({{ TERMINAL_JOB_STATUSES|tojson }});
   const rows = [...document.querySelectorAll("[data-job-ref]")];
   if (!rows.length || !rows.some((row) => !TERMINAL.has(row.dataset.status))) return;
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");

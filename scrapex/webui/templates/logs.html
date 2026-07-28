@@ -46,8 +46,8 @@
 (() => {
   const jobRef = {{ job_ref|tojson }};
   if (!jobRef) return;
-  const TERMINAL = new Set(["completed", "completed_with_errors",
-                            "partially_completed", "failed", "cancelled"]);
+  // From vocab.py, not re-typed (see jobs.html).
+  const TERMINAL = new Set({{ TERMINAL_JOB_STATUSES|tojson }});
   const tbody = document.querySelector("table tbody");
   if (!tbody) return;
   const paint = (entries) => {

@@ -285,3 +285,34 @@ def test_flat_view_returns_matched_latest_observation(conn):
     assert len(rows) == 1
     assert rows[0]["effective_price"] == 172.50
     assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 2
+
+
+def test_no_template_re_types_the_job_status_vocabulary():
+    """vocab.py says every status string is defined there "and only here", and
+    string literals of these values elsewhere are a review defect. Four copies
+    had accumulated anyway - two JS Sets used as polling stop-conditions and two
+    Jinja tuples - so a status added to JobStatus and forgotten in one copy made
+    that page poll a finished job every eight seconds forever while painting the
+    wrong badge. That already happened once, when completed_with_errors was
+    introduced in migration 0020, and nothing failed to announce it.
+
+    The DB CHECK constraints mirror the same vocabulary and ARE guarded (see the
+    JobStatus round-trip test above); this extends the guard to the templates.
+    """
+    from pathlib import Path
+
+    from scrapex.vocab import TERMINAL_JOB_STATUSES
+
+    templates = Path(__file__).resolve().parent.parent / "scrapex" / "webui" / "templates"
+    values = sorted(status.value for status in TERMINAL_JOB_STATUSES)
+    offenders = []
+    for path in sorted(templates.glob("*.html")):
+        text = path.read_text(encoding="utf-8")
+        # One status name may legitimately appear alone (a single-case branch).
+        # A COLLECTION of them re-typed by hand is the drift risk.
+        hits = [value for value in values if f'"{value}"' in text or f"'{value}'" in text]
+        if len(hits) > 1:
+            offenders.append(f"{path.name}: {hits}")
+    assert not offenders, (
+        "these templates re-type the job-status vocabulary instead of reading it "
+        f"from vocab.py, so it can drift out of step: {offenders}")

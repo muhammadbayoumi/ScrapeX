@@ -79,8 +79,9 @@ from ..reports import (
 )
 from ..scheduler import list_schedules, upsert_schedule, zone_exists
 from ..vocab import (
-    Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher,
-    JobControl, MissedRunPolicy, OverlapPolicy, RunMode, ScheduleFrequency, VatMode,
+    TERMINAL_JOB_STATUSES, Authority, Cadence, ConnectorFamily, ExtractKind,
+    ExtractScope, Fetcher, JobControl, JobStatus, MissedRunPolicy, OverlapPolicy,
+    RunMode, ScheduleFrequency, VatMode,
 )
 from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
@@ -167,6 +168,16 @@ TEMPLATES.env.filters["source_domain"] = _source_domain
 # The sidebar renders from the shared UI contract (scrapex/ui_manifest.py) —
 # the same module /api/ui serves to the panel, so the surfaces cannot drift.
 TEMPLATES.env.globals["workspace_navigation_groups"] = workspace_navigation_groups
+# The job-status vocabulary reaches the templates from vocab.py rather than being
+# re-typed in each of them. Four hand-copied sets had accumulated - two JS Sets
+# used as polling stop-conditions and two Jinja tuples - and a status added to
+# JobStatus but forgotten in one copy makes that page poll a finished job every
+# eight seconds forever while painting the wrong badge. Exactly that happened
+# once already, when completed_with_errors was introduced (migration 0020).
+TEMPLATES.env.globals["TERMINAL_JOB_STATUSES"] = sorted(
+    status.value for status in TERMINAL_JOB_STATUSES)
+TEMPLATES.env.globals["UNCLEAN_JOB_STATUSES"] = sorted(
+    status.value for status in TERMINAL_JOB_STATUSES if status is not JobStatus.COMPLETED)
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")

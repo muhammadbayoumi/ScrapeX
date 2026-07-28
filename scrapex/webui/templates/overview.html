@@ -8,8 +8,7 @@
 {% block content %}
 {% set healthy_sources = totals.configured - totals.attention %}
 {% set latest_job = recent_jobs[0] if recent_jobs else none %}
-{% set latest_job_failed = latest_job and latest_job.status in
-  ("failed", "cancelled", "completed_with_errors", "partially_completed") %}
+{% set latest_job_failed = latest_job and latest_job.status in UNCLEAN_JOB_STATUSES %}
 <div class="overview-page">
   <header class="overview-hero">
     <div class="overview-hero-copy">
