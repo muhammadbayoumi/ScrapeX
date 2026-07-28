@@ -605,6 +605,13 @@ def _observation_values(r: dict, observed_at: str) -> dict:
         "price_before": _to_float(regular),
         "price_sale": _to_float(sale),
         "price": _to_float(effective),
+        # NOT in record_hash or the price key: it is a DIFFERENT customer's
+        # price, so hashing it would split one product's timeline on a number
+        # the owner is never charged — and record_hash is the frozen
+        # cross-engine dedupe key. The cost is stated in migration 0052: a run
+        # where ONLY this moved appends no observation.
+        "price_trade": _to_float(parse_money(r.get("price_trade", ""))
+                                 if r.get("price_trade") else None),
         "currency": r["currency"],
         "tax_included": vat,
         "availability": availability,
@@ -1051,11 +1058,12 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
     cur = conn.execute(
         "INSERT OR IGNORE INTO price_observation "
         "(offer_id, observed_at, business_date, price_before, price_sale, price, "
-        " currency, tax_included, availability, stock_quantity, run_id, record_hash, "
-        "price_hash, price_fields, provenance, official_source_name, official_source_link) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'observed',?,?)",
+        " price_trade, currency, tax_included, availability, stock_quantity, run_id, "
+        "record_hash, price_hash, price_fields, provenance, official_source_name, "
+        "official_source_link) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'observed',?,?)",
         (offer_id, v["observed_at"], v["business_date"], v["price_before"], v["price_sale"],
-         v["price"], v["currency"], v["tax_included"], v["availability"],
+         v["price"], v["price_trade"], v["currency"], v["tax_included"], v["availability"],
          v["stock_quantity"], run_id, v["record_hash"],
          v["price_hash"], v["price_fields"],
          r.get("official_source_name", ""), r.get("official_source_link", "")),

@@ -173,39 +173,33 @@ def test_a_flash_price_at_or_above_list_is_charged_but_is_not_called_a_discount(
     assert _prices({"price": 100, "flash_sale_price": 100}) == ("100", "", "100")
 
 
-def test_the_trade_price_is_kept_as_enrichment_named_for_what_it_is():
-    """Nothing is lost by refusing to charge it: specail_price still travels,
-    labelled as the customer-type-2 price rather than as a discount."""
-    from scrapex.connectors.custom_json import enrichment_rows
-    from scrapex.rowspec import ENRICHMENT
+def test_the_trade_price_rides_the_price_row_and_is_never_charged():
+    """Nothing is lost by refusing to charge it: specail_price still travels —
+    as a PRICE, in its own column, since the owner ruled «عمود سعر فى الجدول لا
+    تفصيلة» (0052). It was an enrichment row until then, which put a number in
+    the attributes bag that no other shop's bag would ever match.
 
-    builder = RowBuilder(ENRICHMENT)
-    view = RowView(ENRICHMENT, builder.header)
-    rows = [view.as_dict(r) for r in enrichment_rows(
-        builder, {"product_id": 235, "price": 1252.5, "specail_price": 939.38},
-        "https://www.sikaegshop.com")]
+    What must not change is that it is never mistaken for what the public pays.
+    """
+    fetcher = _StubFetcher(payloads=list_page(
+        {**PRODUCT_252, "price": 1252.5, "specail_price": 939.38}))
+    table, view = fetch_rows(fetcher)
+    wire = view.as_dict(table.rows[0])
 
-    trade = [r for r in rows if r["attribute_code"] == "trade_tier_price"]
-    assert len(trade) == 1
-    assert trade[0]["raw_value"] == "939.38"
-    assert "customer type 2" in trade[0]["attribute_label"]
-    # and it is never mistaken for a price row
-    assert not any(r["attribute_code"] in ("price_sale", "price") for r in rows)
+    assert wire["price_trade"] == "939.38"
+    # the public price is untouched by it
+    assert wire["price"] == "1252.5"
+    assert wire["price_sale"] == ""
 
 
-def test_a_product_without_a_trade_price_emits_no_trade_row():
-    """9 of the 87 live products carry no specail_price at all — they must not
-    acquire an empty one."""
-    from scrapex.connectors.custom_json import enrichment_rows
-    from scrapex.rowspec import ENRICHMENT
+def test_a_product_without_a_trade_price_states_nothing_rather_than_zero():
+    """9 of the 87 live products carry no specail_price at all. Absent is not
+    zero, and a 0.00 trade price would read as a giveaway."""
+    fetcher = _StubFetcher(payloads=list_page(
+        {**PRODUCT_252, "price": 1252.5, "specail_price": None}))
+    table, view = fetch_rows(fetcher)
 
-    builder = RowBuilder(ENRICHMENT)
-    view = RowView(ENRICHMENT, builder.header)
-    rows = [view.as_dict(r) for r in enrichment_rows(
-        builder, {"product_id": 285, "price": 1600, "specail_price": None},
-        "https://www.sikaegshop.com")]
-
-    assert not any(r["attribute_code"] == "trade_tier_price" for r in rows)
+    assert view.as_dict(table.rows[0])["price_trade"] == ""
 
 
 def test_zero_or_null_discount_means_no_sale():
@@ -430,7 +424,8 @@ def test_a_product_repeated_across_a_page_edge_is_asked_for_ONCE():
     tables = crawl(fetcher, make_entry(enrichment=True))
 
     assert fetcher.detail_urls == ["https://www.sikaegshop.com/api/products/252"]
-    assert len(details_of(tables)) == 32
+    # 31 since 0052 took the trade tier out to a price column of its own.
+    assert len(details_of(tables)) == 31
 
 
 def test_the_technical_specifications_arrive_in_BOTH_languages():
@@ -809,10 +804,11 @@ def test_every_detail_row_survives_the_warehouse_none_overwrites_another():
         conn.close()
 
     assert not result.errors and not result.rejected_out_of_scope
-    # 252 in full (32); 253's detail answered {} so it falls back to its list
-    # entry — 2 descriptions, 2 keyword lines, weight, stock, trade tier and
-    # the one primary image the list publishes.
-    assert produced == 32 + 8
+    # 252 in full (31); 253's detail answered {} so it falls back to its list
+    # entry — 2 descriptions, 2 keyword lines, weight, stock and the one
+    # primary image the list publishes. Both lost their trade-tier row in 0052,
+    # which moved that number to a price column of its own.
+    assert produced == 31 + 7
     assert stored == produced        # nothing collapsed on the way in
 
 
@@ -838,9 +834,8 @@ def test_the_enrichment_table_carries_the_whole_record_for_one_product():
         "Description": 4,        # short ar/en + full ar/en
         "Specifications": 11,    # weight + 5 attrs x2
         # This store's handling of the product, not the product itself (0046).
-        # The trade tier sits here as a holding place only: the owner ruled it
-        # becomes a real price column, being a price rather than a property.
-        "Store": 4,              # sku, stock_quantity, min_stock_level, trade tier
+        # The trade tier left for a price column of its own in 0052.
+        "Store": 3,              # sku, stock_quantity, min_stock_level
         "Site metadata": 2,      # keywords ar/en — sika's search terms for ITS site
         "Media": 9,              # every photograph
         "Attachments": 2,        # both datasheets

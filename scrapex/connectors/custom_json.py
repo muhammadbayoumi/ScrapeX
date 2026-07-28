@@ -460,6 +460,9 @@ class CustomJsonConnector:
             **brand_pair(str(product.get("brand") or "")), product_link=url,
             country_code_alpha2=region, currency=currency, tax_included=vat,
             price_before=regular, price_sale=sale, price=effective,
+            # The trade tier rides the PRICE row now (0052). Empty string
+            # rather than "0" when the shop states none: absent is not zero.
+            price_trade=_num(product.get("specail_price")) or "",
             availability=_availability(product),
             unit=unit, basis_quantity=basis,
         )
@@ -534,13 +537,10 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
         numeric=product.get("min_stock_level"), group=DetailGroup.STORE)
     add("max_stock_level", "Maximum stock level", product.get("max_stock_level"),
         numeric=product.get("max_stock_level"), group=DetailGroup.STORE)
-    # `specail_price` is the TRADE-TIER price: the storefront charges it only to
-    # a logged-in customer whose customerTypeId is 2 (rule + live proof in
-    # _prices). Recorded as exactly that fact — a price for a group we are not —
-    # so nothing is lost and no row calls it a public discount.
-    add("trade_tier_price", "Trade-tier price (customer type 2 only)",
-        product.get("specail_price"), numeric=product.get("specail_price"),
-        group=DetailGroup.STORE)
+    # `specail_price` — the TRADE-TIER price — is emitted on the PRICE row, not
+    # here (0052, owner's ruling: «عمود سعر فى الجدول لا تفصيلة»). It is a
+    # price, so it belongs beside the prices; filing it as a detail put a
+    # number in the attributes bag that no other shop's bag would ever match.
 
     # The site's own "Technical Specifications" card (colour, consumption rate,
     # product attributes, suitable applications...), detail-only, in BOTH

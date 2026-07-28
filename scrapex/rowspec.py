@@ -74,6 +74,11 @@ PRODUCT_PRICES = RowSpec(
         "price_before",
         "price_sale",
         "price",
+        # The amount a shop charges a customer GROUP we are not — sikaegshop's
+        # customerTypeId 2. A price, so it sits with the prices; additive,
+        # because one shop in nine publishes one and a payload without it is
+        # complete, not broken.
+        "price_trade",
         "availability",          # in_stock | out_of_stock | unknown
         "stock_quantity",
         # --- added 2026-07-20, owner-approved contract widening --------------
@@ -130,7 +135,7 @@ PRODUCT_PRICES = RowSpec(
     # no error. Non-additive constrains the HEADER, not the value, and every
     # connector builds its header from this spec, so it costs nothing today
     # and buys a second refusal independent of the version number.
-    additive=frozenset({"unit", "basis_quantity", "lang",
+    additive=frozenset({"unit", "basis_quantity", "lang", "price_trade",
                         "category_external_id",
                         "variant", "variant_axes", "variant_url", "parent_sku"}),
 )

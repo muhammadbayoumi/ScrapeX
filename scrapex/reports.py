@@ -424,7 +424,9 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         # Appended LAST: every index above is positional. The tax rules are
         # keyed on the name the SOURCE publishes, whichever language that is.
-        "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar) "
+        "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar), "
+        # Appended LAST again (0052), for the same reason.
+        "       po.price_trade "
         f"{_LATEST_PER_OFFER}{filt} {_order_by(sort, direction)} LIMIT ? OFFSET ?",
         [*base_params, limit, offset],
     ).fetchall()
@@ -432,6 +434,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
     shaped = [
         {"product_name_ar": r[0], "variant_ar": r[1], "sku": r[2], "price": r[3],
          "price_before": r[4], "price_sale": r[5], "currency": r[6], "availability": r[7],
+         "price_trade": r[18],
          "tax_included": bool(r[8]), "price_changed_on": r[9], "product_link": r[10],
          "curation": r[11], "country_code_alpha2": r[12] or "", "country": region_name(r[12]),
          # When the price was last CONFIRMED, which is not when it last changed.
@@ -543,6 +546,7 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # Derived from currency_rate (the publisher's own implied rates) so 128
     # currencies can be RANKED in one column. Approximate by nature and
     # labelled so.
+    ("price_trade", "Trade price"),
     ("price_usd", "Price (USD est.)"),
     # The price that held immediately before the current one, and the move
     # between them. Different questions from the DISCOUNT (which is within
@@ -746,6 +750,14 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         # Rows exist but every price identical — a range of one number.
         present.discard("price_previous")
         present.discard("price_change")
+    if not conn.execute(
+            "SELECT COUNT(po.price_trade) "
+            f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()[0]:
+        # Eight shops in nine quote no trade tier, and a column of blanks is
+        # not information. Asked of THIS source, never globally — the USD
+        # est. leak was a global gate lighting a column up everywhere
+        # because one source had the data.
+        present.discard("price_trade")
     rate_known = conn.execute(
         "SELECT COUNT(*) FROM currency_rate").fetchone()[0]
     if not rate_known:
@@ -768,6 +780,7 @@ _EXPORT_SELECT: dict[str, str] = {
     "price": "po.price",
     "price_before": "po.price_before",
     "price_sale": "po.price_sale",
+    "price_trade": "po.price_trade",
     "currency": "po.currency",
     "availability": "po.availability",
     "tax_included": "po.tax_included",
@@ -862,6 +875,7 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     ("unit", lambda r, s: price_unit(r["unit_code"], r["basis_quantity"])),
     ("price_before", lambda r, s: _or_blank(r["price_before"])),
     ("price_sale", lambda r, s: _or_blank(r["price_sale"])),
+    ("price_trade", lambda r, s: _or_blank(r.get("price_trade"))),
     # The discount as TWO numbers, not one sentence. "-84.67 (-7.0%)" in a
     # single cell cannot be summed, sorted or filtered by a spreadsheet, which
     # is the only reason the column exists (owner's report). Both stay empty
@@ -1477,7 +1491,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "       sp.source_product_id, "
         # Appended LAST, obeying the rule the comment above states: adding it
         # beside sp.brand shifted observations/min/max/previous by one.
-        "       sp.brand_ar "
+        "       sp.brand_ar, po.price_trade "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1515,7 +1529,10 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "official_source": r[16] or "",
                "official_source_link": r[17] or "",
                "brand": r[18] or "",
-               "brand_ar": r[-1] or "",
+               # Explicit index, not r[-1]: a column appended after it would
+               # silently steal the position, which 0052 nearly did.
+               "brand_ar": r[34] or "",
+               "price_trade": r[35],
                # The full stated path when the source classifies in levels;
                # the flat labels otherwise. The per-level keys split the path
                # so any layer can be sorted or grouped on its own.
