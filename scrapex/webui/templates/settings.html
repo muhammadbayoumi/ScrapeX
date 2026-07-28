@@ -203,6 +203,19 @@
           puts more load on sites you do not own.</span>
       </div>
       <div class="field">
+        <label class="row" for="crawl_honour_delay">
+          <input id="crawl_honour_delay" type="checkbox"
+                 {% if settings.crawl_honour_delay.value not in ("0", "false") %}checked{% endif %}>
+          <span>Honour each site's own crawl delay</span>
+        </label>
+        <span class="hint">A site can publish a <code>Crawl-delay</code> in its
+          robots.txt asking for a pause between requests — elburoj.com asks for
+          10 seconds, which over its 6,720 products is about 25 hours. Unticking
+          this uses your interval above instead. The run says which pace it used
+          either way, and going faster than a site asked can get you rate-limited
+          or blocked.</span>
+      </div>
+      <div class="field">
         <label for="crawl_timeout_s">Request timeout in seconds</label>
         <input id="crawl_timeout_s" type="number" min="1" value="{{ settings.crawl_timeout_s.value }}">
       </div>
@@ -215,7 +228,7 @@
           browser to get past a block is not what this field is for.</span>
       </div>
       <div class="row">
-        <button data-save="crawl_min_interval_s,crawl_timeout_s,crawl_user_agent">Save</button>
+        <button data-save="crawl_min_interval_s,crawl_honour_delay,crawl_timeout_s,crawl_user_agent">Save</button>
         <span class="hint out" role="status" aria-live="polite"></span>
       </div>
     </form>
@@ -406,7 +419,12 @@ document.querySelectorAll("button[data-save]").forEach((button) => {
     try {
       const body = {};
       for (const id of button.dataset.save.split(",")) {
-        body[id] = document.getElementById(id).value;
+        const field = document.getElementById(id);
+        // A checkbox's .value is the literal "on" whether it is ticked or not,
+        // so reading .value would have saved "on" for both states and the
+        // switch would have looked broken rather than been broken.
+        body[id] = field.type === "checkbox" ? (field.checked ? "1" : "0")
+                                             : field.value;
       }
       const res = await fetch("/api/settings", {
         method: "POST", headers: {"Content-Type": "application/json"},

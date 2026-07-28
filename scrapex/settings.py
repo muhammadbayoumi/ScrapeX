@@ -66,6 +66,13 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     Setting("crawl_min_interval_s", "1.0", label="Minimum seconds between requests"),
     Setting("crawl_timeout_s", "30", label="Request timeout in seconds"),
     Setting("crawl_user_agent", "", label="User agent"),
+    # The owner's choice, per his ask (2026-07-28): may a crawl ignore the
+    # Crawl-delay a site publishes? Ships as "1" — HONOUR — because a crawler
+    # that goes faster than a site asked, by default, gets its owner blocked
+    # without him ever choosing it. Turning it off is a decision he makes and
+    # the run records, so a fast crawl and a polite one stay distinguishable
+    # afterwards.
+    Setting("crawl_honour_delay", "1", label="Honour each site's crawl delay"),
     # UI-only preference shared by the local Workspace and Chrome side panel.
     # It lives with the engine because browser localStorage is origin-scoped:
     # a chrome-extension:// page and http://127.0.0.1 cannot read each other.

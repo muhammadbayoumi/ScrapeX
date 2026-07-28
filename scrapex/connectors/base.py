@@ -168,6 +168,7 @@ class HttpFetcher:
         timeout_s: float = 30.0,
         max_attempts: int = 3,
         jitter: float = 0.3,          # +/- 30% around the base interval
+        honour_crawl_delay: bool = True,
     ) -> None:
         self._client = httpx.Client(
             headers={"User-Agent": user_agent},
@@ -185,6 +186,13 @@ class HttpFetcher:
         # robots.txt at all; a promise in a comment is not a mechanism.
         self._robots: dict[str, object] = {}
         self._user_agent = user_agent
+        # The owner's per-run choice (2026-07-28). Default TRUE: a crawler that
+        # ignores a site's asked-for pace by default is one that gets the owner
+        # blocked without him choosing it. Turning it off is his to make and is
+        # recorded in the run's warnings either way, so a job's log always says
+        # which pace it ran at — otherwise a fast crawl and a polite one look
+        # identical afterwards.
+        self._honour_crawl_delay = honour_crawl_delay
         self.robots_warnings: list[str] = []
         # url -> {"ETag": ..., "Last-Modified": ...}, replayed on the next visit.
         self._validators: dict[str, dict[str, str]] = {}
@@ -256,11 +264,24 @@ class HttpFetcher:
         if parser is not None:
             delay = parser.crawl_delay(self._user_agent) or parser.crawl_delay("*")
             if delay and float(delay) > self._min_interval_s:
-                # The site's own asked-for pace WINS over our default. Slowing
-                # down is never the wrong direction.
-                self._min_interval_s = float(delay)
-                self.robots_warnings.append(
-                    f"{host}: robots.txt asks for a {delay}s crawl delay — honoured")
+                if self._honour_crawl_delay:
+                    # The site's own asked-for pace WINS over our default.
+                    # Slowing down is never the wrong direction.
+                    self._min_interval_s = float(delay)
+                    self.robots_warnings.append(
+                        f"{host}: robots.txt asks for a {delay}s crawl delay — honoured")
+                else:
+                    # The owner turned it off for this run. Said OUT LOUD and
+                    # with the number, because the whole point of the switch is
+                    # that he knows what he is overriding — and because a run
+                    # that was fast for this reason must be distinguishable
+                    # afterwards from one that was fast because the site asked
+                    # for nothing.
+                    self.robots_warnings.append(
+                        f"{host}: robots.txt asks for a {delay}s crawl delay — "
+                        f"IGNORED at your request; this run paces itself at "
+                        f"{self._min_interval_s}s and may be rate-limited or "
+                        "blocked by the site")
         return parser
 
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
@@ -452,9 +473,14 @@ def resolve_fetcher(source: SourceEntry,
     # default, so a setting the owner changed would appear not to work at all.
     interval = chosen.get("min_interval_s")
     timeout = chosen.get("timeout_s")
+    # Absent means HONOUR. A missing setting must never be read as permission
+    # to ignore a site's asked-for pace — the safe reading of silence is the
+    # polite one.
+    honour = chosen.get("honour_crawl_delay")
     return HttpFetcher(
         user_agent=source.user_agent or chosen.get("user_agent") or DEFAULT_USER_AGENT,
         min_interval_s=1.0 if interval is None else float(interval),
         timeout_s=30.0 if timeout is None else float(timeout),
+        honour_crawl_delay=True if honour is None else bool(honour),
     )
 

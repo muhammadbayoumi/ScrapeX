@@ -700,7 +700,13 @@ class JobRunner:
         from .connectors.base import HttpFetcher
 
         try:
-            batch = rates.refresh_if_due(conn, HttpFetcher())
+            # The write lock, like every other write. Without it this blocked a
+            # job the owner queued: the refresh runs on the worker's FIRST pass,
+            # and this warehouse prices in 93 currencies (GPP's global fuel
+            # data), so it held the database through 93 fetch-and-store cycles
+            # while /api/jobs was trying to insert a row.
+            with dbmod.write_lock(self._db_path):
+                batch = rates.refresh_if_due(conn, HttpFetcher())
         except Exception as exc:  # noqa: BLE001 — never fatal to the loop
             traceback.print_exc(file=sys.stderr)
             self._record_failure(conn, exc)

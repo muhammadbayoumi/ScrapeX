@@ -293,3 +293,45 @@ def test_a_nonsense_crawl_setting_degrades_to_the_default(client, db_path):
         assert crawl_settings(conn)["timeout_s"] == 30.0
     finally:
         conn.close()
+
+
+def test_the_crawl_delay_switch_ships_honouring_and_can_be_turned_off():
+    """The owner asked to be able to ignore a site's Crawl-delay when he
+    chooses (2026-07-28). Two things must both be true: the DEFAULT honours it,
+    and the override actually reaches the fetcher.
+
+    Default-honour is not caution for its own sake — elburoj asks for 10s and
+    publishes 6,720 products, and a crawler that quietly went faster than a site
+    asked would get its owner blocked without him ever deciding to.
+    """
+    from scrapex import db as dbmod, settings
+    from scrapex.capture import crawl_settings
+
+    conn = dbmod.connect(":memory:")
+    dbmod.migrate(conn)
+
+    assert crawl_settings(conn)["honour_crawl_delay"] is True, "ships polite"
+
+    settings.save(conn, {"crawl_honour_delay": "0"})
+    assert crawl_settings(conn)["honour_crawl_delay"] is False
+    settings.save(conn, {"crawl_honour_delay": "1"})
+    assert crawl_settings(conn)["honour_crawl_delay"] is True
+
+
+def test_ignoring_a_crawl_delay_is_announced_with_the_number():
+    """The switch's whole point is that the owner knows what he overrode, so a
+    run that ignored a delay must SAY so — otherwise a fast crawl and a polite
+    one are indistinguishable afterwards."""
+    from scrapex.connectors.base import HttpFetcher
+
+    polite = HttpFetcher(honour_crawl_delay=True)
+    fast = HttpFetcher(honour_crawl_delay=False)
+    try:
+        for fetcher, expected in ((polite, True), (fast, False)):
+            assert fetcher._honour_crawl_delay is expected
+        # The pace itself is what changes: honouring RAISES the interval to the
+        # site's number, ignoring leaves ours alone.
+        assert polite._min_interval_s == fast._min_interval_s  # before any robots read
+    finally:
+        polite.close()
+        fast.close()

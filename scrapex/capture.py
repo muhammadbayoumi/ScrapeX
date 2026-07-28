@@ -65,6 +65,16 @@ def crawl_settings(conn: sqlite3.Connection) -> dict:
         "min_interval_s": number("crawl_min_interval_s", 1.0),
         "timeout_s": number("crawl_timeout_s", 30.0),
         "user_agent": settings.get(conn, "crawl_user_agent"),
+        # The owner's per-run choice (2026-07-28): may this crawl ignore the
+        # Crawl-delay a site asks for? Absent reads as HONOUR — silence must
+        # never be permission to go faster than a site asked.
+        #
+        # It is his call to make: elburoj asks for 10 seconds and publishes
+        # 6,720 products, which is a 25-hour crawl. But the consequence is real,
+        # so the run SAYS which pace it used either way rather than leaving a
+        # fast crawl and a polite one indistinguishable afterwards.
+        "honour_crawl_delay": settings.get(conn, "crawl_honour_delay") not in
+                              ("0", "false", "False", False),
     }
 
 
