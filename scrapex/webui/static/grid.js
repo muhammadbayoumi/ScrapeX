@@ -2024,10 +2024,13 @@
       body.appendChild(category);
     }
 
+    const currentPrice = row.price !== undefined && row.price !== null && row.price !== ""
+      ? row.price
+      : row.effective_price;
     const price = el("div", "selected-product-price");
     price.appendChild(el("span", "selected-product-price-label", "Current price"));
     const value = el("strong", "");
-    value.appendChild(money(row.price, row.currency || offer.currency,
+    value.appendChild(money(currentPrice, row.currency || offer.currency,
                             offer.unit || row.unit));
     price.appendChild(value);
     body.appendChild(price);

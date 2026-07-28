@@ -295,8 +295,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-36: the non-language vocabulary sweep (0051) reached the
     # grid — every price and tax key moved, and the record arrow became
     # `product_link`, the same key the export already used.
-    assert '/static/grid.js?v=design-system-36' in page
-    assert '/static/grid-theme.css?v=design-system-36' in page
+    # design-system-37: contain both inspector button groups, inset the gallery
+    # scrollbar, and bridge the live server's legacy effective_price field.
+    assert '/static/grid.js?v=design-system-37' in page
+    assert '/static/grid-theme.css?v=design-system-37' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -792,6 +794,8 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert '"Attachments"' in script
     assert "Previous product image" in script and "Next product image" in script
     assert "if (images.length) box.appendChild(media)" in script
+    assert "row.price !== undefined" in script
+    assert ": row.effective_price" in script
     assert '"Compare selected"' not in script and '"Side by side"' not in script
     assert 'materialIconElement(item.icon, "record-inspector-nav-icon")' in script
     assert 'materialIconElement("open-in-new", "selected-product-site-icon")' in script
@@ -821,10 +825,13 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".selected-product-card" in css
     assert ".selected-product-image-nav:active" in css
     assert "transform: translateY(-50%)" in css
+    assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
+    assert ".selected-product-thumbs::-webkit-scrollbar-button" in css
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
     assert ".record-inspector-nav-primary" in css
     assert ".record-inspector-nav-sections" in css
+    assert ".record-inspector-nav-primary,\n.record-inspector-nav-sections" in css
     assert ".record-inspector-nav-divider" in css
     assert "grid-template-columns: minmax(0, 24rem) minmax(0, 0fr)" in css
     assert "transform: translateX(-.75rem)" in css
