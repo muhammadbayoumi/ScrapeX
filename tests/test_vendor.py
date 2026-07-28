@@ -290,8 +290,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # kept their chip rendering when 0046 refiled them out of Description, and
     # the inspector rail gained a button per group — Store and Site metadata
     # had none, so both were being stacked under Specifications.
+    # design-system-29 (CSS): short descriptions scroll inside their own box,
+    # and specification lists scroll below headings that remain fixed.
     assert '/static/grid.js?v=design-system-28' in page
-    assert '/static/grid-theme.css?v=design-system-28' in page
+    assert '/static/grid-theme.css?v=design-system-29' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -810,6 +812,9 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-prose-list" in css
     assert ".record-detail-subsection" in css and ".record-keyword" in css
     assert ".record-product-workspace .selected-product-card" in css
+    assert ".selected-product-description::-webkit-scrollbar" in css
+    assert ".record-inspector-content:has(.spec-list)" in css
+    assert ".record-card:has(> .spec-list) > .spec-list" in css
     assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 

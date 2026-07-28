@@ -1164,14 +1164,28 @@
 }
 .selected-product-site-icon { width: 1rem; height: 1rem; }
 .selected-product-description {
-  display: -webkit-box;
-  min-height: 2.6em;
+  min-height: 3.25rem;
+  max-height: 6.75rem;
   margin: 0;
-  overflow: hidden;
+  padding: var(--sp-2) var(--sp-3);
+  overflow-y: auto;
   color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.selected-product-description::-webkit-scrollbar {
+  width: .4rem;
+}
+.selected-product-description::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--radius-pill);
 }
 .selected-product-category {
   display: inline-flex;
@@ -1352,6 +1366,51 @@
 }
 .record-inspector-content .record-card-prose {
   padding: var(--sp-5);
+}
+
+/* Keep the inspector context and specification headings fixed. Only the long
+   definition lists scroll, including when a source provides several distinct
+   specification groups. */
+.record-inspector-content:has(.spec-list) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.record-inspector-content:has(.spec-list) .record-inspector-content-head {
+  flex: 0 0 auto;
+}
+.record-inspector-content .record-cards:has(.spec-list) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.record-inspector-content .record-card:has(> .spec-list) {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+.record-inspector-content .record-card:has(> .spec-list) .record-card-head {
+  flex: 0 0 auto;
+}
+.record-inspector-content .record-card:has(> .spec-list) > .spec-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-inline-end: var(--sp-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.record-inspector-content .record-card:has(> .spec-list) > .spec-list::-webkit-scrollbar {
+  width: .45rem;
+}
+.record-inspector-content .record-card:has(> .spec-list) > .spec-list::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--radius-pill);
 }
 
 .record-cards {
