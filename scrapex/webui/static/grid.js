@@ -1994,10 +1994,10 @@
     const categoryLevel = deepestCategoryLevel(row);
     if (categoryLevel) {
       const category = el("div", "selected-product-category");
-      category.appendChild(materialIconElement("account-tree", "selected-product-category-icon"));
-      const label = el("span", "", categoryLevel);
-      label.dir = "auto";
-      category.appendChild(label);
+      category.appendChild(el("span", "selected-product-category-label", "Category"));
+      const value = el("strong", "selected-product-category-value", categoryLevel);
+      value.dir = "auto";
+      category.appendChild(value);
       body.appendChild(category);
     }
 
@@ -2147,23 +2147,29 @@
       inspectorNav.textContent = "";
       inspectorContent.textContent = "";
 
+      const modeGroup = el("div",
+        "record-inspector-nav-group record-inspector-nav-primary");
       INSPECTOR_VIEWS.forEach((item) => {
-        inspectorNav.appendChild(inspectorNavButton(
+        modeGroup.appendChild(inspectorNavButton(
           item,
           item.key === selectedView.key,
           () => renderInspector(item.key),
           "record-inspector-nav-mode"));
       });
+      inspectorNav.appendChild(modeGroup);
       const divider = el("span", "record-inspector-nav-divider");
       divider.setAttribute("role", "separator");
       inspectorNav.appendChild(divider);
+      const sectionGroup = el("div",
+        "record-inspector-nav-group record-inspector-nav-sections");
       populated.forEach((item) => {
-        inspectorNav.appendChild(inspectorNavButton(
+        sectionGroup.appendChild(inspectorNavButton(
           item,
           item.key === activeKey,
           () => renderInspector(selectedView.key, item.key),
           "record-inspector-nav-section"));
       });
+      inspectorNav.appendChild(sectionGroup);
 
       if (!activeKey) {
         inspectorContent.appendChild(el("div", "record-inspector-empty",
