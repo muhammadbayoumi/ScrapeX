@@ -1309,11 +1309,31 @@
   color: var(--text);
   background: var(--control-hover);
 }
+.record-inspector-nav button:disabled,
+.record-inspector-nav button:disabled:hover {
+  color: var(--text-subtle);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: .42;
+  cursor: not-allowed;
+}
 .record-inspector-nav button.is-active {
   color: var(--accent-ink);
   background: var(--surface);
   border-color: var(--line-strong);
   box-shadow: var(--shadow-xs);
+}
+.record-inspector-nav button.record-inspector-nav-mode.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.record-inspector-nav-divider {
+  width: 2rem;
+  height: 1px;
+  flex: 0 0 1px;
+  margin-block: var(--sp-1);
+  background: var(--line);
 }
 .record-inspector-nav-icon {
   width: 1.15rem;
@@ -1326,22 +1346,6 @@
   min-height: 0;
   padding: var(--sp-5);
   overflow: hidden;
-}
-.record-inspector-content-head {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  gap: var(--sp-1);
-  margin-bottom: var(--sp-5);
-}
-.record-inspector-content-head h3 {
-  margin: 0;
-  font-size: var(--fs-lg);
-}
-.record-inspector-context {
-  margin: 0;
-  color: var(--muted);
-  font-size: var(--fs-sm);
 }
 .record-inspector-footer {
   display: flex;
@@ -1378,13 +1382,11 @@
   min-height: 0;
   grid-column: 1 / -1;
 }
-.record-inspector-content .record-card-prose {
-  padding: var(--sp-5);
-}
 
-/* One section shell for every inspector tab: context and card titles stay
-   fixed while prose, specifications, store facts, files and history scroll
-   inside the same body component. */
+/* One section shell for every inspector tab: card titles stay fixed while
+   prose, specifications, store facts, files and history scroll inside the
+   same body component. No content type overrides the shell's outer padding,
+   border or radius. */
 .record-inspector-content .record-card-head {
   flex: 0 0 auto;
 }

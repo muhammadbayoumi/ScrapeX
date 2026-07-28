@@ -2051,7 +2051,7 @@
     // Specifications; kept here so an un-recrawled source still lands somewhere
     // rather than growing a card of its own.) Media is absent on purpose: the
     // product card already owns the gallery.
-    const GROUP_SECTIONS = [
+    const DETAIL_SECTIONS = [
       {key: "description", label: "Description", icon: "description",
        groups: ["Description"]},
       {key: "specifications", label: "Specifications", icon: "tune",
@@ -2068,15 +2068,25 @@
       {key: "attachments", label: "Attachments", icon: "insert-drive-file",
        groups: ["Attachments"]},
     ];
+    const HISTORY_SECTIONS = [
+      {key: "price", label: "Price history", icon: "trending-up"},
+      {key: "changes", label: "Changes", icon: "history"},
+      {key: "observations", label: "Observations", icon: "schedule"},
+    ];
     const sectionForGroup = (name) =>
-      (GROUP_SECTIONS.find((s) => s.groups.includes(name)) || {}).key
+      (DETAIL_SECTIONS.find((s) => s.groups.includes(name)) || {}).key
         || "specifications";
-    const detailSections = new Map(GROUP_SECTIONS.map((s) => [s.key, []]));
-    const historySections = new Map([
-      ["price", []],
-      ["changes", []],
-      ["observations", []],
-    ]);
+    const detailSections = new Map(DETAIL_SECTIONS.map((s) => [s.key, []]));
+    const historySections = new Map(HISTORY_SECTIONS.map((s) => [s.key, []]));
+    // One schema drives ordering, icons, availability and click behaviour for
+    // both primary views. That keeps empty groups visible but safely disabled
+    // without duplicating Details and History branches.
+    const INSPECTOR_VIEWS = [
+      {key: "details", label: "Details", icon: "view-stream",
+       definitions: DETAIL_SECTIONS, sections: detailSections},
+      {key: "history", label: "History", icon: "history",
+       definitions: HISTORY_SECTIONS, sections: historySections},
+    ];
 
     const workspace = el("div", "record-product-workspace");
     const productGrid = el("div", "selected-product-grid is-single");
@@ -2101,13 +2111,6 @@
     workspace.append(productGrid, inspector);
     panel.appendChild(workspace);
 
-    const detailDefinitions = GROUP_SECTIONS;
-    const historyDefinitions = [
-      {key: "price", label: "Price history", icon: "trending-up"},
-      {key: "changes", label: "Changes", icon: "history"},
-      {key: "observations", label: "Observations", icon: "schedule"},
-    ];
-
     function setSummaryMode(view) {
       summary.querySelectorAll("[data-inspector-view]").forEach((button) => {
         const active = workspace.classList.contains("has-inspector") &&
@@ -2118,55 +2121,67 @@
       });
     }
 
+    function inspectorNavButton(item, active, disabled, onClick, className) {
+      const button = el("button", (className || "") + (active ? " is-active" : ""));
+      button.type = "button";
+      button.title = disabled ? item.label + " — not available" : item.label;
+      button.disabled = disabled;
+      button.setAttribute("aria-label", disabled
+        ? item.label + " — not available"
+        : item.label);
+      button.setAttribute("aria-pressed", String(active));
+      button.appendChild(materialIconElement(item.icon, "record-inspector-nav-icon"));
+      if (!disabled) button.addEventListener("click", onClick);
+      return button;
+    }
+
     function renderInspector(view, requestedKey) {
-      const isHistory = view === "history";
-      const definitions = isHistory ? historyDefinitions : detailDefinitions;
-      const sections = isHistory ? historySections : detailSections;
-      // Only the sections this product actually HAS get a button. Three fixed
-      // buttons could all be shown blind; six cannot -- a product stating three
-      // facts would carry three dead buttons that answer "No ... are available".
-      // History keeps all three regardless: an empty timeline is itself a thing
-      // the owner opens the panel to check.
+      const selectedView = INSPECTOR_VIEWS.find((item) => item.key === view)
+        || INSPECTOR_VIEWS[0];
+      const definitions = selectedView.definitions;
+      const sections = selectedView.sections;
       const populated = definitions.filter((item) => sections.get(item.key).length);
-      const shown = isHistory || !populated.length ? definitions : populated;
-      const firstWithContent = shown.find((item) => sections.get(item.key).length);
-      const validRequested = shown.some((item) => item.key === requestedKey);
+      const validRequested = populated.some((item) => item.key === requestedKey);
       const activeKey = validRequested
         ? requestedKey
-        : (firstWithContent ? firstWithContent.key : shown[0].key);
-      inspector.dataset.view = view;
-      setSummaryMode(view);
+        : (populated[0] ? populated[0].key : "");
+      inspector.dataset.view = selectedView.key;
+      setSummaryMode(selectedView.key);
       inspectorNav.textContent = "";
       inspectorContent.textContent = "";
 
-      shown.forEach((item) => {
-        const button = el("button", item.key === activeKey ? "is-active" : "");
-        button.type = "button";
-        button.title = item.label;
-        button.setAttribute("aria-label", item.label);
-        button.setAttribute("aria-pressed", String(item.key === activeKey));
-        button.appendChild(materialIconElement(item.icon, "record-inspector-nav-icon"));
-        button.addEventListener("click", () => renderInspector(view, item.key));
-        inspectorNav.appendChild(button);
+      INSPECTOR_VIEWS.forEach((item) => {
+        inspectorNav.appendChild(inspectorNavButton(
+          item,
+          item.key === selectedView.key,
+          false,
+          () => renderInspector(item.key),
+          "record-inspector-nav-mode"));
+      });
+      const divider = el("span", "record-inspector-nav-divider");
+      divider.setAttribute("role", "separator");
+      inspectorNav.appendChild(divider);
+      definitions.forEach((item) => {
+        const available = Boolean(sections.get(item.key).length);
+        inspectorNav.appendChild(inspectorNavButton(
+          item,
+          item.key === activeKey,
+          !available,
+          () => renderInspector(selectedView.key, item.key),
+          "record-inspector-nav-section"));
       });
 
-      const active = definitions.find((item) => item.key === activeKey);
-      const contentHead = el("header", "record-inspector-content-head");
-      if (isHistory) contentHead.appendChild(el("h3", "", active.label));
-      contentHead.appendChild(el("p", "record-inspector-context",
-        isHistory ? "Recorded over time" : "Collected from the source"));
-      inspectorContent.appendChild(contentHead);
-      const sectionCards = sections.get(activeKey);
-      if (!sectionCards.length) {
+      if (!activeKey) {
         inspectorContent.appendChild(el("div", "record-inspector-empty",
-          "No " + active.label.toLowerCase() + " are available for this product."));
-        if (isHistory) inspectorContent.appendChild(fullRecordAction());
+          "No " + selectedView.label.toLowerCase() + " are available for this product."));
+        if (selectedView.key === "history") inspectorContent.appendChild(fullRecordAction());
         return;
       }
+      const sectionCards = sections.get(activeKey);
       const cards = el("div", "record-cards");
       sectionCards.forEach((section) => cards.appendChild(section));
       inspectorContent.appendChild(cards);
-      if (isHistory) inspectorContent.appendChild(fullRecordAction());
+      if (selectedView.key === "history") inspectorContent.appendChild(fullRecordAction());
     }
 
     function fullRecordAction() {
@@ -2215,10 +2230,10 @@
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(d);
       });
-      // Order comes from GROUP_SECTIONS, so the card order and the rail order
+      // Order comes from DETAIL_SECTIONS, so the card order and the rail order
       // cannot disagree. A group a connector invents that the table does not
       // know sorts last and lands under Specifications rather than vanishing.
-      const order = GROUP_SECTIONS.flatMap((s) => s.groups);
+      const order = DETAIL_SECTIONS.flatMap((s) => s.groups);
       const names = [...groups.keys()].sort((a, b) => {
         const rankA = order.indexOf(a), rankB = order.indexOf(b);
         return (rankA < 0 ? order.length : rankA) - (rankB < 0 ? order.length : rankB);
@@ -2300,11 +2315,9 @@
 
     // The change-only timeline: the first price and each REAL move.
     const periods = data.periods || [];
-    const timeline = card("Price changes", "record-card-wide");
-    const timelineBody = cardBody(timeline);
-    if (!periods.length) {
-      timelineBody.appendChild(el("p", "muted", "No derived history yet for this record."));
-    } else {
+    if (periods.length) {
+      const timeline = card("Price changes", "record-card-wide");
+      const timelineBody = cardBody(timeline);
       timelineBody.appendChild(miniTable(
         ["From", "Until", "Price", "Why it opened"],
         periods.map((p) => [
@@ -2313,15 +2326,13 @@
           money(p.effective_price, p.currency, offer.unit),
           (p.opened_because || "").replace(/_/g, " "),
         ])));
+      historySections.get("price").push(timeline);
     }
-    historySections.get("price").push(timeline);
 
     const changes = data.changes || [];
-    const feed = card("", "record-card-wide");
-    const feedBody = cardBody(feed);
-    if (!changes.length) {
-      feedBody.appendChild(el("p", "muted", "No change events recorded yet."));
-    } else {
+    if (changes.length) {
+      const feed = card("Changes", "record-card-wide");
+      const feedBody = cardBody(feed);
       feedBody.appendChild(miniTable(
         ["Detected", "What", "Previous", "New", "Change"],
         changes.map((c) => {
@@ -2335,15 +2346,13 @@
             c.display_change || "—",
           ];
         })));
+      historySections.get("changes").push(feed);
     }
-    historySections.get("changes").push(feed);
 
     const observations = data.observations || [];
-    const recorded = card("What was recorded", "record-card-wide");
-    const recordedBody = cardBody(recorded);
-    if (!observations.length) {
-      recordedBody.appendChild(el("p", "muted", "No observations recorded yet."));
-    } else {
+    if (observations.length) {
+      const recorded = card("What was recorded", "record-card-wide");
+      const recordedBody = cardBody(recorded);
       recordedBody.appendChild(miniTable(
         ["Date", "Price", "Where it came from"],
         observations.map((o) => [
@@ -2351,8 +2360,8 @@
           money(o.effective_price, o.currency, offer.unit),
           o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
         ])));
+      historySections.get("observations").push(recorded);
     }
-    historySections.get("observations").push(recorded);
 
     if (mode === "details" || mode === "history") toggleInspector(mode);
 
