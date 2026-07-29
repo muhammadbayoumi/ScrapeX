@@ -112,6 +112,63 @@ def test_empty_values_are_skipped_not_stored_as_blanks():
     assert [r["raw_value"] for r in rows] == ["kept"]
 
 
+# ---- the pictures ------------------------------------------------------------
+
+CAPTURE = json.loads((FX / "live" / "samehgabriel_wc_store_products_2026-07-20.json")
+                     .read_text(encoding="utf-8"))
+
+
+def _pictures(product) -> list[dict]:
+    return [r for r in shaped(product) if r["attribute_group"] == "Media"]
+
+
+def test_the_pictures_the_shop_publishes_are_captured():
+    """Six pictures in the payload, six Media rows out — primary first."""
+    pictures = _pictures(LIVE[0])
+
+    assert len(pictures) == len(LIVE[0]["images"]) == 6
+    assert [p["attribute_code"] for p in pictures] == [
+        "image", "image_1", "image_2", "image_3", "image_4", "image_5"]
+    assert [p["value_url"] for p in pictures] == [i["src"] for i in LIVE[0]["images"]]
+    assert pictures[0]["attribute_label"] == "Image"
+
+
+def test_the_shops_own_alt_is_the_value_and_a_blank_one_falls_back():
+    pictures = _pictures(LIVE[0])
+
+    assert LIVE[0]["images"][0]["alt"] == ""
+    assert pictures[0]["raw_value"] == LIVE[0]["images"][0]["name"] == "3.0"
+    assert pictures[1]["raw_value"] == LIVE[0]["images"][1]["alt"]
+    assert pictures[1]["raw_value"].startswith("يتم تجميع")
+
+
+def test_an_arabic_caption_does_not_make_the_picture_an_arabic_fact():
+    pictures = _pictures(LIVE[0])
+
+    assert all(not p["attribute_code"].endswith("_ar") for p in pictures)
+    assert all(p["lang"] == "" for p in pictures)
+
+
+def test_a_picture_the_shop_states_no_src_for_is_skipped_not_guessed():
+    rows = shaped({"id": "1", "images": [
+        {"id": 1, "src": "", "name": "orphan"},
+        {"id": 2, "src": "https://x.test/real.png", "name": "real"}]})
+
+    assert [r["value_url"] for r in rows] == ["https://x.test/real.png"]
+    assert [r["attribute_code"] for r in rows] == ["image_1"]
+
+
+def test_every_product_in_the_live_capture_publishes_pictures_and_keeps_them():
+    """The captured census is 18 products and 64 published pictures."""
+    published = sum(len(p.get("images") or []) for p in CAPTURE)
+    captured = sum(len(_pictures(p)) for p in CAPTURE)
+
+    assert len(CAPTURE) == 18
+    assert all(p.get("images") for p in CAPTURE)
+    assert published == 64
+    assert captured == published
+
+
 # ---- the landing: details reach the warehouse and the offer API --------------
 
 def _woo_entry():
@@ -575,7 +632,8 @@ def test_an_arabic_only_shop_marks_the_language_of_its_content():
     import re
     arabic = re.compile(r"[\u0600-\u06FF]")
     for row in rows:
-        if arabic.search(row["raw_value"]) and row["attribute_code"] == "weight":
+        base = row["attribute_code"].removesuffix("_ar")
+        if base == "weight" or base.startswith("image"):
             continue        # language-neutral, see below
         if arabic.search(row["raw_value"]):
             assert row["attribute_code"].endswith("_ar"), row["attribute_code"]

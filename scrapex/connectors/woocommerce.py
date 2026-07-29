@@ -415,6 +415,30 @@ def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
         add("brand", "Brand", brand.get("name"), url=brand.get("link") or "",
             group=DetailGroup.MORE_INFORMATION)
 
+    # The product's pictures, primary first. The Store API states them in
+    # `images` and the shop's own gallery order IS that list's order, so the
+    # position is the site's ranking, not a number we chose — the same
+    # convention magento and salla already file under (`image`, then `image_1`…).
+    #
+    # This costs no extra request: the `images` list is in the same payload the
+    # price came from. The panel uses raw_value as the image alternative text,
+    # so the shop's `alt` wins, followed by its attachment name and filename.
+    # A picture without `src` is skipped rather than pointed at a guessed URL.
+    #
+    # Files are language-neutral by the carve-out in `add`: an Arabic caption
+    # does not make the picture itself an Arabic-only fact.
+    for position, image in enumerate(product.get("images") or []):
+        if not isinstance(image, dict):
+            continue
+        href = str(image.get("src") or "").strip()
+        if not href:
+            continue
+        add(f"image_{position}" if position else "image", "Image",
+            str(image.get("alt") or "").strip()
+            or str(image.get("name") or "").strip()
+            or href.rsplit("/", 1)[-1],
+            url=href, group=DetailGroup.MEDIA)
+
     # Measurements arrive both raw and formatted. The raw number is kept as the
     # numeric value and the formatted string as what the site actually printed,
     # so nothing has to guess the unit back out of "2.0 kg".
