@@ -582,3 +582,73 @@ def test_two_countries_at_the_same_price_never_fold_into_one_row():
     folded = fold_variant_rows(rows)
     assert len(folded) == 2
     assert {r["country_code_alpha2"] for r in folded} == {"EG", "SA"}
+
+
+# ---- which publisher's rate the USD column uses, 2026-07-29 ---------------
+
+def _kinded_rate(conn, currency, per_usd, as_of, source_key, kind):
+    conn.execute(
+        "INSERT INTO currency_rate "
+        "  (currency, per_usd, as_of, source_key, source_kind) "
+        "VALUES (?,?,?,?,?)", (currency, per_usd, as_of, source_key, kind))
+
+
+def _usd_rate_shown(conn):
+    """(per_usd, source) the grid actually converted with, for the EGP row."""
+    from scrapex.reports import table_payload
+
+    grid = table_payload(conn, "ELSEWEDYSHOP")
+    row = next(r for r in grid["rows"] if r["currency"] == "EGP")
+    return row["usd_rate"], row["usd_rate_source"]
+
+
+def test_a_shops_rate_never_outranks_a_market_rate(conn):
+    """A storefront crawled five minutes ago must not convert the whole
+    warehouse. advancedcastle publishes a SAR/EGP ratio of 13.46 while pricing
+    its own Egyptian pages at 11.768 — a number like that is evidence about
+    that shop, never a market rate (0054), and recency alone would hand it the
+    USD column of every source that prices in EGP."""
+    _kinded_rate(conn, "EGP", 50.10, "2026-07-29T06:00:00Z",
+                 "google_finance", "provider")
+    _kinded_rate(conn, "EGP", 61.99, "2026-07-29T23:59:00Z",   # newer, and a shop
+                 "ADVANCEDCASTLE", "shop")
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(),
+        one_row(external_product_id="1002", external_variant_id="5002",
+                external_sku="SKU2", currency="USD"),
+    ])])
+
+    rate, source = _usd_rate_shown(conn)
+    assert float(rate) == 50.10, "the newer SHOP rate won the USD column"
+    assert source == "google_finance"
+
+
+def test_a_shops_rate_is_still_used_where_no_market_rate_exists(conn):
+    """The fallback is the point, not a leak: publisher-implied rates are what
+    rank the 128 currencies GPP prices in, and the row carries the source and
+    date so a reader sees which kind they got."""
+    _kinded_rate(conn, "EGP", 51.25, "2026-07-13", "GPP_ENERGY", "shop")
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(),
+        one_row(external_product_id="1002", external_variant_id="5002",
+                external_sku="SKU2", currency="USD"),
+    ])])
+
+    rate, source = _usd_rate_shown(conn)
+    assert float(rate) == 51.25 and source == "GPP_ENERGY"
+
+
+def test_the_newest_market_rate_still_wins_among_market_rates(conn):
+    """Authority first, then recency — not authority INSTEAD of recency."""
+    _kinded_rate(conn, "EGP", 49.00, "2026-07-28T12:00:00Z",
+                 "google_finance", "provider")
+    _kinded_rate(conn, "EGP", 50.75, "2026-07-29T12:00:00Z",
+                 "google_finance", "provider")
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(),
+        one_row(external_product_id="1002", external_variant_id="5002",
+                external_sku="SKU2", currency="USD"),
+    ])])
+
+    rate, _source = _usd_rate_shown(conn)
+    assert float(rate) == 50.75

@@ -774,6 +774,31 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
     return present
 
 
+# WHICH publisher's rate the USD column uses when several priced one currency.
+#
+# A MARKET rate always wins. 0054 split provider from shop precisely because "a
+# shop's rate is evidence about that shop, and must never be mistaken for a
+# market rate" — and ordering by recency alone hands the whole USD column to
+# whichever storefront happened to be crawled last. advancedcastle publishes a
+# SAR/EGP ratio of 13.46 while pricing its own Egyptian pages at 11.768; a
+# number like that must never convert some other source's prices.
+#
+# Recency alone was survivable only by accident: publisher-implied rates carry
+# a DATE ("2026-07-29") and Google Finance a full timestamp, and text sorting
+# puts the timestamp last, so the provider won without anyone arranging it. A
+# shop rate stamped with a full read time ends that luck.
+#
+# A shop's rate is still USED where no rate service published one — that
+# fallback is what ranks the 128 currencies GPP prices in — and the row carries
+# the rate's source and date beside the number, so a reader can always see
+# which kind they got (the owner's standing rule, 2026-07-26).
+#
+# No has_column branch here, unlike the WRITERS in ingest.py and rates.py: this
+# is a read, a missing column fails loudly and at once instead of silently
+# mis-ranking, and source_kind has been NOT NULL since 0054.
+_RATE_BY_AUTHORITY = ("ORDER BY (cr.source_kind = 'provider') DESC, "
+                      "cr.as_of DESC LIMIT 1")
+
 # alias -> SQL expression. The SELECT list and the accessors below are built
 # from ONE mapping, so a column can be added without counting tuple positions.
 _EXPORT_SELECT: dict[str, str] = {
@@ -832,7 +857,7 @@ _EXPORT_SELECT: dict[str, str] = {
                         "          ph4.price_observation_id DESC LIMIT 1)"),
     "per_usd": ("(SELECT cr.per_usd FROM currency_rate cr "
                  " WHERE cr.currency = po.currency "
-                 " ORDER BY cr.as_of DESC LIMIT 1)"),
+                 f" {_RATE_BY_AUTHORITY})"),
     # Not an exported column: the key the site's own filter values are joined on.
     "source_product_id": "sp.source_product_id",
 }
@@ -1680,7 +1705,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         "        LIMIT 1) AS price_previous, "
         "       (SELECT cr.per_usd FROM currency_rate cr "
         "        WHERE cr.currency = po.currency "
-        "        ORDER BY cr.as_of DESC LIMIT 1) AS per_usd, "
+        f"       {_RATE_BY_AUTHORITY}) AS per_usd, "
         "       (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa "
         "        WHERE spa.source_product_id = sp.source_product_id "
         "        AND spa.attribute_code IN ('category','category_ar')) AS category, "
@@ -1701,10 +1726,10 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # cannot travel to the grid alone.
         "       (SELECT cr.as_of FROM currency_rate cr "
         "        WHERE cr.currency = po.currency "
-        "        ORDER BY cr.as_of DESC LIMIT 1) AS usd_rate_as_of, "
+        f"       {_RATE_BY_AUTHORITY}) AS usd_rate_as_of, "
         "       (SELECT cr.source_key FROM currency_rate cr "
         "        WHERE cr.currency = po.currency "
-        "        ORDER BY cr.as_of DESC LIMIT 1) AS usd_rate_source "
+        f"       {_RATE_BY_AUTHORITY}) AS usd_rate_source "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
         (source_key, limit)).fetchall()
 
