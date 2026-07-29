@@ -8,14 +8,14 @@
    the owner is offline. See static/vendor/README.md. #}
   <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
   {# Loaded AFTER the library so the project's own table appearance wins. #}
-  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-39">
+  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-40">
   <link rel="stylesheet" href="/static/pages/data-workspace.css?v=source-ui-8">
   <script src="/static/vendor/tabulator.min.js" defer></script>
   <script src="/static/datasets-browser.js?v=source-ui-8" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-  <script src="/static/grid.js?v=design-system-39" defer></script>
+  <script src="/static/grid.js?v=design-system-40" defer></script>
 {% endblock %}
 {% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they
@@ -270,40 +270,39 @@
                 details, price history and where each figure came from.</span>
         </div>
         <div id="grid-toolbar" class="toolbar" aria-label="Export">
-          <details class="grid-export-menu">
-            <summary class="button grid-export-trigger" aria-haspopup="menu"
-                     aria-expanded="false">
+          <div class="grid-export-split" role="group" aria-label="Export data">
+            <button type="button" class="grid-export-primary" data-export="xlsx"
+                    title="Export the complete record as an Excel workbook">
               {{ icon("file-download") }}
-              <span>Export</span>
-              {{ icon("expand-more", "grid-export-chevron") }}
-            </summary>
-            <div class="grid-export-options" role="menu" aria-label="Export format">
-              <button type="button" class="grid-export-option" data-export="xlsx"
-                      role="menuitem">
-                <span class="grid-export-format">XLSX</span>
-                <span class="grid-export-option-copy">
-                  <strong>Excel workbook</strong>
-                  <small>Complete record, details, history and provenance</small>
-                </span>
-              </button>
-              <button type="button" class="grid-export-option" data-export="csv"
-                      role="menuitem">
-                <span class="grid-export-format">CSV</span>
-                <span class="grid-export-option-copy">
-                  <strong>Current table view</strong>
-                  <small>Visible columns, filters and their current order</small>
-                </span>
-              </button>
-              <button type="button" class="grid-export-option" data-export="json"
-                      role="menuitem">
-                <span class="grid-export-format">JSON</span>
-                <span class="grid-export-option-copy">
-                  <strong>Current view as JSON</strong>
-                  <small>Structured data using the visible table fields</small>
-                </span>
-              </button>
-            </div>
-          </details>
+              <span>Export Excel</span>
+            </button>
+            <details class="grid-export-menu">
+              <summary class="grid-export-trigger" aria-haspopup="menu"
+                       aria-expanded="false" aria-label="Choose another export format"
+                       title="Choose another export format">
+                {{ icon("expand-more", "grid-export-chevron") }}
+              </summary>
+              <div class="grid-export-options" role="menu" aria-label="Export format">
+                <span class="grid-export-options-title">Export current table as</span>
+                <button type="button" class="grid-export-option" data-export="csv"
+                        role="menuitem">
+                  {{ icon("description", "grid-export-option-icon") }}
+                  <span class="grid-export-option-copy">
+                    <strong>CSV table</strong>
+                    <small>.csv</small>
+                  </span>
+                </button>
+                <button type="button" class="grid-export-option" data-export="json"
+                        role="menuitem">
+                  {{ icon("insert-drive-file", "grid-export-option-icon") }}
+                  <span class="grid-export-option-copy">
+                    <strong>JSON data</strong>
+                    <small>.json</small>
+                  </span>
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
       </footer>
       <div class="dataset-run-footer" aria-label="Dataset freshness">
