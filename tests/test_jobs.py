@@ -760,3 +760,71 @@ def test_a_job_stuck_running_with_a_dead_heartbeat_does_not_fake_life(tmp_path):
     health = worker_health(conn)
     assert health["alive"] is False
     assert health["busy"] is None
+
+
+# ---- crawling several sites at once, 2026-07-29 ---------------------------
+
+def test_sources_on_different_sites_crawl_at_the_same_time(conn, tmp_path):
+    """elburoj starved nine other sources for days: 3,874 products behind a
+    10-second crawl delay, scheduled daily, listed first. Waiting on one site
+    teaches us nothing about the others."""
+    import threading
+    from scrapex import db as dbmod, settings
+    from scrapex.jobs import run_job_once
+
+    db_path = tmp_path / "parallel.db"
+    setup = dbmod.connect(db_path)
+    dbmod.migrate(setup)
+    settings.save(setup, {"crawl_parallel_sources": "3"})
+    setup.commit()
+
+    ref = create_job(setup, ["A", "B", "C"], RunMode.UPDATE)
+    setup.commit()
+
+    inside = threading.Barrier(3, timeout=10)
+    seen: list[str] = []
+
+    def capture(_conn, entry, _job_id=None, **_kw):
+        inside.wait()          # only passes if all three are in flight at once
+        seen.append(entry.source_key)
+        return _result(entry.source_key)
+
+    run_job_once(setup, ref, _FakeManifest(["A", "B", "C"]), capture=capture,
+                 connect=lambda: dbmod.connect(db_path))
+
+    assert sorted(seen) == ["A", "B", "C"]
+    assert get_job(setup, ref)["status"] == JobStatus.COMPLETED.value
+    setup.close()
+
+
+def test_two_sources_on_one_site_never_run_together(conn, tmp_path):
+    """The rule lives in the code, not in the fact that today's ten hosts are
+    distinct. masdaronline already serves advancedcastle content."""
+    from scrapex.jobs import _host_lanes
+
+    class _OneHost:
+        def get(self, key):
+            class E:
+                base_url = ("https://shop.example.com/a" if key != "OTHER"
+                            else "https://other.example.net/")
+                source_key = key
+            return E()
+
+    lanes = _host_lanes(_OneHost(), ["A", "B", "OTHER"])
+
+    assert sorted(len(lane) for lane in lanes) == [1, 2]
+    same = next(lane for lane in lanes if len(lane) == 2)
+    assert same == ["A", "B"], "one site's sources must share a lane, in order"
+
+
+def test_without_a_connection_factory_the_job_stays_sequential(conn, tmp_path):
+    """Every existing caller, and every test holding an in-memory database a
+    second thread could not reopen, must keep the behaviour it had."""
+    from scrapex import settings
+    from scrapex.jobs import _parallel_width
+
+    settings.save(conn, {"crawl_parallel_sources": "8"})
+
+    assert _parallel_width(conn, None, 5) == 1, "concurrency without a factory"
+    assert _parallel_width(conn, lambda: conn, 1) == 1, "one lane is not a race"
+    assert _parallel_width(conn, lambda: conn, 5) == 5
