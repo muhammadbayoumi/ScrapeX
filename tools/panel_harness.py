@@ -168,10 +168,18 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
     appearance_js = (EXT / "appearance.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
+    transport_js = (EXT / "transport.js").read_text(encoding="utf-8")
 
-    # Flatten the ES module: drop the import and inline engine.js's exports.
+    # Flatten the ES-module graph. engine.js imports the protocol version from
+    # transport.js, while app.js imports both modules; leaving even that
+    # transitive import in this classic inline script stops the whole panel
+    # before DOMContentLoaded. Keep the harness on the extension's real module
+    # graph instead of re-declaring any of its functions in a test-only stub.
     app_js = re.sub(r"^import .*?;$", "", app_js, flags=re.M)
+    engine_js = re.sub(r"^import .*?;$", "", engine_js, flags=re.M)
+    transport_js = re.sub(r"^import .*?;$", "", transport_js, flags=re.M)
     engine_js = re.sub(r"\bexport\s+", "", engine_js)
+    transport_js = re.sub(r"\bexport\s+", "", transport_js)
 
     tmp.mkdir(parents=True, exist_ok=True)
     page = tmp / name
@@ -186,6 +194,6 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # BEFORE the browser fires the real event, so dispatching one as well
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
-        f"<script>{engine_js}\n{app_js}</script>",
+        f"<script>{transport_js}\n{engine_js}\n{app_js}</script>",
         encoding="utf-8")
     return page
