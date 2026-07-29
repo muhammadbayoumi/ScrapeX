@@ -1095,3 +1095,124 @@ def test_a_pace_of_zero_is_refused_before_it_reaches_the_engine(open_panel):
     assert "greater than zero" in page.inner_text("#crawl-msg")
     posted = page.evaluate("window.__calls.filter(c => c.includes('/api/settings'))")
     assert not [c for c in posted if "POST" in c], "the flood reached the engine"
+
+
+# ---- kept pages: a partly crawled site can be continued, 2026-07-29 ---------
+#
+# «ازرار الخاصة بـresume للمواقع التى تم زحف جزء منها غير موجودة» — the engine
+# had journaled 871 elburoj pages and could resume from them, but the panel
+# never said they existed and offered no way to continue. The only button on
+# the row was the one that throws them away.
+
+KEPT_SITE = {"source_key": "ELBUROJ", "base_url": "https://elburoj.com",
+             "source_name": "Elburoj", "source_name_ar": "البروج",
+             "family": "salla-html", "active": False, "implemented": True,
+             "observations": 0, "products": 0,
+             "kept_pages": 871, "kept_at": "2026-07-29T09:14:30Z"}
+CLEAN_SITE = {"source_key": "MADAR", "base_url": "https://madar.example.com",
+              "source_name": "Madar", "family": "salla-html",
+              "active": True, "implemented": True,
+              "observations": 120, "products": 40,
+              "kept_pages": 0, "kept_at": None}
+
+
+def _run_tab(page):
+    page.click(RUN_TAB)
+    page.wait_for_timeout(400)
+
+
+def _writes(page, path="/api/jobs"):
+    return [w for w in page.evaluate("() => window.__writes.slice()")
+            if w["path"].startswith(path)]
+
+
+def test_a_partly_crawled_site_says_how_much_it_kept_and_offers_to_continue(open_panel):
+    """The count is the whole point: "partly crawled" with no number is not
+    something the owner can decide anything from."""
+    page = open_panel(sources=[KEPT_SITE, CLEAN_SITE])
+    _run_tab(page)
+
+    resume = page.locator('button[data-resume="ELBUROJ"]')
+    assert resume.is_visible()
+    assert "871" in resume.inner_text()
+
+    note = page.inner_text("#sites")
+    assert "871 pages kept" in note
+    assert "stopped" in note and "Jul" in note and "Invalid" not in note
+    # The difference between the two buttons is stated, not left to be guessed.
+    assert "re-fetches none of them" in note and "discards them" in note
+
+
+def test_a_site_with_nothing_kept_is_offered_no_resume(open_panel):
+    """A Resume that starts from the top would be a lie, and the row would carry
+    a control that does nothing it says."""
+    page = open_panel(sources=[KEPT_SITE, CLEAN_SITE])
+    _run_tab(page)
+
+    assert page.locator('button[data-resume="MADAR"]').count() == 0
+    assert "kept" not in text_of(page, '.srow:has(input[data-key="MADAR"])')
+
+
+def test_resume_queues_a_run_that_continues_instead_of_starting_over(open_panel):
+    page = open_panel(sources=[KEPT_SITE, CLEAN_SITE])
+    _run_tab(page)
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click('button[data-resume="ELBUROJ"]')
+    page.wait_for_timeout(300)
+
+    queued = _writes(page)
+    assert queued, page.evaluate("() => window.__writes.slice()")
+    assert queued[0]["body"] == {
+        "source_keys": ["ELBUROJ"], "resume": True, "run_mode": "initial_crawl"}
+    assert not page.js_errors
+
+
+def test_a_fresh_run_warns_before_it_throws_the_kept_pages_away(open_panel):
+    """Losing 871 pages and most of a day to a mis-click is exactly the failure
+    this feature exists to prevent."""
+    page = open_panel(sources=[KEPT_SITE, CLEAN_SITE])
+    _run_tab(page)
+    page.check('input[data-key="ELBUROJ"]')
+    asked: list[str] = []
+    page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click("#run")
+    page.wait_for_timeout(300)
+
+    assert asked, "the run started with no warning at all"
+    assert "871 pages" in asked[0] and "ELBUROJ" in asked[0]
+    assert not _writes(page), "the kept pages were discarded without a word"
+
+
+def test_the_warned_run_still_runs_when_the_owner_says_yes(open_panel):
+    """The warning is a warning, not a block — and what it starts is a plain
+    run, never a resume wearing the wrong name."""
+    page = open_panel(sources=[KEPT_SITE, CLEAN_SITE])
+    _run_tab(page)
+    page.check('input[data-key="ELBUROJ"]')
+    page.on("dialog", lambda d: d.accept())
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click("#run")
+    page.wait_for_timeout(300)
+
+    queued = _writes(page)
+    assert queued and queued[0]["body"] == {
+        "source_keys": ["ELBUROJ"], "run_mode": "initial_crawl"}
+
+
+def test_a_selection_that_keeps_nothing_is_not_nagged(open_panel):
+    """The warning must fire on the fact, not on every run."""
+    page = open_panel(sources=[KEPT_SITE, CLEAN_SITE])
+    _run_tab(page)
+    page.check('input[data-key="MADAR"]')
+    asked: list[str] = []
+    page.on("dialog", lambda d: (asked.append(d.message), d.accept()))
+
+    page.click("#run")
+    page.wait_for_timeout(300)
+
+    assert asked == []
+    assert _writes(page), "the run did not start"

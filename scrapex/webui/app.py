@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db as dbmod
+from .. import localinbox
 from .. import nativehost
 from ..capture import capture_source
 from ..changes import change_summary, changes_for_offer, recent_changes
@@ -1108,6 +1109,12 @@ def create_app(
         out = []
         for entry in app.state.manifest.sources:
             s = summaries.get(entry.source_key)
+            # Widened rather than given a route of its own: the panel already
+            # redraws every source row from THIS answer, and a second request
+            # per source would arrive after the rows were painted — the kept
+            # pages would appear a beat late, next to a Start button that was
+            # already live. One answer, one paint.
+            kept = localinbox.journal_state(localinbox.JOURNAL_DIR, entry.source_key)
             out.append({
                 "source_key": entry.source_key, "source_name": entry.source_name,
                 "source_name_ar": entry.source_name_ar,
@@ -1127,6 +1134,10 @@ def create_app(
                 "fold_variants": entry.fold_variants,
                 "observations": s.observations if s else 0,
                 "products": s.products if s else 0,
+                # An interrupted crawl's pages, still on disk. A resume skips
+                # exactly these; a fresh run deletes them (capture.py).
+                "kept_pages": kept["pages"],
+                "kept_at": kept["stopped_at"],
             })
         return {"sources": out}
 
@@ -2271,14 +2282,40 @@ def create_app(
         except ValueError:
             raise HTTPException(status_code=400, detail="run_mode must be "
                                 f"{[m.value for m in RunMode]}")
+        # RESUME: continue an interrupted crawl from the pages it already kept,
+        # instead of from the top. The worker reads `partial_source` out of the
+        # checkpoint (jobs.run_job_once) and hands capture `resume=True`, which
+        # is what turns the journal into a skip set instead of rubbish to clear.
+        # Seeding it here — rather than reviving the paused job — is deliberate:
+        # the job that filled the journal is usually gone (cancelled, or lost
+        # with the runtime) while its pages are still on disk.
+        resume = bool(body.get("resume"))
+        checkpoint = None
+        if resume:
+            if len(source_keys) != 1:
+                # One checkpoint holds one partial_source, so a two-source
+                # resume could only be honoured for one of them. Refusing beats
+                # silently starting the other from the top.
+                raise HTTPException(status_code=400,
+                                    detail="resume takes exactly one source_key")
+            kept = localinbox.journal_state(localinbox.JOURNAL_DIR, source_keys[0])
+            if not kept["pages"]:
+                # Nothing to continue. Queueing a full crawl under the word
+                # 'resume' would be the opposite of what was asked for.
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{source_keys[0]} has no kept pages to resume — "
+                           "start a run instead")
+            checkpoint = {"completed_source_keys": [], "errors": [], "succeeded": 0,
+                          "partial_source": source_keys[0]}
         conn = read_conn()
         try:
             ensure_schema(conn)
-            job_ref = create_job(conn, source_keys, run_mode)
+            job_ref = create_job(conn, source_keys, run_mode, checkpoint=checkpoint)
         finally:
             conn.close()
         return {"job_ref": job_ref, "status": "queued", "source_keys": source_keys,
-                "run_mode": run_mode.value}
+                "run_mode": run_mode.value, "resume": resume}
 
     @app.get("/api/jobs")
     def api_list_jobs(limit: int = 20, active_only: bool = False):

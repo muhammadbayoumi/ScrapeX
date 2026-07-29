@@ -18,6 +18,7 @@ import os
 import hashlib
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .payload import FunnelPayload
@@ -78,6 +79,49 @@ def list_tokens(base: Path | str, source_key: str) -> set[str]:
         return set()
     return {p.name.split(_TOKEN_SEP, 1)[0]
             for p in target.glob(f"*{_TOKEN_SEP}*.json")}
+
+
+def journal_state(base: Path | str, source_key: str) -> dict:
+    """What this source has KEPT: pages a resume would skip, and when it stopped.
+
+    The journal was already the resume checkpoint; nothing could REPORT it, so a
+    source with 871 pages on disk looked exactly like one with none and the only
+    button on offer was the one that throws them away.
+
+    `pages` counts TOKENS, not files: the token set is precisely what resume
+    hands the connector as its skip set (see `list_tokens`), and a count that
+    could disagree with it would be a number the owner cannot act on.
+
+    `stopped_at` is the newest page's mtime, not the scraped_at buried in its
+    filename. Capture writes each page the moment it arrives, so the two mark
+    the same instant, and mtime does not tie this readout to the filename
+    layout — which exists to carry the token, not to be parsed back.
+
+    A filename scan and a stat per page: no JSON is parsed, because the panel
+    asks this for every source on every refresh.
+    """
+    target = _source_dir(base, source_key)
+    if not target.is_dir():
+        return {"pages": 0, "stopped_at": None}
+    newest: dict[str, float] = {}
+    for p in target.glob(f"*{_TOKEN_SEP}*.json"):
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            # The worker clears this directory the moment an ingest succeeds,
+            # and the panel asks for this on a refresh — so the scan CAN race a
+            # job finishing. A page that vanished between the listing and the
+            # stat costs one page off a count, never the whole answer: raising
+            # here would fail /api/sources, and the panel would report the
+            # engine as unreachable because a crawl had gone WELL.
+            continue
+        token = p.name.split(_TOKEN_SEP, 1)[0]
+        newest[token] = max(newest.get(token, 0.0), mtime)
+    if not newest:
+        return {"pages": 0, "stopped_at": None}
+    stopped = datetime.fromtimestamp(max(newest.values()), timezone.utc)
+    return {"pages": len(newest),
+            "stopped_at": stopped.strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
 def clear_untokenized(base: Path | str, source_key: str) -> int:

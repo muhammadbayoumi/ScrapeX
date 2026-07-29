@@ -152,6 +152,16 @@
   .checklist label .source-identity { min-width: 0; }
   .source-row-actions { display: flex; flex: none; flex-direction: column;
                         align-items: flex-end; gap: var(--sp-1); }
+  /* Kept pages are a fact ABOUT the row, not another chip inside it: full
+     width under the site, so the count and the moment the crawl stopped are
+     read as a sentence rather than squeezed against the buttons — and so the
+     domain keeps the width it needs to say WHICH site is being offered.
+     Full-strength text (not muted) because this is the one thing on the row
+     that decides whether the next click continues the work or destroys it. */
+  .checklist .srow { flex-wrap: wrap; }
+  .source-row-kept { flex-basis: 100%; display: flex; flex-direction: column;
+                     align-items: flex-start; gap: var(--sp-2);
+                     font-size: var(--fs-xs); color: var(--text); }
   .dataset-identity-line { min-width: 0; }
   .dataset-card .source-identity { margin-bottom: var(--sp-2); }
   .sched-summary .source-identity { flex: 1; }

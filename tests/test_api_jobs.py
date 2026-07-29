@@ -72,6 +72,106 @@ def test_create_job_accepts_multiple_sources(client):
     assert r.status_code == 200 and r.json()["source_keys"] == [REAL_SOURCE, "MADAR"]
 
 
+# ---- resume: the kept pages the panel could not see or reach -----------------
+#
+# The journal has been the resume checkpoint for a while, but only a job that
+# was still PAUSED could carry it. Cancel that job — or lose the runtime — and
+# 871 fetched elburoj pages sat on disk with nothing in the product able to
+# report them, let alone continue them.
+
+
+@pytest.fixture()
+def journal(tmp_path, monkeypatch):
+    """Point the API at a throwaway journal dir, as capture and jobs use."""
+    from scrapex import localinbox
+
+    jdir = tmp_path / "job-journal"
+    monkeypatch.setattr(localinbox, "JOURNAL_DIR", jdir)
+    return jdir
+
+
+def _keep_pages(journal: Path, source_key: str, count: int) -> None:
+    """Journal `count` tokenized pages, as an interrupted crawl leaves behind."""
+    from scrapex import localinbox
+    from tests.test_ingest import make_payload, one_row
+
+    for i in range(count):
+        payload = make_payload([one_row(external_product_id=str(3000 + i))])
+        payload.source_key = source_key
+        localinbox.write_payload(journal, payload, token=f"t-{i:04d}")
+
+
+def test_sources_report_the_pages_an_interrupted_crawl_kept(client, journal):
+    """The whole complaint: nothing told the owner a source had kept anything."""
+    before = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+    assert before[REAL_SOURCE]["kept_pages"] == 0
+    assert before[REAL_SOURCE]["kept_at"] is None
+
+    _keep_pages(journal, REAL_SOURCE, 3)
+
+    after = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+    assert after[REAL_SOURCE]["kept_pages"] == 3
+    assert after[REAL_SOURCE]["kept_at"].endswith("Z")
+    assert after["MADAR"]["kept_pages"] == 0, "one source's journal leaked onto another"
+
+
+def test_a_resume_job_carries_the_journal_into_its_checkpoint(client, journal, db_path):
+    """`partial_source` is the only thing that makes the worker pass resume=True
+    to capture — without it the run clears the journal and starts from the top."""
+    _keep_pages(journal, REAL_SOURCE, 2)
+
+    body = client.post("/api/jobs",
+                       json={"source_keys": [REAL_SOURCE], "resume": True}).json()
+
+    assert body["resume"] is True
+    conn = dbmod.connect(db_path)
+    try:
+        from scrapex.jobs import get_job
+        job = get_job(conn, body["job_ref"])
+    finally:
+        conn.close()
+    assert job["checkpoint"]["partial_source"] == REAL_SOURCE
+    assert job["status"] == "queued", "resume must queue, never execute in the request"
+
+
+def test_a_plain_run_is_not_secretly_a_resume(client, journal, db_path):
+    """A run without the flag must keep starting from the top — the checkpoint
+    stays empty, so capture clears the journal as it always has."""
+    _keep_pages(journal, REAL_SOURCE, 2)
+
+    ref = client.post("/api/jobs", json={"source_keys": [REAL_SOURCE]}).json()["job_ref"]
+
+    conn = dbmod.connect(db_path)
+    try:
+        from scrapex.jobs import get_job
+        assert get_job(conn, ref)["checkpoint"] == {}
+    finally:
+        conn.close()
+
+
+def test_resume_with_nothing_kept_is_refused_rather_than_silently_restarting(
+        client, journal):
+    """Queueing a full crawl under the word 'resume' is the opposite of what was
+    asked for — and for elburoj it is eight hours of it."""
+    r = client.post("/api/jobs", json={"source_keys": [REAL_SOURCE], "resume": True})
+
+    assert r.status_code == 409
+    assert "no kept pages" in r.json()["detail"]
+    assert client.get("/api/jobs").json()["jobs"] == []   # nothing was queued
+
+
+def test_resume_refuses_more_than_one_source(client, journal):
+    """One checkpoint holds one partial_source, so a two-source resume could be
+    honoured for one of them at most."""
+    _keep_pages(journal, REAL_SOURCE, 2)
+
+    r = client.post("/api/jobs",
+                    json={"source_keys": [REAL_SOURCE, "MADAR"], "resume": True})
+
+    assert r.status_code == 400
+    assert client.get("/api/jobs").json()["jobs"] == []
+
+
 # ---- poll --------------------------------------------------------------------
 
 def test_get_unknown_job_is_404(client):

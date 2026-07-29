@@ -122,6 +122,50 @@ def test_a_hostile_token_is_sanitised_not_rejected(tmp_path):
     assert localinbox.list_tokens(tmp_path, "GPP_ENERGY") == {"a-b-c"}
 
 
+def test_journal_state_reports_exactly_what_a_resume_would_skip(tmp_path):
+    """The count the panel shows and the skip set the connector gets are the
+    same number, or it is a number the owner cannot act on. Untokenized pages
+    are re-emitted by the re-run, so they are not kept work and must not be
+    counted as any."""
+    localinbox.write_payload(tmp_path, _page("t", "EG", "1").to_payload(), token="T1")
+    localinbox.write_payload(tmp_path, _page("t", "SA", "1").to_payload(), token="T2")
+    localinbox.write_payload(tmp_path, _page("", "US", "1").to_payload())
+
+    state = localinbox.journal_state(tmp_path, "GPP_ENERGY")
+
+    assert state["pages"] == len(localinbox.list_tokens(tmp_path, "GPP_ENERGY")) == 2
+    assert state["stopped_at"].endswith("Z"), state["stopped_at"]
+
+
+def test_a_page_cleared_mid_scan_costs_one_page_not_the_whole_answer(
+        tmp_path, monkeypatch):
+    """capture clears the journal the moment an ingest succeeds, and the panel
+    asks for this state on every refresh — so the scan can race a job
+    finishing. Raising there would fail /api/sources, and the panel would
+    report the engine unreachable because a crawl had gone WELL."""
+    localinbox.write_payload(tmp_path, _page("t", "EG", "1").to_payload(), token="T1")
+    real = localinbox._source_dir(tmp_path, "GPP_ENERGY")
+
+    class _RacingDir:
+        def is_dir(self):
+            return True
+
+        def glob(self, pattern):
+            yield real / "T2__cleared_00000000.json"   # gone before we stat it
+            yield from real.glob(pattern)
+
+    monkeypatch.setattr(localinbox, "_source_dir", lambda base, key: _RacingDir())
+
+    assert localinbox.journal_state(tmp_path, "GPP_ENERGY")["pages"] == 1
+
+
+def test_a_source_that_kept_nothing_says_so_rather_than_failing(tmp_path):
+    """Every source is asked this on every panel refresh, including the ones
+    that have never been interrupted and have no directory at all."""
+    assert localinbox.journal_state(tmp_path, "NEVER_RAN") == \
+        {"pages": 0, "stopped_at": None}
+
+
 def test_clear_untokenized_keeps_the_checkpoint_pages(tmp_path):
     localinbox.write_payload(tmp_path, _page("t", "EG", "1").to_payload(), token="T1")
     localinbox.write_payload(tmp_path, _page("", "SA", "1").to_payload())
@@ -239,6 +283,32 @@ def test_pause_mid_fetch_keeps_pages_and_resume_completes_the_job(conn, journal,
     assert second.served == ["DIESEL--US"]
     assert "partial_source" not in job["checkpoint"]
     assert localinbox.list_tokens(journal, "GPP_ENERGY") == set()
+    observations = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
+    assert observations == 3, "the resumed job must land the WHOLE crawl"
+
+
+def test_a_seeded_checkpoint_resumes_a_journal_whose_own_job_is_gone(
+        conn, journal, monkeypatch):
+    """The failure this feature exists for: elburoj's paused job was cancelled,
+    so the only non-terminal job that could have carried its 871 kept pages
+    became terminal and the pages were unreachable. A NEW job seeded with the
+    same partial_source picks them up — the journal, not the job row, is the
+    asset."""
+    localinbox.write_payload(journal, _page("DIESEL--EG", "EG", "20.50").to_payload(),
+                             token="DIESEL--EG")
+    localinbox.write_payload(journal, _page("DIESEL--SA", "SA", "1.77").to_payload(),
+                             token="DIESEL--SA")
+    connector = _PagedConnector()
+    _with_connector(monkeypatch, connector)
+
+    ref = create_job(conn, ["GPP_ENERGY"],
+                     checkpoint={"completed_source_keys": [], "errors": [],
+                                 "succeeded": 0, "partial_source": "GPP_ENERGY"})
+    job = run_job_once(conn, ref, {"GPP_ENERGY": make_entry()})
+
+    assert job["status"] == JobStatus.COMPLETED.value
+    assert connector.skip_tokens == {"DIESEL--EG", "DIESEL--SA"}
+    assert connector.served == ["DIESEL--US"], "a kept page was fetched again"
     observations = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
     assert observations == 3, "the resumed job must land the WHOLE crawl"
 
