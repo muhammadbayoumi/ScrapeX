@@ -43,7 +43,15 @@ from .vocab import ExtractKind, PayloadClient
 # tax_statement_url and official_source_url. None of the five is additive, so a
 # v4 header fails the column check on its own; the number moves anyway, because
 # the contract changed and the sheet has to be told once.
-PAYLOAD_VERSION = 5
+# 6: PRODUCT_PRICES gains four columns — display_method, minimum_quantity,
+# quantity_increment, quantity_is_decimal (migration 0056). ALL FOUR ARE
+# ADDITIVE, which is exactly the case that flag exists for: they are new slots
+# nothing used to fill, so a payload captured before them is COMPLETE rather
+# than broken and replays unchanged. Nothing is renamed and nothing changes
+# meaning, so unlike versions 2..5 no old header fails a column check on its
+# own — and that is precisely why the number has to move. The header check
+# refuses a mismatch, and the sheet has to be told once.
+PAYLOAD_VERSION = 6
 
 # 40k keeps a comfortable margin under the Google Sheets 50k-char cell limit
 # even after the funnel adds its envelope columns (S1).
@@ -79,7 +87,7 @@ class FunnelPayload(BaseModel):
     # Pinned as a const so the GENERATED json-schema carries it too: a
     # consumer validating against the schema rather than the Python model
     # would otherwise still accept v1.
-    payload_version: Literal[5]
+    payload_version: Literal[6]
     source_key: str = Field(min_length=1, max_length=64)
     kind: ExtractKind
     client: PayloadClient

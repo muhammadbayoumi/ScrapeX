@@ -44,6 +44,15 @@ TRACKED_PRODUCT_FIELDS = (
     # renaming in either language is a recorded change, not a silent drift.
     ("product_name", "product_name"),
     ("product_name_lang", "lang"),
+    # HOW THE SITE PRESENTS THE PRODUCT (0056). Tracked, not INSERT-only, for
+    # two reasons. A shop really does re-shape a product — a simple item gains
+    # options and becomes a configurable — and that is a change worth recording
+    # rather than a fact frozen at first sight. And without it the 763 MADAR
+    # products that already exist could never learn the column at all: only the
+    # INSERT path writes it, and they were inserted long ago. The empty-value
+    # rule above protects the other direction — a connector that has not been
+    # taught display_method sends '' and never blanks a value already stored.
+    ("display_method", "display_method"),
 )
 
 # Fields whose OLD value is an identity worth remembering (spec 14): if a site

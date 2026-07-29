@@ -1,5 +1,5 @@
 {
-  "payload_version": 5,
+  "payload_version": 6,
   "source_key": "MADAR",
   "kind": "product_prices",
   "client": "cli",
