@@ -1,9 +1,10 @@
-"""Spec 4/6: the Native Messaging bridge — framing, routing, and the caps that
-stop one message becoming a data dump."""
+"""Spec 4/6: the Native Messaging bridge — framing, routing, and the split that
+keeps it a CONTROL path: no command here touches the warehouse."""
 from __future__ import annotations
 
 import io
 import json
+import re
 import sqlite3
 import struct
 import sys
@@ -12,15 +13,18 @@ from pathlib import Path
 import pytest
 
 from scrapex import db as dbmod
-from scrapex.ingest import ingest_payloads
-from scrapex.jobs import create_job, get_job, touch_runtime_heartbeat
-from scrapex.native import (
-    MAX_PAGE, PROTOCOL_VERSION, handle, read_message, write_message,
-)
+from scrapex.native import PROTOCOL_VERSION, handle, read_message, write_message
 from scrapex.nativehost import HOST_NAME, build_manifest, install, manifest_path
-from tests.test_ingest import make_entry, make_payload, one_row
 
-SOURCE = "ELSEWEDYSHOP"
+ROOT = Path(__file__).resolve().parent.parent
+
+# The data commands this host used to answer, each of them a second definition
+# of a route webui/app.py already served and none of them ever called by the
+# extension. Named here so the router is held to their absence.
+RETIRED_COMMANDS = (
+    "GET_STATUS", "GET_SOURCES", "START_JOB", "GET_JOB", "GET_JOBS",
+    "CONTROL_JOB", "GET_JOB_LOGS", "GET_RECORDS", "GET_CHANGES",
+)
 
 
 @pytest.fixture()
@@ -29,19 +33,6 @@ def conn() -> sqlite3.Connection:
     dbmod.migrate(c)
     yield c
     c.close()
-
-
-class _Manifest:
-    def get(self, key):
-        if key != SOURCE:
-            raise KeyError(f"unknown source_key {key!r}")
-        return object()
-
-
-def _seed(conn, count=5):
-    rows = [one_row(external_product_id=str(1000 + i), external_variant_id=str(5000 + i),
-                    product_name=f"Lamp {i}") for i in range(count)]
-    ingest_payloads(conn, make_entry(), [make_payload(rows)])
 
 
 # ---- framing -----------------------------------------------------------------
@@ -91,116 +82,6 @@ def test_unknown_command_and_bad_message(conn):
 
 
 # ---- jobs over the bridge ----------------------------------------------------
-
-def test_start_job_validates_before_queueing(conn):
-    assert handle(conn, {"command": "START_JOB", "source_keys": ["GHOST"]},
-                  _Manifest())["error"] == "not_found"
-    assert handle(conn, {"command": "START_JOB"}, _Manifest())["error"] == "invalid"
-
-
-def test_start_job_refuses_when_no_worker_is_running(conn):
-    """Regression (CRITICAL): the stdio host is torn down after each message, so
-    it cannot execute anything. Queueing into a database nobody drains used to
-    return ok and then hang on a healthy-looking 'queued' forever."""
-    r = handle(conn, {"command": "START_JOB", "source_keys": [SOURCE]}, _Manifest())
-    assert r["ok"] is False and r["error"] == "no_worker"
-    assert "not queued" in r["detail"].lower()
-    assert conn.execute("SELECT COUNT(*) FROM crawl_job").fetchone()[0] == 0
-
-
-def test_start_job_queues_when_a_worker_is_alive(conn):
-    touch_runtime_heartbeat(conn)
-    r = handle(conn, {"command": "START_JOB", "source_keys": [SOURCE]}, _Manifest())
-    assert r["ok"] and get_job(conn, r["job_ref"])["status"] == "queued"
-
-
-def test_status_reports_whether_a_worker_is_alive(conn):
-    assert handle(conn, {"command": "GET_STATUS"})["worker_alive"] is False
-    touch_runtime_heartbeat(conn)
-    assert handle(conn, {"command": "GET_STATUS"})["worker_alive"] is True
-
-
-def test_get_job_returns_aggregated_progress_only(conn):
-    ref = create_job(conn, [SOURCE])
-    job = handle(conn, {"command": "GET_JOB", "job_ref": ref})["job"]
-    assert job["progress"] == {"done": 0, "total": 1, "percent": 0}
-    assert "rows" not in job and "records" not in job     # never per-record data
-
-
-def test_control_job_and_conflicts(conn):
-    ref = create_job(conn, [SOURCE])
-    # A QUEUED job is settled immediately — nothing is holding it.
-    assert handle(conn, {"command": "CONTROL_JOB", "job_ref": ref,
-                         "control": "cancel"})["job"]["status"] == "cancelled"
-    assert handle(conn, {"command": "CONTROL_JOB", "job_ref": "job_nope"})["error"] == "not_found"
-
-
-def test_job_logs_are_a_capped_tail(conn):
-    ref = create_job(conn, [SOURCE])
-    r = handle(conn, {"command": "GET_JOB_LOGS", "job_ref": ref, "limit": 10_000})
-    assert r["ok"] and len(r["entries"]) <= 200
-
-
-# ---- cursor pagination: one message is never a dataset ----------------------
-
-def test_records_are_paginated_with_a_cursor(conn):
-    _seed(conn, count=5)
-    first = handle(conn, {"command": "GET_RECORDS", "source_key": SOURCE, "limit": 2})
-    assert len(first["records"]) == 2 and first["total"] == 5
-    assert first["next_cursor"] == 2
-
-    second = handle(conn, {"command": "GET_RECORDS", "source_key": SOURCE,
-                           "limit": 2, "cursor": first["next_cursor"]})
-    assert len(second["records"]) == 2 and second["next_cursor"] == 4
-    # different page, not the same rows again
-    assert second["records"][0] != first["records"][0]
-
-
-def test_last_page_reports_no_next_cursor(conn):
-    _seed(conn, count=3)
-    page = handle(conn, {"command": "GET_RECORDS", "source_key": SOURCE, "limit": 50})
-    assert len(page["records"]) == 3 and page["next_cursor"] is None
-
-
-def test_oversized_limit_is_capped(conn):
-    _seed(conn, count=3)
-    page = handle(conn, {"command": "GET_RECORDS", "source_key": SOURCE, "limit": 100_000})
-    assert len(page["records"]) <= MAX_PAGE
-
-
-def test_garbage_cursor_and_limit_do_not_crash(conn):
-    _seed(conn, count=3)
-    page = handle(conn, {"command": "GET_RECORDS", "source_key": SOURCE,
-                         "limit": "lots", "cursor": "elsewhere"})
-    assert page["ok"] and page["records"]
-
-
-def test_visible_fields_projects_the_payload_down(conn):
-    _seed(conn, count=1)
-    page = handle(conn, {"command": "GET_RECORDS", "source_key": SOURCE,
-                         "visible_fields": ["product_name_ar", "price"]})
-    assert set(page["records"][0]) == {"product_name_ar", "price"}
-
-
-def test_records_require_a_source_key(conn):
-    assert handle(conn, {"command": "GET_RECORDS"})["error"] == "invalid"
-
-
-# ---- status + changes --------------------------------------------------------
-
-def test_status_lists_active_jobs(conn):
-    create_job(conn, [SOURCE])
-    r = handle(conn, {"command": "GET_STATUS"})
-    assert r["ok"] and len(r["active_jobs"]) == 1
-
-
-def test_changes_summary_over_the_bridge(conn):
-    _seed(conn, count=1)
-    r = handle(conn, {"command": "GET_CHANGES", "source_key": SOURCE})
-    assert r["ok"] and r["summary"]["new"] >= 1
-
-
-# ---- host manifest -----------------------------------------------------------
 
 def test_manifest_allowlists_only_the_given_extensions():
     m = build_manifest(["abcdef"], "/usr/bin/scrapex")
@@ -537,3 +418,50 @@ def test_the_web_layer_reads_the_allowlist_through_the_module_that_owns_it(tmp_p
     install(["f" * 32], executable="/usr/bin/scrapex", platform=sys.platform,
             write_registry=False)
     assert webapp.allowed_extension_ids() == ["f" * 32]
+
+
+# ---- the surface that was retired, and the one contract left on it -----------
+
+def test_the_retired_data_commands_are_gone_from_the_router(conn):
+    """Ten commands answered here that nothing ever called.
+
+    Each was a second definition of a route webui/app.py already served, with
+    its own pagination and its own validation, kept alive only by its own
+    tests — so the two could drift and no test in the suite would notice. The
+    panel reaches the engine over HTTP for data and over native messaging for
+    the four things only a spawned process can do.
+    """
+    for command in RETIRED_COMMANDS:
+        answer = handle(conn, {"command": command, "request_id": "r"})
+        assert answer["error"] == "unknown_command", (
+            f"{command} still answers here — the data surface was meant to have "
+            "one definition, in the web layer")
+        assert answer["request_id"] == "r"
+
+
+def test_the_control_commands_the_panel_actually_calls_still_answer(conn, monkeypatch):
+    """The other half: retiring the data surface must not touch the four
+    commands the panel genuinely uses. Grep the extension before changing this
+    list — it is the whole reason this host exists."""
+    from scrapex import native
+
+    monkeypatch.setattr(native, "_engine_listening", lambda port: True)
+    for command in ("PING", "START_ENGINE"):
+        assert handle(conn, {"command": command})["ok"] is True, command
+    assert set(native.STANDALONE_COMMANDS) == {
+        "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART"}
+
+
+def test_the_two_protocol_constants_cannot_drift(conn):
+    """PROTOCOL_VERSION is written twice — once in Python, once in JavaScript —
+    because the extension cannot import Python. Two constants that must agree
+    and have nothing holding them together is a defect waiting for a release;
+    this is the thing holding them together."""
+    import re
+
+    js = (ROOT / "extension" / "transport.js").read_text(encoding="utf-8")
+    found = re.search(r"export const PROTOCOL_VERSION\s*=\s*(\d+)", js)
+    assert found, "transport.js no longer exports PROTOCOL_VERSION"
+    assert int(found.group(1)) == PROTOCOL_VERSION, (
+        f"the extension speaks protocol {found.group(1)} and the engine speaks "
+        f"{PROTOCOL_VERSION}; bump both or neither")

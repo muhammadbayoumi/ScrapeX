@@ -1773,7 +1773,15 @@ async function init() {
   $("diagnostics").addEventListener("click", async () => {
     $("diag-out").textContent = "Running diagnostics…";
     const engine = await checkEngine();
-    $("diag-out").textContent = engine.running
+    // A protocol mismatch OUTRANKS "reachable": an engine that answers while
+    // speaking an older command surface produces 404s and missing fields, and
+    // those read as broken features rather than as a stale engine. Say which
+    // side is behind — the same sentence the native path has always given.
+    $("diag-out").textContent = engine.protocolMismatch
+      ? `The panel and the ScrapeX engine speak different protocol versions ` +
+        `(panel ${engine.clientProtocol}, engine ${engine.engineProtocol}). ` +
+        `Update whichever is older.`
+      : engine.running
       ? `Engine reachable at ${await getBackend()} · version ${engine.version || "unknown"}`
       // Not "start it with a command": the owner does not use a terminal, so
       // naming one is a dead end dressed as help. The button above this one

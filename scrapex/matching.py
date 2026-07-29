@@ -46,8 +46,31 @@ class Decision:
     LATER = "later"               # leave it queued
 
 
-def _candidates_for(conn: sqlite3.Connection, product: sqlite3.Row) -> list[dict]:
-    """Ranked material candidates for one source product, best first."""
+def _material_names(conn: sqlite3.Connection) -> list[tuple[int, str | None, str | None]]:
+    """Every material's (id, arabic name, latin name), in table order.
+
+    Read ONCE per suggestion run and handed to `_candidates_for`, because the
+    name pass below used to issue "SELECT ... FROM material" for every
+    (product, name) pair on its own: a single `suggest` over the default
+    200-product batch re-read the entire material table up to 400 times (F2).
+
+    Table order is preserved deliberately — `offer` keeps the FIRST candidate of
+    equal strength and the final sort is stable, so the order materials are seen
+    in decides tie-breaks. Reading them into a list must not reorder them or the
+    suggestions change.
+    """
+    return [(row["material_id"], row["material_name_ar"], row["material_name"])
+            for row in conn.execute(
+                "SELECT material_id, material_name_ar, material_name FROM material")]
+
+
+def _candidates_for(conn: sqlite3.Connection, product: sqlite3.Row,
+                    materials: list[tuple[int, str | None, str | None]]) -> list[dict]:
+    """Ranked material candidates for one source product, best first.
+
+    `materials` comes from `_material_names` and is required rather than looked
+    up here, so the read cannot drift back inside the per-product loop.
+    """
     found: dict[int, dict] = {}
     # Pairs the owner already ruled apart must never be proposed again — but only
     # THIS pair, not every future candidate for the product.
@@ -96,11 +119,16 @@ def _candidates_for(conn: sqlite3.Connection, product: sqlite3.Row) -> list[dict
     # each other, and the languages a source fills differ per source.
     names = [n for n in (product["product_name"], product["product_name_ar"]) if n]
     for name in names:
-        for row in conn.execute("SELECT material_id, material_name_ar, material_name FROM material"):
-            score = max(name_similarity(name, row["material_name_ar"]),
-                        name_similarity(name, row["material_name"]))
+        # Comparing every name against every material is the nested loop F7 wants
+        # justified: a fuzzy score has no key to look it up by, so there is no
+        # index that could replace the comparison. What the batch preload removed
+        # is the QUERY per pair, not the comparison — the loop now walks a list
+        # already in memory instead of re-scanning the table.
+        for material_id, material_name_ar, material_name in materials:
+            score = max(name_similarity(name, material_name_ar),
+                        name_similarity(name, material_name))
             if score >= MIN_SUGGEST:
-                offer(row["material_id"], round(score, 3), "name_fuzzy",
+                offer(material_id, round(score, 3), "name_fuzzy",
                       {"normalized": normalize_name(name), "score": round(score, 3)})
 
     return sorted(found.values(), key=_strength, reverse=True)
@@ -126,9 +154,16 @@ def suggest_for_source(conn: sqlite3.Connection, source_key: str, limit: int = 2
         (source_key, CurationStatus.IGNORED.value, limit),
     ).fetchall()
 
+    # One read for the whole batch (F2). Sound because the loop below writes only
+    # source_product_match — nothing here can add a material mid-run, so the
+    # snapshot cannot go stale within the call. Equally deliberate is that it is
+    # NOT held beyond the call: a material the owner creates between two presses
+    # of `suggest` must be visible to the second one.
+    materials = _material_names(conn)
+
     written = 0
     for product in products:
-        candidates = _candidates_for(conn, product)
+        candidates = _candidates_for(conn, product, materials)
         if not candidates:
             continue
         best = candidates[0]

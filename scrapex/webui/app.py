@@ -1078,7 +1078,14 @@ def create_app(
                       "detail": "the worker's state could not be read: "
                                 f"{type(exc).__name__}: {exc}"}
         worker["thread_alive"] = thread_alive
+        from ..native import PROTOCOL_VERSION
         return {"ok": True, "app": "scrapex", "version": __version__,
+                # The version handshake belongs on the transport that carries
+                # the traffic. It lived only on native messaging, which carries
+                # four control commands, while THIS path carries every record
+                # the panel shows — so an extension newer than its engine met a
+                # 404 and read it as a broken feature rather than a stale engine.
+                "protocol_version": PROTOCOL_VERSION,
                 "sources_with_data": n,
                 # Kept for the panel that already reads it. Unknown answers false:
                 # this endpoint may never claim a health it could not read.
@@ -2054,15 +2061,38 @@ def create_app(
         # The pointer moved, so this process follows it. Otherwise the server
         # keeps writing to a file the owner has been told is no longer live.
         app.state.db_path = str(resolve_db_path())
-        if app.state.databases is not None:
-            app.state.databases = DatabaseRegistry(
-                app.state.databases.general,
-                MarketLensDatabase(app.state.db_path),
-                app.state.databases.legacy_path,
-                app.state.databases.pointer_file,
-            )
-            app.state.databases.write()
+        _follow_the_committed_location(app)
         return result
+
+    def _follow_the_committed_location(app_) -> None:
+        """This PROCESS catches up with a location that has already been committed.
+
+        Both records on disk — the pointer and the registry — are written
+        together by storage.commit_live_database, at the commit point. What is
+        left for a route is only the in-memory half: the running engine keeps a
+        DatabaseRegistry object and a db_path string, and a move or a compaction
+        that did not refresh them would leave this server writing into a file the
+        owner has been told is no longer live.
+
+        This used to be eight lines duplicated between the move route and the
+        compact route, and absent from every other caller of those operations —
+        which is why undo_compaction, written and tested and merely unrouted,
+        would have shipped broken the day a button reached it.
+        """
+        if app_.state.databases is None:
+            return
+        app_.state.databases = DatabaseRegistry(
+            app_.state.databases.general,
+            MarketLensDatabase(app_.state.db_path),
+            app_.state.databases.legacy_path,
+            app_.state.databases.pointer_file,
+        )
+        # Written here as well as at the commit point, and not instead of it:
+        # storage only knows the registry named by the process-wide
+        # REGISTRY_FILE, while THIS app may have been handed a different one
+        # (a --registry session, a test). The one it was handed is the one that
+        # must end up correct, so the object that owns it writes it.
+        app_.state.databases.write()
 
     @app.get("/api/retention")
     def api_retention():
@@ -2131,14 +2161,7 @@ def create_app(
             finally:
                 conn.close()
         app.state.db_path = str(resolve_db_path())
-        if app.state.databases is not None:
-            app.state.databases = DatabaseRegistry(
-                app.state.databases.general,
-                MarketLensDatabase(app.state.db_path),
-                app.state.databases.legacy_path,
-                app.state.databases.pointer_file,
-            )
-            app.state.databases.write()
+        _follow_the_committed_location(app)
         return {**result.as_state(), "sealed_path": result.sealed_path,
                 "observations_after": result.observations_after}
 

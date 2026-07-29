@@ -322,3 +322,18 @@ def test_the_relink_route_stays_reachable_to_the_extension_it_would_repair(
     # ...and it is still only extensions, never a web page.
     assert client.post("/api/native-host/register", json={"extension_id": new_id},
                        headers={"Origin": HOSTILE}).status_code == 403
+
+
+def test_health_states_the_protocol_version_the_panel_can_check(client):
+    """The handshake belonged on the transport that carries the traffic.
+
+    The native path checked protocol_version on every message and reported a
+    mismatch precisely — and it carries four control commands. THIS path
+    carries every record the panel shows and checked nothing, so an extension
+    newer than its engine met a 404 and the owner read it as a broken feature
+    rather than as an engine that needs updating.
+    """
+    from scrapex.native import PROTOCOL_VERSION
+
+    body = client.get("/api/health").json()
+    assert body["protocol_version"] == PROTOCOL_VERSION

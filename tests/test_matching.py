@@ -9,7 +9,8 @@ from scrapex import db as dbmod
 from scrapex.changes import aliases_of
 from scrapex.ingest import ingest_payloads
 from scrapex.matching import (
-    ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
+    ConflictError, Decision, _candidates_for, _material_names, decide, pending_reviews,
+    suggest_for_source, undo_decision,
 )
 from scrapex.normalize import name_similarity, normalize_name
 from scrapex.vocab import CurationStatus, ReviewStatus
@@ -241,3 +242,107 @@ def test_a_reissued_sku_becomes_an_alias(conn):
     pid = conn.execute("SELECT source_product_id FROM source_product").fetchone()[0]
     assert ("external_sku", "OLD-1") in [(a["alias_type"], a["alias_value"])
                                          for a in aliases_of(conn, pid)]
+
+
+# ---- the material table is read once per run, not once per (product, name) ----
+#
+# The name pass used to run "SELECT ... FROM material" INSIDE its own loop, so a
+# default 200-product batch re-read the whole material table up to 400 times
+# (F2/F7). These tests hold the two halves of that fix: the query count must stop
+# growing with the batch, and not one score may move because of it.
+
+def _seed_products(conn, count: int) -> None:
+    """`count` distinct products in one ingest — a batch, not a single row."""
+    rows = [one_row(external_product_id=str(2000 + i), external_variant_id=str(9000 + i),
+                    external_sku=f"BATCH-{i}", product_name=f"LED Floodlight {i}00W")
+            for i in range(count)]
+    ingest_payloads(conn, make_entry(), [make_payload(rows)])
+
+
+def _count_unfiltered_material_reads(conn: sqlite3.Connection) -> list[str]:
+    """Attach a tracer; the returned list grows with every full scan of `material`.
+
+    Unfiltered is the whole point: the per-product gtin/sku/alias lookups all
+    carry a WHERE and hit an index, so they are allowed to scale with the batch.
+    A read of `material` with no WHERE is the N+1 this guards against, whatever
+    statement text a future edit gives it.
+    """
+    scans: list[str] = []
+
+    def record(statement: str) -> None:
+        flat = " ".join(statement.split()).lower()
+        if "from material" in flat and "where" not in flat:
+            scans.append(flat)
+
+    conn.set_trace_callback(record)
+    return scans
+
+
+def _material_reads_while_suggesting(product_count: int) -> int:
+    c = dbmod.connect(":memory:")
+    try:
+        dbmod.migrate(c)
+        _seed_products(c, product_count)
+        for i in range(5):
+            _material(c, name_en=f"Floodlight LED {i}00W")
+        scans = _count_unfiltered_material_reads(c)
+        suggest_for_source(c, "ELSEWEDYSHOP")
+        c.set_trace_callback(None)
+        return len(scans)
+    finally:
+        c.close()
+
+
+def test_suggesting_scans_the_material_table_once_no_matter_how_many_products(conn):
+    """Regression (N+1): the scan count used to equal the number of (product,
+    name) pairs, so it grew linearly with the batch the owner asked for."""
+    assert _material_reads_while_suggesting(1) == 1
+    assert _material_reads_while_suggesting(25) == 1
+
+
+def test_the_material_snapshot_is_not_reused_across_calls(conn):
+    """A material created between two presses of `suggest` must be seen by the
+    second — the preload is per-call, and caching it wider would hide new work."""
+    _seed_product(conn, product_name="LED Floodlight 400W")
+    assert suggest_for_source(conn, "ELSEWEDYSHOP") == 0     # nothing to match yet
+
+    late = _material(conn, name_en="Floodlight LED 400W")     # added mid-session
+    assert suggest_for_source(conn, "ELSEWEDYSHOP") == 1
+    queued = pending_reviews(conn)
+    assert [(q["material_id"], q["confidence"]) for q in queued] == [(late, 1.0)]
+
+
+def test_the_preloaded_material_list_yields_the_same_candidates_scores_and_order(conn):
+    """The batch preload is a change of WHERE the rows come from and nothing
+    else: same candidates, same exact scores, same ranking, same tie order."""
+    _seed_product(conn, product_name="LED Floodlight 400W")
+    perfect = _material(conn, name_en="Floodlight LED 400W")          # 3/3
+    narrower = _material(conn, name_en="LED Floodlight 400W IP65")    # 3/4
+    outdoor = _material(conn, name_en="LED Floodlight 400W Outdoor")  # 3/4, ties
+    partial = _material(conn, name_en="Floodlight 400W")              # 2/3
+    _material(conn, name_en="Floodlight 400W Outdoor Wall")           # 3/6 — silent
+    _material(conn, name_en="LED Bulb 9W")                            # 1/5 — silent
+
+    product = conn.execute("SELECT * FROM source_product").fetchone()
+    ranked = _candidates_for(conn, product, _material_names(conn))
+
+    assert [(c["material_id"], c["confidence"], c["match_method"]) for c in ranked] == [
+        (perfect, 1.0, "name_fuzzy"),
+        # 0.75 twice: ties keep material order, which is the order they were read in
+        (narrower, 0.75, "name_fuzzy"),
+        (outdoor, 0.75, "name_fuzzy"),
+        (partial, 0.667, "name_fuzzy"),
+    ]
+    assert ranked[1]["evidence"] == {"normalized": "led floodlight 400w", "score": 0.75}
+
+
+def test_the_preload_still_compares_both_material_languages(conn):
+    """Dropping either name column from the preloaded row would silently unmatch
+    every source that publishes one language only — the gap the two-name compare
+    exists to close."""
+    _seed_product(conn, product_name="", product_name_ar="كشاف ليد 400 واط")
+    arabic_only = _material(conn, name_ar="ليد كشاف 400 واط")
+
+    product = conn.execute("SELECT * FROM source_product").fetchone()
+    ranked = _candidates_for(conn, product, _material_names(conn))
+    assert [(c["material_id"], c["confidence"]) for c in ranked] == [(arabic_only, 1.0)]

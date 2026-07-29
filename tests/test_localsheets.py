@@ -12,7 +12,7 @@ from openpyxl import load_workbook  # noqa: E402
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.ingest import ingest_payloads  # noqa: E402
 from scrapex.localsheets import LocalSink, _safe_title  # noqa: E402
-from scrapex.publish import publish_source  # noqa: E402
+from scrapex.publish import publish_source, workbook_tables  # noqa: E402
 from scrapex.reports import EXPORT_HEADER  # noqa: E402
 from tests.test_ingest import make_entry, make_payload, one_row  # noqa: E402
 
@@ -70,6 +70,88 @@ def test_second_source_adds_a_tab(tmp_path: Path, conn):
     # from is what the owner opened and could not read.)
     assert set(wb.sheetnames) == {"ELSEWEDYSHOP", "ELSEWEDYSHOP — history",
                                   "ELSEWEDYSHOP — about", "MASDAR"}
+
+
+def _count_workbook_io(monkeypatch) -> dict[str, int]:
+    """Count how many times the .xlsx is parsed and rewritten from here on.
+
+    Patched on the openpyxl module itself, which is what localsheets reaches for
+    at call time; this file's own `load_workbook` was bound at import and so
+    never shows up in the tally.
+    """
+    import openpyxl
+
+    counts = {"load": 0, "save": 0}
+    real_load, real_save = openpyxl.load_workbook, openpyxl.Workbook.save
+
+    def load(*args, **kwargs):
+        counts["load"] += 1
+        return real_load(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        counts["save"] += 1
+        return real_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(openpyxl, "load_workbook", load)
+    monkeypatch.setattr(openpyxl.Workbook, "save", save)
+    return counts
+
+
+def test_an_export_of_three_tabs_reads_and_writes_the_file_once(tmp_path: Path, conn,
+                                                                monkeypatch):
+    """One export costs one read and one write of the workbook, whatever its tab count.
+
+    write_tab used to load_workbook() and save() the ENTIRE .xlsx per tab, so
+    this export re-parsed and rewrote the whole book once per table it carries —
+    and every source already in the workbook made the next export slower.
+    """
+    sink = LocalSink()
+    publish_source(conn, "ELSEWEDYSHOP", sink, str(tmp_path), "ScrapeX Data")
+    assert len(workbook_tables(conn, "ELSEWEDYSHOP")) == 3   # prices, history, about
+
+    counts = _count_workbook_io(monkeypatch)
+    publish_source(conn, "ELSEWEDYSHOP", sink, str(tmp_path), "ScrapeX Data")
+    assert counts == {"load": 1, "save": 1}
+
+
+def test_re_exporting_one_source_leaves_every_other_tab_intact(tmp_path: Path, conn):
+    """The README's contract: re-running replaces THAT source's tab, only that one."""
+    sink = LocalSink()
+    path = tmp_path / "ScrapeX Data.xlsx"
+    publish_source(conn, "ELSEWEDYSHOP", sink, str(tmp_path), "ScrapeX Data")
+    sink.write_tab(path, "MASDAR", EXPORT_HEADER, [["kept"] + ["x"] * (len(EXPORT_HEADER) - 1)])
+
+    publish_source(conn, "ELSEWEDYSHOP", sink, str(tmp_path), "ScrapeX Data")
+
+    wb = load_workbook(path)
+    assert set(wb.sheetnames) == {"ELSEWEDYSHOP", "ELSEWEDYSHOP — history",
+                                  "ELSEWEDYSHOP — about", "MASDAR"}
+    assert wb["MASDAR"].cell(row=2, column=1).value == "kept"    # not merely present
+    assert wb.sheetnames.count("ELSEWEDYSHOP") == 1              # replaced, not duplicated
+
+
+def test_an_export_that_dies_midway_leaves_the_previous_workbook_untouched(tmp_path: Path,
+                                                                          conn):
+    """A batch saves once at the end, so an interrupted one must save nothing.
+
+    The workbook the owner already has is the thing being overwritten; half a
+    re-export in it would be worse than no re-export at all.
+    """
+    sink = LocalSink()
+    publish_source(conn, "ELSEWEDYSHOP", sink, str(tmp_path), "ScrapeX Data")
+    path = tmp_path / "ScrapeX Data.xlsx"
+    before = path.read_bytes()
+
+    with pytest.raises(RuntimeError, match="crawl died"):
+        with sink.batch(path):
+            sink.write_tab(path, "MASDAR", EXPORT_HEADER, [["x"] * len(EXPORT_HEADER)])
+            raise RuntimeError("the crawl died mid-export")
+
+    assert path.read_bytes() == before
+    assert "MASDAR" not in load_workbook(path).sheetnames
+    # The next export still works: the failed batch let go of the workbook.
+    sink.write_tab(path, "MASDAR", EXPORT_HEADER, [["x"] * len(EXPORT_HEADER)])
+    assert "MASDAR" in load_workbook(path).sheetnames
 
 
 def test_safe_title_truncates_and_sanitizes():

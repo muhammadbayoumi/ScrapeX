@@ -366,7 +366,7 @@ def compact_warehouse(conn: sqlite3.Connection, db_path: Path | str, *, today: s
     os.replace(building, built)
     result.built_path = str(built)
 
-    storage.write_pointer(built)                 # ---- the commit point ----
+    storage.commit_live_database(built, previous=source)   # ---- the commit point ----
 
     # Sealing marks the predecessor from the INSIDE and then tries to rename it.
     # The mark is the load-bearing half: on Windows the caller's open handle
@@ -444,7 +444,10 @@ def undo_compaction(sealed_path: Path | str) -> settings.RunResult:
         raise CompactionAborted(
             f"That archive does not pass a health check ({verdict['status']}), so "
             "ScrapeX will not switch to it.")
-    storage.write_pointer(sealed)
+    # The registry follows only what it was already pointing at, so the file
+    # being superseded has to be named: undoing a compaction moves the live
+    # warehouse BACK, and until now it moved only half of the record.
+    storage.commit_live_database(sealed, previous=storage.read_pointer())
     storage.unseal(sealed)              # it is the live warehouse again
     return settings.RunResult(
         ok=True, location=str(sealed),

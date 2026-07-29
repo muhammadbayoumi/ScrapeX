@@ -1,10 +1,20 @@
 """Chrome Native Messaging bridge (spec sections 4, 6, and the MV3 constraints).
 
-WHAT THIS IS: a COMMAND AND STATUS bridge, not a data pipe. Chrome frames every
-message with a 4-byte length prefix and caps extension->host at 1 MB, but the
-real constraint is the spec's: never push a whole dataset or log through one
-message. So every listing command is cursor-paginated and hard-capped here, in
-the router, where it cannot be forgotten by a caller.
+WHAT THIS IS: the CONTROL path, and nothing else. Chrome frames every message
+with a 4-byte length prefix and caps a message at 1 MB, but the real constraint
+is the spec's: never push a whole dataset or log through one message. So the
+panel has two paths and they do not overlap — CONTROL travels here over native
+messaging (start the engine, read and set autostart, ping), and every byte of
+DATA travels HTTP to the routes in webui/app.py.
+
+Nine data commands used to live here as well: GET_STATUS, GET_SOURCES,
+START_JOB, GET_JOB, GET_JOBS, CONTROL_JOB, GET_JOB_LOGS, GET_RECORDS and
+GET_CHANGES. Each was a second definition of a contract webui/app.py already
+served, carrying its own pagination and its own validation — and not one of
+them had a caller anywhere in the extension; the only thing exercising them was
+their own tests. Two definitions of one contract drift, and the one nobody
+calls is the one that drifts without anybody noticing. They are gone, and the
+split above is the rule that replaced them.
 
 WHY THE ROUTER IS PURE: `handle()` takes a connection and a dict and returns a
 dict. No stdio, no threads. That makes the entire command surface testable
@@ -23,22 +33,30 @@ from pathlib import Path
 from typing import BinaryIO
 
 from . import __version__, db as dbmod
-from .changes import change_summary, recent_changes
-from .jobs import create_job, get_job, job_logs, list_jobs, set_control, worker_is_alive
-from .reports import browse_observations, list_sources
 
-# Bumped only on a BREAKING change to the command surface. The extension sends
-# the version it was built against so a mismatch is reported, never guessed at.
+# Bumped only on a BREAKING change to the contract between the extension and
+# this machine — BOTH paths, not just this one. /api/health publishes this same
+# number so the HTTP path, which carries all the data traffic, can refuse a
+# mismatch outright instead of 404ing route by route on an engine that no
+# longer speaks its contract. The extension sends the version it was built
+# against so a mismatch is reported, never guessed at.
+#
+# THE NUMBER IS WRITTEN TWICE, because the extension cannot import Python: the
+# other copy is `PROTOCOL_VERSION` in extension/transport.js. A handshake whose
+# two ends can silently disagree is worse than no handshake, so test_native.py
+# reads the number back out of that file and fails if they ever diverge.
 PROTOCOL_VERSION = 1
-
-MAX_PAGE = 200          # hard cap: one message is never a dataset
-MAX_LOG_TAIL = 200
 
 # The commands that need nothing but this process: no warehouse, no manifest.
 # They are EXACTLY the ones the owner reaches for when the warehouse or the
 # manifest is the thing that is broken, so serve() answers them without opening
-# either. Keep this in step with _dispatch: a command listed here that later
-# starts reading `conn` would meet None.
+# either. Since the data commands moved to HTTP that is now every command this
+# host serves — but the guard stays, because it is what serve() consults for a
+# command it does NOT know: an extension built against a newer contract, or one
+# built before this pruning and still sending GET_RECORDS, must meet the
+# fail-safe path rather than be answered from a process that opened nothing.
+# Keep this in step with _dispatch: a command listed here that later starts
+# reading `conn` would meet None.
 STANDALONE_COMMANDS = frozenset({
     "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART",
 })
@@ -66,22 +84,6 @@ def write_message(stream: BinaryIO, message: dict) -> None:
 
 
 # ---- command router ----------------------------------------------------------
-
-def _page_size(message: dict, cap: int = MAX_PAGE) -> int:
-    try:
-        requested = int(message.get("limit", 50))
-    except (TypeError, ValueError):
-        requested = 50
-    return max(1, min(requested, cap))
-
-
-def _cursor(message: dict) -> int:
-    """Opaque to the client; an offset here. Never trusted blindly."""
-    try:
-        return max(0, int(message.get("cursor") or 0))
-    except (TypeError, ValueError):
-        return 0
-
 
 def _error(code: str, detail: str, **extra) -> dict:
     return {"ok": False, "error": code, "detail": detail, **extra}
@@ -114,6 +116,13 @@ def handle(conn, message: dict, manifest=None) -> dict:
 
 
 def _dispatch(conn, command, message: dict, manifest) -> dict:
+    """Route a CONTROL command. `conn` and `manifest` are unused by every
+    command that is left and that is the point — see the module docstring: a
+    command that needs the warehouse is an HTTP route, not a frame on this
+    pipe. They stay in the signature because serve() still opens them for a
+    command this host does not know, and answers `engine_unavailable` instead
+    of dying when it cannot.
+    """
     if command == "PING":
         return {"ok": True, "app": "scrapex", "app_version": __version__,
                 "protocol_version": PROTOCOL_VERSION}
@@ -125,92 +134,6 @@ def _dispatch(conn, command, message: dict, manifest) -> dict:
         # hand that reaches the machine. Without this the owner opens a
         # terminal every session, which is the exact friction being removed.
         return start_engine(message)
-
-    if command == "GET_STATUS":
-        active = list_jobs(conn, limit=5, active_only=True)
-        return {"ok": True, "app_version": __version__,
-                "sources_with_data": len(list_sources(conn)),
-                # Surfaced so the panel can say "engine idle" instead of showing a
-                # job that will never move.
-                "worker_alive": worker_is_alive(conn),
-                "active_jobs": [_job_brief(j) for j in active]}
-
-    if command == "GET_SOURCES":
-        return {"ok": True, "sources": [
-            {"source_key": s.source_key, "source_name": s.source_name,
-             "observations": s.observations, "products": s.products}
-            for s in list_sources(conn)]}
-
-    if command == "START_JOB":
-        keys = message.get("source_keys") or []
-        if isinstance(keys, str):
-            keys = [keys]
-        if not keys:
-            raise ValueError("source_keys is required")
-        if manifest is not None:
-            for key in keys:
-                manifest.get(key)          # KeyError -> not_found, before queueing
-        # Chrome tears this stdio host down after each message, so it can never
-        # host the worker itself. Queueing into a database nobody is draining
-        # would look like success and then hang on a healthy-looking 'queued'
-        # forever — refuse instead, and say what to start.
-        if not worker_is_alive(conn):
-            return _error("no_worker",
-                          "the ScrapeX engine is not running, so the job was NOT queued — "
-                          "start it with `scrapex ui` and try again")
-        return {"ok": True, "job_ref": create_job(conn, keys,
-                                                  message.get("run_mode", "update"))}
-
-    if command == "GET_JOB":
-        job = get_job(conn, message.get("job_ref", ""))
-        if job is None:
-            raise KeyError(f"unknown job {message.get('job_ref')!r}")
-        return {"ok": True, "job": _job_brief(job)}
-
-    if command == "GET_JOBS":
-        jobs = list_jobs(conn, limit=_page_size(message, 50),
-                         active_only=bool(message.get("active_only")))
-        return {"ok": True, "jobs": [_job_brief(j) for j in jobs]}
-
-    if command == "CONTROL_JOB":
-        job_ref = message.get("job_ref", "")
-        if get_job(conn, job_ref) is None:
-            raise KeyError(f"unknown job {job_ref!r}")
-        applied = set_control(conn, job_ref, message.get("control", "pause"))
-        if not applied:
-            return _error("conflict", f"job {job_ref!r} has already finished")
-        return {"ok": True, "job": _job_brief(get_job(conn, job_ref))}
-
-    if command == "GET_JOB_LOGS":
-        job_ref = message.get("job_ref", "")
-        if get_job(conn, job_ref) is None:
-            raise KeyError(f"unknown job {job_ref!r}")
-        # A TAIL, never the whole log — the full technical log stays in the DB.
-        return {"ok": True, "entries": job_logs(conn, job_ref,
-                                                limit=_page_size(message, MAX_LOG_TAIL))}
-
-    if command == "GET_RECORDS":
-        source_key = message.get("source_key", "")
-        if not source_key:
-            raise ValueError("source_key is required")
-        limit, offset = _page_size(message), _cursor(message)
-        page = browse_observations(conn, source_key, search=message.get("search") or None,
-                                   availability=message.get("availability") or None,
-                                   offset=offset, limit=limit)
-        rows, total = page.rows, page.total
-        visible = message.get("visible_fields")
-        if visible:
-            rows = [{k: r[k] for k in visible if k in r} for r in rows]
-        next_cursor = offset + len(rows)
-        return {"ok": True, "records": rows, "total": total,
-                # None means "you have everything" — the client stops, not guesses.
-                "next_cursor": next_cursor if next_cursor < total else None}
-
-    if command == "GET_CHANGES":
-        source_key = message.get("source_key") or None
-        return {"ok": True,
-                "summary": change_summary(conn, source_key) if source_key else {},
-                "changes": recent_changes(conn, source_key, limit=_page_size(message))}
 
     if command == "AUTOSTART_STATUS":
         from . import autostart
@@ -306,18 +229,6 @@ def start_engine(message: dict) -> dict:
     # "confirmed": False is honest; claiming success would teach the owner to
     # distrust the button the first slow morning.
     return {"ok": True, "started": True, "confirmed": False, "port": port}
-
-
-def _job_brief(job: dict) -> dict:
-    """Aggregated progress only (spec 25) — never per-record events."""
-    total = job.get("progress_total") or 0
-    done = job.get("progress_done") or 0
-    return {"job_ref": job["job_ref"], "status": job["status"], "run_mode": job["run_mode"],
-            "source_keys": job["source_keys"], "current_source_key": job["current_source_key"],
-            "stage": job["stage"], "counters": job.get("counters", {}),
-            "progress": {"done": done, "total": total,
-                         "percent": round(done / total * 100) if total else 0},
-            "error_summary": job.get("error_summary")}
 
 
 # ---- the stdio loop ----------------------------------------------------------

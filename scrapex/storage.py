@@ -8,6 +8,13 @@ is made and verified while the original stays live, and the move commits by
 atomically rewriting the pointer. Before that write the old path is authoritative;
 after it the new one is. There is no instant where neither is.
 
+Since the databases were split there are TWO records of that location — this
+pointer and `databases.json`, which is the one the engine reads at startup — so
+the commit point is `commit_live_database`, which writes both. Writing only the
+pointer leaves the engine opening yesterday's file after the next restart; that
+is what `write_pointer` alone does, and it is why nothing outside this module
+should call it.
+
 **A missing database is an error, not an invitation.** `db.connect` creates what
 it does not find, which is right for a first run and catastrophic for a fifth
 year: a pointer aimed at an unplugged drive would silently mint an empty
@@ -93,6 +100,67 @@ def write_pointer(db_path: Path | str) -> None:
 
 def clear_pointer() -> None:
     POINTER_FILE.unlink(missing_ok=True)
+
+
+def commit_live_database(db_path: Path | str, *, previous: Path | str | None = None) -> None:
+    """Make `db_path` the live warehouse — in BOTH records, or in neither.
+
+    Two files answer "where is the warehouse": this module's pointer
+    (location.json), and the database registry (databases.json) the engine
+    actually reads at startup. Every operation that RELOCATES the warehouse —
+    move, compact, undo-compaction — used to write only the pointer and leave
+    the registry to its CALLER. Two web routes then did that reconciliation with
+    the same eight lines copy-pasted between them, and `undo_compaction`, which
+    is written and tested and simply has no route yet, did not do it at all: the
+    day a button is wired to it the pointer would move, the registry would not,
+    and the next engine start would open the pre-compaction file with nothing
+    anywhere saying why.
+
+    So the reconciliation lives at the commit point, not at the call site. The
+    registry import is local on purpose: `databases/` is the newer layer and
+    imports downward to here, so an eager import would close a cycle.
+
+    `previous` is the path being superseded, and the registry follows ONLY if it
+    is currently pointing there. That is not defensiveness, it is the actual
+    rule: this function relocates THE LIVE WAREHOUSE, so a registry aimed at
+    some other database is not stale, it is a different database and must not be
+    dragged along. It also makes the function safe by construction rather than
+    by the caller's care — without it, any test that compacts a temporary
+    database would repoint the owner's real registry at a file under /tmp.
+    """
+    write_pointer(db_path)
+    _point_registry_at(Path(db_path), Path(previous) if previous else None)
+
+
+def _point_registry_at(db_path: Path, previous: Path | None) -> None:
+    """Follow the warehouse in databases.json, when it was following it before.
+
+    A legacy `--db` session has no registry, and that is not a failure: there
+    the pointer IS the whole truth. A registry that cannot be READ is left alone
+    rather than rebuilt from a guess — it names the General database too, and
+    inventing that path is precisely how one would be lost.
+    """
+    from .databases.domain import MarketLensDatabase
+    from .databases.registry import REGISTRY_FILE, DatabaseRegistry
+
+    # Passed explicitly, never left to the default: `read`'s default argument is
+    # bound at definition time, so a process that redirects REGISTRY_FILE — a
+    # test, a --registry session — would have had this function reading the real
+    # one on the owner's disk while every other part of the run used the
+    # redirected one. The `previous` guard below is what stopped that being a
+    # rewrite rather than merely a read.
+    if previous is None or not Path(REGISTRY_FILE).is_file():
+        return
+    try:
+        registry = DatabaseRegistry.read(REGISTRY_FILE)
+    except Exception:  # noqa: BLE001 — a registry we cannot read, we do not rewrite
+        return
+    if registry.marketlens.path.resolve() != previous.resolve():
+        return                      # a different warehouse: not ours to move
+    if registry.marketlens.path.resolve() == db_path.resolve():
+        return
+    DatabaseRegistry(registry.general, MarketLensDatabase(db_path),
+                     registry.legacy_path, registry.pointer_file).write()
 
 
 def current_location() -> Path:
@@ -885,7 +953,7 @@ def migrate_location(db_path: Path | str, new_dir: Path | str, *,
         # The copy already exists and already matched. Finishing is just the
         # commit, and repeating the copy would only risk a fresh failure.
         step("switching")
-        write_pointer(destination)
+        commit_live_database(destination, previous=path)
         _retire(path, "moved", destination)
         return RunResult(ok=True, location=str(destination),
                          detail=f"Finished an interrupted move to {destination}. The "
@@ -923,7 +991,7 @@ def migrate_location(db_path: Path | str, new_dir: Path | str, *,
 
     os.replace(incoming, destination)      # atomic within the volume
     step("switching")
-    write_pointer(destination)             # ---- the commit point ----
+    commit_live_database(destination, previous=path)   # ---- the commit point ----
 
     step("tidying")
     left_behind, marked = _retire(path, "moved", destination)

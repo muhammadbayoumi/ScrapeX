@@ -1,20 +1,28 @@
-// Transport to the local ScrapeX engine.
+// Transport to the local ScrapeX engine — the CONTROL path.
 //
-// Two routes to the SAME engine:
-//   1. Native messaging  — Chrome starts the engine on demand; nothing to launch.
-//   2. HTTP localhost    — the engine is already running via `scrapex ui`.
+// NOT two routes to the same engine. Two paths that carry different things and
+// do not overlap:
+//   CONTROL  native messaging, this file — start the engine, read and set
+//            autostart, ping. Chrome starts the host on demand, and a host on
+//            the machine is the only thing that can start a process for a page.
+//   DATA     HTTP to 127.0.0.1, in engine.js and the panel — every source,
+//            record, job and log the panel shows.
 //
-// Native is tried first and HTTP is the fallback, so a user who has not run the
-// installer yet is never stranded.
+// This file used to export a sendCommand() that tried native first and fell
+// back to HTTP for the SAME request. That only made sense while the host also
+// answered data commands, and nothing in the extension ever called it. The
+// host's data commands are gone (see scrapex/native.py) and so is it.
 //
 // MV3 NOTE: the service worker may hibernate after ~30s, so no long-lived port is
 // kept here. The side panel talks to the engine directly, one request at a time,
 // and re-reads current state on reconnect — the engine owns the job, not us.
 
 const HOST_NAME = "com.scrapex.engine";
+// The number the DATA path checks too: engine.js compares it against the one
+// /api/health publishes. Its other half is PROTOCOL_VERSION in
+// scrapex/native.py — the extension cannot import Python, so a Python test
+// reads this line back and fails if the two ever diverge.
 export const PROTOCOL_VERSION = 1;
-
-let nativeAvailable = null; // null = untested, true/false = known
 
 // Every failure here used to arrive as one anonymous Error, and the panel had
 // one branch for all of them: "the launcher is not installed". That sentence was
@@ -94,25 +102,6 @@ function unwrap(response) {
   return response;
 }
 
-export async function sendCommand(message, httpFallback) {
-  if (nativeAvailable !== false) {
-    try {
-      const response = unwrap(await sendNative(message));
-      nativeAvailable = true;
-      return response;
-    } catch (e) {
-      if (e instanceof VersionMismatchError) throw e;  // a real answer, not absence
-      nativeAvailable = false;                          // not installed — fall back
-    }
-  }
-  if (!httpFallback) throw new Error("the ScrapeX engine is not reachable");
-  return httpFallback();
-}
-
-export function nativeStatus() {
-  return nativeAvailable === null ? "unknown" : nativeAvailable ? "connected" : "unavailable";
-}
-
 // The "start with Windows" launcher is a file on the machine; only the native
 // host can read or write it. Native-only like startEngine — absence of the
 // host throws, and the caller turns that into "run the one-time installer".
@@ -124,10 +113,10 @@ export function setAutostart(enabled) {
   return sendNative({ command: "SET_AUTOSTART", enabled: !!enabled }).then(unwrap);
 }
 
-// Starting the engine is NATIVE-ONLY on purpose: the HTTP fallback IS the
-// engine, so when it is down there is nothing to fall back to. This either
-// reaches the installed host or throws — and the caller turns that throw into
-// "run the installer", which is the truthful next step.
+// Starting the engine is NATIVE-ONLY on purpose: the engine IS the data path,
+// so when it is down there is nothing to fall back to. This either reaches the
+// installed host or throws — and the caller turns that throw into "run the
+// installer", which is the truthful next step.
 export function startEngine() {
   // The long budget: this command waits for a real process to come up.
   return sendNative({ command: "START_ENGINE" }, START_TIMEOUT_MS).then((response) => {
@@ -136,7 +125,6 @@ export function startEngine() {
       refused.kind = "refused";      // the host ANSWERED; it just could not start it
       throw refused;
     }
-    nativeAvailable = true;
     return response;
   });
 }

@@ -8,6 +8,7 @@ workbook with one tab per source). The only difference is where it lands.
 from __future__ import annotations
 
 import sqlite3
+from contextlib import AbstractContextManager, nullcontext
 from typing import Protocol
 
 from .fields import ORIGINAL_SCHEMA, apply_schema
@@ -28,6 +29,11 @@ class SheetSink(Protocol):
     def location(self, handle) -> str:
         """Human-facing URL or path for the workbook."""
 
+    # A sink MAY also offer `batch(handle)` — a context manager around the whole
+    # run of write_tab calls (see _sink_batch). It is deliberately not declared
+    # here: a sink for which a tab is one cheap call needs no such thing, and
+    # requiring it would make every existing sink stop satisfying this protocol.
+
 
 def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
                    folder: str, workbook: str, schema: str = ORIGINAL_SCHEMA,
@@ -44,9 +50,26 @@ def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
     """
     tabs = workbook_tables(conn, source_key, schema=schema, tab=tab)
     handle = sink.ensure_workbook(folder, workbook)
-    for name, header, rows in tabs:
-        sink.write_tab(handle, name, header, rows)
+    with _sink_batch(sink, handle):
+        for name, header, rows in tabs:
+            sink.write_tab(handle, name, header, rows)
     return len(tabs[0][2]), sink.location(handle)
+
+
+def _sink_batch(sink: SheetSink, handle) -> AbstractContextManager[None]:
+    """Let a sink treat one source's tabs as a single operation, if it can.
+
+    A tab is one cheap API call to Google, but a whole-file rewrite on disk:
+    LocalSink used to re-read and re-save the entire .xlsx per tab, which is
+    four passes over the workbook for the four tables an export is made of.
+    Asking for the batch here — the one place that knows a run of write_tab
+    calls belongs together — is what lets it read and write the file once.
+
+    Optional on purpose: a sink without `batch` (GoogleSink, and the fakes the
+    tests publish into) keeps the plain one-call-per-tab path, unchanged.
+    """
+    batch = getattr(sink, "batch", None)
+    return batch(handle) if batch is not None else nullcontext()
 
 
 def workbook_tables(conn: sqlite3.Connection, source_key: str,
