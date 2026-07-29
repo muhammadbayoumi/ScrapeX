@@ -4,9 +4,13 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
-from scrapex.connectors.base import DEFAULT_USER_AGENT, HttpFetcher, resolve_fetcher
+from scrapex.connectors.base import (CrawlBlocked, DEFAULT_USER_AGENT,
+                                    HttpFetcher, resolve_fetcher)
+from scrapex.connectors.jsonld import alternate_links, english_alternate
 from scrapex.connectors.zid import ZidConnector
 from scrapex.ingest import ingest_payloads
 from scrapex.rowspec import PRODUCT_PRICES, RowView
@@ -163,6 +167,167 @@ def test_a_zid_page_that_cannot_be_read_leaves_a_warning():
 
     assert any("no Product" in w and "1 product page(s)" in w
                for w in warnings)
+
+
+# ---- bilingual: advancedcastle serves ar AND en, 2026-07-28 ----------------
+
+# The five alternates advancedcastle's own <head> publishes on every page.
+LIVE_ALTERNATES = {
+    "ar-eg": "https://advancedcastle.com/ar-eg/products/CO2-extinguisher",
+    "en": "https://advancedcastle.com/en/products/CO2-extinguisher",
+    "en-eg": "https://advancedcastle.com/en-eg/products/CO2-extinguisher",
+    "ar-sa": "https://advancedcastle.com/products/CO2-extinguisher",
+    "x-default": "https://advancedcastle.com/products/CO2-extinguisher",
+}
+
+_ONE_PRODUCT_SITEMAP = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>'
+    "https://advancedcastle.com/products/CO2-extinguisher"
+    "</loc></url></urlset>"
+)
+
+
+class _BilingualStubFetcher:
+    """The captured ar-sa page and the en page it advertises."""
+
+    AR = "live/advancedcastle_product_ar_2026-07-28.trimmed.html"
+    EN = "live/advancedcastle_product_en_2026-07-28.trimmed.html"
+
+    def __init__(self):
+        self.requests_count = 0
+        self.urls = []
+
+    def get(self, url, **kwargs):
+        self.requests_count += 1
+        self.urls.append(url)
+        if url.endswith("/sitemap.xml"):
+            return _Resp(_ONE_PRODUCT_SITEMAP)
+        if "/en/products/" in url:
+            return _Resp(_read(self.EN))
+        if "/products/" in url:
+            return _Resp(_read(self.AR))
+        raise RuntimeError("404 " + url)
+
+    def close(self): pass
+
+
+def test_the_english_page_the_store_publishes_fills_the_unmarked_columns():
+    """advancedcastle serves BOTH languages and says so in its own <head>, yet
+    the connector emitted Arabic-only rows. The standing bilingual rule makes
+    that a defect, not a gap."""
+    fetcher = _BilingualStubFetcher()
+    header, rows, warnings, _t = price_rows(ZidConnector(fetcher), make_entry())
+    view = RowView(PRODUCT_PRICES, header)
+    row = view.as_dict(rows[0])
+
+    # Both halves, each from the page that published it — nothing translated.
+    assert row["product_name_ar"] == "طفاية حريق ثاني أكسيد الكربون CO2 سعة 6 كجم"
+    assert row["product_name"] == "6kg CO₂ Fire Extinguisher"
+    assert row["category_path_ar"] == "أنظمة الإطفاء > طفايات الحريق اليدوية"
+    assert row["category_path"] == "Extinguish Systems > Manual fire extinguishers"
+    # One product, one identity: the English page is the SAME sku, so it must
+    # not have become a second product.
+    assert len(rows) == 1 and row["external_sku"] == "e1mf0901"
+    assert not warnings
+    # The English page is a real second request, and the SA-region one.
+    assert "https://advancedcastle.com/en/products/CO2-extinguisher" in fetcher.urls
+
+
+def test_the_english_page_is_read_for_text_and_never_for_price():
+    """Both SA pages quote SAR 285. The row's money must come from the page the
+    crawl is anchored on, so a later change to which alternate is fetched can
+    never move a price."""
+    header, rows, _w, _t = price_rows(ZidConnector(_BilingualStubFetcher()),
+                                      make_entry())
+    row = RowView(PRODUCT_PRICES, header).as_dict(rows[0])
+    assert row["price"] == "285.00" and row["currency"] == "SAR"
+    assert row["country_code_alpha2"] == "SA"
+
+
+def test_an_arabic_only_store_advertises_nothing_and_pays_nothing():
+    """The 2026-07-20 capture carries no alternates. Such a store must cost
+    exactly one request per product, and its unmarked column must stay EMPTY
+    rather than be filled with the Arabic text under an English heading."""
+    class _Recording(_LiveStubFetcher):
+        def __init__(self):
+            super().__init__()
+            self.urls = []
+
+        def get(self, url, **kwargs):
+            self.urls.append(url)
+            return super().get(url, **kwargs)
+
+    fetcher = _Recording()
+    header, rows, warnings, _t = price_rows(ZidConnector(fetcher), make_entry())
+    view = RowView(PRODUCT_PRICES, header)
+
+    assert rows
+    assert all(view.as_dict(r)["product_name"] == "" for r in rows)
+    assert all(view.as_dict(r)["category_path"] == "" for r in rows)
+    # Not one request was spent looking for a language this store never
+    # advertised, and every product page was fetched exactly once.
+    assert not any("/en/" in u or "/en-eg/" in u for u in fetcher.urls)
+    assert len(fetcher.urls) == len(set(fetcher.urls))
+    assert not any("English" in w for w in warnings)
+
+
+def test_an_alternate_pointing_at_a_different_product_is_refused():
+    """A mis-wired hreflang must not write another product's English name onto
+    this row. Empty and warned beats plausible and wrong."""
+    class _WrongProduct(_BilingualStubFetcher):
+        def get(self, url, **kwargs):
+            if "/en/products/" in url:
+                self.requests_count += 1
+                return _Resp(_read(_LiveStubFetcher.PRODUCT_PAGE))  # other sku
+            return super().get(url, **kwargs)
+
+    header, rows, warnings, _t = price_rows(ZidConnector(_WrongProduct()),
+                                            make_entry())
+    row = RowView(PRODUCT_PRICES, header).as_dict(rows[0])
+    assert row["product_name"] == ""
+    assert row["product_name_ar"]          # the Arabic capture is untouched
+    assert any("English page" in w for w in warnings)
+
+
+def test_an_unreachable_english_page_warns_rather_than_passing_silently():
+    class _DeadEnglish(_BilingualStubFetcher):
+        def get(self, url, **kwargs):
+            if "/en/products/" in url:
+                raise RuntimeError("503")
+            return super().get(url, **kwargs)
+
+    header, rows, warnings, _t = price_rows(ZidConnector(_DeadEnglish()),
+                                            make_entry())
+    assert RowView(PRODUCT_PRICES, header).as_dict(rows[0])["product_name"] == ""
+    assert any("English page" in w and "1 product(s)" in w for w in warnings)
+
+
+def test_a_blocked_english_page_stops_the_crawl():
+    class _BlockedEnglish(_BilingualStubFetcher):
+        def get(self, url, **kwargs):
+            if "/en/products/" in url:
+                raise CrawlBlocked("owner or site stopped the crawl")
+            return super().get(url, **kwargs)
+
+    with pytest.raises(CrawlBlocked):
+        list(ZidConnector(_BlockedEnglish()).fetch(make_entry()))
+
+
+def test_the_english_alternate_taken_is_the_one_for_our_region():
+    """When the page advertises both, the region-matched English alternate wins
+    deliberately rather than whichever the document listed first."""
+    assert (english_alternate(LIVE_ALTERNATES, "SA")
+            == "https://advancedcastle.com/en/products/CO2-extinguisher")
+    assert (english_alternate(LIVE_ALTERNATES, "EG")
+            == "https://advancedcastle.com/en-eg/products/CO2-extinguisher")
+    # An Arabic-only store: no English page, and we invent none.
+    assert english_alternate({"ar-sa": "https://x/y"}, "SA") == ""
+
+
+def test_alternate_links_reads_the_stores_own_codes():
+    links = alternate_links(_read(_BilingualStubFetcher.AR))
+    assert links == LIVE_ALTERNATES
 
 
 def test_zid_end_to_end_into_warehouse():

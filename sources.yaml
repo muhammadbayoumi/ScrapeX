@@ -176,6 +176,14 @@ sources:
       the fetcher sends. Variant prices are in the page HTML, not JSON-LD (v1
       records the product-level JSON-LD price only).
 
+      BILINGUAL, captured 2026-07-28. The retained Arabic product page publishes
+      ar-eg, en, en-eg, ar-sa and x-default alternates. Its advertised English
+      page carries the same SKU (e1mf0901), SAR 285 price, and the corresponding
+      English product name and category path. The connector follows that
+      page-published English alternate for text only, validates that it is the
+      same product, and keeps money and identity anchored to the configured
+      Arabic Saudi page. No text is translated or guessed.
+
   # ---- probed: Shopify; products.json OPEN ----
   - source_key: ELSEWEDYSHOP
     source_name_ar: السويدي شوب

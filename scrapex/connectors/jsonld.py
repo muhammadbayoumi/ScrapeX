@@ -80,6 +80,7 @@ class WalkTally:
     unparsed: int = 0
     unreachable: int = 0
     skipped: int = 0
+    english_lost: int = 0
     unreadable_children: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -104,12 +105,20 @@ class WalkTally:
         if self.skipped:
             notes.append(f"{self.skipped} product page(s) were already journaled by "
                          "a paused run and were not fetched again")
+        if self.english_lost:
+            notes.append(
+                f"{self.english_lost} product(s) advertise an English page whose "
+                "product JSON-LD could not be read (unreachable, unparsable, or "
+                "a different product) — their English columns are empty and "
+                "were never translated or guessed")
         return notes
 
 
-def walk_products(fetcher, urls: Iterable[str], skip_tokens, token_of: Callable[[str], str],
-                  tally: WalkTally) -> Iterator[tuple[str, str, dict]]:
-    """(url, token, product node) for every page that answered AND parsed.
+def walk_product_pages(
+        fetcher, urls: Iterable[str], skip_tokens,
+        token_of: Callable[[str], str], tally: WalkTally,
+) -> Iterator[tuple[str, str, str, dict]]:
+    """(url, token, html, product node) for every page that answered and parsed.
 
     THE STOP SIGNAL PASSES THROUGH. Both SSR connectors guarded the page fetch
     with a bare `except Exception: continue`, and CrawlBlocked is a RuntimeError
@@ -137,7 +146,56 @@ def walk_products(fetcher, urls: Iterable[str], skip_tokens, token_of: Callable[
         if not node:
             tally.unparsed += 1
             continue
+        yield url, token, html, node
+
+
+def walk_products(fetcher, urls: Iterable[str], skip_tokens,
+                  token_of: Callable[[str], str],
+                  tally: WalkTally) -> Iterator[tuple[str, str, dict]]:
+    """Compatibility view for connectors that do not need the source HTML."""
+    for url, token, _html, node in walk_product_pages(
+            fetcher, urls, skip_tokens, token_of, tally):
         yield url, token, node
+
+
+def alternate_links(html: str) -> dict[str, str]:
+    """The page's own `<link rel="alternate" hreflang="...">` map: code -> href.
+
+    A store that serves more than one language SAYS SO here, in its own head,
+    and the codes are the store's — not a path convention we guessed. Reading
+    them is what lets a connector find the other language without hardcoding
+    "/en/": a store that publishes nothing else yields {} and costs no request.
+
+    Codes are lowercased (hreflang is case-insensitive per RFC 5646) and
+    `x-default` is kept, because a store whose default is a real locale points
+    it at one.
+    """
+    out: dict[str, str] = {}
+    for tag in BeautifulSoup(html, "lxml").find_all("link", rel="alternate"):
+        code = str(tag.get("hreflang") or "").strip().lower()
+        href = str(tag.get("href") or "").strip()
+        if code and href:
+            out.setdefault(code, href)   # first wins: document order is the site's
+    return out
+
+
+def english_alternate(links: dict[str, str], region: str = "") -> str:
+    """The English page for OUR region, from the page's own alternates.
+
+    Region-matched FIRST and deliberately: when a page publishes `en` plus a
+    regional English alternate, taking whichever came first could borrow text
+    from a different storefront. "" when the store has no English page, which
+    is the honest answer for an Arabic-only shop.
+    """
+    region = (region or "").strip().lower()
+    if region and f"en-{region}" in links:
+        return links[f"en-{region}"]
+    if "en" in links:
+        return links["en"]
+    for code, href in links.items():
+        if code.startswith("en-"):
+            return href
+    return ""
 
 
 def _product_node(data) -> dict | None:
@@ -181,14 +239,16 @@ def offer_price(offers) -> tuple[str, str, str]:
     return (str(price) if price not in (None, "") else ""), currency, availability
 
 
-def product_row(builder, node: dict, url: str, source, vat: str, pid: str):
+def product_row(builder, node: dict, url: str, source, vat: str, pid: str,
+                english: dict | None = None):
     """One price row from a schema.org Product node, or None when unpriced.
 
     This was written out twice, byte for byte, in salla and zid — with ONE line
     different between them, the product id, which is now the caller's argument.
-    Both shops publish Arabic only, so the marked column is filled and the
-    unmarked one stays empty rather than carrying Arabic under a name that
-    asserts English.
+    The marked Arabic column always comes from the crawled page. When that page
+    advertises a verified English twin, the caller may pass its Product node;
+    otherwise the unmarked columns stay empty rather than carrying Arabic under
+    headings that assert English.
     """
     from ..normalize import brand_pair
 
@@ -197,10 +257,12 @@ def product_row(builder, node: dict, url: str, source, vat: str, pid: str):
         # Variant-priced with no usable price: the real ones need the page's
         # variant HTML or a session capture. Never guessed at.
         return None
+    english = english or {}
     return builder.row(
         external_product_id=pid, external_variant_id=pid,
         external_sku=str(node.get("sku") or ""),
         product_name_ar=str(node.get("name") or ""),
+        product_name=str(english.get("name") or ""),
         **brand_pair(brand_name(node)), product_link=url,
         country_code_alpha2=source.default_region,
         currency=currency or source.currency or "UNKNOWN", tax_included=vat,
@@ -209,6 +271,7 @@ def product_row(builder, node: dict, url: str, source, vat: str, pid: str):
         # The product's own filing, stated in the SAME JSON-LD the price came
         # from — «أنظمة الإطفاء > طفايات الحريق اليدوية». No extra request.
         category_path_ar=category_path(node),
+        category_path=category_path(english) if english else "",
     )
 
 
