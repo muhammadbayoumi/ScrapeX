@@ -42,7 +42,7 @@ async function openTab(path) { chrome.tabs.create({ url: (await getBackend()) + 
 const state = {
   sources: [], selected: new Set(), filter: "", sourceFilter: "",
   editingSourceKey: null,
-  job: null, jobRef: null, autoscroll: true, logs: [],
+  job: null, jobRef: null, autoscroll: true, logs: [], logSignature: null,
   engineUp: false,
 };
 
@@ -609,16 +609,28 @@ const CHANGE_LABELS = {
 };
 
 async function loadChangeSummaries() {
-  for (const s of state.sources) {
-    if (!s.observations) continue;
+  // One request per source is what the engine offers, but they were awaited one
+  // after another AND each answer re-rendered the entire source list — so ten
+  // sources meant ten serial round-trips and ten full rebuilds of the DOM the
+  // owner was already reading, with the rows shifting under the pointer as each
+  // landed. The requests go out together and the list is drawn ONCE, when they
+  // have all answered.
+  const wanted = state.sources.filter((s) => s.observations);
+  const summaries = await Promise.all(wanted.map(async (s) => {
     try {
       const { summary } = await api("/api/changes?limit=1&source_key=" +
         encodeURIComponent(s.source_key));
-      const line = Object.entries(summary || {}).filter(([, n]) => n > 0)
-        .map(([k, n]) => `${n} ${CHANGE_LABELS[k] || k}`).join(" · ");
-      if (line) { s.changes = line; renderSites(); }
-    } catch (_) { /* a missing summary is not worth surfacing */ }
+      return [s, Object.entries(summary || {}).filter(([, n]) => n > 0)
+        .map(([k, n]) => `${n} ${CHANGE_LABELS[k] || k}`).join(" · ")];
+    } catch (_) {
+      return [s, ""];   // a missing summary is not worth surfacing
+    }
+  }));
+  let changed = false;
+  for (const [source, line] of summaries) {
+    if (line && source.changes !== line) { source.changes = line; changed = true; }
   }
+  if (changed) renderSites();
 }
 
 // ---- run -------------------------------------------------------------------
@@ -873,7 +885,26 @@ function renderActivity(job) {
     `<div class="kv"><span>${esc(k)}</span><span class="tech">${esc(v)}</span></div>`).join("");
 }
 
+// The identity of a log AS DISPLAYED: level and message, in order. The
+// separators are control characters no log line can contain, so two different
+// logs cannot collide into one signature — which would be the one way this
+// optimisation could hide a real change from the owner.
+function logSignatureOf(entries) {
+  return entries.map((e) => `${e.level}\u0000${e.message}`).join("\u0001");
+}
+
 function renderLogs(entries) {
+  // Rewriting innerHTML destroys the selection inside it, and this runs on a
+  // 1.5s poll — so an owner trying to copy an error message out of the log had
+  // the highlight taken away from them every 1.5 seconds, whether or not a
+  // single line had changed. A crawl is mostly quiet: the entries are usually
+  // identical to the ones already on screen, and the cheapest correct fix is to
+  // notice that and leave the DOM alone.
+  const signature = logSignatureOf(entries);
+  // childElementCount guards the other direction: a view switch can empty this
+  // box, and a signature that still matched would then leave it empty forever.
+  if (signature === state.logSignature && $("logbox").childElementCount) return;
+  state.logSignature = signature;
   state.logs = entries;
   $("logbox").innerHTML = entries.map((e) =>
     `<div class="logline"><span class="lvl muted">${esc(e.level)}</span>` +
