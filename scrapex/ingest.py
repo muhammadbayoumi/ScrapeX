@@ -212,7 +212,7 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
     row = conn.execute(
         "SELECT source_product_id, curation, product_name_ar, product_link, brand, brand_ar, "
         "       external_sku, status, category_path_ar, category_external_id, "
-        "       product_name, product_name_lang, category_path "
+        "       product_name, product_name_lang, category_path, display_method "
         "FROM source_product WHERE source_id = ? AND external_product_id = ?",
         (source_id, r["external_product_id"]),
     ).fetchone()
@@ -255,7 +255,24 @@ def _get_product(conn, source_id: int, r: dict, run_id: int | None = None,
         "category_external_id": r.get("category_external_id") or "",
         "product_name": r["product_name"] or "",
         "product_name_lang": r.get("lang") or "",
-        "has_variants": 1 if r["external_variant_id"] or r["option_fingerprint"] else 0,
+        # HOW THE SITE PRESENTS IT (0056) — one of vocab.DisplayMethod, or ""
+        # from a connector that has not been taught to say. Kept beside
+        # parent_sku because it is the same kind of fact: product identity the
+        # source states, not an open-ended attribute.
+        "display_method": r.get("display_method") or "",
+        # "MORE THAN ONE OF IT", which is not the same question as "does this
+        # row carry a variant id". The old test was `external_variant_id or
+        # option_fingerprint`, and a simple product is emitted as row(uid, uid)
+        # by every shop connector here, so external_variant_id was NEVER empty
+        # and this column read 1 for 763/763 MADAR products and for every
+        # product of sources 1,2,3,4,7,8,9 — one column, one answer, no
+        # information. Comparing the two ids is the honest test: a product that
+        # IS its own variant has no variations. display_method now answers the
+        # richer question; this one goes back to answering its own correctly.
+        "has_variants": 1 if (
+            (r["external_variant_id"]
+             and r["external_variant_id"] != r["external_product_id"])
+            or r["option_fingerprint"]) else 0,
         "curation": CurationStatus.INVENTORIED.value,
     })
     record_change(conn, ChangeType.NEW, "source_product", source_product_id=pid,
@@ -481,10 +498,73 @@ def _basis_quantity(raw: str) -> float:
     return value if value > 0 else 1.0
 
 
+def _optional_quantity(raw: str) -> float | None:
+    """A quantity the SITE stated, or None when it stated nothing.
+
+    Deliberately not _basis_quantity: that one falls back to 1.0, which is the
+    right answer for "how many units does this price buy" (the schema's own
+    default) and the WRONG one here. "The shop requires a minimum of 1" and
+    "the shop states no minimum" are different facts, and a default of 1 would
+    erase the difference on all 3,417 offers that currently say nothing.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _quantity_facts(r: dict) -> dict:
+    """WHAT ONE UNIT OF THE PRICE BUYS, as the site states it (0056).
+
+    ONLY the facts this row actually REPORTED. A connector that has not been
+    taught these columns sends "" for all three, and this returns {} — so the
+    absent column can never overwrite a value an earlier crawl learned. Same
+    rule product_field_diffs already applies to names and brands: an empty
+    incoming value is "the connector did not say", never "the source cleared
+    it".
+
+    None of these is in ux_source_offer_identity, so learning them never splits
+    an offer or mints a second one — an existing offer simply fills in the
+    columns it was always missing.
+    """
+    facts: dict = {}
+    for column in ("minimum_quantity", "quantity_increment"):
+        value = _optional_quantity(r.get(column, ""))
+        if value is not None:
+            facts[column] = value
+    # This one is a flag, so the site saying "false" is itself an answer — but
+    # an ABSENT column is still silence, and "" is what absence looks like.
+    stated = str(r.get("quantity_is_decimal", "") or "").strip()
+    if stated:
+        facts["quantity_is_decimal"] = 1 if stated == "1" else 0
+    return facts
+
+
+def _apply_quantity_facts(conn, offer_id: int, facts: dict) -> None:
+    """Let an existing offer learn what the site says about its quantity.
+
+    Written on every crawl, not only at INSERT: all 3,417 MADAR offers already
+    exist, so an INSERT-only path would have left every one of them blank
+    forever — the same trap 0052 fell into with the trade price, where the
+    values it promised "on the next crawl" could never arrive because nothing
+    asked the warehouse to write them.
+    """
+    if not facts:
+        return
+    sets = ", ".join(f"{column} = ?" for column in facts)   # fixed column names
+    conn.execute(f"UPDATE source_offer SET {sets} WHERE offer_id = ?",
+                 (*facts.values(), offer_id))
+
+
 def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     vat = 1 if r["tax_included"] == "1" else 0
     unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
     basis = _basis_quantity(r.get("basis_quantity", ""))
+    quantity = _quantity_facts(r)
     # The unit is part of what an offer IS: 15 per litre and 15 per gallon are
     # different offers, not one offer that changed price. The lookup used to pin
     # selling_unit_id IS NULL, which made every offer unit-less by construction
@@ -497,6 +577,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         (variant_id, r["country_code_alpha2"], unit_id or 0, basis),
     )
     if found is not None:
+        _apply_quantity_facts(conn, found, quantity)
         return found
     # AN OFFER LEARNING ITS UNIT IS NOT A SECOND OFFER. The rule above is right
     # about two KNOWN units, and wrong about the step from unknown to known: the
@@ -518,6 +599,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
             conn.execute(
                 "UPDATE source_offer SET selling_unit_id = ?, basis_quantity = ? "
                 "WHERE offer_id = ?", (unit_id, basis, unstated))
+            _apply_quantity_facts(conn, unstated, quantity)
             return unstated
     return _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
@@ -526,6 +608,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         "tax_included": vat,
         "selling_unit_id": unit_id,
         "basis_quantity": basis,
+        **quantity,
     })
 
 

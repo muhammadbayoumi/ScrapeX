@@ -141,6 +141,15 @@ _DETAIL_GROUP_BY_CODE: dict[str, DetailGroup] = {
     "no_follow": DetailGroup.SITE_METADATA,
     "no_archive": DetailGroup.SITE_METADATA,
     "keywords": DetailGroup.SITE_METADATA,
+    # The page's own <title>, which is not the product's name and sometimes
+    # disagrees with it: madar's epoxy rebar is «من حديد» (Hadeed) in `name`
+    # while meta_title says «سابك» (SABIC), and the image is epoxy_sabic.png.
+    # That is the SITE's inconsistency and we record it rather than resolve
+    # it — source truth is never edited. Filed here because it describes the
+    # PAGE, so it cannot crowd out a product fact.
+    "meta_title": DetailGroup.SITE_METADATA,
+    "meta_description": DetailGroup.SITE_METADATA,
+    "meta_keyword": DetailGroup.SITE_METADATA,
     # Information ABOUT the product — the owner's own three examples.
     "manufacturer": DetailGroup.MORE_INFORMATION,
     "origin": DetailGroup.MORE_INFORMATION,
@@ -263,6 +272,38 @@ def group_for_code(code: str) -> "tuple[DetailGroup, bool]":
         if base.endswith(suffix):
             return group, True
     return DetailGroup.MORE_INFORMATION, False
+
+
+class DisplayMethod(StrEnum):
+    """HOW THE SITE PRESENTS A PRODUCT — a property of the product, constant
+    across every row it produces.
+
+    Not to be confused with what one unit of the price BUYS, which is a
+    property of the OFFER and differs per member (source_offer carries that:
+    selling_unit_id, basis_quantity, minimum_quantity, quantity_increment,
+    quantity_is_decimal). Conflating the two is what made a MADAR row
+    unreadable: a grouped rebar member and a simple bag of cement arrived
+    looking identical, and neither said which it was.
+
+    THE STRUCTURAL POINT, measured on madar's live census 2026-07-29: "sold by
+    a bulk unit" is NOT a fourth shape. It appears INSIDE GroupedProduct (96
+    leaves) and INSIDE ConfigurableProduct (13 leaves, the steel mesh). So it
+    cannot be a fifth value here — a single enum over `__typename` would miss
+    it — and it lives on the offer instead. Two columns, two questions.
+
+    `has_variants` is NOT this column and must never be reused as it: it reads
+    1 for 763 of 763 madar products and for every product of sources 1,2,3,4,7,
+    8,9, because a simple product is emitted as row(uid, uid) and the flag only
+    ever asked whether external_variant_id was non-empty.
+
+    '' is a shape nobody has studied yet, and it is NEVER guessed. A future
+    BundleProduct arrives blank rather than filed as the nearest thing.
+    """
+
+    SINGLE = "single"                       # one product, one price
+    OPTIONS_ONE_PRICE = "options_one_price"  # options, all at the same price
+    OPTIONS_PRICED = "options_priced"       # options priced apart ("from X")
+    MEMBER_LIST = "member_list"             # the page prices the MEMBERS
 
 
 class ExtractKind(StrEnum):

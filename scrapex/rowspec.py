@@ -125,6 +125,34 @@ PRODUCT_PRICES = RowSpec(
         # product's sku column held whichever variation was ingested last.
         "variant_url",
         "parent_sku",
+        # --- added 2026-07-29 -------------------------------------------------
+        # TWO FACTS THAT WERE BEING CONFLATED, and separating them is the whole
+        # point of this widening.
+        #
+        # HOW THE SITE PRESENTS THE PRODUCT — one of vocab.DisplayMethod, and
+        # constant across every row this product emits. The one column that
+        # looked like it answered this (`has_variants`) answers 1 for every
+        # product of every shop source, so it could not be reused.
+        "display_method",
+        # WHAT ONE UNIT OF THE PRICE BUYS — properties of the OFFER, differing
+        # per member. `unit`/`basis_quantity` above already carried the part the
+        # site states in words ("50كجم" in the name agreeing with weight=50);
+        # these three carry the part it states as NUMBERS, and only as numbers.
+        #
+        # madar's rebar is why. Every member declares is_qty_decimal, weight
+        # 1000, a 0.25 minimum in 0.05 steps — and the Ø8 member costs 4,830
+        # while the Ø32 costs 4,045, which is impossible per piece and exactly
+        # right per tonne. But the shop never writes «طن»: verified 2026-07-29
+        # across member and parent attributes, description, short_description,
+        # every meta field, both category descriptions, both store views and the
+        # full 932KB rendered page — 0 occurrences, and the quantity box is
+        # labelled «الكمية» and nothing else. So the OWNER's ruling is recorded
+        # here as it was given: «الحقائق الخام فقط» — store what the site
+        # publishes, let the display layer render "per 1,000 kg", and never let
+        # a connector write a unit the shop did not say.
+        "minimum_quantity",      # min_sale_qty: the smallest orderable amount
+        "quantity_increment",    # qty_increments: the step it moves in
+        "quantity_is_decimal",   # "0" | "1" — is_qty_decimal, as a FACT
     ),
     required=frozenset({"external_product_id", "country_code_alpha2", "currency", "tax_included", "price"}),
     # The four _ar columns are deliberately NOT additive. RowView returns ""
@@ -135,9 +163,17 @@ PRODUCT_PRICES = RowSpec(
     # no error. Non-additive constrains the HEADER, not the value, and every
     # connector builds its header from this spec, so it costs nothing today
     # and buys a second refusal independent of the version number.
+    # THIS IS THE CASE THE FLAG EXISTS FOR. All four 2026-07-29 columns are new
+    # slots that nothing used to fill, so a payload captured before them is
+    # COMPLETE, not broken: it simply predates the questions. They read as ""
+    # (never said) / "0" (not a decimal quantity), which is the truthful state
+    # of every row already in the warehouse — and no backfill is possible,
+    # because raw_snapshot holds 0 rows.
     additive=frozenset({"unit", "basis_quantity", "lang", "price_trade",
                         "category_external_id",
-                        "variant", "variant_axes", "variant_url", "parent_sku"}),
+                        "variant", "variant_axes", "variant_url", "parent_sku",
+                        "display_method", "minimum_quantity",
+                        "quantity_increment", "quantity_is_decimal"}),
 )
 
 # ---- enrichment: the open-ended attribute bag, one ROW per attribute ---------

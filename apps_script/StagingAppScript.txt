@@ -251,7 +251,7 @@ const SYNC_MAX_ROWS = 40000;
 
 /* The payload contract this script speaks (payload.PAYLOAD_VERSION). A batch
  * announcing anything else is skipped loudly instead of parsed on a guess. */
-const SYNC_PAYLOAD_VERSION = 5;
+const SYNC_PAYLOAD_VERSION = 6;
 
 /* Cells are written as TEXT on purpose. Python already canonicalised every
  * value to a string (outputs._canonical_cell) so that 15 and 15.0 cannot fork

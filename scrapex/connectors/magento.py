@@ -37,7 +37,8 @@ from ..config import SourceEntry
 from ..normalize import (option_axes_json, option_fingerprint, selling_unit_from,
                          strip_markup)
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability, DetailGroup, ExtractKind, group_for_code
+from ..vocab import (Availability, DetailGroup, DisplayMethod, ExtractKind,
+                     group_for_code)
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 100
@@ -53,6 +54,23 @@ PAGE_SIZE = 100
 # knowing what a row is and assuming it. Study B1 (2026-07-25) enumerated the
 # whole madar census: 399 SimpleProduct, 328 ConfigurableProduct, 33
 # GroupedProduct, and the three do NOT share one price rule (see _product_rows).
+#
+# THE QUANTITY FACTS — is_qty_decimal, min_sale_qty, qty_increments — ride the
+# same request too, and their absence is what made 109 leaves unreadable. A
+# madar rebar member states weight 1000, a 0.25 minimum and a 0.05 step, and
+# the warehouse stored basis_quantity 1.0 with no unit and no minimum: "the
+# price of one thing", for a figure that is not the price of one thing. They
+# live on SimpleProduct in madar's schema (introspected 2026-07-29), so they
+# are asked for at the top level AND inside both child selections — a grouped
+# member and a configurable child are simple products, and that is where the
+# facts actually sit.
+#
+# only_x_left_in_stock is the shop's own count, non-null on 297 priced leaves.
+# rowspec has carried a stock_quantity column and ingest has stored it since
+# before this connector existed; nothing ever asked the site for it.
+_QUANTITY_FACTS = ("is_qty_decimal min_sale_qty qty_increments "
+                   "only_x_left_in_stock")
+
 _QUERY_TEMPLATE = """query($pageSize:Int!,$currentPage:Int!){{
   products(filter:{{price:{{from:"0"}}}},pageSize:$pageSize,currentPage:$currentPage){{
     page_info{{current_page total_pages}}
@@ -61,16 +79,20 @@ _QUERY_TEMPLATE = """query($pageSize:Int!,$currentPage:Int!){{
       categories{{uid name breadcrumbs{{category_name}}}}
       price_range{{minimum_price{{regular_price{{value}} final_price{{value}}}}
                   maximum_price{{final_price{{value}}}}}}
+      ... on SimpleProduct{{weight {quantity}}}
       {extra}
       ... on GroupedProduct{{
         items{{qty position product{{uid sku name stock_status
           ... on PhysicalProductInterface{{weight}}
+          ... on SimpleProduct{{{quantity}}}
           price_range{{minimum_price{{regular_price{{value}} final_price{{value}}}}}}}}}}
       }}
       ... on ConfigurableProduct{{
         configurable_options{{attribute_code label}}
         variants{{
-          product{{uid sku name stock_status weight price_range{{minimum_price{{regular_price{{value}} final_price{{value}}}}}}}}
+          product{{uid sku name stock_status weight
+            ... on SimpleProduct{{{quantity}}}
+            price_range{{minimum_price{{regular_price{{value}} final_price{{value}}}}}}}}
           attributes{{code label}}
         }}
       }}
@@ -78,7 +100,7 @@ _QUERY_TEMPLATE = """query($pageSize:Int!,$currentPage:Int!){{
   }}
 }}"""
 
-_QUERY = _QUERY_TEMPLATE.format(extra="")
+_QUERY = _QUERY_TEMPLATE.format(extra="", quantity=_QUANTITY_FACTS)
 # custom_attributesV2 IS the site's "More information" panel (verified live
 # 2026-07-23: manufacturer, country_of_manufacture, origin, size, material
 # type, coating, grade — the owner's list, code for code). Dropdown values
@@ -91,8 +113,20 @@ _QUERY = _QUERY_TEMPLATE.format(extra="")
 # products carry a real image, the other 49 answer with the shop's own
 # placeholder URL — which the reader already refuses, because a grey box where
 # a product belongs is worse than an honest blank.
+#
+# meta_title / meta_description / meta_keyword are asked for BY NAME because
+# custom_attributesV2 is filtered to is_visible_on_front:true and these are not
+# visible on the front — so the "take every visible attribute" reader could
+# never reach them, and the Site metadata group that exists for exactly this
+# kind of fact stayed half empty. They earn their place on live evidence: the
+# epoxy rebar's AR meta_title says «سابك» (SABIC) while its `name` says «من
+# حديد» (Hadeed) and its image is epoxy_sabic.png. That contradiction is the
+# SITE's, and under "source truth is never edited" we record it rather than
+# quietly pick a winner.
 _QUERY_ENRICHED = _QUERY_TEMPLATE.format(
+    quantity=_QUANTITY_FACTS,
     extra="description{html} short_description{html} "
+          "meta_title meta_description meta_keyword "
           "image{url label} media_gallery{url label position} "
           "custom_attributesV2(filters:{is_visible_on_front:true}){items{"
           "code ... on AttributeValue{value} "
@@ -131,15 +165,39 @@ _ATTRIBUTE_CODE_SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 # The en_SA store view returns English names for the same uids (verified
 # live: "اسمنت الرياض" -> "Riyadh Cement"). uid + name ONLY — the bilingual
 # table costs pages, never payloads.
+#
+# THE GROUPED FRAGMENT IS NOT OPTIONAL. Both English queries carried a
+# ConfigurableProduct fragment and no GroupedProduct one, so `names_en` never
+# learned a single member uid — and a grouped member's name IS its variant
+# label, the thing that tells one member from another. The site publishes
+# 161/161 English member names and 150 of them differ from the Arabic
+# ("Hadeed Epoxy Rebar| Ø10mm × 12m | ASTM A775 Grade 60"); all 162 stored
+# variants carried variant=''. Under the standing bilingual rule that is a
+# defect, and it needed BOTH this fragment and the row() call to be fixed —
+# either one alone leaves the column empty.
 _ENGLISH_STORE = "en_SA"
+# The language the PRIMARY pass collects in. Not a new assumption: this
+# connector already asserts it every time it writes the default store's name
+# into product_name_ar and reads the other half from _ENGLISH_STORE above. The
+# two are one setting and a store whose default view is not Arabic would have
+# to change both together.
+_PRIMARY_LANG = "ar"
+# Facts about the PAGE, which is why they file under Site metadata and not
+# beside the product's own properties. Requested by name because
+# custom_attributesV2 is filtered to is_visible_on_front:true and these are
+# not visible on the front, so the "take every visible attribute" reader could
+# never see them. Their human label per store comes from the same
+# customAttributeMetadataV2 call every other code uses.
+_META_FIELDS = ("meta_title", "meta_description", "meta_keyword")
+_EN_GROUPED_FRAGMENT = "... on GroupedProduct{items{product{uid name}}}"
 _EN_QUERY = """query($pageSize:Int!,$currentPage:Int!){
   products(filter:{price:{from:"0"}},pageSize:$pageSize,currentPage:$currentPage){
     page_info{current_page total_pages}
-    items{uid name ... on ConfigurableProduct{
+    items{uid name %(grouped)s ... on ConfigurableProduct{
       configurable_options{attribute_code label}
       variants{product{uid name} attributes{code label}}}}
   }
-}"""
+}""" % {"grouped": _EN_GROUPED_FRAGMENT}
 
 # The SAME en pass when enrichment is on: descriptions and attribute values
 # ride pages the names already cost, so the English half of every detail is
@@ -149,14 +207,16 @@ _EN_QUERY_ENRICHED = """query($pageSize:Int!,$currentPage:Int!){
   products(filter:{price:{from:"0"}},pageSize:$pageSize,currentPage:$currentPage){
     page_info{current_page total_pages}
     items{uid name description{html} short_description{html}
+      meta_title meta_description meta_keyword
       custom_attributesV2(filters:{is_visible_on_front:true}){items{
         code ... on AttributeValue{value}
         ... on AttributeSelectedOptions{selected_options{label}}}}
+      %(grouped)s
       ... on ConfigurableProduct{
       configurable_options{attribute_code label}
       variants{product{uid name} attributes{code label}}}}
   }
-}"""
+}""" % {"grouped": _EN_GROUPED_FRAGMENT}
 
 # selling_unit_from (the "50كجم" in a variant's NAME agreeing with its weight)
 # moved to ..normalize on 2026-07-25: sikaegshop states its pack size the same
@@ -271,6 +331,63 @@ def _spans_a_range(product: dict) -> bool:
 def _range_text(product: dict) -> str:
     low, high = _range_ends(product)
     return f"{low}..{high}"
+
+
+def _display_method(product: dict) -> str:
+    """HOW THIS PAGE PRESENTS ITS PRODUCT — one of vocab.DisplayMethod, or "".
+
+    Read off `__typename` plus the min/max test, both of which are already in
+    the census response: this costs NO extra request. Measured on madar
+    2026-07-29 — 400 single, 36 options_one_price, 292 options_priced, 33
+    member_list over 161 leaves.
+
+    The min/max test is what separates the two configurable cases, and it is
+    the difference between a page that shows one price and a page that shows
+    "from X". Note it is only trustworthy for CONFIGURABLE: Magento answers
+    max == min on all 33 grouped products even though 20 of them really span,
+    which is exactly why a grouped product's own price_range is refused
+    elsewhere in this file — so the grouped answer is taken from the typename
+    alone and never from the range.
+
+    An unstudied shape (a BundleProduct, a VirtualProduct — neither exists on
+    this store today) returns "". A shape we have not studied is not a shape we
+    may guess at, and the column's whole value is that it never bluffs.
+    """
+    shape = str(product.get("__typename") or "")
+    if shape == "GroupedProduct":
+        return DisplayMethod.MEMBER_LIST.value
+    if shape == "ConfigurableProduct":
+        return (DisplayMethod.OPTIONS_PRICED.value if _spans_a_range(product)
+                else DisplayMethod.OPTIONS_ONE_PRICE.value)
+    if shape == "SimpleProduct":
+        return DisplayMethod.SINGLE.value
+    return ""
+
+
+def _quantity_facts(child: dict) -> tuple[str, str, str]:
+    """(minimum_quantity, quantity_increment, quantity_is_decimal) as the site
+    states them — and "" wherever it states nothing.
+
+    NOTHING IS DERIVED HERE. madar's rebar publishes weight 1000 with a 0.25
+    minimum in 0.05 steps and never writes «طن» anywhere a crawl can reach
+    (verified exhaustively 2026-07-29: member and parent attributes,
+    description, short_description, every meta field, both category
+    descriptions, both store views, and the full rendered page). The owner
+    ruled «الحقائق الخام فقط» — raw facts only — so this returns the numbers
+    and lets the display layer say "per 1,000 kg". Turning them into a unit
+    would put a word on the row that the shop has never printed.
+
+    Magento's default for a product nobody configured is min_sale_qty 1 /
+    qty_increments 1, which says nothing; it is stored anyway rather than
+    filtered, because "the site says 1" and "the site says nothing" are
+    different facts and only the site gets to tell them apart.
+    """
+    minimum = child.get("min_sale_qty")
+    increment = child.get("qty_increments")
+    decimal = child.get("is_qty_decimal")
+    return ("" if minimum is None else str(minimum),
+            "" if increment is None else str(increment),
+            "" if decimal is None else ("1" if decimal else "0"))
 
 
 class MagentoGraphqlConnector:
@@ -404,10 +521,14 @@ class MagentoGraphqlConnector:
             # The human label for EVERY attribute, in each store's own
             # words — «المصنع» beside "Manufacturer" — where the facet list
             # only ever labelled what the shop filters by.
-            codes = {str(a.get("code") or "")
-                     for product in fetched
-                     for a in ((product.get("custom_attributesV2") or {})
-                               .get("items")) or []} - {""}
+            codes = ({str(a.get("code") or "")
+                      for product in fetched
+                      for a in ((product.get("custom_attributesV2") or {})
+                                .get("items")) or []}
+                     # The meta codes are asked for by name rather than taken
+                     # from the visible-attribute bag, so they would otherwise
+                     # never reach the label query and would print as raw codes.
+                     | set(_META_FIELDS)) - {""}
             labels_ar = self._attribute_labels(endpoint, None, notes, codes)
             labels_en = self._attribute_labels(endpoint, _ENGLISH_STORE, notes, codes)
             unknown_codes: set[str] = set()
@@ -579,6 +700,11 @@ class MagentoGraphqlConnector:
                                 ((item.get("short_description") or {})
                                  .get("html")) or ""),
                             "attributes": attributes,
+                            # About the PAGE, not the product — see
+                            # _META_FIELDS. Bilingual like everything else: the
+                            # two stores write their own.
+                            "meta": {code: str(item.get(code) or "")
+                                     for code in _META_FIELDS},
                         }
                     # The axis NAME is per attribute and shared by every product
                     # that varies by it, so one map serves the whole crawl.
@@ -586,6 +712,17 @@ class MagentoGraphqlConnector:
                         code = str(option.get("attribute_code") or "")
                         if code and option.get("label"):
                             axis_labels[code] = str(option["label"])
+                    # A GROUPED member's English name. It is not decoration:
+                    # the member name is what the page prints beside each
+                    # member's price, so it IS this row's variant label, and
+                    # the English half of it was being dropped for all 161
+                    # members on the source. `items` is the grouped selection;
+                    # `variants` below is the configurable one.
+                    for member in item.get("items") or []:
+                        child = member.get("product") or {}
+                        cuid = str(child.get("uid") or "")
+                        if cuid and child.get("name"):
+                            names[cuid] = str(child["name"])
                     for v in item.get("variants") or []:
                         child = v.get("product") or {}
                         cuid = str(child.get("uid") or "")
@@ -673,6 +810,20 @@ class MagentoGraphqlConnector:
                     walk(child, here)
                 if children:
                     return              # only LEAVES list products; parents repeat them
+                # WHY PARENTS STILL DO NOT LIST, measured rather than assumed
+                # (live A/B, 2026-07-29). 90 of madar's 761 products carry no
+                # classification, and the obvious theory — "they are filed on a
+                # branch node, and only leaves are listed here" — is wrong.
+                # Listing all 17 branch nodes as well as the 56 leaves reaches
+                # 671 products instead of 669: it finds TWO, for a 30% larger
+                # category walk on a source that crawls daily.
+                #
+                # The other 88 are the shop's own silence. Asked directly, they
+                # answer `categories: []` (71231005, 70402032, 70601014 all
+                # verified), and no listing anywhere in the tree returns them.
+                # They are not mis-filed by this walk; they are unfiled by
+                # madar. That is a fact to record, not a bug to fix here, and
+                # no amount of extra listing will reach them.
                 if wanted and uid not in wanted and not (set(here) & wanted):
                     return
                 path = " > ".join(here)
@@ -748,11 +899,19 @@ class MagentoGraphqlConnector:
         # recorded which product they belonged to.
         parent_sku = str(product.get("sku") or "")
 
+        # HOW THE PAGE PRESENTS THIS PRODUCT — read once, because it is a
+        # property of the PRODUCT and identical on every row it emits. What one
+        # unit of the price BUYS is the other question, and it is answered per
+        # row below, because it genuinely differs per member.
+        display = _display_method(product)
+
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp="",
-                basis="", unit="", vat=None, axes=None, axes_en=None):
+                basis="", unit="", vat=None, axes=None, axes_en=None,
+                variant_en="", quantity=("", "", ""), stock_qty=None):
             effective = fin if fin is not None else reg
             if effective is None:
                 return  # a product with no price — skip, don't emit an empty required field
+            minimum, increment, is_decimal = quantity
             out.append(builder.row(
                 external_product_id=pid, external_variant_id=vid, external_sku=sku or "",
                 # The PRODUCT's English name, never the child's — madar names
@@ -783,9 +942,30 @@ class MagentoGraphqlConnector:
                 # it. Composed with the SAME rule as the Arabic label so the two
                 # read alike — «العرض (ملم): 610» / "Width (mm): 610" — instead
                 # of one being a sentence and the other a list.
-                variant=", ".join(f"{axis}: {value}" for axis, value in (axes_en or {}).items()),
+                #
+                # `variant_en` overrides it for a GROUPED member, whose label is
+                # not built from axes at all: the member has no axes, its NAME
+                # is its label, and building this column only from axes_en is
+                # why all 162 grouped variants stored variant='' while the site
+                # published 161 English member names.
+                variant=variant_en or ", ".join(
+                    f"{axis}: {value}" for axis, value in (axes_en or {}).items()),
                 variant_axes=option_axes_json(axes_en or {}),
                 basis_quantity=basis, unit=unit,
+                # WHAT THE SITE SAYS ABOUT THE QUANTITY, and only what it says.
+                minimum_quantity=minimum, quantity_increment=increment,
+                quantity_is_decimal=is_decimal,
+                # HOW THE PAGE PRESENTS THE PRODUCT — constant across its rows.
+                display_method=display,
+                # The shop's own count when it publishes one. rowspec and ingest
+                # have both handled this column since before this connector
+                # existed; the query simply never asked for it.
+                stock_quantity="" if stock_qty is None else str(stock_qty),
+                # The language of THIS pass. The connector already asserts it by
+                # writing the default store's name into product_name_ar and
+                # reading English from _ENGLISH_STORE; naming it here just stops
+                # the claim being implicit.
+                lang=_PRIMARY_LANG,
                 product_link=url, country_code_alpha2=ctx["country_code_alpha2"], currency=ctx["currency"],
                 # PER ROW, never per source: on this platform one crawl carries
                 # both answers at once, and a source-level flag stamped on
@@ -833,9 +1013,18 @@ class MagentoGraphqlConnector:
                     # The member's own name is what the page prints beside its
                     # price — it IS the label that tells the two apart.
                     label=str(child.get("name") or ""),
+                    # ...and the en_SA store publishes that same label in
+                    # English for 161 of 161 members, 150 of them genuinely
+                    # different from the Arabic. Keyed by the member's uid,
+                    # which `names_en` only learns now that _EN_QUERY carries a
+                    # GroupedProduct fragment — both halves of this fix are
+                    # needed, either alone leaves the column empty.
+                    variant_en=names_en.get(str(child.get("uid") or "")) or "",
                     fp=option_fingerprint({"member": str(child.get("sku") or "")})
                     if child.get("sku") else "",
-                    basis=basis, unit=unit)
+                    basis=basis, unit=unit,
+                    quantity=_quantity_facts(child),
+                    stock_qty=child.get("only_x_left_in_stock"))
             if not out:
                 # Never fall back to the group figure: it is the cheapest
                 # member's price under the group's name, and saying nothing is
@@ -920,7 +1109,9 @@ class MagentoGraphqlConnector:
                              for a in attrs
                              for code in [str(a.get("code") or "")]
                              if code in axis_labels_en},
-                    basis=basis, unit=unit, vat=variant_vat)
+                    basis=basis, unit=unit, vat=variant_vat,
+                    quantity=_quantity_facts(child),
+                    stock_qty=child.get("only_x_left_in_stock"))
         else:
             # A product standing alone must have ONE price, not a span. Every
             # SimpleProduct in the live census (399 of 399) answers
@@ -937,8 +1128,12 @@ class MagentoGraphqlConnector:
                     "than stored at the range's low end")
                 return out
             reg, fin = _prices(product)
+            # A simple product IS its own leaf, so its quantity facts and its
+            # stock count sit on the product node itself.
             row(product.get("uid"), product.get("uid"), product.get("sku"),
-                product.get("name"), reg, fin, product.get("stock_status"))
+                product.get("name"), reg, fin, product.get("stock_status"),
+                quantity=_quantity_facts(product),
+                stock_qty=product.get("only_x_left_in_stock"))
         return out
 
 
@@ -1070,6 +1265,18 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
         lang="ar")
     add("short_description", "Summary", mine.get("short_description", ""),
         lang="en")
+
+    # WHAT THE PAGE SAYS ABOUT ITSELF. Recorded, not reconciled: madar's epoxy
+    # rebar reads «سابك» (SABIC) in the AR meta_title while its `name` says «من
+    # حديد» (Hadeed) and its image is epoxy_sabic.png. Under "source truth is
+    # never edited" the disagreement IS the fact, and the Site metadata group
+    # exists so it can be kept without crowding out a product fact.
+    meta_en = dict(mine.get("meta", {}))
+    for code in _META_FIELDS:
+        add(f"{code}_ar", labels_ar.get(code) or facets.get(code) or code,
+            str(product.get(code) or ""), lang="ar")
+        add(code, labels_en.get(code) or facets.get(code) or code,
+            meta_en.get(code, ""), lang="en")
 
     # The "More information" panel, one row per stated fact — manufacturer,
     # origin, grade, coating... — in the site's own values, labelled in the
