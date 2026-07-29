@@ -2049,7 +2049,25 @@
 
   function guardHeaderButtons() {
     const header = mount.querySelector(".tabulator-header");
-    if (!header || header.dataset.buttonsGuarded) return;
+    if (!header) return;
+    header.querySelectorAll(".tabulator-header-popup-button").forEach((control) => {
+      const column = control.closest(".tabulator-col");
+      const label = column?.querySelector(".grid-header-label")
+        ?.textContent?.trim() || "column";
+      const kind = control.querySelector(".material-menu-icon")
+        ? "menu" : "filter";
+      control.setAttribute("role", "button");
+      control.setAttribute("tabindex", "0");
+      control.setAttribute("aria-label", `Open ${kind} for ${label}`);
+      if (control.dataset.keyboardReady) return;
+      control.dataset.keyboardReady = "1";
+      control.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        control.click();
+      });
+    });
+    if (header.dataset.buttonsGuarded) return;
     header.dataset.buttonsGuarded = "1";
     const hold = (event) => {
       const target = event.target;

@@ -306,8 +306,12 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # owner's browser keeps a cached grid that has no such control.
     # design-system-41: Excel is the direct split-button action; CSV and JSON
     # stay together in its compact, accessible format menu.
-    assert '/static/grid.js?v=design-system-41' in page
-    assert '/static/grid-theme.css?v=design-system-41' in page
+    # design-system-42: header filter/menu controls gained keyboard semantics
+    # and a visible token-based focus state.
+    assert '/static/grid.js?v=design-system-42' in page
+    assert '/static/grid-theme.css?v=design-system-42' in page
+    assert '/static/grid-theme.css?v=design-system-42' in (
+        TEMPLATES / "datasets.html").read_text(encoding="utf-8")
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -886,9 +890,68 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 
-def test_the_panel_never_renders_scraped_values_as_html():
-    """Everything in the panel goes through textContent/createElement. One
-    innerHTML over API data and a scraped product name becomes live markup."""
-    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
-    panel = script.split("the History panel")[1].split("---- export")[0]
-    assert "innerHTML" not in panel, "the panel builds HTML from strings"
+# The one file that builds markup from strings rather than from createElement,
+# and is allowed to: /data-model draws a diagram whose shape is easier to state
+# as HTML than to assemble node by node. It carries its own esc() and the guard
+# below holds it to using it. Anything ADDED to this set is a decision, not an
+# oversight.
+_HTML_BUILDING_UI_SCRIPTS = {"pages/data-model.js"}
+
+# Property names that hold words from the warehouse and therefore need escaping
+# before interpolation into markup. Counts, scales and coordinates are absent:
+# a number cannot open a tag.
+_TEXT_BEARING_FIELDS = frozenset({
+    "name", "title", "purpose", "group", "key", "type", "label",
+    "text", "description", "summary", "value", "unit", "note",
+})
+
+
+def _ui_scripts() -> list:
+    """Every web UI script we own (vendored libraries are outside this rule)."""
+    root = VENDOR.parent
+    return sorted(p for p in root.rglob("*.js") if "vendor" not in p.parts)
+
+
+def test_the_web_ui_never_renders_scraped_values_as_html():
+    """Any new innerHTML use must be explicit and guarded, across every script."""
+    import re
+
+    offenders = {}
+    for script in _ui_scripts():
+        relative = script.relative_to(VENDOR.parent).as_posix()
+        if relative in _HTML_BUILDING_UI_SCRIPTS:
+            continue
+        source = script.read_text(encoding="utf-8")
+        assignments = re.findall(r"\.innerHTML\s*=", source)
+        if assignments:
+            offenders[relative] = len(assignments)
+    assert not offenders, (
+        "these scripts build HTML from strings, so a scraped value can become "
+        f"live markup: {offenders}. Use textContent/createElement, or add the "
+        "file to _HTML_BUILDING_UI_SCRIPTS and prove it escapes its text")
+
+
+def test_the_one_html_building_script_escapes_every_text_value_it_interpolates():
+    """The diagram exception remains safe only while its text holes use esc()."""
+    import re
+
+    for relative in sorted(_HTML_BUILDING_UI_SCRIPTS):
+        source = (VENDOR.parent / relative).read_text(encoding="utf-8")
+        assert re.search(r"const esc = ", source), f"{relative} lost its esc()"
+
+        unescaped, inside = [], False
+        for number, line in enumerate(source.splitlines(), 1):
+            if ".innerHTML" in line:
+                inside = True
+            if inside:
+                for hole in re.findall(r"\$\{(?!esc\()([^}]+)\}", line):
+                    leaf = hole.strip().rsplit(".", 1)[-1]
+                    if leaf in _TEXT_BEARING_FIELDS:
+                        unescaped.append(
+                            f"{relative}:{number} ${{{hole.strip()}}}")
+                if line.rstrip().endswith(("`;", '`.join("")',
+                                           "].join(\"\")")):
+                    inside = False
+        assert not unescaped, (
+            "these values reach innerHTML without esc(), so markup would be "
+            f"rendered as markup: {unescaped}")

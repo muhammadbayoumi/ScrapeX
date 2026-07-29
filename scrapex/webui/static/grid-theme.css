@@ -983,6 +983,12 @@
   opacity: 1;
   background: color-mix(in srgb, var(--grid-header-control-hover) 82%, var(--primary));
 }
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content
+  .tabulator-col-title .tabulator-header-popup-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
 .tabulator .tabulator-header-popup-button:first-of-type { margin-inline-start: auto; }
 /* The same Material arrow points down by rotation. In the no-sort state it
  * stays fully hidden even while the pointer remains over the header; the old

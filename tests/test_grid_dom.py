@@ -284,6 +284,38 @@ def test_the_columns_button_still_works_with_no_rows(page_factory):
         ctx.stop()
 
 
+def test_header_filter_and_menu_are_keyboard_controls(page):
+    controls = page.evaluate("""() => {
+        const column = [...document.querySelectorAll('.tabulator-col')]
+          .find(c => c.getAttribute('tabulator-field') === 'price');
+        return [...column.querySelectorAll('.tabulator-header-popup-button')]
+          .map(control => ({
+            role: control.getAttribute('role'),
+            tabindex: control.getAttribute('tabindex'),
+            label: control.getAttribute('aria-label'),
+            menu: !!control.querySelector('.material-menu-icon'),
+          }));
+    }""")
+    assert len(controls) == 2
+    assert all(c["role"] == "button" and c["tabindex"] == "0"
+               for c in controls)
+    assert {c["label"] for c in controls} == {
+        "Open filter for Price", "Open menu for Price"}
+
+    page.evaluate("""() => {
+        const column = [...document.querySelectorAll('.tabulator-col')]
+          .find(c => c.getAttribute('tabulator-field') === 'price');
+        const control = [...column.querySelectorAll(
+          '.tabulator-header-popup-button')]
+          .find(c => c.querySelector('.material-menu-icon'));
+        control.focus();
+        control.dispatchEvent(new KeyboardEvent(
+          'keydown', {key: 'Enter', bubbles: true, cancelable: true}));
+    }""")
+    page.wait_for_selector(".tabulator-menu", state="visible", timeout=3000)
+    assert page.locator(".tabulator-menu").is_visible()
+
+
 # ---- the footer must describe the table in front of you ----------------------
 
 def test_the_footer_counts_the_rows_actually_shown(page):
