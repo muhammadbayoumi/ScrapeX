@@ -475,3 +475,73 @@ def test_backups_survive_every_lineage_suffix_the_product_writes(db_path):
     twice = db_path.with_name(
         f"{db_path.stem}.compact-{stamp}.compact-{stamp}{db_path.suffix}")
     assert storage.base_stem(twice) == db_path.stem
+
+
+# ---- a compaction is not a move, and must not be reported as one ------------
+
+def _sealed_sibling(folder, reason, successor):
+    """A retired warehouse beside an absent default path, as _retire leaves it."""
+    retired = folder / f"harvest.{reason}-20260729T000000Z.db"
+    conn = dbmod.connect(retired)
+    dbmod.migrate(conn)
+    conn.close()
+    storage.mark_sealed(retired, reason, successor)
+    return retired
+
+
+def test_a_compacted_warehouse_is_reported_as_superseded_not_moved(tmp_path,
+                                                                   monkeypatch):
+    """mark_sealed stores "{reason} -> {successor}" and there are two reasons:
+    `moved`, a relocation the owner asked for, and `sealed`, a compaction that
+    replaced the file with a smaller successor. _successor_recorded_nearby read
+    only the target and threw the reason away, so BOTH were reported as "was
+    moved to" — sending the owner to look for a decision they never made."""
+    home = tmp_path / "home"
+    home.mkdir()
+    absent = home / "harvest.db"
+    _sealed_sibling(home, "sealed", home / "harvest.compacted.db")
+
+    monkeypatch.setattr(dbmod, "DEFAULT_DB_PATH", absent)
+    monkeypatch.setattr(storage, "POINTER_FILE", tmp_path / "location.json")
+
+    with pytest.raises(storage.StorageUnavailableError, match="superseded"):
+        storage.resolve_db_path()
+
+
+def test_a_moved_warehouse_is_still_reported_as_moved(tmp_path, monkeypatch):
+    """The other half: a relocation must keep saying so. One wording for two
+    different events is what this fixes, not a rename of the other."""
+    home = tmp_path / "home"
+    home.mkdir()
+    absent = home / "harvest.db"
+    _sealed_sibling(home, "moved", tmp_path / "elsewhere" / "harvest.db")
+
+    monkeypatch.setattr(dbmod, "DEFAULT_DB_PATH", absent)
+    monkeypatch.setattr(storage, "POINTER_FILE", tmp_path / "location.json")
+
+    with pytest.raises(storage.StorageUnavailableError, match="moved to"):
+        storage.resolve_db_path()
+
+
+# ---- repair must keep the promise it prints ---------------------------------
+
+def test_repair_refreshes_statistics_on_every_sqlite_version(conn, db_path):
+    """repair() reports "statistics refreshed". `PRAGMA optimize` only analyses
+    tables THIS connection has queried, and before SQLite 3.46 it never analyses
+    one with no statistics yet — and repair's connection has issued no queries.
+    On ubuntu-24.04's SQLite 3.45, which is what CI runs, it analysed nothing
+    and the sentence was false. Asserted on the OUTCOME, so it holds on both."""
+    conn.close()
+
+    result = storage.repair(db_path)
+    assert result.ok, result.detail
+
+    check = dbmod.connect(db_path)
+    try:
+        assert check.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'sqlite_stat1'"
+        ).fetchone()[0] == 1, (
+            "repair reported refreshed statistics but produced none — "
+            f"SQLite {sqlite3.sqlite_version}")
+    finally:
+        check.close()

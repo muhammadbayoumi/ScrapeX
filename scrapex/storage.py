@@ -272,21 +272,35 @@ def resolve_db_path() -> Path:
         # Nothing at the default path, but a sealed sibling means this machine
         # HAS a warehouse — it moved. Starting an empty one here would leave the
         # real history sitting somewhere the owner is never told about.
-        moved_to = _successor_recorded_nearby(fallback)
-        if moved_to:
+        why, went_to = _successor_recorded_nearby(fallback)
+        if went_to:
+            # A compaction and a move leave the same absence behind and mean two
+            # different things. Saying "moved" for a compaction sends the owner
+            # looking for a decision they never made.
+            became = ("was superseded by a compacted database at" if why == "sealed"
+                      else "was moved to")
             raise StorageUnavailableError(
                 f"There is no database at {fallback}, but this machine's warehouse "
-                f"was moved to {moved_to}. ScrapeX will not start an empty one in "
+                f"{became} {went_to}. ScrapeX will not start an empty one in "
                 "its place. Reconnect that location, or point ScrapeX at it."
             )
     return fallback
 
 
-def _successor_recorded_nearby(fallback: Path) -> str:
-    """Where a retired sibling says the warehouse went, if one is there."""
+def _successor_recorded_nearby(fallback: Path) -> tuple[str, str]:
+    """(why, where) a retired sibling says the warehouse went, if one is there.
+
+    The REASON is returned, not discarded. `mark_sealed` stores it as
+    "{reason} -> {successor}" and there are two that reach here: `moved`, a
+    deliberate relocation the owner asked for, and `sealed`, a compaction that
+    replaced this file with a smaller successor. Reading only the target made
+    both of them read as "was moved to", so a compacted-away warehouse told the
+    owner something that had not happened — and a compaction genuinely is not a
+    move.
+    """
     folder = fallback.parent
     if not folder.is_dir():
-        return ""
+        return "", ""
     for candidate in sorted(folder.glob(f"{base_stem(fallback)}.*-*{fallback.suffix}"),
                             reverse=True):
         if not sealed_at(candidate):
@@ -303,8 +317,9 @@ def _successor_recorded_nearby(fallback: Path) -> str:
         finally:
             conn.close()
         if row and " -> " in row[0]:
-            return row[0].split(" -> ", 1)[1]
-    return ""
+            reason, target = row[0].split(" -> ", 1)
+            return reason.strip(), target
+    return "", ""
 
 
 # ---- measuring and checking --------------------------------------------------
@@ -784,6 +799,18 @@ def repair(db_path: Path | str) -> RunResult:
     try:
         conn.execute("REINDEX")
         conn.execute("PRAGMA optimize")
+        # `PRAGMA optimize` only analyses tables THIS connection has queried,
+        # and before SQLite 3.46 it never analyses one that has no statistics
+        # yet. This connection has issued no queries, so on SQLite 3.45 —
+        # ubuntu-24.04's, which is what CI runs — it analysed nothing at all,
+        # and the "statistics refreshed" reported below was simply not true.
+        #
+        # ANALYZE is the unconditional form. Run it only when optimize left
+        # nothing behind, so a newer SQLite keeps its cheaper incremental path
+        # and this costs nothing where it is already correct.
+        if not conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1'").fetchone():
+            conn.execute("ANALYZE")
         conn.commit()
     finally:
         conn.close()
