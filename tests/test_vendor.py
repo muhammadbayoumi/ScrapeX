@@ -308,12 +308,16 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # stay together in its compact, accessible format menu.
     # design-system-42: header filter/menu controls gained keyboard semantics
     # and a visible token-based focus state.
-    # design-system-43: the export split control gained a quieter hierarchy
+    # design-system-44: the export split control gained a quieter hierarchy
     # and a structured, descriptive menu without changing export behaviour.
-    assert '/static/grid.js?v=design-system-43' in page
-    assert '/static/grid-theme.css?v=design-system-43' in page
-    assert '/static/grid-theme.css?v=design-system-43' in (
+    assert '/static/grid.js?v=design-system-44' in page
+    assert '/static/grid-theme.css?v=design-system-44' in page
+    assert '/static/grid-theme.css?v=design-system-44' in (
         TEMPLATES / "datasets.html").read_text(encoding="utf-8")
+    # design-system-44: two selected cards keep the established card width and
+    # aligned slots; the focused card KEEPS ITS PLACE with the inspector beside
+    # it, and the other selected cards move below without clearing the table
+    # selection.
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -823,9 +827,9 @@ def test_history_opens_inline_and_the_full_page_link_survives():
     assert 'full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/"' in script
 
 
-def test_selected_rows_render_as_product_cards_with_a_side_inspector():
-    """Selection starts with a compact product view; Details and History share
-    an attached side card with three focused detail sections."""
+def test_selected_rows_render_as_product_cards_with_a_responsive_inspector():
+    """A selected product keeps the attached side inspector; with several
+    selected products, the other cards move below without being deselected."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     css = (VENDOR.parent / "grid-theme.css").read_text(encoding="utf-8")
 
@@ -872,6 +876,9 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert "transform: translateY(-50%)" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-button" in css
+    assert "height: 5.25rem" in css
+    assert 'const thumbs = el("div", "selected-product-thumbs")' in script
+    assert "images.forEach((image, index)" in script
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
     assert ".record-inspector-nav-primary" in css
@@ -895,6 +902,35 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-card-body::-webkit-scrollbar" in css
     assert ":has(.spec-list)" not in css
     assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
+    assert '"selected-product-grid is-pair"' in script
+    assert ".selected-product-grid.is-pair" in css
+    assert "repeat(2, minmax(0, 24rem))" in css
+    multi = script.split("function renderSelectedCardsPanel", 1)[1].split(
+        "// ---- export", 1)[0]
+    assert '"selected-product-detail-host"' in multi
+    assert "renderOfferPanel(detailPanel, data, row.offer_id, view," in multi
+    assert "table.deselectRow()" not in multi
+    # THE INSPECTOR SITS BESIDE ITS CARD, and the card stays. The first version
+    # hid the focused card and put a full-width panel above the grid, so the
+    # record you clicked vanished at the moment you asked to look at it.
+    assert "panel.append(productGrid)" in multi
+    assert 'button.closest(".selected-product-card")' in multi
+    assert "focusedCard.hidden = true" not in multi, "the focused card is hidden again"
+    assert "focusedCard.after(detailHost)" in multi, "the inspector must follow ITS card"
+    assert 'focusedCard.classList.add("is-focused")' in multi
+    assert 'productGrid.classList.add("has-focused-record")' in multi
+    assert ".selected-product-grid.has-focused-record" in css
+    # Two tracks: the card keeps its established 24rem, the inspector takes
+    # the rest of the row. A card that changed width when opened would read as
+    # a different card.
+    assert "grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);" in css
+    assert ".selected-product-card.is-focused" in css
+    # A truncated value must stay readable somewhere, or the card decides what
+    # a fact SAYS rather than where it is shown.
+    assert "value.title = categoryLevel;" in script
+    assert ".selected-product-detail-host .selected-product-grid { display: none; }" not in css
+    assert "grid-template-rows:" in css
+    assert "height: 3.25rem" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 
