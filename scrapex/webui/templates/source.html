@@ -251,6 +251,17 @@
             </div>
           </div>
         </details>
+        {# The ONLY route to Choose Columns used to be the three-dot menu on a
+           column header, and that menu lives on the columns themselves. Untick
+           "Show all columns" in the chooser and every column goes to the
+           details — so there are no headers, so there is no menu, so there is
+           no way back to the chooser or to Reset Columns, and the table can
+           only be recovered through the API or by clearing browser storage. A
+           control that can remove itself needs a door that is not inside it. #}
+        <button type="button" id="grid-columns-button" class="data-grid-command">
+          {{ icon("view-column") }}
+          <span>Columns</span>
+        </button>
       </div>
       <p id="grid-chips" class="answer"></p>
       <div class="data-grid-viewport" data-grid-viewport>

@@ -98,8 +98,8 @@ class TaxState:
         # of an existing tax_statement that carried the statement TEXT, leaving
         # two entries under one key in a single literal. Python keeps the last,
         # so the URL has been the published value ever since, which is what
-        # every consumer already expects: reports.py:893 builds it from
-        # statement_url, rowspec calls it "where that evidence can be read",
+        # every consumer already expects: EXPORT_COLUMNS in reports.py builds it
+        # from statement_url, rowspec calls it "where that evidence can be read",
         # grid.js parses it with new URL(), and test_tax_evidence asserts it
         # equals https://shop.example/terms. The text entry was unreachable and
         # is removed rather than left looking like it publishes something.

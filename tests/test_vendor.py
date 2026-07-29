@@ -658,7 +658,13 @@ def test_row_grouping_supports_ordered_multiple_levels_and_group_controls():
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
 
     assert "groupedBy = groupedBy.concat(field)" in script
-    assert "options.groupBy = groupedBy.slice()" in script
+    # The ordered list of levels is what drives the grouping. This used to pin
+    # the exact expression, `groupedBy.slice()`, and broke the moment a column
+    # that renders from somewhere other than its own field needed a reader
+    # function rather than a bare field name. What it actually GROUPS BY is
+    # asserted by driving the real table in tests/test_grid_dom.py, where a
+    # wrong answer is visible instead of merely differently spelled.
+    assert "options.groupBy = groupedBy" in script
     assert "options.groupHeader = groupedBy.map" in script
     assert "as Group Level " in script
     for label in ("Remove ", "Un-Group All", "Expand All Row Groups",
