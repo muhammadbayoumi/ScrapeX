@@ -542,3 +542,54 @@ def test_a_busy_checkpoint_leaves_the_database_where_it_is(tmp_path):
     finally:
         probe.close()
         holder.close()
+# ---- the in-flight guard must not depend on a filename ----------------------
+
+def test_the_inflight_guard_does_not_depend_on_the_path_it_opened(conn, db_path,
+                                                                  monkeypatch):
+    """The guard asked `storage.sealed_at(path)` with the name
+    `PRAGMA database_list` reports — the name the file had when the connection
+    OPENED. A compaction renames that file, and on macOS and Linux the rename
+    succeeds while handles are still open, so the recorded path stops existing.
+    `sealed_at` returns "" for a path that is not there, so the guard saw no
+    seal, said nothing, and let the crawl write into the sealed archive: the
+    exact disaster it exists to prevent, produced by the guard against it.
+
+    Windows cannot reproduce that by renaming — it refuses to move a file a
+    handle holds, which is the whole reason this went unseen. So the test asks
+    the PROPERTY instead of the mechanic, and asks it on every platform: with
+    `sealed_at` answering exactly as it does for a path that no longer exists,
+    the guard must still refuse. It can only do that by reading through its own
+    handle.
+    """
+    from scrapex.capture import WarehouseSupersededError, _refuse_if_superseded
+
+    storage.mark_sealed(db_path, "sealed", db_path.with_name("successor.db"))
+
+    def gone(_path):
+        return ""                      # what a vanished path answers
+    monkeypatch.setattr(storage, "sealed_at", gone)
+
+    with pytest.raises(WarehouseSupersededError, match="replaced"):
+        _refuse_if_superseded(conn)
+
+
+def test_the_inflight_guard_stays_silent_on_a_live_warehouse(conn):
+    """The other half: a warehouse nobody sealed must not be refused."""
+    from scrapex.capture import _refuse_if_superseded
+
+    _refuse_if_superseded(conn)          # no exception is the assertion
+
+
+def test_the_inflight_guard_says_nothing_about_a_database_too_old_to_have_a_seal(tmp_path):
+    """A database older than migration 0002 has no scrapex_meta at all. Nothing
+    can have sealed it, so the guard must pass — not raise, and not crash."""
+    from scrapex.capture import _refuse_if_superseded
+
+    plain = tmp_path / "ancient.db"
+    old = sqlite3.connect(str(plain))
+    try:
+        old.execute("CREATE TABLE price_observation (price_observation_id INTEGER)")
+        old.commit()
+        _refuse_if_superseded(old)       # no exception is the assertion
+    finally:
+        old.close()

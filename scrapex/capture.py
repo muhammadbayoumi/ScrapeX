@@ -32,6 +32,18 @@ def _refuse_if_superseded(conn: sqlite3.Connection) -> None:
 
     Checked HERE, inside the lock and immediately before the insert, because
     that is the only point where the answer cannot go stale again.
+
+    THE SEAL IS READ THROUGH THIS CRAWL'S OWN HANDLE, not by reopening a path.
+    `PRAGMA database_list` reports the file as it was named when the connection
+    opened, and a compaction RENAMES it: on macOS and Linux that rename succeeds
+    while handles are open, so the recorded path no longer exists. The previous
+    version passed that stale path to `storage.sealed_at`, whose first line
+    returns "" for a path that is not there — so the guard saw no seal, said
+    nothing, and let the crawl write into the sealed archive. Exactly the
+    disaster the paragraphs above describe, produced by the guard against it.
+
+    The handle does not care what the file is called. It is attached to the
+    database itself, and a seal another connection committed is visible to it.
     """
     from . import storage
 
@@ -39,7 +51,14 @@ def _refuse_if_superseded(conn: sqlite3.Connection) -> None:
     path = row[2] if row is not None else ""
     if not path:
         return                              # in-memory database: nothing to seal
-    when = storage.sealed_at(path)
+    try:
+        found = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                             (storage.SEALED_KEY,)).fetchone()
+    except sqlite3.DatabaseError:
+        # Older than migration 0002: no scrapex_meta to read, so nothing can
+        # have sealed it. Silence here is the truth, not a swallowed error.
+        return
+    when = found[0] if found else ""
     if when:
         raise WarehouseSupersededError(
             f"The warehouse was replaced at {when} while this crawl was running, "
