@@ -1056,3 +1056,42 @@ def test_a_key_in_the_wrong_spelling_is_refused_with_that_system_s_rule(open_pan
     page.click("#add-btn")
     page.wait_for_timeout(100)
     assert "lower_snake_case" in page.text_content("#err-key")
+
+
+# ---- the crawl pace is reachable from the panel, 2026-07-29 ---------------
+
+def test_the_crawl_pace_can_be_read_and_changed_from_the_panel(open_panel):
+    """It had been built, plumbed to the fetcher, and rendered ONLY on the
+    engine's own web page — so from here, where the work happens, it did not
+    exist and the owner asked for a feature that had already shipped."""
+    page = open_panel()
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(300)
+
+    assert page.is_visible("#s-crawl")
+    assert page.is_checked("#crawl_honour_delay")
+    assert page.input_value("#crawl_min_interval_s") == "1.0"
+    # The consequence is spelled out, not left as a bare checkbox: this one
+    # decides whether elburoj takes one hour or eleven.
+    assert "wins" in page.inner_text("#crawl-pace-effect")
+
+    page.uncheck("#crawl_honour_delay")
+    page.wait_for_timeout(100)
+    assert "Our pace only" in page.inner_text("#crawl-pace-effect")
+    assert not page.js_errors
+
+
+def test_a_pace_of_zero_is_refused_before_it_reaches_the_engine(open_panel):
+    """Zero seconds between requests is not a pace, it is a flood."""
+    page = open_panel()
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(300)
+    page.fill("#crawl_min_interval_s", "0")
+    page.click("#crawl-save")
+    page.wait_for_timeout(200)
+
+    assert "greater than zero" in page.inner_text("#crawl-msg")
+    posted = page.evaluate("window.__calls.filter(c => c.includes('/api/settings'))")
+    assert not [c for c in posted if "POST" in c], "the flood reached the engine"
