@@ -109,6 +109,19 @@ class DetailGroup(StrEnum):
     SITE_METADATA = "Site metadata"        # about the PAGE, not the product
 
 
+# One presentation order for every surface that lists detail groups. Media is
+# last because the record card already renders its gallery before the inspector.
+DETAIL_GROUP_ORDER = (
+    DetailGroup.DESCRIPTION.value,
+    DetailGroup.SPECIFICATIONS.value,
+    DetailGroup.MORE_INFORMATION.value,
+    DetailGroup.STORE.value,
+    DetailGroup.SITE_METADATA.value,
+    DetailGroup.ATTACHMENTS.value,
+    DetailGroup.MEDIA.value,
+)
+
+
 # WHERE EACH KNOWN FACT IS FILED — the fixed place the owner asked for, so no
 # connector author has to remember the rules or invent an answer.
 #

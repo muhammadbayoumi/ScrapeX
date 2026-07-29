@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from . import fields, tax
 from .normalize import option_axes_from
+from .vocab import DETAIL_GROUP_ORDER
 
 
 @dataclass
@@ -997,7 +998,8 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
         merged.update(option_axes_from(row["option_axes_en"])
                       or option_axes_from(row["option_axes"]))
         parsed.append(merged)
-    return _with_axis_columns(list(EXPORT_HEADER), table, parsed)
+    return _with_axis_columns(list(EXPORT_HEADER), table, parsed,
+                              _filter_groups(conn, source_key))
 
 
 def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[str, str]]:
@@ -1037,8 +1039,44 @@ def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[
     return found
 
 
+def _filter_groups(conn: sqlite3.Connection, source_key: str) -> dict[str, str]:
+    """Map each site-named table column to its stored detail group."""
+    rows = conn.execute(
+        "SELECT DISTINCT "
+        "       COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code), "
+        "       COALESCE(spa.attribute_group, '') "
+        "FROM source_product_attribute spa "
+        "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN "
+        "     (SELECT attribute_code FROM source_attribute_promotion "
+        "       WHERE source_key = ?))",
+        (source_key, source_key)).fetchall()
+
+    rank = {name: position for position, name in enumerate(DETAIL_GROUP_ORDER)}
+    best: dict[str, str] = {}
+    for label, group in rows:
+        label = str(label or "")
+        group = str(group or "")
+        if not label:
+            continue
+        current = best.get(label)
+        if current is None or rank.get(group, len(rank)) < rank.get(current, len(rank)):
+            best[label] = group
+    return best
+
+
+def _group_sorted(labels: list[str], groups: dict[str, str]) -> list[str]:
+    """Order detail columns by the UI group order, then by their site label."""
+    rank = {name: position for position, name in enumerate(DETAIL_GROUP_ORDER)}
+    return sorted(labels,
+                  key=lambda label: (rank.get(groups.get(label, ""), len(rank)),
+                                     label))
+
+
 def _with_axis_columns(header: list[str], table: list[list],
-                       parsed: list[dict]) -> tuple[list[str], list[list]]:
+                       parsed: list[dict], groups: dict[str, str] | None = None,
+                       ) -> tuple[list[str], list[list]]:
     """The per-source columns: one per variation AXIS, one per site FILTER.
 
     Two owner reports with one answer. He exported a variable product and found
@@ -1063,6 +1101,10 @@ def _with_axis_columns(header: list[str], table: list[list],
                 names.append(name)
     if not names:
         return header, table
+    if groups:
+        axis_names = [name for name in names if name not in groups]
+        filter_names = [name for name in names if name in groups]
+        names = axis_names + _group_sorted(filter_names, groups)
     at = header.index("variant_ar") + 1
     widened = header[:at] + names + header[at:]
     rows = [row[:at] + [axes.get(name, "") for name in names] + row[at:]
@@ -1778,6 +1820,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         for label in pivoted.get(row.get("source_product_id") or -1, {}):
             if label not in extra and label not in labels:
                 extra.append(label)
+    extra = _group_sorted(extra, _filter_groups(conn, source_key))
     for row in shaped:
         values = pivoted.get(row.pop("source_product_id", None) or -1, {})
         for label in extra:

@@ -267,6 +267,35 @@ def test_each_variation_axis_becomes_its_own_export_column(conn):
     assert rows == ["أحمر", "أخضر"]
 
 
+def test_site_columns_share_one_group_order_in_table_and_export(conn):
+    from scrapex.reports import export_source_table
+
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(variant_ar="Color: أحمر",
+                variant_axes_ar='{"Color":"أحمر"}')])])
+    product_id = conn.execute(
+        "SELECT source_product_id FROM source_product").fetchone()[0]
+    attributes = [
+        ("store_fact", "Store fact", "parcel", "Store"),
+        ("spec_z", "Spec Z", "z", "Specifications"),
+        ("description_fact", "Description fact", "copy", "Description"),
+        ("spec_a", "Spec A", "a", "Specifications"),
+    ]
+    conn.executemany(
+        "INSERT INTO source_product_attribute "
+        "(source_product_id, attribute_code, attribute_label, raw_value, "
+        " attribute_group, lang, is_site_filter) VALUES (?,?,?,?,?,'en',1)",
+        [(product_id, *attribute) for attribute in attributes])
+
+    expected = ["Description fact", "Spec A", "Spec Z", "Store fact"]
+    table_columns = [column["key"] for column
+                     in table_payload(conn, "ELSEWEDYSHOP")["columns"]]
+    assert [name for name in table_columns if name in expected] == expected
+
+    header, _rows = export_source_table(conn, "ELSEWEDYSHOP")
+    assert header[header.index("variant_ar") + 1:][:5] == ["Color", *expected]
+
+
 def test_a_source_without_variations_gains_no_empty_axis_columns(conn):
     from scrapex.reports import EXPORT_HEADER, export_source_table
     ingest_payloads(conn, make_entry(), [make_payload([one_row()])])

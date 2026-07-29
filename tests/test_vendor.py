@@ -890,6 +890,17 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 
+def test_record_inspector_follows_the_central_detail_group_order():
+    from scrapex.vocab import DETAIL_GROUP_ORDER
+
+    script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
+    definitions = script.split("const DETAIL_SECTIONS = [", 1)[1].split(
+        "];", 1)[0]
+    visible = [group for group in DETAIL_GROUP_ORDER if group != "Media"]
+    positions = [definitions.index(f'label: "{group}"') for group in visible]
+    assert positions == sorted(positions)
+
+
 # The one file that builds markup from strings rather than from createElement,
 # and is allowed to: /data-model draws a diagram whose shape is easier to state
 # as HTML than to assemble node by node. It carries its own esc() and the guard
