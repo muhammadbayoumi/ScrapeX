@@ -304,8 +304,10 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # design-system-40: the ALL|ONE control above the table, which folds a
     # product's same-priced variations into one row. Without the bump the
     # owner's browser keeps a cached grid that has no such control.
-    assert '/static/grid.js?v=design-system-40' in page
-    assert '/static/grid-theme.css?v=design-system-40' in page
+    # design-system-41: Excel is the direct split-button action; CSV and JSON
+    # stay together in its compact, accessible format menu.
+    assert '/static/grid.js?v=design-system-41' in page
+    assert '/static/grid-theme.css?v=design-system-41' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -359,14 +361,18 @@ def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
 
     assert 'class="data-grid-exportbar"' in page
     assert page.index('class="data-grid-viewport"') < page.index('class="data-grid-exportbar"')
+    assert 'class="grid-export-split"' in page
+    assert 'class="grid-export-primary" data-export="xlsx"' in page
     assert 'class="grid-export-menu"' in page
-    assert 'class="button grid-export-trigger"' in page
-    assert page.count('class="grid-export-option"') == 3
+    assert 'class="grid-export-trigger"' in page
+    assert page.count('class="grid-export-option"') == 2
     assert page.count("data-export=") == 3
     assert 'class="chip" data-export=' not in page
     assert 'role="menu" aria-label="Export format"' in page
     assert 'if (event.key !== "Escape" || !menu.open) return;' in script
     assert 'if (menu.open && !menu.contains(event.target)) closeMenu();' in script
+    assert ".grid-export-split" in css
+    assert "#grid-toolbar .grid-export-primary:active:not(:disabled)" in css
     assert ".grid-export-options" in css
     assert "#grid-toolbar .grid-export-option:active:not(:disabled)" in css
 
