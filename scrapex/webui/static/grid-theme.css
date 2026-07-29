@@ -620,50 +620,65 @@
   justify-content: space-between;
   gap: 1rem;
   margin-top: .75rem;
-  padding: .7rem 1rem;
+  padding: .8rem 1rem;
   border-top: var(--table-rule);
   border-radius: 0;
-  background: var(--bg);
+  background: var(--surface-container-low);
 }
 .data-grid-export-copy { min-width: 0; }
-.data-grid-export-copy strong { display: block; font-size: .76rem; }
-.data-grid-export-copy span { display: block; margin-top: .08rem; color: var(--muted); font-size: .64rem; }
+.data-grid-export-copy strong {
+  display: block;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+}
+.data-grid-export-copy span {
+  display: block;
+  max-width: 42rem;
+  margin-top: var(--sp-1);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
 .data-grid-exportbar #grid-toolbar { flex: none; justify-content: flex-end; margin: 0; }
 .grid-export-split {
   display: inline-flex;
   align-items: stretch;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
 }
 .grid-export-primary,
 .grid-export-trigger {
   min-height: var(--control-height);
-  border-color: var(--button-bg);
-  background: var(--button-bg);
-  color: var(--button-text);
+  border: 0;
+  background: transparent;
+  color: var(--text);
 }
 .grid-export-primary {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
   padding-inline: var(--sp-4);
-  border-radius: var(--radius) 0 0 var(--radius);
+  border-start-start-radius: calc(var(--radius) - 1px);
+  border-end-start-radius: calc(var(--radius) - 1px);
+  font-weight: var(--fw-heavy);
 }
 .grid-export-primary .sx-icon {
   width: 1.05rem;
   height: 1.05rem;
+  color: var(--accent-ink);
 }
 #grid-toolbar .grid-export-primary:hover:not(:disabled),
 #grid-toolbar .grid-export-trigger:hover {
-  border-color: var(--button-hover);
-  background: var(--button-hover);
-  color: var(--button-hover-text);
+  background: var(--control-hover);
+  color: var(--text);
 }
 #grid-toolbar .grid-export-primary:active:not(:disabled),
 #grid-toolbar .grid-export-trigger:active {
-  border-color: var(--button-active);
-  background: var(--button-active);
-  color: var(--button-hover-text);
+  background: var(--accent-weak);
+  color: var(--accent-ink);
   transform: none;
 }
 .grid-export-menu {
@@ -682,8 +697,9 @@
   min-width: var(--control-height);
   padding: 0;
   place-items: center;
-  border-inline-start-color: color-mix(in srgb, var(--button-text) 24%, transparent);
-  border-radius: 0 var(--radius) var(--radius) 0;
+  border-inline-start: 1px solid var(--line);
+  border-start-end-radius: calc(var(--radius) - 1px);
+  border-end-end-radius: calc(var(--radius) - 1px);
   cursor: pointer;
 }
 .grid-export-trigger .sx-icon {
@@ -697,35 +713,52 @@
 .grid-export-menu[open] .grid-export-chevron {
   transform: rotate(180deg);
 }
+.grid-export-menu[open] .grid-export-trigger {
+  background: var(--accent-weak);
+  color: var(--accent-ink);
+}
 .grid-export-options {
   position: absolute;
   z-index: 120;
   inset-inline-end: 0;
   bottom: calc(100% + var(--sp-2));
   display: grid;
-  gap: 0;
-  width: min(15rem, calc(100vw - 2rem));
-  padding: var(--sp-1);
+  gap: var(--sp-1);
+  width: min(20rem, calc(100vw - 2rem));
+  padding: var(--sp-2);
   background: var(--surface);
-  border: var(--table-rule);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  transform-origin: bottom right;
+  animation: grid-export-options-in var(--dur-fast) var(--ease);
 }
-.grid-export-options-title {
-  padding: var(--sp-2) var(--sp-3);
+@keyframes grid-export-options-in {
+  from { opacity: 0; transform: translateY(.35rem) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.grid-export-options-head {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.grid-export-options-head strong {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.grid-export-options-head span {
   color: var(--muted);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-heavy);
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
 }
 .grid-export-option {
   display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr);
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
   width: 100%;
-  min-height: 3rem;
+  min-height: 3.5rem;
   padding: var(--sp-2) var(--sp-3);
   color: var(--text);
   background: transparent;
@@ -748,15 +781,19 @@
 .grid-export-option-icon {
   display: grid;
   place-items: center;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius);
+  background: var(--accent-weak);
   color: var(--accent-ink);
 }
+.grid-export-option-icon .sx-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+}
 .grid-export-option-copy {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--sp-3);
+  display: grid;
+  gap: var(--sp-1);
   min-width: 0;
 }
 .grid-export-option-copy strong {
@@ -764,18 +801,34 @@
 }
 .grid-export-option-copy small {
   color: var(--muted);
-  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-regular);
+  line-height: 1.35;
+}
+.grid-export-extension {
+  padding: .15rem .35rem;
+  border-radius: var(--radius-xs);
+  background: var(--surface-container-low);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
 }
 
 @media (max-width: 640px) {
   .data-grid-exportbar { align-items: flex-start; flex-direction: column; }
-  .data-grid-exportbar #grid-toolbar { justify-content: flex-start; }
+  .data-grid-exportbar #grid-toolbar,
+  .grid-export-split { width: 100%; }
+  .grid-export-primary { flex: 1; justify-content: center; }
   .grid-export-options {
-    inset-inline-start: 0;
-    inset-inline-end: auto;
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    width: min(20rem, calc(100vw - 3rem));
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grid-export-options { animation: none; }
 }
 
 .grid-feature-popover {

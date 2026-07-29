@@ -308,9 +308,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # stay together in its compact, accessible format menu.
     # design-system-42: header filter/menu controls gained keyboard semantics
     # and a visible token-based focus state.
-    assert '/static/grid.js?v=design-system-42' in page
-    assert '/static/grid-theme.css?v=design-system-42' in page
-    assert '/static/grid-theme.css?v=design-system-42' in (
+    # design-system-43: the export split control gained a quieter hierarchy
+    # and a structured, descriptive menu without changing export behaviour.
+    assert '/static/grid.js?v=design-system-43' in page
+    assert '/static/grid-theme.css?v=design-system-43' in page
+    assert '/static/grid-theme.css?v=design-system-43' in (
         TEMPLATES / "datasets.html").read_text(encoding="utf-8")
 
 
@@ -369,13 +371,19 @@ def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
     assert 'class="grid-export-primary" data-export="xlsx"' in page
     assert 'class="grid-export-menu"' in page
     assert 'class="grid-export-trigger"' in page
+    assert '<span>Excel workbook</span>' in page
+    assert 'class="grid-export-options-head"' in page
     assert page.count('class="grid-export-option"') == 2
+    assert page.count('class="grid-export-extension"') == 2
     assert page.count("data-export=") == 3
     assert 'class="chip" data-export=' not in page
     assert 'role="menu" aria-label="Export format"' in page
     assert 'if (event.key !== "Escape" || !menu.open) return;' in script
     assert 'if (menu.open && !menu.contains(event.target)) closeMenu();' in script
     assert ".grid-export-split" in css
+    split_rule = css.split(".grid-export-split {", 1)[1].split("}", 1)[0]
+    assert "overflow: hidden" not in split_rule, "the split must not clip its menu"
+    assert ".grid-export-menu[open] .grid-export-trigger" in css
     assert "#grid-toolbar .grid-export-primary:active:not(:disabled)" in css
     assert ".grid-export-options" in css
     assert "#grid-toolbar .grid-export-option:active:not(:disabled)" in css
