@@ -324,6 +324,138 @@ sources:
       activation flag: no settings/config/flash-sale endpoint exists and
       created_at/updated_at are empty objects.
 
+  # ---- probed 2026-07-28/29: bespoke ASP.NET Web API on a SECOND host ----
+  - source_key: HEIDELBERG_EG
+    source_name_ar: متجر هايدلبرج ماتيريالز الالكتروني
+    source_name: Heidelberg Materials Egypt Online Store
+    base_url: https://onlinestore.heidelbergmaterials.eg
+    family: heidelberg-price-matrix
+    cadence: daily
+    # The cement PRODUCER's own storefront, not a reseller's — but what it
+    # publishes is a shop's listed price, so it is filed as one. Raising it to
+    # `official` is the owner's call, not a connector author's: authority
+    # decides which source wins at publish.
+    authority: shop
+    active: false
+    currency: EGP
+    default_region: EG
+    api:
+      # The data host. The storefront is Angular served as static files from
+      # IIS and answers 404 to every API path; the bundle hard-codes
+      # APIUrl="https://onlinestoreapi.heidelbergmaterials.eg/api". Without
+      # this line the connector refuses to run rather than guess a host.
+      base_url: https://onlinestoreapi.heidelbergmaterials.eg
+    vat_mode: incl
+    tax:
+      # CORRECTS the recon report, which read the site as making no VAT claim
+      # about the per-tonne price. It makes one, transitively and clearly: the
+      # cart computes `total = listedPrice × tonnes` with NO tax arithmetic
+      # anywhere in the 719,821-byte bundle, and this sentence renders directly
+      # beneath that total in the cart, the checkout and the order details. A
+      # total that is inclusive and is the listed price times a quantity means
+      # the listed price is inclusive too.
+      #
+      # statement_url is the BUNDLE, deliberately. The sentence renders on
+      # /cart, /checkout and the order page, and all three answer 404 to a
+      # direct GET because the SPA has no fallback rewrite (checked
+      # 2026-07-29) — so the bundle is the only address at which a person can
+      # actually read it. Its filename is content-hashed and WILL change when
+      # they redeploy; the sentence is what to search for then.
+      - region: EG
+        vat_mode: incl
+        evidence: stated
+        rate_pct: 14
+        statement_text: >-
+          شامل النقل و ضريبة القيمة المضافة (14%)
+        statement_url: https://onlinestore.heidelbergmaterials.eg/main-4XHUPALI.js
+        statement_lang: ar
+        verified_at: "2026-07-29"
+    extract:
+      - kind: product_prices
+        scope: census
+      # NO EXTRA REQUEST. The four technical blocks, the two short descriptions
+      # and the manufacturer all ride the same /api/Products response the
+      # prices are joined against — and they are the only technical data this
+      # source has. It publishes no datasheets at all: the bundle names nine
+      # Azure blob containers and not one of them is for documents.
+      - kind: enrichment
+        scope: census
+    # 108 published prices today. A filter defect would take that to 0 or to
+    # 18, both of which this catches; a genuine withdrawal (a governorate
+    # going quiet) costs roughly 12 rows, which it tolerates.
+    min_expected_rows: 60
+    max_drop_pct: 40
+    notes: >
+      THREE REQUESTS AND ~16 SECONDS FOR THE WHOLE SOURCE. /api/Products (9
+      products), /api/Plants (3 rows) and /api/ProductsPrices — the entire
+      price matrix in one 19 MB body, 5.4 MB gzipped, no pagination, no
+      sitemap, no products.json, no GraphQL, all anonymous. /api/Plants is the
+      third because a multi-plant product is quoted from Y220 and NO product is
+      assigned to Y220, so «القطامية» / "Katameya" is in no other payload; one
+      request buys the site's own word for it in both languages instead of a
+      transliteration of ours.
+
+      WHAT A PRICE IS. Product × governorate × dispatch plant × quantity tier ×
+      customer segment: 2,070 rows × 12 price columns = 24,840 slots, of which
+      211 hold a number and 108 are prices the storefront can render. The three
+      filters that cut 211 to 108 are all read off the site's own code, never
+      chosen by us — segment Y6 (the value the anonymous storefront hard-codes;
+      the other 10 prices are YM/YT and all for Dahab, a city the API flags
+      inactive), the row's own isActive (the storefront's own city endpoint
+      filters these, and dropping them is what stops the two endpoints
+      disagreeing), and the plant rule (isMultiPlant=false renders only the
+      product's own plantCode, isMultiPlant=true renders a two-option dropdown
+      of Y210 and Y220 with no Y410 branch at all). One row per published
+      (product, city, plant, tier), keyed on cityId|plantCode|sapCode — three
+      identifiers the site publishes, so each of the 108 is its own offer with
+      its own timeline rather than one offer appearing to change price 108
+      times in a single crawl. No schema migration was needed for any of this.
+
+      0.02 IS NOT A PRICE. The storefront prints «غير متاح» whenever a figure
+      is <= 0.1, and every one of the 24,629 non-prices is exactly 0.02 or 0.0
+      while every one of the 211 real ones carries a .02 fraction. 0.02 is
+      POSITIVE, so the usual "zero means no price" rule lets it through as a
+      two-piastre tonne of cement; the connector gates on > 0.1 and cites the
+      site's own condition for it.
+
+      maxPrice (1950) AND exWorkMaxPrice (1700) ARE NOT THE PRICE and are not
+      recorded. Both ride every product; the bundle references them zero times
+      against 65 references to salePrice, and the city matrix prices that same
+      product at 3950.02. Recording them would publish a number no page has
+      ever printed, at roughly half the real one.
+
+      NO DISCOUNTS EXIST TODAY, so price_before and price_sale stay empty.
+      isOnSale is false on all 2,070 price rows and all 12 fakePrice columns
+      are sentinels — 0 real values in 24,840 slots. Five of the nine PRODUCTS
+      carry isOnSale=true with no fakePrice behind it, which is a flag with
+      nothing under it, not a discount to draw.
+
+      PRODUCT IMAGES CANNOT BE CAPTURED BY ANYONE. Image URLs are composed
+      against an Azure SAS token baked into the shipped bundle, and it expired
+      2026-02-24 — the assets 403 for a normal browser too. That is the site's
+      own live defect and no connector work changes it; recorded here so the
+      absence is never later read as a bug in ours.
+
+      BILINGUAL, WITH ONE TRAP. Every field is published twice and the
+      storefront renders only the Arabic (all 31 components are suffixed -ar,
+      there is no language switch), so the English is a free capture. But
+      productLabelEn == productLabelAr on all 9 — the same Latin string stored
+      twice — and it is a DESIGNATION ("CEMII / A-P 42,5N SUEZ"), not a name:
+      it goes to enrichment as cement_type and never into product_name_ar. The
+      real pair is productNameEn / productNameAr. The live API returns Arabic
+      HTML-entity encoded, so every string is unescaped before it is recorded.
+      The quantity axis is Arabic-only on the site and the owner ruled
+      2026-07-29 that its English side stays EMPTY rather than be authored.
+
+      NOT PUBLISHED, therefore left empty rather than invented: brand, images,
+      datasheets, GTIN, stock, weight, pack size, country of origin,
+      variant_url, parent_sku, price_trade. The API has no stock concept at
+      all — a tier it prints a price for is one it will sell.
+
+      A product link is a CLIENT-SIDE route (/productinfo/{guid}). A direct GET
+      404s at IIS because there is no SPA fallback rewrite. It is recorded for
+      a human to open and must never be followed by a crawl.
+
   # ---- probed: WooCommerce Store API open, variations included ----
   - source_key: SAMEHGABRIEL
     source_name_ar: سامح جبرائيل

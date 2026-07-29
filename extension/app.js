@@ -1430,6 +1430,7 @@ const FAMILY_LABELS = {
   "woocommerce-storeapi": "WooCommerce (Store API)", "salla-html": "Salla (HTML)",
   "zid-html": "Zid (HTML)", "hybris-occ": "SAP Hybris (OCC)",
   "custom-json-api": "Custom JSON API", "static-html-table": "Static HTML table",
+  "heidelberg-price-matrix": "Heidelberg (price matrix)",
   "datasheet-enrichment": "Datasheet enrichment", "TBD-probe": "Unknown — needs probing",
 };
 
