@@ -475,3 +475,70 @@ def test_backups_survive_every_lineage_suffix_the_product_writes(db_path):
     twice = db_path.with_name(
         f"{db_path.stem}.compact-{stamp}.compact-{stamp}{db_path.suffix}")
     assert storage.base_stem(twice) == db_path.stem
+
+
+# ---- the sealed archive must be a whole database, not a pointer to one -------
+
+def test_a_sealed_archive_is_readable_from_its_own_file_alone(conn, db_path):
+    """compaction.py promises "ScrapeX never unlinks it. Every observation that
+    ever existed is still in that file." That promise was false.
+
+    Every connection is WAL-mode, and SQLite folds the log back into the file
+    only when the LAST connection closes. During a compaction the caller still
+    holds the warehouse open, so nothing folds: measured at the moment of
+    sealing, the main file was 4 KB and the log was 1.7 MB — the whole warehouse
+    was in the log. `_retire` then renamed the main file and deleted the `-wal`
+    beside it. On Windows the rename fails and the log survives, which is why
+    this went unseen; on macOS and Linux the rename succeeds and the archive
+    becomes a husk with no schema, no seal and no rows.
+
+    So the question this asks is the promise itself, and it is platform-blind:
+    take the archive's OWN FILE, alone, away from any sibling — and read it.
+    """
+    digest = aggressive(conn)
+    result = compaction.compact_warehouse(conn, db_path, today=TODAY,
+                                          expected_digest=digest)
+    sealed = Path(result.sealed_path)
+
+    alone = sealed.with_name("carried-away-by-itself.db")
+    shutil.copy2(sealed, alone)          # the main file and nothing else
+
+    probe = sqlite3.connect(f"file:{alone}?mode=ro", uri=True)
+    try:
+        seal = probe.execute(
+            "SELECT value FROM scrapex_meta WHERE key = ?",
+            (storage.SEALED_KEY,)).fetchone()
+        assert seal and seal[0], "the archive carries no seal once it stands alone"
+        observations = probe.execute(
+            "SELECT COUNT(*) FROM price_observation").fetchone()[0]
+        assert observations == len(HISTORY), (
+            f"the archive kept {observations} of {len(HISTORY)} observations "
+            "— the write-ahead log was thrown away with them")
+    finally:
+        probe.close()
+
+    assert storage.health(alone)["ok"], "the archive alone does not pass a health check"
+
+
+def test_a_busy_checkpoint_leaves_the_database_where_it_is(tmp_path):
+    """The other half of the rule: if the log CANNOT be folded in, the file must
+    not be renamed away from it. A tidy name over an empty file is the loss;
+    a superseded database that still reads is not."""
+    live = tmp_path / "harvest.db"
+    holder = dbmod.connect(live)
+    dbmod.migrate(holder)
+    ingest_payloads(holder, make_entry(), [make_payload([one_row()])])
+    holder.commit()
+
+    assert storage.drain_wal(live) is True
+    wal = live.with_name(live.name + "-wal")
+    assert not wal.exists() or wal.stat().st_size == 0, "the log was not drained"
+
+    # And the file now stands on its own, with the caller still holding it open.
+    probe = sqlite3.connect(f"file:{live}?mode=ro", uri=True)
+    try:
+        assert probe.execute(
+            "SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+    finally:
+        probe.close()
+        holder.close()
