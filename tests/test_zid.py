@@ -188,11 +188,28 @@ _ONE_PRODUCT_SITEMAP = (
 )
 
 
+def _bootstrap(code: str, rate: str) -> str:
+    """One currency block, in the shape advancedcastle's page bootstrap uses."""
+    return ('<script>window.store = {"currency": {"id": 1, "code": "%s", '
+            '"symbol": " x ", "format": "1,0.00 %s", "exchange_rate": "%s"}, '
+            '"shipping_destination": null};</script>' % (code, code, rate))
+
+
 class _BilingualStubFetcher:
     """The captured ar-sa page and the en page it advertises."""
 
     AR = "live/advancedcastle_product_ar_2026-07-28.trimmed.html"
     EN = "live/advancedcastle_product_en_2026-07-28.trimmed.html"
+
+    # The Egyptian storefront this page advertises, on a session of its own.
+    # A stub that offered none would be the honest default (the probe then asks
+    # nothing and says why) — but this page DOES advertise Egypt, so a faithful
+    # stub answers for Egypt. What it must never do is answer from the crawl's
+    # session: see _CountryPinnedStubFetcher below.
+    EG_RATE = "50.5485"
+
+    def fresh_session(self):
+        return _CountryStubFetcher("EGP", self.EG_RATE)
 
     def __init__(self):
         self.requests_count = 0
@@ -210,6 +227,28 @@ class _BilingualStubFetcher:
         raise RuntimeError("404 " + url)
 
     def close(self): pass
+
+
+class _CountryStubFetcher:
+    """A storefront session that answers in ONE currency, as the real one does.
+
+    Each locale of advancedcastle prints only its own active currency, so a
+    session pinned to Egypt never mentions SAR and the reverse.
+    """
+
+    def __init__(self, code: str, rate: str):
+        self.code, self.rate = code, rate
+        self.requests_count = 0
+        self.urls: list[str] = []
+        self.closed = False
+
+    def get(self, url, **kwargs):
+        self.requests_count += 1
+        self.urls.append(url)
+        return _Resp("<html><head></head><body>" +
+                     _bootstrap(self.code, self.rate) + "</body></html>")
+
+    def close(self): self.closed = True
 
 
 def test_the_english_page_the_store_publishes_fills_the_unmarked_columns():
@@ -340,3 +379,139 @@ def test_zid_end_to_end_into_warehouse():
     finally:
         conn.close()
     assert result.observations == 2 and not result.errors
+
+
+# ---- the rate the store publishes about itself, 2026-07-29 ----------------
+
+def _rate_tables(fetcher, entry):
+    """Every published_rates map the crawl emitted, merged as capture does."""
+    found = {}
+    warnings = []
+    for table in ZidConnector(fetcher).fetch(entry):
+        found.update(table.published_rates)
+        warnings.extend(table.warnings)
+    return found, warnings
+
+
+class _RateStubFetcher(_BilingualStubFetcher):
+    """The captured page PLUS the bootstrap the trimmed fixture dropped."""
+
+    SAR_RATE = "3.754116"
+
+    def get(self, url, **kwargs):
+        resp = super().get(url, **kwargs)
+        if "/products/" in url:
+            return _Resp(resp.text + _bootstrap("SAR", self.SAR_RATE))
+        return resp
+
+
+def test_the_store_rate_rides_the_page_the_crawl_already_fetched():
+    """SAR costs nothing: it is printed on the product page itself."""
+    fetcher = _RateStubFetcher()
+    rates, warnings = _rate_tables(fetcher, make_entry())
+
+    assert rates["SAR"] == 3.754116
+    assert not warnings
+    # Not one extra request for the home currency — it was already in hand.
+    assert not any("/ar-eg/" in u for u in fetcher.urls)
+
+
+def test_the_foreign_rate_is_read_on_a_session_of_its_own():
+    """Egypt's rate is real and reachable, and never on the crawl's session."""
+    fetcher = _RateStubFetcher()
+    rates, warnings = _rate_tables(fetcher, make_entry())
+
+    assert rates == {"SAR": 3.754116, "EGP": 50.5485}
+    assert not warnings
+    # The crawl's OWN session never touched an Egyptian URL. If it had, this
+    # store would have pinned the session to Egypt and every remaining product
+    # page would have come back in EGP and been stored as a Saudi price.
+    assert not any("/ar-eg/" in u or "/en-eg/" in u for u in fetcher.urls)
+
+
+def test_a_country_switch_that_did_not_happen_is_refused_not_recorded():
+    """THE FAULT, re-broken on purpose.
+
+    advancedcastle pins the country in a cookie and then redirects every later
+    URL to it, so a session that has already seen a Saudi page answers the
+    Egyptian URL from Saudi Arabia — 200, no error, SAR. Recording that would
+    file the Saudi rate under Egypt: a wrong number indistinguishable from a
+    right one. It must be refused, and said.
+    """
+    class _CountryPinnedStubFetcher(_RateStubFetcher):
+        # A session that ignores the requested country and answers in SAR —
+        # exactly what the live store does when the cookie is already set.
+        def fresh_session(self):
+            return _CountryStubFetcher("SAR", self.SAR_RATE)
+
+    rates, warnings = _rate_tables(_CountryPinnedStubFetcher(), make_entry())
+
+    assert "EGP" not in rates                 # nothing invented
+    assert rates == {"SAR": 3.754116}         # the home rate still stands
+    assert any("EG" in w and "SAR" in w for w in warnings)
+
+
+def test_a_transport_with_no_second_session_asks_nothing_and_says_so():
+    """Safe by default: no session, no probe, no silence."""
+    class _NoSecondSession(_RateStubFetcher):
+        fresh_session = None
+
+    rates, warnings = _rate_tables(_NoSecondSession(), make_entry())
+
+    assert rates == {"SAR": 3.754116}
+    assert any("separate session" in w for w in warnings)
+
+
+def test_the_probe_closes_the_session_it_opened():
+    """One request, one close: a crawl must not leak a client per country."""
+    opened = []
+
+    class _CountingStub(_RateStubFetcher):
+        def fresh_session(self):
+            probe = _CountryStubFetcher("EGP", self.EG_RATE)
+            opened.append(probe)
+            return probe
+
+    _rate_tables(_CountingStub(), make_entry())
+
+    assert len(opened) == 1                   # one country advertised: eg
+    assert opened[0].requests_count == 1      # and exactly one request for it
+    assert opened[0].closed
+
+
+def test_an_arabic_only_store_never_probes_a_country_at_all():
+    """No alternates, no countries, no requests, no warnings."""
+    class _NoAlternates(_StubFetcher):
+        def get(self, url, **kwargs):
+            resp = super().get(url, **kwargs)
+            if "/products/" in url:
+                return _Resp(resp.text + _bootstrap("SAR", "3.754116"))
+            return resp
+
+        def fresh_session(self):
+            raise AssertionError("a store advertising no country was probed")
+
+    rates, warnings = _rate_tables(_NoAlternates(), make_entry())
+
+    assert rates == {"SAR": 3.754116}
+    assert not warnings
+
+
+def test_one_currency_block_never_borrows_another_blocks_rate():
+    """The parser's real risk: a multi-currency bootstrap marrying the first
+    code to a later block's number, which reads as a perfectly good rate."""
+    from scrapex.connectors.zid import _bootstrap_rates
+
+    html = _bootstrap("SAR", "3.754116") + _bootstrap("EGP", "50.5485")
+
+    assert _bootstrap_rates(html) == {"SAR": 3.754116, "EGP": 50.5485}
+
+
+def test_an_impossible_rate_is_dropped_rather_than_stored():
+    """Foreign content: zero would divide, and an absurd figure would rank this
+    store's prices above or below every other source."""
+    from scrapex.connectors.zid import _bootstrap_rates
+
+    assert _bootstrap_rates(_bootstrap("EGP", "0")) == {}
+    assert _bootstrap_rates(_bootstrap("EGP", "99999999")) == {}
+    assert _bootstrap_rates(_bootstrap("EGP", "50.5")) == {"EGP": 50.5}

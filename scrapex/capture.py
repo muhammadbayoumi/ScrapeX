@@ -275,6 +275,7 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         defects = list(dict.fromkeys(d for t in tables for d in t.defects))
         result = ingest_payloads(conn, entry, payloads, job_id=job_id,
                                  fetch_defects=defects)
+        _store_published_rates(conn, entry, tables, result)
     if journal:
         localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
     # rows/tables come from the PAYLOADS: on a resume the fetched tables are
@@ -283,3 +284,30 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                          tables=len(payloads), rows=sum(len(p.rows) for p in payloads),
                          warnings=[w for t in tables for w in t.warnings],
                          notes=list(getattr(fetcher, "robots_warnings", []) or []))
+
+
+def _store_published_rates(conn, entry, tables: list, result) -> None:
+    """The rate the STORE printed about itself, into currency_rate as 'shop'.
+
+    Read from `tables` and not from the journal for the same reason defects
+    are: the payload contract is frozen across engines and carries no rate, so
+    this is what THIS attempt saw. A resume reads it again off its first page.
+
+    ISOLATED, NOT SILENT. A rate that will not store must not cost the
+    catalogue that was already ingested — but a failure that leaves no trace is
+    how the USD column goes on quoting a stale number with nothing anywhere
+    saying why (the lesson _record_implied_rate spells out). So the failure
+    becomes a NOTICE: the run is not partial, and the reason is on the record.
+    """
+    published: dict[str, float] = {}
+    for table in tables:
+        published.update(getattr(table, "published_rates", None) or {})
+    if not published:
+        return
+    from . import rates as rates_mod
+    try:
+        rates_mod.store_shop_rates(conn, entry.source_key, published)
+    except (ValueError, TypeError, sqlite3.DatabaseError) as exc:
+        result.notices.append(
+            f"the exchange rate {entry.source_key} publishes about itself was "
+            f"not stored ({', '.join(sorted(published))}) — {exc}")
