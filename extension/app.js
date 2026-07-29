@@ -230,6 +230,76 @@ function setStatus(engine) {
   renderRuntime(engine);
 }
 
+// ---- crawl pace and engine control -----------------------------------------
+// These settings were built, plumbed all the way to the fetcher, and rendered
+// ONLY on the engine's own web page — which is display-only. So from the side
+// panel, where the work actually happens, they did not exist: the owner asked
+// for a feature that had been shipped weeks earlier. Settings belong here.
+
+const CRAWL_KEYS = ["crawl_honour_delay", "crawl_min_interval_s",
+                    "crawl_timeout_s", "crawl_user_agent"];
+
+function crawlPaceEffect() {
+  // What the choice MEANS, in the units the owner thinks in. A checkbox that
+  // silently decides whether a crawl takes one hour or eleven should say so.
+  const honour = $("crawl_honour_delay").checked;
+  const every = parseFloat($("crawl_min_interval_s").value) || 0;
+  $("crawl-pace-effect").textContent = honour
+    ? "Each site's own delay wins when it asks for more than " + every + "s."
+    : "Our pace only: " + every + "s between requests, whatever a site asks for.";
+}
+
+async function loadCrawlSettings() {
+  let settings;
+  try { settings = (await api("/api/settings")).settings || {}; }
+  catch (err) { out("crawl-msg", "could not read settings: " + err.message, "err"); return; }
+  const value = (key) => {
+    const raw = settings[key];
+    return raw && typeof raw === "object" ? raw.value : raw;
+  };
+  $("crawl_honour_delay").checked = !["0", "false", false].includes(value("crawl_honour_delay"));
+  $("crawl_min_interval_s").value = value("crawl_min_interval_s") || "1.0";
+  $("crawl_timeout_s").value = value("crawl_timeout_s") || "30";
+  $("crawl_user_agent").value = value("crawl_user_agent") || "";
+  $("log_retention_days").value = value("log_retention_days") || "30";
+  crawlPaceEffect();
+}
+
+async function saveCrawlSettings() {
+  const interval = parseFloat($("crawl_min_interval_s").value);
+  if (!(interval > 0)) {
+    // Refused HERE, not at the server: zero seconds between requests is not a
+    // pace, it is a flood, and the site that gets it blocks us for good.
+    out("crawl-msg", "seconds between requests must be greater than zero", "err");
+    return;
+  }
+  out("crawl-msg", "saving…");
+  try {
+    await post("/api/settings", {
+      crawl_honour_delay: $("crawl_honour_delay").checked ? "1" : "0",
+      crawl_min_interval_s: String(interval),
+      crawl_timeout_s: String(parseInt($("crawl_timeout_s").value, 10) || 30),
+      crawl_user_agent: $("crawl_user_agent").value.trim(),
+      log_retention_days: String(parseInt($("log_retention_days").value, 10) || 30),
+    });
+  } catch (err) { out("crawl-msg", "not saved: " + err.message, "err"); return; }
+  out("crawl-msg", "saved — it applies to the next crawl, not one already running", "ok");
+  crawlPaceEffect();
+}
+
+async function restartEngineFromPanel() {
+  out("crawl-msg", "restarting the engine…");
+  try { await post("/api/engine/restart", {}); }
+  catch (err) {
+    // A restart tears down the very connection carrying its own reply, so a
+    // dropped request here is the SUCCESS case as often as the failure case.
+    // Claiming failure would be a lie; the status dot settles it either way.
+    out("crawl-msg", "restart requested — watch the status dot (" + err.message + ")");
+    return;
+  }
+  out("crawl-msg", "restart requested — the status dot turns green when it is back", "ok");
+}
+
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
@@ -1918,6 +1988,18 @@ async function init() {
   // The workspace opens with the Storage section already expanded, so the link
   // lands on what it promised rather than on a wall of closed rows.
   $("open-storage").addEventListener("click", () => openTab("/settings#s-storage"));
+
+  // Crawl pace and engine control. Loaded when the section is OPENED rather
+  // than at boot: the panel must not spend a request on a page the owner may
+  // never expand, and a stale value is worse than a late one.
+  $("crawl-save").addEventListener("click", saveCrawlSettings);
+  $("engine-restart").addEventListener("click", restartEngineFromPanel);
+  $("crawl_honour_delay").addEventListener("change", crawlPaceEffect);
+  $("crawl_min_interval_s").addEventListener("input", crawlPaceEffect);
+  document.querySelector('[data-sect="s-crawl"]')
+    .addEventListener("click", () => {
+      if (!$("s-crawl").classList.contains("hidden")) loadCrawlSettings();
+    });
 
   refreshMode();
   // The opening view must be ENTERED through showView like every other one.

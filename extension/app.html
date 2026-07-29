@@ -860,6 +860,51 @@
               <div id="outputs" class="output-groups"><div class="skeleton"></div></div>
             </div>
           </article>
+          <!-- The crawl's pace and the engine itself. These existed only on the
+               engine's own web page, which is display-only — so from here, where
+               the owner actually works, they did not exist at all. -->
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-crawl" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">05</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Crawl pace and engine</span>
+                <span class="settings-description">Pace, log retention and engine restart</span>
+              </span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
+            </button>
+            <div id="s-crawl" class="settings-panel hidden">
+              <p class="muted hint">
+                A site can ask for a pace in its robots.txt. Honouring it is the
+                default and the polite choice; turning it off is yours to make,
+                and every run records which pace it used.</p>
+              <label class="row" for="crawl_honour_delay">
+                <input id="crawl_honour_delay" type="checkbox">
+                <span>Honour each site's requested crawl delay</span>
+              </label>
+              <p class="muted text-xs" id="crawl-pace-effect">&nbsp;</p>
+
+              <label for="crawl_min_interval_s">Minimum seconds between requests</label>
+              <input id="crawl_min_interval_s" type="number" step="0.1" min="0.1" dir="ltr">
+
+              <label for="crawl_timeout_s">Request timeout in seconds</label>
+              <input id="crawl_timeout_s" type="number" min="1" dir="ltr">
+
+              <label for="crawl_user_agent">User agent</label>
+              <input id="crawl_user_agent" type="text" dir="ltr" spellcheck="false"
+                     placeholder="leave empty for the built-in honest agent">
+
+              <label for="log_retention_days">Keep job logs for (days)</label>
+              <input id="log_retention_days" type="number" min="1" dir="ltr">
+
+              <div class="row mt-2">
+                <button id="crawl-save" class="primary">Save</button>
+                <button id="engine-restart" class="link">Restart engine</button>
+              </div>
+              <div id="crawl-msg" class="muted text-sm" role="status" aria-live="polite"></div>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -871,7 +916,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-about" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">05</span>
+              <span class="settings-index" aria-hidden="true">06</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">About</span>
                 <span class="settings-description">Version and product details</span>

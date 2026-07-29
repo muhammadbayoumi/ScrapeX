@@ -192,46 +192,25 @@
   <summary><span class="sect-name">Crawling</span>
     <span class="sect-sub">Politeness, timeouts and identification</span></summary>
   <div class="sect-body">
-    <p class="hint">These apply to every source that uses the shared HTTP fetcher.
-      A source that declares its own user agent keeps it.</p>
-    <form class="stack" onsubmit="return false">
-      <div class="field">
-        <label for="crawl_min_interval_s">Minimum seconds between requests</label>
-        <input id="crawl_min_interval_s" type="number" step="0.1" min="0.1"
-               value="{{ settings.crawl_min_interval_s.value }}">
-        <span class="hint">One request per second is the shipped default. Lowering it
-          puts more load on sites you do not own.</span>
-      </div>
-      <div class="field">
-        <label class="row" for="crawl_honour_delay">
-          <input id="crawl_honour_delay" type="checkbox"
-                 {% if settings.crawl_honour_delay.value not in ("0", "false") %}checked{% endif %}>
-          <span>Honour each site's own crawl delay</span>
-        </label>
-        <span class="hint">A site can publish a <code>Crawl-delay</code> in its
-          robots.txt asking for a pause between requests — elburoj.com asks for
-          10 seconds, which over its 6,720 products is about 25 hours. Unticking
-          this uses your interval above instead. The run says which pace it used
-          either way, and going faster than a site asked can get you rate-limited
-          or blocked.</span>
-      </div>
-      <div class="field">
-        <label for="crawl_timeout_s">Request timeout in seconds</label>
-        <input id="crawl_timeout_s" type="number" min="1" value="{{ settings.crawl_timeout_s.value }}">
-      </div>
-      <div class="field">
-        <label for="crawl_user_agent">User agent</label>
-        <input id="crawl_user_agent" dir="ltr" spellcheck="false"
-               value="{{ settings.crawl_user_agent.value }}"
-               placeholder="{{ about.default_user_agent }}">
-        <span class="hint">Leave empty to identify as ScrapeX. Pretending to be a
-          browser to get past a block is not what this field is for.</span>
-      </div>
-      <div class="row">
-        <button data-save="crawl_min_interval_s,crawl_honour_delay,crawl_timeout_s,crawl_user_agent">Save</button>
-        <span class="hint out" role="status" aria-live="polite"></span>
-      </div>
-    </form>
+    <!-- MOVED to the extension (owner's rule, 2026-07-29): every setting lives
+         in the side panel and this page is display-only. These four controls
+         had been built and plumbed all the way to the fetcher, and rendered
+         ONLY here — so from where the owner works they did not exist, and he
+         asked for a feature that had shipped weeks earlier. -->
+    <p class="hint">These settings now live in the ScrapeX side panel, under
+      <strong>Settings &rarr; Crawl pace and engine</strong>. This page shows
+      what the engine holds; it does not change it.</p>
+    <dl class="stack">
+      <dt>Minimum seconds between requests</dt>
+      <dd class="tech">{{ settings.crawl_min_interval_s.value }}</dd>
+      <dt>Honour each site's own crawl delay</dt>
+      <dd class="tech">
+        {% if settings.crawl_honour_delay.value not in ("0", "false") %}yes{% else %}no{% endif %}</dd>
+      <dt>Request timeout in seconds</dt>
+      <dd class="tech">{{ settings.crawl_timeout_s.value }}</dd>
+      <dt>User agent</dt>
+      <dd class="tech">{{ settings.crawl_user_agent.value or about.default_user_agent }}</dd>
+    </dl>
   </div>
 </details>
 
@@ -367,13 +346,12 @@
     <form class="stack" onsubmit="return false">
       <div class="field">
         <label for="log_retention_days">Keep job logs for (days)</label>
-        <input id="log_retention_days" type="number" min="1"
-               value="{{ settings.log_retention_days.value }}">
+        <span class="tech">{{ settings.log_retention_days.value }} days</span>
         <span class="hint">Job logs are diagnostics, not history: removing old ones
           destroys no price data.</span>
       </div>
       <div class="row">
-        <button data-save="log_retention_days">Save</button>
+        
         <span class="hint out" role="status" aria-live="polite"></span>
       </div>
     </form>

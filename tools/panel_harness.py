@@ -94,6 +94,14 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "health": {"status": "healthy", "ok": True}},
         "/api/resolve": resolve if resolve is not None else {"matched": False},
         "/api/probe": probe if probe is not None else PROBE_RESULT,
+        # The crawl pace lives in the panel now (owner's rule, 2026-07-29:
+        # every setting in the extension, the web page display-only).
+        "/api/settings": {"settings": {
+            "crawl_honour_delay": {"value": "1"},
+            "crawl_min_interval_s": {"value": "1.0"},
+            "crawl_timeout_s": {"value": "30"},
+            "crawl_user_agent": {"value": ""},
+            "log_retention_days": {"value": "30"}}},
     }
     return f"""
 window.chrome = {{
