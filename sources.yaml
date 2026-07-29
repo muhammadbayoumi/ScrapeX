@@ -176,13 +176,28 @@ sources:
       the fetcher sends. Variant prices are in the page HTML, not JSON-LD (v1
       records the product-level JSON-LD price only).
 
-      BILINGUAL, captured 2026-07-28. The retained Arabic product page publishes
-      ar-eg, en, en-eg, ar-sa and x-default alternates. Its advertised English
-      page carries the same SKU (e1mf0901), SAR 285 price, and the corresponding
-      English product name and category path. The connector follows that
-      page-published English alternate for text only, validates that it is the
-      same product, and keeps money and identity anchored to the configured
-      Arabic Saudi page. No text is translated or guessed.
+      BILINGUAL + TWO COUNTRIES, established live 2026-07-28. Every page's own
+      <head> publishes five alternates: ar-sa (unprefixed, x-default), en
+      (/en/...), ar-eg (/ar-eg/...) and en-eg (/en-eg/...). The two dimensions
+      are ORTHOGONAL on the five products probed: language changes the text
+      only ("طفاية حريق ثاني أكسيد الكربون CO2 سعة 6 كجم" / "6kg CO₂ Fire
+      Extinguisher", "أنظمة الإطفاء > طفايات الحريق اليدوية" / "Extinguish
+      Systems > Manual fire extinguishers"), country changes the money only
+      (SAR 285.00 / EGP 3353.92). The sku is identical across all four
+      (e1mf0901), so they are one product, not four. The connector now reads
+      the English alternate and fills product_name/category_path from it.
+
+      THE EGYPTIAN PRICE IS NOT CRAWLED, deliberately. It is a CONVERSION, not
+      a price the merchant set: across five products the EGP/SAR ratio is
+      constant at 11.768 (11.7681, 11.7679, 11.7697, 11.7684, 11.7680), and the
+      store publishes its own rates in-page — SAR "exchange_rate": "3.747989",
+      EGP "exchange_rate": "50.7221". Recording it as an ordinary price would
+      put a derived number in the same column as a published one, which is the
+      mistake price_basis exists to prevent — and price_basis/original_price
+      live on COMMODITY_PRICE, not PRODUCT_PRICES. Adding them is a schema
+      migration and therefore an owner decision. Note the warehouse would keep
+      the two countries apart correctly if it were captured: source_offer is
+      keyed on country_code_alpha2 and the price key carries region+currency.
 
   # ---- probed: Shopify; products.json OPEN ----
   - source_key: ELSEWEDYSHOP
