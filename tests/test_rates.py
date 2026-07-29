@@ -257,8 +257,9 @@ def test_timestamped_rate_outranks_a_date_only_row_from_the_same_day(conn):
     # timestamp must sort AFTER it lexicographically, so the finer-grained
     # google_finance figure wins the day they share.
     conn.execute(
-        "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
-        "VALUES ('SAR', 3.70, '2026-07-27', 'globalpetrolprices')")
+        "INSERT INTO currency_rate "
+        "  (currency, per_usd, as_of, source_key, source_kind) "
+        "VALUES ('SAR', 3.70, '2026-07-27', 'globalpetrolprices', 'shop')")
     store_rates(conn, [Rate("SAR", 3.747688, OBSERVED_TS_ISO, url_for("SAR"))])
     latest = conn.execute(
         "SELECT per_usd FROM currency_rate WHERE currency='SAR' "

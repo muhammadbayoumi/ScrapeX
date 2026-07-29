@@ -62,6 +62,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from . import db as dbmod
 from .connectors.base import CrawlBlocked
 from .payload import utc_now_iso
 
@@ -234,6 +235,9 @@ def store_rates(conn: sqlite3.Connection, rates: list[Rate]) -> int:
 
     Returns the number of rows written or refreshed. Commits on success.
     """
+    # Asked once per call, not per rate: the shape of the table cannot
+    # change underneath a single batch.
+    kinded = dbmod.has_column(conn, 'currency_rate', 'source_kind')
     written = 0
     for rate in rates:
         if rate.currency == "USD":
@@ -246,6 +250,17 @@ def store_rates(conn: sqlite3.Connection, rates: list[Rate]) -> int:
                 f"refusing to store {rate.currency} rate {rate.per_usd!r}: "
                 "outside the plausible range (0, 1e6]")
         conn.execute(
+            # 'provider': this module reads a rate service whose business IS the
+            # rate. A shop's implied rate is a different kind of thing and says
+            # so in its own row (0054). Asked rather than assumed, because the
+            # code reaches the machine before the migration does — see
+            # db.has_column.
+            "INSERT INTO currency_rate "
+            "  (currency, per_usd, as_of, source_key, source_kind) "
+            "VALUES (?,?,?,?,'provider') "
+            "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "
+            "  per_usd = excluded.per_usd"
+            if kinded else
             "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
             "VALUES (?,?,?,?) "
             "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "

@@ -18,7 +18,7 @@ from .changes import (
     record_alias, record_change,
 )
 from .config import SourceEntry
-from . import pricekey, tax
+from . import db as _dbmod, pricekey, tax
 from .normalize import brand_pair, joined_brand, parse_money, record_hash
 from .payload import FunnelPayload, utc_now_iso
 from .rowspec import PRODUCT_PRICES, RowView, spec_for
@@ -883,10 +883,16 @@ def _record_implied_rate(conn, entry, c: dict, result: "IngestResult") -> None:
             # 'shop': this rate is implied by a storefront's own printed prices,
             # so it is evidence about that shop and must never be mistaken for a
             # market rate (0054). entry.source_key names a row in source_site by
-            # construction.
+            # construction. Asked rather than assumed — the code reaches the
+            # machine before the migration does; see db.has_column.
             "INSERT INTO currency_rate "
             "  (currency, per_usd, as_of, source_key, source_kind) "
             "VALUES (?,?,?,?,'shop') "
+            "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "
+            "  per_usd = excluded.per_usd"
+            if _dbmod.has_column(conn, "currency_rate", "source_kind") else
+            "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
+            "VALUES (?,?,?,?) "
             "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "
             "  per_usd = excluded.per_usd",
             (currency, local / usd, as_of, entry.source_key))

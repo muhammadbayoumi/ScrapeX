@@ -258,7 +258,7 @@ def test_changing_a_rate_closes_the_old_rule_instead_of_editing_it(conn):
     ingest_payloads(conn, entry([raised]), [payload([row(price="330")])])
 
     rules = conn.execute(
-        "SELECT rate_pct, valid_to FROM tax_rule ORDER BY tax_rule_id").fetchall()
+        "SELECT tax_rate_pct, valid_to FROM tax_rule ORDER BY tax_rule_id").fetchall()
 
     assert len(rules) == 2, "the rate was edited in place"
     assert rules[0][0] == 15 and rules[0][1] is not None, "the old rule was not closed"

@@ -67,7 +67,7 @@ def test_fresh_registry_creates_two_typed_databases_without_domain_tables_crossi
     assert applied["general"] == list(
         range(1, registry.general.latest_schema_version + 1)
     )
-    assert applied["marketlens"] == list(range(1, 52))   # ... +51 the unified layer speaks the vocabulary too
+    assert applied["marketlens"] == list(range(1, 54))   # ... +52 a rate says whether a provider or a shop published it
     assert registry.health()["general"]["status"] == "Healthy"
     assert registry.health()["marketlens"]["status"] == "Healthy"
 

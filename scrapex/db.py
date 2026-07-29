@@ -65,6 +65,27 @@ def schema_version(conn: sqlite3.Connection) -> int:
     return int(conn.execute("PRAGMA user_version").fetchone()[0])
 
 
+def has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    """Does this database have that column yet?
+
+    THE WINDOW THIS EXISTS FOR, written down so it can be closed rather than
+    inherited: new code reaches the owner's machine the moment a file is saved,
+    but a migration only lands when it is applied. On 2026-07-29 the engine
+    restarted itself into code that wrote currency_rate.source_kind while the
+    live database was still one migration behind, and the rate refresh threw
+    `no such column` on every pass — silently, in a background worker, so the
+    Data page went on ranking currencies at a stale rate with nothing saying
+    why. That is the failure mode this closes.
+
+    A writer that ASKS instead of assuming keeps working across that window in
+    both directions. Delete the callers' branches once every install is past
+    the migration that adds the column; keep this helper, it is cheap and it is
+    the honest way to ask.
+    """
+    return any(row[1] == column
+               for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
 def _migration_files() -> list[tuple[int, Path]]:
     """Ordered migrations: schema.sql is 0001; db/migrations/NNNN_*.sql follow."""
     migrations: list[tuple[int, Path]] = [(1, SCHEMA_FILE)]

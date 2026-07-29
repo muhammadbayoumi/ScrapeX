@@ -24,7 +24,7 @@ def conn() -> sqlite3.Connection:
 def _seed_minimal(conn: sqlite3.Connection) -> dict[str, int]:
     """One site -> product -> variant -> offer -> run: the spine every test needs."""
     conn.execute(
-        "INSERT INTO source_site (source_key, source_name_ar, currency, default_vat_mode)"
+        "INSERT INTO source_site (source_key, source_name_ar, currency, default_tax_mode)"
         " VALUES ('MADAR', 'المدار', 'SAR', 'excl')"
     )
     source_id = conn.execute("SELECT source_id FROM source_site").fetchone()[0]
@@ -62,7 +62,7 @@ def _insert_observation(conn, ids, price: float = 168.78, hash_: str = "h1") -> 
 
 
 def test_migration_reaches_latest_version(conn):
-    assert dbmod.schema_version(conn) == 53  # +0053 the unified layer speaks the vocabulary too
+    assert dbmod.schema_version(conn) == 55   # +0055 the tax table speaks the tax vocabulary
 
 
 def test_all_owner_tables_exist(conn):
@@ -168,7 +168,7 @@ def test_migration_0020_preserves_existing_jobs_and_their_log_references():
         upgrading.commit()
 
         assert dbmod.migrate(upgrading) == [20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-                                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53]
+                                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55]
 
         joined = upgrading.execute(
             "SELECT j.job_ref, j.status, l.message FROM job_log_entry l"

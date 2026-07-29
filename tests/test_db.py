@@ -27,12 +27,12 @@ def test_migrate_is_idempotent(tmp_path: Path):
         second = dbmod.migrate(conn)
     finally:
         conn.close()
-    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54]
+    assert first == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55]
     assert second == []  # T4: running again applies nothing
 
 
 def test_latest_schema_version_matches_the_migration_chain():
-    assert dbmod.latest_schema_version() == 54   # +0054 a rate says whether a provider or a shop published it
+    assert dbmod.latest_schema_version() == 55   # +0055 the tax table speaks the tax vocabulary
 
 
 def test_foreign_keys_actually_enforced(tmp_path: Path):
@@ -146,6 +146,10 @@ def _at_version_46(monkeypatch) -> sqlite3.Connection:
 def _seed_branded_product(conn, *, source_key: str, brand_raw: str,
                           manufacturer: str | None = None) -> None:
     conn.execute(
+        # The column's name AT v46, which is where this fixture stands: 0055
+        # renames it to default_tax_mode, and these tests replay the stream to a
+        # point before that. Using today's name here would test a database that
+        # never existed.
         "INSERT INTO source_site (source_key, source_name, source_name_ar, "
         "default_vat_mode, authority, active) VALUES (?,?,?,?,?,1)",
         (source_key, source_key.title(), source_key, "excl", "official"))

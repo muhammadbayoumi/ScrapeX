@@ -126,7 +126,8 @@ def upsert_rules(conn: sqlite3.Connection, entry: SourceEntry) -> int:
         material = (getattr(spec, "material", WILDCARD) or WILDCARD).strip() or WILDCARD
         mode = (spec.vat_mode or entry.vat_mode).value
         current = conn.execute(
-            "SELECT tax_rule_id, vat_mode, rate_pct, evidence, statement_text, statement_url "
+            "SELECT tax_rule_id, tax_mode, tax_rate_pct, tax_evidence, "
+            "       tax_statement_text, tax_statement "
             "FROM tax_rule WHERE source_key = ? AND region = ? AND material_key = ? "
             "AND valid_to IS NULL",
             (entry.source_key, region, material)).fetchone()
@@ -139,8 +140,9 @@ def upsert_rules(conn: sqlite3.Connection, entry: SourceEntry) -> int:
                 "UPDATE tax_rule SET valid_to = strftime('%Y-%m-%d','now') "
                 "WHERE tax_rule_id = ?", (current[0],))
         conn.execute(
-            "INSERT INTO tax_rule (source_key, region, material_key, vat_mode, rate_pct, "
-            "evidence, statement_text, statement_url, statement_lang, verified_at) "
+            "INSERT INTO tax_rule (source_key, region, material_key, tax_mode, "
+            "tax_rate_pct, tax_evidence, tax_statement_text, tax_statement, "
+            "tax_statement_lang, verified_at) "
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (entry.source_key, region, material, mode, spec.rate_pct, spec.evidence,
              spec.statement_text, spec.statement_url, spec.statement_lang,
@@ -174,8 +176,8 @@ def load_rules(conn: sqlite3.Connection, source_key: str) -> dict[str, TaxState]
     """
     try:
         rows = conn.execute(
-            "SELECT region, vat_mode, rate_pct, evidence, "
-            "       COALESCE(statement_text,''), COALESCE(statement_url,''), "
+            "SELECT region, tax_mode, tax_rate_pct, tax_evidence, "
+            "       COALESCE(tax_statement_text,''), COALESCE(tax_statement,''), "
             "       COALESCE(material_key,'*') "
             "FROM tax_rule WHERE source_key = ? AND valid_to IS NULL",
             (source_key,)).fetchall()
