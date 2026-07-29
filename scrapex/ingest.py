@@ -565,13 +565,37 @@ def _observation_values(r: dict, observed_at: str) -> dict:
     stock_raw = r["stock_quantity"]
     stock_dec = parse_money(stock_raw) if stock_raw else None
     stock = _to_float(stock_dec)
-    # record_hash keeps its original composition — it is the dedupe key on
-    # ux_price_obs_dedupe and part of the frozen cross-engine contract, so
-    # changing it would silently re-key every existing warehouse.
+    trade_dec = parse_money(r.get("price_trade", "")) if r.get("price_trade") else None
+    # record_hash decides whether this observation is NEW. Its composition is the
+    # dedupe key on ux_price_obs_dedupe and part of the frozen cross-engine
+    # contract, so a key added unconditionally would re-hash every observation of
+    # every source and append a duplicate for all 73,000 of them on the next
+    # crawl. `trade` is therefore added ONLY when the shop published one.
+    #
+    # THE ABSENT FIELD CONTRIBUTES NOTHING — the rule pricekey.py already states
+    # and the reason this is safe: a source with no trade price hashes exactly
+    # what it hashed yesterday, so nothing moves for it, ever.
+    #
+    # WHY IT HAD TO GO IN. 0052 moved the trade tier out of the details bag into
+    # price_observation.price_trade and left it out of every hash, writing down
+    # the cost: "a run where ONLY the trade price moved appends no observation".
+    # The real cost was larger. An observation is only ever WRITTEN when the hash
+    # differs, so an offer whose retail price had not moved never got a new row
+    # at all — and the column stayed NULL on the rows that already existed.
+    # Measured on the live warehouse: two successful sikaegshop crawls after
+    # 0052, 2,461 rows each, and 0 of 73,084 observations carried a trade price;
+    # the newest sikaegshop observation was still dated two days BEFORE the
+    # migration. The values 0052 promised would "be re-fetched on the next crawl"
+    # could not arrive, because nothing asked the warehouse to write a row.
+    #
+    # It is NOT added to the price key, and that stays deliberate: this is a
+    # different customer's price, so it must not split the retail timeline. It
+    # answers "is this row new", not "did the price change".
     content_hash = record_hash({
         "effective": _canon_amount(effective), "regular": _canon_amount(regular),
         "sale": _canon_amount(sale), "currency": r["currency"], "vat": vat,
         "availability": availability, "stock": _canon_amount(stock_dec),
+        **({"trade": _canon_amount(trade_dec)} if trade_dec is not None else {}),
     })
     # price_hash answers a different question: is this the SAME PRICE? It leaves
     # availability and stock out — the owner wants the latest stock state, not
@@ -606,13 +630,10 @@ def _observation_values(r: dict, observed_at: str) -> dict:
         "price_before": _to_float(regular),
         "price_sale": _to_float(sale),
         "price": _to_float(effective),
-        # NOT in record_hash or the price key: it is a DIFFERENT customer's
-        # price, so hashing it would split one product's timeline on a number
-        # the owner is never charged — and record_hash is the frozen
-        # cross-engine dedupe key. The cost is stated in migration 0052: a run
-        # where ONLY this moved appends no observation.
-        "price_trade": _to_float(parse_money(r.get("price_trade", ""))
-                                 if r.get("price_trade") else None),
+        # In record_hash when the shop publishes one (see above), never in the
+        # PRICE key: it is a different customer's price, so it must not split
+        # the retail timeline this warehouse exists to track.
+        "price_trade": _to_float(trade_dec),
         "currency": r["currency"],
         "tax_included": vat,
         "availability": availability,
@@ -975,8 +996,34 @@ def _still_the_same_price(conn: sqlite3.Connection, offer_id: int, v: dict) -> b
         return False
     if open_period["price_hash"] != v["price_hash"]:
         return False
-    return pricekey.comparable(pricekey.parse_fields(open_period["price_fields"]),
-                               pricekey.parse_fields(v["price_fields"]))
+    if not pricekey.comparable(pricekey.parse_fields(open_period["price_fields"]),
+                               pricekey.parse_fields(v["price_fields"])):
+        return False
+
+    # SAME PRICE PERIOD, BUT IS THERE ANYTHING NEW TO RECORD? Two questions were
+    # collapsed into one here, and the second was never asked.
+    #
+    # The retail price key deliberately excludes the trade tier (0052: it is a
+    # different customer's price and must not split this product's timeline).
+    # But this function is also the gate on whether an observation is APPENDED
+    # AT ALL — so a shop that moved only its trade price was confirmed, nothing
+    # was written, and the column stayed NULL forever. Measured on the live
+    # warehouse: two sikaegshop crawls after 0052, 0 of 73,084 observations
+    # carrying a trade price, and the newest sikaegshop row still dated two days
+    # BEFORE the migration that introduced the column.
+    #
+    # So the period stays keyed on the price — a trade move opens no new period —
+    # while a trade move that is genuinely new still lands as an observation
+    # INSIDE that period. The retail timeline is unchanged; the fact is recorded.
+    if v.get("price_trade") is not None:
+        latest = conn.execute(
+            "SELECT price_trade FROM price_observation "
+            "WHERE offer_id = ? AND provenance = 'observed' "
+            "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1",
+            (offer_id,)).fetchone()
+        if latest is None or latest["price_trade"] != v["price_trade"]:
+            return False
+    return True
 
 
 def _derive_seen(conn: sqlite3.Connection, result: IngestResult) -> None:
