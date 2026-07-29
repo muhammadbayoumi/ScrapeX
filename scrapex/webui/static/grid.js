@@ -50,6 +50,38 @@
   // names), so English readers lose nothing.
   const COLLATOR = new Intl.Collator(["ar", "en"], {numeric: true});
 
+  /** The value with its whitespace normalised — for COMPARING, never for showing.
+   *
+   * Scraped text arrives padded: MADAR publishes names carrying up to 17
+   * leading spaces, trailing spaces and doubled inner ones, and 23 brand values
+   * that are a single space. Sorted raw, those names filed ahead of every other
+   * row on the page, ordered by how many spaces they happened to carry — a fact
+   * about their padding, not about the products.
+   *
+   * The record still says what the site said. This page shows and exports the
+   * captured value untouched; only the ORDER, and the list of values the filter
+   * offers, are computed from this normalised form. (HTML collapses runs when
+   * it renders anyway, so a padded cell already looked the same as a clean one —
+   * which is exactly why the wrong order had no visible explanation.)
+   */
+  const collapse = (v) => text(v).replace(/\s+/g, " ").trim();
+
+  /** An anchor that opens someone else's page.
+   *
+   * target=_blank without rel=noopener hands the opened page a live handle on
+   * this one. Every link the grid builds points at a scraped URL, so the pair
+   * must never come apart — and it was written out six times, which is six
+   * chances for the seventh to be written with the target and without the rel.
+   */
+  function externalLink(href, className) {
+    const link = document.createElement("a");
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    if (className) link.className = className;
+    return link;
+  }
+
   /** Compare as text, the way this page lists text everywhere else.
    *
    * alignEmptyValues lives INSIDE each of Tabulator's built-in sorters rather
@@ -58,8 +90,8 @@
    * screens with blanks — the exact complaint sorterParams was added to answer.
    */
   function textSorter(a, b, aRow, bRow, column, dir, params) {
-    const left = text(a);
-    const right = text(b);
+    const left = collapse(a);
+    const right = collapse(b);
     if (left && right) return COLLATOR.compare(left, right);
     let empty = left ? 1 : (right ? -1 : 0);
     const align = (params && params.alignEmptyValues) || "bottom";
@@ -90,9 +122,13 @@
     tax: (row) => text(((payload.tax_states || [])[row.tax_ref] || {}).tax_short),
   };
 
+  // Normalised, because this is the value the popup LISTS and the filter then
+  // MATCHES — both are comparisons. Two names that differ only by padding are
+  // one entry in the list and one tick selects both, while each row still holds
+  // and exports the text its own page published.
   function readValue(field, row) {
     const reader = DISPLAY_VALUE[field];
-    return reader ? reader(row) : asText(row[field]);
+    return collapse(reader ? reader(row) : asText(row[field]));
   }
 
   function displaySorter(field) {
@@ -117,8 +153,8 @@
    * gets wrong because it compares the digit runs 25 and 5.
    */
   function measureSorter(a, b, aRow, bRow, column, dir, params) {
-    const left = text(a);
-    const right = text(b);
+    const left = collapse(a);
+    const right = collapse(b);
     if (left && right) {
       const leftNumber = leadingNumber(left);
       const rightNumber = leadingNumber(right);
@@ -230,7 +266,7 @@
     if (saved) features = Object.assign(features, saved);
   } catch (err) { /* a corrupt preference must not stop the table loading */ }
 
-  function remember_(key, value) {
+  function rememberChoice(key, value) {
     try {
       if (value) localStorage.setItem(key, value);
       else localStorage.removeItem(key);
@@ -238,7 +274,7 @@
   }
 
   function rememberGroups() {
-    remember_(GROUP_KEY, groupedBy.length ? JSON.stringify(groupedBy) : "");
+    rememberChoice(GROUP_KEY, groupedBy.length ? JSON.stringify(groupedBy) : "");
   }
 
   function setGroup(field) {
@@ -251,7 +287,7 @@
     // A grouped tree would show synthetic bands over rows that are already
     // nested — two hierarchies stacked, neither readable. Choosing one turns
     // the other off, visibly, rather than rendering the collision.
-    if (groupedBy.length) { treeBy = ""; remember_(TREE_KEY, ""); }
+    if (groupedBy.length) { treeBy = ""; rememberChoice(TREE_KEY, ""); }
     rememberGroups();
     build();
   }
@@ -259,7 +295,7 @@
   function setTree(field) {
     treeBy = field || "";
     if (treeBy) { groupedBy = []; rememberGroups(); }
-    remember_(TREE_KEY, treeBy);
+    rememberChoice(TREE_KEY, treeBy);
     build();
   }
 
@@ -278,7 +314,13 @@
   function nest(rows, field) {
     const buckets = new Map();
     rows.forEach((row) => {
-      const key = row[field] == null ? "" : String(row[field]);
+      // The same reader the sorter and the filter use, for both of its jobs.
+      // It normalises, so "Putty" and "   Putty" are one branch rather than the
+      // padding making a claim about the catalogue; and it reads what the CELL
+      // shows, so nesting by Tax — whose own field is null on every row and
+      // whose text comes from tax_states[tax_ref] — no longer buckets the whole
+      // table under one blank heading.
+      const key = readValue(field, row);
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(row);
     });
@@ -324,7 +366,17 @@
     table.setFilter([...active].map(([field, f]) => {
       if (!f.values) return {field, type: "like", value: f.text};
       const wanted = new Set(f.values.map(asText));
-      return {field: (row) => wanted.has(readValue(field, row))};
+      const matches = (row) => wanted.has(readValue(field, row));
+      // A BRANCH is kept when any of its children match. Nesting builds parent
+      // rows that carry only the nested column and _children, so every other
+      // column reads blank on them — and Tabulator tests top-level rows with
+      // the same predicate as any other. Filtering Observations while nested by
+      // Unit therefore failed every parent and took its matching children down
+      // with it: 3,417 rows became "0 of 19", and the rows that DID match were
+      // never on screen to be counted. dataTreeFilter still narrows the
+      // children inside a branch that survives.
+      return {field: (row) => matches(row) ||
+        (Array.isArray(row._children) && row._children.some(matches))};
     }));
     describe();
     paintChips();
@@ -1091,20 +1143,36 @@
       });
     }
 
+    // A save that keeps failing must not hold the dialog shut. The first close
+    // waits for the queue and reports a failure instead of closing, which is
+    // right — the reader should learn the change did not land. But it refused
+    // the SECOND press too, and every press after it, so a server that was
+    // simply down left the chooser on screen with no way out but a reload:
+    // the same shape of trap as the column menu that removed its own columns.
+    // Asking again means "close it anyway", and says what was lost.
+    let closeRefused = false;
     async function closeChooser() {
       if (closing) return;
+      if (closeRefused) { dismissChooser(); return; }
       closing = true;
       closeButton.disabled = true;
       if (dirty) status.textContent = "Finishing changes…";
       try { await chooserSaveQueue; } catch (error) {
         closing = false;
+        closeRefused = true;
         closeButton.disabled = false;
-        status.textContent = "Could not save the column changes. Try again.";
+        status.textContent = "Could not save the column changes. " +
+          "Press close again to discard them and carry on.";
         return;
       }
       document.removeEventListener("keydown", escapeChooser);
       if (dirty) location.reload();
       else backdrop.remove();
+    }
+
+    function dismissChooser() {
+      document.removeEventListener("keydown", escapeChooser);
+      backdrop.remove();
     }
 
     function escapeChooser(event) {
@@ -1286,11 +1354,7 @@
           } catch (err) { /* try the next one */ }
         }
         if (safe) {
-          const link = document.createElement("a");
-          link.className = "grid-action";
-          link.href = safe;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
+          const link = externalLink(safe, "grid-action");
           link.textContent = state.tax_short || "—";
           link.title = (state.tax || "") + " — open " + what;
           return link;
@@ -1399,11 +1463,7 @@
         // The grid does not choose; it opens what the row was given.
         const url = cell.getRow().getData().product_link;
         if (!url) return "";
-        const link = document.createElement("a");
-        link.href = url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.className = "grid-action";
+        const link = externalLink(url, "grid-action");
         link.title = "Open this record on the site";
         link.insertAdjacentHTML("beforeend", materialIcon("open-in-new", "inline-icon"));
         return link;
@@ -1429,11 +1489,7 @@
           span.textContent = name;
           return span;
         }
-        const link = document.createElement("a");
-        link.className = "grid-action";
-        link.href = safe;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
+        const link = externalLink(safe, "grid-action");
         link.dir = "auto";
         link.textContent = name;
         link.title = safe;
@@ -1471,7 +1527,7 @@
     const validGroups = groupedBy.filter((field) => availableFields.has(field));
     // treeBy went through no such filter. A renamed or absent field made
     // nest() bucket every row under "" — one branch, blank heading.
-    if (treeBy && !availableFields.has(treeBy)) { treeBy = ""; remember_(TREE_KEY, ""); }
+    if (treeBy && !availableFields.has(treeBy)) { treeBy = ""; rememberChoice(TREE_KEY, ""); }
     // Whichever name column this source fills; the other is legitimately
     // absent when the site publishes one language.
     const nameField = availableFields.has("product_name") ? "product_name"
@@ -1689,10 +1745,31 @@
     // here, which meant switching the feature on silently grouped the table by
     // a column nobody chose — the switch appeared to do two things at once.
     if (features.tree && groupedBy.length) {
-      options.groupBy = groupedBy.slice();
+      // A FUNCTION where the column reads something other than its own field,
+      // for the same reason nest() does: grouping by Tax read a field that is
+      // null on every row and produced one band holding the entire table.
+      options.groupBy = groupedBy.map((field) =>
+        DISPLAY_VALUE[field] ? (data) => readValue(field, data) : field);
       options.groupStartOpen = false;
-      options.groupHeader = groupedBy.map(() => (value, count) =>
-        text(value) + " <span class='muted'>(" + count + ")</span>");
+      // A NODE, not a string. Tabulator renders a string group header through
+      // `element.innerHTML` and a node through `appendChild`, so returning the
+      // scraped value inside a concatenated string ran whatever markup that
+      // value happened to contain: group by Product name on a source whose
+      // name field holds `<img src=x onerror=...>` and it executes. This file
+      // already states the rule it was breaking — "a product name containing
+      // markup must render as text, never run" — and every other cell on the
+      // page obeys it. The group band is now built the same way.
+      options.groupHeader = groupedBy.map(() => (value, count) => {
+        const band = document.createElement("span");
+        const label = document.createElement("span");
+        label.dir = "auto";                    // scraped values are DATA
+        label.textContent = text(value);
+        const tally = document.createElement("span");
+        tally.className = "muted";
+        tally.textContent = " (" + count + ")";
+        band.append(label, tally);
+        return band;
+      });
     }
 
     // TREE: not grouping. There is no extra band — the parent IS a row of the
@@ -1731,7 +1808,17 @@
       // rows are in remeasures against the real client width.
       requestAnimationFrame(() => { try { table.redraw(true); } catch (err) {} });
     });
-    table.on("dataFiltered", () => { describe(); updateFooter(); });
+    // AFTER the stack unwinds. Tabulator dispatches dataFiltered from INSIDE
+    // its filter routine, before the filtered rows become the active set, so
+    // reading getDataCount("active") in the handler reports the state BEFORE
+    // the filter — the footer was permanently one filter behind, and read
+    // "Total Rows: 0" on a table showing 3,417. describe() only escaped this
+    // because applyFilters calls it a second time once setFilter has returned.
+    // A microtask runs when the call stack empties, which is exactly when the
+    // new active set exists.
+    table.on("dataFiltered", () => {
+      queueMicrotask(() => { describe(); updateFooter(); });
+    });
     // Dragging a column edge is the other way an owner sets a width, and it
     // has to be recorded as one. widthsFromTable() no longer sweeps up every
     // column, so without this a dragged width would be forgotten at the next
@@ -2219,10 +2306,7 @@
       }
       let primary;
       if (href) {
-        primary = document.createElement("a");
-        primary.href = href;
-        primary.target = "_blank";
-        primary.rel = "noopener noreferrer";
+        primary = externalLink(href);
         primary.textContent = shown;
       } else {
         primary = el("span", "", shown);
@@ -2318,11 +2402,7 @@
         .filter(Boolean).join(" · ");
       if (meta) box.appendChild(el("span", "file-meta", meta));
       if (href) {
-        const open = document.createElement("a");
-        open.href = href;
-        open.target = "_blank";
-        open.rel = "noopener noreferrer";
-        open.className = "file-open";
+        const open = externalLink(href, "file-open");
         open.textContent = "Open";
         box.appendChild(open);
       }
@@ -2933,6 +3013,16 @@
       }));
   }
 
+  // The command bar's way into Choose Columns. It exists because the column
+  // header menu — the only other way in — is carried by the columns, and the
+  // chooser can remove all of them.
+  function wireColumnsButton() {
+    const button = document.getElementById("grid-columns-button");
+    if (!button || button.dataset.wired) return;
+    button.dataset.wired = "1";
+    button.addEventListener("click", openColumnChooser);
+  }
+
   function wireFeatures() {
     const panel = document.getElementById("grid-features");
     if (!panel) return;
@@ -2948,7 +3038,7 @@
           groupedBy = [];
           rememberGroups();
         }
-        if (name === "rows" && !box.checked && treeBy) { treeBy = ""; remember_(TREE_KEY, ""); }
+        if (name === "rows" && !box.checked && treeBy) { treeBy = ""; rememberChoice(TREE_KEY, ""); }
         saveFeatures();
         build();
       });
@@ -2976,6 +3066,10 @@
     .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
     .then((data) => {
       payload = data;
+      // Before the empty-source return below. A source with no rows still has
+      // columns to arrange, and a door that only appears once there is data is
+      // not a door.
+      wireColumnsButton();
       if (!payload.rows.length) {
         if (note) { note.hidden = false; note.textContent = "No records yet."; }
         return;
