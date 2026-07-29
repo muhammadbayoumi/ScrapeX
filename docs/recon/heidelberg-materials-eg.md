@@ -14,6 +14,37 @@ says so instead of guessing.
 
 ---
 
+> ## CORRECTED 2026-07-29 — read this before §2.5, §4.1 and the counts
+>
+> A second live probe, and the connector that followed it
+> (`scrapex/connectors/heidelberg.py`, source `HEIDELBERG_EG`), overturned three of
+> this report's conclusions. The rest of it stands.
+>
+> 1. **§2.5 is wrong about VAT.** It says the site makes no VAT claim about the
+>    per-tonne price. It makes one: the cart computes `total = listedPrice × tonnes`
+>    with no tax arithmetic anywhere in the bundle, and «شامل النقل و ضريبة القيمة
+>    المضافة (14%)» renders directly beneath that total. A total that is inclusive
+>    and is the listed price times a quantity means the listed price is inclusive.
+>    The manifest therefore carries `vat_mode: incl`, `evidence: stated`,
+>    `rate_pct: 14`.
+> 2. **§4.1's blocker is overstated; there was no migration.** `source_offer`
+>    already carries `branch_id`, `customer_segment` and `minimum_quantity`, and
+>    identity is keyed per variant: a distinct `external_variant_id` gives a
+>    distinct variant, a distinct offer and an independent timeline
+>    (`scrapex/ingest.py:274-282`, `:494`). The feared oscillation cannot happen.
+>    The connector mints one variant per (city, plant, tier) from three published
+>    identifiers, and 108 rows land as 108 offers — asserted end to end in
+>    `tests/test_heidelberg.py`.
+> 3. **Three counts are wrong.** There are **24,840** price slots, not 12,420 (12
+>    columns × 2,070 rows, and §2.3 halved it). `/api/CompanyTypes` returns **4**
+>    rows, not 5 — Y6 exists only embedded in price rows. And the reachable price
+>    set is **108**, not ~211: §2.3 counted every number in the table, while the
+>    storefront's own segment, isActive and plant rules together refuse 103 of
+>    them. See `tests/fixtures/live/heidelberg_2026-07-29.CAPTURE.md` for the
+>    census behind all three.
+
+---
+
 ## 0. Politeness and robots
 
 `robots.txt` was fetched **first**, on both hosts, before anything else:

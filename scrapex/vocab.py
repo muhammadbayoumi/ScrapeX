@@ -218,6 +218,17 @@ _DETAIL_GROUP_BY_CODE: dict[str, DetailGroup] = {
     "switch_type": DetailGroup.SPECIFICATIONS,
     "treatment": DetailGroup.SPECIFICATIONS,
     "veneer_type": DetailGroup.SPECIFICATIONS,
+    # heidelbergmaterials.eg publishes four technical blocks per cement and
+    # none of their codes was in this map, so group_for_code reported all four
+    # as unrecognised and the standing ASK rule above fired. The owner ruled on
+    # 2026-07-29: all four under Specifications, by his own boundary — every one
+    # of them states a property OF the cement (setting time, SO3 <=3.5%,
+    # conformity to ES 4756/1-2022, what the cement is for), not information
+    # about it. Recorded here so the fallback never absorbs them again.
+    "physical_characteristics": DetailGroup.SPECIFICATIONS,
+    "chemical_characteristics": DetailGroup.SPECIFICATIONS,
+    "characteristics": DetailGroup.SPECIFICATIONS,
+    "applications": DetailGroup.SPECIFICATIONS,
     # samehgabriel names its attributes in Arabic, `pa_` prefixed.
     "pa_المقاس": DetailGroup.SPECIFICATIONS,
     "pa_التطبيق": DetailGroup.SPECIFICATIONS,
@@ -341,6 +352,12 @@ class ConnectorFamily(StrEnum):
     CUSTOM_JSON_API = "custom-json-api"
     SALLA_HTML = "salla-html"
     ZID_HTML = "zid-html"
+    # A bespoke ASP.NET Web API on a host of its own, whose price is not a
+    # number on the product but a row in a separate matrix keyed by
+    # governorate, plant, quantity tier and customer segment. custom-json-api
+    # is the near miss and cannot serve it: it composes its endpoint from
+    # base_url and never reads api.base_url, and its price model is a scalar.
+    HEIDELBERG_PRICE_MATRIX = "heidelberg-price-matrix"
     STATIC_HTML_TABLE = "static-html-table"
     ARAMCO_FUEL_PAGE = "aramco-fuel-page"
     DATASHEET_ENRICHMENT = "datasheet-enrichment"

@@ -1,0 +1,47 @@
+[
+ {
+  "id": "c40678c2-d705-426c-86bd-08d95a464bf7",
+  "isActive": true,
+  "plantNameEn": "Katameya",
+  "plantNameAr": "القطامية",
+  "plantCode": "Y220",
+  "companyId": "9f6ccfd9-d4ce-4cdc-b0d9-45db6c63096c",
+  "companies": {
+   "id": "9f6ccfd9-d4ce-4cdc-b0d9-45db6c63096c",
+   "companyNameEn": "Suez",
+   "companyNameAr": "السويس",
+   "companyCode": "1332",
+   "companySalesOrg": "Y332"
+  }
+ },
+ {
+  "id": "1ca12ba3-5b82-488b-86be-08d95a464bf7",
+  "isActive": true,
+  "plantNameEn": "Helwan",
+  "plantNameAr": "حلوان",
+  "plantCode": "Y410",
+  "companyId": "bd880311-c30c-4bd8-9554-de338cb2b086",
+  "companies": {
+   "id": "bd880311-c30c-4bd8-9554-de338cb2b086",
+   "companyNameEn": "Helwan",
+   "companyNameAr": "حلوان",
+   "companyCode": "1385",
+   "companySalesOrg": "Y385"
+  }
+ },
+ {
+  "id": "b95c1faa-484a-44d4-86bf-08d95a464bf7",
+  "isActive": true,
+  "plantNameEn": "Suez",
+  "plantNameAr": "السويس",
+  "plantCode": "Y210",
+  "companyId": "9f6ccfd9-d4ce-4cdc-b0d9-45db6c63096c",
+  "companies": {
+   "id": "9f6ccfd9-d4ce-4cdc-b0d9-45db6c63096c",
+   "companyNameEn": "Suez",
+   "companyNameAr": "السويس",
+   "companyCode": "1332",
+   "companySalesOrg": "Y332"
+  }
+ }
+]
