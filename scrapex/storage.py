@@ -1006,6 +1006,44 @@ def migrate_location(db_path: Path | str, new_dir: Path | str, *,
                 "superseded — do not point ScrapeX back at it by hand."))
 
 
+def drain_wal(db_path: Path | str) -> bool:
+    """Fold a database's write-ahead log into the file itself.
+
+    WHY THIS EXISTS, and it is not housekeeping.
+
+    Every connection here is WAL-mode (`db.connect` sets `PRAGMA journal_mode =
+    WAL`), and SQLite only folds the log back into the main file when the LAST
+    connection closes. During a compaction or a move the caller still holds the
+    warehouse open, so nothing folds — and measured on a real warehouse at the
+    moment of sealing, the main file was 4 KB while the log was 1.7 MB. The
+    whole warehouse was in the log.
+
+    That is what made the two lines below a DATA-LOSS bug: `_retire` renamed the
+    main file and then deleted the `-wal` beside it. On Windows the rename fails
+    (the caller's open handle blocks it) so the log survived and nobody noticed.
+    On macOS and Linux the rename SUCCEEDS while handles are open, the log is
+    orphaned by the new name and then unlinked, and the archive `compaction.py`
+    promises never to delete becomes a husk with no schema, no seal and no rows.
+
+    Returns True when the log is drained and the file stands alone. False when
+    SQLite reported the checkpoint BUSY — another connection is mid-read, the
+    log still holds rows, and the file must not be renamed away from it.
+    """
+    try:
+        conn = sqlite3.connect(str(db_path))
+    except sqlite3.DatabaseError:
+        return False
+    try:
+        row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        # (busy, log_pages, checkpointed_pages). `busy` is 1 when the checkpoint
+        # could not run to completion — the one answer that must stop a rename.
+        return bool(row) and row[0] == 0
+    except sqlite3.DatabaseError:
+        return False
+    finally:
+        conn.close()
+
+
 def _retire(path: Path, reason: str, successor: Path) -> tuple[str, bool]:
     """Mark a superseded database, then TRY to rename it. Returns where it is.
 
@@ -1013,8 +1051,16 @@ def _retire(path: Path, reason: str, successor: Path) -> tuple[str, bool]:
     fails routinely on Windows, where the caller's own open handle blocks it.
     Relying on the rename alone left a superseded database sitting at the
     default path, ready to be opened as live if the pointer were ever lost.
+
+    THE ORDER IS THE POINT: drain the log BEFORE renaming. A rename carries one
+    file, and until the log is folded in that file is not the archive — see
+    `drain_wal`. If the log cannot be drained the file stays exactly where it
+    is: a superseded database that still READS is worth more than a tidy name
+    over an empty one, and the seal inside it is what the guards actually read.
     """
     marked = mark_sealed(path, reason, successor)
+    if not drain_wal(path):
+        return str(path), marked
     retired = path.with_name(
         f"{path.stem}.{reason}-{settings.file_stamp()}{path.suffix}")
     try:
