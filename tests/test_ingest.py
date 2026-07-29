@@ -406,3 +406,67 @@ def test_the_retirement_sweep_speaks_through_notices_not_errors():
     assert result.errors == []
     assert result.contained == []
     assert len(result.notices) == 1 and "retired 3" in result.notices[0]
+
+
+# ---- the trade tier has to REACH the warehouse -------------------------------
+
+def test_a_published_trade_price_lands_on_the_observation(conn):
+    """0052 moved the trade tier into price_observation.price_trade and left it
+    out of every hash. An observation is only ever WRITTEN when record_hash
+    differs, so an offer whose retail price had not moved never got a new row —
+    and the column stayed NULL on the rows that already existed. Measured on the
+    live warehouse: two sikaegshop crawls after 0052, and 0 of 73,084
+    observations carried a trade price."""
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(price="1252.50", price_trade="939.38")])])
+    stored = conn.execute(
+        "SELECT price, price_trade FROM price_observation").fetchone()
+    assert stored[0] == 1252.50
+    assert stored[1] == 939.38, "the shop published a trade price and it was dropped"
+
+
+def test_the_trade_price_moving_alone_is_a_new_observation(conn):
+    """The failure 0052 wrote down and accepted. It is now a real change: the
+    retail price is identical, only the trade tier moved, and that IS news."""
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(price="1252.50", price_trade="939.38")])])
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(price="1252.50", price_trade="900.00")])])
+
+    rows = conn.execute(
+        "SELECT price, price_trade FROM price_observation"
+        " ORDER BY price_observation_id").fetchall()
+    assert len(rows) == 2, "a trade price that moved was swallowed as a duplicate"
+    assert [r[1] for r in rows] == [939.38, 900.00]
+    assert {r[0] for r in rows} == {1252.50}, "the retail price must not have moved"
+
+
+def test_a_source_with_no_trade_price_is_hashed_exactly_as_before(conn):
+    """The reason this change is safe for 73,000 rows. `trade` enters the hash
+    ONLY when the shop published one — the rule pricekey.py already states, that
+    an absent field contributes nothing. Added unconditionally it would re-key
+    every observation of every source and append a duplicate for all of them on
+    the next crawl."""
+    ingest_payloads(conn, make_entry(), [make_payload([one_row(price="100.00")])])
+    first = conn.execute("SELECT record_hash FROM price_observation").fetchone()[0]
+
+    # The same row again: a shop that publishes no trade price must produce the
+    # very same hash, so nothing is appended.
+    result = ingest_payloads(conn, make_entry(), [make_payload([one_row(price="100.00")])])
+    again = conn.execute("SELECT record_hash FROM price_observation").fetchall()
+    assert len(again) == 1, "an unchanged row without a trade price was re-appended"
+    assert again[0][0] == first
+    assert result.observations == 0, "an unchanged row was appended again"
+
+
+def test_the_trade_price_does_not_open_a_price_period(conn):
+    """It is a DIFFERENT customer's price. It must be recorded, and it must not
+    split the retail timeline — the distinction 0052 got right and this keeps."""
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(price="1252.50", price_trade="939.38")])])
+    ingest_payloads(conn, make_entry(), [make_payload([
+        one_row(price="1252.50", price_trade="900.00")])])
+
+    hashes = {row[0] for row in conn.execute(
+        "SELECT price_hash FROM price_observation")}
+    assert len(hashes) == 1, "a trade-price move opened a new retail price period"
