@@ -103,6 +103,11 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "crawl_user_agent": {"value": ""},
             "log_retention_days": {"value": "30"}}},
     }
+    # A write answers differently from a read on the same path: POST /api/jobs
+    # returns the new job's ref, and the panel stores it to start polling. The
+    # read table would hand back the job LIST, so anything that checked what a
+    # click actually queued was testing against a shape the engine never sends.
+    write_routes = {"/api/jobs": {"job_ref": "job_stub", "status": "queued"}}
     return f"""
 window.chrome = {{
   runtime: {{ getURL: p => p, lastError: null }},
@@ -111,23 +116,36 @@ window.chrome = {{
   storage: {{ local: {{ get: async () => ({{backend: {backend!r}}}), set: async () => {{}} }} }},
 }};
 const ROUTES = {json.dumps(routes)};
+const WRITE_ROUTES = {json.dumps(write_routes)};
 const ENGINE_UP = {str(engine_up).lower()};
 const SLOW = {str(slow).lower()};
 const FAIL = {json.dumps(list(fail_routes))};
 window.__calls = [];
-window.fetch = async (url) => {{
+// The BODY of every write, which __calls (a path list) cannot carry — and the
+// body is where "resume" lives, so a test that only saw the path could not
+// tell a resume from a run that discards the journal.
+window.__writes = [];
+window.fetch = async (url, options) => {{
   const path = String(url).replace({backend!r}, "");
+  const method = (options && options.method) || "GET";
   window.__calls.push(path);
+  if (method !== "GET") {{
+    let body = null;
+    try {{ body = JSON.parse((options && options.body) || "null"); }} catch (_) {{}}
+    window.__writes.push({{path, method, body}});
+  }}
   if (!ENGINE_UP) throw new Error("engine down");
   if (SLOW) await new Promise(r => setTimeout(r, 60000));   // freeze on loading state
   if (FAIL.some(f => path.startsWith(f))) {{
     return {{ ok: false, status: 500, statusText: "engine error",
               json: async () => ({{detail: "the engine could not do that"}}) }};
   }}
-  const key = Object.keys(ROUTES).find(k => path.startsWith(k));
+  const table = method === "GET" ? ROUTES
+                                 : {{...ROUTES, ...WRITE_ROUTES}};
+  const key = Object.keys(table).find(k => path.startsWith(k));
   if (!key) return {{ ok: false, status: 404, statusText: "not found",
                       json: async () => ({{detail: "not found"}}) }};
-  return {{ ok: true, status: 200, json: async () => ROUTES[key] }};
+  return {{ ok: true, status: 200, json: async () => table[key] }};
 }};
 """
 

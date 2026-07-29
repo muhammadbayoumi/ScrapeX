@@ -45,16 +45,27 @@ _COUNTER_FIELDS = ("observations", "duplicates", "products", "variants",
 
 def create_job(conn: sqlite3.Connection, source_keys: Iterable[str],
                run_mode: RunMode | str = RunMode.UPDATE,
-               status: JobStatus | str = JobStatus.QUEUED) -> str:
-    """Persist a new job and return its public job_ref."""
+               status: JobStatus | str = JobStatus.QUEUED,
+               checkpoint: dict | None = None) -> str:
+    """Persist a new job and return its public job_ref.
+
+    `checkpoint` seeds the job with a resume point it did not earn by being
+    paused. That is the ONE way a journal outlives the job that filled it: a
+    pause writes `partial_source` here, but cancelling the paused job — or a
+    runtime that dies — leaves the kept pages on disk with no non-terminal job
+    left to carry them. Without this, resume was reachable only for as long as
+    the original job stayed alive, which is exactly how 871 elburoj pages ended
+    up stranded.
+    """
     keys = [str(k) for k in source_keys]
     if not keys:
         raise ValueError("a job needs at least one source_key")
     job_ref = f"job_{uuid.uuid4().hex[:12]}"
     conn.execute(
-        "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys, progress_total) "
-        "VALUES (?,?,?,?,?)",
-        (job_ref, str(run_mode), str(status), json.dumps(keys), len(keys)),
+        "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys, progress_total, "
+        "checkpoint_json) VALUES (?,?,?,?,?,?)",
+        (job_ref, str(run_mode), str(status), json.dumps(keys), len(keys),
+         json.dumps(checkpoint) if checkpoint else None),
     )
     conn.commit()
     return job_ref

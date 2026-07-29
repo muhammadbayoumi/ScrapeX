@@ -345,6 +345,49 @@ function visibleSources() {
     (s.base_url || "").toLowerCase().includes(term));
 }
 
+// ---- kept pages: an interrupted crawl the owner can continue ---------------
+//
+// The engine has journaled every fetched page and resumed from it for a while,
+// but nothing here ever SAID so — a source holding 871 pages looked exactly
+// like one holding none, and the only button on offer was the one that throws
+// them away. That is how elburoj reached nine runs and zero completions.
+
+const keptPages = (source) => Number(source?.kept_pages || 0);
+
+/** The interrupted run's own stopping point, in local time.
+ *
+ * A date and not "3 hours ago": a journal can sit for days, and the question
+ * this answers is WHICH run stopped here, not how long ago it was. */
+function fmtStopped(iso) {
+  const at = Date.parse(iso || "");
+  if (!Number.isFinite(at)) return "";
+  return new Date(at).toLocaleString([], {
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const pageCount = (n) => `${n.toLocaleString()} page${n === 1 ? "" : "s"}`;
+
+/** Start a run that CONTINUES the journal instead of clearing it. */
+async function resumeSource(key, button) {
+  const source = state.sources.find((s) => s.source_key === key);
+  if (!source) return;
+  button.disabled = true;
+  try {
+    // The mode is chosen the same way the run-mode select chooses it for a
+    // fresh run. The engine treats update and initial_crawl identically, but
+    // the job history should still say which of the two this was.
+    const r = await post("/api/jobs", {
+      source_keys: [key], resume: true,
+      run_mode: source.observations > 0 ? "update" : "initial_crawl",
+    });
+    state.jobRef = r.job_ref;
+    await pollJob();
+  } catch (e) {
+    button.disabled = false;
+    $("run-blocked").textContent = "Couldn't resume: " + e.message;
+  }
+}
+
 function renderSites() {
   const box = $("sites");
   const shown = visibleSources();
@@ -365,6 +408,27 @@ function renderSites() {
             data-auto="${esc(s.source_key)}" aria-pressed="${s.active ? "true" : "false"}"
             title="Scheduled runs fire only while this is on. Running manually from this panel always works.">Auto: ${
               s.active ? "on" : "off"}</button>` : "";
+      // What an interrupted crawl left behind, with its count and the moment
+      // it stopped: "partly crawled" carrying no number is not something the
+      // owner can decide anything from.
+      //
+      // It takes a full-width line UNDER the site rather than joining the chip
+      // column beside it — "Resume 871 pages" is wide and never wraps, and in
+      // a 360px panel it squeezed the domain down to "elburoj....", hiding
+      // which site the offer was even about. Control first and the sentence
+      // that explains it second, the same shape as the run button and its
+      // hint: the list is a short scrollport, and the half of this block that
+      // has to survive being scrolled past is the half he came here to press.
+      const kept = keptPages(s);
+      const stopped = kept ? fmtStopped(s.kept_at) : "";
+      const keptBlock = kept ? `<span class="source-row-kept">
+          <button type="button" class="chip accent" data-resume="${esc(s.source_key)}"
+            title="Continue this crawl from the ${esc(pageCount(kept))} already kept. None of them is fetched again.">Resume ${
+              esc(pageCount(kept))}</button>
+          <span><strong>${esc(pageCount(kept))} kept</strong> from a run that
+          stopped${stopped ? " " + esc(stopped) : ""}. Resume continues from
+          there and re-fetches none of them; starting a run discards them.</span>
+        </span>` : "";
       return `<div class="srow ${ready ? "" : "off"}">
         <label>
           <input type="checkbox" data-key="${esc(s.source_key)}" ${checked} ${ready ? "" : "disabled"}>
@@ -373,6 +437,7 @@ function renderSites() {
         <span class="source-row-actions">
           ${auto}${reason}
         </span>
+        ${keptBlock}
       </div>`;
     }).join("");
     box.querySelectorAll("input[data-key]").forEach((cb) =>
@@ -381,6 +446,9 @@ function renderSites() {
         renderSelected();
         refreshRunButton();
       }));
+    box.querySelectorAll("button[data-resume]").forEach((button) =>
+      button.addEventListener("click", () =>
+        resumeSource(button.dataset.resume, button)));
     box.querySelectorAll("button[data-auto]").forEach((button) =>
       button.addEventListener("click", async () => {
         const key = button.dataset.auto;
@@ -912,6 +980,17 @@ async function startRun() {
   if (mode === "full_rebuild" &&
       !confirm(`Full rebuild will archive the current catalogue for ${keys.length} site(s) ` +
                `and take a backup first. Continue?`)) return;
+  // A run starts from the top, and capture clears the journal of every source
+  // it touches before it fetches anything. So the pages an interrupted crawl
+  // kept are gone the moment this is queued — silently, and for elburoj that
+  // is 871 pages and most of a day. Say it before it happens.
+  const discarding = state.sources.filter(
+    (s) => state.selected.has(s.source_key) && keptPages(s) > 0);
+  if (discarding.length && !confirm(
+      "Starting a run throws away pages that an interrupted crawl kept:\n\n" +
+      discarding.map((s) => `  ${s.source_key} — ${pageCount(keptPages(s))}`).join("\n") +
+      "\n\nResume, on the site's own row, continues from them instead and " +
+      "re-fetches none of them.\n\nDiscard them and start from the top?")) return;
   $("run").disabled = true;
   try {
     const r = await post("/api/jobs", { source_keys: keys, run_mode: mode });
