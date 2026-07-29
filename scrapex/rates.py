@@ -271,6 +271,58 @@ def store_rates(conn: sqlite3.Connection, rates: list[Rate]) -> int:
     return written
 
 
+def store_shop_rates(conn: sqlite3.Connection, source_key: str,
+                     rates: dict[str, float], as_of: str = "") -> int:
+    """Store the rate a STOREFRONT publishes about itself, under its own key.
+
+    Different in kind from store_rates above, and the difference is the whole
+    point of 0054's source_kind: google_finance is a rate service whose
+    business IS the rate, while advancedcastle is a shop printing the number it
+    converts its own prices with. Both are facts; only one is a market rate,
+    and a reader must never have to guess which row is which.
+
+    `as_of` is the moment we READ it. A storefront stamps no time on its rate,
+    so a date alone would claim it held all day — something we did not observe.
+    The full timestamp is what we can attest to, and it interleaves correctly
+    with the date-only publisher-implied rows (ISO text sorts chronologically,
+    and readers take ORDER BY as_of DESC LIMIT 1).
+
+    Bounds are enforced here as well as at the parser: this function is public,
+    and a rate assembled by hand must not smuggle in what a fetch would refuse.
+    Returns the number of rows written or refreshed. Commits on success.
+    """
+    if not rates:
+        return 0
+    stamp = as_of or utc_now_iso()
+    kinded = dbmod.has_column(conn, 'currency_rate', 'source_kind')
+    written = 0
+    for raw_code, value in rates.items():
+        code = (raw_code or "").strip().upper()
+        if not _CURRENCY_CODE.fullmatch(code) or code == "USD":
+            # USD skipped for the same reason store_rates skips it: a rate of
+            # 1 is definitional noise, not an observation about this shop.
+            continue
+        if not math.isfinite(value) or value <= 0 or value > MAX_PLAUSIBLE_PER_USD:
+            raise ValueError(
+                f"refusing to store {source_key}'s {code} rate {value!r}: "
+                "outside the plausible range (0, 1e6]")
+        conn.execute(
+            "INSERT INTO currency_rate "
+            "  (currency, per_usd, as_of, source_key, source_kind) "
+            "VALUES (?,?,?,?,'shop') "
+            "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "
+            "  per_usd = excluded.per_usd"
+            if kinded else
+            "INSERT INTO currency_rate (currency, per_usd, as_of, source_key) "
+            "VALUES (?,?,?,?) "
+            "ON CONFLICT(currency, as_of, source_key) DO UPDATE SET "
+            "  per_usd = excluded.per_usd",
+            (code, float(value), stamp, source_key))
+        written += 1
+    conn.commit()
+    return written
+
+
 # How stale a stored rate may be before the worker fetches again. Google Finance
 # moves continuously, but the owner's question is "what was this worth", not
 # "what is it worth this second" — and a scraper that reloads a quote page every

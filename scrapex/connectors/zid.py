@@ -17,9 +17,37 @@ conditional on that advertisement, so an Arabic-only Zid store pays nothing.
 The connector follows only the English alternate for the configured region and
 uses it for text fields. Price, currency, availability, identity and country
 remain anchored to the original page selected by the source configuration.
+
+THE STORE'S OWN EXCHANGE RATE (2026-07-29). A Zid storefront that sells into
+more than one country prints, in every page's bootstrap JSON, the rate it
+converts with: `"code": "SAR", ..., "exchange_rate": "3.754116"`. Each locale
+prints ONLY its own active currency, so the Saudi pages never mention EGP and
+the reverse. The connector reads the rate off pages it was fetching anyway, and
+spends ONE extra request per FOREIGN COUNTRY the page itself advertises — never
+a guessed path, always an `hreflang` the store published. capture stores them
+under source_kind='shop'.
+
+THE COUNTRY IS A COOKIE, NOT A PATH (measured 2026-07-29, and it matters far
+beyond the rate). The store pins the country in a `locale` cookie on the first
+request of a session and thereafter REDIRECTS every URL to the pinned country,
+overriding the path prefix. Asked for /ar-eg/... on a session that had already
+seen a Saudi page, it answered 200 from /ar-sa/... in SAR — no error, no clue.
+So the prefix only decides the FIRST request of a session. Two consequences the
+next reader must not have to rediscover: the foreign-rate probe runs on a
+fetcher of its own (below), and this crawl's own session must never be allowed
+to touch an Egyptian URL first, or every product page after it would come back
+in EGP and be stored as a Saudi price.
+
+Two things this deliberately does NOT do. It does not convert anything: the
+crawled price stays the price the store printed. And it does not reconcile the
+rate with the prices — on 2026-07-29 the store published 3.754116 SAR and
+50.5485 EGP per USD (a ratio of 13.46) while its Egyptian pages priced at a
+ratio of 11.768. That mismatch is the store's, and recording what it publishes
+is the only way anyone can ever see it.
 """
 from __future__ import annotations
 
+import re
 from typing import Iterable
 from urllib.parse import urljoin
 
@@ -32,6 +60,56 @@ from .jsonld import (WalkTally, alternate_links, english_alternate, offer_price,
                      walk_product_pages)
 
 _PRODUCT_PATH = "/products/"
+
+# One currency block of the store bootstrap. The lookahead keeps the pair
+# INSIDE a single block: without it a store listing several currencies would
+# marry the first code to some later block's rate — a wrong number that looks
+# exactly like a right one.
+_STORE_RATE = re.compile(
+    r'"code"\s*:\s*"([A-Za-z]{3})"'
+    r'(?:(?!"code"\s*:).)*?'
+    r'"exchange_rate"\s*:\s*"?([0-9]*\.?[0-9]+)"?',
+    re.S)
+
+# 1 USD buying more than a million units is a parse gone wrong, not a rate.
+# Same ceiling rates.py applies to Google Finance, restated at this door
+# because a bad number refused here never reaches the database at all.
+_MAX_PER_USD = 1e6
+
+
+def _bootstrap_rates(html: str) -> dict[str, float]:
+    """{ISO code: units per USD} the page's own bootstrap publishes.
+
+    Foreign content, so every number is bounded and anything unfit is dropped
+    rather than stored: a rate of zero would divide, and an absurd one would
+    quietly rank this store's prices above or below every other source.
+    """
+    out: dict[str, float] = {}
+    for code, raw in _STORE_RATE.findall(html):
+        try:
+            value = float(raw)
+        except ValueError:
+            continue
+        if 0 < value <= _MAX_PER_USD:
+            out.setdefault(code.upper(), value)
+    return out
+
+
+def _foreign_country_links(links: dict[str, str], home_region: str) -> dict[str, str]:
+    """{region: one page} for every country BUT ours, from the page's own
+    alternates. `en` (no region) and `x-default` name no country and are
+    skipped; two locales of the same country collapse to one request."""
+    home = (home_region or "").strip().lower()
+    out: dict[str, str] = {}
+    for code, href in links.items():
+        parts = code.split("-")
+        if len(parts) != 2 or len(parts[1]) != 2:
+            continue                      # "en", "x-default": no country named
+        region = parts[1]
+        if region == home:
+            continue
+        out.setdefault(region, href)
+    return out
 
 
 def _product_id(url: str, node: dict) -> str:
@@ -54,12 +132,29 @@ class ZidConnector:
         base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
         tally = WalkTally()
+        rates: dict[str, float] = {}
+        rate_notes: list[str] = []
+        asked_abroad = False
 
         for url, token, html, node in walk_product_pages(
                 self._fetcher, self._product_urls(f"{base}/sitemap.xml", tally),
                 self.skip_tokens, safe_token, tally):
             # Decided BEFORE the English request, so a variant-priced product we
             # are going to skip anyway never costs a second fetch.
+            # This page was fetched for its price; its bootstrap carries the
+            # store's rate for the currency IT prices in, so reading it costs
+            # nothing. Done before the price check: a product with no price
+            # still published the store's rate.
+            rates.update(_bootstrap_rates(html))
+            if not asked_abroad:
+                # ONCE per crawl, and only for countries this page itself
+                # advertises. Each locale prints only its active currency, so
+                # without this the Egyptian rate the store converts with would
+                # never be seen — and it is the one the owner asked for.
+                asked_abroad = True
+                abroad, notes = self._rates_abroad(html, url, source)
+                rates.update(abroad)
+                rate_notes.extend(notes)
             if not offer_price(node.get("offers"))[0]:
                 tally.priceless += 1
                 continue
@@ -83,13 +178,90 @@ class ZidConnector:
         # Every skip above used to be silent, so a crawl that landed half the
         # catalogue reported plain success — the GPP lesson, and the one salla
         # already learned. Carrying on is right; not saying so is not.
-        notes = tally.notes()
-        if notes:
+        notes = tally.notes() + rate_notes
+        if notes or rates:
             # Untokenized on purpose: the counts describe THIS attempt, and
             # capture drops them on resume so a resumed run reports its own.
+            # The rates ride here for the same reason — they are what THIS
+            # crawl read, and a resume reads them again off its first page.
             yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
                                RowBuilder(PRODUCT_PRICES).header, [],
-                               warnings=notes)
+                               warnings=notes, published_rates=rates)
+
+    def _rates_abroad(self, html: str, url: str,
+                      source: SourceEntry) -> tuple[dict[str, float], list[str]]:
+        """({ISO: per USD}, warnings) for every country but ours.
+
+        One request per foreign country the PAGE advertises, once per crawl. A
+        single-country store advertises none and pays nothing.
+
+        ON A SESSION OF ITS OWN, and that is the whole difficulty (measured
+        2026-07-29). This store pins the country in a `locale` cookie on the
+        first request and then REDIRECTS every later URL to the pinned country,
+        path prefix and all: asked for /ar-eg/... on a session that had already
+        seen a Saudi page, it answered from /ar-sa/... in SAR, status 200, no
+        error anywhere. Reusing the crawl's fetcher would therefore have filed
+        the Saudi rate under Egypt — a wrong number that looks exactly like a
+        right one. A fresh session starts fresh, and on a fresh session the
+        prefix wins. The session comes from the TRANSPORT (fresh_session), not
+        built here: politeness lives in one place, and a transport that offers
+        none — every test stub — makes this ask nothing and say why.
+
+        It must not run the other way either: the crawl's own session is left
+        untouched, because had the probe pinned it to Egypt every remaining
+        product page would have come back in EGP and been stored as a Saudi
+        price. The catalogue is the thing being protected here, not the rate.
+
+        VERIFIED, NOT TRUSTED. Whatever the mechanism, a foreign page that
+        answers in the store's HOME currency is not the foreign page, so that
+        answer is refused and said out loud. A missing rate must never cost the
+        catalogue (Q3) — and must never vanish quietly either, which is how a
+        USD column goes on quoting last month's number with nothing saying why.
+        """
+        rates: dict[str, float] = {}
+        notes: list[str] = []
+        countries = _foreign_country_links(alternate_links(html),
+                                           source.default_region)
+        if not countries:
+            return rates, notes
+        new_session = getattr(self._fetcher, "fresh_session", None)
+        if new_session is None:
+            # The transport cannot give us a second session, so the question
+            # cannot be asked SAFELY. Asking on the crawl's own session is the
+            # one thing that must never happen — it would file this store's
+            # Saudi rate under Egypt. Saying nothing would be worse than saying
+            # this, so it is said.
+            return rates, [
+                f"{', '.join(sorted(r.upper() for r in countries))}: this "
+                "transport offers no separate session, so the store's foreign "
+                "exchange rate was not read. It is NOT read on the crawl's own "
+                "session — that returns the home country's rate under the "
+                "foreign country's name."]
+        home = (source.currency or "").strip().upper()
+        for region, href in countries.items():
+            target = urljoin(url, href)
+            probe = new_session()               # its own session; see above
+            try:
+                found = _bootstrap_rates(probe.get(target).text)
+            except CrawlBlocked:
+                raise                    # the site said stop — stop
+            except Exception as exc:  # noqa: BLE001 — one page never kills a crawl
+                notes.append(f"{region.upper()}: the store's exchange rate was "
+                             f"not read from {target} — {exc}")
+                continue
+            finally:
+                probe.close()
+            foreign = {c: v for c, v in found.items() if c != home}
+            if not foreign:
+                notes.append(
+                    f"{region.upper()}: {target} answered in "
+                    f"{', '.join(sorted(found)) or 'no currency at all'} — not a "
+                    f"foreign currency, so the country switch did not happen and "
+                    f"no rate was recorded for {region.upper()}. Re-verify how "
+                    "this store selects its country.")
+                continue
+            rates.update(foreign)
+        return rates, notes
 
     def _product_urls(self, sitemap_url: str, tally: WalkTally) -> list[str]:
         """Zid's rule for what a product URL is; the walking is shared."""

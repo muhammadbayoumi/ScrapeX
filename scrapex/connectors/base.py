@@ -60,6 +60,15 @@ class ScrapedTable:
     # skip_tokens on resume, so a paused 400-page crawl re-fetches only what
     # it has not already fetched.
     page_token: str = ""
+    # Exchange rates the SITE ITSELF publishes: ISO code -> units per USD.
+    # A storefront that prices for more than one country prints the rate it
+    # converts with in its own page bootstrap. That number is a fact ABOUT THE
+    # SOURCE, not a row of its data, so it travels the same road as warnings
+    # and defects and is deliberately NOT in to_payload — the payload contract
+    # is frozen across engines. capture writes these to currency_rate under
+    # source_kind='shop', where 0054 guarantees a storefront's rate can never
+    # be read as a market rate.
+    published_rates: dict[str, float] = field(default_factory=dict)
 
     def to_payload(self, client: PayloadClient = PayloadClient.CLI, run_ref: str | None = None) -> FunnelPayload:
         return FunnelPayload(
@@ -216,6 +225,32 @@ class HttpFetcher:
         self.on_request = None
 
     # ---- validators, so a repeat crawl can be answered with 304 -------------
+
+    def fresh_session(self) -> "HttpFetcher":
+        """A SECOND fetcher with this one's settings and none of its state.
+
+        For the rare case where a site's answer depends on the session itself
+        and the crawl's session must not be disturbed. advancedcastle is the
+        one: it pins the country in a cookie on a session's first request and
+        thereafter redirects every URL to that country, so reading its Egyptian
+        page on the crawl's own session returns the Saudi one — 200, no error —
+        and asking for it FIRST would have turned every remaining product page
+        Egyptian. A separate session answers the question and touches nothing.
+
+        Deliberately a method here rather than a connector building its own
+        client: politeness, retries and the honest UA stay defined in exactly
+        one place (Q1). Deliberately NOT inheriting validators, robots cache or
+        counters either — those describe the crawl, and this is not the crawl.
+        The caller closes it.
+        """
+        return HttpFetcher(
+            user_agent=self._user_agent,
+            min_interval_s=self._min_interval_s,
+            timeout_s=self._client.timeout.read or 30.0,
+            max_attempts=self._max_attempts,
+            jitter=self._jitter,
+            honour_crawl_delay=self._honour_crawl_delay,
+        )
 
     def remember_validators(self, state: dict[str, dict[str, str]]) -> None:
         """Load validators kept from a previous crawl."""
