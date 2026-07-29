@@ -20,8 +20,11 @@ import sys
 import threading
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Iterable
+from urllib.parse import urlsplit
 
 from . import db as dbmod
 from .archive import archive_source, backup_database
@@ -169,14 +172,286 @@ def _merge_counters(counters: dict, result: CaptureResult) -> dict:
     return counters
 
 
+
+# A ceiling the setting cannot exceed. Concurrency here costs one HTTP session
+# and one database connection per lane, and every lane still waits out its own
+# site's pace — so past a handful the wall-clock stops improving while the
+# failure modes (open handles, contended write lock) keep growing. Eight is
+# generous for a manifest of ten sources on ten hosts.
+MAX_PARALLEL_SOURCES = 8
+
+
+# ---- lanes: concurrency that a site can never feel --------------------------
+
+@dataclass
+class _SourceRun:
+    """Everything one source needs, and everywhere its result accumulates.
+
+    A plain object rather than a pile of nonlocals because the accumulators are
+    now written from several threads: one place to see what is shared, and one
+    lock guarding all of it.
+    """
+
+    conn: sqlite3.Connection
+    job: dict
+    job_id: int
+    manifest: object
+    capture: Callable
+    rebuilding: bool
+    checkpoint: dict
+    done: list
+    errors: list
+    counters: dict
+    succeeded: int
+    # Set by whichever lane first honours a pause or a cancel. Its presence is
+    # what stops the others starting anything new, and what tells the caller
+    # the job already reached a terminal state and must not be finished twice.
+    stopped: str | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+def _host_lanes(manifest, source_keys: list[str]) -> list[list[str]]:
+    """Sources bucketed by HOST, first-seen order preserved.
+
+    The bucket is the unit of concurrency, so two sources on one site can never
+    run at the same time however wide the fan-out is set. A key the manifest
+    does not know gets a lane of its own — the failure belongs in that source's
+    own error, not in a crash here that would take the whole job with it.
+    """
+    lanes: dict[str, list[str]] = {}
+    for index, key in enumerate(source_keys):
+        try:
+            host = urlsplit(manifest.get(key).base_url).netloc.lower()
+        except Exception:  # noqa: BLE001 — resolved, and reported, per source
+            host = f"?{index}"
+        lanes.setdefault(host.removeprefix("www.") or f"?{index}", []).append(key)
+    return list(lanes.values())
+
+
+def _parallel_width(conn: sqlite3.Connection, connect, lanes: int) -> int:
+    """How many sites to crawl at once — 1 unless BOTH halves say otherwise.
+
+    `connect` is the half that cannot be configured away: a worker thread needs
+    a database connection of its OWN (sqlite3 refuses one across threads), and
+    without a factory to make one there is no safe concurrency to have. Absent
+    it — every existing caller, and every test holding an in-memory database
+    that a second thread could not reopen — this returns 1 and the job runs
+    exactly as it did before.
+    """
+    if connect is None or lanes < 2:
+        return 1
+    try:
+        from . import settings
+        width = int(settings.get(conn, "crawl_parallel_sources") or 1)
+    except (ValueError, TypeError, sqlite3.DatabaseError):
+        return 1
+    return max(1, min(width, lanes, MAX_PARALLEL_SOURCES))
+
+
+def _drive_lanes(run: _SourceRun, lanes: list[list[str]], width: int, connect) -> None:
+    """Run each lane to completion; lanes concurrently when asked."""
+    if width <= 1:
+        for lane in lanes:
+            _run_lane(run, lane, None)
+        return
+    with ThreadPoolExecutor(max_workers=width,
+                            thread_name_prefix="scrapex-lane") as pool:
+        futures = [pool.submit(_run_lane, run, lane, connect) for lane in lanes]
+        for future in futures:
+            future.result()      # a lane that raised must not vanish silently
+
+
+def _run_lane(run: _SourceRun, lane: list[str], connect) -> None:
+    """One host's sources, strictly in order, on a connection of this lane's own."""
+    conn = connect() if connect is not None else run.conn
+    try:
+        for source_key in lane:
+            with run.lock:
+                if run.stopped is not None:
+                    return          # another lane already hit the brakes
+            if not _run_source(run, conn, source_key):
+                return
+    finally:
+        if connect is not None:
+            conn.close()
+
+
+def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> bool:
+    """Capture one source. False means the JOB stopped, not that this failed.
+
+    The body is the one the sequential loop always had, moved rather than
+    rewritten: one implementation serves both widths, so a fix can never land
+    on the fast path and miss the slow one.
+    """
+    control = _control_of(conn, run.job_id)   # safe boundary: between sources
+    if control in (JobControl.CANCEL.value, JobControl.PAUSE.value):
+        with run.lock:
+            if run.stopped is not None:
+                return False
+            run.stopped = control
+        if control == JobControl.CANCEL.value:
+            append_log(run.conn, run.job_id, "cancelled by owner")
+            _finish(run.conn, run.job_id, JobStatus.CANCELLED, None)
+        else:
+            append_log(run.conn, run.job_id, "paused by owner")
+            _update(run.conn, run.job_id, status=JobStatus.PAUSED.value,
+                    control=JobControl.NONE.value, stage=None,
+                    last_heartbeat_at=utc_now_iso())
+        run.conn.commit()
+        return False
+
+    _update(conn, run.job_id, status=JobStatus.RUNNING.value, stage=JobStage.FETCHING.value,
+            current_source_key=source_key, last_heartbeat_at=utc_now_iso())
+    conn.commit()
+    try:
+        entry = run.manifest.get(source_key)
+        previous = previous_rows_seen(conn, source_key)
+        # Keywords travel only when the situation asks for them, so every
+        # existing capture fake with the plain (conn, entry, job_id)
+        # signature keeps working untouched. `resume` fires for exactly
+        # the source a pause interrupted MID-fetch: its journaled pages
+        # are still on disk and the connector may skip them.
+        extras: dict = {}
+        if run.rebuilding:
+            # The archive travels WITH the write, into the same lock —
+            # doing it here meant a failed capture (a held lock, a dead
+            # site) left the catalogue archived and nothing re-crawled.
+            extras["archive_first"] = True
+        if run.job["run_mode"] == RunMode.HISTORY_BACKFILL.value:
+            extras["history"] = True
+        if run.checkpoint.get("partial_source") == source_key:
+            extras["resume"] = True
+        result = (run.capture(conn, entry, run.job_id, **extras) if extras
+                  else run.capture(conn, entry, run.job_id))
+        _merge_counters(run.counters, result)
+        append_log(conn, run.job_id,
+                   f"{result.ingest.observations} observations, "
+                   f"{result.ingest.products} new products, {result.requests_count} requests",
+                   source_key=source_key)
+        # Ingest errors used to be folded into a bare counter here, so the
+        # job finished 'completed' with error_summary NULL and the MESSAGE —
+        # the only thing that could explain a degraded run — was discarded.
+        # Each one is now a job-level error (it degrades the job's outcome)
+        # and a log line the owner can actually read.
+        for issue in result.ingest.errors:
+            run.errors.append(f"{source_key}: {issue}")
+            append_log(conn, run.job_id, issue, level=LogLevel.WARNING,
+                       source_key=source_key)
+        # Contained side-effect failures did not degrade the run and must
+        # not degrade the job — but silent is not an option either.
+        for note in result.ingest.contained:
+            append_log(conn, run.job_id, note, level=LogLevel.WARNING,
+                       source_key=source_key)
+        # Notices are neither: a normal outcome the owner can see, logged at
+        # INFO so it never reads as trouble and never touches the counters.
+        for note in result.ingest.notices:
+            append_log(conn, run.job_id, note, level=LogLevel.INFO,
+                       source_key=source_key)
+        # What the connector could NOT collect belongs in this log too. The
+        # CLI printed these warnings; here they were dropped, so the run
+        # that lost NATURAL_GAS entirely — 47 country pages publishing no
+        # local price, every one skipped — logged three clean lines and
+        # read as a full success. Capped so a systemic failure cannot bury
+        # the log; the cap itself is stated.
+        shown = getattr(result, "warnings", None) or []
+        for warning in shown[:30]:
+            append_log(conn, run.job_id, warning, level=LogLevel.WARNING,
+                       source_key=source_key)
+        if len(shown) > 30:
+            append_log(conn, run.job_id,
+                       f"...and {len(shown) - 30} more warnings like these "
+                       "(the CLI crawl prints them all)",
+                       level=LogLevel.WARNING, source_key=source_key)
+        # Politeness disclosures ride at INFO — the owner's robots ruling
+        # (docs/robots-policy.md): how we behaved toward the site is worth
+        # a line, never a warning that suggests the run needs review.
+        for note in (getattr(result, "notes", None) or []):
+            append_log(conn, run.job_id, note, source_key=source_key)
+        # F6: a rotted connector fails QUIETLY — treat a volume breach as a
+        # real failure, never a clean success.
+        breach = canary_breach(entry, result.rows, previous)
+        if breach is None:
+            run.succeeded += 1
+        else:
+            run.errors.append(breach)
+            append_log(conn, run.job_id, breach, level=LogLevel.WARNING, source_key=source_key)
+    except CrawlInterrupted as stop:
+        with run.lock:
+            if run.stopped is not None:
+                return False
+            run.stopped = stop.control
+        # The owner pressed the brakes MID-FETCH. Nothing was ingested for
+        # this source (fetch aborts before ingest), but every fetched page
+        # is already in the job journal — a pause keeps it and marks this
+        # source in the checkpoint so the resume skips those pages; a
+        # cancel abandons the source and discards the journal, which would
+        # otherwise sit as stale state for a future job to trip over.
+        from . import localinbox
+        kept = len(localinbox.list_tokens(localinbox.JOURNAL_DIR, source_key))
+        if stop.control == JobControl.CANCEL.value:
+            localinbox.clear(localinbox.JOURNAL_DIR, source_key)
+            append_log(conn, run.job_id,
+                       "cancel honoured mid-fetch — nothing from this source "
+                       "was ingested and the partial fetch was discarded",
+                       source_key=source_key)
+            _finish(run.conn, run.job_id, JobStatus.CANCELLED, None)
+        else:
+            if kept:
+                append_log(conn, run.job_id,
+                           f"pause honoured mid-fetch — {kept} fetched "
+                           "page(s) kept; resume continues with the "
+                           "remaining pages",
+                           source_key=source_key)
+            else:
+                append_log(conn, run.job_id,
+                           "pause honoured mid-fetch — nothing from this "
+                           "source was ingested; it restarts from the top "
+                           "if resumed",
+                           source_key=source_key)
+            _update(conn, run.job_id, status=JobStatus.PAUSED.value,
+                    control=JobControl.NONE.value, stage=None,
+                    checkpoint_json=json.dumps(
+                        {"completed_source_keys": run.done,
+                         "errors": run.errors,
+                         "succeeded": run.succeeded,
+                         # WHICH source the brakes caught, so the resume hands
+                         # its journaled pages back to the connector instead of
+                         # re-fetching them. With lanes in flight this is the
+                         # one that stopped FIRST; the others had not started.
+                         "partial_source": source_key}),
+                    last_heartbeat_at=utc_now_iso())
+        run.conn.commit()
+        return False
+    except Exception as exc:  # noqa: BLE001 — one bad source never kills the job (Q3)
+        run.errors.append(f"{source_key}: {exc}")
+        append_log(conn, run.job_id, f"failed: {exc}", level=LogLevel.ERROR, source_key=source_key)
+
+    run.done.append(source_key)
+    _update(conn, run.job_id, progress_done=len(run.done),
+            checkpoint_json=json.dumps({"completed_source_keys": run.done,
+                                        "errors": run.errors, "succeeded": run.succeeded}),
+            counters_json=json.dumps(run.counters), last_heartbeat_at=utc_now_iso())
+    conn.commit()
+    return True
+
+
 # ---- execution (the testable seam) -------------------------------------------
 
 def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                  capture: Callable[[sqlite3.Connection, object], CaptureResult] = capture_source,
-                 backup: Callable[[], object] | None = None) -> dict:
+                 backup: Callable[[], object] | None = None,
+                 connect: Callable[[], sqlite3.Connection] | None = None) -> dict:
     """Execute one job to completion, or until a pause/cancel boundary.
 
-    Synchronous and thread-free by design so the whole lifecycle is testable.
+    `connect` opens a database connection of the caller's choosing. It is the
+    ONLY thing that unlocks crawling several sites at once, because a worker
+    thread cannot borrow this function's connection — sqlite3 refuses one
+    across threads, and an in-memory database could not be reopened anyway.
+    Omit it (every test does) and the job runs one source at a time exactly as
+    it always has, whatever crawl_parallel_sources says.
+
+    Still the testable seam, and still synchronous from the caller's side: it
+    returns when the job has reached a boundary, threads or no threads.
     Per-source failures are isolated and recorded (Q3): one dead site downgrades
     the job to partially_completed, it never kills the other sources.
     """
@@ -217,146 +492,41 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
             return get_job(conn, job_ref)
     conn.commit()
 
-    for source_key in job["source_keys"]:
-        if source_key in done:
-            continue  # resumed job: this source already ran
-
-        control = _control_of(conn, job_id)  # safe boundary: between sources only
-        if control == JobControl.CANCEL.value:
-            append_log(conn, job_id, "cancelled by owner")
-            _finish(conn, job_id, JobStatus.CANCELLED, None)
-            return get_job(conn, job_ref)
-        if control == JobControl.PAUSE.value:
-            append_log(conn, job_id, "paused by owner")
-            _update(conn, job_id, status=JobStatus.PAUSED.value,
-                    control=JobControl.NONE.value, stage=None,
-                    last_heartbeat_at=utc_now_iso())
-            conn.commit()
-            return get_job(conn, job_ref)
-
-        _update(conn, job_id, status=JobStatus.RUNNING.value, stage=JobStage.FETCHING.value,
-                current_source_key=source_key, last_heartbeat_at=utc_now_iso())
+    # ONE SOURCE AT A TIME WAS COSTING THE OTHER NINE (2026-07-29).
+    #
+    # elburoj publishes 3,874 products behind a 10-second Crawl-delay: an
+    # eleven-hour crawl, scheduled DAILY, and listed first. Nine of its jobs
+    # were measured and every one was cancelled — job_694e92dc1e8b sat on it
+    # with done=0/10, so ten sources starved behind one. The schedule could
+    # not converge, which is why the owner's data stopped moving.
+    #
+    # Sources reach DIFFERENT SITES, so waiting on one teaches us nothing
+    # about the others. Fetching holds no database lock (capture takes the
+    # write lock around the ingest alone), so the expensive part — hours of
+    # network — is exactly the part that parallelises, while the writes still
+    # serialise on the lock that already exists.
+    #
+    # TWO SOURCES ON ONE SITE NEVER RUN TOGETHER. Today all ten hosts are
+    # distinct, but the rule is in the code and not in that fact: masdaronline
+    # already serves advancedcastle content on its homepage, and the day two
+    # entries share a host, concurrency would double the load we put on it and
+    # halve the delay it asked for. Sources are bucketed into per-host LANES;
+    # lanes run concurrently, and within a lane strictly in order.
+    lanes = _host_lanes(manifest, [k for k in job["source_keys"] if k not in done])
+    width = _parallel_width(conn, connect, len(lanes))
+    run = _SourceRun(conn=conn, job=job, job_id=job_id, manifest=manifest,
+                     capture=capture, rebuilding=rebuilding, checkpoint=checkpoint,
+                     done=done, errors=errors, counters=counters,
+                     succeeded=succeeded)
+    if width > 1:
+        append_log(conn, job_id,
+                   f"crawling {len(lanes)} site(s), up to {width} at a time")
         conn.commit()
-        try:
-            entry = manifest.get(source_key)
-            previous = previous_rows_seen(conn, source_key)
-            # Keywords travel only when the situation asks for them, so every
-            # existing capture fake with the plain (conn, entry, job_id)
-            # signature keeps working untouched. `resume` fires for exactly
-            # the source a pause interrupted MID-fetch: its journaled pages
-            # are still on disk and the connector may skip them.
-            extras: dict = {}
-            if rebuilding:
-                # The archive travels WITH the write, into the same lock —
-                # doing it here meant a failed capture (a held lock, a dead
-                # site) left the catalogue archived and nothing re-crawled.
-                extras["archive_first"] = True
-            if job["run_mode"] == RunMode.HISTORY_BACKFILL.value:
-                extras["history"] = True
-            if checkpoint.get("partial_source") == source_key:
-                extras["resume"] = True
-            result = (capture(conn, entry, job_id, **extras) if extras
-                      else capture(conn, entry, job_id))
-            _merge_counters(counters, result)
-            append_log(conn, job_id,
-                       f"{result.ingest.observations} observations, "
-                       f"{result.ingest.products} new products, {result.requests_count} requests",
-                       source_key=source_key)
-            # Ingest errors used to be folded into a bare counter here, so the
-            # job finished 'completed' with error_summary NULL and the MESSAGE —
-            # the only thing that could explain a degraded run — was discarded.
-            # Each one is now a job-level error (it degrades the job's outcome)
-            # and a log line the owner can actually read.
-            for issue in result.ingest.errors:
-                errors.append(f"{source_key}: {issue}")
-                append_log(conn, job_id, issue, level=LogLevel.WARNING,
-                           source_key=source_key)
-            # Contained side-effect failures did not degrade the run and must
-            # not degrade the job — but silent is not an option either.
-            for note in result.ingest.contained:
-                append_log(conn, job_id, note, level=LogLevel.WARNING,
-                           source_key=source_key)
-            # Notices are neither: a normal outcome the owner can see, logged at
-            # INFO so it never reads as trouble and never touches the counters.
-            for note in result.ingest.notices:
-                append_log(conn, job_id, note, level=LogLevel.INFO,
-                           source_key=source_key)
-            # What the connector could NOT collect belongs in this log too. The
-            # CLI printed these warnings; here they were dropped, so the run
-            # that lost NATURAL_GAS entirely — 47 country pages publishing no
-            # local price, every one skipped — logged three clean lines and
-            # read as a full success. Capped so a systemic failure cannot bury
-            # the log; the cap itself is stated.
-            shown = getattr(result, "warnings", None) or []
-            for warning in shown[:30]:
-                append_log(conn, job_id, warning, level=LogLevel.WARNING,
-                           source_key=source_key)
-            if len(shown) > 30:
-                append_log(conn, job_id,
-                           f"...and {len(shown) - 30} more warnings like these "
-                           "(the CLI crawl prints them all)",
-                           level=LogLevel.WARNING, source_key=source_key)
-            # Politeness disclosures ride at INFO — the owner's robots ruling
-            # (docs/robots-policy.md): how we behaved toward the site is worth
-            # a line, never a warning that suggests the run needs review.
-            for note in (getattr(result, "notes", None) or []):
-                append_log(conn, job_id, note, source_key=source_key)
-            # F6: a rotted connector fails QUIETLY — treat a volume breach as a
-            # real failure, never a clean success.
-            breach = canary_breach(entry, result.rows, previous)
-            if breach is None:
-                succeeded += 1
-            else:
-                errors.append(breach)
-                append_log(conn, job_id, breach, level=LogLevel.WARNING, source_key=source_key)
-        except CrawlInterrupted as stop:
-            # The owner pressed the brakes MID-FETCH. Nothing was ingested for
-            # this source (fetch aborts before ingest), but every fetched page
-            # is already in the job journal — a pause keeps it and marks this
-            # source in the checkpoint so the resume skips those pages; a
-            # cancel abandons the source and discards the journal, which would
-            # otherwise sit as stale state for a future job to trip over.
-            from . import localinbox
-            kept = len(localinbox.list_tokens(localinbox.JOURNAL_DIR, source_key))
-            if stop.control == JobControl.CANCEL.value:
-                localinbox.clear(localinbox.JOURNAL_DIR, source_key)
-                append_log(conn, job_id,
-                           "cancel honoured mid-fetch — nothing from this source "
-                           "was ingested and the partial fetch was discarded",
-                           source_key=source_key)
-                _finish(conn, job_id, JobStatus.CANCELLED, None)
-            else:
-                if kept:
-                    append_log(conn, job_id,
-                               f"pause honoured mid-fetch — {kept} fetched "
-                               "page(s) kept; resume continues with the "
-                               "remaining pages",
-                               source_key=source_key)
-                else:
-                    append_log(conn, job_id,
-                               "pause honoured mid-fetch — nothing from this "
-                               "source was ingested; it restarts from the top "
-                               "if resumed",
-                               source_key=source_key)
-                _update(conn, job_id, status=JobStatus.PAUSED.value,
-                        control=JobControl.NONE.value, stage=None,
-                        checkpoint_json=json.dumps(
-                            {"completed_source_keys": done, "errors": errors,
-                             "succeeded": succeeded,
-                             "partial_source": source_key}),
-                        last_heartbeat_at=utc_now_iso())
-            conn.commit()
-            return get_job(conn, job_ref)
-        except Exception as exc:  # noqa: BLE001 — one bad source never kills the job (Q3)
-            errors.append(f"{source_key}: {exc}")
-            append_log(conn, job_id, f"failed: {exc}", level=LogLevel.ERROR, source_key=source_key)
-
-        done.append(source_key)
-        _update(conn, job_id, progress_done=len(done),
-                checkpoint_json=json.dumps({"completed_source_keys": done,
-                                            "errors": errors, "succeeded": succeeded}),
-                counters_json=json.dumps(counters), last_heartbeat_at=utc_now_iso())
-        conn.commit()
+    _drive_lanes(run, lanes, width, connect)
+    done, errors, counters = run.done, run.errors, run.counters
+    succeeded = run.succeeded
+    if run.stopped is not None:
+        return get_job(conn, job_ref)
 
     if not errors:
         status = JobStatus.COMPLETED
@@ -771,7 +941,10 @@ class JobRunner:
                         continue
                     run_job_once(conn, job_ref, self._manifest_provider(),
                                  capture=self._capture or self._locked_capture,
-                                 backup=lambda: backup_database(self._db_path))
+                                 backup=lambda: backup_database(self._db_path),
+                                 # Only the worker knows a real path to reopen,
+                                 # so only the worker can offer concurrency.
+                                 connect=lambda: dbmod.connect(self._db_path))
                 except Exception as exc:  # noqa: BLE001 — survive any one job...
                     # ...but NEVER silently. Swallowing this used to leave the job
                     # 'running' forever (blocking its source's schedules) or spin

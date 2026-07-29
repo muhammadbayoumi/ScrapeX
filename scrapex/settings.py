@@ -73,6 +73,10 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # the run records, so a fast crawl and a polite one stay distinguishable
     # afterwards.
     Setting("crawl_honour_delay", "1", label="Honour each site's crawl delay"),
+    # 1 keeps the behaviour every job has had until now: one source at a time,
+    # in the order the job listed them. Raising it crawls that many SITES at
+    # once — never two sources of one site, whatever the number says.
+    Setting("crawl_parallel_sources", "1", label="Sources crawled at the same time"),
     # UI-only preference shared by the local Workspace and Chrome side panel.
     # It lives with the engine because browser localStorage is origin-scoped:
     # a chrome-extension:// page and http://127.0.0.1 cannot read each other.
