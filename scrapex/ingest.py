@@ -1143,6 +1143,39 @@ def _still_the_same_price(conn: sqlite3.Connection, offer_id: int, v: dict) -> b
             (offer_id,)).fetchone()
         if latest is None or latest["price_trade"] != v["price_trade"]:
             return False
+
+    # THE SAME DEFECT, THE SAME SHAPE, one column over — and this one had a
+    # second witness that should have settled it: record_hash ALREADY counts a
+    # stock move as a new observation (_observation_values hashes "stock"), and
+    # ux_price_obs_dedupe would have admitted the row. This gate disagreed with
+    # the hash and won, because it runs first and returns before the INSERT is
+    # ever reached.
+    #
+    # So madar asked the site for only_x_left_in_stock from 55ae064 on, was
+    # answered for 297 leaves, and appended none of them. Measured on the live
+    # warehouse 2026-07-30: 0 of 6,146 MADAR observations carry a stock figure
+    # while offer_state carries all 297 — and offer_state is DERIVED from the
+    # latest observation by pricehistory.rebuild_offer, so those 297 do not
+    # survive a rebuild. This table is the durable home; that one is a cache of
+    # it.
+    #
+    # The period stays keyed on the PRICE. A stock movement opens no period and
+    # is not a price change — the owner asked for the latest stock state, never a
+    # priced history of it — so it lands as an observation INSIDE the open
+    # period, exactly as the trade tier above does.
+    #
+    # `is not None` IS the no-invented-zero rule, not a null-safety habit: a leaf
+    # the site says nothing about arrives as None, never enters this branch,
+    # appends nothing and stays NULL. A published 0 means "none left", which is
+    # something the shop said, so it compares and it appends.
+    if v.get("stock_quantity") is not None:
+        latest = conn.execute(
+            "SELECT stock_quantity FROM price_observation "
+            "WHERE offer_id = ? AND provenance = 'observed' "
+            "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1",
+            (offer_id,)).fetchone()
+        if latest is None or latest["stock_quantity"] != v["stock_quantity"]:
+            return False
     return True
 
 
