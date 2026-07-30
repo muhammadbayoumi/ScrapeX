@@ -441,6 +441,53 @@ def test_the_sheets_own_answer_reaches_the_sync_ui(conn):
     assert "wrote 1 row(s)" in result.detail
 
 
+def test_a_column_that_appeared_in_the_sheet_is_named_in_the_run_result(conn):
+    """A new column now reaches the sheet without anyone pasting a new script —
+    that is the whole point of the two version numbers. Which is exactly why its
+    arrival has to be SAID somewhere the owner already looks: a column that
+    turns up unannounced is one read six months later as though it had been
+    checked. The sheet records it in _RUNS; this is the same news in the UI."""
+    class _Widening(FakeFunnel):
+        def call_action(self, action, **fields):
+            return {"ok": True, "report": {"written": [
+                {"source": SOURCE, "rows": 1,
+                 "columns_added": ["quantity_is_decimal"], "columns_removed": []}],
+                "skipped": []}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_Widening())
+    assert result.ok is True, "a new column is not a failure — it is news"
+    assert "Columns changed" in result.detail
+    assert "new quantity_is_decimal" in result.detail
+
+
+def test_a_column_that_vanished_from_the_sheet_is_named_too(conn):
+    """The rename's second line of defence. If one ever slips through without
+    the generation moving, the sheet keeps the old column beside the new one and
+    nothing errors — so the disappearance itself has to be reported."""
+    class _Narrowing(FakeFunnel):
+        def call_action(self, action, **fields):
+            return {"ok": True, "report": {"written": [
+                {"source": SOURCE, "rows": 1,
+                 "columns_added": ["brand"], "columns_removed": ["brand_raw"]}],
+                "skipped": []}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_Narrowing())
+    assert "new brand" in result.detail and "gone brand_raw" in result.detail
+
+
+def test_an_older_script_that_reports_no_columns_says_nothing_about_them(conn):
+    """A sheet running the previous script answers without the two new keys.
+    That is not "no columns changed" and must not be narrated as anything."""
+    class _Quiet(FakeFunnel):
+        def call_action(self, action, **fields):
+            return {"ok": True, "report": {"written": [{"source": SOURCE, "rows": 1}],
+                                           "skipped": []}}
+
+    result = outputs.apps_script_send(conn, SOURCE, client=_Quiet())
+    assert result.ok is True
+    assert "Columns changed" not in result.detail
+
+
 def test_a_sheet_refusal_is_a_failure_with_the_reason_verbatim(conn):
     class _Refusing(FakeFunnel):
         def call_action(self, action, **fields):
@@ -571,16 +618,21 @@ def test_the_sheet_names_a_tab_from_the_table_it_was_sent(conn):
 
 
 def test_the_sheet_and_the_engine_speak_the_same_payload_version():
-    """The script declares its own SYNC_PAYLOAD_VERSION and throws on a
-    mismatch, so this number lives in two languages and only one of them is
-    Python.
+    """The script declares BOTH numbers, so both live in two languages and only
+    one of them is Python.
 
-    Bump one without the other and nothing looks wrong: handleChunk has no
-    version gate, so every chunk is accepted and acked ok, the throw fires
-    later inside reassemble_, rebuildTables_ files the batch under "skipped",
-    and the published tab keeps republishing the last complete batch. The
-    sheet stays alive, opens fine, and is frozen."""
-    from scrapex.payload import PAYLOAD_VERSION
+    Let the GENERATION drift and nothing looks wrong: handleChunk has no version
+    gate, so every chunk is accepted and acked ok, the throw fires later inside
+    reassemble_, rebuildTables_ files the batch under "skipped", and the
+    published tab keeps republishing the last complete batch. The sheet stays
+    alive, opens fine, and is frozen.
+
+    Letting the CONTENT number drift is now harmless by design — the script
+    reports it and refuses nothing on it — but it is still what a human reads to
+    know which build a sheet was pasted from, so it is still pinned. The
+    generation, the ledger and the gate's shape are pinned in
+    tests/test_payload_compat.py."""
+    from scrapex.payload import PAYLOAD_COMPAT_VERSION, PAYLOAD_VERSION
 
     script = (Path(__file__).resolve().parent.parent / "apps_script" /
               "StagingAppScript.txt").read_text(encoding="utf-8")
@@ -588,4 +640,8 @@ def test_the_sheet_and_the_engine_speak_the_same_payload_version():
     assert f"const SYNC_PAYLOAD_VERSION = {PAYLOAD_VERSION};" in script, (
         f"the engine speaks payload version {PAYLOAD_VERSION}; "
         "apps_script/StagingAppScript.txt must declare the same number"
+    )
+    assert f"const SYNC_PAYLOAD_COMPAT_VERSION = {PAYLOAD_COMPAT_VERSION};" in script, (
+        f"the engine speaks meaning generation {PAYLOAD_COMPAT_VERSION}; a sheet "
+        "declaring a different one refuses every batch this engine sends"
     )

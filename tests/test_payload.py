@@ -9,9 +9,9 @@ from pydantic import ValidationError
 
 from scrapex.payload import (
     CHUNK_MAX_CHARS,
-    PAYLOAD_VERSION,
     FunnelPayload,
     export_json_schema,
+    new_payload,
     reassemble_chunks,
     split_into_chunks,
     utc_now_iso,
@@ -21,8 +21,9 @@ FIXTURES = Path(__file__).resolve().parent.parent / "contracts" / "fixtures"
 
 
 def make_payload(rows: list[list[str]] | None = None) -> FunnelPayload:
-    return FunnelPayload(
-        payload_version=PAYLOAD_VERSION,
+    # new_payload stamps BOTH version numbers, which is what a producer does; the
+    # two numbers and everything they refuse live in tests/test_payload_compat.py.
+    return new_payload(
         source_key="MADAR",
         kind="product_prices",
         client="cli",
@@ -52,6 +53,16 @@ def test_golden_invalid_fixtures_rejected():
             FunnelPayload.model_validate_json(fixture.read_text(encoding="utf-8"))
 
 
+def test_golden_valid_fixtures_all_parse():
+    """Every valid vector, not just the canonical one: two of them exist to prove
+    a payload NEWER than this build and a payload OLDER than the compat field
+    both read cleanly (tests/test_payload_compat.py says why)."""
+    fixtures = sorted(FIXTURES.glob("payload_valid*.json"))
+    assert len(fixtures) >= 3, "the newer-content and legacy vectors went missing"
+    for fixture in fixtures:
+        FunnelPayload.model_validate_json(fixture.read_text(encoding="utf-8"))
+
+
 def test_exported_schema_is_current():
     """The committed schema file must match the model — same-commit rule (T8)."""
     committed = json.loads(
@@ -64,10 +75,18 @@ def test_exported_schema_is_current():
 
 # ---- validation edges (T3/P4) ------------------------------------------------
 
-def test_wrong_version_rejected():
-    with pytest.raises(ValidationError, match="payload_version"):
+def test_a_version_this_build_cannot_place_is_rejected():
+    """Version 99 with the generation stripped off: this build has no way to know
+    which columns it means, so it refuses rather than guesses.
+
+    It is NOT rejected for being 99 — the same 99 carrying a generation this
+    build reads is accepted, which is the point of the split and is asserted in
+    tests/test_payload_compat.py.
+    """
+    body = json.loads(make_payload().model_dump_json())
+    with pytest.raises(ValidationError, match="payload_version 99 is unknown"):
         FunnelPayload.model_validate(
-            {**json.loads(make_payload().model_dump_json()), "payload_version": 99}
+            {**body, "payload_version": 99, "payload_compat_version": None}
         )
 
 
