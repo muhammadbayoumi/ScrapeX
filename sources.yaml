@@ -154,6 +154,19 @@ sources:
     extract:
       - kind: product_prices
         scope: census
+      # The SAME one-line gap ALSWEED had, and the reason a per-source fix is
+      # the wrong shape for a family: salla.py has always read the JSON-LD
+      # image, but only builds those rows when the source declares enrichment,
+      # and ingest refuses the payload otherwise. Verified on the captured page
+      # tests/fixtures/live/salla_elburoj_product_priced_p543555922.html —
+      # elburoj publishes a cdn.salla.sa image, exactly as alsweed does. No
+      # request was made to elburoj to establish this; a full crawl of it was
+      # running at the time and the fixture already answered the question.
+      #
+      # The pictures ride the product page the price already paid for, so this
+      # adds ZERO requests to a source that asks for a 10-second crawl delay.
+      - kind: enrichment
+        scope: census
     min_expected_rows: 20
     max_drop_pct: 50
     notes: robots crawl-delay 10s — honored by the politeness budget (F5).
