@@ -22,6 +22,12 @@ ASSETS = {
         ROOT / "extension" / "appearance.js",
         ROOT / "scrapex" / "webui" / "static" / "appearance.js",
     ),
+    # The one split-button behaviour, shared so the dataset Export control and
+    # the Activity panel's log control cannot become two implementations.
+    ROOT / "design" / "split-button.js": (
+        ROOT / "extension" / "split-button.js",
+        ROOT / "scrapex" / "webui" / "static" / "split-button.js",
+    ),
     ROOT / "design" / "tokens.css": (
         ROOT / "extension" / "tokens.css",
         ROOT / "scrapex" / "webui" / "static" / "tokens.css",

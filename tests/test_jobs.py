@@ -394,6 +394,114 @@ def test_runner_thread_drains_the_queue(tmp_path):
     assert status == JobStatus.COMPLETED.value
 
 
+def test_the_worker_runs_two_queued_jobs_at_once_when_the_budget_allows(tmp_path):
+    """The owner's real complaint: ten single-source schedules fire together and
+    nine wait on one. With the budget raised, the WORKER — not just a lane inside
+    one job — runs them side by side. Two jobs, distinct hosts, must be in flight
+    together, which the barrier only lets happen if they truly are."""
+    import threading
+    import time
+
+    from scrapex import settings
+
+    db = tmp_path / "wave.db"
+    setup = dbmod.connect(db)
+    dbmod.migrate(setup)
+    settings.save(setup, {"crawl_parallel_sources": "2"})
+    ref_a = create_job(setup, ["AA"], RunMode.UPDATE)
+    ref_b = create_job(setup, ["BB"], RunMode.UPDATE)
+    setup.commit()
+    setup.close()
+
+    manifest = _HostedManifest({"AA": "https://a.example.com/",
+                                "BB": "https://b.example.net/"})
+    both_inside = threading.Barrier(2, timeout=10)
+
+    def capture(_conn, entry, _job_id=None, **_kw):
+        both_inside.wait()          # passes only if BOTH jobs are crawling at once
+        return _result(entry.source_key)
+
+    runner = JobRunner(str(db), lambda: manifest, poll_interval_s=0.02,
+                       capture=capture)
+    runner.start()
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            check = dbmod.connect(db)
+            try:
+                done = {get_job(check, r)["status"] for r in (ref_a, ref_b)}
+            finally:
+                check.close()
+            if done == {JobStatus.COMPLETED.value}:
+                break
+            time.sleep(0.05)
+    finally:
+        runner.stop()
+    assert done == {JobStatus.COMPLETED.value}, (
+        "two queued jobs did not both complete — the worker did not run them "
+        "together")
+
+
+def test_the_worker_holds_a_second_job_when_the_budget_is_one(tmp_path):
+    """The shipped default is unchanged: budget 1 runs strictly one job at a
+    time, and the second stays queued until the first is done."""
+    import threading
+    import time
+
+    from scrapex import settings
+
+    db = tmp_path / "one.db"
+    setup = dbmod.connect(db)
+    dbmod.migrate(setup)
+    settings.save(setup, {"crawl_parallel_sources": "1"})
+    ref_a = create_job(setup, ["AA"], RunMode.UPDATE)
+    ref_b = create_job(setup, ["BB"], RunMode.UPDATE)
+    setup.commit()
+    setup.close()
+
+    manifest = _HostedManifest({"AA": "https://a.example.com/",
+                                "BB": "https://b.example.net/"})
+    release_first = threading.Event()
+    a_running = threading.Event()
+    saw_b_queued_while_a_ran = threading.Event()
+
+    def capture(_conn, entry, _job_id=None, **_kw):
+        if entry.source_key == "AA":
+            a_running.set()
+            release_first.wait(10)
+        return _result(entry.source_key)
+
+    runner = JobRunner(str(db), lambda: manifest, poll_interval_s=0.02,
+                       capture=capture)
+    runner.start()
+    try:
+        assert a_running.wait(10), "the first job never started"
+        # While AA is held mid-crawl, BB must still be queued — one at a time.
+        check = dbmod.connect(db)
+        try:
+            if get_job(check, ref_b)["status"] == JobStatus.QUEUED.value:
+                saw_b_queued_while_a_ran.set()
+        finally:
+            check.close()
+        release_first.set()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            check = dbmod.connect(db)
+            try:
+                done = {get_job(check, r)["status"] for r in (ref_a, ref_b)}
+            finally:
+                check.close()
+            if done == {JobStatus.COMPLETED.value}:
+                break
+            time.sleep(0.05)
+    finally:
+        release_first.set()
+        runner.stop()
+    assert saw_b_queued_while_a_ran.is_set(), (
+        "budget 1 let a second job start alongside the first")
+    assert done == {JobStatus.COMPLETED.value}
+
+
 def test_list_jobs_active_only_excludes_finished(conn):
     done_ref = create_job(conn, ["A"], RunMode.UPDATE)
     run_job_once(conn, done_ref, _FakeManifest(["A"]), capture=_capture_ok([]))
@@ -920,3 +1028,164 @@ def test_a_pause_seen_at_the_boundary_uses_the_lanes_connection(conn, tmp_path):
     assert not job.get("error_summary")
     assert not reached, "a job asked to pause fetched anyway"
     setup.close()
+
+# ---- crawling several JOBS at once, 2026-07-30 ---------------------------
+
+class _HostedManifest:
+    """A manifest whose sources carry a real base_url, so the per-host rule has
+    a host to reserve. `hosts` maps source_key -> base_url."""
+
+    def __init__(self, hosts: dict[str, str]):
+        self._hosts = hosts
+
+    def get(self, key):
+        if key not in self._hosts:
+            raise KeyError(f"unknown source_key {key!r}")
+        return SimpleNamespace(source_key=key, base_url=self._hosts[key],
+                               min_expected_rows=None, max_drop_pct=None)
+
+
+def _timed_capture(events, gate, hold_s):
+    """A capture that records when it enters and leaves the crawl of a source,
+    so a test can prove two crawls of one host never overlap."""
+    import threading
+    import time
+
+    lock = threading.Lock()
+
+    def capture(_conn, entry, _job_id=None, **_kw):
+        with lock:
+            events.append(("enter", entry.source_key, time.monotonic()))
+        gate.wait(hold_s)          # hold the "crawl" open long enough to overlap
+        with lock:
+            events.append(("exit", entry.source_key, time.monotonic()))
+        return _result(entry.source_key)
+
+    return capture
+
+
+def _run_two_jobs(db_path, refs, manifest, capture, admission):
+    """Run two jobs concurrently, each on its own thread and connection, sharing
+    one admission — exactly as the worker runs them."""
+    import threading
+
+    from scrapex import db as dbmod
+    from scrapex.jobs import run_job_once
+
+    def run(ref):
+        c = dbmod.connect(db_path)
+        try:
+            run_job_once(c, ref, manifest, capture=capture,
+                         connect=lambda: dbmod.connect(db_path), admission=admission)
+        finally:
+            c.close()
+
+    threads = [threading.Thread(target=run, args=(ref,)) for ref in refs]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
+def _intervals(events):
+    """(source_key, enter_time, exit_time) pairs from a flat event log."""
+    enters = {key: t for kind, key, t in events if kind == "enter"}
+    return [(key, enters[key], t) for kind, key, t in events if kind == "exit"]
+
+
+def test_two_jobs_never_crawl_one_host_at_the_same_time(tmp_path):
+    """THE cross-job safety property. Two separate jobs, each a single source on
+    the SAME site, with the budget wide enough that only the per-host rule can
+    keep them apart. If the rule spans jobs, their crawls do not overlap."""
+    import threading
+
+    from scrapex import db as dbmod
+    from scrapex.jobs import _CrawlAdmission
+
+    db_path = str(tmp_path / "one_host.db")
+    setup = dbmod.connect(db_path)
+    dbmod.migrate(setup)
+    ref_a = create_job(setup, ["AA"], RunMode.UPDATE)
+    ref_b = create_job(setup, ["BB"], RunMode.UPDATE)
+    setup.commit()
+    setup.close()
+
+    manifest = _HostedManifest({"AA": "https://one.example.com/a",
+                                "BB": "https://one.example.com/b"})
+    events: list = []
+    # A gate that never releases early: each crawl holds for the full 0.4s, so if
+    # the two COULD overlap they would. Budget 2 means the semaphore admits both
+    # — only the host reservation can serialise them.
+    gate = threading.Event()
+    admission = _CrawlAdmission(2)
+    _run_two_jobs(db_path, [ref_a, ref_b], manifest,
+                  _timed_capture(events, gate, 0.4), admission)
+
+    intervals = _intervals(events)
+    assert len(intervals) == 2
+    (_, a_in, a_out), (_, b_in, b_out) = sorted(intervals, key=lambda item: item[1])
+    assert a_out <= b_in, (
+        "two jobs crawled one host at the same time — the per-host rule did not "
+        f"span jobs: {events}")
+
+
+def test_two_jobs_on_different_hosts_do_crawl_at_the_same_time(tmp_path):
+    """The other half: the per-host rule must not become a global lock. Two jobs
+    on DIFFERENT sites, budget 2, must genuinely overlap — otherwise the safety
+    test above would pass by making everything sequential."""
+    import threading
+
+    from scrapex import db as dbmod
+    from scrapex.jobs import _CrawlAdmission
+
+    db_path = str(tmp_path / "two_hosts.db")
+    setup = dbmod.connect(db_path)
+    dbmod.migrate(setup)
+    ref_a = create_job(setup, ["AA"], RunMode.UPDATE)
+    ref_b = create_job(setup, ["BB"], RunMode.UPDATE)
+    setup.commit()
+    setup.close()
+
+    manifest = _HostedManifest({"AA": "https://a.example.com/",
+                                "BB": "https://b.example.net/"})
+    events: list = []
+    # A barrier both crawls must reach together: it only releases once BOTH are
+    # inside, so the test deadlocks (and fails on timeout) if they cannot overlap.
+    both_inside = threading.Barrier(2, timeout=10)
+    admission = _CrawlAdmission(2)
+    _run_two_jobs(db_path, [ref_a, ref_b], manifest,
+                  _timed_capture(events, both_inside, 10), admission)
+
+    intervals = _intervals(events)
+    assert len(intervals) == 2
+    (_, a_in, a_out), (_, b_in, b_out) = sorted(intervals, key=lambda item: item[1])
+    assert b_in < a_out, "different hosts should crawl at the same time"
+
+
+def test_the_budget_bounds_how_many_sites_crawl_at_once(tmp_path):
+    """Even on distinct hosts, no more than the budget crawl together — the
+    setting is a real ceiling, not a suggestion. Budget 1 keeps it strictly
+    sequential, which is the shipped default's behaviour unchanged."""
+    import threading
+
+    from scrapex import db as dbmod
+    from scrapex.jobs import _CrawlAdmission
+
+    db_path = str(tmp_path / "budget.db")
+    setup = dbmod.connect(db_path)
+    dbmod.migrate(setup)
+    refs = [create_job(setup, [key], RunMode.UPDATE) for key in ("AA", "BB", "CC")]
+    setup.commit()
+    setup.close()
+
+    manifest = _HostedManifest({"AA": "https://a.example.com/",
+                                "BB": "https://b.example.net/",
+                                "CC": "https://c.example.org/"})
+    events: list = []
+    gate = threading.Event()
+    admission = _CrawlAdmission(1)          # one site at a time
+    _run_two_jobs(db_path, refs, manifest, _timed_capture(events, gate, 0.2), admission)
+
+    intervals = sorted(_intervals(events), key=lambda item: item[1])
+    for (_, _prev_in, prev_out), (_, next_in, _next_out) in zip(intervals, intervals[1:]):
+        assert prev_out <= next_in, f"budget 1 let two sites overlap: {events}"

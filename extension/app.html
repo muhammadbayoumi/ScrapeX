@@ -6,6 +6,9 @@
 <title>ScrapeX</title>
 <link rel="icon" href="icons/x-mark.svg">
 <script src="appearance.js"></script>
+<!-- The shared split-button behaviour, before app.js (a module) so its global
+     exists when the Activity panel's log control wires itself. -->
+<script src="split-button.js"></script>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="app.css">
@@ -102,16 +105,64 @@
         <div class="row"><h2 class="flush">Activity</h2>
           <span id="act-elapsed" class="muted tech"></span></div>
         <div id="act-state" class="kv"></div>
-        <div class="bar my-2"><div id="act-bar" class="bar-fill"></div></div>
+
+        <!-- The bar is a fraction of REQUESTS against a stated denominator, not
+             of sources. act-progress-label says what it is a fraction OF; an
+             unknown total renders the bar indeterminate, never stuck at 0%. -->
+        <div class="act-progress">
+          <div class="bar my-1" role="progressbar" aria-labelledby="act-progress-label">
+            <div id="act-bar" class="bar-fill"></div>
+          </div>
+          <div id="act-progress-label" class="muted text-xs" role="status" aria-live="polite"></div>
+        </div>
+
+        <!-- Why a second run is not moving: which job holds the worker and this
+             one's place in line. Empty for the running job. -->
+        <div id="act-queue" class="note hidden text-xs"></div>
+
         <div id="act-counters"></div>
+
         <div class="row mt-2">
-          <span class="muted text-xs">Last 200 log entries</span>
-          <button id="autoscroll" class="ghost">Pause auto-scroll</button>
+          <span id="log-caption" class="muted text-xs">Live log</span>
         </div>
         <div id="logbox" class="logbox tech"></div>
         <div class="links mt-2">
-          <button id="copy-logs" class="ghost">Copy visible logs</button>
-          <button id="dl-logs" class="ghost">Download full logs</button>
+          <!-- The shared split button (components.css + split-button.js), the
+               SAME control the dataset Export uses — one implementation. The
+               primary copies what is on screen; the menu downloads everything. -->
+          <div class="split-button" role="group" aria-label="Log actions">
+            <button type="button" id="copy-logs" class="split-button-primary"
+                    data-split-action="copy" aria-label="Copy the visible log to the clipboard">
+              <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#description"></use></svg>
+              <span>Copy visible</span>
+            </button>
+            <details class="split-button-menu">
+              <summary class="split-button-trigger" aria-haspopup="menu"
+                       aria-expanded="false" aria-label="More log actions">
+                <svg class="sx-icon split-button-chevron" aria-hidden="true"><use href="icons/material-icons.svg#expand-more"></use></svg>
+              </summary>
+              <div class="split-button-options opens-down" role="menu" aria-label="Log actions">
+                <button type="button" class="split-button-option" data-split-action="copy" role="menuitem">
+                  <span class="split-button-option-icon">
+                    <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#description"></use></svg>
+                  </span>
+                  <span class="split-button-option-copy">
+                    <strong>Copy visible log</strong>
+                    <small>Every line now on screen, to the clipboard.</small>
+                  </span>
+                </button>
+                <button type="button" class="split-button-option" data-split-action="download" role="menuitem">
+                  <span class="split-button-option-icon">
+                    <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#file-download"></use></svg>
+                  </span>
+                  <span class="split-button-option-copy">
+                    <strong>Download full log</strong>
+                    <small>The engine's complete record for this job, every entry.</small>
+                  </span>
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
       </section>
     </section>

@@ -641,194 +641,21 @@
   line-height: 1.45;
 }
 .data-grid-exportbar #grid-toolbar { flex: none; justify-content: flex-end; margin: 0; }
-.grid-export-split {
-  display: inline-flex;
-  align-items: stretch;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-xs);
-}
-.grid-export-primary,
-.grid-export-trigger {
-  min-height: var(--control-height);
-  border: 0;
-  background: transparent;
-  color: var(--text);
-}
-.grid-export-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding-inline: var(--sp-4);
-  border-start-start-radius: calc(var(--radius) - 1px);
-  border-end-start-radius: calc(var(--radius) - 1px);
-  font-weight: var(--fw-heavy);
-}
-.grid-export-primary .sx-icon {
-  width: 1.05rem;
-  height: 1.05rem;
-  color: var(--accent-ink);
-}
-#grid-toolbar .grid-export-primary:hover:not(:disabled),
-#grid-toolbar .grid-export-trigger:hover {
-  background: var(--control-hover);
-  color: var(--text);
-}
-#grid-toolbar .grid-export-primary:active:not(:disabled),
-#grid-toolbar .grid-export-trigger:active {
-  background: var(--accent-weak);
-  color: var(--accent-ink);
-  transform: none;
-}
-.grid-export-menu {
-  position: relative;
-  display: flex;
-}
-.grid-export-menu > summary {
-  list-style: none;
-}
-.grid-export-menu > summary::-webkit-details-marker {
-  display: none;
-}
-.grid-export-trigger {
-  display: grid;
-  width: var(--control-height);
-  min-width: var(--control-height);
-  padding: 0;
-  place-items: center;
-  border-inline-start: 1px solid var(--line);
-  border-start-end-radius: calc(var(--radius) - 1px);
-  border-end-end-radius: calc(var(--radius) - 1px);
-  cursor: pointer;
-}
-.grid-export-trigger .sx-icon {
-  width: 1.05rem;
-  height: 1.05rem;
-}
-.grid-export-chevron {
-  margin-inline-start: auto;
-  transition: transform var(--dur-fast) var(--ease);
-}
-.grid-export-menu[open] .grid-export-chevron {
-  transform: rotate(180deg);
-}
-.grid-export-menu[open] .grid-export-trigger {
-  background: var(--accent-weak);
-  color: var(--accent-ink);
-}
-.grid-export-options {
-  position: absolute;
-  z-index: 120;
-  inset-inline-end: 0;
-  bottom: calc(100% + var(--sp-2));
-  display: grid;
-  gap: var(--sp-1);
-  width: min(20rem, calc(100vw - 2rem));
-  padding: var(--sp-2);
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  transform-origin: bottom right;
-  animation: grid-export-options-in var(--dur-fast) var(--ease);
-}
-@keyframes grid-export-options-in {
-  from { opacity: 0; transform: translateY(.35rem) scale(.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.grid-export-options-head {
-  display: grid;
-  gap: var(--sp-1);
-  padding: var(--sp-2) var(--sp-3) var(--sp-3);
-  border-bottom: 1px solid var(--line);
-}
-.grid-export-options-head strong {
-  color: var(--text);
-  font-size: var(--fs-sm);
-}
-.grid-export-options-head span {
-  color: var(--muted);
-  font-size: var(--fs-xs);
-  line-height: 1.4;
-}
-.grid-export-option {
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--sp-3);
-  width: 100%;
-  min-height: 3.5rem;
-  padding: var(--sp-2) var(--sp-3);
-  color: var(--text);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  text-align: start;
-  white-space: normal;
-}
-#grid-toolbar .grid-export-option:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--control-hover);
-  border-color: var(--line);
-}
-#grid-toolbar .grid-export-option:active:not(:disabled) {
-  color: var(--text);
-  background: var(--control-active);
-  border-color: var(--line-strong);
-  transform: none;
-}
-.grid-export-option-icon {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: var(--radius);
-  background: var(--accent-weak);
-  color: var(--accent-ink);
-}
-.grid-export-option-icon .sx-icon {
-  width: 1.05rem;
-  height: 1.05rem;
-}
-.grid-export-option-copy {
-  display: grid;
-  gap: var(--sp-1);
-  min-width: 0;
-}
-.grid-export-option-copy strong {
-  font-size: var(--fs-sm);
-}
-.grid-export-option-copy small {
-  color: var(--muted);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-regular);
-  line-height: 1.35;
-}
-.grid-export-extension {
-  padding: .15rem .35rem;
-  border-radius: var(--radius-xs);
-  background: var(--surface-container-low);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  line-height: 1.4;
-}
-
+/* The Export control is the SHARED split button (components.css +
+   split-button.js); the grid adds only where it sits and how it stacks on a
+   narrow viewport. Its shell, menu and option styles are NOT redefined here —
+   that is the single implementation the panel reuses. */
+.data-grid-exportbar .split-button { flex: none; }
 @media (max-width: 640px) {
   .data-grid-exportbar { align-items: flex-start; flex-direction: column; }
   .data-grid-exportbar #grid-toolbar,
-  .grid-export-split { width: 100%; }
-  .grid-export-primary { flex: 1; justify-content: center; }
-  .grid-export-options {
+  .data-grid-exportbar .split-button { width: 100%; }
+  .data-grid-exportbar .split-button-primary { flex: 1; justify-content: center; }
+  .data-grid-exportbar .split-button-options {
     inset-inline-start: auto;
     inset-inline-end: 0;
     width: min(20rem, calc(100vw - 3rem));
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .grid-export-options { animation: none; }
 }
 
 .grid-feature-popover {

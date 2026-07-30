@@ -55,6 +55,75 @@ def test_write_lock_blocks_second_holder(tmp_path: Path):
                 pass  # pragma: no cover — must not be reached
 
 
+def test_two_threads_of_one_process_serialise_rather_than_refuse(tmp_path: Path):
+    """The bug that made concurrent JOBS unsafe. The file lock is keyed by pid,
+    and _reclaim_if_stale refuses to steal a LIVE owner's lock — so a second
+    THREAD of this same runtime found a live owner (itself), waited out its whole
+    timeout, and was refused, naming its own pid. Two per-host lanes whose
+    ingests overlapped by more than the timeout would lose a source outright.
+
+    An in-process gate in front of the file lock fixes it: threads of one runtime
+    queue and each one holds the lock in turn — nobody is refused."""
+    import threading
+    import time
+
+    db_path = tmp_path / "threads.db"
+    order: list = []
+    guard = threading.Lock()
+    errors: list = []
+
+    def worker(name: str) -> None:
+        try:
+            with dbmod.write_lock(db_path, timeout_s=10.0):
+                with guard:
+                    order.append(("in", name))
+                time.sleep(0.15)
+                with guard:
+                    order.append(("out", name))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{name}: {exc}")
+
+    threads = [threading.Thread(target=worker, args=(name,)) for name in "ABC"]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == [], f"a thread was refused its own runtime's lock: {errors}"
+    # Strictly serialised: every 'in' is immediately followed by its own 'out'.
+    assert len(order) == 6
+    for i in range(0, len(order), 2):
+        assert order[i][0] == "in" and order[i + 1][0] == "out" \
+            and order[i][1] == order[i + 1][1], f"held by two at once: {order}"
+
+
+def test_the_in_process_gate_still_bounds_its_wait(tmp_path: Path):
+    """The gate must not hang forever: a thread that cannot get in within its
+    timeout is told so, with nothing written — the same contract the file lock
+    always had, so an HTTP route stays answerable."""
+    import threading
+
+    db_path = tmp_path / "gate.db"
+    holding = threading.Event()
+    release = threading.Event()
+
+    def holder() -> None:
+        with dbmod.write_lock(db_path, timeout_s=5.0):
+            holding.set()
+            release.wait(5.0)
+
+    thread = threading.Thread(target=holder)
+    thread.start()
+    assert holding.wait(5.0)
+    try:
+        with pytest.raises(dbmod.DbLockedError):
+            with dbmod.write_lock(db_path, timeout_s=0.2):
+                pass  # pragma: no cover — must not be reached
+    finally:
+        release.set()
+        thread.join()
+
+
 def test_write_lock_releases_on_exit(tmp_path: Path):
     db_path = tmp_path / "t.db"
     with dbmod.write_lock(db_path, timeout_s=0.1):

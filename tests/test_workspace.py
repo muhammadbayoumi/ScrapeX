@@ -148,6 +148,25 @@ def test_dataset_context_survives_tab_switches(client):
 
 # ---- content, not just status codes -----------------------------------------
 
+def test_the_data_page_states_when_each_source_was_last_crawled(client):
+    """The freshness of the data is the first thing anyone asks, and the source
+    cards were missing it. A READ-OUT on the web Data page — never a control."""
+    body = client.get("/data").text
+    assert "Last crawled" in body
+    assert "rows seen" in body or "requests" in body
+    # The date is the run's, stated to the minute, not a bare "recently".
+    assert "2026-" in body
+
+
+def test_the_data_freshness_readout_is_not_a_control(client):
+    """The web UI is display-only (settings live in the extension). The freshness
+    line must be text, never a button or a form that writes anything."""
+    body = client.get("/data").text
+    fresh = body.split("data-dataset-fresh", 1)[1].split("</span>", 1)[0]
+    for control in ("<button", "<input", "<form", "<select"):
+        assert control not in fresh, f"the freshness read-out grew a {control}"
+
+
 def test_changes_tab_shows_the_movement_and_its_percentage(client):
     body = client.get("/changes", params={"source_key": SOURCE}).text
     assert "price increase" in body                 # the change type
