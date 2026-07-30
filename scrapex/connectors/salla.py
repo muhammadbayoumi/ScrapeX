@@ -11,13 +11,23 @@ The pure parsers (`sitemap_locs`, `parse_product_jsonld`, `offer_price`) are
 unit-tested against fixtures; only the fetch loop touches the network.
 
 THE PICTURES (2026-07-30). This shop's JSON-LD names ONE picture per product
-while the page's slider names the set — measured over a 1,233-product census,
-roughly a threefold difference, and the picture the JSON-LD names is often not
-even the first slide. So the slider leads and the summary is merged in behind
-it (page_pictures below, merge_pictures in jsonld). It costs no request: the
-slider is in the SAME response the price is read from, which this connector
-previously discarded by walking with `walk_products` instead of
-`walk_product_pages`.
+while the page's slider names the set, and the picture the JSON-LD names is
+often not even the first slide. MEASURED over the whole alsweed catalogue,
+1,231 of 1,233 products fetched once each (2 pages did not answer; the site
+never objected): JSON-LD names 1,170 pictures, the sliders name 3,322 — a gap
+of 2,162 across 749 products. 61 products publish no picture at all and stay
+honestly blank.
+
+So the slider leads and the summary is merged in behind it (page_pictures
+below, merge_pictures in jsonld). It costs no request: the slider is in the
+SAME response the price is read from, which this connector previously
+discarded by walking with `walk_products` instead of `walk_product_pages`.
+
+The merge is keyed on the URL here, and that is checked rather than assumed:
+1,160 of the 1,170 JSON-LD image URLs are byte-identical to a slide href. The
+10 that are not are YouTube thumbnails the JSON-LD lists as product images and
+the slider files as `data-type="youtube"` slides; they are kept, because a run
+must never store less than the one before it.
 
 That reader is markup, and markup is a contract a theme update can end without
 telling anyone — silently, since the prices would still land and every product
