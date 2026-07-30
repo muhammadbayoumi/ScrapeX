@@ -219,6 +219,28 @@ function renderRuntime(engine) {
   }).join("");
 }
 
+function renderSchemaLag(lag) {
+  // Absent is the normal case, so the banner is absent too: a badge that is
+  // always on screen is a badge nobody reads. When it IS there it must say the
+  // three things the owner needs — what is wrong, what breaks, what fixes it —
+  // because the alternative he met was a raw SQLite error on a broken page.
+  const box = $("schema-lag");
+  if (!lag || !lag.pending || !lag.pending.length) {
+    box.classList.add("hidden");
+    box.textContent = "";
+    return;
+  }
+  box.textContent = "";
+  const title = el("div", "setup-title", "Database is behind the engine");
+  const what = el("div", "muted steps mb-2", lag.message || "");
+  const how = el("div", "muted text-xs");
+  how.textContent = "Fix: " + (lag.fix || "python -m scrapex.cli init-db")
+    + " — back up first, and apply it before restarting the engine.";
+  const which = el("div", "muted text-xs tech", lag.pending.join(", "));
+  box.append(title, what, which, how);
+  box.classList.remove("hidden");
+}
+
 function setStatus(engine) {
   state.engineUp = engine.running;
   $("dot").className = "dot " + (engine.running ? "on" : "off");
@@ -227,6 +249,7 @@ function setStatus(engine) {
     ? `Ready${engine.version ? " · v" + engine.version : ""}`
     : "Setup required";
   $("about-version").textContent = engine.version || "—";
+  renderSchemaLag(engine.schema_lag);
   renderRuntime(engine);
 }
 
