@@ -39,7 +39,7 @@ from ..normalize import (option_axes_json, option_fingerprint, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import (Availability, DetailGroup, DisplayMethod, ExtractKind,
                      group_for_code)
-from .base import CrawlBlocked, HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable, declare_frontier
 
 PAGE_SIZE = 100
 
@@ -543,6 +543,14 @@ class MagentoGraphqlConnector:
                 page_token=token,
             )
             total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
+            # The store has just told us how many listing pages there are, so
+            # from here the crawl's size is known rather than guessed. Declared
+            # every page (expect_requests only ever raises the number) because
+            # total_pages can grow under us on a live catalogue, and minus the
+            # pages a resume already holds, which cost no request.
+            declare_frontier(self._fetcher,
+                             len([p for p in range(page + 1, int(total_pages) + 1)
+                                  if f"page-{p}" not in self.skip_tokens]))
             if page >= total_pages:
                 break
             page += 1

@@ -69,7 +69,7 @@ OUTPUTS = [
 
 def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=None,
          records=None, changes=None, slow=False, tab=None, resolve=None, probe=None,
-         fail_routes=(), storage=None) -> str:
+         fail_routes=(), storage=None, logs=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -109,6 +109,12 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     # read table would hand back the job LIST, so anything that checked what a
     # click actually queued was testing against a shape the engine never sends.
     write_routes = {"/api/jobs": {"job_ref": "job_stub", "status": "queued"}}
+    # The job log endpoint. A distinct shape from the jobs LIST (both live under
+    # /api/jobs), and matched ahead of it by the interceptor's `/logs` check —
+    # otherwise every log fetch would get the job list and the panel would draw
+    # an empty log. Carries `total` so the "all shown" caption has its number.
+    entries = logs if logs is not None else []
+    log_payload = {"entries": entries, "total": len(entries), "truncated": False}
     return f"""
 window.chrome = {{
   runtime: {{ getURL: p => p, lastError: null }},
@@ -118,6 +124,7 @@ window.chrome = {{
 }};
 const ROUTES = {json.dumps(routes)};
 const WRITE_ROUTES = {json.dumps(write_routes)};
+const LOG_PAYLOAD = {json.dumps(log_payload)};
 const ENGINE_UP = {str(engine_up).lower()};
 const SLOW = {str(slow).lower()};
 const FAIL = {json.dumps(list(fail_routes))};
@@ -140,6 +147,11 @@ window.fetch = async (url, options) => {{
   if (FAIL.some(f => path.startsWith(f))) {{
     return {{ ok: false, status: 500, statusText: "engine error",
               json: async () => ({{detail: "the engine could not do that"}}) }};
+  }}
+  // The log endpoint lives under /api/jobs too, so it must be answered BEFORE
+  // the generic /api/jobs list route swallows it.
+  if (/^\\/api\\/jobs\\/[^/]+\\/logs/.test(path)) {{
+    return {{ ok: true, status: 200, json: async () => LOG_PAYLOAD }};
   }}
   const table = method === "GET" ? ROUTES
                                  : {{...ROUTES, ...WRITE_ROUTES}};
@@ -194,6 +206,11 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     )
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
     appearance_js = (EXT / "appearance.js").read_text(encoding="utf-8")
+    # The shared split-button behaviour, loaded (in app.html) before app.js so
+    # its global exists when the Activity panel wires the log control. It is a
+    # classic head script, which build_page drops with the rest of <head>, so
+    # the harness must carry it explicitly or app.js's init throws.
+    split_button_js = (EXT / "split-button.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
     transport_js = (EXT / "transport.js").read_text(encoding="utf-8")
 
@@ -216,6 +233,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         f"<style>{tokens_css}</style><style>{components_css}</style>"
         f"<style>{style}</style>\n{body}\n"
         f"<script>{appearance_js}</script>\n"
+        f"<script>{split_button_js}</script>\n"
         f"<script>{stub_js}</script>\n"
         # No manual DOMContentLoaded dispatch: this inline script is parsed
         # BEFORE the browser fires the real event, so dispatching one as well

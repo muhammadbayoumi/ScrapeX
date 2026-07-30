@@ -15,12 +15,14 @@ capture step injected. JobRunner is a thin thread loop on top of it.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 import threading
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Iterable
@@ -143,14 +145,167 @@ def append_log(conn: sqlite3.Connection, job_id: int, message: str,
     )
 
 
-def job_logs(conn: sqlite3.Connection, job_ref: str, limit: int = 200) -> list[dict]:
-    """Newest-last tail of the job log (spec 25: the panel only ever tails)."""
-    rows = conn.execute(
-        "SELECT l.* FROM job_log_entry l JOIN crawl_job j ON j.job_id = l.job_id "
-        "WHERE j.job_ref = ? ORDER BY l.job_log_id DESC LIMIT ?",
-        (job_ref, limit),
-    ).fetchall()
-    return [dict(r) for r in reversed(rows)]
+def job_logs(conn: sqlite3.Connection, job_ref: str,
+             limit: int | None = None) -> list[dict]:
+    """The job's log, oldest first. `limit` keeps only the newest that many.
+
+    None means EVERY entry, and that is now the default. A tail was the wrong
+    shape for the one job the log exists for: reading why a run went wrong.
+    Capped at 200 (here and again in the route), the line that explained a
+    failure was thrown away by the display for any run long enough to need it —
+    and the panel's own heading called the 200 it was given "the last 200",
+    which reads as a complete list.
+    """
+    sql = ("SELECT l.* FROM job_log_entry l JOIN crawl_job j ON j.job_id = l.job_id "
+           "WHERE j.job_ref = ? ORDER BY l.job_log_id DESC")
+    params: tuple = (job_ref,)
+    if limit is not None:
+        sql += " LIMIT ?"
+        params += (limit,)
+    return [dict(r) for r in reversed(conn.execute(sql, params).fetchall())]
+
+
+def job_log_count(conn: sqlite3.Connection, job_ref: str) -> int:
+    """How many entries this job's log actually holds.
+
+    So a display can state what it is showing OUT OF what exists. A viewer that
+    cannot say that is a viewer that cannot be trusted not to be hiding
+    something — which is precisely what it was doing.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) FROM job_log_entry l JOIN crawl_job j ON j.job_id = l.job_id "
+        "WHERE j.job_ref = ?", (job_ref,)).fetchone()
+    return int(row[0]) if row is not None else 0
+
+
+# ---- what each source is fetching, and what it is a fraction OF --------------
+#
+# THE BAR WAS ANSWERING A QUESTION NOBODY ASKED (2026-07-30).
+#
+# progress_total is the number of SOURCES, so a one-source job reads 0/1 — 0% —
+# for its entire duration. Measured: an ELBUROJ run sat at "0% (0/1)" for
+# 18m23s while its Requests counter climbed past 1,030 and everything was fine.
+# Nothing was broken; the fraction was of the wrong thing.
+#
+# So each source gets a slot under counters_json.$.sources, carrying the count
+# and — the whole point — WHAT THE COUNT IS A FRACTION OF, plus where that
+# denominator came from. Three bases, in descending order of what they claim:
+#
+#   declared  a connector enumerated its frontier before fetching it, so this
+#             is a count and not a guess (salla's sitemap, magento's
+#             total_pages). Replaces an estimate the moment it arrives.
+#   estimate  this source's last SUCCESSFUL run spent this many requests. Dated,
+#             and shown as an estimate, because it is one. It improves by itself
+#             every crawl, which is exactly what was asked for.
+#   measured  the source has finished. Its expectation is now its actual count,
+#             because history is not a prediction.
+#
+# A source with none of the three has `expected: null`, and every screen must
+# say the total is not known rather than draw a bar at 0% — that bar is the
+# original complaint, and an honest indeterminate one is better than a precise
+# lie. A first-ever crawl of a site with no sitemap is genuinely this case.
+#
+# It lives in counters_json rather than a new column or table because it is a
+# counter on the job, migration 0056 is the last one applied, and none of this
+# is worth a schema change. _merge_counters never touches this key.
+SOURCES_KEY = "sources"
+
+# What may appear in a json path fragment. Deliberately narrower than anything
+# SQLite would accept: see _slot_path.
+_SOURCE_KEY_SAFE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+
+def _slot_path(source_key: str) -> str:
+    """The json path for one source's slot.
+
+    Interpolated, not bound: SQLite takes the json PATH as a literal and a bound
+    parameter cannot be a path fragment. Safe because source_key is validated
+    against ^[A-Z][A-Z0-9_]{2,63}$ before anything reaches the warehouse
+    (config.py:21) — no quote, dot or bracket can occur in one. Asserted rather
+    than assumed, because the day that regex loosens this becomes injection.
+    """
+    if not _SOURCE_KEY_SAFE.match(source_key or ""):
+        raise ValueError(f"unsafe source_key for a json path: {source_key!r}")
+    return f"$.{SOURCES_KEY}.{source_key}"
+
+
+def record_source_fetch(conn: sqlite3.Connection, job_id: int, source_key: str,
+                        **fields) -> None:
+    """Merge `fields` into one source's slot, and beat the job's heartbeat.
+
+    The WRITE is a json_set that touches ONLY this source's subtree
+    ($.sources.<key>), so two per-host lanes updating DIFFERENT sources from
+    their own connections cannot clobber each other however they interleave —
+    SQLite applies each json_set to the column's current value. The Python read
+    just above is only to carry this source's own prior fields forward (keep
+    `expected` when updating `requests`), and it is safe because a source is
+    written by exactly one lane: it lives in one host-lane, whose sources run
+    strictly in order, and the fetch tick and the boundary update for it are
+    sequential on that lane.
+
+    Called from the fetch tick (live, every tenth request) and from the job loop
+    at each source boundary. Both go through here so the slot has exactly one
+    writer's worth of rules.
+    """
+    if not fields:
+        return
+    row = conn.execute("SELECT counters_json FROM crawl_job WHERE job_id = ?",
+                       (job_id,)).fetchone()
+    if row is None:
+        return
+    current = json.loads(row[0] or "{}") if row[0] else {}
+    slot = dict(((current.get(SOURCES_KEY) or {}).get(source_key) or {}))
+    slot.update({k: v for k, v in fields.items()})
+    conn.execute(
+        "UPDATE crawl_job SET last_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
+        f"counters_json = json_set(COALESCE(NULLIF(counters_json,''),'{{}}'), "
+        f"'{_slot_path(source_key)}', json(?)) WHERE job_id = ?",
+        (json.dumps(slot, ensure_ascii=False), job_id))
+
+
+def _merge_counters_column(conn: sqlite3.Connection, job_id: int,
+                           counters: dict) -> None:
+    """Write the aggregate counters WITHOUT erasing the per-source slots.
+
+    The slots live in the same JSON column, written by a different statement
+    (and, with per-host lanes, by a different thread on a different connection).
+    A plain `counters_json = ?` here would take the whole column with an
+    in-memory dict that has never held them — so every source's denominator
+    would vanish at the first source boundary, and the bar would go back to
+    being a fraction of nothing exactly when it started to matter.
+
+    json_patch is RFC-7386 merge semantics: the named keys are replaced, keys it
+    says nothing about (`sources`) are left alone.
+    """
+    conn.execute(
+        "UPDATE crawl_job SET counters_json = "
+        "json_patch(COALESCE(NULLIF(counters_json,''),'{}'), ?) WHERE job_id = ?",
+        (json.dumps(counters, ensure_ascii=False), job_id))
+
+
+def _seed_source_expectations(conn: sqlite3.Connection, job_id: int,
+                             source_keys: Iterable[str]) -> None:
+    """Give every source a denominator BEFORE it starts, where one exists.
+
+    Seeded up front rather than when each source begins, because a job's bar is
+    a fraction of the whole job: with three sources, a denominator that only
+    covered the one currently fetching would read 100% while two sites had not
+    been touched.
+    """
+    from .ingest import last_successful_run
+
+    for source_key in source_keys:
+        previous = last_successful_run(conn, source_key)
+        spent = (previous or {}).get("requests_count") or 0
+        record_source_fetch(
+            conn, job_id, source_key, state="waiting", requests=0,
+            # A previous SUCCESS that spent 0 requests means that run predates
+            # requests_count ever being recorded (ingest.py wrote the column for
+            # the first time on 2026-07-30) — an absence, so it must not become
+            # a denominator of zero.
+            expected=spent or None,
+            basis="estimate" if spent else None,
+            as_of=((previous or {}).get("started_at") or "")[:10] if spent else None)
 
 
 def _as_job(row: sqlite3.Row) -> dict:
@@ -190,6 +345,110 @@ def _merge_counters(counters: dict, result: CaptureResult) -> dict:
 # failure modes (open handles, contended write lock) keep growing. Eight is
 # generous for a manifest of ten sources on ten hosts.
 MAX_PARALLEL_SOURCES = 8
+
+# The same ceiling for whole JOBS. The owner's scheduled crawls are one job per
+# source (scheduler.fire_due), so ten sites firing daily is ten single-source
+# jobs — and within-job lane concurrency does nothing for a job that has one
+# lane. Running the JOBS concurrently is what actually crawls those ten sites at
+# once; this bounds how many at a time, and the per-host reservation below keeps
+# it polite.
+MAX_PARALLEL_JOBS = 8
+
+
+def job_capacity(conn: sqlite3.Connection) -> int:
+    """How many jobs the engine will run at once — the owner's site budget, capped.
+
+    ONE definition, read by the worker that enforces it AND by the API that
+    explains the queue, so the panel can never promise a concurrency the worker
+    will not deliver. At 1 (the shipped default) the engine runs exactly one job
+    at a time and the panel says so.
+    """
+    try:
+        from . import settings
+        width = int(settings.get(conn, "crawl_parallel_sources") or 1)
+    except (ValueError, TypeError, sqlite3.DatabaseError):
+        return 1
+    return max(1, min(width, MAX_PARALLEL_JOBS))
+
+
+# ---- admission: the two rules that make concurrent JOBS safe ----------------
+
+def _host_of(manifest, key: str, fallback: str) -> str:
+    """The politeness identity of a source: its host, www-stripped, lowercased.
+
+    ONE definition, used to bucket lanes AND to reserve a host across jobs — so
+    a source cannot be filed under one host name for grouping and a different
+    one for reservation, which is the crack two jobs would slip through to crawl
+    a site together. A key the manifest cannot resolve gets `fallback`, and the
+    caller passes a value unique to that source so two unknowns never collide.
+    """
+    try:
+        host = urlsplit(manifest.get(key).base_url).netloc.lower()
+    except Exception:  # noqa: BLE001 — resolved, and reported, per source
+        return fallback
+    return host.removeprefix("www.") or fallback
+
+
+class _CrawlAdmission:
+    """The rules that let several JOBS crawl at once without a site feeling it.
+
+    Held by the worker and shared — the SAME object — by every concurrent job.
+    That sharing is the whole point: a rule that lived inside one job could only
+    ever govern that job's own lanes, and the risk here is precisely the one
+    that spans jobs. A lane handed no admission (the sequential default, every
+    test, the CLI) admits itself and the code path is exactly as it was.
+
+    per-host reservation
+        Two lanes on one host serialise, whichever JOB each belongs to. This is
+        the rule `_host_lanes` already enforces inside a job — that two sources
+        of one site never run together — lifted to span jobs, so a scheduled
+        crawl and a hand-started one of the same site cannot double the load it
+        asked to be spared. This is the safety property the task calls the whole
+        risk, and the test `two jobs never crawl one host together` pins it.
+
+    budget
+        At most N sites crawl at once across the ENTIRE engine, N being the
+        owner's existing "Sites crawled at the same time" setting. Without it, J
+        concurrent jobs of W lanes each would open J×W sessions at once and the
+        setting would bound nothing.
+    """
+
+    def __init__(self, budget: int | None) -> None:
+        self._budget = threading.Semaphore(budget) if budget and budget > 0 else None
+        self._hosts: dict[str, threading.Lock] = {}
+        self._guard = threading.Lock()
+
+    def _host_lock(self, host: str) -> threading.Lock:
+        with self._guard:
+            lock = self._hosts.get(host)
+            if lock is None:
+                lock = self._hosts[host] = threading.Lock()
+            return lock
+
+    @contextmanager
+    def lane(self, host: str):
+        """Admit one lane to crawl `host`: reserve the host, then take a slot.
+
+        HOST FIRST, THEN SLOT — one global acquisition order, so the wait graph
+        has no cycle and cannot deadlock. Holding an (almost always uncontended,
+        since the owner's hosts are distinct) host reservation while waiting for
+        a slot is harmless; the reverse would let a lane that cannot run yet sit
+        on a scarce slot and starve one that can.
+
+        The reservation and the slot both span the lane's whole run — a host
+        with several sources is one site being crawled, and holds one of each
+        for the duration of its sequential sources.
+        """
+        host_lock = self._host_lock(host) if host else nullcontext()
+        with host_lock:
+            if self._budget is None:
+                yield
+                return
+            self._budget.acquire()
+            try:
+                yield
+            finally:
+                self._budget.release()
 
 
 # ---- lanes: concurrency that a site can never feel --------------------------
@@ -238,11 +497,7 @@ def _host_lanes(manifest, source_keys: list[str]) -> list[list[str]]:
     """
     lanes: dict[str, list[str]] = {}
     for index, key in enumerate(source_keys):
-        try:
-            host = urlsplit(manifest.get(key).base_url).netloc.lower()
-        except Exception:  # noqa: BLE001 — resolved, and reported, per source
-            host = f"?{index}"
-        lanes.setdefault(host.removeprefix("www.") or f"?{index}", []).append(key)
+        lanes.setdefault(_host_of(manifest, key, f"?{index}"), []).append(key)
     return list(lanes.values())
 
 
@@ -266,32 +521,51 @@ def _parallel_width(conn: sqlite3.Connection, connect, lanes: int) -> int:
     return max(1, min(width, lanes, MAX_PARALLEL_SOURCES))
 
 
-def _drive_lanes(run: _SourceRun, lanes: list[list[str]], width: int, connect) -> None:
-    """Run each lane to completion; lanes concurrently when asked."""
+def _drive_lanes(run: _SourceRun, lanes: list[list[str]], width: int, connect,
+                 admission: "_CrawlAdmission | None" = None) -> None:
+    """Run each lane to completion; lanes concurrently when asked.
+
+    `admission` (when present) is the cross-job gate every lane passes through —
+    it is threaded down here rather than consulted per source, because a lane is
+    already one host's worth of work and the reservation is a fact about the
+    host, not the source. width<=1 is NOT a shortcut past it: a single-lane job
+    still competes with OTHER jobs for the same host and the same budget, so it
+    is admitted the same way, just without an executor of its own.
+    """
     if width <= 1:
         for lane in lanes:
-            _run_lane(run, lane, None)
+            _run_lane(run, lane, None, admission)
         return
     with ThreadPoolExecutor(max_workers=width,
                             thread_name_prefix="scrapex-lane") as pool:
-        futures = [pool.submit(_run_lane, run, lane, connect) for lane in lanes]
+        futures = [pool.submit(_run_lane, run, lane, connect, admission)
+                   for lane in lanes]
         for future in futures:
             future.result()      # a lane that raised must not vanish silently
 
 
-def _run_lane(run: _SourceRun, lane: list[str], connect) -> None:
-    """One host's sources, strictly in order, on a connection of this lane's own."""
-    conn = connect() if connect is not None else run.conn
-    try:
-        for source_key in lane:
-            with run.lock:
-                if run.stopped is not None:
-                    return          # another lane already hit the brakes
-            if not _run_source(run, conn, source_key):
-                return
-    finally:
-        if connect is not None:
-            conn.close()
+def _run_lane(run: _SourceRun, lane: list[str], connect,
+              admission: "_CrawlAdmission | None" = None) -> None:
+    """One host's sources, strictly in order, on a connection of this lane's own.
+
+    The admission is acquired around the WHOLE lane, held across its sequential
+    sources: they are all the same site, and reserving it once is what stops
+    another job's lane touching that site until this one is done with it.
+    """
+    host = _host_of(run.manifest, lane[0], lane[0]) if lane else ""
+    admit = admission.lane(host) if admission is not None else nullcontext()
+    with admit:
+        conn = connect() if connect is not None else run.conn
+        try:
+            for source_key in lane:
+                with run.lock:
+                    if run.stopped is not None:
+                        return          # another lane already hit the brakes
+                if not _run_source(run, conn, source_key):
+                    return
+        finally:
+            if connect is not None:
+                conn.close()
 
 
 def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> bool:
@@ -320,7 +594,9 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
 
     _update(conn, run.job_id, status=JobStatus.RUNNING.value, stage=JobStage.FETCHING.value,
             current_source_key=source_key, last_heartbeat_at=utc_now_iso())
+    record_source_fetch(conn, run.job_id, source_key, state="fetching")
     conn.commit()
+    spent: int | None = None      # requests this source cost, once it is known
     try:
         entry = run.manifest.get(source_key)
         previous = previous_rows_seen(conn, source_key)
@@ -341,6 +617,7 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
             extras["resume"] = True
         result = (run.capture(conn, entry, run.job_id, **extras) if extras
                   else run.capture(conn, entry, run.job_id))
+        spent = int(result.requests_count)
         _merge_counters(run.counters, result)
         append_log(conn, run.job_id,
                    f"{result.ingest.observations} observations, "
@@ -445,10 +722,21 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
         append_log(conn, run.job_id, f"failed: {exc}", level=LogLevel.ERROR, source_key=source_key)
 
     run.done.append(source_key)
+    # This source is history now, so its expectation becomes its actual count:
+    # a finished source contributes a MEASUREMENT to the job's denominator, and
+    # leaving a guess in there would keep the job's total wrong for the rest of
+    # the run. `requests` is left as the final figure for display; the job-wide
+    # numerator stops counting this slot and reads the merged total instead
+    # (see _job_view), so nothing is double-counted.
+    record_source_fetch(conn, run.job_id, source_key, state="done",
+                        **({"requests": int(spent), "expected": int(spent),
+                            "basis": "measured", "as_of": None}
+                           if spent is not None else {}))
     _update(conn, run.job_id, progress_done=len(run.done),
             checkpoint_json=json.dumps({"completed_source_keys": run.done,
                                         "errors": run.errors, "succeeded": run.succeeded}),
-            counters_json=json.dumps(run.counters), last_heartbeat_at=utc_now_iso())
+            last_heartbeat_at=utc_now_iso())
+    _merge_counters_column(conn, run.job_id, run.counters)
     conn.commit()
     return True
 
@@ -458,7 +746,8 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
 def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                  capture: Callable[[sqlite3.Connection, object], CaptureResult] = capture_source,
                  backup: Callable[[], object] | None = None,
-                 connect: Callable[[], sqlite3.Connection] | None = None) -> dict:
+                 connect: Callable[[], sqlite3.Connection] | None = None,
+                 admission: "_CrawlAdmission | None" = None) -> dict:
     """Execute one job to completion, or until a pause/cancel boundary.
 
     `connect` opens a database connection of the caller's choosing. It is the
@@ -467,6 +756,12 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     across threads, and an in-memory database could not be reopened anyway.
     Omit it (every test does) and the job runs one source at a time exactly as
     it always has, whatever crawl_parallel_sources says.
+
+    `admission` is the CROSS-JOB gate: when the worker runs several jobs at
+    once, it hands every one the SAME admission, and that shared object is what
+    keeps two jobs off one host and bounds the total sites in flight. Omit it
+    and the job answers to no one but itself — which is every caller that runs a
+    job alone.
 
     Still the testable seam, and still synchronous from the caller's side: it
     returns when the job has reached a boundary, threads or no threads.
@@ -483,6 +778,11 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     checkpoint = job["checkpoint"]
     done: list[str] = list(checkpoint.get("completed_source_keys", []))
     counters: dict = job["counters"]
+    # The per-source slots are NOT aggregate counters and must not ride in this
+    # dict: they are written per source, from per-lane connections, straight into
+    # the column. Carried here they would be re-written stale at every boundary
+    # by whichever lane finished last.
+    counters.pop(SOURCES_KEY, None)
     # Failures must survive a pause the same way counters do — rehydrating them
     # from the checkpoint is what stops a resumed job that already lost a source
     # from reporting a clean COMPLETED.
@@ -530,7 +830,15 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     # entries share a host, concurrency would double the load we put on it and
     # halve the delay it asked for. Sources are bucketed into per-host LANES;
     # lanes run concurrently, and within a lane strictly in order.
-    lanes = _host_lanes(manifest, [k for k in job["source_keys"] if k not in done])
+    pending = [k for k in job["source_keys"] if k not in done]
+    # Every pending source gets whatever denominator exists BEFORE it starts, so
+    # the bar has something true to be a fraction of from the first second
+    # rather than after the first source finishes. Sources that have never
+    # succeeded get `expected: null`, which the panel reads as "the total is not
+    # known yet" — not as zero.
+    _seed_source_expectations(conn, job_id, pending)
+    conn.commit()
+    lanes = _host_lanes(manifest, pending)
     width = _parallel_width(conn, connect, len(lanes))
     run = _SourceRun(conn=conn, job=job, job_id=job_id, manifest=manifest,
                      capture=capture, rebuilding=rebuilding, checkpoint=checkpoint,
@@ -540,7 +848,7 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
         append_log(conn, job_id,
                    f"crawling {len(lanes)} site(s), up to {width} at a time")
         conn.commit()
-    _drive_lanes(run, lanes, width, connect)
+    _drive_lanes(run, lanes, width, connect, admission)
     done, errors, counters = run.done, run.errors, run.counters
     succeeded = run.succeeded
     if run.stopped is not None:
@@ -768,10 +1076,20 @@ def _finish(conn: sqlite3.Connection, job_id: int, status: JobStatus, error_summ
 # ---- the background worker ---------------------------------------------------
 
 class JobRunner:
-    """One worker thread draining queued jobs. Owns the only long-running writes.
+    """One poll loop that dispatches queued jobs, running several at once.
 
-    Deliberately single-threaded: it keeps the single-writer topology (A10) and
-    makes 'one crawl at a time' the default the OS never has to fight over.
+    The LOOP is single-threaded and owns scheduling, the heartbeat and the rate
+    refresh. Each JOB runs on its own thread with its own connection, up to the
+    owner's "Sites crawled at the same time" setting — so ten single-source
+    schedules firing together crawl ten sites at once instead of nine waiting on
+    one. The single-WRITER invariant (A10) is unchanged: it was never the single
+    thread that guaranteed it — the process-wide write lock did, and it now
+    serialises those job threads' ingests the same way it always serialised the
+    crawl against the HTTP process. Two jobs never touch one site together
+    because every lane passes the shared _CrawlAdmission's per-host reservation.
+
+    At budget 1 (the shipped default) this is exactly one job at a time, byte
+    for byte the old behaviour; raising the setting is what turns it on.
     """
 
     def __init__(self, db_path, manifest_provider: Callable[[], object],
@@ -789,6 +1107,11 @@ class JobRunner:
         self._stop = threading.Event()
         self._reopen = threading.Event()   # a restore needs our file handle gone
         self._thread: threading.Thread | None = None
+        # job_ref -> its running thread. The loop launches into this and reaps
+        # from it; the SAME admission below is shared by every job in it, which
+        # is the only way its per-host rule can span jobs rather than one.
+        self._running: dict[str, threading.Thread] = {}
+        self._admission: _CrawlAdmission | None = None
 
     def start(self) -> None:
         if self._thread is not None:
@@ -926,7 +1249,6 @@ class JobRunner:
         try:
             reclaim_orphaned_jobs(conn)     # a previous runtime may have died mid-run
             while not self._stop.wait(self._poll_interval_s):
-                job_ref = None
                 try:
                     if conn is None:
                         # A previous pass released the handle and could not get
@@ -935,14 +1257,21 @@ class JobRunner:
                         # unplugged drive) is usually over by the next poll.
                         conn = dbmod.connect(self._db_path)
                         reclaim_orphaned_jobs(conn)
-                    try:
-                        conn = self._follow_the_warehouse(conn)
-                    except BaseException:
-                        # The old handle is closed and the new one never opened.
-                        # Holding the dead object is what turned a passing fault
-                        # into a permanently silent worker, so let it go.
-                        conn = None
-                        raise
+                    self._reap_finished()
+                    # A database move or a restore renames the live file, which
+                    # cannot happen under a live crawl handle — so the reopen
+                    # waits until every job thread has let its connection go.
+                    # This is the same boundary the single-job worker used
+                    # ("between jobs"); with several jobs it is "between waves".
+                    if not self._running:
+                        try:
+                            conn = self._follow_the_warehouse(conn)
+                        except BaseException:
+                            # The old handle is closed and the new one never
+                            # opened. Holding the dead object is what turned a
+                            # passing fault into a permanently silent worker.
+                            conn = None
+                            raise
                     touch_runtime_heartbeat(conn)   # proof of life for enqueue-only clients
                     # Reaching here IS the recovery: the loop is running and
                     # the warehouse is writable. Clearing later would leave an
@@ -954,23 +1283,15 @@ class JobRunner:
                     # alarms cannot be relied on to wake anything.
                     fire_due(conn, manifest=self._manifest_provider())
                     self._refresh_rates(conn)
-                    job_ref = self._next_queued(conn)
-                    if job_ref is None:
-                        continue
-                    run_job_once(conn, job_ref, self._manifest_provider(),
-                                 capture=self._capture or self._locked_capture,
-                                 backup=lambda: backup_database(self._db_path),
-                                 # Only the worker knows a real path to reopen,
-                                 # so only the worker can offer concurrency.
-                                 connect=lambda: dbmod.connect(self._db_path))
-                except Exception as exc:  # noqa: BLE001 — survive any one job...
-                    # ...but NEVER silently. Swallowing this used to leave the job
+                    self._dispatch(conn)
+                except Exception as exc:  # noqa: BLE001 — survive any one pass...
+                    # ...but NEVER silently. Swallowing this used to leave a job
                     # 'running' forever (blocking its source's schedules) or spin
                     # the loop on it at poll speed with nothing written anywhere.
+                    # A job that blew up records and parks ITSELF (see _start_job);
+                    # this handler is for the loop's own scheduling work.
                     traceback.print_exc(file=sys.stderr)
                     self._record_failure(conn, exc)
-                    if job_ref is not None and conn is not None:
-                        self._fail_orphan(conn, job_ref, exc)
         except BaseException as exc:  # noqa: BLE001
             # The loop itself is gone — the connect, the orphan reclaim, or
             # anything the inner handler could not hold. This is the case
@@ -985,6 +1306,92 @@ class JobRunner:
         finally:
             if conn is not None:
                 conn.close()
+
+    # ---- concurrent job dispatch --------------------------------------------
+
+    def _reap_finished(self) -> None:
+        """Drop the threads of jobs that have returned. Cheap; every poll.
+
+        A finished job thread has already recorded its own outcome and closed
+        its own connection (see _start_job); reaping is only bookkeeping, so the
+        wave can shrink and let the next queued job in.
+        """
+        for job_ref, thread in list(self._running.items()):
+            if not thread.is_alive():
+                thread.join()
+                del self._running[job_ref]
+
+    def _next_startable(self, conn: sqlite3.Connection) -> str | None:
+        """The lowest-id queued job that is not already in flight.
+
+        Membership in `_running` — not a status flip — is what stops the same
+        job being picked twice in the window before its thread sets 'preparing'.
+        That keeps run_job_once the single place a job's status changes, so its
+        careful "control is not cleared here" invariant is never second-guessed
+        from the loop.
+        """
+        running = set(self._running)
+        for row in conn.execute(
+                "SELECT job_ref FROM crawl_job WHERE status = ? ORDER BY job_id",
+                (JobStatus.QUEUED.value,)):
+            if row[0] not in running:
+                return row[0]
+        return None
+
+    def _dispatch(self, conn: sqlite3.Connection) -> None:
+        """Fill the wave up to the budget with queued jobs.
+
+        A reopen pending means a rename is waiting on our handles, so nothing new
+        starts until the wave drains — see the loop. The admission is created
+        once per wave and reused while any job runs, because a NEW admission per
+        job would give each its own host locks and the cross-job rule would
+        govern nothing. Its budget is re-read only when the wave is empty, so a
+        setting change takes effect between waves rather than mid-crawl.
+        """
+        if str(self._path_provider()) != str(self._db_path) or self._reopen.is_set():
+            return
+        capacity = job_capacity(conn)
+        if not self._running or self._admission is None:
+            self._admission = _CrawlAdmission(capacity)
+        while len(self._running) < capacity:
+            job_ref = self._next_startable(conn)
+            if job_ref is None:
+                return
+            self._start_job(job_ref, self._admission)
+
+    def _start_job(self, job_ref: str, admission: _CrawlAdmission) -> None:
+        """Run one job on its own thread, with its own connection.
+
+        A job thread cannot borrow the loop's connection (sqlite3 forbids one
+        across threads), so it opens and closes its own. It records and parks
+        ITSELF on failure — the loop's handler cannot, because the loop no longer
+        waits on the job. Registered in `_running` BEFORE it starts so the very
+        next poll cannot re-pick it.
+        """
+        def run() -> None:
+            conn = None
+            try:
+                conn = dbmod.connect(str(self._db_path))
+                run_job_once(conn, job_ref, self._manifest_provider(),
+                             capture=self._capture or self._locked_capture,
+                             backup=lambda: backup_database(self._db_path),
+                             # Only the worker knows a real path to reopen, so
+                             # only the worker can offer concurrency.
+                             connect=lambda: dbmod.connect(str(self._db_path)),
+                             admission=admission)
+            except Exception as exc:  # noqa: BLE001 — one job never takes the loop with it
+                traceback.print_exc(file=sys.stderr)
+                self._record_failure(conn, exc)
+                if conn is not None:
+                    self._fail_orphan(conn, job_ref, exc)
+            finally:
+                if conn is not None:
+                    conn.close()
+
+        thread = threading.Thread(target=run, name=f"scrapex-job-{job_ref}",
+                                  daemon=True)
+        self._running[job_ref] = thread
+        thread.start()
 
     def _record_failure(self, conn: sqlite3.Connection | None, exc: BaseException) -> None:
         """Write the failure even when the worker no longer holds a connection.

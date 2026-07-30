@@ -36,6 +36,22 @@
         {# The English name reads on its own line, the way the table flips
            AR|EN — dir="ltr" because it IS English, whatever the line above is
            written in. Nothing at all when the site has one name only. #}
+        {# The freshness of the data — the first thing anyone asks, and the fact
+           the card was missing. A READ-OUT only (this is the web UI): when it
+           was last gathered, and one honest measure of it. Every number states
+           what it is. #}
+        <span class="dataset-choice-detail" data-dataset-fresh>
+          {% if s.last_success %}
+          <small class="dataset-choice-state">
+            Last crawled {{ (s.last_success.started_at or "")[:16]|replace("T", " ") }} UTC
+            {%- if s.last_success.rows_seen %} · {{ "{:,}".format(s.last_success.rows_seen) }} rows seen
+            {%- elif s.last_success.requests_count %} · {{ "{:,}".format(s.last_success.requests_count) }} requests
+            {%- endif %}
+          </small>
+          {% else %}
+          <small class="dataset-choice-state">Has data, but no crawl has succeeded yet</small>
+          {% endif %}
+        </span>
       </a>
       {% endfor %}
     </section>

@@ -185,8 +185,10 @@ def test_a_running_jobs_row_gains_a_pulse_during_the_fetch(conn):
 
     row = conn.execute("SELECT counters_json, last_heartbeat_at FROM crawl_job "
                        "WHERE job_id=?", (job_id,)).fetchone()
-    assert json.loads(row["counters_json"])["requests"] == 120, \
-        "the Requests figure the panel shows never moved"
+    slot = json.loads(row["counters_json"])["sources"]["GPP_ENERGY"]
+    assert slot["requests"] == 120, \
+        "the progress figure the panel shows never moved"
+    assert slot["state"] == "fetching"
     assert row["last_heartbeat_at"], "no pulse — a watchdog reads this as a hang"
     lines = [entry["message"] for entry in job_logs(conn, job_ref)]
     assert "fetching — 50 requests so far" in lines
