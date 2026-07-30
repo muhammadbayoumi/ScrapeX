@@ -292,7 +292,7 @@ const SYNC_MAX_ROWS = 40000;
  * Both numbers, and the ledger below, are mirrored from scrapex/payload.py and
  * pinned to it by tests/test_payload_compat.py — they cannot drift silently.
  * ========================================================================== */
-const SYNC_PAYLOAD_VERSION = 7;
+const SYNC_PAYLOAD_VERSION = 8;
 const SYNC_PAYLOAD_COMPAT_VERSION = 5;
 const SYNC_PAYLOAD_COMPAT_MIN_VERSION = 5;
 
@@ -305,7 +305,7 @@ const SYNC_PAYLOAD_COMPAT_MIN_VERSION = 5;
  * existed — this table is how they are still understood as generation 5 and
  * keep publishing, instead of every tab going stale the day this file is
  * pasted. */
-const SYNC_GENERATION_OF_VERSION = { "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 5, "7": 5 };
+const SYNC_GENERATION_OF_VERSION = { "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 5, "7": 5, "8": 5 };
 
 /* The GAS mirror of payload.compat_generation(). null when unknowable: a
  * version this script has never heard of, from a build newer than this file,

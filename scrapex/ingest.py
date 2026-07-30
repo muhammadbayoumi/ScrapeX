@@ -559,6 +559,25 @@ def _quantity_facts(r: dict) -> dict:
     stated = str(r.get("quantity_is_decimal", "") or "").strip()
     if stated:
         facts["quantity_is_decimal"] = 1 if stated == "1" else 0
+    # THE WEIGHT, AND ONLY WITH ITS UNIT (0057). The two are stored together or
+    # not at all: a bare 1000 in a column is not a fact, and the display layer
+    # would then be free to supply the missing word itself — which is the one
+    # thing this whole change exists to prevent. So a source that publishes a
+    # weight and will not say what unit it is in stores neither, exactly as
+    # normalize.selling_unit_from says nothing when a name and a weight
+    # disagree.
+    #
+    # canonical_unit folds the spelling the same way the SELLING unit is
+    # already folded ("kgs" -> "kg" via _UNIT_ALIASES). That is not editing
+    # source truth — it is the shared spelling table this warehouse has always
+    # run every unit through, and without it "kgs" and "kg" would be two units
+    # for one kilogram.
+    weight = _optional_quantity(r.get("weight", ""))
+    weight_unit = canonical_unit(str(r.get("weight_unit", "") or ""),
+                                 r.get("currency", ""))
+    if weight is not None and weight_unit:
+        facts["weight"] = weight
+        facts["weight_unit"] = weight_unit
     return facts
 
 
