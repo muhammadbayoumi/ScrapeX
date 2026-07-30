@@ -22,8 +22,12 @@ from scrapex.config import MANIFEST_FILE, ExtractSpec, SourceEntry, load_manifes
 from scrapex.connectors.hybris import HybrisOccConnector
 from scrapex.connectors.hybris import enrichment_rows as hybris_images
 from scrapex.connectors.jsonld import parse_product_jsonld
+# Shared by salla AND zid since 00c81a2 — the third argument is the product id,
+# not the page URL, because the id is the one thing the two families disagree
+# about. Imported from its real home so a future move is a visible test change.
+from scrapex.connectors.jsonld import enrichment_rows as jsonld_images
 from scrapex.connectors.magento import _enrichment_rows as magento_rows
-from scrapex.connectors.salla import enrichment_rows as salla_images
+from scrapex.connectors.salla import _salla_id
 from scrapex.connectors.shopify import ShopifyConnector
 from scrapex.connectors.shopify import enrichment_rows as shopify_images
 from scrapex.rowspec import ENRICHMENT, RowBuilder, RowView
@@ -133,8 +137,12 @@ IMAGE_CAPABLE_FAMILIES = {
     "hybris-occ",             # hybris.py
     "custom-json-api",        # custom_json.py
     "woocommerce-storeapi",   # woocommerce.py
-    # NOT zid-html: zid.py has no image path yet, and ADVANCEDCASTLE is being
-    # fixed in another session. Add it when that lands.
+    # zid.py gained its image path in 00c81a2 (ADVANCEDCASTLE, 0/168 -> 168/168),
+    # which also moved salla's reader into jsonld.py for the two SSR families to
+    # share. Added here on merging that work, because a family whose connector
+    # can capture images and is NOT listed is a family this guard silently stops
+    # watching — the exact failure mode that let ELBUROJ through.
+    "zid-html",               # zid.py, via jsonld.py
 }
 
 
@@ -166,16 +174,18 @@ def test_both_salla_sources_declare_it_not_just_the_one_we_noticed():
 def test_elburoj_page_publishes_an_image_the_connector_already_reads():
     """Proven from the captured page — no request was made to elburoj, which
     was mid-crawl. The connector code needs no change; the manifest did."""
+    url = "https://elburoj.com/ar/x/p543555922"
     html = (LIVE / "salla_elburoj_product_priced_p543555922.html").read_text(
         encoding="utf-8")
     node = parse_product_jsonld(html)
 
-    rows = pictures(shaped(salla_images(
-        RowBuilder(ENRICHMENT), node, "https://elburoj.com/ar/x/p543555922")))
+    rows = pictures(shaped(jsonld_images(
+        RowBuilder(ENRICHMENT), node, _salla_id(url, node))))
 
     assert [r["attribute_code"] for r in rows] == ["image"]
     assert rows[0]["value_url"].startswith("https://cdn.salla.sa/")
     assert rows[0]["attribute_group"] == DetailGroup.MEDIA.value
+    assert rows[0]["external_product_id"] == "543555922"
 
 
 def test_alsweed_page_json_ld_yields_the_picture_the_site_publishes():
@@ -184,17 +194,21 @@ def test_alsweed_page_json_ld_yields_the_picture_the_site_publishes():
     Read from the captured PAGE through the shared parser, so this exercises
     the path the crawl actually takes rather than a hand-picked node.
     """
+    url = "https://alsweed.sa/ar/x/p698258674"
     html = (LIVE / "salla_alsweed_product_priced_p698258674.html").read_text(
         encoding="utf-8")
     node = parse_product_jsonld(html)
 
-    rows = pictures(shaped(salla_images(
-        RowBuilder(ENRICHMENT), node, "https://alsweed.sa/ar/x/p698258674")))
+    rows = pictures(shaped(jsonld_images(
+        RowBuilder(ENRICHMENT), node, _salla_id(url, node))))
 
     assert [r["attribute_code"] for r in rows] == ["image"]
     assert rows[0]["value_url"] == node["image"]
     assert rows[0]["value_url"].startswith("https://cdn.salla.sa/")
     assert rows[0]["attribute_group"] == DetailGroup.MEDIA.value
+    # The id is salla's numeric /p{id}, not the URL — the argument that
+    # changed when this reader moved into jsonld.py for zid to share.
+    assert rows[0]["external_product_id"] == "698258674"
 
 
 # --------------------------------------------------------------------------
