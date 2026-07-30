@@ -308,7 +308,21 @@ class ZidConnector:
         return rates, notes
 
     def _product_urls(self, sitemap_url: str, tally: WalkTally) -> list[str]:
-        """Zid's rule for what a product URL is; the walking is shared."""
+        """Zid's rule for what a product URL is; the walking is shared.
+
+        NO expect_requests HERE, deliberately, and salla's identical-looking
+        method does declare one. The frontier is equally known; the COST of it
+        is not. A zid product page may advertise an English alternate, and
+        _english_node then spends a second request on it — per product, decided
+        by that product's own head. A bilingual store costs up to twice this
+        list and an Arabic-only one costs exactly it, and nothing here can tell
+        which until the pages arrive.
+
+        Declaring the list anyway would put a denominator on screen that the
+        numerator sails past halfway through every bilingual crawl. The panel's
+        estimate — this source's last successful run, which DID pay for those
+        English pages — is the better number, and it says it is an estimate.
+        """
         return sitemap_products(
             self._fetcher, sitemap_url, lambda url: _PRODUCT_PATH in url,
             unreadable_children=tally.unreadable_children)

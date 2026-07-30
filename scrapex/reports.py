@@ -34,6 +34,12 @@ class SourceSummary:
     curation: dict[str, int] = field(default_factory=dict)
     last_run: str | None = None
     last_status: str | None = None
+    # The last run that actually SUCCEEDED, and what it measured — the freshness
+    # of the data on screen, which is the first thing anyone asks and the one
+    # fact the source cards were missing. None means it has never succeeded, a
+    # real answer the card must state rather than paper over. Shape is
+    # ingest.last_successful_run's dict.
+    last_success: dict | None = None
     # unified layer (post-curation)
     matched_variants: int = 0
     published_rows: int = 0
@@ -71,6 +77,11 @@ def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary |
         "ORDER BY started_at DESC LIMIT 1", (source_id,)).fetchone()
     if run is not None:
         s.last_run, s.last_status = run[0], run[1]
+    # The last SUCCESS, which is a different question from the last run: a source
+    # whose most recent crawl failed still has data, and its freshness is the
+    # date of the last good one. The ONE reader both this page and the panel use.
+    from .ingest import last_successful_run
+    s.last_success = last_successful_run(conn, source_key)
 
     s.matched_variants = _scalar(conn,
         "SELECT COUNT(*) FROM source_variant_match svm "

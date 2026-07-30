@@ -37,8 +37,8 @@ from ..databases import (
     DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
     DatabaseUnavailableError, GeneralDatabase, MarketLensDatabase,
 )
-from ..jobs import (JobRunner, create_job, get_job, job_logs, list_jobs,
-                    set_control, worker_health)
+from ..jobs import (JobRunner, create_job, get_job, job_log_count, job_logs,
+                    list_jobs, set_control, worker_health)
 from ..fields import (
     delete_view, ensure_fields, list_fields, list_views, promotable_attributes,
     reorder, reset_view, save_view, set_display_name, set_promotion,
@@ -959,9 +959,13 @@ def create_app(
         try:
             jobs = list_jobs(conn, limit=50)
             job_ref = job_ref or (jobs[0]["job_ref"] if jobs else None)
+            # Every entry, same as the panel and the API: this page's whole job
+            # is reading why a run went wrong, and the line that says so is
+            # exactly the one a tail drops.
             return _page(request, "logs.html", "logs", None,
                          jobs=[_job_view(j) for j in jobs], job_ref=job_ref,
-                         entries=job_logs(conn, job_ref) if job_ref else [])
+                         entries=job_logs(conn, job_ref) if job_ref else [],
+                         entry_total=job_log_count(conn, job_ref) if job_ref else 0)
         finally:
             conn.close()
 
@@ -1134,6 +1138,11 @@ def create_app(
                 "fold_variants": entry.fold_variants,
                 "observations": s.observations if s else 0,
                 "products": s.products if s else 0,
+                # When the data on screen was last actually gathered, and by what
+                # measure — the freshness fact the cards were missing. None where
+                # a source has never had a successful crawl, which the card says
+                # in words rather than showing a blank or a zero.
+                "last_success": s.last_success if s else None,
                 # An interrupted crawl's pages, still on disk. A resume skips
                 # exactly these; a fresh run deletes them (capture.py).
                 "kept_pages": kept["pages"],
@@ -2322,20 +2331,25 @@ def create_app(
         conn = read_conn()
         try:
             jobs = list_jobs(conn, limit=limit, active_only=active_only)
+            # A queued job needs to say WHY it is queued, and that answer is not
+            # in its own row: it is in the row of the job holding the worker.
+            # Computed here, where the whole list is in hand.
+            queue = _queue_state(conn)
         finally:
             conn.close()
-        return {"jobs": [_job_view(j) for j in jobs]}
+        return {"jobs": [_job_view(j, queue) for j in jobs], "queue": queue}
 
     @app.get("/api/jobs/{job_ref}")
     def api_get_job(job_ref: str):
         conn = read_conn()
         try:
             job = get_job(conn, job_ref)
+            queue = _queue_state(conn) if job is not None else None
         finally:
             conn.close()
         if job is None:
             raise HTTPException(status_code=404, detail=f"unknown job {job_ref!r}")
-        return _job_view(job)
+        return _job_view(job, queue)
 
     @app.post("/api/jobs/{job_ref}/control")
     def api_control_job(job_ref: str, body: dict):
@@ -2358,15 +2372,31 @@ def create_app(
         return _job_view(job)
 
     @app.get("/api/jobs/{job_ref}/logs")
-    def api_job_logs(job_ref: str, limit: int = 200):
+    def api_job_logs(job_ref: str, limit: int | None = None):
+        """Every entry by default.
+
+        THE CAP WAS IN TWO PLACES and removing either alone changes nothing.
+        The panel asked for `?limit=200` (app.js) and this route then clamped
+        whatever it was given to 200 as well — so a run whose 400th log line
+        explains the failure had that line silently discarded twice over, under
+        a heading that read "Last 200 log entries" as though 200 were all there
+        were.
+
+        `total` travels with the entries so the panel can state what it is
+        showing out of what exists, and an explicit `limit` still works for a
+        caller that genuinely wants a tail.
+        """
         conn = read_conn()
         try:
             if get_job(conn, job_ref) is None:
                 raise HTTPException(status_code=404, detail=f"unknown job {job_ref!r}")
-            entries = job_logs(conn, job_ref, limit=min(max(limit, 1), 200))
+            entries = job_logs(conn, job_ref,
+                               limit=None if limit is None else max(int(limit), 1))
+            total = job_log_count(conn, job_ref)
         finally:
             conn.close()
-        return {"job_ref": job_ref, "entries": entries}
+        return {"job_ref": job_ref, "entries": entries, "total": total,
+                "truncated": len(entries) < total}
 
     @app.post("/api/capture")
     def api_capture(body: dict):
@@ -2407,7 +2437,133 @@ def _is_implemented(entry) -> bool:
     return entry.family in _BUILDERS
 
 
-def _job_view(job: dict) -> dict:
+# Which basis wins when a job's denominator is assembled from several sources.
+# A total that mixes a measurement with an estimate IS an estimate — the weakest
+# contributor names the whole, because claiming otherwise is how an undated guess
+# gets displayed as a fact.
+_BASIS_RANK = {"measured": 0, "declared": 1, "estimate": 2}
+
+
+def _fetch_progress(job: dict) -> dict:
+    """Requests fetched, what that is a fraction OF, and where the total came from.
+
+    THE ONE PLACE this is computed. The panel's bar, its counters and the web
+    Jobs page all read this, so they cannot drift into disagreeing about how far
+    along a crawl is — and there is exactly one definition of the numerator to
+    get wrong.
+
+    `progress_total` (the number of SOURCES) is not this and never was: a
+    one-source job is 0/1 for its whole duration, which is the 0% the owner
+    watched for 18 minutes while 1,030 requests succeeded behind it. Sites done
+    remains reported, separately and honestly, as its own count.
+
+    `expected` is None when nothing knows the total — a source's first ever
+    crawl. Callers MUST render that as unknown; a bar drawn at 0% against it is
+    the original defect.
+    """
+    counters = job.get("counters") or {}
+    slots = counters.get("sources") or {}
+    # Sources already merged at their boundary, plus whatever the ones still
+    # fetching have counted so far. A finished source is in the merged total, so
+    # its slot is deliberately not added again.
+    merged = int(counters.get("requests") or 0)
+    in_flight = sum(int((slot or {}).get("requests") or 0)
+                    for slot in slots.values()
+                    if (slot or {}).get("state") == "fetching")
+    requests = merged + in_flight
+
+    expectations = [slot for slot in slots.values()
+                    if slot and slot.get("expected")]
+    unknown = [key for key, slot in slots.items()
+               if not (slot or {}).get("expected")]
+    expected = sum(int(slot["expected"]) for slot in expectations) or None
+    basis = None
+    as_of = None
+    if expected is not None:
+        basis = max((slot.get("basis") or "estimate" for slot in expectations),
+                    key=lambda name: _BASIS_RANK.get(name, 2))
+        # The OLDEST date among the estimates, because an estimate is only as
+        # fresh as its stalest part.
+        dates = sorted(slot["as_of"] for slot in expectations if slot.get("as_of"))
+        as_of = dates[0] if dates else None
+    return {
+        "requests": requests,
+        "expected": expected,
+        "basis": basis,               # measured | declared | estimate | None
+        "as_of": as_of,               # the estimate's date, when it is one
+        # Sources with no denominator at all. Named so the panel can say which
+        # site it cannot predict rather than quietly leaving it out of the total.
+        "unknown_sources": sorted(unknown),
+        "sources": slots,
+    }
+
+
+def _queue_state(conn) -> dict:
+    """Which jobs hold the worker, and which wait behind them, in firing order.
+
+    The engine runs up to `capacity` jobs at once (jobs.job_capacity — the
+    owner's "Sites crawled at the same time" setting). A second run waits only
+    when that budget is full, and until now the panel said "queued" with no
+    reason at all: the concurrency added in 63dc24b is WITHIN a job across its
+    sources, so a crawl-behind-a-crawl looked like the parallel feature failing.
+
+    Both facts are stated here, from the one place that knows them, so the panel
+    can say "running alongside N others" or "waiting for a slot" and never
+    disagree with what the worker will actually do.
+    """
+    from ..jobs import job_capacity
+
+    capacity = job_capacity(conn)
+    holders = conn.execute(
+        "SELECT job_ref, source_keys FROM crawl_job "
+        "WHERE status IN ('running','preparing','resuming','pausing','cancelling') "
+        "ORDER BY job_id").fetchall()
+    waiting = conn.execute(
+        "SELECT job_ref, source_keys FROM crawl_job WHERE status = 'queued' "
+        "ORDER BY job_id").fetchall()
+    return {
+        "capacity": capacity,
+        "running": [{"job_ref": row[0], "source_keys": json.loads(row[1] or "[]")}
+                    for row in holders],
+        # Position 1 is the next job to start. A slot is free the moment fewer
+        # than `capacity` jobs are running, and the worker fills it on its next
+        # poll (half a second) — so a job whose position is within the free slots
+        # is starting now, not waiting.
+        "waiting": [{"job_ref": row[0], "source_keys": json.loads(row[1] or "[]"),
+                     "position": index + 1}
+                    for index, row in enumerate(waiting)],
+    }
+
+
+def _queued_behind(job: dict, queue: dict | None) -> dict | None:
+    """What this queued job is waiting for, or None if it is not waiting.
+
+    Everything here is a fact from the queue, never a reassurance: which jobs
+    hold the budget, which sites they are crawling, this job's place in line, and
+    whether a slot is already free for it (the worker starts it on the next
+    poll). The panel turns it into a sentence; nothing invents a finish time for
+    a job ahead, because that job's own denominator may be unknown and a
+    made-up wait is worse than an honest "when a slot frees".
+    """
+    if queue is None or job["status"] != JobStatus.QUEUED.value:
+        return None
+    mine = next((item for item in queue["waiting"]
+                 if item["job_ref"] == job["job_ref"]), None)
+    if mine is None:
+        return None
+    free_slots = max(0, queue["capacity"] - len(queue["running"]))
+    return {
+        "position": mine["position"],
+        "capacity": queue["capacity"],
+        "running_count": len(queue["running"]),
+        "running": queue["running"],
+        # True when this job is within the free slots — it is not really waiting,
+        # it starts on the next poll. The panel must not call that "queued".
+        "starting_now": mine["position"] <= free_slots,
+    }
+
+
+def _job_view(job: dict, queue: dict | None = None) -> dict:
     """The shape the side panel polls: aggregated progress only (spec 25) — never
     raw records, and everything needed to redraw the mini-player from scratch
     after the panel was closed."""
@@ -2420,8 +2576,15 @@ def _job_view(job: dict) -> dict:
         "source_keys": job["source_keys"],
         "current_source_key": job["current_source_key"],
         "stage": job["stage"],
-        "progress": {"done": done, "total": total,
-                     "percent": round(done / total * 100) if total else 0},
+        # SITES done, which is all this ever measured. It keeps its name and
+        # loses the percentage: 0/1 is a true statement about a one-source job
+        # and "0%" was not.
+        "progress": {"done": done, "total": total},
+        # PAGES fetched against a stated denominator — what the bar draws.
+        "fetch": _fetch_progress(job),
+        # Why this job is not moving, when it is not. None for the job that holds
+        # the worker and for anything already finished.
+        "queued_behind": _queued_behind(job, queue),
         "counters": job["counters"],
         "created_at": job["created_at"],
         "started_at": job["started_at"],

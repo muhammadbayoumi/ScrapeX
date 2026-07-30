@@ -3089,44 +3089,26 @@
   // ---- export ---------------------------------------------------------------
   function wireExport() {
     if (!toolbar) return;
-    const menu = toolbar.querySelector(".grid-export-menu");
-    const trigger = menu && menu.querySelector(".grid-export-trigger");
-    const closeMenu = () => {
-      if (!menu) return;
-      menu.open = false;
-      if (trigger) trigger.setAttribute("aria-expanded", "false");
-    };
-    if (menu && trigger) {
-      menu.addEventListener("toggle", () =>
-        trigger.setAttribute("aria-expanded", String(menu.open)));
-      menu.addEventListener("keydown", (event) => {
-        if (event.key !== "Escape" || !menu.open) return;
-        event.preventDefault();
-        closeMenu();
-        trigger.focus();
-      });
-      document.addEventListener("click", (event) => {
-        if (menu.open && !menu.contains(event.target)) closeMenu();
-      });
-    }
-    toolbar.querySelectorAll("[data-export]").forEach((button) =>
-      button.addEventListener("click", () => {
-        const kind = button.dataset.export;
-        const name = SOURCE + "-" + new Date().toISOString().slice(0, 10);
-        closeMenu();
-        // CSV and JSON are THIS VIEW: your filters, your column order, your
-        // hidden columns. Exporting something other than what is on screen is
-        // how a spreadsheet and a screen start disagreeing.
-        if (kind === "csv") table.download("csv", name + ".csv");
-        else if (kind === "json") table.download("json", name + ".json");
-        // Excel is the WHOLE RECORD, and it comes from the server. Two reasons.
-        // The browser cannot build it: the details, the price history and the
-        // provenance are not in the grid. And it never could — this called
-        // Tabulator's xlsx writer, which needs a SheetJS library that has never
-        // been vendored here, so the button logged a console error and produced
-        // no file at all, silently, for as long as it has existed.
-        else if (kind === "xlsx") window.location = "/export/" + encodeURIComponent(SOURCE) + ".xlsx";
-      }));
+    const root = toolbar.querySelector(".split-button");
+    if (!root) return;
+    // The SHARED split button — the same open/close/aria/escape/outside-click
+    // behaviour the Activity panel's log control uses. What each action DOES
+    // stays here, because that is the part that genuinely differs.
+    window.ScrapeXSplitButton.wire(root, (kind) => {
+      const name = SOURCE + "-" + new Date().toISOString().slice(0, 10);
+      // CSV and JSON are THIS VIEW: your filters, your column order, your
+      // hidden columns. Exporting something other than what is on screen is
+      // how a spreadsheet and a screen start disagreeing.
+      if (kind === "csv") table.download("csv", name + ".csv");
+      else if (kind === "json") table.download("json", name + ".json");
+      // Excel is the WHOLE RECORD, and it comes from the server. Two reasons.
+      // The browser cannot build it: the details, the price history and the
+      // provenance are not in the grid. And it never could — this called
+      // Tabulator's xlsx writer, which needs a SheetJS library that has never
+      // been vendored here, so the button logged a console error and produced
+      // no file at all, silently, for as long as it has existed.
+      else if (kind === "xlsx") window.location = "/export/" + encodeURIComponent(SOURCE) + ".xlsx";
+    });
   }
 
   // The command bar's way into Choose Columns. It exists because the column

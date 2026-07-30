@@ -23,7 +23,7 @@ from ..config import SourceEntry
 # enrichment extract would have died on NameError after the whole crawl.
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import ExtractKind
-from .base import HttpFetcher, ScrapedTable
+from .base import HttpFetcher, ScrapedTable, declare_frontier
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
 # generic; the /p{id} id scheme below is the salla-specific part. enrichment_rows
 # moved to jsonld when zid needed the same pictures-and-prose reading — it is
@@ -136,8 +136,23 @@ class SallaConnector:
 
     def _product_urls(self, sitemap_url: str, tally: WalkTally) -> list[str]:
         """Salla's two rules: /p{id} marks a product, and one URL per product id
-        (the sitemap lists every product once per locale). The walking is shared."""
-        return sitemap_products(
+        (the sitemap lists every product once per locale). The walking is shared.
+
+        THE FRONTIER IS KNOWN HERE, before a single product page is fetched, and
+        this connector spends exactly one request per URL in it — the enrichment
+        rows come off the same page it already fetched for the price. So the
+        total is not an estimate for this family: it is a count, and declaring it
+        is what lets the panel show a fraction of something real instead of a
+        percentage of the number of sources.
+        """
+        urls = sitemap_products(
             self._fetcher, sitemap_url, lambda url: bool(_PRODUCT_ID.search(url)),
             dedupe=one_url_per_product,
             unreadable_children=tally.unreadable_children)
+        # Minus the pages a paused run already journaled: a resume will not
+        # re-fetch those, so counting them would leave the bar permanently short
+        # of its own total by exactly the number of pages the resume saved.
+        declare_frontier(
+            self._fetcher,
+            len([url for url in urls if safe_token(url) not in self.skip_tokens]))
+        return urls

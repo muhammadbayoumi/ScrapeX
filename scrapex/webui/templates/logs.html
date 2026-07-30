@@ -5,8 +5,9 @@
   <div class="page-heading">
     <span class="page-eyebrow">System</span>
     <h1 class="page-title">Logs</h1>
-    <p class="page-description">Inspect the most recent 200 technical events for one job.
-      The engine keeps the complete local log.</p>
+    <p class="page-description">Every technical event recorded for one job —
+      {{ "{:,}".format(entry_total) }} for this one. Nothing on this page is
+      truncated.</p>
   </div>
 </header>
 
@@ -69,7 +70,9 @@
     try {
       const job = await (await fetch(`/api/jobs/${encodeURIComponent(jobRef)}`)).json();
       const status = (job.job || job).status;
-      const answer = await (await fetch(`/api/jobs/${encodeURIComponent(jobRef)}/logs?limit=200`)).json();
+      // No limit: the route's default is every entry, and a tail is exactly how
+      // the line that explains a long run's failure went missing.
+      const answer = await (await fetch(`/api/jobs/${encodeURIComponent(jobRef)}/logs`)).json();
       paint(answer.entries || []);
       if (!TERMINAL.has(status)) setTimeout(tick, 4000);
     } catch (err) { setTimeout(tick, 8000); }

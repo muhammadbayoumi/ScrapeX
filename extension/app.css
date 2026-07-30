@@ -639,9 +639,27 @@
 
   .bar { height: .375rem; border-radius: var(--radius-pill); background: var(--chip); overflow: hidden; }
   .bar-fill { height: 100%; width: 0; background: currentColor; transition: width var(--dur-slow) ease; }
+  /* An unknown total: the count is real but the fraction is not, so the fill
+     paces across rather than sitting at a number nobody has. Honest motion, not
+     a stuck 0%. */
+  .bar-fill.indeterminate {
+    width: 40% !important;
+    background: linear-gradient(90deg, transparent, currentColor, transparent);
+    animation: bar-indeterminate 1.4s ease-in-out infinite;
+  }
+  @keyframes bar-indeterminate {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+  }
+  .act-progress { margin: var(--sp-2) 0; }
+  #act-queue.note { margin: var(--sp-2) 0; padding: var(--sp-2) var(--sp-3);
+                    border-inline-start: 3px solid var(--accent); background: var(--chip);
+                    border-radius: var(--radius); line-height: 1.5; }
 
-  /* Activity log: a bounded, scrollable tail — never the whole log. */
-  .logbox { max-height: 160px; overflow-y: auto; border: 1px solid var(--line);
+  /* Activity log: a bounded, scrollable box. Every entry is present; the box
+     scrolls rather than the page, and the tail is followed only while the owner
+     is already at the bottom (no auto-scroll button to manage). */
+  .logbox { max-height: 220px; overflow-y: auto; border: 1px solid var(--line);
             border-radius: var(--radius); padding: var(--sp-2); }
   .logline { display: flex; gap: var(--sp-2); padding: 1px 0; }
   .logline .lvl { flex: none; width: 4.5em; }
