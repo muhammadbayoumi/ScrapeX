@@ -203,6 +203,13 @@ class _SourceRun:
     lock guarding all of it.
     """
 
+    # The ORCHESTRATOR's connection, and usable ONLY from its thread. sqlite3
+    # refuses a connection across threads, so a lane must use the one its own
+    # _run_lane opened — never this. Reaching for it inside a lane is what
+    # killed a 3,490-request crawl the moment a pause was asked for: the brake
+    # path wrote the job row through this handle and the worker died with
+    # "SQLite objects created in a thread can only be used in that same thread".
+    # Kept because the sequential path (width 1) legitimately passes it down.
     conn: sqlite3.Connection
     job: dict
     job_id: int
@@ -301,14 +308,14 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                 return False
             run.stopped = control
         if control == JobControl.CANCEL.value:
-            append_log(run.conn, run.job_id, "cancelled by owner")
-            _finish(run.conn, run.job_id, JobStatus.CANCELLED, None)
+            append_log(conn, run.job_id, "cancelled by owner")
+            _finish(conn, run.job_id, JobStatus.CANCELLED, None)
         else:
-            append_log(run.conn, run.job_id, "paused by owner")
-            _update(run.conn, run.job_id, status=JobStatus.PAUSED.value,
+            append_log(conn, run.job_id, "paused by owner")
+            _update(conn, run.job_id, status=JobStatus.PAUSED.value,
                     control=JobControl.NONE.value, stage=None,
                     last_heartbeat_at=utc_now_iso())
-        run.conn.commit()
+        conn.commit()
         return False
 
     _update(conn, run.job_id, status=JobStatus.RUNNING.value, stage=JobStage.FETCHING.value,
@@ -405,7 +412,7 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                        "cancel honoured mid-fetch — nothing from this source "
                        "was ingested and the partial fetch was discarded",
                        source_key=source_key)
-            _finish(run.conn, run.job_id, JobStatus.CANCELLED, None)
+            _finish(conn, run.job_id, JobStatus.CANCELLED, None)
         else:
             if kept:
                 append_log(conn, run.job_id,
@@ -431,7 +438,7 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                          # one that stopped FIRST; the others had not started.
                          "partial_source": source_key}),
                     last_heartbeat_at=utc_now_iso())
-        run.conn.commit()
+        conn.commit()
         return False
     except Exception as exc:  # noqa: BLE001 — one bad source never kills the job (Q3)
         run.errors.append(f"{source_key}: {exc}")

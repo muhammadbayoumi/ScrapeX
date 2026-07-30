@@ -13,6 +13,7 @@ import pytest
 
 from scrapex import db as dbmod
 from scrapex.capture import CaptureResult
+from scrapex.connectors.base import CrawlInterrupted
 from scrapex.ingest import IngestResult
 from scrapex.jobs import (
     JobRunner, append_log, create_job, get_job, job_logs, list_jobs, run_job_once, set_control,
@@ -828,3 +829,94 @@ def test_without_a_connection_factory_the_job_stays_sequential(conn, tmp_path):
     assert _parallel_width(conn, None, 5) == 1, "concurrency without a factory"
     assert _parallel_width(conn, lambda: conn, 1) == 1, "one lane is not a race"
     assert _parallel_width(conn, lambda: conn, 5) == 5
+
+
+def test_pausing_a_parallel_crawl_does_not_kill_it(conn, tmp_path):
+    """THE BUG, and it destroyed real work.
+
+    The brake path wrote the job row through `run.conn` — the ORCHESTRATOR's
+    connection — from inside a lane thread. sqlite3 refuses a connection across
+    threads, so asking a running parallel crawl to pause killed the worker with
+    "SQLite objects created in a thread can only be used in that same thread",
+    and a crawl that had made 3,490 requests over ten sources ended `failed`
+    instead of `paused`. The pause is the mechanism that protects a long crawl;
+    it must not be the thing that ends it.
+    """
+    import threading
+    from scrapex import db as dbmod, settings
+    from scrapex.jobs import run_job_once
+
+    db_path = tmp_path / "brakes.db"
+    setup = dbmod.connect(db_path)
+    dbmod.migrate(setup)
+    settings.save(setup, {"crawl_parallel_sources": "3"})
+    setup.commit()
+    ref = create_job(setup, ["A", "B", "C"], RunMode.UPDATE)
+    setup.commit()
+
+    inside = threading.Barrier(3, timeout=10)
+    asked = threading.Event()
+
+    def capture(c, entry, _job_id=None, **_kw):
+        inside.wait()                  # all three lanes are in flight
+        if not asked.is_set():
+            asked.set()
+            # The owner presses pause while every lane is mid-fetch. Written
+            # through the LANE's connection, which is the only legal one here.
+            c.execute("UPDATE crawl_job SET control = 'pause' WHERE job_ref = ?",
+                      (ref,))
+            c.commit()
+        raise CrawlInterrupted("pause")
+
+    run_job_once(setup, ref, _FakeManifest(["A", "B", "C"]), capture=capture,
+                 connect=lambda: dbmod.connect(db_path))
+
+    job = get_job(setup, ref)
+    assert job["status"] == JobStatus.PAUSED.value, (
+        f"a pause ended the job as {job['status']}: {job.get('error_summary')}")
+    assert not job.get("error_summary"), "a clean pause must record no error"
+    setup.close()
+
+
+def test_a_pause_seen_at_the_boundary_uses_the_lanes_connection(conn, tmp_path):
+    """The OTHER brake path, and the one that actually broke in production.
+
+    There are two: a pause noticed mid-fetch (CrawlInterrupted, above) and a
+    pause noticed at the boundary BEFORE a lane starts its next source — which
+    is what happens when the owner presses the button while several lanes are
+    running. That second path wrote the job row through the orchestrator's
+    connection from inside a lane thread, and sqlite3 killed the worker.
+
+    The first version of the test above exercised only the mid-fetch path, so
+    re-breaking the boundary path did not fail it. This one closes that hole.
+    """
+    from scrapex import db as dbmod, settings
+    from scrapex.jobs import run_job_once
+
+    db_path = tmp_path / "boundary.db"
+    setup = dbmod.connect(db_path)
+    dbmod.migrate(setup)
+    settings.save(setup, {"crawl_parallel_sources": "3"})
+    setup.commit()
+    ref = create_job(setup, ["A", "B", "C"], RunMode.UPDATE)
+    # Already asked to pause before a single lane opens a source, so every lane
+    # takes the boundary branch rather than the mid-fetch one.
+    setup.execute("UPDATE crawl_job SET control = 'pause' WHERE job_ref = ?", (ref,))
+    setup.commit()
+
+    reached: list[str] = []
+
+    def capture(_c, entry, _job_id=None, **_kw):
+        reached.append(entry.source_key)     # must never run
+        return _result(entry.source_key)
+
+    run_job_once(setup, ref, _FakeManifest(["A", "B", "C"]), capture=capture,
+                 connect=lambda: dbmod.connect(db_path))
+
+    job = get_job(setup, ref)
+    assert job["status"] == JobStatus.PAUSED.value, (
+        f"the boundary pause ended the job as {job['status']}: "
+        f"{job.get('error_summary')}")
+    assert not job.get("error_summary")
+    assert not reached, "a job asked to pause fetched anyway"
+    setup.close()
