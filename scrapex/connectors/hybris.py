@@ -18,15 +18,35 @@ on the manifest's word, because the payload cannot be wrong about itself.
 """
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
 from ..normalize import brand_pair
 from ..config import SourceEntry
-from ..rowspec import PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability
+from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
+from ..vocab import Availability, ExtractKind, group_for_code
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 100
+
+# OCC states ONE picture several times over, once per rendering size, and says
+# which size each is in its own `format` field. Live census 2026-07-30: 560 of
+# masdar's 640 priced products carry exactly one PRIMARY picture published as
+# thumbnail + product + zoom (1,680 entries, 560 pictures), and the remaining
+# 80 publish no image at all.
+#
+# Storing all three would assert the product has three pictures, which is a
+# claim the site never made — so one picture becomes one row, at the largest
+# rendering the site offers. The preference is the site's OWN format names, not
+# a size parsed out of the URL; a format this list does not know keeps whatever
+# was seen first rather than being dropped.
+_FORMAT_PREFERENCE = ("zoom", "product", "thumbnail")
+
+# The size the rendering is named after prefixes the filename
+# ("96Wx96H-1000061922-1200Wx1200H-0.jpg"). Stripping it is what identifies the
+# three renderings as ONE picture; a name that does not match is left whole, so
+# an unrecognised shape degrades into separate rows rather than a wrong merge.
+_SIZE_PREFIX = re.compile(r"^\d+Wx\d+H-")
 
 # The language the price rows are collected in, and the one the bilingual rule
 # asks for beside it. OCC takes `lang` per request and masdar's own
@@ -130,6 +150,72 @@ def _storefront_url(product: dict, display_base: str, lang: str, currency: str) 
     return f"{display_base}/{prefix}/{tail}" if prefix else f"{display_base}/{tail}"
 
 
+def _picture_id(url: str) -> str:
+    """The identity of the PICTURE, independent of which size is being served."""
+    name = url.split("?", 1)[0].rsplit("/", 1)[-1]
+    return _SIZE_PREFIX.sub("", name)
+
+
+def _format_rank(image: dict) -> int:
+    fmt = str(image.get("format") or "").strip().lower()
+    return _FORMAT_PREFERENCE.index(fmt) if fmt in _FORMAT_PREFERENCE \
+        else len(_FORMAT_PREFERENCE)
+
+
+def enrichment_rows(builder: RowBuilder, product: dict,
+                    media_base: str) -> list[list[str]]:
+    """The product's pictures, from the search payload the price came from.
+
+    The OCC search response has carried `images` all along and this connector
+    only ever built PRODUCT_PRICES rows, so MASDAR published 0 pictures for a
+    catalogue that publishes 560.
+
+    The URLs are stated RELATIVE ("/medias/…"), and they resolve on the OCC API
+    host, not the storefront: HEAD on api.masdaronline.com answers 200
+    image/jpeg where www.masdaronline.com answers 404 (checked 2026-07-30).
+    Making them absolute against the host that actually serves them is the only
+    rewriting done here — the path, filename and `?context=` token are the
+    site's and are passed through untouched.
+    """
+    code = str(product.get("code") or "")
+    if not code:
+        return []
+
+    # One entry per picture, keeping the largest rendering of each.
+    best: dict[tuple[str, str], dict] = {}
+    order: list[tuple[str, str]] = []
+    for image in product.get("images") or []:
+        if not isinstance(image, dict):
+            continue
+        href = str(image.get("url") or "").strip()
+        if not href:
+            continue
+        key = (str(image.get("imageType") or ""), _picture_id(href))
+        if key not in best:
+            best[key] = image
+            order.append(key)
+        elif _format_rank(image) < _format_rank(best[key]):
+            best[key] = image
+
+    rows: list[list[str]] = []
+    for position, key in enumerate(order):
+        image = best[key]
+        href = str(image.get("url") or "").strip()
+        absolute = href if href.startswith("http") else f"{media_base}{href}"
+        # Files are language-neutral, so `lang` stays unstated even though the
+        # payload was asked for in Arabic. OCC states no alt text, so the
+        # filename stands in as the panel's alternative text.
+        attribute_code = f"image_{position}" if position else "image"
+        group, _recognised = group_for_code(attribute_code)
+        rows.append(builder.row(
+            external_product_id=code, attribute_code=attribute_code,
+            attribute_label="Image",
+            raw_value=href.split("?", 1)[0].rsplit("/", 1)[-1],
+            numeric_value="", unit_raw="", value_url=absolute, lang="",
+            attribute_group=group))
+    return rows
+
+
 class HybrisOccConnector:
     connector_id = "hybris-occ"
 
@@ -147,6 +233,14 @@ class HybrisOccConnector:
         rows: list[list[str]] = []
         notes: list[str] = []
         unpriced = 0
+        # The pictures ride the SAME search response the prices come from, so
+        # they cost no extra request — but only when the manifest asks, because
+        # ingest refuses an enrichment payload from a source that does not
+        # declare the kind.
+        wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
+                               for spec in source.extract)
+        media_base = (source.api.base_url.rstrip("/")
+                      if source.api and source.api.base_url else display_base)
 
         # The owner's standing rule: what a source publishes in both languages
         # is captured in both. Done FIRST so the price pass can build complete
@@ -169,14 +263,23 @@ class HybrisOccConnector:
             products = body.get("products") or []
             page_builder = RowBuilder(PRODUCT_PRICES)
             page_rows: list[list[str]] = []
+            page_detail = RowBuilder(ENRICHMENT)
+            page_detail_rows: list[list[str]] = []
             for product in products:
                 row = self._row(page_builder, product, display_base, currency, vat,
                                 source.default_region,
                                 names_en.get(str(product.get("code") or "")) or "")
                 if row is None:
                     unpriced += 1
-                else:
-                    page_rows.append(row)
+                    continue
+                page_rows.append(row)
+                if wants_enrichment:
+                    # Only for a product that earned a price row: an unpriced
+                    # product is skipped entirely, and filing its picture would
+                    # put an attribute in the warehouse for a product the price
+                    # pass never landed.
+                    page_detail_rows.extend(
+                        enrichment_rows(page_detail, product, media_base))
             if page_rows:
                 # Journaled as fetched: this used to accumulate the whole
                 # catalogue and yield once, so an interrupted crawl wrote
@@ -185,6 +288,14 @@ class HybrisOccConnector:
                     source_key=source.source_key, kind=PRODUCT_PRICES.kind,
                     source_url=endpoint, header=page_builder.header,
                     rows=page_rows, page_token=token)
+            if page_detail_rows:
+                # The SAME token as the prices above: one page is journaled
+                # once, so a resume cannot land a page's prices without its
+                # pictures — the rule salla already follows per product.
+                yield ScrapedTable(
+                    source_key=source.source_key, kind=ENRICHMENT.kind,
+                    source_url=endpoint, header=page_detail.header,
+                    rows=page_detail_rows, page_token=token)
             total_pages = (body.get("pagination") or {}).get("totalPages")
             page += 1
             if not products:

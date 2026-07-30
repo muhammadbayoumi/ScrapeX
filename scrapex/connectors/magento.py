@@ -109,10 +109,22 @@ _QUERY = _QUERY_TEMPLATE.format(extra="", quantity=_QUANTITY_FACTS)
 # `image` and `media_gallery` were READ by _enrichment_rows since the day it
 # was written and never ASKED FOR here, so every madar product arrived with no
 # picture and the panel's gallery was empty for the whole source. The reader
-# was right; the query was the hole. Live check 2026-07-25: 11 of the first 60
-# products carry a real image, the other 49 answer with the shop's own
-# placeholder URL — which the reader already refuses, because a grey box where
-# a product belongs is worse than an honest blank.
+# was right; the query was the hole.
+#
+# THE WHOLE CATALOGUE, 2026-07-30 (761 products, 4 pages of 200), because the
+# 186 madar products that look imageless get re-reported as a bug about this
+# query roughly once a month:
+#
+#   publish an `image` url          761   — every one
+#     ... of which the placeholder  185   — one shared URL, placeholder_4.png
+#     ... a real file               576
+#   publish a media_gallery         577
+#   no gallery AND placeholder      184
+#   no gallery BUT a real image       0   <- there is nothing here to fetch
+#
+# So the empty column is the SITE's answer, not a gap in this query: a product
+# with no gallery is a product whose only image is the shop's grey box. The
+# reader refuses it, and an honest blank beats a placeholder in a data column.
 #
 # meta_title / meta_description / meta_keyword are asked for BY NAME because
 # custom_attributesV2 is filtered to is_visible_on_front:true and these are not
@@ -1243,11 +1255,26 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     # The product's pictures, primary first. A placeholder is the site saying
     # "no image" — storing it would put a grey box where a product belongs.
     # Language-neutral: a file is a file, so lang stays unstated.
-    for position, media in enumerate([product.get("image") or {},
-                                      *(product.get("media_gallery") or [])]):
+    #
+    # `image` IS the gallery's chosen main on this store: it repeats
+    # media_gallery[0] on 575 of the 577 products that publish a gallery (live
+    # census 2026-07-30, 761 products). Filing it under both `image` and
+    # `image_1` stored ONE picture twice for 576 products and made the panel
+    # show every product's main shot as a duplicate, so the URL is
+    # de-duplicated — first code wins, which keeps the main image at `image`.
+    #
+    # The position is counted over what is KEPT, not over what was offered. It
+    # used to come from enumerate() BEFORE the placeholder skip, so the one
+    # product whose main image is the placeholder while its gallery is real
+    # published `image_1` with no `image` at all.
+    seen: set[str] = set()
+    for media in [product.get("image") or {},
+                  *(product.get("media_gallery") or [])]:
         href = str(media.get("url") or "")
-        if not href or "placeholder" in href.lower():
+        if not href or "placeholder" in href.lower() or href in seen:
             continue
+        position = len(seen)
+        seen.add(href)
         add(f"image_{position}" if position else "image", "Image",
             str(media.get("label") or "") or href.rsplit("/", 1)[-1], url=href)
 

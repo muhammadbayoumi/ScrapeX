@@ -1,0 +1,184 @@
+{
+ "products": [
+  {
+   "id": 8592826663212,
+   "title": "شينيور دقاق 900 وات ",
+   "handle": "shall-rotary-hammer-900w",
+   "body_html": "العلامة التجارية Shall\n\nشنيور - دقاق ماركة Shall \nبقدرة 900 وات - 26 ميللى \nسرعة الدوران 9000 لفة فى الدقيقة \nقدرة النبضات 4400 BPM\n",
+   "published_at": "2024-02-14T10:29:43+02:00",
+   "created_at": "2023-08-21T14:51:20+03:00",
+   "updated_at": "2026-07-30T08:20:02+03:00",
+   "vendor": "Shall",
+   "product_type": "Power Tools",
+   "tags": [
+    "Tools"
+   ],
+   "variants": [
+    {
+     "id": 46478033125676,
+     "title": "Default Title",
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null,
+     "sku": "400013",
+     "requires_shipping": true,
+     "taxable": false,
+     "featured_image": null,
+     "available": false,
+     "price": "4000.00",
+     "grams": 0,
+     "compare_at_price": "4700.00",
+     "position": 1,
+     "product_id": 8592826663212,
+     "created_at": "2023-08-21T14:51:20+03:00",
+     "updated_at": "2026-07-30T08:20:02+03:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 42460757066028,
+     "created_at": "2023-08-23T14:26:30+03:00",
+     "position": 1,
+     "updated_at": "2023-08-23T14:26:33+03:00",
+     "product_id": 8592826663212,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/400013-ET30206003001_6.jpg?v=1692789993",
+     "width": 3806,
+     "height": 3809
+    },
+    {
+     "id": 42460756836652,
+     "created_at": "2023-08-23T14:26:30+03:00",
+     "position": 2,
+     "updated_at": "2023-08-23T14:26:32+03:00",
+     "product_id": 8592826663212,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/400013-ET30206003001_2.jpg?v=1692789992",
+     "width": 1000,
+     "height": 1000
+    },
+    {
+     "id": 42460756869420,
+     "created_at": "2023-08-23T14:26:30+03:00",
+     "position": 3,
+     "updated_at": "2023-08-23T14:26:32+03:00",
+     "product_id": 8592826663212,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/400013-ET30206003001_1.jpg?v=1692789992",
+     "width": 1000,
+     "height": 1000
+    },
+    {
+     "id": 42460756771116,
+     "created_at": "2023-08-23T14:26:30+03:00",
+     "position": 4,
+     "updated_at": "2023-08-23T14:26:31+03:00",
+     "product_id": 8592826663212,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/400013-ET30206003001_4.jpg?v=1692789991",
+     "width": 1000,
+     "height": 1000
+    },
+    {
+     "id": 42460756803884,
+     "created_at": "2023-08-23T14:26:30+03:00",
+     "position": 5,
+     "updated_at": "2023-08-23T14:26:32+03:00",
+     "product_id": 8592826663212,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/400013-ET30206003001_2_1.jpg?v=1692789992",
+     "width": 1000,
+     "height": 1000
+    },
+    {
+     "id": 42460756934956,
+     "created_at": "2023-08-23T14:26:30+03:00",
+     "position": 6,
+     "updated_at": "2023-08-23T14:26:32+03:00",
+     "product_id": 8592826663212,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/400013-ET30206003001_3.jpg?v=1692789992",
+     "width": 1000,
+     "height": 1000
+    },
+    {
+     "id": 42460756902188,
+     "created_at": "2023-08-23T14:26:30+03:00",
+     "position": 7,
+     "updated_at": "2023-08-23T14:26:32+03:00",
+     "product_id": 8592826663212,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/400013-ET30206003001_5.jpg?v=1692789992",
+     "width": 3806,
+     "height": 3809
+    }
+   ],
+   "options": [
+    {
+     "name": "Title",
+     "position": 1,
+     "values": [
+      "Default Title"
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10157311557932,
+   "title": "كشاف واجهات400وات اضاءة ابيض IP 65",
+   "handle": "luma-floodlight-400w-ip65-6500k",
+   "body_html": "<p>كشاف واجهات400وات اضاءة ابيض IP 65</p>",
+   "published_at": "2025-12-02T09:45:43+02:00",
+   "created_at": "2025-12-02T07:32:11+02:00",
+   "updated_at": "2026-07-30T08:20:02+03:00",
+   "vendor": "Luma",
+   "product_type": "Floodlight",
+   "tags": [
+    "Floodlight"
+   ],
+   "variants": [
+    {
+     "id": 52388706844972,
+     "title": "Default Title",
+     "option1": "Default Title",
+     "option2": null,
+     "option3": null,
+     "sku": "312890",
+     "requires_shipping": true,
+     "taxable": false,
+     "featured_image": null,
+     "available": true,
+     "price": "7136.40",
+     "grams": 22,
+     "compare_at_price": null,
+     "position": 1,
+     "product_id": 10157311557932,
+     "created_at": "2025-12-02T07:32:11+02:00",
+     "updated_at": "2026-07-30T08:20:02+03:00"
+    }
+   ],
+   "images": [
+    {
+     "id": 52001828274476,
+     "created_at": "2025-12-02T09:23:54+02:00",
+     "position": 1,
+     "updated_at": "2025-12-02T09:23:55+02:00",
+     "product_id": 10157311557932,
+     "variant_ids": [],
+     "src": "https://cdn.shopify.com/s/files/1/0704/4972/5740/files/212549.png?v=1764660235",
+     "width": 1000,
+     "height": 1000
+    }
+   ],
+   "options": [
+    {
+     "name": "Title",
+     "position": 1,
+     "values": [
+      "Default Title"
+     ]
+    }
+   ]
+  }
+ ]
+}
