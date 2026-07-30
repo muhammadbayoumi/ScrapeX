@@ -53,14 +53,33 @@ site after the fix (168 products, one crawl): 168/168 products land at least
 one image, 435 image rows total, 771 enrichment rows including description
 and sku.
 
-MEASURED LIMIT, stated rather than papered over: on a 42-product sample of the
-live catalogue, the page's own gallery markup (`#product-images
-img.carousel-img`) carries 124 images against JSON-LD's 109 for the same
-products, and every JSON-LD image is among them. On 10 of the 42, JSON-LD
-names fewer pictures than the gallery shows. Every product still gets at least
-one image from JSON-LD, so nothing is left blank; reading the gallery as well
-would recover the remaining ones and is a separate, owner-visible enhancement,
-not part of restoring what was being dropped.
+THE REST OF THE PICTURES (2026-07-30), which that fix deliberately stopped
+short of. The 42-product sample behind it (124 gallery images against JSON-LD's
+109) was re-run over the WHOLE catalogue, one request per product: JSON-LD
+names 435 pictures and the page names 493, a gap of 58 on 44 products — not
+the 15 the sample implied.
+
+The sample measured `#product-images img.carousel-img`, and that class is the
+WRONG thing to depend on: it is this theme's, and it would end with the theme's
+next update while the shop went on publishing every picture exactly as before.
+Every page also carries `var productImages = [...]` — the JSON the theme
+renders FROM, with a stable image id, the merchant's alt_text, a display order
+and five sizes. That is what page_pictures reads, and why.
+
+Two things measured on all 168 products decide how the routes are merged. Of
+435 JSON-LD image URLs, ZERO are string-equal to a gallery `<img src>` and ZERO
+name a picture the gallery lacks: the same picture, published at two addresses.
+So the merge is keyed on the image uuid, never the URL, or every picture would
+have been stored twice under two codes. And the size recorded is `large`,
+because that is the one the store's own JSON-LD names — 429 of 429 matched URLs
+byte-identical — so the overlap provably collapses and no already-stored link
+churns.
+
+MEASURED after, replaying this merge over all 168 pages: 435 -> 499 image rows,
+48 products gain, 0 lost, 190 rows carrying the shop's own alt text. The
+JSON-LD is still merged in rather than replaced: on 4 products the two lists
+disagree and 6 pictures exist only in the summary, and a run must never store
+less than the one before it.
 
 Two things this deliberately does NOT do. It does not convert anything: the
 crawled price stays the price the store printed. And it does not reconcile the
@@ -71,6 +90,7 @@ is the only way anyone can ever see it.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Iterable
 from urllib.parse import urljoin
@@ -80,9 +100,10 @@ from ..config import SourceEntry
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
-from .jsonld import (WalkTally, alternate_links, english_alternate,
-                     enrichment_rows, offer_price, parse_product_jsonld,
-                     product_row, sitemap_products, walk_product_pages)
+from .jsonld import (Picture, WalkTally, alternate_links, english_alternate,
+                     enrichment_rows, jsonld_pictures, merge_pictures,
+                     offer_price, parse_product_jsonld, product_row,
+                     sitemap_products, walk_product_pages)
 
 _PRODUCT_PATH = "/products/"
 
@@ -141,6 +162,80 @@ def _product_id(url: str, node: dict) -> str:
     """Zid ids are the JSON-LD sku/productID when present, else the URL slug."""
     sku = str(node.get("sku") or node.get("productID") or "").strip()
     return sku or url.rstrip("/").rsplit("/", 1)[-1]
+
+
+# The product's own picture list, as the page's bootstrap publishes it. This is
+# the DATA the theme renders from, not the markup it renders — the reason to
+# prefer it over `#product-images img.carousel-img`, which is a class this
+# store's theme owns and would end with its next update while the shop went on
+# publishing every picture exactly as before.
+_PRODUCT_IMAGES = re.compile(r"var\s+productImages\s*=\s*(?=\[)")
+
+# zid media URLs carry the image's uuid LAST; the first one is the store's.
+#   https://media.zid.store/<store>/<image>.jpg
+#   https://media.zid.store/thumbs/<store>/<image>-thumbnail-1000x1000-70.jpg
+_MEDIA_UUID = re.compile(
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+    r"-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
+
+
+def image_identity(url: str) -> str:
+    """WHICH picture this URL names, whatever size it asks for.
+
+    The store publishes one picture at five addresses, so the URL cannot be the
+    identity: on all 168 products, not one JSON-LD image URL is string-equal to
+    the gallery's, and not one names a picture the gallery lacks. The uuid is
+    what the store itself uses to tell its pictures apart.
+    """
+    found = _MEDIA_UUID.findall(url or "")
+    return found[-1].lower() if found else (url or "").strip()
+
+
+def page_pictures(html: str) -> list[Picture]:
+    """The pictures the page's own bootstrap lists, in the store's order.
+
+    Returns [] when the bootstrap is absent or unreadable, which the caller
+    counts — a reader that quietly returned nothing the day the theme changed
+    is exactly the failure this whole route has to be able to announce.
+
+    WHICH SIZE IS RECORDED. The bootstrap publishes five (`full_size`, `large`,
+    `medium`, `small`, `thumbnail`) and the store's own JSON-LD chooses `large`
+    for every picture it names — MEASURED on the full catalogue: 429 of 429
+    matched JSON-LD URLs are byte-identical to that picture's `large`, 0
+    differ. Recording `large` therefore reproduces every URL this source has
+    already stored, so merging the two routes cannot leave one picture sitting
+    under two attribute codes at two addresses, and no image link the owner
+    already has churns. `full_size` is published too and is a different, larger
+    file on 406 of 464 pictures; moving to it is a one-line change and the
+    owner's call, not one to make quietly inside a coverage fix.
+    """
+    match = _PRODUCT_IMAGES.search(html or "")
+    if not match:
+        return []
+    try:
+        # raw_decode rather than a lazy `\[.*?\]`: the array ends where JSON
+        # says it ends, not at the first `]` that happens to come along.
+        entries, _ = json.JSONDecoder().raw_decode(html, match.end())
+    except ValueError:
+        return []
+    if not isinstance(entries, list):
+        return []
+    pictures: list[Picture] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        sizes = entry.get("image")
+        if not isinstance(sizes, dict):
+            continue
+        url = str(sizes.get("large") or "").strip()
+        if not url.startswith("http"):
+            continue
+        identity = str(entry.get("id") or "").strip().lower() or image_identity(url)
+        # alt_text is the merchant's own caption and is Arabic on BOTH locales
+        # of this store, so it is captured once and never translated.
+        pictures.append(Picture(identity=identity, url=url,
+                                label=str(entry.get("alt_text") or "").strip()))
+    return pictures
 
 
 class ZidConnector:
@@ -212,8 +307,25 @@ class ZidConnector:
                 # usable price and still publishes its images, and dropping
                 # those with the price is how this connector came to store no
                 # image at all.
+                #
+                # THE FULLER TRUTH, from the page already in hand. The JSON-LD
+                # summary names a representative picture, not the product's
+                # whole set; the page's own bootstrap names the set. Merged by
+                # picture identity so the overlap — which is most of it —
+                # cannot land twice, and led by the bootstrap's order so the
+                # picture the shop shows first is the one filed as `image`.
+                summary = jsonld_pictures(node, identity=image_identity)
+                record = page_pictures(html)
+                if record:
+                    tally.pictures_read += 1
+                elif summary:
+                    # The page publishes images and yet named none of its own:
+                    # either this product genuinely has no bootstrap, or the
+                    # theme moved it. Counted either way, and said out loud.
+                    tally.pictures_route_lost += 1
                 extra = RowBuilder(ENRICHMENT)
-                attribute_rows = enrichment_rows(extra, node, pid)
+                attribute_rows = enrichment_rows(
+                    extra, node, pid, pictures=merge_pictures(record, summary))
                 if attribute_rows:
                     yield ScrapedTable(source.source_key, ENRICHMENT.kind, base,
                                        extra.header, attribute_rows,
@@ -223,14 +335,21 @@ class ZidConnector:
         # catalogue reported plain success — the GPP lesson, and the one salla
         # already learned. Carrying on is right; not saying so is not.
         notes = tally.notes() + rate_notes
-        if notes or rates:
+        # A theme that stops publishing its picture list does not break the
+        # crawl — every price still lands, and every product keeps the picture
+        # its JSON-LD names — so it would pass as a clean run forever. That is
+        # precisely why it is raised as a DEFECT rather than a note: only a
+        # defect reaches crawl_run.errors_count and the alert built on it.
+        defects = tally.picture_route_defects()
+        if notes or rates or defects:
             # Untokenized on purpose: the counts describe THIS attempt, and
             # capture drops them on resume so a resumed run reports its own.
             # The rates ride here for the same reason — they are what THIS
             # crawl read, and a resume reads them again off its first page.
             yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
                                RowBuilder(PRODUCT_PRICES).header, [],
-                               warnings=notes, published_rates=rates)
+                               warnings=notes, defects=defects,
+                               published_rates=rates)
 
     def _rates_abroad(self, html: str, url: str,
                       source: SourceEntry) -> tuple[dict[str, float], list[str]]:
