@@ -45,6 +45,16 @@
  *      ScrapeX new enough to have pasted THIS file): Script Properties ->
  *      FUNNEL_REQUIRE_SIGNATURE = yes. See "REQUEST SIGNING" below for what
  *      that turns on and why it is not the default.
+ *
+ * WHEN DO I HAVE TO PASTE THIS AGAIN?
+ *   Only when ScrapeX changes what a column MEANS — renames one, drops one,
+ *   changes a value's units. New columns need nothing from you: the sheet is
+ *   built from each batch's own header, so they simply appear, and _RUNS names
+ *   them the first time they do. When a paste IS needed, this script stops
+ *   publishing that source and writes the reason into _RUNS, naming both
+ *   version numbers; _INBOX keeps collecting throughout, and the first sync
+ *   after the paste republishes everything. See "THE ONLY THING THAT NOW COSTS
+ *   A RE-PASTE" further down.
  * ========================================================================== */
 
 const INBOX_SHEET = "_INBOX";
@@ -249,9 +259,99 @@ const SYNC_SKIP_SOURCES = ["FUNNEL_SELFTEST"];
  * millions of cells and die halfway through, leaving a half-written tab. */
 const SYNC_MAX_ROWS = 40000;
 
-/* The payload contract this script speaks (payload.PAYLOAD_VERSION). A batch
- * announcing anything else is skipped loudly instead of parsed on a guess. */
-const SYNC_PAYLOAD_VERSION = 6;
+/* ============================================================================
+ * THE ONLY THING THAT NOW COSTS A RE-PASTE
+ *
+ * This file used to refuse any batch whose payload_version was not EXACTLY the
+ * number below, so four new columns — columns this script would have written
+ * without being told anything, because writeTable_ builds every sheet from the
+ * payload's own header — cost the owner a full re-paste of the file into his
+ * spreadsheet. The equality was not stupid; it was guarding a real danger (see
+ * headerDrift_). It was just answering two questions with one number.
+ *
+ *   SYNC_PAYLOAD_VERSION        the CONTENT stamp of the ScrapeX build this
+ *                               file was copied from. REPORTED, never enforced:
+ *                               a payload carrying a newer one is a payload
+ *                               with an extra column in it, and an extra column
+ *                               just arrives.
+ *   SYNC_PAYLOAD_COMPAT_VERSION the MEANING generation, and the only number
+ *                               that refuses anything. It moves when a column
+ *                               is renamed or removed, when a value's units
+ *                               change, or when a required field becomes
+ *                               optional — the cases where a header-driven
+ *                               sheet would write the new column BESIDE the
+ *                               stale old one and go on looking healthy.
+ *
+ * So: a new column in a ScrapeX release does nothing to you. A renamed one
+ * stops this sheet with a message naming both numbers, and THAT is when you
+ * paste this file again — Extensions -> Apps Script, replace, save. Nothing is
+ * lost while you wait: _INBOX keeps receiving every chunk (doPost has no
+ * version gate at all), the refusal is recorded in _RUNS with its reason, and
+ * the next sync after the paste republishes everything from the inbox.
+ *
+ * Both numbers, and the ledger below, are mirrored from scrapex/payload.py and
+ * pinned to it by tests/test_payload_compat.py — they cannot drift silently.
+ * ========================================================================== */
+const SYNC_PAYLOAD_VERSION = 7;
+const SYNC_PAYLOAD_COMPAT_VERSION = 5;
+const SYNC_PAYLOAD_COMPAT_MIN_VERSION = 5;
+
+/* WHICH GENERATION EACH CONTENT VERSION BELONGS TO (payload.GENERATION_OF_
+ * VERSION). 2, 3, 4 and 5 each renamed a column or inverted a meaning and so
+ * each opens its own generation; 6 and 7 only ADDED, so they stay in 5's.
+ *
+ * This is what keeps an old mailbox readable. _INBOX holds batches stamped 6
+ * that carry no generation at all, because they were sent before the field
+ * existed — this table is how they are still understood as generation 5 and
+ * keep publishing, instead of every tab going stale the day this file is
+ * pasted. */
+const SYNC_GENERATION_OF_VERSION = { "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 5, "7": 5 };
+
+/* The GAS mirror of payload.compat_generation(). null when unknowable: a
+ * version this script has never heard of, from a build newer than this file,
+ * declaring no generation of its own. Guessing there is the one thing that
+ * must not happen, so it answers null and compatProblem_ says so in words. */
+function compatGeneration_(payloadVersion, declaredCompat) {
+  if (declaredCompat !== null && declaredCompat !== undefined && declaredCompat !== "") {
+    const declared = Number(declaredCompat);
+    if (isFinite(declared)) return declared;
+  }
+  const known = SYNC_GENERATION_OF_VERSION[String(Number(payloadVersion))];
+  return known === undefined ? null : known;
+}
+
+/* The GAS mirror of payload.compat_problem(): "" when this script can read the
+ * batch, otherwise the refusal in words.
+ *
+ * Every refusal names BOTH numbers and which of the two failed, because the
+ * remedies are opposite: a newer generation means "paste this file again", an
+ * older one means "that batch was written before a column changed meaning" and
+ * no paste will help it. A message carrying one bare number cannot tell the
+ * owner which of those he is looking at. */
+function compatProblem_(payloadVersion, declaredCompat) {
+  const generation = compatGeneration_(payloadVersion, declaredCompat);
+  if (generation === null) {
+    return "payload_version " + payloadVersion + " is unknown to this script (content " +
+           SYNC_PAYLOAD_VERSION + ", generation " + SYNC_PAYLOAD_COMPAT_VERSION +
+           ") and the batch declares no payload_compat_version, so which columns it " +
+           "means cannot be known — paste the current StagingAppScript.txt into this sheet";
+  }
+  if (generation > SYNC_PAYLOAD_COMPAT_VERSION) {
+    return "payload_compat_version " + generation + " is newer than this script reads " +
+           "(generation " + SYNC_PAYLOAD_COMPAT_VERSION + "); the batch's payload_version is " +
+           payloadVersion + " and this script was pasted at payload_version " +
+           SYNC_PAYLOAD_VERSION + ". A column was renamed, removed or given a new meaning " +
+           "— paste the current StagingAppScript.txt into this sheet";
+  }
+  if (generation < SYNC_PAYLOAD_COMPAT_MIN_VERSION) {
+    return "payload_compat_version " + generation + " is older than this script reads " +
+           "(generation " + SYNC_PAYLOAD_COMPAT_MIN_VERSION + "); the batch's payload_version is " +
+           payloadVersion + " and this script was pasted at payload_version " +
+           SYNC_PAYLOAD_VERSION + ". That batch was written before a column changed meaning " +
+           "and cannot be read as it stands";
+  }
+  return "";
+}
 
 /* Cells are written as TEXT on purpose. Python already canonicalised every
  * value to a string (outputs._canonical_cell) so that 15 and 15.0 cannot fork
@@ -325,8 +425,11 @@ function rebuildTables_() {
     try {
       // One source failing must not stop the others: a ragged batch from one
       // connector should never leave every other table stale.
-      writeTable_(ss, sourceKey, batch.header, batch.rows);
-      written.push({ source: sourceKey, rows: batch.rows.length, scraped_at: batch.scraped_at });
+      const drift = writeTable_(ss, sourceKey, batch.header, batch.rows);
+      written.push({
+        source: sourceKey, rows: batch.rows.length, scraped_at: batch.scraped_at,
+        columns_added: drift.added, columns_removed: drift.removed,
+      });
     } catch (error) {
       skipped.push({ source: sourceKey, reason: String(error && error.message || error) });
     }
@@ -382,6 +485,10 @@ function collectBatches_(inbox) {
       index: Number(chunk.index || 1),
       total: Number(chunk.total || 1),
       version: Number(payload.payload_version),
+      // Kept RAW, not Number()-ed: absent and null are the answer for every
+      // batch written before this field existed, and Number(undefined) is NaN,
+      // which reads like a declared-but-broken generation rather than none.
+      compat: payload.payload_compat_version,
       header: payload.header || [],
       rows: payload.rows || [],
       scraped_at: batchKey,
@@ -436,10 +543,8 @@ function lastInboxRow_(chunks) {
  * publishes instead of sitting forever at "have 5, expected 3". */
 function reassemble_(chunks) {
   const total = chunks[0].total;
-  if (chunks[0].version !== SYNC_PAYLOAD_VERSION) {
-    throw new Error("payload_version " + chunks[0].version + "; this script speaks " +
-                    SYNC_PAYLOAD_VERSION);
-  }
+  const problem = compatProblem_(chunks[0].version, chunks[0].compat);
+  if (problem) throw new Error(problem);
   const byIndex = {};
   for (let i = 0; i < chunks.length; i++) {
     if (chunks[i].total !== total) {
@@ -478,6 +583,36 @@ function tableSuffix_(sourceUrl) {
   return "";
 }
 
+/* WHAT CHANGED ABOUT THE COLUMNS since the last time this tab was written.
+ *
+ * Building the sheet from the payload's own header is what lets a new column
+ * arrive without this file being pasted again — and is exactly why the arrival
+ * has to be SAID. A column that turns up in a spreadsheet with nobody told is
+ * a column someone reads six months later as though it had always been
+ * checked. A disappearance is louder still: it is either a rename, which must
+ * have moved the generation and is refused above if it did, or a producer that
+ * quietly stopped sending something.
+ *
+ * Read from the SHEET rather than from a list kept in this file, so there is no
+ * second copy of the column names to maintain here and nothing to re-paste when
+ * the contract widens. The sheet's own last header is the only "what I saw last
+ * time" this needs. */
+function headerDrift_(sheet, header) {
+  const width = sheet.getLastColumn();
+  if (sheet.getLastRow() < 1 || width < 1) return { added: [], removed: [] };
+  // Blanks are dropped, not reported as columns that vanished: getLastColumn()
+  // answers for the whole SHEET, so anything an owner typed into a stray cell
+  // out to the right widens row 1 with empty names. Reporting those would put
+  // an unnamed "column gone" — and a permanent warning — in _RUNS forever.
+  const previous = sheet.getRange(1, 1, 1, width).getValues()[0]
+    .map(String).filter(function (c) { return c !== ""; });
+  return {
+    added: header.filter(function (c) { return previous.indexOf(String(c)) === -1; }),
+    removed: previous.filter(function (c) { return header.indexOf(c) === -1; }),
+  };
+}
+
+/* Returns the column drift, for the sync report to say out loud. */
 function writeTable_(ss, sourceKey, header, rows) {
   const tab = tabNameFor_(sourceKey);
   if (!header || !header.length) throw new Error("batch carries no header");
@@ -494,14 +629,18 @@ function writeTable_(ss, sourceKey, header, rows) {
   }
 
   let sheet = ss.getSheetByName(tab);
+  let drift = { added: [], removed: [] };
+  // A brand-new tab has no "before", so every column in it is not drift — it
+  // is the tab. Only a sheet that already existed can have columns move.
   if (!sheet) sheet = ss.insertSheet(tab);
+  else drift = headerDrift_(sheet, header);
   sheet.clear();
   const data = [header].concat(rows);
   const range = sheet.getRange(1, 1, data.length, width);
   if (SYNC_AS_TEXT) range.setNumberFormat("@");
   range.setValues(data);
   sheet.setFrozenRows(1);
-  return sheet;
+  return drift;
 }
 
 /* A tab named after the source, without ever colliding with the two sheets
@@ -519,8 +658,26 @@ function tabNameFor_(sourceKey) {
  * without this line a broken 15-minute sync just looks like stale tabs. */
 function logSync_(report) {
   const sheet = ensureSheet(RUNS_SHEET, RUNS_HEADER);
-  const wrote = report.written.map(function (w) { return w.source + "(" + w.rows + ")"; });
-  const level = report.skipped.length ? "warning" : "info";
+  // Every column that appeared or vanished is named HERE, in the durable log,
+  // and not only in a toast nobody is watching at 03:15. This is the record
+  // that answers "when did that column show up, and did anyone check it?".
+  const wrote = report.written.map(function (w) {
+    let text = w.source + "(" + w.rows + ")";
+    if (w.columns_added && w.columns_added.length) {
+      text += " +new column(s): " + w.columns_added.join(", ");
+    }
+    if (w.columns_removed && w.columns_removed.length) {
+      text += " -column(s) gone: " + w.columns_removed.join(", ");
+    }
+    return text;
+  });
+  const lostColumns = report.written.some(function (w) {
+    return w.columns_removed && w.columns_removed.length;
+  });
+  // A column that VANISHED is a warning even when every tab wrote cleanly: the
+  // generation gate says the contract did not break, so a producer stopped
+  // sending something, and nothing else would ever mention it.
+  const level = (report.skipped.length || lostColumns) ? "warning" : "info";
   let message = "sync: wrote " + report.written.length + " tab(s)" +
                 (wrote.length ? " — " + wrote.join(", ") : "");
   if (report.skipped.length) {
@@ -534,9 +691,14 @@ function logSync_(report) {
 /* Toast only when a human is watching; a time-driven run has no UI. */
 function notifySync_(report) {
   try {
+    let moved = 0;
+    report.written.forEach(function (w) {
+      moved += (w.columns_added || []).length + (w.columns_removed || []).length;
+    });
     SpreadsheetApp.getActiveSpreadsheet().toast(
       "Wrote " + report.written.length + " tab(s)" +
-      (report.skipped.length ? ", skipped " + report.skipped.length : ""),
+      (report.skipped.length ? ", skipped " + report.skipped.length : "") +
+      (moved ? ", " + moved + " column(s) changed — see _RUNS" : ""),
       "ScrapeX sync", 5);
   } catch (error) {
     // No UI attached (time-driven trigger). _RUNS already has the record.

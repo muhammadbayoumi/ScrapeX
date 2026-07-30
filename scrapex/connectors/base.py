@@ -14,7 +14,7 @@ from typing import Iterable, Protocol, runtime_checkable
 import httpx
 
 from ..config import SourceEntry
-from ..payload import FunnelPayload, PAYLOAD_VERSION, utc_now_iso
+from ..payload import FunnelPayload, new_payload, utc_now_iso
 from ..vocab import ExtractKind, Fetcher, PayloadClient
 
 # A single honest, stable UA for all HTTP fetching (F5). Zid/WAF sites that
@@ -71,8 +71,7 @@ class ScrapedTable:
     published_rates: dict[str, float] = field(default_factory=dict)
 
     def to_payload(self, client: PayloadClient = PayloadClient.CLI, run_ref: str | None = None) -> FunnelPayload:
-        return FunnelPayload(
-            payload_version=PAYLOAD_VERSION,
+        return new_payload(
             source_key=self.source_key,
             kind=self.kind,
             client=client,

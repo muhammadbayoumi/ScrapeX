@@ -57,3 +57,10 @@ jobs:
         # ships one, and this job already has Node for the line above, so the
         # cost of the first guard here is zero.
         run: node --test extension/tests/*.test.mjs
+      - name: Apps Script gate (the pasted file's own logic, run for real)
+        # T1 exempts Apps Script from needing a test file because the contract
+        # fixtures were said to be its suite. They are not: a fixture cannot
+        # tell you whether the SHEET refuses a payload, and the refusal is the
+        # thing that was costing the owner a re-paste. This runs the real
+        # StagingAppScript.txt with a fake spreadsheet under it.
+        run: node --test apps_script/tests/*.test.mjs

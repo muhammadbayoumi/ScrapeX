@@ -24,7 +24,7 @@ from pathlib import Path
 from . import settings
 from .fields import ORIGINAL_SCHEMA
 from .ingest import _canon_amount
-from .payload import PAYLOAD_VERSION, FunnelPayload, utc_now_iso
+from .payload import new_payload, utc_now_iso
 from .publish import publish_source
 from .reports import export_source_table
 from .settings import RunResult          # the one shape every run reports in
@@ -239,8 +239,8 @@ def apps_script_test(conn: sqlite3.Connection, *, client=None) -> RunResult:
     from .funnel import FunnelDeliveryError, OutboxAlarm
 
     client = client if client is not None else _funnel_client(conn)
-    payload = FunnelPayload(
-        payload_version=PAYLOAD_VERSION, source_key="FUNNEL_SELFTEST",
+    payload = new_payload(
+        source_key="FUNNEL_SELFTEST",
         kind=ExtractKind.PRODUCT_PRICES, client=PayloadClient.CLI,
         scraped_at=utc_now_iso(), source_url="scrapex://funnel-test",
         header=["check"], rows=[["ok"]])
@@ -311,8 +311,8 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
         # two engines. An older sheet script ignores the suffix and keeps
         # writing one tab, which is what it did before.
         url = f"scrapex://export/{source_key}" + (f"/{suffix}" if suffix else "")
-        return client.send(FunnelPayload(
-            payload_version=PAYLOAD_VERSION, source_key=source_key,
+        return client.send(new_payload(
+            source_key=source_key,
             kind=kind, client=PayloadClient.CLI,
             scraped_at=sent_at, source_url=url, header=list(table_header),
             rows=[[_canonical_cell(cell) for cell in row] for row in table_rows]))
@@ -387,6 +387,21 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
                               for tab in family if tab in written)
         detail = (f"Delivered {len(rows)} rows in {chunks} chunk(s); the sheet "
                   f"wrote {confirmed}.")
+        # WHICH COLUMNS MOVED, said here and not only in the sheet's _RUNS tab.
+        # An added column now lands without anyone pasting a new script — which
+        # is the point of the two version numbers (payload.PAYLOAD_COMPAT_
+        # VERSION) and exactly why its arrival has to be announced somewhere the
+        # owner is already looking. A column that arrives unannounced is a column
+        # read six months later as though someone had checked it.
+        moved = []
+        for tab in family:
+            entry = written.get(tab) or {}
+            for label, key in (("new", "columns_added"), ("gone", "columns_removed")):
+                names = entry.get(key) or []
+                if names:
+                    moved.append(f"{tab}: {label} {', '.join(str(n) for n in names)}")
+        if moved:
+            detail += " Columns changed — " + "; ".join(moved) + "."
         # A tab this run DELIVERED that the report never mentions is not a
         # refusal — the commonest cause is an older pasted script filing every
         # table under the bare key — so the run stands. But saying nothing

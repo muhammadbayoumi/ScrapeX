@@ -1,6 +1,5 @@
 {
-  "payload_version": 7,
-  "payload_compat_version": 5,
+  "payload_version": 6,
   "source_key": "MADAR",
   "kind": "product_prices",
   "client": "cli",
@@ -20,13 +19,6 @@
       "120151248",
       "Fire Retardant Plywood - 12mm",
       "112.50"
-    ],
-    [
-      "4672",
-      "4671",
-      "120151848",
-      "Fire Retardant Plywood - 18mm",
-      "168.78"
     ]
   ],
   "chunk": null,
