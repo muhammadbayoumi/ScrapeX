@@ -237,7 +237,14 @@ function setStatus(engine) {
 // for a feature that had been shipped weeks earlier. Settings belong here.
 
 const CRAWL_KEYS = ["crawl_honour_delay", "crawl_min_interval_s",
-                    "crawl_timeout_s", "crawl_user_agent"];
+                    "crawl_parallel_sources", "crawl_timeout_s",
+                    "crawl_user_agent"];
+
+// The engine's own ceiling (jobs.py MAX_PARALLEL_SOURCES). Past a handful the
+// wall-clock stops improving while the open handles and the contended write
+// lock keep growing, so the field refuses what the engine would clamp anyway
+// rather than accepting a number and silently ignoring it.
+const MAX_PARALLEL_SOURCES = 8;
 
 function crawlPaceEffect() {
   // What the choice MEANS, in the units the owner thinks in. A checkbox that
@@ -247,6 +254,18 @@ function crawlPaceEffect() {
   $("crawl-pace-effect").textContent = honour
     ? "Each site's own delay wins when it asks for more than " + every + "s."
     : "Our pace only: " + every + "s between requests, whatever a site asks for.";
+}
+
+function crawlParallelEffect() {
+  // What the number MEANS, in the terms the owner asked in. elburoj starved
+  // nine other sources for days because one slow site held the whole run; the
+  // field that fixes that should say so, and should say the part people get
+  // wrong — this is sites at once, never two pages of one site at once.
+  const at = parseInt($("crawl_parallel_sources").value, 10) || 1;
+  $("crawl-parallel-effect").textContent = at <= 1
+    ? "One site at a time: a slow site holds up every source behind it."
+    : at + " different sites at once. Two sources on the SAME site still take "
+      + "turns, so no site is asked for more than it was before.";
 }
 
 async function loadCrawlSettings() {
@@ -259,10 +278,12 @@ async function loadCrawlSettings() {
   };
   $("crawl_honour_delay").checked = !["0", "false", false].includes(value("crawl_honour_delay"));
   $("crawl_min_interval_s").value = value("crawl_min_interval_s") || "1.0";
+  $("crawl_parallel_sources").value = value("crawl_parallel_sources") || "1";
   $("crawl_timeout_s").value = value("crawl_timeout_s") || "30";
   $("crawl_user_agent").value = value("crawl_user_agent") || "";
   $("log_retention_days").value = value("log_retention_days") || "30";
   crawlPaceEffect();
+  crawlParallelEffect();
 }
 
 async function saveCrawlSettings() {
@@ -278,6 +299,9 @@ async function saveCrawlSettings() {
     await post("/api/settings", {
       crawl_honour_delay: $("crawl_honour_delay").checked ? "1" : "0",
       crawl_min_interval_s: String(interval),
+      crawl_parallel_sources: String(Math.min(
+        Math.max(parseInt($("crawl_parallel_sources").value, 10) || 1, 1),
+        MAX_PARALLEL_SOURCES)),
       crawl_timeout_s: String(parseInt($("crawl_timeout_s").value, 10) || 30),
       crawl_user_agent: $("crawl_user_agent").value.trim(),
       log_retention_days: String(parseInt($("log_retention_days").value, 10) || 30),
@@ -285,6 +309,7 @@ async function saveCrawlSettings() {
   } catch (err) { out("crawl-msg", "not saved: " + err.message, "err"); return; }
   out("crawl-msg", "saved — it applies to the next crawl, not one already running", "ok");
   crawlPaceEffect();
+  crawlParallelEffect();
 }
 
 async function restartEngineFromPanel() {
@@ -2076,6 +2101,7 @@ async function init() {
   $("engine-restart").addEventListener("click", restartEngineFromPanel);
   $("crawl_honour_delay").addEventListener("change", crawlPaceEffect);
   $("crawl_min_interval_s").addEventListener("input", crawlPaceEffect);
+  $("crawl_parallel_sources").addEventListener("input", crawlParallelEffect);
   document.querySelector('[data-sect="s-crawl"]')
     .addEventListener("click", () => {
       if (!$("s-crawl").classList.contains("hidden")) loadCrawlSettings();

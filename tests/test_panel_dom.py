@@ -1216,3 +1216,45 @@ def test_a_selection_that_keeps_nothing_is_not_nagged(open_panel):
 
     assert asked == []
     assert _writes(page), "the run did not start"
+
+
+def test_the_number_of_sites_crawled_at_once_is_reachable(open_panel):
+    """The engine gained per-host concurrency and the panel had no field for it,
+    so the feature shipped switched off with no way to switch it on — the same
+    shape of miss as the crawl pace itself."""
+    page = open_panel()
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(300)
+
+    assert page.input_value("#crawl_parallel_sources") == "1"
+    # One at a time is the default, and the panel says what that COSTS.
+    assert "holds up every source" in page.inner_text("#crawl-parallel-effect")
+
+    page.fill("#crawl_parallel_sources", "4")
+    page.wait_for_timeout(100)
+    effect = page.inner_text("#crawl-parallel-effect")
+    assert "4 different sites" in effect
+    # The part people get wrong, said out loud: no site is asked for more.
+    assert "SAME site" in effect
+    assert not page.js_errors
+
+
+def test_a_width_above_the_engines_ceiling_is_clamped_not_ignored(open_panel):
+    """The engine clamps to MAX_PARALLEL_SOURCES anyway. Accepting 40 and
+    silently running 8 would teach the owner a number that is not true."""
+    page = open_panel()
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(300)
+    page.fill("#crawl_parallel_sources", "40")
+    page.click("#crawl-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate(
+        "window.__writes.filter(w => w.path.startsWith('/api/settings'))")
+    assert writes, "nothing was sent to the engine"
+    assert writes[-1]["body"]["crawl_parallel_sources"] == "8", (
+        "40 reached the engine, which clamps to 8 — so the panel taught a "
+        "number that is not what runs")
+    assert "saved" in page.inner_text("#crawl-msg")

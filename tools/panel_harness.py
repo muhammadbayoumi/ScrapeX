@@ -99,6 +99,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         "/api/settings": {"settings": {
             "crawl_honour_delay": {"value": "1"},
             "crawl_min_interval_s": {"value": "1.0"},
+            "crawl_parallel_sources": {"value": "1"},
             "crawl_timeout_s": {"value": "30"},
             "crawl_user_agent": {"value": ""},
             "log_retention_days": {"value": "30"}}},
