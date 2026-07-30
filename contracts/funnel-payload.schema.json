@@ -43,12 +43,24 @@
     }
   },
   "additionalProperties": false,
-  "description": "Version 6. One contract for CLI + extension producers and the Apps Script consumer. See scraper/ENGINEERING.md T8.",
+  "description": "Content version 7, meaning generation 5. One contract for CLI + extension producers and the Apps Script consumer. A consumer gates on payload_compat_version and NEVER on payload_version: a newer content version is a payload with an extra column in it, which anything reading by column name can already read. See scraper/ENGINEERING.md T8.",
   "properties": {
     "payload_version": {
-      "const": 6,
+      "minimum": 1,
       "title": "Payload Version",
       "type": "integer"
+    },
+    "payload_compat_version": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Payload Compat Version"
     },
     "source_key": {
       "maxLength": 64,
@@ -123,5 +135,38 @@
     "rows"
   ],
   "title": "ScrapeX funnel payload",
-  "type": "object"
+  "type": "object",
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "payload_compat_version"
+        ],
+        "properties": {
+          "payload_compat_version": {
+            "type": "integer"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload_compat_version": {
+            "minimum": 5,
+            "maximum": 5
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "payload_version": {
+            "enum": [
+              5,
+              6,
+              7
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

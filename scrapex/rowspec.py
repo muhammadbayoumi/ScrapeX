@@ -277,7 +277,12 @@ COMMODITY_PRICE = RowSpec(
                         "material_label"}),
 )
 
-_BY_KIND = {spec.kind: spec for spec in (PRODUCT_PRICES, COMMODITY_PRICE, ENRICHMENT)}
+# Every spec there is, in one name. The header baseline (contracts/header-
+# baseline.json) is built from this, so a spec that exists but is not listed
+# here is a spec whose columns nothing guards against a silent rename.
+ALL_SPECS = (PRODUCT_PRICES, COMMODITY_PRICE, ENRICHMENT)
+
+_BY_KIND = {spec.kind: spec for spec in ALL_SPECS}
 
 
 def spec_for(kind: ExtractKind) -> RowSpec:

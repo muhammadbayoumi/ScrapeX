@@ -30,11 +30,13 @@ from .funnel import FunnelClient
 from .ingest import ingest_payloads
 from .reports import recent_observations, source_summary
 from .payload import (
+    PAYLOAD_COMPAT_VERSION,
     PAYLOAD_VERSION,
-    FunnelPayload,
     export_json_schema,
+    new_payload,
     utc_now_iso,
 )
+from .rowspec import ALL_SPECS
 from .vocab import ExtractKind, PayloadClient
 
 CONTRACTS_DIR = Path(__file__).resolve().parent.parent / "contracts"
@@ -169,16 +171,48 @@ def _cmd_export_contract(args: argparse.Namespace) -> int:
         json.dumps(export_json_schema(), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-    print(f"wrote {out} (payload_version {PAYLOAD_VERSION})")
+    print(f"wrote {out} (payload_version {PAYLOAD_VERSION}, "
+          f"compat generation {PAYLOAD_COMPAT_VERSION})")
+    print(_write_header_baseline())
     return 0
+
+
+def _write_header_baseline() -> str:
+    """The FLOOR under every column name, pinned to the generation that owns it.
+
+    A sheet built from the payload's own header treats a RENAMED column as a
+    brand-new one: it writes the new name beside the old, which keeps filling
+    with nothing and keeps being read. That is worse than an error, and it is
+    the one thing the version gate has to catch — so the gate is only half of
+    it, and this file is the other half. It records every column the current
+    generation guarantees; tests/test_payload_compat.py fails the build if one
+    of them disappears while PAYLOAD_COMPAT_VERSION stands still.
+
+    It is a BASELINE, not a mirror, so it is never rewritten in place: an
+    existing file for the current generation is left exactly as committed. Only
+    a generation the file has never described gets a new one written — which is
+    the same act as declaring the break.
+    """
+    path = CONTRACTS_DIR / "header-baseline.json"
+    baseline = {
+        "payload_compat_version": PAYLOAD_COMPAT_VERSION,
+        "kinds": {spec.kind.value: list(spec.columns) for spec in ALL_SPECS},
+    }
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if existing.get("payload_compat_version") == PAYLOAD_COMPAT_VERSION:
+            return (f"kept {path} (generation {PAYLOAD_COMPAT_VERSION} baseline stands; "
+                    "a baseline is never rewritten for the generation it describes)")
+    path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
+    return f"wrote {path} (new baseline for generation {PAYLOAD_COMPAT_VERSION})"
 
 
 def _cmd_funnel_test(args: argparse.Namespace) -> int:
     endpoint = args.endpoint or os.environ.get("SCRAPEX_FUNNEL_URL", "")
     token = args.token or os.environ.get("SCRAPEX_FUNNEL_TOKEN", "")
     client = FunnelClient(endpoint=endpoint, token=token)
-    payload = FunnelPayload(
-        payload_version=PAYLOAD_VERSION,
+    payload = new_payload(
         source_key="FUNNEL_SELFTEST",
         kind=ExtractKind.PRODUCT_PRICES,
         client=PayloadClient.CLI,

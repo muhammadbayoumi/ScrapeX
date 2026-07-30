@@ -38,6 +38,30 @@ fetcher of its own (below), and this crawl's own session must never be allowed
 to touch an Egyptian URL first, or every product page after it would come back
 in EGP and be stored as a Saudi price.
 
+THE PICTURES (2026-07-29). Every advancedcastle product page publishes `image`
+in the SAME Product JSON-LD the price is read from, and not one was stored:
+this connector had no enrichment branch at all, so a zid source that
+contracted enrichment would have been served prices and silence. The reading
+itself is not zid's to write (salla already had it), so it moved to jsonld and
+both families now share it. What zid adds is the branch, and the choice to run
+it for a PRICELESS product too — a variant-priced page publishes no usable
+price and still publishes its pictures.
+
+MEASURED, live warehouse before this fix: 168/168 ADVANCEDCASTLE products, 0
+carrying an image. MEASURED, this connector run end-to-end against the live
+site after the fix (168 products, one crawl): 168/168 products land at least
+one image, 435 image rows total, 771 enrichment rows including description
+and sku.
+
+MEASURED LIMIT, stated rather than papered over: on a 42-product sample of the
+live catalogue, the page's own gallery markup (`#product-images
+img.carousel-img`) carries 124 images against JSON-LD's 109 for the same
+products, and every JSON-LD image is among them. On 10 of the 42, JSON-LD
+names fewer pictures than the gallery shows. Every product still gets at least
+one image from JSON-LD, so nothing is left blank; reading the gallery as well
+would recover the remaining ones and is a separate, owner-visible enhancement,
+not part of restoring what was being dropped.
+
 Two things this deliberately does NOT do. It does not convert anything: the
 crawled price stays the price the store printed. And it does not reconcile the
 rate with the prices — on 2026-07-29 the store published 3.754116 SAR and
@@ -53,11 +77,12 @@ from urllib.parse import urljoin
 
 from ..localinbox import safe_token
 from ..config import SourceEntry
-from ..rowspec import PRODUCT_PRICES, RowBuilder
+from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
+from ..vocab import ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
-from .jsonld import (WalkTally, alternate_links, english_alternate, offer_price,
-                     parse_product_jsonld, product_row, sitemap_products,
-                     walk_product_pages)
+from .jsonld import (WalkTally, alternate_links, english_alternate,
+                     enrichment_rows, offer_price, parse_product_jsonld,
+                     product_row, sitemap_products, walk_product_pages)
 
 _PRODUCT_PATH = "/products/"
 
@@ -131,6 +156,8 @@ class ZidConnector:
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
         base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
+        wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
+                               for spec in source.extract)
         tally = WalkTally()
         rates: dict[str, float] = {}
         rate_notes: list[str] = []
@@ -155,25 +182,42 @@ class ZidConnector:
                 abroad, notes = self._rates_abroad(html, url, source)
                 rates.update(abroad)
                 rate_notes.extend(notes)
-            if not offer_price(node.get("offers"))[0]:
+            pid = _product_id(url, node)
+            if offer_price(node.get("offers"))[0]:
+                # The SAME product, in the store's other language. Fetched only
+                # when THIS page advertises one, so an Arabic-only Zid store
+                # still costs exactly one request per product and reaches none
+                # of this.
+                english, lost = self._english_node(html, node, url, source)
+                tally.english_lost += lost
+                # One table per product, journaled as fetched: accumulating the
+                # whole catalogue and yielding once at the end meant an
+                # interrupted crawl had written nothing at all.
+                builder = RowBuilder(PRODUCT_PRICES)
+                row = product_row(builder, node, url, source, vat, pid,
+                                  english=english)
+                if row is None:  # unreachable today; the price was checked above
+                    tally.priceless += 1
+                else:
+                    yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind,
+                                       base, builder.header, [row],
+                                       page_token=token)
+            else:
                 tally.priceless += 1
-                continue
-            # The SAME product, in the store's other language. Fetched only when
-            # THIS page advertises one, so an Arabic-only Zid store still costs
-            # exactly one request per product and reaches none of this.
-            english, lost = self._english_node(html, node, url, source)
-            tally.english_lost += lost
-            # One table per product, journaled as fetched: accumulating the
-            # whole catalogue and yielding once at the end meant an interrupted
-            # crawl had written nothing at all.
-            builder = RowBuilder(PRODUCT_PRICES)
-            row = product_row(builder, node, url, source, vat,
-                              _product_id(url, node), english=english)
-            if row is None:  # unreachable today; the price was checked above
-                tally.priceless += 1
-                continue
-            yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
-                               builder.header, [row], page_token=token)
+            if wants_enrichment:
+                # The pictures and prose the SAME page already carried, under
+                # the SAME token: one product is journaled once, so a resume
+                # cannot land its price without its details. Outside the price
+                # branch on purpose — a variant-priced product publishes no
+                # usable price and still publishes its images, and dropping
+                # those with the price is how this connector came to store no
+                # image at all.
+                extra = RowBuilder(ENRICHMENT)
+                attribute_rows = enrichment_rows(extra, node, pid)
+                if attribute_rows:
+                    yield ScrapedTable(source.source_key, ENRICHMENT.kind, base,
+                                       extra.header, attribute_rows,
+                                       page_token=token)
 
         # Every skip above used to be silent, so a crawl that landed half the
         # catalogue reported plain success — the GPP lesson, and the one salla

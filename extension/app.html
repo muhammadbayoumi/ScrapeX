@@ -888,6 +888,10 @@
               <label for="crawl_min_interval_s">Minimum seconds between requests</label>
               <input id="crawl_min_interval_s" type="number" step="0.1" min="0.1" dir="ltr">
 
+              <label for="crawl_parallel_sources">Sites crawled at the same time</label>
+              <input id="crawl_parallel_sources" type="number" step="1" min="1" max="8" dir="ltr">
+              <p class="muted text-xs" id="crawl-parallel-effect">&nbsp;</p>
+
               <label for="crawl_timeout_s">Request timeout in seconds</label>
               <input id="crawl_timeout_s" type="number" min="1" dir="ltr">
 

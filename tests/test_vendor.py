@@ -310,10 +310,12 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # and a visible token-based focus state.
     # design-system-44: the export split control gained a quieter hierarchy
     # and a structured, descriptive menu without changing export behaviour.
-    assert '/static/grid.js?v=design-system-44' in page
-    assert '/static/grid-theme.css?v=design-system-44' in page
-    assert '/static/grid-theme.css?v=design-system-44' in (
+    assert '/static/grid.js?v=design-system-45' in page
+    assert '/static/grid-theme.css?v=design-system-45' in page
+    assert '/static/grid-theme.css?v=design-system-45' in (
         TEMPLATES / "datasets.html").read_text(encoding="utf-8")
+    # design-system-45: opening a card no longer rearranges the others — the
+    # column count is unchanged on focus and nothing is pinned to a row.
     # design-system-44: two selected cards keep the established card width and
     # aligned slots; the focused card KEEPS ITS PLACE with the inspector beside
     # it, and the other selected cards move below without clearing the table
@@ -920,10 +922,17 @@ def test_selected_rows_render_as_product_cards_with_a_responsive_inspector():
     assert 'focusedCard.classList.add("is-focused")' in multi
     assert 'productGrid.classList.add("has-focused-record")' in multi
     assert ".selected-product-grid.has-focused-record" in css
-    # Two tracks: the card keeps its established 24rem, the inspector takes
-    # the rest of the row. A card that changed width when opened would read as
-    # a different card.
-    assert "grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);" in css
+    # OPENING A CARD MUST NOT REARRANGE THE OTHERS. The first attempt cut the
+    # grid to two tracks and pinned every card to column 1, so the opened card
+    # rose to the top and the rest fell into a single stack. The column count
+    # must not change on focus, and nothing may be pinned to a row or a column.
+    assert "grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);" not in css
+    focused = css.split(".selected-product-card.is-focused {", 1)[1].split("}", 1)[0]
+    assert "grid-row" not in focused and "grid-column" not in focused, (
+        "the focused card is pinned again, so it jumps out of its place")
+    host = css.split(".selected-product-detail-host {", 1)[1].split("}", 1)[0]
+    assert "grid-column: span 2;" in host, "the inspector must span, not be pinned"
+    assert "grid-row" not in host
     assert ".selected-product-card.is-focused" in css
     # A truncated value must stay readable somewhere, or the card decides what
     # a fact SAYS rather than where it is shown.

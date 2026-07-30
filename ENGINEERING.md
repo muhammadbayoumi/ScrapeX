@@ -34,14 +34,14 @@
 
 ## 3. Testing (→ review §3)
 
-- **T1 No module without its test file** (`tests/` mirrors package paths). *Exemption:* Apps Script (see S1) — its test suite is the golden contract fixtures (T8).
+- **T1 No module without its test file** (`tests/` mirrors package paths). *Exemption, narrowed:* Apps Script (see S1) leans on the golden contract fixtures (T8) for what it PARSES — but a fixture cannot say whether the sheet accepts or refuses a batch, and that refusal was what cost the owner a re-paste. `apps_script/tests/staging_gate.test.mjs` runs the real `StagingAppScript.txt` under a fake spreadsheet for exactly that.
 - **T2 Fixture-first connector tests.** Recorded REAL responses + a re-record script; assertions EXACT (`price == 168.78`, `variant_id == "4671"`), never just non-null.
 - **T3 Error-path parity.** Each happy path pairs with ≥1 failure mode: timeout, 4xx/5xx, malformed payload, empty catalog, truncated page, unexpected shape.
 - **T4 Idempotency is tested:** same-run `ingest` twice → zero new observations; `apply-decisions` twice → no-op.
 - **T5 Integration tests run the REAL `schema.sql`** on in-memory SQLite (incl. the A7 triggers) — schema/code drift impossible. Migrations included: apply all migrations to the previous release's fixture DB and diff against a fresh `schema.sql` build (two-way drift check).
 - **T6 Gates are table-driven matrices:** scope-guard rejections; feed precedence (fresh/stale × priority × wildcards); census-mode open-then-restore; ignored-stays-ignored across re-crawl; confidence-never-auto-approves; **GPP `latest_only` rejects any historical-series row** (a license obligation, tested).
 - **T7 One parametrized E2E harness** (fixture → funnel mock → ingest → asserted observation row); each family is a table entry — family #10 = one row + one fixture, not a new script.
-- **T8 One versioned funnel payload contract.** Single JSON Schema (+ `payload_version`) with golden fixture vectors in ONE directory, consumed by pytest (Python producer), vitest (extension producer), and standing as the GAS consumer's contract test. Contract changes bump the version and update all three in the same commit.
+- **T8 One versioned funnel payload contract, versioned by TWO numbers.** Single JSON Schema with golden fixture vectors in ONE directory, consumed by pytest (Python producer), vitest (extension producer), and standing as the GAS consumer's contract test. Every contract change bumps `PAYLOAD_VERSION` — the CONTENT stamp — and updates schema + fixtures in the same commit. Only a change to what a column MEANS (renamed, removed, re-united, required↔optional) bumps `PAYLOAD_COMPAT_VERSION`, and **only that number is ever gated on**: consumers accept a range of generations and never refuse a payload for carrying a newer content version. One number doing both jobs meant every added column cost the owner a hand re-paste of the Apps Script. A generation is named after the version at which it began, and `payload.GENERATION_OF_VERSION` is the ledger saying which version belongs to which. A rename is the dangerous case for a header-driven consumer, so `contracts/header-baseline.json` pins every column the current generation guarantees and the build fails if one disappears without the generation moving (`tests/test_payload_compat.py`).
 
 ## 4. Performance & scale (→ review §4)
 
