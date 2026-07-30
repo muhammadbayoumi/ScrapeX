@@ -23,7 +23,7 @@ from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.base import CrawlInterrupted, ScrapedTable
 from scrapex.ingest import ingest_payloads
 from scrapex.jobs import create_job, get_job, job_logs, run_job_once
-from scrapex.payload import PAYLOAD_VERSION
+from scrapex.payload import PAYLOAD_COMPAT_VERSION, PAYLOAD_VERSION
 from scrapex.rowspec import COMMODITY_PRICE, RowBuilder
 from scrapex.vocab import ExtractKind, ExtractScope, JobStatus, RunStatus
 
@@ -481,9 +481,13 @@ def test_a_mixed_journal_ingests_what_it_can_and_names_what_it_drops(tmp_path):
                   _restamp(_page("t3", "US", "0.95"),
                            payload_version=4, payload_compat_version=None))
     # Written by a build from the future, in a generation this one cannot read.
+    # Derived from the constants, not typed: PAYLOAD_VERSION has moved three
+    # times since this test was written (6 -> 7 -> 8) and a hardcoded "9" would
+    # quietly stop being in the future.
     _journal_page(tmp_path, "GPP_ENERGY", "T4__future.json",
                   _restamp(_page("t4", "EG", "9.99"),
-                           payload_version=9, payload_compat_version=9))
+                           payload_version=PAYLOAD_VERSION + 1,
+                           payload_compat_version=PAYLOAD_COMPAT_VERSION + 1))
     (tmp_path / "GPP_ENERGY" / "T5__truncated.json").write_text(
         '{"payload_version": 7, "sou', encoding="utf-8")
 
