@@ -116,6 +116,68 @@ def test_alsweed_declares_enrichment_so_the_image_rows_get_built():
         "1,203 products landed with no picture because nothing asked for one"
 
 
+# Families whose connector BUILDS image rows today. A source on one of these
+# that does not declare enrichment silently publishes no pictures — the
+# connector never builds the rows, and ingest.py:789 would refuse them anyway.
+#
+# This list is the durable half of the ELBUROJ lesson. ALSWEED was fixed as a
+# ONE-SOURCE manifest line, and ELBUROJ — the same family, same connector, same
+# JSON-LD image — was left behind and completed its first crawl publishing
+# 1,200 products with no pictures. A per-source assertion could not catch that;
+# a per-FAMILY one does. Add a family here the moment its connector learns to
+# capture images, and this test will name every source still missing the line.
+IMAGE_CAPABLE_FAMILIES = {
+    "magento-graphql",        # magento.py
+    "salla-html",             # salla.py
+    "shopify-json",           # shopify.py
+    "hybris-occ",             # hybris.py
+    "custom-json-api",        # custom_json.py
+    "woocommerce-storeapi",   # woocommerce.py
+    # NOT zid-html: zid.py has no image path yet, and ADVANCEDCASTLE is being
+    # fixed in another session. Add it when that lands.
+}
+
+
+def test_every_source_whose_connector_can_capture_images_asks_for_them():
+    """The test that would have caught ELBUROJ before it crawled for an hour."""
+    missing = [
+        entry.source_key
+        for entry in load_manifest(MANIFEST_FILE).sources
+        if entry.family.value in IMAGE_CAPABLE_FAMILIES
+        and not any(spec.kind == ExtractKind.ENRICHMENT for spec in entry.extract)
+    ]
+
+    assert missing == [], (
+        "these sources run a connector that CAN capture images but never ask "
+        f"for enrichment, so they store none: {missing}")
+
+
+def test_both_salla_sources_declare_it_not_just_the_one_we_noticed():
+    """ELBUROJ is the same family, connector and page shape as ALSWEED."""
+    salla = [e for e in load_manifest(MANIFEST_FILE).sources
+             if e.family.value == "salla-html"]
+    assert {e.source_key for e in salla} >= {"ALSWEED", "ELBUROJ"}
+
+    for entry in salla:
+        assert any(spec.kind == ExtractKind.ENRICHMENT for spec in entry.extract), \
+            f"{entry.source_key} publishes images and never asks for them"
+
+
+def test_elburoj_page_publishes_an_image_the_connector_already_reads():
+    """Proven from the captured page — no request was made to elburoj, which
+    was mid-crawl. The connector code needs no change; the manifest did."""
+    html = (LIVE / "salla_elburoj_product_priced_p543555922.html").read_text(
+        encoding="utf-8")
+    node = parse_product_jsonld(html)
+
+    rows = pictures(shaped(salla_images(
+        RowBuilder(ENRICHMENT), node, "https://elburoj.com/ar/x/p543555922")))
+
+    assert [r["attribute_code"] for r in rows] == ["image"]
+    assert rows[0]["value_url"].startswith("https://cdn.salla.sa/")
+    assert rows[0]["attribute_group"] == DetailGroup.MEDIA.value
+
+
 def test_alsweed_page_json_ld_yields_the_picture_the_site_publishes():
     """15/15 sampled live products publish exactly one image. Same shape here.
 
