@@ -1,0 +1,560 @@
+{
+  "started": "2026-07-30T13:32:13",
+  "snapshot_bytes": 78450688,
+  "unlimited_storage": true,
+  "phases": {
+    "queries": {
+      "wa-sqlite": {
+        "opened": {
+          "engine": "wa-sqlite",
+          "sqlite": "3.44.0",
+          "page_size": 4096,
+          "page_count": 19153,
+          "user_version": 54,
+          "journal_mode": "delete",
+          "tables": 40,
+          "triggers": 2,
+          "views": 2,
+          "indexes": 59,
+          "price_observation": 73278,
+          "fetch_ms": 0,
+          "open_ms": 27,
+          "describe_ms": 820,
+          "import_state": null,
+          "pool_files_before": null,
+          "migration": null
+        },
+        "GPP_ENERGY": {
+          "statements": [
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 2270.2,
+              "median_ms": 2387.9,
+              "max_ms": 2501.7
+            },
+            {
+              "label": "rows",
+              "rows": 695,
+              "repeats": 3,
+              "min_ms": 16887.5,
+              "median_ms": 17235.7,
+              "max_ms": 17257.6
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 9311,
+              "median_ms": 9811.8,
+              "max_ms": 10055
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 8330.8,
+              "median_ms": 8722.2,
+              "max_ms": 9159.2
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 1980.8,
+              "median_ms": 2001.6,
+              "max_ms": 2050.7
+            },
+            {
+              "label": "rows",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 6419.7,
+              "median_ms": 6915.2,
+              "max_ms": 6988.7
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 7726.7,
+              "median_ms": 7856.1,
+              "max_ms": 7896.6
+            }
+          ],
+          "table_payload": {
+            "runs": [
+              {
+                "total_ms": 47413.7,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 51473.7,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 54579.5,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              }
+            ],
+            "statements": 15
+          }
+        },
+        "MADAR": {
+          "statements": [
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 2383.9,
+              "median_ms": 2442.1,
+              "max_ms": 2479.8
+            },
+            {
+              "label": "rows",
+              "rows": 3425,
+              "repeats": 3,
+              "min_ms": 10541,
+              "median_ms": 10848.1,
+              "max_ms": 12305.8
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 7104.1,
+              "median_ms": 7540.9,
+              "max_ms": 8093.1
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 2247.4,
+              "median_ms": 2358.7,
+              "max_ms": 2366.6
+            },
+            {
+              "label": "rows",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 1906,
+              "median_ms": 2010.9,
+              "max_ms": 2169.6
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 7911.1,
+              "median_ms": 8068.9,
+              "max_ms": 8212.2
+            }
+          ],
+          "table_payload": {
+            "runs": [
+              {
+                "total_ms": 38125.9,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 38889.7,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 38962.1,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              }
+            ],
+            "statements": 14
+          }
+        }
+      },
+      "sahpool": {
+        "opened": {
+          "engine": "sqlite-wasm-sahpool",
+          "sqlite": "3.53.0",
+          "page_size": 4096,
+          "page_count": 19153,
+          "user_version": 54,
+          "journal_mode": "delete",
+          "tables": 40,
+          "triggers": 2,
+          "views": 2,
+          "indexes": 59,
+          "price_observation": 73278,
+          "fetch_ms": 256,
+          "open_ms": 147,
+          "describe_ms": 18,
+          "import_state": "skipped: already in the pool",
+          "pool_files_before": [
+            "/marketlens.db"
+          ],
+          "migration": null
+        },
+        "GPP_ENERGY": {
+          "statements": [
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 24.5,
+              "median_ms": 26.4,
+              "max_ms": 44.5
+            },
+            {
+              "label": "rows",
+              "rows": 695,
+              "repeats": 3,
+              "min_ms": 132.3,
+              "median_ms": 138.6,
+              "max_ms": 148.4
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 54.4,
+              "median_ms": 54.6,
+              "max_ms": 59.4
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 54.7,
+              "median_ms": 57.3,
+              "max_ms": 58
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 23.5,
+              "median_ms": 24,
+              "max_ms": 29.1
+            },
+            {
+              "label": "rows",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 44.8,
+              "median_ms": 47.3,
+              "max_ms": 48.8
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 52.6,
+              "median_ms": 53,
+              "max_ms": 53.5
+            }
+          ],
+          "table_payload": {
+            "runs": [
+              {
+                "total_ms": 431.9,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 409.6,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 392.1,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              }
+            ],
+            "statements": 15
+          }
+        },
+        "MADAR": {
+          "statements": [
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 23.1,
+              "median_ms": 23.7,
+              "max_ms": 28.8
+            },
+            {
+              "label": "rows",
+              "rows": 3425,
+              "repeats": 3,
+              "min_ms": 199.1,
+              "median_ms": 217.9,
+              "max_ms": 230.4
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 57.5,
+              "median_ms": 58.4,
+              "max_ms": 59.5
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 23.6,
+              "median_ms": 23.7,
+              "max_ms": 29.2
+            },
+            {
+              "label": "rows",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 10.8,
+              "median_ms": 12,
+              "max_ms": 13.2
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 51.9,
+              "median_ms": 55.4,
+              "max_ms": 61.3
+            }
+          ],
+          "table_payload": {
+            "runs": [
+              {
+                "total_ms": 410.7,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 414.9,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 434,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              }
+            ],
+            "statements": 14
+          }
+        }
+      },
+      "wa-sqlite-ahp": {
+        "opened": {
+          "engine": "wa-sqlite-accesshandlepool",
+          "sqlite": "3.44.0",
+          "page_size": 4096,
+          "page_count": 17784,
+          "user_version": 0,
+          "journal_mode": "delete",
+          "tables": 40,
+          "triggers": 2,
+          "views": 2,
+          "indexes": 59,
+          "price_observation": 73278,
+          "fetch_ms": 0,
+          "open_ms": 66,
+          "describe_ms": 6,
+          "import_state": null,
+          "pool_files_before": null,
+          "migration": null
+        },
+        "GPP_ENERGY": {
+          "statements": [
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 57.3,
+              "median_ms": 60.9,
+              "max_ms": 67.3
+            },
+            {
+              "label": "rows",
+              "rows": 695,
+              "repeats": 3,
+              "min_ms": 176.8,
+              "median_ms": 182.3,
+              "max_ms": 207.1
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 79.1,
+              "median_ms": 79.4,
+              "max_ms": 96.5
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 83.3,
+              "median_ms": 83.3,
+              "max_ms": 86.9
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 59.1,
+              "median_ms": 59.9,
+              "max_ms": 63.1
+            },
+            {
+              "label": "rows",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 68.5,
+              "median_ms": 69.2,
+              "max_ms": 71
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 80.7,
+              "median_ms": 84.2,
+              "max_ms": 86.2
+            }
+          ],
+          "table_payload": {
+            "runs": [
+              {
+                "total_ms": 587.1,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 577.5,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 578.1,
+                "rows_returned": 710,
+                "per_statement_ms": null
+              }
+            ],
+            "statements": 15
+          }
+        },
+        "MADAR": {
+          "statements": [
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 56.6,
+              "median_ms": 56.9,
+              "max_ms": 60.2
+            },
+            {
+              "label": "rows",
+              "rows": 3425,
+              "repeats": 3,
+              "min_ms": 258,
+              "median_ms": 272.2,
+              "max_ms": 311.1
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 86.3,
+              "median_ms": 90.8,
+              "max_ms": 94.9
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 53.8,
+              "median_ms": 55,
+              "max_ms": 55.6
+            },
+            {
+              "label": "rows",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 24.4,
+              "median_ms": 24.9,
+              "max_ms": 25.3
+            },
+            {
+              "label": "count",
+              "rows": 1,
+              "repeats": 3,
+              "min_ms": 80.6,
+              "median_ms": 84.9,
+              "max_ms": 87.5
+            }
+          ],
+          "table_payload": {
+            "runs": [
+              {
+                "total_ms": 730.9,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 712.6,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              },
+              {
+                "total_ms": 688.8,
+                "rows_returned": 5216,
+                "per_statement_ms": null
+              }
+            ],
+            "statements": 14
+          }
+        }
+      }
+    },
+    "ingest": {
+      "statements": 18297,
+      "wa-sqlite": {
+        "runs": [
+          {
+            "total_ms": 650,
+            "rows_returned": 1743,
+            "per_statement_ms": null
+          }
+        ],
+        "statements": 18297,
+        "driver_wall_s": 2.4
+      },
+      "sahpool": {
+        "failed": "Error: Page.evaluate: NoModificationAllowedError: Failed to execute 'createSyncAccessHandle' on 'FileSystemFileHandle': Access Handles cannot be created if there is another open Access Handle or Writable stream associated with the same file."
+      },
+      "wa-sqlite-ahp": {
+        "runs": [
+          {
+            "total_ms": 488.4,
+            "rows_returned": 1743,
+            "per_statement_ms": null
+          }
+        ],
+        "statements": 18297,
+        "driver_wall_s": 2.0
+      }
+    }
+  },
+  "chromium": "C:\\Users\\User01\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe",
+  "extension_id": "cdammhkgfdofnkmcaefakbemephmgdjl"
+}

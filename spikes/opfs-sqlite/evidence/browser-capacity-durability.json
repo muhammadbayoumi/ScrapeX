@@ -1,0 +1,293 @@
+{
+  "started": "2026-07-30T14:07:28",
+  "snapshot_bytes": 78450688,
+  "unlimited_storage": true,
+  "phases": {
+    "env": {
+      "hardware": {
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel"
+      },
+      "dedicated_worker": {
+        "scope": "DedicatedWorker",
+        "canSpawnWorker": true
+      },
+      "service_worker": {
+        "scope": "ServiceWorkerGlobalScope",
+        "canSpawnWorker": false,
+        "hasOpfs": true,
+        "hasWasm": true,
+        "hasSharedArrayBuffer": true,
+        "boot": 1785409650160,
+        "alive_ms": 129,
+        "lives": 1
+      },
+      "storage_estimate_before": {
+        "quota": 13554766863,
+        "usage": 717839,
+        "usageDetails": {
+          "serviceWorkerRegistrations": 717839
+        },
+        "persisted": false
+      },
+      "persist_from_worker": {
+        "available_in_worker": false,
+        "note": "navigator.storage.persist is not a function in a DedicatedWorker",
+        "persisted": false
+      },
+      "persist_from_page": {
+        "before": false,
+        "granted": false,
+        "after": false
+      }
+    },
+    "import": {
+      "download_wal": {
+        "path": "marketlens-wal.db",
+        "bytes": 78450688,
+        "ms": 447,
+        "mode": "sync-access-handle"
+      },
+      "download_nowal": {
+        "path": "marketlens.db",
+        "bytes": 78450688,
+        "ms": 264,
+        "mode": "sync-access-handle"
+      },
+      "tree_after": {
+        "total_files": 2,
+        "total_bytes": 156901376,
+        "by_top_level": {
+          "marketlens.db": {
+            "files": 1,
+            "bytes": 78450688
+          },
+          "marketlens-wal.db": {
+            "files": 1,
+            "bytes": 78450688
+          }
+        },
+        "largest": [
+          {
+            "path": "/marketlens.db",
+            "bytes": 78450688
+          },
+          {
+            "path": "/marketlens-wal.db",
+            "bytes": 78450688
+          }
+        ]
+      },
+      "estimate_after": {
+        "quota": 13757474159,
+        "usage": 157619567,
+        "usageDetails": {
+          "fileSystem": 156901728,
+          "serviceWorkerRegistrations": 717839
+        },
+        "persisted": false
+      }
+    },
+    "describe": {
+      "wa-sqlite-wal": {
+        "failed": "Error: Page.evaluate: Error: unable to open database file\n    at check (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/vendor/wa-sqlite/src/sqlite-api.js:921:11)\n    at Object.prepare_v2 (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/vendor/wa-sqlite/src/sqlite-api.js:580:7)\n    at async chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/vendor/wa-sqlite/src/sqlite-api.js:727:27\n    at async Object.exec (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/engine.mjs:133:24)\n    at async one (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/engine.mjs:319:31)\n    at async describe (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/engine.mjs:324:17)\n    at async open (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/worker.mjs:126:19)\n    at async self.onmessage (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/worker.mjs:324:46)",
+        "worker_console": {
+          "logs": []
+        }
+      },
+      "wa-sqlite-nowal": {
+        "engine": "wa-sqlite",
+        "sqlite": "3.44.0",
+        "page_size": 4096,
+        "page_count": 19153,
+        "user_version": 54,
+        "journal_mode": "delete",
+        "tables": 40,
+        "triggers": 2,
+        "views": 2,
+        "indexes": 59,
+        "price_observation": 73278,
+        "fetch_ms": 0,
+        "open_ms": 11,
+        "describe_ms": 876,
+        "import_state": null,
+        "pool_files_before": null,
+        "migration": null
+      },
+      "sahpool-from-wal": {
+        "engine": "sqlite-wasm-sahpool",
+        "sqlite": "3.53.0",
+        "page_size": 4096,
+        "page_count": 19153,
+        "user_version": 54,
+        "journal_mode": "delete",
+        "tables": 40,
+        "triggers": 2,
+        "views": 2,
+        "indexes": 59,
+        "price_observation": 73278,
+        "fetch_ms": 223,
+        "open_ms": 249,
+        "describe_ms": 19,
+        "import_state": "imported",
+        "pool_files_before": [],
+        "migration": null
+      }
+    },
+    "contend": {
+      "held": {
+        "path": "marketlens.db",
+        "size": 78450688
+      },
+      "second_handle_same_worker": {
+        "acquired": false,
+        "error_name": "NoModificationAllowedError",
+        "error_message": "Failed to execute 'createSyncAccessHandle' on 'FileSystemFileHandle': Access Handles cannot be created if there is another open Access Handle or Writable stream associated with the same file.",
+        "ms": 0
+      },
+      "second_handle_other_worker": {
+        "acquired": false,
+        "error_name": "NoModificationAllowedError",
+        "error_message": "Failed to execute 'createSyncAccessHandle' on 'FileSystemFileHandle': Access Handles cannot be created if there is another open Access Handle or Writable stream associated with the same file.",
+        "ms": 0
+      },
+      "service_worker": {
+        "opened_while_held": {
+          "engine": "wa-sqlite",
+          "sqlite": "3.44.0",
+          "page_size": 4096,
+          "page_count": 19153,
+          "user_version": 54,
+          "journal_mode": "delete",
+          "tables": 40,
+          "triggers": 2,
+          "views": 2,
+          "indexes": 59,
+          "price_observation": 73278
+        }
+      },
+      "released": {
+        "released": true
+      },
+      "after_release": {
+        "acquired": true,
+        "ms": 4
+      }
+    },
+    "journal": {
+      "pages": 3570,
+      "bytes_per_page": 1069,
+      "write_ms": 20054,
+      "write_ms_per_page": 5.62,
+      "list_ms": 367,
+      "listed": 3570
+    },
+    "quota": {
+      "written_bytes": 6442450944,
+      "written_mib": 6144,
+      "stopped": "reached the 6144 MiB ceiling this probe set",
+      "ms": 13021,
+      "estimate_after": {
+        "quota": 9850804357,
+        "usage": 2388179077,
+        "usageDetails": {
+          "fileSystem": 2387461238,
+          "serviceWorkerRegistrations": 717839
+        },
+        "persisted": false
+      }
+    },
+    "restart": {
+      "tree": {
+        "total_files": 3584,
+        "total_bytes": 239217546,
+        "by_top_level": {
+          "marketlens.db": {
+            "files": 1,
+            "bytes": 78450688
+          },
+          "marketlens-wal.db": {
+            "files": 1,
+            "bytes": 78450688
+          },
+          "job-journal": {
+            "files": 3570,
+            "bytes": 3816330
+          },
+          ".scrapex-spike": {
+            "files": 12,
+            "bytes": 78499840
+          }
+        },
+        "largest": [
+          {
+            "path": "/.scrapex-spike/.opaque/gkmri177wl7",
+            "bytes": 78454784
+          },
+          {
+            "path": "/marketlens.db",
+            "bytes": 78450688
+          },
+          {
+            "path": "/marketlens-wal.db",
+            "bytes": 78450688
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/xppo0cwtpto",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/vz7wn82eev",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/v0z2nyh44or",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/oar5vjp16yq",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/l9v5a4odn4d",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/ih2ijhua55e",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/h2f8cjl0b8h",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/6urlvyn0cx9",
+            "bytes": 4096
+          },
+          {
+            "path": "/.scrapex-spike/.opaque/5kan4uxwb1k",
+            "bytes": 4096
+          }
+        ]
+      },
+      "estimate": {
+        "quota": 14141986773,
+        "usage": 240695253,
+        "usageDetails": {
+          "fileSystem": 239977414,
+          "serviceWorkerRegistrations": 717839
+        },
+        "persisted": false
+      },
+      "wa_sqlite_after_restart": {
+        "rows": 1,
+        "repeats": 1,
+        "min_ms": 681.2,
+        "median_ms": 681.2,
+        "max_ms": 681.2
+      }
+    }
+  },
+  "chromium": "C:\\Users\\User01\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe",
+  "extension_id": "cdammhkgfdofnkmcaefakbemephmgdjl"
+}
