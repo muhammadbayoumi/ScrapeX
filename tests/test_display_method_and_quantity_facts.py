@@ -464,10 +464,23 @@ def test_a_product_that_already_exists_learns_display_method(tmp_path):
         dbmod.migrate(conn)
         ingest_payloads(conn, _entry(),
                         _payloads_through_a_file(tmp_path, "2026-07-29T10:00:00Z"))
-        # The live warehouse's state: the products exist, the column does not.
-        conn.execute("UPDATE source_product SET display_method = ''")
+
+        # Seed the warehouse to look like the live one: every product already
+        # exists, was first seen BEFORE display_method was a column (the real
+        # min first_seen is 2026-07-25T06:57:29Z), and the column is empty. The
+        # first_seen date is cosmetic to path selection — INSERT vs UPDATE turns
+        # on the row already existing — but it is the shape the owner describes,
+        # and empty-on-existing-rows is precisely what broke.
+        conn.execute("UPDATE source_product SET display_method = '', "
+                     "first_seen_at = '2026-07-25T06:57:29Z'")
         conn.commit()
         before = conn.execute("SELECT COUNT(*) FROM source_product").fetchone()[0]
+        assert conn.execute(
+            "SELECT MAX(first_seen_at) FROM source_product").fetchone()[0] \
+            < "2026-07-29", "the seed must predate the column to exercise UPDATE"
+        assert not any(v for _, v in conn.execute(
+            "SELECT external_product_id, display_method FROM source_product")), \
+            "the seed must start with the column empty on every row"
 
         ingest_payloads(conn, _entry(),
                         _payloads_through_a_file(tmp_path, "2026-07-30T10:00:00Z"))
@@ -478,6 +491,19 @@ def test_a_product_that_already_exists_learns_display_method(tmp_path):
                           "UkNG": DisplayMethod.OPTIONS_PRICED.value,
                           "TEVH": DisplayMethod.OPTIONS_ONE_PRICE.value,
                           "UFVUVFk=": DisplayMethod.SINGLE.value}
+        # The owner's report format: the count per value. Each of the four live
+        # shapes is present exactly once in the fixture, so the breakdown the
+        # owner will read off the 763 (single 400 / options_one_price 36 /
+        # options_priced 292 / member_list 33) is exercised here as 1 / 1 / 1 / 1
+        # with zero left empty — the same UPDATE path, at fixture scale.
+        breakdown = dict(conn.execute(
+            "SELECT display_method, COUNT(*) FROM source_product "
+            "GROUP BY display_method ORDER BY display_method"))
+        assert breakdown == {DisplayMethod.MEMBER_LIST.value: 1,
+                             DisplayMethod.OPTIONS_ONE_PRICE.value: 1,
+                             DisplayMethod.OPTIONS_PRICED.value: 1,
+                             DisplayMethod.SINGLE.value: 1}
+        assert "" not in breakdown, "no pre-existing product may be left empty"
         # Learning a column must not mint a second product beside the first.
         assert conn.execute(
             "SELECT COUNT(*) FROM source_product").fetchone()[0] == before
