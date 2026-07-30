@@ -1,0 +1,112 @@
+[
+  {
+    "en": {
+      "title": "Suez, Helwan, Tourah | Heidelberg Materials Egypt",
+      "h1": "Suez, Helwan, Tourah",
+      "designation": "CEMII / A-P 42,5N",
+      "canonical": "https://www.heidelbergmaterials.eg/en/suez-opc",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/suez-42.5-n",
+        "en": "https://www.heidelbergmaterials.eg/en/suez-opc"
+      }
+    },
+    "ar": {
+      "title": "السويس، حلوان، طره | Heidelberg Materials Egypt",
+      "h1": "السويس، حلوان، طره",
+      "designation": "CEMII / A-P 42,5N",
+      "canonical": "https://www.heidelbergmaterials.eg/ar/suez-42.5-n",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/suez-42.5-n",
+        "en": "https://www.heidelbergmaterials.eg/en/suez-opc"
+      }
+    }
+  },
+  {
+    "en": {
+      "title": "Sulphate Resistant Cement | Heidelberg Materials Egypt",
+      "h1": "Sulphate Resistant Cement",
+      "designation": "CEM IV/A (P) 42.5 SR",
+      "canonical": "https://www.heidelbergmaterials.eg/en/sulphate-resistant",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/sulphate-resistant",
+        "en": "https://www.heidelbergmaterials.eg/en/sulphate-resistant"
+      }
+    },
+    "ar": {
+      "title": "المقاوم للكبريتات | Heidelberg Materials Egypt",
+      "h1": "المقاوم للكبريتات",
+      "designation": "CEM IV/A (P) 42.5 SR",
+      "canonical": "https://www.heidelbergmaterials.eg/ar/sulphate-resistant",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/sulphate-resistant",
+        "en": "https://www.heidelbergmaterials.eg/en/sulphate-resistant"
+      }
+    }
+  },
+  {
+    "en": {
+      "title": "evoBuild - Suez Oasis, Helwan Oasis | Heidelberg Materials Egypt",
+      "h1": "evoBuild - Suez Oasis, Helwan Oasis",
+      "designation": "OASIS 22.5X",
+      "canonical": "https://www.heidelbergmaterials.eg/en/helwan-oasis",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/helwan-oasis",
+        "en": "https://www.heidelbergmaterials.eg/en/helwan-oasis"
+      }
+    },
+    "ar": {
+      "title": "evoBuild - الواحة السويس، الواحة حلوان | Heidelberg Materials Egypt",
+      "h1": "evoBuild - الواحة السويس، الواحة حلوان",
+      "designation": "OASIS 22.5X",
+      "canonical": "https://www.heidelbergmaterials.eg/ar/helwan-oasis",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/helwan-oasis",
+        "en": "https://www.heidelbergmaterials.eg/en/helwan-oasis"
+      }
+    }
+  },
+  {
+    "en": {
+      "title": "evoBUILD - Blast Furnace Cement | Heidelberg Materials Egypt",
+      "h1": "evoBUILD - Blast Furnace Cement",
+      "designation": "CEM III / A 42,5N",
+      "canonical": "https://www.heidelbergmaterials.eg/en/cem-iii",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/node/50677",
+        "en": "https://www.heidelbergmaterials.eg/en/cem-iii"
+      }
+    },
+    "ar": {
+      "title": "evoBUILD - أسمنت خبث الأفران | Heidelberg Materials Egypt",
+      "h1": "evoBUILD - أسمنت خبث الأفران",
+      "designation": "CEM III / A 42,5N",
+      "canonical": "https://www.heidelbergmaterials.eg/ar/node/50677",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/node/50677",
+        "en": "https://www.heidelbergmaterials.eg/en/cem-iii"
+      }
+    }
+  },
+  {
+    "en": {
+      "title": "Bulk Cement | Heidelberg Materials Egypt",
+      "h1": "Bulk Cement",
+      "designation": "CEMI 42.5 N",
+      "canonical": "https://www.heidelbergmaterials.eg/en/bulk_cement",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/bulk_cement_ar",
+        "en": "https://www.heidelbergmaterials.eg/en/bulk_cement"
+      }
+    },
+    "ar": {
+      "title": "أسمنت سائب | Heidelberg Materials Egypt",
+      "h1": "أسمنت سائب",
+      "designation": "CEMI 42.5 N",
+      "canonical": "https://www.heidelbergmaterials.eg/ar/bulk_cement_ar",
+      "alternate": {
+        "ar": "https://www.heidelbergmaterials.eg/ar/bulk_cement_ar",
+        "en": "https://www.heidelbergmaterials.eg/en/bulk_cement"
+      }
+    }
+  }
+]

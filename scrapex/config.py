@@ -53,6 +53,38 @@ class ExtractSpec(BaseModel):
         return v
 
 
+class TaxonomyConfig(BaseModel):
+    """Where a source publishes its CATEGORIES, when that is not where it
+    publishes its products.
+
+    heidelbergmaterials.eg is the case this exists for, and it is a THIRD host:
+    prices come from onlinestoreapi.<host> (`api.base_url`), the storefront is
+    onlinestore.<host> (`base_url`), and the only real taxonomy the company
+    publishes anywhere is on the corporate site www.<host>. The store API's own
+    `productTypes` has exactly two values, `Bagged` and `Bulk`, and all nine
+    catalogued products are `Bagged` — a packaging type, constant across the
+    catalogue, which distinguishes nothing.
+
+    BOTH paths are named explicitly, per language, and neither is derived from
+    the other. The site's Arabic and English aliases for one page do NOT share
+    a stem — `/en/our-products` against `/ar/our_products_ar` — so any rule
+    that built one from the other would be a guess. They are recorded here
+    (P5: explicit over a magic URL guess) and each is verified against the
+    site's own `<link rel="alternate" hreflang>` in the captured fixtures.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The taxonomy host root, e.g. https://www.heidelbergmaterials.eg. A
+    # DIFFERENT host from base_url and api.base_url, with its own robots.txt
+    # and its own session.
+    base_url: str | None = None
+    # The category listing, once per language. The unmarked field is English,
+    # matching the bilingual rule every other column follows.
+    listing_path: str | None = None
+    listing_path_ar: str | None = None
+
+
 class ApiConfig(BaseModel):
     """Endpoint facts for connectors whose data API lives on a DIFFERENT host
     than base_url. Only populated for such sources (Hybris OCC: the storefront is
@@ -186,6 +218,10 @@ class SourceEntry(BaseModel):
     authority: Authority = Authority.SHOP
     fetcher: Fetcher = Fetcher.HTTP
     api: ApiConfig | None = None
+    # Where this source publishes its CATEGORIES, when that is a different host
+    # from where it publishes its products. Null for every source whose own
+    # listing pages already carry its taxonomy.
+    taxonomy: TaxonomyConfig | None = None
     # Some platforms (Zid) 403 non-browser clients; such a source declares the
     # exact UA the fetcher must send. Explicit per source, never a silent global (F5).
     user_agent: str | None = None
