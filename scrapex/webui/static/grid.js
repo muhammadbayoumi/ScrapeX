@@ -1298,10 +1298,30 @@
         price.textContent = formatMoney(cell.getValue()) + " " + text(row.currency);
         box.append(price);
         // A price may lose its column but never its unit.
-        if (row.unit) {
+        //
+        // ...and where the source states no unit but prices by a WEIGHT it
+        // publishes, the weight stands in its place. madar's Ø8mm rebar reads
+        // 4,830 and its Ø32mm reads 4,045: per bar that is impossible, per the
+        // 1,000 kg the shop states for both it is two grades of steel four
+        // riyals a kilo apart. The Unit column stays empty either way — the
+        // shop names no unit, and this cell does not name one for it. What is
+        // shown is the shop's own weight and the shop's own word for its unit.
+        const basis = row.unit || row.price_basis;
+        if (basis) {
           const per = document.createElement("span");
           per.className = "per";
-          per.textContent = " / " + row.unit;
+          per.textContent = " / " + basis;
+          if (!row.unit) {
+            // A derived figure never appears without saying what it derives
+            // from — the same rule that makes the USD cell carry its rate and
+            // that rate's date. Without this the reader has no way to tell
+            // "the shop said per 1,000 kg" from "ScrapeX decided per 1,000 kg",
+            // and the whole point is that it is the former.
+            per.title = "The source states no selling unit. It publishes a " +
+              "weight of " + basis + " for this item and states that its " +
+              "quantity is divisible, so the price is shown against that " +
+              "weight. The weight and its unit are both the source's.";
+          }
           box.append(per);
         }
         // The price before the discount, struck through beside the current one
@@ -2155,6 +2175,21 @@
     return span;
   }
 
+  // What one price BUYS, for any cell that prints a price: the unit the source
+  // STATED, or — where it stated none but publishes a weight it prices by — that
+  // weight (reports.price_basis decides, this only picks the first answer any of
+  // the given objects has). The inspector prints the same price the table cell
+  // does, so it has to reach the same answer or the panel and the row it opened
+  // from disagree about what 4,830 means.
+  function basisOf(...carriers) {
+    for (const carrier of carriers) {
+      if (!carrier) continue;
+      if (carrier.unit) return carrier.unit;
+      if (carrier.price_basis) return carrier.price_basis;
+    }
+    return "";
+  }
+
   let openOfferRow = null;
   let nextSelectionPanelMode = null;
   // What the panel on screen was drawn FROM, so a language switch can redraw it
@@ -2575,7 +2610,7 @@
     price.appendChild(el("span", "selected-product-price-label", "Current price"));
     const value = el("strong", "");
     value.appendChild(money(currentPrice, row.currency || offer.currency,
-                            offer.unit || row.unit));
+                            basisOf(offer, row)));
     price.appendChild(value);
     body.appendChild(price);
 
@@ -2896,7 +2931,7 @@
         periods.map((p) => [
           (p.first_detected_at || "").slice(0, 10),
           (p.closed_at || "").slice(0, 10) || "current",
-          money(p.price, p.currency, offer.unit),
+          money(p.price, p.currency, basisOf(offer)),
           (p.opened_because || "").replace(/_/g, " "),
         ])));
       historySections.get("price").push(timeline);
@@ -2930,7 +2965,7 @@
         ["Date", "Price", "Where it came from"],
         observations.map((o) => [
           o.business_date || "",
-          money(o.price, o.currency, offer.unit),
+          money(o.price, o.currency, basisOf(offer)),
           o.provenance === "reported" ? "reported by the source" : "observed by a crawl",
         ])));
       historySections.get("observations").push(recorded);

@@ -160,6 +160,10 @@ class _Fetcher:
                 return _Response({"data": {"categoryList": [{"children": []}]}})
             return _Response(_ENGLISH if page == 1 else
                              {"data": {"products": {"items": []}}})
+        if "storeConfig" in query:
+            # The store's own word for the unit of its weights (0057). Read
+            # live 2026-07-30: madar answers "kgs" on both store views.
+            return _Response({"data": {"storeConfig": {"weight_unit": "kgs"}}})
         if "categoryList" in query:
             return _Response({"data": {"categoryList": [{"children": []}]}})
         if "category_uid" in query:
@@ -571,7 +575,7 @@ def test_migration_0056_corrects_has_variants_on_rows_that_already_exist():
                          " VALUES (2, ?)", (member,))
         conn.commit()
 
-        assert dbmod.migrate(conn) == [56]
+        assert dbmod.migrate(conn) == [56, 57]
 
         flags = dict(conn.execute(
             "SELECT external_product_id, has_variants FROM source_product"))

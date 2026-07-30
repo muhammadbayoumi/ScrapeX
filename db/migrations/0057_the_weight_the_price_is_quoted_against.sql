@@ -1,0 +1,115 @@
+-- =====================================================================
+-- 0057 — THE WEIGHT THE PRICE IS QUOTED AGAINST
+--
+-- 0056 finished half the sentence. It asked madar for is_qty_decimal,
+-- min_sale_qty and qty_increments and stored all three, so the warehouse
+-- now knows the Ø8mm rebar member is sold in fractions of 0.05 from a
+-- minimum of 0.25 — and still cannot say fractions OF WHAT. The number
+-- on the row is 4,830 and the row remains unreadable:
+--
+--   Ø8mm  4,830        Ø32mm  4,045
+--
+-- THE ARITHMETIC THAT SETTLES IT, computed 2026-07-30 from the site's own
+-- published dimensions and the density of steel:
+--
+--   a 12 m Ø8  bar weighs   4.735 kg -> 4,830.00 / 4.735 = 1,020 SAR/kg
+--   a 12 m Ø32 bar weighs  75.760 kg -> 4,045.13 / 75.76 =    53 SAR/kg
+--
+-- Two prices on the same shelf, 19x apart per kilogram, one of them at a
+-- thousand riyals a kilo. Per piece the pair is nonsense. The site states
+-- weight = 1000 for BOTH members — for every one of the 96, whatever the
+-- diameter — and against that:
+--
+--   4,830.00 / 1000 = 4.83 SAR/kg     4,045.13 / 1000 = 4.05 SAR/kg
+--
+-- which is two grades of rebar priced four riyals a kilo apart, thin
+-- costing more than thick, exactly as rolling mills price them. The 1000
+-- is not any bar's mass. It is the BASIS the price is quoted against, and
+-- the site publishes it in a field this warehouse has been throwing away.
+--
+-- IT WAS ALREADY BEING FETCHED. magento's query has asked for `weight`
+-- since 0056 (SimpleProduct, PhysicalProductInterface inside a grouped
+-- member, and the configurable child). It reached exactly one reader —
+-- normalize.selling_unit_from — which returns ("","") unless the product
+-- NAME also states a matching kg quantity, because that agreement is what
+-- makes riyadh cement's «50كجم» trustworthy. The rebar member's name
+-- states «8مم × 12متر», a diameter and a length. So weight 1000 arrived
+-- on every crawl and was dropped on every crawl. This migration gives it
+-- somewhere to land.
+--
+-- STILL NO UNIT IS INVENTED, and this is the whole reason the change is
+-- shaped this way. Re-verified read-only on 2026-07-30 against the live
+-- schema, with no cart, no session and no state change on their server:
+-- ProductInterface's only quantity-shaped fields are is_qty_decimal,
+-- min_sale_qty, max_sale_qty, qty_increments, quantity and weight — there
+-- is no `unit`, `uom` or `measure` field in madar's schema AT ALL — and
+-- not one of the rebar member's 22 custom_attributesV2 names the unit the
+-- price is quoted in.
+--
+-- ONE CORRECTION TO THE RECORD, found by this change's own crawl and kept
+-- here rather than quietly dropped. The earlier finding was that «طن»
+-- appears 0 times on the product PAGE, and that holds. It is not 0 times
+-- in the DATA: seven of the nineteen products behind these 109 offers
+-- print it in a meta field, and the epoxy rebar's own meta_title reads
+-- «أفضل سعر طن حديد في السعودية». 0056 started capturing those fields, so
+-- the crawl can now see it. It CORROBORATES the reading — and it is still
+-- not a declaration: SEO copy on a parent product, naming no SKU and no
+-- figure, absent from the other twelve. Writing `tonne` on the strength of
+-- it would make the same 109 offers disagree about a fact none of them
+-- states, so the prose is kept exactly where the shop put it and the unit
+-- column is not filled from it.
+--
+-- The selling unit therefore stays EMPTY, which is the honest answer to
+-- "what unit did the shop state?", and the display layer renders the price
+-- against the weight instead. What the reader sees is the shop's own
+-- number.
+--
+-- WHY NOT basis_quantity, the column that already exists. Three reasons,
+-- any one of them sufficient:
+--   1. It is one half of a pair whose other half is `unit`. Writing 1000
+--      into it asserts "the price is per 1000 <unit>" — the assertion the
+--      owner declined. price_unit() and ingest._unit_with_basis() both
+--      return "" without a unit, so the value would not even render.
+--   2. It is INSIDE ux_source_offer_identity (schema.sql:183). Moving an
+--      offer's basis from 1 to 1000 changes what that offer IS, minting a
+--      second one beside the first — the exact duplicate-row defect
+--      ingest._get_offer_id's "unstated unit adopts a stated one" branch
+--      was written to undo after sika grew 56 of them.
+--   3. It means "what the site states IN WORDS", proven by agreement
+--      between a name and a weight. This is what the site states as a
+--      NUMBER, with nothing corroborating it. Different claims, different
+--      confidence; one column cannot hold both and stay readable.
+--
+-- WHY THE UNIT GETS ITS OWN COLUMN. A weight with no unit is not a fact,
+-- and "kg" was the last link in this chain still coming out of OUR mouth:
+-- normalize.py hardcodes it and so does the enrichment weight row. Magento
+-- publishes StoreConfig.weight_unit, and madar answers "kgs" on both store
+-- views (ar_SA and en_SA, read live 2026-07-30). So the unit is the SHOP's
+-- word now as well, a store quoting "lbs" renders lbs with no code change,
+-- and a crawl that cannot reach storeConfig stores no unit and therefore
+-- shows no basis — a number whose unit we failed to read is not published
+-- as a bare number. Stored per offer rather than per source for the same
+-- reason `currency` is: the qualifier travels with the number it qualifies.
+--
+-- NO BACKFILL IS POSSIBLE and none is attempted — raw_snapshot holds 0
+-- rows, so there is nothing to re-read. NULL reads as "the site did not
+-- say", which is the truthful state of all 3,417 existing MADAR offers.
+--
+-- Two ALTER TABLE ADD COLUMN, both nullable, no default: no table rebuild,
+-- no index touched, no view rewritten, no data loss. NEITHER column is in
+-- ux_source_offer_identity, so no existing offer changes identity and no
+-- offer is split — an offer simply fills in a column it was always
+-- missing, on the next crawl, exactly as 0056's three do.
+-- =====================================================================
+
+-- THE NUMBER. NULL means the source published no weight for this leaf —
+-- never 0, which would be a source claiming weightlessness.
+ALTER TABLE source_offer ADD COLUMN weight REAL;
+
+-- THE UNIT THAT NUMBER IS IN, in the source's own word, folded through
+-- ingest.canonical_unit exactly as the selling unit already is ("kgs" ->
+-- "kg" via _UNIT_ALIASES). NULL means the source did not say, and a weight
+-- whose unit is unknown is never rendered.
+ALTER TABLE source_offer ADD COLUMN weight_unit TEXT;
+
+PRAGMA user_version = 57;

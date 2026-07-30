@@ -151,6 +151,31 @@ def change_summary(conn: sqlite3.Connection, source_key: str, run_id: int | None
     return {row[0]: row[1] for row in conn.execute(sql, params)}
 
 
+def _display_unit(item: dict) -> str:
+    """What one price BUYS, for a change entry — and it POPS what it reads.
+
+    The stated selling unit when the source stated one; otherwise the weight
+    the price is quoted against, where the source prices by a weight it
+    publishes and names no unit (0057). ONE display string either way: the feed
+    has no Unit column for the two to sit apart in, and a change entry is a
+    sentence, not a record.
+
+    Without this a madar rebar move reads "4,830 -> 4,910" and leaves the
+    reader to assume the missing words — which is the same defect the
+    selling_unit JOIN above was added to fix, arriving by the other door. The
+    raw columns are popped because they are query plumbing, not fields of a
+    change event, and the feed's shape is part of its contract.
+    """
+    from .reports import price_basis, price_unit      # display-only resolution
+    unit_code = item.pop("unit_code", None)
+    basis = item.pop("basis_quantity", 1)
+    weight = item.pop("weight", None)
+    weight_unit = item.pop("weight_unit", None)
+    is_decimal = item.pop("quantity_is_decimal", 0)
+    return (price_unit(unit_code, basis)
+            or price_basis(unit_code, weight, weight_unit, is_decimal))
+
+
 def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
                    limit: int = 50) -> list[dict]:
     """Newest-first change feed, always bounded (A8).
@@ -160,7 +185,13 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     diesel would otherwise both read as just "DIESEL".
     """
     sql = ("SELECT c.*, sp.product_name_ar, sp.product_name, so.country_code_alpha2, "
-           "       su.unit_code AS unit_code, so.basis_quantity AS basis_quantity "
+           "       su.unit_code AS unit_code, so.basis_quantity AS basis_quantity, "
+           # ...and, for a source that states no unit but prices by a weight it
+           # publishes, that weight. Same reason as the JOIN below: "4,830 ->
+           # 4,910" says nothing without it, and on this source the missing
+           # words are the difference between a bar and a tonne (0057).
+           "       so.quantity_is_decimal AS quantity_is_decimal, "
+           "       so.weight AS weight, so.weight_unit AS weight_unit "
            "FROM change_event c "
            "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
            "LEFT JOIN source_offer so ON so.offer_id = c.offer_id "
@@ -175,14 +206,13 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     sql += "ORDER BY c.change_event_id DESC LIMIT ?"
     params.append(max(1, min(limit, 500)))
 
-    from .reports import price_unit, region_name   # display-only resolution
+    from .reports import region_name          # display-only resolution
     out = []
     for row in conn.execute(sql, params):
         item = dict(row)
         item["country_code_alpha2"] = item.get("country_code_alpha2") or ""
         item["country"] = region_name(item["country_code_alpha2"])
-        item["unit"] = price_unit(item.pop("unit_code", None),
-                                  item.pop("basis_quantity", 1))
+        item["unit"] = _display_unit(item)
         _describe(item)
         out.append(item)
     return _collapse_new_pairs(out)
@@ -264,11 +294,13 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
     this offer's story even though those rows carry no offer_id — they were
     recorded before the offer existed.
     """
-    from .reports import price_unit, region_name
+    from .reports import region_name
 
     rows = conn.execute(
         "SELECT c.*, sp.product_name_ar, sp.product_name, so2.country_code_alpha2, "
-        "       su.unit_code AS unit_code, so2.basis_quantity AS basis_quantity "
+        "       su.unit_code AS unit_code, so2.basis_quantity AS basis_quantity, "
+        "       so2.quantity_is_decimal AS quantity_is_decimal, "
+        "       so2.weight AS weight, so2.weight_unit AS weight_unit "
         "FROM change_event c "
         "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
         "LEFT JOIN source_offer so2 ON so2.offer_id = c.offer_id "
@@ -283,8 +315,7 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
         item = dict(row)
         item["country_code_alpha2"] = item.get("country_code_alpha2") or ""
         item["country"] = region_name(item["country_code_alpha2"])
-        item["unit"] = price_unit(item.pop("unit_code", None),
-                                  item.pop("basis_quantity", 1))
+        item["unit"] = _display_unit(item)
         _describe(item)
         out.append(item)
     # Same collapse as the feed: the panel and the Changes page must agree.
