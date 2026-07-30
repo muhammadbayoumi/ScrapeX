@@ -560,6 +560,62 @@ def test_a_renamed_family_page_empties_the_category_and_says_so():
     assert PACKAGING_AR not in {r["category_path_ar"] for r in prices}
 
 
+def test_a_listing_that_answers_200_and_names_nothing_is_a_defect():
+    """THE FAILURE THAT WOULD OTHERWISE PASS FOR SUCCESS. A host that refuses
+    raises, and the exception arm reports it. A Drupal theme release that renames
+    `hc-contentmenu` / `hc-teaser` does not: it answers 200 with a perfectly good
+    page this parser cannot see, both selectors match nothing, and every category
+    silently empties.
+
+    It must be a DEFECT and not merely a warning, because ingest counts defects
+    into crawl_run.errors_count and counts warnings into nothing — so as a
+    warning alone this run would report SUCCESS with 0 errors while having lost
+    the whole column."""
+    redesigned = {
+        path: _page(path).replace("hc-contentmenu", "hc-content-menu-v2")
+                         .replace("hc-teaser", "hc-teaser-v2")
+        for path in _PAGES
+    }
+    entry = make_entry()
+    prices, _w, _e, fetcher = crawl(_StubFetcher(pages=redesigned), entry)
+
+    # The break is total and silent at the data level: that is the premise.
+    assert len(prices) == 108
+    assert all(r["category_path"] == "" and r["category_path_ar"] == ""
+               for r in prices)
+    assert fetcher.requests_count == 5      # nothing failed, so nothing retried
+
+    defects = defects_of(_StubFetcher(pages=redesigned), entry)
+    assert len(defects) == 2, "both languages broke, so both must be named"
+    assert all("named no cement family" in d for d in defects)
+    assert any("/en/our-products" in d for d in defects)
+    assert any("/ar/our_products_ar" in d for d in defects)
+    # And still never the packaging type on the way down.
+    assert PACKAGING not in {r["category_path"] for r in prices}
+
+
+def test_an_empty_body_is_the_same_defect_as_a_redesign():
+    """The degenerate case of the above, and the one a caching proxy produces."""
+    entry = make_entry()
+    blank = {path: "<html><body></body></html>" for path in _PAGES}
+
+    assert len(defects_of(_StubFetcher(pages=blank), entry)) == 2
+    prices, _w, _e, _f = crawl(_StubFetcher(pages=blank), entry)
+    assert all(r["category_path"] == "" for r in prices)
+
+
+def test_no_taxonomy_block_never_claims_a_page_was_renamed():
+    """`taxonomy: None` means the source declares no taxonomy host, so NOTHING
+    was fetched — and a warning saying the listing 'no longer names' a family
+    would send a reader hunting for a change on a site never asked. The rename
+    report is gated on the listing having been read, not on the absence of a
+    defect, which is what made this fire."""
+    _p, warnings, _e, fetcher = crawl(entry=make_entry(taxonomy=None))
+
+    assert not any("no longer names the family page" in w for w in warnings)
+    assert not any(url.startswith(CORPORATE) for url in fetcher.asked)
+
+
 def test_a_down_host_reports_one_defect_not_a_rename_for_every_product():
     """The defect names the host once. Eight 'renamed' warnings beneath it would
     describe that same one fact nine times — and would send someone hunting for

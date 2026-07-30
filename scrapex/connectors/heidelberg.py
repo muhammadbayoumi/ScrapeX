@@ -286,6 +286,15 @@ class CementFamilies:
     def __len__(self) -> int:
         return len(self.en)
 
+    def names_families(self) -> bool:
+        """True only when BOTH listings were read and actually named families.
+
+        The question "did the taxonomy read work" must be asked of the RESULT,
+        not of the absence of an error: a listing can answer 200 and name
+        nothing, which is what a site redesign looks like from here.
+        """
+        return bool(self.en) and bool(self.ar)
+
     def for_designation(self, designation: str) -> tuple[str, str, str]:
         """(name, name_ar, family_id) for one store designation.
 
@@ -355,6 +364,23 @@ def read_families(fetcher: HttpFetcher, taxonomy: TaxonomyConfig,
                 f"the {lang} cement-family listing ({url}) could not be read "
                 f"({type(exc).__name__}) — no {lang} category is recorded for "
                 "any product on this run")
+            continue
+        # A 200 THAT NAMED NOTHING IS ALSO A DEFECT, and it is the one that
+        # would otherwise pass for success. The exception arm above only covers
+        # a host that refuses; a Drupal theme release that renames
+        # `hc-contentmenu`/`hc-teaser` answers 200 with a perfectly good page
+        # this parser cannot see, and both selectors return nothing. Reported
+        # here because a warning is not enough: ingest counts defects into
+        # crawl_run.errors_count and warnings into nothing, so without this the
+        # run that silently lost every category reports SUCCESS with 0 errors —
+        # exactly what ScrapedTable.defects exists to prevent (base.py).
+        if not pages[lang]:
+            defects.append(
+                f"the {lang} cement-family listing ({url}) answered but named no "
+                "cement family — neither the content menu nor the teaser "
+                "button-list matched, which is what a site redesign looks like "
+                f"from here. No {lang} category is recorded for any product on "
+                "this run")
     # A family the listing no longer names is reported per PRODUCT, by the
     # caller, because only there is it known which cement lost its category.
     return CementFamilies(pages.get("en", {}), pages.get("ar", {})), defects
@@ -436,6 +462,7 @@ class HeidelbergPriceMatrixConnector:
         # price loop because every row needs it, and read from a THIRD host.
         families, defects = ((CementFamilies({}, {}), []) if source.taxonomy is None
                              else read_families(self._fetcher, source.taxonomy))
+        read_taxonomy = families.names_families()
 
         by_id = {str(p.get("id") or ""): p for p in products if p.get("id")}
         builder = RowBuilder(PRODUCT_PRICES)
@@ -465,12 +492,19 @@ class HeidelbergPriceMatrixConnector:
             family = families.for_designation(designation)
             if designation and designation not in _FAMILY_BY_DESIGNATION:
                 unruled.add(designation)
-            elif not defects and family[2] and not (family[0] and family[1]):
-                # `not defects` deliberately: when a listing could not be
-                # fetched, every ruled path is missing and this would report a
-                # rename for all 8 products on top of the defect that already
-                # names the host — one fact said nine ways. A rename is only
-                # meaningful when the page WAS read and the path was not in it.
+            elif read_taxonomy and family[2] and not (family[0] and family[1]):
+                # Gated on the listing having been READ AND NAMED FAMILIES, not
+                # on the absence of a defect. A rename is only meaningful when
+                # the page arrived, parsed, and simply did not contain this
+                # path. Every other way of getting here is already reported once,
+                # about the host, and would otherwise be repeated per product:
+                #   - no taxonomy block  -> nothing was fetched, so nothing was
+                #     renamed; the source simply declares no taxonomy host, and
+                #     saying "the listing no longer names it" about a page never
+                #     requested sends a reader hunting for a change on the site.
+                #   - host down / 200-but-empty -> read_families raised a defect
+                #     naming the URL; 8 rename lines under it are one fact said
+                #     nine ways.
                 renamed.add(designation)
             for plant in shown:
                 for field, sku_field, tier_ar in _TIERS:
