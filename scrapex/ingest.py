@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from .changes import (
-    ALIAS_FIELDS, classify_availability, classify_price, product_field_diffs,
-    record_alias, record_change,
+    ALIAS_FIELDS, TRACKED_PRODUCT_FIELDS, classify_availability, classify_price,
+    product_field_diffs, record_alias, record_change,
 )
 from .config import SourceEntry
 from . import db as _dbmod, pricekey, tax
@@ -161,12 +161,30 @@ def _product_sku(r) -> str:
     return str(r.get("parent_sku") or r.get("external_sku") or "")
 
 
+# The one tracked field whose value is DERIVED here rather than carried by a
+# row: `product_sku` is the parent's sku or the row's own (_product_sku above).
+_DERIVED_DIFF_KEYS = frozenset({"product_sku"})
+
+# Every OTHER row key product_field_diffs reads, taken FROM the tracked list
+# instead of hand-listed beside it.
+#
+# This narrowed dict is the diff's only input, so a key absent here is a field
+# that is tracked and can never change — silently, because nothing raises and
+# the column simply stays as it was. That is exactly how 0056 shipped:
+# display_method was added to TRACKED_PRODUCT_FIELDS *specifically* so the 763
+# MADAR products that already existed could learn it (only the INSERT path
+# writes it, and they were inserted days earlier), and the hand-written tuple
+# here was not extended with it — so three successful `update` crawls diffed a
+# dict that had no display_method key, produced no diff, and wrote nothing.
+# Deriving the keys means the two lists cannot drift apart again: adding a pair
+# to TRACKED_PRODUCT_FIELDS is now the whole change.
+_DIFF_ROW_KEYS = tuple(row_key for _, row_key in TRACKED_PRODUCT_FIELDS
+                       if row_key not in _DERIVED_DIFF_KEYS)
+
+
 def _with_product_sku(r) -> dict:
     """The row plus the derived product sku, for the field-diff comparison."""
-    incoming = {key: r.get(key) for key in
-                ("product_name", "product_link", "brand", "brand_ar", "external_sku",
-                 "category_path", "category_path_ar", "category_external_id",
-                 "product_name_ar", "lang", "parent_sku")}
+    incoming = {key: r.get(key) for key in _DIFF_ROW_KEYS}
     incoming["product_sku"] = _product_sku(r)
     return incoming
 
