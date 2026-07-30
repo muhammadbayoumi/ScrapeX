@@ -24,9 +24,16 @@ def test_an_edited_applied_migration_is_reported_as_what_it_is(tmp_path, monkeyp
     db = _db_at_head(tmp_path)
     assert db.health().ok, "the fresh database was not healthy to begin with"
 
-    # Edit an applied migration the only way that matters: its bytes.
+    # Edit an applied migration the only way that matters: its bytes. Both the
+    # canonical (newline-normalised) digest and the legacy raw-bytes digest are
+    # derived from those bytes, so a real edit moves BOTH — patching only one
+    # leaves the health check a matching digest to accept, and on an LF checkout
+    # (CI) the raw and normalised hashes are equal, so the unpatched one is the
+    # stored value itself. Simulate the byte change at both derivations.
     target = db._migrations[-1]
     monkeypatch.setattr(type(target), "sha256",
+                        property(lambda self: "0" * 64))
+    monkeypatch.setattr(type(target), "legacy_sha256",
                         property(lambda self: "0" * 64))
 
     report = db.health()
