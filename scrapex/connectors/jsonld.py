@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
 
-from ..vocab import Availability
+from ..vocab import Availability, DetailGroup, group_for_code
 from .base import CrawlBlocked
 
 
@@ -273,6 +273,51 @@ def product_row(builder, node: dict, url: str, source, vat: str, pid: str,
         category_path_ar=category_path(node),
         category_path=category_path(english) if english else "",
     )
+
+
+def enrichment_rows(builder, node: dict, pid: str) -> list[list[str]]:
+    """The pictures and prose the product page's JSON-LD already carried.
+
+    Written for salla and left in salla, so the SECOND SSR family to want
+    details had nothing to reach for — and zid, which publishes `image` on
+    every product page it was already fetching, stored none of it. That is the
+    move product_row already made for the same reason: the product id is the
+    one thing that genuinely differs between the two families, so it is the
+    caller's argument rather than a connector importing another connector
+    (base.py). Nothing else here is site-specific.
+
+    schema.org allows `image` as a single URL or a list of them; advancedcastle
+    publishes both forms (a string on single-image products, a list otherwise),
+    so both are read and neither is guessed at.
+    """
+    rows: list[list[str]] = []
+
+    def add(code, label, value, *, url_value="", group=""):
+        if not value:
+            return
+        # The shared map decides WHERE (vocab.group_for_code), so every
+        # source files the same kind of fact in the same place. The
+        # caller's `group` remains the hint for codes this shop names in
+        # a way the map has not been taught yet.
+        decided, recognised = group_for_code(code)
+        rows.append(builder.row(
+            external_product_id=pid, attribute_code=code, attribute_label=label,
+            raw_value=str(value)[:2000], numeric_value="", unit_raw="",
+            value_url=url_value, lang="",
+            attribute_group=decided if recognised else (group or decided)))
+
+    images = node.get("image")
+    if isinstance(images, str):
+        images = [images]
+    for position, href in enumerate(images or []):
+        if not isinstance(href, str) or not href.startswith("http"):
+            continue
+        add(f"image_{position}" if position else "image", "Image",
+            href.rsplit("/", 1)[-1], url_value=href, group=DetailGroup.MEDIA)
+
+    add("description", "Description", node.get("description"), group="Description")
+    add("sku", "SKU", node.get("sku"), group="Specs")
+    return rows
 
 
 def brand_name(node: dict) -> str:
