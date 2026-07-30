@@ -1226,20 +1226,16 @@
 .selected-product-grid.is-pair {
   grid-template-columns: repeat(2, minmax(0, 24rem));
 }
-/* One focused card and its inspector share the first row; every other selected
-   card flows below. The card keeps the SAME 24rem it has in every other state
-   — a card that changed width when you opened it would read as a different
-   card — and the inspector takes whatever is left. */
-.selected-product-grid.has-focused-record {
-  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
-}
-.selected-product-grid.has-focused-record > .selected-product-card {
-  grid-column: 1;
-}
-.selected-product-grid.has-focused-record > .selected-product-card.is-focused {
-  grid-column: 1;
-  grid-row: 1;
-}
+/* Opening a card must not REARRANGE the others. The first attempt cut the grid
+   to two tracks and pinned every card to column 1, so the card you opened rose
+   to the top and the rest fell into a single stack — the owner's report, and
+   exactly the churn that makes a selection hard to read. It is invisible with
+   one card selected, which is why it shipped.
+   The column count therefore does NOT change when a card is focused. The card
+   keeps the cell it already had; the inspector is simply the next item in the
+   flow and spans the rest of that row, so cards after it continue three-up as
+   before. Nothing is pinned to a row or a column: the grid places everything,
+   which is the only way this stays true for 2, 3 or 9 selected cards. */
 .selected-product-card.is-focused {
   outline: 2px solid var(--accent, currentColor);
   outline-offset: 2px;
@@ -1776,8 +1772,10 @@
 }
 
 .selected-product-detail-host {
-  grid-column: 2;
-  grid-row: 1;
+  /* The rest of the focused card's row. Where the card sits in the last column
+     there is no room, and the grid wraps the inspector to the next row — still
+     directly after its card, which is the promise that matters. */
+  grid-column: span 2;
   min-width: 0;      /* or a long value stretches the track and breaks the row */
 }
 .selected-product-detail-host[hidden] { display: none; }
@@ -1981,12 +1979,10 @@
   /* No room for two tracks: the inspector goes UNDER its card rather than
      beside it, and still directly after it, so it never separates from the
      record it describes. */
-  .selected-product-grid.has-focused-record {
-    grid-template-columns: minmax(0, 24rem);
-  }
+  /* One track at this width, so "beside" is impossible: the inspector takes
+     the full width under its own card. */
   .selected-product-grid.has-focused-record > .selected-product-detail-host {
-    grid-column: 1;
-    grid-row: auto;
+    grid-column: 1 / -1;
   }
 }
 
