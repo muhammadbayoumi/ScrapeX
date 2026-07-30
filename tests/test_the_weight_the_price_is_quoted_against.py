@@ -93,6 +93,29 @@ _MESH = {
             "only_x_left_in_stock": None,
             "price_range": {"minimum_price": {"regular_price": {"value": 30.19},
                                               "final_price": {"value": 30.19}}}}},
+        # TWO SIZES THE SHOP HAPPENS TO PRICE THE SAME, and they are live:
+        # 10408150420 weighs 25.86 kg and 104075154020 weighs 22.73 kg, and on
+        # 2026-07-30 both cost 84.00. They fold together on the Data page,
+        # which is the one way a wrong basis could reach a reader — see the
+        # test at the end of this file.
+        {"attributes": [{"code": "mesh_size", "label": "8.00ملم * 1.5 * 4.0متر"}],
+         "product": {
+            "uid": "U1JNOA==", "sku": "10408150420",
+            "name": "شبك حديد صبة - 8.00ملم * 1.5 * 4.0متر - 20*20سم",
+            "stock_status": "IN_STOCK", "weight": 25.86,
+            "is_qty_decimal": True, "min_sale_qty": 1, "qty_increments": 1,
+            "only_x_left_in_stock": None,
+            "price_range": {"minimum_price": {"regular_price": {"value": 96.6},
+                                              "final_price": {"value": 96.6}}}}},
+        {"attributes": [{"code": "mesh_size", "label": "7.50ملم * 1.5 * 4.0متر"}],
+         "product": {
+            "uid": "U1JNNzU=", "sku": "104075154020",
+            "name": "شبك حديد صبة - 7.50ملم * 1.5 * 4.0متر - 20*20سم",
+            "stock_status": "IN_STOCK", "weight": 22.73,
+            "is_qty_decimal": True, "min_sale_qty": 1, "qty_increments": 1,
+            "only_x_left_in_stock": None,
+            "price_range": {"minimum_price": {"regular_price": {"value": 96.6},
+                                              "final_price": {"value": 96.6}}}}},
     ],
 }
 
@@ -610,3 +633,40 @@ def test_the_word_boundary_is_real_and_not_a_substring_match():
     assert _STANDALONE_TON.search("1 طن، 2 طن، 3 طن")
     assert _STANDALONE_TON.search("priced per tonne")
     assert not _STANDALONE_TON.search("carton of buttons")
+
+
+def test_folding_two_variants_priced_alike_never_lends_one_its_neighbours_weight(tmp_path):
+    """The one way a WRONG basis could reach a reader, and it is already shut.
+
+    fold_variant_rows groups by (product, price, currency, country) so a shop's
+    six colours at one price read as one row. Two mesh sizes can collide there:
+    live on 2026-07-30, 10408150420 (25.86 kg) and 104075154020 (22.73 kg) both
+    cost 84.00 after tax is taken off. Folded, the row must not show either
+    weight — one member's 25.86 standing for a group that also contains 22.73
+    is a number that is wrong for half the thing it describes.
+
+    Nothing new was written for this. The fold's standing rule — a field the
+    members disagree about goes BLANK rather than taking the first row's answer
+    — already covers any column, which is why the basis was given a column of
+    its own instead of being composed at the last moment in the browser.
+    """
+    conn = _ingest(tmp_path)
+
+    apart = reports.table_payload(conn, "MADAR")["rows"]
+    by_sku = {r["sku"]: r for r in apart}
+    # Told apart, each says its own weight...
+    assert by_sku["10408150420"]["price_basis"] == "25.86 kg"
+    assert by_sku["104075154020"]["price_basis"] == "22.73 kg"
+    assert by_sku["10408150420"]["price"] == by_sku["104075154020"]["price"]
+
+    # ...and folded together, the row says nothing rather than something false.
+    folded = [r for r in reports.table_payload(conn, "MADAR", fold_variants=True)["rows"]
+              if r.get("variants", 1) > 1 and "10408150420" in str(r.get("sku"))]
+    assert len(folded) == 1, folded
+    assert folded[0]["variants"] == 2
+    assert folded[0]["price_basis"] == ""
+
+    # The mesh child that does NOT collide keeps its own basis when folding is on.
+    alone = [r for r in reports.table_payload(conn, "MADAR", fold_variants=True)["rows"]
+             if r.get("sku") == "10404154020"]
+    assert alone and alone[0]["price_basis"] == "6.74 kg"
