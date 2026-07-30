@@ -1035,6 +1035,38 @@ def create_app(
         except (DatabaseUnavailableError, DatabaseMigrationError,
                 DatabaseKindError, sqlite3.DatabaseError):
             n = 0
+        # IS THE DATABASE BEHIND THE CODE? The panel polls this and nothing else
+        # on a timer, so the answer rides along.
+        #
+        # CI was green and the Data page was broken at the same moment, and both
+        # were right: CI builds a database from every migration, so a query
+        # reading a new column passes there by construction, while the owner's
+        # machine had the code and not the migration and answered
+        # "no such column: so.weight". Nothing said the database was one
+        # migration behind — the product just broke, and raw SQLite text was the
+        # only clue. A lag the engine can measure must not be something the
+        # owner discovers from a stack trace.
+        schema_lag = None
+        try:
+            conn = read_conn()
+            try:
+                waiting = dbmod.pending_migrations(conn)
+            finally:
+                conn.close()
+            if waiting:
+                schema_lag = {
+                    "pending": [name for _n, name in waiting],
+                    # Named so the message can be acted on without a manual:
+                    # the fix is one command, and it is the ONLY sanctioned one.
+                    "fix": "python -m scrapex.cli init-db",
+                    "message": (
+                        f"{len(waiting)} migration(s) on disk are not applied to "
+                        f"this database — {waiting[0][1]} onward. Pages that read "
+                        "the newer columns will fail until they are applied."),
+                }
+        except (DatabaseUnavailableError, DatabaseMigrationError,
+                DatabaseKindError, sqlite3.DatabaseError):
+            schema_lag = None      # unreadable is a different fault, reported above
         # The panel polls this and nothing else on a timer, so database status
         # rides along: a reachable engine sitting on an unusable database looked
         # exactly like a healthy one from the panel.
@@ -1092,7 +1124,11 @@ def create_app(
                 # this endpoint may never claim a health it could not read.
                 "worker_alive": worker.get("alive") is True,
                 "worker": worker,
-                "databases": databases}
+                "databases": databases,
+                # None when the database is level with the code, which is the
+                # normal case — so the panel shows nothing rather than a badge
+                # that is always there and therefore never read.
+                "schema_lag": schema_lag}
 
     @app.get("/api/features")
     def api_features():

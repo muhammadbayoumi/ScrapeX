@@ -144,6 +144,31 @@ def latest_schema_version() -> int:
     return _migration_files()[-1][0]
 
 
+def pending_migrations(conn: sqlite3.Connection) -> list[tuple[int, str]]:
+    """Migrations that exist on disk and have NOT been applied to this database.
+
+    WHY THIS IS A PRODUCT FEATURE AND NOT A DIAGNOSTIC (2026-07-30)
+    --------------------------------------------------------------
+    CI was green and the Data page was broken at the same time, and both were
+    correct. CI builds a database from schema.sql plus EVERY migration, so code
+    that reads a new column passes there by construction. The owner's machine
+    had the code and not the migration, so the same query answered
+
+        sqlite3.OperationalError: no such column: so.weight
+
+    Nothing said "the database is one migration behind"; the product simply
+    broke and the raw SQLite text was the only clue. The gap was never in the
+    code — it was that `main` can move ahead of a database and nothing notices
+    until a page fails.
+
+    Same definition of "not applied" that migrate() uses, so the two can never
+    disagree: a number above the recorded user_version.
+    """
+    current = schema_version(conn)
+    return [(number, file.name) for number, file in _migration_files()
+            if number > current]
+
+
 def migrate(conn: sqlite3.Connection) -> list[int]:
     """Apply every migration above the current user_version. Returns applied numbers."""
     applied: list[int] = []

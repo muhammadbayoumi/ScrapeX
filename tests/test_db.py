@@ -301,3 +301,41 @@ def test_naming_a_path_by_env_var_is_still_honoured(monkeypatch, tmp_path):
     finally:
         monkeypatch.delenv("SCRAPEX_DB_PATH", raising=False)
         importlib.reload(dbmod)
+
+
+# ---- the engine says when its database is behind, 2026-07-30 --------------
+
+def test_pending_migrations_names_what_has_not_been_applied(tmp_path):
+    """CI was green and the Data page was broken at the same moment, and both
+    were right: CI builds a database from EVERY migration, so a query reading a
+    new column passes there by construction, while the owner's machine had the
+    code and not the migration and answered `no such column: so.weight`.
+
+    Nothing said the database was one migration behind. A lag the engine can
+    measure must not be something the owner discovers from a stack trace."""
+    conn = dbmod.connect(tmp_path / "behind.db")
+    try:
+        # A brand new file is behind by every migration there is.
+        waiting = dbmod.pending_migrations(conn)
+        assert waiting, "a fresh database is behind everything"
+        assert all(isinstance(n, int) and name.endswith(".sql") or name
+                   for n, name in waiting)
+        dbmod.migrate(conn)
+        # And level once they are applied — the normal case, which must report
+        # nothing at all rather than a badge that is always on screen.
+        assert dbmod.pending_migrations(conn) == []
+    finally:
+        conn.close()
+
+
+def test_pending_migrations_agrees_with_migrate(tmp_path):
+    """The two must never disagree: what migrate() would apply is exactly what
+    pending_migrations() reports, or the banner lies in one direction or the
+    other."""
+    conn = dbmod.connect(tmp_path / "agree.db")
+    try:
+        expected = [n for n, _name in dbmod.pending_migrations(conn)]
+        applied = dbmod.migrate(conn)
+        assert applied == expected
+    finally:
+        conn.close()
