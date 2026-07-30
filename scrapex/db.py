@@ -165,9 +165,31 @@ def pending_migrations(conn: sqlite3.Connection) -> list[tuple[int, str]]:
     Same definition of "not applied" that migrate() uses, so the two can never
     disagree: a number above the recorded user_version.
     """
-    current = schema_version(conn)
+    # WHICH MIGRATIONS BELONG TO THIS DATABASE, and this took two wrong
+    # answers to get right — both of which cried wolf, which is worse than
+    # silence.
+    #
+    # First attempt compared filename numbers against user_version: the ledger
+    # numbers a migration by its POSITION in this database's stream (0057 is
+    # recorded as 55), so it announced two applied migrations as pending.
+    #
+    # Second attempt compared filenames against the ledger, and announced 0013,
+    # 0014 and 0017 as pending — they are GENERAL-database migrations. One
+    # directory holds both streams, and the legacy facade cannot tell them
+    # apart. The domain layer already declares the split, so it is asked rather
+    # than re-derived here; one list, and it is the one the migrator obeys.
+    from .databases.domain import _MARKETLENS_LEGACY_NUMBERS as _MINE
+    try:
+        applied = {row[0] for row in conn.execute(
+            "SELECT migration_name FROM database_migration")}
+    except sqlite3.DatabaseError:
+        # Older than the ledger: user_version is all there is, and on such a
+        # database no renumbering has happened yet, so it is still true.
+        current = schema_version(conn)
+        return [(number, file.name) for number, file in _migration_files()
+                if number > current and number in _MINE]
     return [(number, file.name) for number, file in _migration_files()
-            if number > current]
+            if number in _MINE and file.name not in applied]
 
 
 def migrate(conn: sqlite3.Connection) -> list[int]:
