@@ -1,0 +1,83 @@
+{
+  "started": "2026-07-30T13:57:20",
+  "snapshot_bytes": 78450688,
+  "unlimited_storage": false,
+  "phases": {
+    "env": {
+      "hardware": {
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel"
+      },
+      "dedicated_worker": {
+        "scope": "DedicatedWorker",
+        "canSpawnWorker": true
+      },
+      "service_worker": {
+        "scope": "ServiceWorkerGlobalScope",
+        "canSpawnWorker": false,
+        "hasOpfs": true,
+        "hasWasm": true,
+        "hasSharedArrayBuffer": true,
+        "boot": 1785409041060,
+        "alive_ms": 115,
+        "lives": 1
+      },
+      "storage_estimate_before": {
+        "quota": 10738136394,
+        "usage": 718154,
+        "usageDetails": {
+          "serviceWorkerRegistrations": 718154
+        },
+        "persisted": false
+      },
+      "persist_from_worker": {
+        "available_in_worker": false,
+        "note": "navigator.storage.persist is not a function in a DedicatedWorker",
+        "persisted": false
+      },
+      "persist_from_page": {
+        "before": false,
+        "granted": false,
+        "after": false
+      }
+    },
+    "import": {
+      "download_wal": {
+        "path": "marketlens-wal.db",
+        "bytes": 78450688,
+        "ms": 265,
+        "mode": "sync-access-handle"
+      },
+      "download_nowal": {
+        "path": "marketlens.db",
+        "bytes": 78450688,
+        "ms": 205,
+        "mode": "sync-access-handle"
+      },
+      "tree_after": {
+        "files": [
+          {
+            "path": "/marketlens.db",
+            "bytes": 78450688
+          },
+          {
+            "path": "/marketlens-wal.db",
+            "bytes": 78450688
+          }
+        ],
+        "total_bytes": 156901376
+      },
+      "estimate_after": {
+        "quota": 10895038122,
+        "usage": 157619882,
+        "usageDetails": {
+          "fileSystem": 156901728,
+          "serviceWorkerRegistrations": 718154
+        },
+        "persisted": false
+      }
+    }
+  },
+  "chromium": "C:\\Users\\User01\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe",
+  "extension_id": "cdammhkgfdofnkmcaefakbemephmgdjl"
+}
