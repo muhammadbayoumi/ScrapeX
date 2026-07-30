@@ -13,7 +13,7 @@ from scrapex.connectors.base import (CrawlBlocked, DEFAULT_USER_AGENT,
 from scrapex.connectors.jsonld import alternate_links, english_alternate
 from scrapex.connectors.zid import ZidConnector
 from scrapex.ingest import ingest_payloads
-from scrapex.rowspec import PRODUCT_PRICES, RowView
+from scrapex.rowspec import ENRICHMENT, PRODUCT_PRICES, RowView
 from scrapex.vocab import ExtractKind, ExtractScope
 
 FX = Path(__file__).parent / "fixtures"
@@ -53,6 +53,14 @@ def make_entry() -> SourceEntry:
         family="zid-html", currency="SAR", default_region="SA", vat_mode="incl", user_agent=CHROME_UA,
         extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)],
     ))
+
+
+def make_enriched_entry() -> SourceEntry:
+    """The source as sources.yaml now declares it: prices AND details."""
+    return make_entry().model_copy(update={"extract": [
+        ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS),
+        ExtractSpec(kind=ExtractKind.ENRICHMENT, scope=ExtractScope.CENSUS),
+    ]})
 
 
 def test_resolve_fetcher_uses_source_user_agent():
@@ -167,6 +175,125 @@ def test_a_zid_page_that_cannot_be_read_leaves_a_warning():
 
     assert any("no Product" in w and "1 product page(s)" in w
                for w in warnings)
+
+
+# ---- the pictures, reported missing by the owner 2026-07-29 ----------------
+#
+# Measured before the fix, against the live warehouse: ADVANCEDCASTLE held 168
+# products and 0 images. Not a display fault and not this store's doing — the
+# `image` was in the very JSON-LD the price was read from, and nothing asked
+# for it. Two links were open at once: zid had no enrichment branch, and the
+# source contracted no enrichment extract (ingest refuses an enrichment payload
+# from a source that does not declare one). Each test below holds one of them.
+
+def detail_rows(connector, entry):
+    """(rows as dicts, tokens) across every enrichment table yielded."""
+    rows, tokens = [], []
+    for table in connector.fetch(entry):
+        if str(table.kind) != "enrichment":
+            continue
+        view = RowView(ENRICHMENT, table.header)
+        rows.extend(view.as_dict(r) for r in table.rows)
+        tokens.append(table.page_token)
+    return rows, tokens
+
+
+def test_the_pictures_the_live_page_publishes_reach_the_row():
+    """The 2026-07-20 capture publishes TWO images in its Product JSON-LD and
+    the connector stored neither, because it had no enrichment branch at all."""
+    rows, tokens = detail_rows(ZidConnector(_LiveStubFetcher()),
+                               make_enriched_entry())
+
+    images = [r for r in rows if r["attribute_code"].startswith("image")]
+    assert images, "the page's own pictures must be captured"
+    # Positional, in the order the store published them — the first image is
+    # the store's own primary, so it keeps the unsuffixed code.
+    first = images[0]
+    assert first["attribute_code"] == "image"
+    assert first["value_url"].startswith("https://media.zid.store/")
+    assert first["value_url"].endswith("-thumbnail-1000x1000-70.jpeg")
+    assert any(r["attribute_code"] == "image_1" for r in images)
+    # The link is the fact; nothing was invented to sit beside it.
+    assert all(r["raw_value"] and r["value_url"] for r in images)
+    assert all(r["attribute_group"] == "Media" for r in images)
+    # Details ride the SAME checkpoint as the price off that page, so a resume
+    # can never land a price whose pictures were dropped.
+    assert all(tokens), "details with no checkpoint cannot survive a resume"
+
+
+def test_one_image_url_is_one_row_and_not_one_row_per_character():
+    """schema.org allows `image` as a bare string, and advancedcastle uses that
+    form on single-image products. Iterating it without the isinstance guard
+    yields a row per CHARACTER — 108 of them, each a one-letter 'image'."""
+    rows, _t = detail_rows(ZidConnector(_BilingualStubFetcher()),
+                           make_enriched_entry())
+
+    images = [r for r in rows if r["attribute_code"].startswith("image")]
+    assert len(images) == 1
+    assert images[0]["attribute_code"] == "image"
+    assert images[0]["value_url"].startswith("https://media.zid.store/")
+
+
+def test_a_source_that_contracts_no_enrichment_is_sent_none():
+    """The other half of the same defect, in the other direction: details must
+    not be emitted where the source did not ask for them — ingest refuses such
+    a payload outright, so emitting it would be an error, not a bonus."""
+    rows, _t = detail_rows(ZidConnector(_LiveStubFetcher()), make_entry())
+
+    assert rows == []
+
+
+def test_a_priceless_product_still_publishes_its_pictures():
+    """A variant-priced page has no usable price and still has its images. The
+    price check used to `continue` past everything below it, so the pictures
+    left with the price."""
+    node = ('{"@context":"https://schema.org","@type":"Product",'
+            '"name":"\\u062e\\u0648\\u0630\\u0629","sku":"AC-HELMET-9",'
+            '"image":"https://media.zid.store/store/helmet.jpg",'
+            '"offers":{"@type":"Offer","price":"0","priceCurrency":"SAR"}}')
+
+    class _Priceless(_StubFetcher):
+        def get(self, url, **kwargs):
+            if "/products/" in url:
+                self.requests_count += 1
+                return _Resp('<html><head><script type="application/ld+json">'
+                             + node + "</script></head><body></body></html>")
+            return super().get(url, **kwargs)
+
+    connector = ZidConnector(_Priceless())
+    entry = make_enriched_entry()
+    tables = list(connector.fetch(entry))
+
+    prices = [t for t in tables if str(t.kind) == "product_prices" and t.rows]
+    details = [t for t in tables if str(t.kind) == "enrichment"]
+    assert prices == [], "an unusable price must still never be guessed at"
+    assert details, "a product with no price still published its picture"
+    view = RowView(ENRICHMENT, details[0].header)
+    codes = {view.as_dict(r)["attribute_code"] for t in details for r in t.rows}
+    assert "image" in codes
+    # And the skip is still counted out loud, as it always was.
+    warnings = [w for t in tables for w in t.warnings]
+    assert any("no usable price" in w for w in warnings)
+
+
+def test_zid_pictures_reach_the_warehouse():
+    """End to end, because the connector alone proves nothing: ingest refuses
+    enrichment from a source that does not contract it, which is exactly the
+    second link this fix had to open."""
+    entry = make_enriched_entry()
+    tables = list(ZidConnector(_LiveStubFetcher()).fetch(entry))
+    conn: sqlite3.Connection = dbmod.connect(":memory:")
+    try:
+        dbmod.migrate(conn)
+        result = ingest_payloads(conn, entry, [t.to_payload() for t in tables])
+        stored = conn.execute(
+            "select count(*) from source_product_attribute "
+            "where attribute_code like 'image%' and value_url <> ''").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert not result.errors
+    assert result.attributes and stored, "0 images was the reported defect"
 
 
 # ---- bilingual: advancedcastle serves ar AND en, 2026-07-28 ----------------

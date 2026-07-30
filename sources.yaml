@@ -169,12 +169,32 @@ sources:
     extract:
       - kind: product_prices
         scope: census
+      # The images the owner reported missing. The product JSON-LD this crawl
+      # already reads for the price carries `image` on every product, but
+      # ingest REFUSES an enrichment payload from a source that does not
+      # contract enrichment — so the connector's new branch alone would have
+      # changed nothing. Both links, or neither.
+      - kind: enrichment
+        scope: census
     min_expected_rows: 20
     max_drop_pct: 50
     notes: >
       403 for non-browser user agents — the source declares a Chrome user_agent
       the fetcher sends. Variant prices are in the page HTML, not JSON-LD (v1
       records the product-level JSON-LD price only).
+
+      NO IMAGES WERE STORED until 2026-07-29, and the cause was not this store:
+      168 of 168 products were crawled and 0 carried an image, because nothing
+      asked for any. The zid connector had no enrichment branch, and this
+      source contracted no enrichment extract. Both are fixed together. The
+      pictures cost no extra request — they are in the same Product JSON-LD as
+      the price. MEASURED before/after, live: 0/168 products with an image,
+      then (this connector, one crawl, after the fix) 168/168 with at least
+      one image, 435 image rows, 771 enrichment rows total. A separate
+      42-product sample found the page's own gallery markup names 124 images
+      against JSON-LD's 109 for the same products, with every JSON-LD image
+      among them — so 15 of 124 stay unread; reading the gallery too is a
+      separate call for the owner, not a silent widening of this fix.
 
       BILINGUAL + TWO COUNTRIES, established live 2026-07-28. Every page's own
       <head> publishes five alternates: ar-sa (unprefixed, x-default), en
@@ -198,6 +218,16 @@ sources:
       migration and therefore an owner decision. Note the warehouse would keep
       the two countries apart correctly if it were captured: source_offer is
       keyed on country_code_alpha2 and the price key carries region+currency.
+
+      OWNER-CONFIRMED 2026-07-30. Asked directly, with the sharper fact that
+      the store's TWO published rates (SAR 3.754116, EGP 50.5485 per USD —
+      captured 2026-07-29 by _rates_abroad) imply a ratio of 13.46 while its
+      Egyptian pages actually price at 11.768: the store does not convert its
+      own prices with its own declared rate, so an Egyptian price would be
+      neither a merchant price nor a faithful conversion of one. Decision:
+      stay Saudi-only and keep publishing the store's Egyptian RATE (already
+      shipped, source_kind='shop') rather than crawl a number that is honest
+      under neither reading. Not revisited unless the owner raises it again.
 
   # ---- probed: Shopify; products.json OPEN ----
   - source_key: ELSEWEDYSHOP

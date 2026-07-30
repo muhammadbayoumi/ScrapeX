@@ -22,13 +22,15 @@ from ..config import SourceEntry
 # without it ever being in scope, so a salla source that declared an
 # enrichment extract would have died on NameError after the whole crawl.
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import DetailGroup, group_for_code, ExtractKind
+from ..vocab import ExtractKind
 from .base import HttpFetcher, ScrapedTable
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
-# generic; the /p{id} id scheme below is the salla-specific part.
-from .jsonld import (WalkTally, brand_name, category_path, offer_price,
-                     parse_product_jsonld, product_row, sitemap_locs,
-                     sitemap_products, walk_products)
+# generic; the /p{id} id scheme below is the salla-specific part. enrichment_rows
+# moved to jsonld when zid needed the same pictures-and-prose reading — it is
+# imported here rather than left behind so both families share one copy.
+from .jsonld import (WalkTally, brand_name, category_path, enrichment_rows,
+                     offer_price, parse_product_jsonld, product_row,
+                     sitemap_locs, sitemap_products, walk_products)
 
 _PRODUCT_ID = re.compile(r"/p(\d{5,})")
 
@@ -111,7 +113,7 @@ class SallaConnector:
                 # under the SAME token: one product is journaled once, so a
                 # resume cannot land its price without its details.
                 extra = RowBuilder(ENRICHMENT)
-                attribute_rows = enrichment_rows(extra, node, url)
+                attribute_rows = enrichment_rows(extra, node, _salla_id(url, node))
                 if attribute_rows:
                     yield ScrapedTable(source.source_key, ENRICHMENT.kind, base,
                                        extra.header, attribute_rows,
@@ -139,39 +141,3 @@ class SallaConnector:
             self._fetcher, sitemap_url, lambda url: bool(_PRODUCT_ID.search(url)),
             dedupe=one_url_per_product,
             unreadable_children=tally.unreadable_children)
-
-
-def enrichment_rows(builder: RowBuilder, node: dict, url: str) -> list[list[str]]:
-    """The pictures and prose the product page's JSON-LD already carried."""
-    from .salla import _PRODUCT_ID  # local: keeps the module's import list flat
-
-    found = _PRODUCT_ID.search(url)
-    pid = found.group(1) if found else str(node.get("sku") or url)
-    rows: list[list[str]] = []
-
-    def add(code, label, value, *, url_value="", group=""):
-        if not value:
-            return
-        # The shared map decides WHERE (vocab.group_for_code), so every
-        # source files the same kind of fact in the same place. The
-        # caller's `group` remains the hint for codes this shop names in
-        # a way the map has not been taught yet.
-        decided, recognised = group_for_code(code)
-        rows.append(builder.row(
-            external_product_id=pid, attribute_code=code, attribute_label=label,
-            raw_value=str(value)[:2000], numeric_value="", unit_raw="",
-            value_url=url_value, lang="",
-            attribute_group=decided if recognised else (group or decided)))
-
-    images = node.get("image")
-    if isinstance(images, str):
-        images = [images]
-    for position, href in enumerate(images or []):
-        if not isinstance(href, str) or not href.startswith("http"):
-            continue
-        add(f"image_{position}" if position else "image", "Image",
-            href.rsplit("/", 1)[-1], url_value=href, group=DetailGroup.MEDIA)
-
-    add("description", "Description", node.get("description"), group="Description")
-    add("sku", "SKU", node.get("sku"), group="Specs")
-    return rows
