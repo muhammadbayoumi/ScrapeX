@@ -406,6 +406,25 @@ sources:
       # APIUrl="https://onlinestoreapi.heidelbergmaterials.eg/api". Without
       # this line the connector refuses to run rather than guess a host.
       base_url: https://onlinestoreapi.heidelbergmaterials.eg
+    taxonomy:
+      # A THIRD host, and the only place the company publishes a real product
+      # taxonomy. The store API's own `productTypes` has two values, `Bagged`
+      # and `Bulk`, and all 9 catalogued products are `Bagged` — a packaging
+      # type that distinguishes nothing, which is what used to fill
+      # category_path. The corporate site publishes 5 cement families in both
+      # languages instead.
+      #
+      # It has its own robots.txt (the two store hosts serve none): 200, the
+      # Drupal default, whose `Crawl-delay: 10` is addressed only to AhrefsBot
+      # and AhrefsSiteAudit — the `*` group carries none, so nothing in it
+      # binds this crawler, and no Disallow intersects either path below.
+      base_url: https://www.heidelbergmaterials.eg
+      # Both stated, neither derived: the site's Arabic and English aliases for
+      # this one page share no stem, so building one from the other would be a
+      # guess. Each is what the other's `<link rel="alternate" hreflang>`
+      # declares, and the captured fixtures assert the pairing.
+      listing_path: /en/our-products
+      listing_path_ar: /ar/our_products_ar
     vat_mode: incl
     tax:
       # CORRECTS the recon report, which read the site as making no VAT claim

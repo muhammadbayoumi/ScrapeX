@@ -412,6 +412,129 @@ def test_an_offer_learns_the_quantity_facts_without_being_split(tmp_path):
         conn.close()
 
 
+def _payloads_through_a_file(tmp_path: Path, scraped_at: str) -> list[FunnelPayload]:
+    """The payloads a crawl really ingests: SERIALIZED to disk and read back.
+
+    The in-memory path is what the 0056 tests exercised, and it is the reason
+    this defect shipped green — so the round trip is the shape asserted here.
+    """
+    payloads = []
+    for i, t in enumerate(MagentoGraphqlConnector(_Fetcher()).fetch(_entry())):
+        if t.kind != ExtractKind.PRODUCT_PRICES:
+            continue
+        written = FunnelPayload(
+            payload_version=PAYLOAD_VERSION, source_key="MADAR",
+            kind=ExtractKind.PRODUCT_PRICES, client="cli",
+            scraped_at=scraped_at, source_url=t.source_url,
+            header=t.header, rows=t.rows)
+        path = tmp_path / f"madar-prices-{i}.json"
+        path.write_text(written.model_dump_json(), encoding="utf-8")
+        payloads.append(FunnelPayload.model_validate_json(
+            path.read_text(encoding="utf-8")))
+    return payloads
+
+
+def test_the_payload_written_to_disk_still_carries_display_method(tmp_path):
+    """The header the crawl WRITES, not the one the current spec would build."""
+    payload = _payloads_through_a_file(tmp_path, "2026-07-30T10:00:00Z")[0]
+    assert "display_method" in payload.header
+    assert len(payload.header) == len(PRODUCT_PRICES.columns)
+    view = RowView(PRODUCT_PRICES, payload.header)
+    assert {view.get(row, "display_method") for row in payload.rows} == {
+        DisplayMethod.MEMBER_LIST.value, DisplayMethod.OPTIONS_PRICED.value,
+        DisplayMethod.OPTIONS_ONE_PRICE.value, DisplayMethod.SINGLE.value}
+
+
+def test_a_product_that_already_exists_learns_display_method(tmp_path):
+    """THE DEFECT THIS FILE SHIPPED. All 763 MADAR products were first seen
+    2026-07-25..27, days before display_method existed, so every one of them
+    takes the UPDATE path and NOT the INSERT that writes the column. Three
+    successful `update` crawls later the column was empty on all 763 and
+    change_event held 0 display_method rows.
+
+    The cause was not the connector, the payload or the diff — each of those
+    was verified working. It was ingest._with_product_sku narrowing the row to
+    a HAND-LISTED tuple of keys that was never extended with display_method, so
+    product_field_diffs was handed a dict in which the field could not differ.
+    The sibling test above passes on a FRESH database, where every product is
+    inserted; only a second ingest can see this.
+    """
+    conn = dbmod.connect(tmp_path / "harvest.db")
+    try:
+        dbmod.migrate(conn)
+        ingest_payloads(conn, _entry(),
+                        _payloads_through_a_file(tmp_path, "2026-07-29T10:00:00Z"))
+
+        # Seed the warehouse to look like the live one: every product already
+        # exists, was first seen BEFORE display_method was a column (the real
+        # min first_seen is 2026-07-25T06:57:29Z), and the column is empty. The
+        # first_seen date is cosmetic to path selection — INSERT vs UPDATE turns
+        # on the row already existing — but it is the shape the owner describes,
+        # and empty-on-existing-rows is precisely what broke.
+        conn.execute("UPDATE source_product SET display_method = '', "
+                     "first_seen_at = '2026-07-25T06:57:29Z'")
+        conn.commit()
+        before = conn.execute("SELECT COUNT(*) FROM source_product").fetchone()[0]
+        assert conn.execute(
+            "SELECT MAX(first_seen_at) FROM source_product").fetchone()[0] \
+            < "2026-07-29", "the seed must predate the column to exercise UPDATE"
+        assert not any(v for _, v in conn.execute(
+            "SELECT external_product_id, display_method FROM source_product")), \
+            "the seed must start with the column empty on every row"
+
+        ingest_payloads(conn, _entry(),
+                        _payloads_through_a_file(tmp_path, "2026-07-30T10:00:00Z"))
+
+        shapes = dict(conn.execute(
+            "SELECT external_product_id, display_method FROM source_product"))
+        assert shapes == {"SFNT": DisplayMethod.MEMBER_LIST.value,
+                          "UkNG": DisplayMethod.OPTIONS_PRICED.value,
+                          "TEVH": DisplayMethod.OPTIONS_ONE_PRICE.value,
+                          "UFVUVFk=": DisplayMethod.SINGLE.value}
+        # The owner's report format: the count per value. Each of the four live
+        # shapes is present exactly once in the fixture, so the breakdown the
+        # owner will read off the 763 (single 400 / options_one_price 36 /
+        # options_priced 292 / member_list 33) is exercised here as 1 / 1 / 1 / 1
+        # with zero left empty — the same UPDATE path, at fixture scale.
+        breakdown = dict(conn.execute(
+            "SELECT display_method, COUNT(*) FROM source_product "
+            "GROUP BY display_method ORDER BY display_method"))
+        assert breakdown == {DisplayMethod.MEMBER_LIST.value: 1,
+                             DisplayMethod.OPTIONS_ONE_PRICE.value: 1,
+                             DisplayMethod.OPTIONS_PRICED.value: 1,
+                             DisplayMethod.SINGLE.value: 1}
+        assert "" not in breakdown, "no pre-existing product may be left empty"
+        # Learning a column must not mint a second product beside the first.
+        assert conn.execute(
+            "SELECT COUNT(*) FROM source_product").fetchone()[0] == before
+        # And the learning is an EVENT, like every other tracked field's.
+        assert conn.execute(
+            "SELECT COUNT(*) FROM change_event "
+            "WHERE field_key = 'display_method'").fetchone()[0] == len(shapes)
+    finally:
+        conn.close()
+
+
+def test_every_tracked_product_field_can_actually_be_updated():
+    """The guard on the class of defect, not just this instance.
+
+    _with_product_sku builds the ONLY dict product_field_diffs ever reads, so a
+    tracked field missing from it is tracked-but-frozen — and nothing raises:
+    the column just silently keeps its old value forever. Adding a pair to
+    TRACKED_PRODUCT_FIELDS must be the whole change.
+    """
+    from scrapex.changes import TRACKED_PRODUCT_FIELDS
+    from scrapex.ingest import _with_product_sku
+
+    # Asserted against the PUBLIC behaviour of _with_product_sku, not against
+    # the constant that implements it: this test has to be able to fail on the
+    # hand-listed version too, and an ImportError is not this defect's shape.
+    reachable = set(_with_product_sku({}))
+    tracked = {row_key for _, row_key in TRACKED_PRODUCT_FIELDS}
+    assert tracked - reachable == set(), (
+        f"tracked but unreachable by the diff: {sorted(tracked - reachable)}")
+
+
 def test_migration_0056_corrects_has_variants_on_rows_that_already_exist():
     """The backfill, on a warehouse that predates it.
 

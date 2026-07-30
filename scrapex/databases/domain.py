@@ -66,7 +66,47 @@ class Migration:
 
     @property
     def sha256(self) -> str:
+        """The migration's identity: its SQL, NOT its platform's newlines.
+
+        Hashing raw bytes made this checksum platform-dependent, which turned
+        the tamper guard into a false alarm. `.gitattributes` says `* text=auto`
+        and core.autocrlf is on, so the repo stores LF and Windows checks out
+        CRLF: the same committed migration hashes one way on the machine that
+        stamped the ledger and another on the machine that reads it.
+
+        It really fired. `general` migration 0003_field_paging_index.sql was
+        stamped f57f56a4 (1,042 bytes, 23 LF) and read back ba24e532 (1,065
+        bytes, 23 CRLF) — identical SQL — and refused every `scrapex ingest`
+        and `backup-databases` on Windows. Measured across both live databases,
+        57 of 57 migrations matched one form or the other and NOT ONE was
+        genuinely edited: 41 had been stamped from LF content and 16 from CRLF.
+        Re-stamping to CRLF would only have moved the failure to Linux and CI.
+
+        Normalising costs no detection. A real edit changes the SQL, so both
+        forms move and the guard still fails loudly; the only difference now
+        accepted is a line ending, which never changes what the SQL does.
+        """
+        return hashlib.sha256(self._normalised_bytes()).hexdigest()
+
+    @property
+    def legacy_sha256(self) -> str:
+        """The raw-bytes hash a pre-normalisation checkout stamped.
+
+        Accepted on READ so an existing ledger keeps validating, and upgraded
+        to `sha256` in place the next time the stream is stamped. Never used to
+        accept an UNKNOWN digest: it matches only when this very file's raw
+        bytes hash to the stored value, which proves the content is the same
+        modulo newlines rather than assuming it.
+        """
         return hashlib.sha256(self.path.read_bytes()).hexdigest()
+
+    def _normalised_bytes(self) -> bytes:
+        # CRLF and lone CR both fold to LF: the two conventions a Windows
+        # checkout and an old Mac-style file can introduce.
+        return self.path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+    def matches(self, stored: str) -> bool:
+        return stored in (self.sha256, self.legacy_sha256)
 
 
 @dataclass(frozen=True)
@@ -450,10 +490,19 @@ class DomainDatabase(Generic[T]):
                 "SELECT sha256 FROM database_migration WHERE migration_number = ? LIMIT 1",
                 (migration.number,),
             ).fetchone()
-            if stored is not None and stored[0] != migration.sha256:
+            if stored is not None and not migration.matches(stored[0]):
                 raise DatabaseMigrationError(
                     f"{self.kind} migration {migration.name} checksum changed; restore "
                     "the original migration file and retry"
+                )
+            if stored is not None and stored[0] != migration.sha256:
+                # A digest stamped from raw bytes, proven to be THIS file (see
+                # Migration.legacy_sha256). Upgraded once, here in the path that
+                # already owns the ledger, so the mixed state converges instead
+                # of every reader having to know about both forms forever.
+                conn.execute(
+                    "UPDATE database_migration SET sha256 = ? WHERE migration_number = ?",
+                    (migration.sha256, migration.number),
                 )
             if stored is None:
                 conn.execute(
@@ -488,7 +537,7 @@ class DomainDatabase(Generic[T]):
                     f"{self.kind} migration ledger is incomplete at {migration.name}; "
                     "run database initialization and retry"
                 )
-            if stored[0] != migration.sha256:
+            if not migration.matches(stored[0]):
                 raise DatabaseMigrationError(
                     f"{self.kind} migration {migration.name} checksum changed; restore "
                     "the original migration file and retry"
