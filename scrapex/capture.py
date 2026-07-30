@@ -247,10 +247,16 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         raise
     finally:
         fetcher.close()
+    journal_skips: list[str] = []
     if journal:
         # The journal holds this run's pages PLUS any kept from before the
         # pause — reading it back is what makes the resumed ingest whole.
-        payloads = localinbox.read_payloads(localinbox.JOURNAL_DIR, entry.source_key)
+        # A page that will not read back is contained to itself; the account of
+        # what was skipped goes onto the run below, because `clear` a few lines
+        # further down is the last moment those pages exist.
+        read = localinbox.read_payloads(localinbox.JOURNAL_DIR, entry.source_key)
+        payloads = read.payloads
+        journal_skips = read.report()
     else:
         payloads = [t.to_payload() for t in tables]
     with (lock() if lock is not None else nullcontext()):
@@ -275,8 +281,22 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         defects = list(dict.fromkeys(d for t in tables for d in t.defects))
         result = ingest_payloads(conn, entry, payloads, job_id=job_id,
                                  fetch_defects=defects)
+        # ERRORS, not notices: rows a journaled page was holding did not land,
+        # so the run genuinely IS partial (the taxonomy on IngestResult). Any
+        # softer channel would let a resume that dropped 871 pages close as a
+        # clean success — the loss this path exists to prevent. PARTIAL rather
+        # than FAILED, because everything readable did land.
+        result.errors.extend(journal_skips)
         _store_published_rates(conn, entry, tables, result)
     if journal:
+        # `journal` is `job_id is not None`, so there is always a job to tell.
+        # Said in the log as well as on the result because the result is a
+        # return value and the log is what the owner actually reads.
+        if journal_skips:
+            from .jobs import append_log, LogLevel
+            for line in journal_skips:
+                append_log(conn, job_id, line, level=LogLevel.WARNING,
+                           source_key=entry.source_key)
         localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
     # rows/tables come from the PAYLOADS: on a resume the fetched tables are
     # only the tail of the crawl, and the F6 volume canary must see the whole.
