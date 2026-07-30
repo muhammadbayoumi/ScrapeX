@@ -9,11 +9,28 @@ we fall back to an AggregateOffer lowPrice, and skip a product with no usable
 price (its real variant prices need the extension's session capture — later).
 The pure parsers (`sitemap_locs`, `parse_product_jsonld`, `offer_price`) are
 unit-tested against fixtures; only the fetch loop touches the network.
+
+THE PICTURES (2026-07-30). This shop's JSON-LD names ONE picture per product
+while the page's slider names the set — measured over a 1,233-product census,
+roughly a threefold difference, and the picture the JSON-LD names is often not
+even the first slide. So the slider leads and the summary is merged in behind
+it (page_pictures below, merge_pictures in jsonld). It costs no request: the
+slider is in the SAME response the price is read from, which this connector
+previously discarded by walking with `walk_products` instead of
+`walk_product_pages`.
+
+That reader is markup, and markup is a contract a theme update can end without
+telling anyone — silently, since the prices would still land and every product
+would keep the one picture its JSON-LD names. WalkTally counts the pages where
+it stops matching and raises a DEFECT, not a note, when it fails on more pages
+than it works on.
 """
 from __future__ import annotations
 
 import re
 from typing import Iterable
+
+from bs4 import BeautifulSoup
 
 from ..localinbox import safe_token
 from ..normalize import brand_pair
@@ -28,9 +45,10 @@ from .base import HttpFetcher, ScrapedTable
 # generic; the /p{id} id scheme below is the salla-specific part. enrichment_rows
 # moved to jsonld when zid needed the same pictures-and-prose reading — it is
 # imported here rather than left behind so both families share one copy.
-from .jsonld import (WalkTally, brand_name, category_path, enrichment_rows,
+from .jsonld import (Picture, WalkTally, brand_name, category_path,
+                     enrichment_rows, jsonld_pictures, merge_pictures,
                      offer_price, parse_product_jsonld, product_row,
-                     sitemap_locs, sitemap_products, walk_products)
+                     sitemap_locs, sitemap_products, walk_product_pages)
 
 _PRODUCT_ID = re.compile(r"/p(\d{5,})")
 
@@ -44,6 +62,68 @@ def _salla_id(url: str, node: dict) -> str:
     """
     found = _PRODUCT_ID.search(url)
     return found.group(1) if found else str(node.get("sku") or url)
+
+
+def _product_key(url: str) -> str:
+    """The numeric /p{id} the slider keys its slides on, "" when the URL has none.
+
+    Deliberately NOT _salla_id: that falls back to the sku or the whole URL so
+    a price row always has an id, and neither of those is what
+    `data-fslightbox="product_…"` is built from. A URL with no numeric id has
+    no slider to find, and "" says exactly that.
+    """
+    found = _PRODUCT_ID.search(url)
+    return found.group(1) if found else ""
+
+
+def page_pictures(html: str, pid: str) -> list[Picture]:
+    """The pictures the product's own slider lists, in the shop's order.
+
+    THE ANCHOR, not the `<img>`, and not a CSS class. Each slide is
+    `<a data-fslightbox="product_{id}" data-img-id=… data-slid-index=… href=…>`,
+    and every part of that earns its place:
+
+    * `data-fslightbox="product_{id}"` ties the slide to THIS product, so a
+      page carrying a related-products carousel cannot leak its pictures in.
+    * `href` is the full-size URL and is always present. The `<img>` inside is
+      lazy-loaded — MEASURED on alsweed, only the first slide has a real `src`
+      and the rest carry `cdn.salla.network/images/s-empty.png` — so reading
+      `<img src>` would have stored the same placeholder as several pictures.
+    * the anchors appear ONCE per picture while the `<img>`s appear twice (the
+      slider renders a thumbnail strip as well), so this route is free of the
+      duplication a container-wide `img` sweep would have to undo.
+
+    `swiper-slide` and `magnify-wrapper` are on the same element and are the
+    theme's and a JS library's; they are deliberately not what this matches.
+
+    VIDEOS ARE NOT PICTURES. 7 of 787 slides on the alsweed sample are
+    `data-type="youtube"`, whose href is a video, so only `image` slides are
+    read here. The store's JSON-LD separately names some YouTube *thumbnails*
+    as product images; those rows already exist and the merge keeps them
+    rather than quietly dropping what this source already stored.
+    """
+    if not pid:
+        return []
+    soup = BeautifulSoup(html or "", "lxml")
+    pictures: list[Picture] = []
+    for slide in soup.select(f'a[data-fslightbox="product_{pid}"]'):
+        if str(slide.get("data-type") or "").strip().lower() != "image":
+            continue
+        href = str(slide.get("href") or "").strip()
+        if not href.startswith("http"):
+            continue
+        # Identity is the URL, and it is checked rather than assumed: on the
+        # alsweed census every JSON-LD image URL that names a picture (270 of
+        # 270) is byte-identical to a slide href, and no product repeats an
+        # href. Unlike zid, this shop publishes one picture at one address, so
+        # the URL tells two pictures apart correctly. `data-img-id` is a
+        # stronger identity if that ever stops being true — but it is not on
+        # the JSON-LD side, and an identity only one route can compute would
+        # store the overlap twice.
+        pictures.append(Picture(
+            identity=href, url=href,
+            label=str(slide.get("data-caption") or "").strip()))
+    return pictures
 
 
 def one_url_per_product(urls: list[str]) -> list[str]:
@@ -92,7 +172,11 @@ class SallaConnector:
                                for spec in source.extract)
         tally = WalkTally()
 
-        for url, token, node in walk_products(
+        # walk_product_pages rather than walk_products: the page's own slider
+        # is the only place this shop states its whole picture set, so the HTML
+        # the price was read from has to stay in hand. It costs no request —
+        # it is the SAME response, which the previous view simply discarded.
+        for url, token, html, node in walk_product_pages(
                 self._fetcher, self._product_urls(f"{base}/ar/sitemap.xml", tally),
                 self.skip_tokens, safe_token, tally):
             # ONE TABLE PER PRODUCT, journaled as fetched. This connector used
@@ -112,8 +196,21 @@ class SallaConnector:
                 # The pictures and descriptions the SAME page already carried,
                 # under the SAME token: one product is journaled once, so a
                 # resume cannot land its price without its details.
+                #
+                # The JSON-LD names ONE picture per product on this shop while
+                # the slider names the set — MEASURED on the alsweed catalogue,
+                # a roughly threefold difference — so the slider leads and the
+                # summary is merged in behind it, by identity, never twice.
+                summary = jsonld_pictures(node)
+                record = page_pictures(html, _product_key(url))
+                if record:
+                    tally.pictures_read += 1
+                elif summary:
+                    tally.pictures_route_lost += 1
                 extra = RowBuilder(ENRICHMENT)
-                attribute_rows = enrichment_rows(extra, node, _salla_id(url, node))
+                attribute_rows = enrichment_rows(
+                    extra, node, _salla_id(url, node),
+                    pictures=merge_pictures(record, summary))
                 if attribute_rows:
                     yield ScrapedTable(source.source_key, ENRICHMENT.kind, base,
                                        extra.header, attribute_rows,
@@ -125,14 +222,20 @@ class SallaConnector:
         # lowPrice, no meta amount, no inline figure — there is genuinely
         # nothing to read, so the skip is right and saying it is mandatory.
         notes = tally.notes()
-        if notes:
+        # The slider is markup, and markup is a contract a theme update can end
+        # without notice. If it stops matching, every price still lands and
+        # every product keeps the one picture its JSON-LD names, so the run
+        # would look clean while the catalogue lost two thirds of its images.
+        # A defect, not a note, because only a defect is counted as an error.
+        defects = tally.picture_route_defects()
+        if notes or defects:
             # A summary carrying only the counts, deliberately UNTOKENIZED: the
             # counts describe this attempt, and capture.clear_untokenized drops
             # them on resume so a resumed run reports its own rather than
             # inheriting numbers from the attempt before it.
             yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, base,
                                RowBuilder(PRODUCT_PRICES).header, [],
-                               warnings=notes)
+                               warnings=notes, defects=defects)
 
     def _product_urls(self, sitemap_url: str, tally: WalkTally) -> list[str]:
         """Salla's two rules: /p{id} marks a product, and one URL per product id

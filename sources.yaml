@@ -190,11 +190,34 @@ sources:
       pictures cost no extra request — they are in the same Product JSON-LD as
       the price. MEASURED before/after, live: 0/168 products with an image,
       then (this connector, one crawl, after the fix) 168/168 with at least
-      one image, 435 image rows, 771 enrichment rows total. A separate
-      42-product sample found the page's own gallery markup names 124 images
-      against JSON-LD's 109 for the same products, with every JSON-LD image
-      among them — so 15 of 124 stay unread; reading the gallery too is a
-      separate call for the owner, not a silent widening of this fix.
+      one image, 435 image rows, 771 enrichment rows total.
+
+      THE REST OF THE PICTURES, 2026-07-30. The 42-product sample that opened
+      this question (124 gallery images against JSON-LD's 109) was re-run over
+      the WHOLE catalogue: 168/168 pages fetched once each, JSON-LD names 435
+      pictures and the page names 493. The gap is 58 pictures on 44 products,
+      not the 15 the sample implied.
+
+      Where the fuller truth lives is NOT the theme's `carousel-img` class the
+      sample measured. Every page carries `var productImages = [...]`, the
+      JSON the theme renders FROM: a stable image id, the merchant's alt_text,
+      a display order and five sizes. A class ends with the next theme update;
+      this is the store's own data and survives one.
+
+      The two routes name the SAME pictures at DIFFERENT addresses — of 435
+      JSON-LD URLs, 0 appear as a gallery `<img src>` string, and 0 name a
+      picture the gallery lacks — so merging on the URL would have stored every
+      picture twice. They are merged on the image id instead, and the recorded
+      size is `large`, which is the one the store's own JSON-LD names (429 of
+      429 matched URLs byte-identical), so nothing already stored churns and
+      the overlap provably cannot land twice. `full_size` is published too and
+      is a bigger file on 406 of 464 pictures; moving to it is an owner's call.
+
+      MEASURED after, replaying the shipped merge over all 168 pages: 435 ->
+      499 image rows, 48 products gain pictures, 0 pictures lost, and 190 rows
+      carry the merchant's own alt text. That alt text is the SAME Arabic
+      string on the store's English locale, so there is no bilingual pair to
+      capture and no new column.
 
       BILINGUAL + TWO COUNTRIES, established live 2026-07-28. Every page's own
       <head> publishes five alternates: ar-sa (unprefixed, x-default), en
