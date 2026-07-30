@@ -10,8 +10,8 @@ from typing import Iterable
 
 from ..config import SourceEntry
 from ..normalize import brand_pair, option_axes_json, option_fingerprint
-from ..rowspec import PRODUCT_PRICES, RowBuilder
-from ..vocab import Availability
+from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
+from ..vocab import Availability, ExtractKind, group_for_code
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PAGE_SIZE = 250  # Shopify hard max per page
@@ -38,6 +38,14 @@ class ShopifyConnector:
         currency = source.currency or "UNKNOWN"
         titles: dict[str, str] = {}
         notes: list[str] = []
+        # The pictures ride the SAME /products.json the prices come from, so
+        # capturing them costs no extra request — but only when the manifest
+        # asks, because ingest refuses an enrichment payload from a source
+        # that does not declare the kind.
+        wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
+                               for spec in source.extract)
+        detail = RowBuilder(ENRICHMENT)
+        detail_rows: list[list[str]] = []
 
         page = 1
         while True:
@@ -48,6 +56,8 @@ class ShopifyConnector:
             for product in products:
                 titles[str(product.get("id") or "")] = str(product.get("title") or "")
                 rows.extend(self._product_rows(builder, product, base, currency, vat_flag, source.default_region))
+                if wants_enrichment:
+                    detail_rows.extend(enrichment_rows(detail, product))
             if len(products) < PAGE_SIZE:
                 break
             page += 1
@@ -70,6 +80,15 @@ class ShopifyConnector:
             rows=rows,
             warnings=notes,
         )
+
+        if detail_rows:
+            yield ScrapedTable(
+                source_key=source.source_key,
+                kind=ENRICHMENT.kind,
+                source_url=f"{base}/products.json",
+                header=detail.header,
+                rows=detail_rows,
+            )
 
     def _english_titles(self, base: str, titles: dict[str, str],
                         notes: list[str]) -> dict[str, str]:
@@ -159,6 +178,50 @@ class ShopifyConnector:
                 stock_quantity="",
             ))
         return rows
+
+
+def enrichment_rows(builder: RowBuilder, product: dict) -> list[list[str]]:
+    """The product's pictures, primary first, from the price payload itself.
+
+    /products.json states `images` beside the variants the prices are read
+    from — 1,442 pictures across all 932 elsewedyshop products, every one of
+    them with a `src` (live census 2026-07-30). The connector kept the prices
+    and read straight past the pictures, which is the whole reason this source
+    published 0 images while the shop published one for every product.
+
+    `position` is the shop's own gallery ranking and the list arrives in it, so
+    the `image`, `image_1`… order is the site's and not a choice made here —
+    the convention magento, salla and woocommerce already file under.
+
+    Shopify's products.json carries NO alt text (1,442 of 1,442 are null on
+    this shop), so the filename stands in as the panel's alternative text. The
+    `?v=` cache-buster is dropped from that LABEL only; value_url keeps the URL
+    exactly as published, because the URL is the record.
+    """
+    pid = str(product.get("id") or "")
+    if not pid:
+        return []
+    rows: list[list[str]] = []
+    position = 0
+    for image in product.get("images") or []:
+        if not isinstance(image, dict):
+            continue
+        href = str(image.get("src") or "").strip()
+        if not href:
+            continue
+        # Files are language-neutral: a picture is the same fact in either
+        # store language, so `lang` stays unstated (0039's carve-out).
+        code = f"image_{position}" if position else "image"
+        group, _recognised = group_for_code(code)
+        rows.append(builder.row(
+            external_product_id=pid, attribute_code=code,
+            attribute_label="Image",
+            raw_value=str(image.get("alt") or "").strip()
+                      or href.rsplit("/", 1)[-1].split("?")[0],
+            numeric_value="", unit_raw="", value_url=href, lang="",
+            attribute_group=group))
+        position += 1
+    return rows
 
 
 def was_price(compare_at, price) -> str:

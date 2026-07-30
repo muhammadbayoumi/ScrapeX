@@ -126,6 +126,13 @@ sources:
     extract:
       - kind: product_prices
         scope: census
+      # The salla connector has read the JSON-LD `image` since it was written
+      # (salla.py enrichment_rows), but only builds those rows when the source
+      # DECLARES enrichment — and this one never did, so 1,203 products landed
+      # with no picture while every page published one (15/15 sampled live
+      # 2026-07-30). The pictures ride the page the price already paid for.
+      - kind: enrichment
+        scope: census
     min_expected_rows: 50
     max_drop_pct: 50
     notes: >
@@ -214,6 +221,11 @@ sources:
     extract:
       - kind: product_prices
         scope: census
+      # The pictures are in the SAME /products.json the prices come from —
+      # 1,442 of them across all 932 products, every product covered (live
+      # census 2026-07-30). No extra request.
+      - kind: enrichment
+        scope: census
     min_expected_rows: 50
     max_drop_pct: 50
     notes: products.json + collections.json open; updated_at drives change detection.
@@ -251,6 +263,12 @@ sources:
         verified_at: "2026-07-20"
     extract:
       - kind: product_prices
+        scope: census
+      # The pictures are in the SAME fields=FULL search response the prices
+      # come from: 560 of the 640 priced products carry one, published at
+      # three rendering sizes (live census 2026-07-30). The other 80 publish
+      # none, and stay honestly blank.
+      - kind: enrichment
         scope: census
     min_expected_rows: 200
     max_drop_pct: 50
