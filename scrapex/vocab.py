@@ -136,6 +136,26 @@ _DETAIL_GROUP_BY_CODE: dict[str, DetailGroup] = {
     "availability": DetailGroup.STORE,
     "sku": DetailGroup.STORE,                   # the store's own code for it
     "trade_tier_price": DetailGroup.STORE,      # until it becomes a price column
+    # HOW THIS STORE SUPPLIES IT — bagged or bulk. heidelbergmaterials.eg's
+    # `productTypes` has exactly two values, `Bagged`/«معبأ» and `Bulk`/«سائب»,
+    # and it used to fill category_path on all 9 products, where it was a
+    # packaging type wearing a taxonomy's clothes.
+    #
+    # Owner ruling 2026-07-30, under his OWN boundary (rule 2 above): a property
+    # OF the product files under Specifications, information ABOUT it under More
+    # information, and how THIS store handles it under Store. He asked for two
+    # studies before ruling, and both pointed here:
+    #
+    #   1. The corporate site publishes the SAME CEM II cement as "Available in:
+    #      Pack type 50 kg Bag, Big Bag" AND "Bulk". So bagging does not
+    #      distinguish the cement — it is a supply channel, and this store's
+    #      channel is bags. (Bulk Cement is separately a family of its own, on a
+    #      different cement, CEM I — which is a product fact, not this one.)
+    #   2. Packaging carries NO price signal in this source and cannot: the store
+    #      publishes no bulk price at all — 0 of 24,840 price slots — and the
+    #      price row has no packaging field, so packaging is not an axis of the
+    #      price matrix. It never was a priced property here.
+    "packaging_type": DetailGroup.STORE,
     # About the PAGE. Robots directives madar publishes per product.
     "no_index": DetailGroup.SITE_METADATA,
     "no_follow": DetailGroup.SITE_METADATA,

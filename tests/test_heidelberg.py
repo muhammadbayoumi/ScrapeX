@@ -689,17 +689,41 @@ def test_the_packaging_type_is_kept_as_a_detail_in_both_languages():
     assert sum(1 for r in enrichment if r["attribute_code"] == "packaging_type_ar") == 8
 
 
-def test_the_packaging_group_is_reported_unruled_rather_than_chosen():
-    """The standing ASK rule (vocab.DetailGroup rule 4). `packaging_type` is
-    deliberately NOT in _DETAIL_GROUP_BY_CODE: the owner was asked on 2026-07-30
-    and called for two studies first, so the fallback holds it and the crawl says
-    so. Whoever files it puts the answer in the map — and this test is what tells
-    them to delete it when they do."""
-    assert group_for_code("packaging_type") == (DetailGroup.MORE_INFORMATION, False)
-    assert group_for_code("packaging_type_ar") == (DetailGroup.MORE_INFORMATION, False)
+def test_the_packaging_type_is_filed_under_store_where_the_owner_ruled():
+    """The standing ASK rule ran and was answered. `packaging_type` was in no
+    group, so group_for_code reported it unrecognised and the crawl asked; the
+    owner called for two studies first and then ruled STORE on 2026-07-30 — by
+    his own boundary this is how THIS store supplies the cement, not a property
+    of it. The corporate site publishes the same CEM II in bags AND bulk, and
+    packaging carries no price signal here (0 bulk prices in 24,840 slots).
 
-    _p, warnings, _e, _f = crawl()
-    assert any("does not recognise" in w and "packaging_type" in w for w in warnings)
+    ONE map entry serves both languages: group_for_code strips the `_ar` mark
+    first, so a fact cannot file in two places."""
+    assert group_for_code("packaging_type") == (DetailGroup.STORE, True)
+    assert group_for_code("packaging_type_ar") == (DetailGroup.STORE, True)
+
+    _p, warnings, enrichment, _f = crawl()
+    filed = {(r["attribute_code"], r["attribute_group"]) for r in enrichment
+             if r["attribute_code"].startswith("packaging_type")}
+    assert filed == {("packaging_type", DetailGroup.STORE.value),
+                     ("packaging_type_ar", DetailGroup.STORE.value)}
+    # Nothing files by fallback any more, so the ASK hint must be silent.
+    assert not any("does not recognise" in w for w in warnings)
+
+
+def test_packaging_is_not_filed_as_a_property_of_the_cement():
+    """The boundary this ruling turns on. Filing it under Specifications would
+    say bagging is a property OF the cement, which the corporate site
+    contradicts: it publishes the same CEM II as available in bags AND in bulk.
+    Store says who bagged it, which is the true fact."""
+    _p, _w, enrichment, _f = crawl()
+    groups = {r["attribute_code"]: r["attribute_group"] for r in enrichment}
+
+    assert groups["packaging_type"] != DetailGroup.SPECIFICATIONS.value
+    assert groups["packaging_type"] != DetailGroup.MORE_INFORMATION.value
+    # The DESIGNATION is the property of the cement, and it is filed as one —
+    # the pair of assertions together is the boundary, not either alone.
+    assert groups["cement_type"] == DetailGroup.SPECIFICATIONS.value
 
 
 def test_the_designation_stays_the_record_and_is_not_copied_into_the_category():
@@ -769,14 +793,10 @@ def test_the_four_technical_blocks_are_filed_where_the_owner_ruled():
         assert group_for_code(f"{code}_ar") == (DetailGroup.SPECIFICATIONS, True)
 
     _p, warnings, enrichment, _f = crawl()
-    # These four are in the map, so none of them appears in the unrecognised
-    # report. `packaging_type` DOES appear there and deliberately so — see
-    # test_the_packaging_group_is_reported_unruled_rather_than_chosen — which is
-    # why this checks the four codes rather than the absence of any warning.
-    unrecognised = " ".join(w for w in warnings if "does not recognise" in w)
-    for code in ("physical_characteristics", "chemical_characteristics",
-                 "characteristics", "applications"):
-        assert code not in unrecognised
+    # Every code this connector emits is now in the map — the four blocks
+    # (2026-07-29) and packaging_type (2026-07-30) — so nothing files by
+    # fallback and the ASK hint is silent for the whole source.
+    assert not any("does not recognise" in w for w in warnings)
     filed = {r["attribute_code"]: r["attribute_group"] for r in enrichment}
     assert filed["applications"] == DetailGroup.SPECIFICATIONS.value
     assert filed["chemical_characteristics_ar"] == DetailGroup.SPECIFICATIONS.value

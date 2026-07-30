@@ -720,19 +720,19 @@ def enrichment_rows(builder: RowBuilder, product: dict,
     # states is silently discarded — and it is BILINGUAL here because the store
     # publishes it in both languages, unlike the designation above.
     #
-    # NO GROUP IS CHOSEN FOR IT. `packaging_type` is deliberately absent from
-    # _DETAIL_GROUP_BY_CODE, so group_for_code reports it unrecognised, the
-    # fallback holds it, and the crawl says so out loud — the standing ASK rule
-    # running exactly as written. Asked 2026-07-30; the owner called for two
-    # studies before ruling (is bulk priced differently? does the >=30 t tier
-    # belong in price_trade?), both of which are answered in the PR, and the
-    # ruling is still open. Whoever files it should put the answer in the map,
-    # not here.
+    # Owner ruling 2026-07-30, asked under the standing ASK rule because
+    # `packaging_type` was in no group, and answered only after he called for two
+    # studies: STORE. By his own boundary this is how THIS store supplies the
+    # product, not a property of the cement — the corporate site publishes the
+    # SAME CEM II as available in bags AND in bulk, and packaging carries no
+    # price signal here at all (0 bulk prices in 24,840 slots; the price row has
+    # no packaging field). It is in _DETAIL_GROUP_BY_CODE now, so group_for_code
+    # answers for it and the hint below never fires.
     types = product.get("productTypes") or {}
     add("packaging_type", "Packaging type", _text(types.get("productTypeNameEn")),
-        lang="en", group=DetailGroup.MORE_INFORMATION)
+        lang="en", group=DetailGroup.STORE)
     add("packaging_type_ar", "Packaging type (AR)", _text(types.get("productTypeNameAr")),
-        lang="ar", group=DetailGroup.MORE_INFORMATION)
+        lang="ar", group=DetailGroup.STORE)
     companies = (product.get("plants") or {}).get("companies") or {}
     add("manufacturer", "Manufacturer", _text(companies.get("companyNameEn")),
         lang="en", group=DetailGroup.MORE_INFORMATION)
