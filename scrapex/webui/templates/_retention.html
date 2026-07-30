@@ -1,3 +1,4 @@
+{% from "_time.html" import stamp %}
 {# Spec 18/25: retention policy, preview, protected set and compaction.
 
    The promise comes FIRST, before any control, because every button below is
@@ -112,7 +113,7 @@
   <table>
     <tr><th>Result</th><td><span class="badge {{ 'ok' if retention.last.ok else 'off' }}">
       {{ "Succeeded" if retention.last.ok else "Failed" }}</span></td></tr>
-    <tr><th>When</th><td class="num">{{ retention.last.at }}</td></tr>
+    <tr><th>When</th><td class="num">{{ stamp(retention.last.at, zone=true) }}</td></tr>
     <tr><th>Details</th><td>{{ retention.last.detail }}</td></tr>
     {% if retention.last.location %}
       <tr><th>Sealed archive</th><td><code>{{ retention.last.location }}</code></td></tr>

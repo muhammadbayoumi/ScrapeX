@@ -122,6 +122,37 @@ def _appearance_value(body: dict | None) -> dict:
         "updatedAt": int(updated_at),
     }
 
+
+def _time_zone_value(body: dict | None) -> dict:
+    """Validate the shared display time zone (spec 33 §6.4).
+
+    An unknown identifier is REFUSED rather than stored: a zone that cannot
+    resolve here would show every timestamp in the fallback zone forever while
+    the saved preference claimed otherwise, which is the one failure the owner
+    could not diagnose from the screen. `zone_exists` is the scheduler's own
+    check — the same tz database, so a zone that can be scheduled can be
+    displayed and the two can never disagree.
+
+    An empty string is valid and means "follow the zone each browser detects".
+    """
+    candidate = body if isinstance(body, dict) else {}
+    zone = candidate.get("zone")
+    updated_at = candidate.get("updatedAt")
+    if zone is None:
+        zone = ""
+    if not isinstance(zone, str):
+        raise HTTPException(status_code=400, detail="zone must be an IANA identifier")
+    zone = zone.strip()
+    if zone and not zone_exists(zone):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{zone!r} is not a known IANA time zone identifier")
+    if isinstance(updated_at, bool) or not isinstance(updated_at, (int, float)) \
+            or updated_at < 0:
+        raise HTTPException(status_code=400, detail="updatedAt must be a positive timestamp")
+    return {"zone": zone, "updatedAt": int(updated_at)}
+
+
 def database_state(request: Request) -> dict:
     """Runtime status for every page, derived from the request's own app.
 
@@ -1741,6 +1772,44 @@ def create_app(
             finally:
                 conn.close()
         return {"appearance": appearance}
+
+    # The display time zone travels the same road as the appearance, for the
+    # same reason (spec 33 §6.9): one preference, read and written by both the
+    # side panel and this web page, so the two can never disagree about what
+    # time it is. Nothing here converts or writes a timestamp — the value is a
+    # zone name and the conversion happens in the browser, on the way to the
+    # screen.
+    @app.get("/api/timezone")
+    def api_time_zone():
+        conn = read_conn()
+        try:
+            raw = settings_get(conn, "ui_time_zone")
+        finally:
+            conn.close()
+        if not raw:
+            return {"timezone": None}
+        try:
+            return {"timezone": _time_zone_value(json.loads(raw))}
+        except (json.JSONDecodeError, HTTPException):
+            # A stale or since-removed zone must never keep either interface
+            # from opening; the browser's own fallback chain takes over.
+            return {"timezone": None}
+
+    @app.post("/api/timezone")
+    def api_save_time_zone(body: dict):
+        timezone_value = _time_zone_value(body)
+        with dbmod.write_lock(app.state.db_path):
+            conn = _write_conn()
+            try:
+                save_settings(conn, {
+                    "ui_time_zone": json.dumps(
+                        timezone_value, separators=(",", ":"), sort_keys=True,
+                    ),
+                })
+                conn.commit()
+            finally:
+                conn.close()
+        return {"timezone": timezone_value}
 
     @app.post("/api/settings")
     def api_save_settings(body: dict):

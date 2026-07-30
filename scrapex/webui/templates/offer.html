@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
+{% from "_time.html" import stamp %}
 {% block title %}Price history — {{ source_key }} — ScrapeX{% endblock %}
 {% block content %}
 {# One offer's price story. A real page at a real URL rather than a dialog, so
@@ -39,9 +40,9 @@
     <tbody>
     {% for p in periods %}
       <tr>
-        <td class="num muted nowrap">{{ p.first_detected_at[:10] }}</td>
+        <td class="num muted nowrap">{{ stamp(p.first_detected_at, "date") }}</td>
         <td class="num muted nowrap">
-          {% if p.closed_at %}{{ p.closed_at[:10] }}
+          {% if p.closed_at %}{{ stamp(p.closed_at, "date") }}
           {% else %}<span class="chip accent">current</span>{% endif %}
         </td>
         <td class="nowrap">
@@ -52,7 +53,7 @@
           {% endif %}
         </td>
         <td class="muted">{{ (p.opened_because or "").replace("_", " ") or "—" }}</td>
-        <td class="num muted nowrap">{{ (p.last_confirmed_at or "")[:10] or "—" }}</td>
+        <td class="num muted nowrap">{{ stamp(p.last_confirmed_at, "date") }}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -90,7 +91,7 @@
                   >reported by the source</span>
           {% else %}observed by a crawl{% endif %}
         </td>
-        <td class="num muted nowrap">{{ (o.observed_at or "")[:10] }}</td>
+        <td class="num muted nowrap">{{ stamp(o.observed_at, "date") }}</td>
       </tr>
     {% endfor %}
     </tbody>

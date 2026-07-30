@@ -2929,8 +2929,12 @@
       timelineBody.appendChild(miniTable(
         ["From", "Until", "Price", "Why it opened"],
         periods.map((p) => [
-          (p.first_detected_at || "").slice(0, 10),
-          (p.closed_at || "").slice(0, 10) || "current",
+          // Instants, so they follow the display zone like every other time in
+          // the product — and a period that opened at 23:30 UTC belongs to the
+          // NEXT day in Riyadh, which is the whole reason this converts before
+          // it truncates rather than after (spec 33 §6.7).
+          ScrapeXTime.node(p.first_detected_at, "date"),
+          p.closed_at ? ScrapeXTime.node(p.closed_at, "date") : "current",
           money(p.price, p.currency, basisOf(offer)),
           (p.opened_because || "").replace(/_/g, " "),
         ])));
@@ -2944,8 +2948,8 @@
       feedBody.appendChild(miniTable(
         ["Detected", "What", "Previous", "New", "Change"],
         changes.map((c) => {
-          const when = el("span", "muted", (c.detected_at || "").slice(0, 16).replace("T", " "));
-          when.dir = "ltr";
+          const when = ScrapeXTime.node(c.detected_at);
+          when.classList.add("muted");
           return [
             when,
             c.field_label || "",

@@ -6,6 +6,7 @@
 <title>ScrapeX</title>
 <link rel="icon" href="icons/x-mark.svg">
 <script src="appearance.js"></script>
+<script src="timezone.js"></script>
 <!-- The shared split-button behaviour, before app.js (a module) so its global
      exists when the Activity panel's log control wires itself. -->
 <script src="split-button.js"></script>
@@ -965,6 +966,44 @@
         </div>
       </section>
 
+      <!-- The display time zone (spec 33 §6.1). It lives HERE and nowhere else:
+           the owner's rule is that every setting is reachable from the panel and
+           the web page is display-only, and his ruling on 2026-07-30 settled
+           §6.9 the same way — one shared preference, one control, and the web
+           page SHOWS the active zone without offering to change it. -->
+      <section class="settings-group" aria-labelledby="settings-display-heading">
+        <div class="settings-group-head">
+          <h2 id="settings-display-heading">Display</h2>
+          <p>How ScrapeX shows dates and times</p>
+        </div>
+        <div class="settings-list">
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-timezone" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">06</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Time zone</span>
+                <span class="settings-description">The zone every date and time is shown in</span>
+              </span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
+            </button>
+            <div id="s-timezone" class="settings-panel hidden">
+              <p class="muted hint">
+                This changes what you READ, never what is stored. Every timestamp
+                stays recorded in UTC exactly as it was, and this panel and the
+                workspace pages share the one choice you make here.</p>
+
+              <label for="ui_time_zone">Show dates and times in</label>
+              <select id="ui_time_zone" data-time-zone-select dir="ltr"></select>
+              <p class="muted text-xs" data-time-zone-note>&nbsp;</p>
+              <p class="muted text-xs" id="timezone-example">&nbsp;</p>
+              <div id="timezone-msg" class="muted text-sm" role="status" aria-live="polite"></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="settings-group" aria-labelledby="settings-product-heading">
         <div class="settings-group-head">
           <h2 id="settings-product-heading">Product</h2>
@@ -973,7 +1012,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-about" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">06</span>
+              <span class="settings-index" aria-hidden="true">07</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">About</span>
                 <span class="settings-description">Version and product details</span>
