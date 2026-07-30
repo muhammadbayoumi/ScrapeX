@@ -4,6 +4,7 @@ Commands land phase by phase; Phase 0 ships exactly what Phase 0 built:
   init-db            create/upgrade harvest.db (A10 lock + S6 migrations)
   validate-manifest  parse + validate sources.yaml (S5; same check runs in CI)
   export-contract    write contracts/funnel-payload.schema.json from the model (T8)
+  export-version     write the capability baseline, version vectors and CHANGELOG
   funnel-test        send a tiny self-test payload through the staging funnel
   status             per-source last-run age (S8 watchdog; stub until ingest lands)
 
@@ -38,8 +39,10 @@ from .payload import (
 )
 from .rowspec import ALL_SPECS
 from .vocab import ExtractKind, PayloadClient
+from . import version
 
-CONTRACTS_DIR = Path(__file__).resolve().parent.parent / "contracts"
+ROOT_DIR = Path(__file__).resolve().parent.parent
+CONTRACTS_DIR = ROOT_DIR / "contracts"
 
 
 def _marketlens_path(args: argparse.Namespace) -> Path:
@@ -206,6 +209,94 @@ def _write_header_baseline() -> str:
     path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n",
                     encoding="utf-8")
     return f"wrote {path} (new baseline for generation {PAYLOAD_COMPAT_VERSION})"
+
+
+def _cmd_export_version(args: argparse.Namespace) -> int:
+    CONTRACTS_DIR.mkdir(parents=True, exist_ok=True)
+    vectors = CONTRACTS_DIR / "version-vectors.json"
+    vectors.write_text(
+        json.dumps(version.export_vectors(), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote {vectors} (the compatibility rule, for the JavaScript copy)")
+    print(_write_capability_baseline())
+    changelog = ROOT_DIR / "CHANGELOG.md"
+    changelog.write_text(_render_changelog(), encoding="utf-8")
+    print(f"wrote {changelog} (generated from scrapex/version.py — do not hand-edit)")
+    return 0
+
+
+def _write_capability_baseline() -> str:
+    """What VERSION deploys, pinned so the set cannot change without the number.
+
+    The version gate can only refuse what it knows about, so the ledger deciding
+    its own contents would be a gate holding its own key: add a capability, add
+    its `since`, and every check still passes while the release it supposedly
+    shipped in stayed exactly where it was. That is issue 32 §1.1 — the number
+    must move when the behaviour does — and this file is what makes it move.
+
+    Like contracts/header-baseline.json it is a BASELINE, never a mirror: an
+    existing file describing the CURRENT version is left exactly as committed,
+    and only a version it has never described gets a new one written. An
+    exporter that refreshed it in place would go green on precisely the commit
+    it exists to stop.
+    """
+    path = CONTRACTS_DIR / "capability-baseline.json"
+    baseline = {
+        "version": version.VERSION,
+        "minimum_extension_version": version.MINIMUM_EXTENSION_VERSION,
+        "capabilities": {c.key: c.since for c in version.CAPABILITIES},
+    }
+    if path.exists():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if existing.get("version") == version.VERSION:
+            return (f"kept {path} (the {version.VERSION} baseline stands; a baseline is "
+                    "never rewritten for the version it describes)")
+    path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
+    return f"wrote {path} (new baseline for version {version.VERSION})"
+
+
+def _render_changelog() -> str:
+    """The release history, GENERATED from the ledger (issue 32 §1.5).
+
+    Hand-written next to a machine-readable ledger, it would be a second truth
+    that drifts silently — and the question it exists to answer ("has this
+    shipped, and from which version?") is worthless from a stale answer. So it
+    is generated and tests/test_version.py fails when the committed file no
+    longer matches.
+    """
+    by_version: dict[str, list] = {}
+    for capability in version.CAPABILITIES:
+        by_version.setdefault(capability.since, []).append(capability)
+    lines = [
+        "# Changelog",
+        "",
+        "GENERATED from `scrapex/version.py` by `python -m scrapex.cli export-version`.",
+        "Do not hand-edit: the ledger is the truth and this file is its readable form,",
+        "and `tests/test_version.py` fails the build when the two disagree.",
+        "",
+        "Each entry names the version a capability is GUARANTEED from and, where the",
+        "work predates this file, the commit that built it — evidence read out of",
+        "`git log`, never remembered. `docs/BACKLOG.md` §7 remains the session-level",
+        "record of what was done; this file answers a narrower question: which version",
+        "has it.",
+        "",
+    ]
+    for release in sorted(by_version, key=version.parse_version, reverse=True):
+        capabilities = sorted(by_version[release], key=lambda c: c.key)
+        lines.append(f"## {release}")
+        lines.append("")
+        minimum = version.MINIMUM_EXTENSION_VERSION
+        lines.append(f"Minimum supported extension: `{minimum}`.")
+        lines.append("")
+        for capability in capabilities:
+            surfaces = ", ".join(s.value for s in capability.surfaces)
+            evidence = f" ({capability.commit})" if capability.commit else ""
+            lines.append(f"- **{capability.key}**{evidence} — {capability.summary} "
+                         f"_Runs in: {surfaces}._")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def _cmd_funnel_test(args: argparse.Namespace) -> int:
@@ -735,6 +826,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("export-contract", help="write the funnel payload JSON schema")
     p.set_defaults(func=_cmd_export_contract)
+
+    p = sub.add_parser("export-version",
+                       help="write the capability baseline, version vectors and CHANGELOG")
+    p.set_defaults(func=_cmd_export_version)
 
     p = sub.add_parser("funnel-test", help="send a self-test payload to the staging funnel")
     p.add_argument("--endpoint", help="funnel URL (default: env SCRAPEX_FUNNEL_URL)")

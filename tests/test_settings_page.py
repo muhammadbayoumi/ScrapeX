@@ -335,3 +335,27 @@ def test_ignoring_a_crawl_delay_is_announced_with_the_number():
     finally:
         polite.close()
         fast.close()
+
+
+def test_the_web_page_shows_the_versions_and_says_whose_each_one_is(client):
+    """Issue 32 §1.2, in its "where applicable" half.
+
+    Display is not a control, so this is allowed on a page the owner's rule
+    made display-only (SR-10). What it may NOT do is print a bare number: this
+    page talks about the engine AND the extension, so an unlabelled "Version"
+    is the exact confusion the issue is about.
+    """
+    from scrapex.version import MINIMUM_EXTENSION_VERSION, VERSION
+
+    html = client.get("/settings").text
+    assert "Engine version" in html and "ScrapeX engine" in html
+    assert "Extension shipped with this engine" in html
+    assert "Minimum extension required" in html
+    assert VERSION in html and MINIMUM_EXTENSION_VERSION in html
+    assert "no remote update server" in html, (
+        "the page implies a release feed that does not exist")
+    # The one number this page cannot know, and must not pretend to: it runs in
+    # a browser tab, not in the extension.
+    assert "side panel" in html, (
+        "nothing points the reader at the surface that CAN say what is loaded")
+    assert ">Version<" not in html, "a number with no owner is back"

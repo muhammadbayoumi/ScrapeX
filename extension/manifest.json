@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ScrapeX",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A local scraping tool: capture prices from the sites you browse into a warehouse on your own machine.",
   "icons": {
     "16": "icons/x-mark-original-16.png",

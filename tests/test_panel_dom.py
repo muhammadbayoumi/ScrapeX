@@ -1258,3 +1258,185 @@ def test_a_width_above_the_engines_ceiling_is_clamped_not_ignored(open_panel):
         "40 reached the engine, which clamps to 8 — so the panel taught a "
         "number that is not what runs")
     assert "saved" in page.inner_text("#crawl-msg")
+
+
+# ---- versions: which one is running, and what it can do ----------------------
+# The panel showed the ENGINE's version under the word "Engine" and its own
+# nowhere at all. So a feature the installed extension could not reach looked
+# exactly like a feature that had never been built — which is what happened,
+# twice in two days, and is what issue 32 section 1 is about.
+
+def _about_panel(page):
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-about"]')
+    page.wait_for_timeout(200)
+
+
+def test_about_names_the_side_every_version_belongs_to(open_panel):
+    """A version shown without saying whose version it is, is the bug."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.2.0")
+    _about_panel(page)
+
+    assert text_of(page, "#about-extension-version") == "0.2.0"
+    assert text_of(page, "#about-version") == "0.2.0"
+    assert text_of(page, "#about-latest-version") == "0.2.0"
+    assert text_of(page, "#about-minimum-version") == "0.2.0"
+    about = page.inner_text("#s-about")
+    assert "This extension" in about and "Engine" in about
+    # "Latest" must say where latest came from: there is no update server.
+    assert "no remote update server" in text_of(page, "#about-latest-source")
+    assert not page.js_errors
+
+
+def test_about_lists_what_the_engine_deploys_and_the_version_it_arrived_in(open_panel):
+    """INCIDENT ONE, answered in the panel: has this shipped, and since when?
+
+    The crawl pace was built in c63ec21 and rendered only on the display-only
+    web page; the owner asked for it as if it were new. There was nowhere to
+    look it up. There is now, and it is on the surface he actually works from.
+    """
+    page = open_panel()
+    _about_panel(page)
+
+    ledger = page.inner_text("#about-capabilities")
+    assert "crawl delay" in ledger, "the crawl pace is not in the panel's ledger"
+    assert "several different sites at the same time" in ledger
+    assert "c63ec21" in ledger, "the commit that built the crawl pace is not cited"
+    assert "0.2.0" in ledger
+
+
+def test_an_extension_older_than_its_engine_is_told_all_five_facts(open_panel):
+    """INCIDENT TWO, caught before the question. The engine deploys crawling
+    several sites at once; a 0.1.0 extension has no field for it, and the owner
+    finds out by watching two jobs queue and asking why.
+
+    Section 1.4 lists what the notification must carry, and every one of the
+    five is asserted here — a notification missing the number, the requirement
+    or the remedy sends its reader somewhere else to find the rest.
+    """
+    page = open_panel(extension_version="0.1.0", engine_version="0.2.0")
+
+    notice = page.locator("#version-notice")
+    assert notice.is_visible(), "a stale extension was told nothing"
+    text = notice.inner_text()
+    assert "0.1.0" in text, "1: the installed version is missing"
+    assert "Latest available extension" in text and "0.2.0" in text, "2: latest is missing"
+    assert "Minimum extension required" in text, "3: the requirement is missing"
+    assert "several different sites at the same time" in text, (
+        "4: what is actually missing is not named")
+    assert "chrome://extensions" in text, "5: how to update is missing"
+    # It must be readable without hunting: the engine's own status lives in a
+    # collapsed settings panel, and this cannot.
+    assert page.is_visible("#view-source")
+    assert not page.js_errors
+
+
+def test_an_extension_in_step_with_its_engine_is_not_nagged(open_panel):
+    """A warning that fires when nothing is wrong is a warning people click
+    past — the same reasoning that keeps engine-only changes out of the gate."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.2.0")
+    assert not page.locator("#version-notice").is_visible()
+    assert not page.js_errors
+
+
+def test_an_engine_older_than_the_extension_says_so_in_different_words(open_panel):
+    """The other direction, and it needs a different sentence: reloading the
+    extension fixes nothing here. An engine from before version reporting
+    answers /api/version with a 404, which must read as "old engine" and never
+    as a broken feature."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.1.0",
+                      version_reporting=False)
+
+    text = page.locator("#version-notice").inner_text()
+    assert "engine is older" in text.lower()
+    assert "0.1.0" in text and "0.2.0" in text, "both versions must be named"
+    assert "chrome://extensions" not in text, (
+        "it told the owner to reload the extension for a stale engine")
+    assert not page.js_errors
+
+
+def test_an_unsupported_feature_fails_with_a_version_error_not_a_generic_one(open_panel):
+    """Section 1.6. An engine that does not deploy `crawl_parallel_sources`
+    answers the save with 400 "unknown setting 'crawl_parallel_sources'" — a
+    sentence about a typo, for what is a version gap, and every other field in
+    the same request would have saved. The version question is asked first."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.1.0",
+                      version_reporting=False)
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(200)
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click("#crawl-save")
+    page.wait_for_timeout(300)
+
+    message = page.inner_text("#crawl-msg")
+    assert "0.1.0" in message and "0.2.0" in message, (
+        "the refusal names neither version, which is the generic error again")
+    assert "engine" in message.lower()
+    assert "unknown setting" not in message
+    writes = page.evaluate(
+        "window.__writes.filter(w => w.path.startsWith('/api/settings'))")
+    assert not writes, "it asked an engine that cannot do it, then reported the answer"
+    assert not page.js_errors
+
+
+def test_a_supported_feature_is_not_blocked_by_the_gate(open_panel):
+    """The gate must refuse a version gap and nothing else. A gate that blocks
+    a working feature is worse than the error it replaced."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.2.0")
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(200)
+
+    page.click("#crawl-save")
+    page.wait_for_timeout(300)
+
+    assert "saved" in page.inner_text("#crawl-msg")
+    assert page.evaluate(
+        "window.__writes.filter(w => w.path.startsWith('/api/settings')).length") == 1
+
+
+def test_an_engine_that_reports_and_lacks_the_feature_is_named_as_such(open_panel):
+    """The third refusal, and the one the panel will actually meet next: an
+    engine one release behind, which reports its capabilities and does not have
+    this one. "Cannot say" and "does not have it" send the owner to the same
+    place here, but not for the same reason, so they do not share a sentence."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.2.0",
+                      omit_capabilities=("crawl_parallel_sources",))
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(200)
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click("#crawl-save")
+    page.wait_for_timeout(300)
+
+    message = page.inner_text("#crawl-msg")
+    assert "not deployed by this ScrapeX engine (0.2.0)" in message
+    assert "this extension is 0.2.0" in message
+    assert "too old to say" not in message
+    assert not page.evaluate(
+        "window.__writes.filter(w => w.path.startsWith('/api/settings')).length")
+    assert not page.js_errors
+
+
+def test_a_panel_that_cannot_read_its_own_version_says_so_and_loses_nothing(open_panel):
+    """The gate's own failure mode, and it must not be silent (Q3).
+
+    Handing an unreadable version to the comparison would throw inside the click
+    handler: no message, no request, nothing saved and nothing said — which is
+    worse than the generic error the gate replaced.
+    """
+    page = open_panel(extension_version="", engine_version="0.2.0")
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-crawl"]')
+    page.wait_for_timeout(200)
+    page.evaluate("() => { window.__writes.length = 0; }")
+
+    page.click("#crawl-save")
+    page.wait_for_timeout(300)
+
+    assert "cannot read its own version" in page.inner_text("#crawl-msg")
+    assert text_of(page, "#about-extension-version") == "unknown"
+    assert not page.js_errors, f"the gate threw instead of speaking: {page.js_errors}"

@@ -9,6 +9,7 @@
 // Arabic renders right-to-left without disturbing the English chrome around it.
 import { checkEngine, getBackend, setBackend } from "./engine.js";
 import { autostartStatus, setAutostart, startEngine } from "./transport.js";
+import { capabilityProblem, deployedFrom, installedVersion } from "./version.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
@@ -44,6 +45,11 @@ const state = {
   editingSourceKey: null,
   job: null, jobRef: null, autoscroll: true, logs: [], logSignature: null,
   engineUp: false,
+  // The two versions and what the engine says it deploys. `versionReport` is
+  // null for an engine too old to publish one, which is NOT the same as an
+  // engine that has not been asked yet — every reader of it checks
+  // state.engineVersion too, so silence is never read as a refusal.
+  installedVersion: "", engineVersion: "", versionReport: null,
 };
 
 // ---- views ----------------------------------------------------------------
@@ -221,13 +227,125 @@ function renderRuntime(engine) {
 
 function setStatus(engine) {
   state.engineUp = engine.running;
+  state.engineVersion = engine.version || "";
   $("dot").className = "dot " + (engine.running ? "on" : "off");
-  // The word carries the state; the dot only reinforces it.
+  // The word carries the state; the dot only reinforces it. "v0.2.0" here is
+  // the ENGINE's — said in full in About, where the extension's own version now
+  // sits beside it, because one number under no label was the original defect.
   $("estat-text").textContent = engine.running
-    ? `Ready${engine.version ? " · v" + engine.version : ""}`
+    ? `Ready${engine.version ? " · engine v" + engine.version : ""}`
     : "Setup required";
   $("about-version").textContent = engine.version || "—";
   renderRuntime(engine);
+}
+
+// ---- versions ---------------------------------------------------------------
+// TWO versions, updated by TWO mechanisms that nothing keeps in step: the engine
+// arrives with the repository, the extension only when someone presses Reload in
+// chrome://extensions. They drift apart every working day, and until now the
+// panel showed one of them and never its own — so a feature the installed
+// extension could not reach looked exactly like a feature that was never built.
+// That is issue 32 §1.2/§1.3, and it is what cost two sessions.
+
+async function loadVersions(engine) {
+  const installed = installedVersion();
+  state.installedVersion = installed;
+  $("about-extension-version").textContent = installed || "unknown";
+  if (!engine.reachable) {
+    // Nothing to compare against. The setup card already says the engine is
+    // down; inventing a version verdict on top of it would be noise.
+    state.versionReport = null;
+    renderVersionNotice(engine);
+    return;
+  }
+  const query = installed ? `?extension_version=${encodeURIComponent(installed)}` : "";
+  try {
+    state.versionReport = await api(`/api/version${query}`);
+  } catch (_) {
+    // A 404 here is not a broken feature: it is an engine built before version
+    // reporting existed. Recorded as null and SAID as such below, never
+    // silently treated as "everything is fine".
+    state.versionReport = null;
+  }
+  renderVersionNotice(engine);
+}
+
+function renderVersionNotice(engine) {
+  const report = state.versionReport;
+  const installed = state.installedVersion;
+  const notice = $("version-notice");
+  $("about-latest-version").textContent = report ? report.latest_extension_version : "—";
+  $("about-minimum-version").textContent = report ? report.minimum_extension_version : "—";
+  $("about-latest-source").textContent = report
+    ? `"Newest available" means ${report.latest_source}.` : "";
+  // The feature-to-version ledger, in the panel (§1.5). It is the answer to the
+  // question that started this: "has this shipped, and from which version?"
+  $("about-capabilities").innerHTML = report
+    ? `<div class="mt-2"><strong>What this engine deploys</strong></div>` +
+      report.capabilities.map((c) =>
+        `<div class="kv"><span>${esc(c.summary)}</span>` +
+        `<span class="tech">${esc(c.since)}${c.commit ? " · " + esc(c.commit) : ""}</span></div>`
+      ).join("")
+    : "";
+
+  if (report && report.outdated) {
+    // The five facts §1.4 asks for, none of them optional: what is installed,
+    // what is available, what is required, what is missing because of the gap,
+    // and what to press to fix it.
+    notice.innerHTML =
+      `<div class="setup-title">This ScrapeX extension is older than the engine it is talking to</div>` +
+      `<div class="kv"><span>Installed extension</span><span class="tech">${esc(installed || "unknown")}</span></div>` +
+      `<div class="kv"><span>Latest available extension</span><span class="tech">${esc(report.latest_extension_version)}</span></div>` +
+      `<div class="kv"><span>Minimum extension required</span><span class="tech">${esc(report.minimum_extension_version)}</span></div>` +
+      `<div class="kv"><span>Engine</span><span class="tech">${esc(engine.version || "unknown")}</span></div>` +
+      (report.missing.length
+        ? `<div class="muted text-sm mt-2">Not available in this extension:</div><ul class="muted text-sm">` +
+          report.missing.map((m) =>
+            `<li>${esc(m.summary)} <span class="tech">(needs ${esc(m.since)})</span></li>`).join("") +
+          `</ul>`
+        : `<div class="muted text-sm mt-2">No capability is missing yet — the extension is simply behind.</div>`) +
+      `<div class="muted text-sm mt-2">${esc(report.update_instructions)}</div>`;
+    notice.classList.remove("hidden");
+    return;
+  }
+  if (!report && engine.reachable && engine.version) {
+    // The other direction, and it needs different words: this extension is the
+    // newer of the two and the engine cannot even state what it deploys.
+    notice.innerHTML =
+      `<div class="setup-title">The ScrapeX engine is older than this extension</div>` +
+      `<div class="kv"><span>Installed extension</span><span class="tech">${esc(installed || "unknown")}</span></div>` +
+      `<div class="kv"><span>Engine</span><span class="tech">${esc(engine.version)}</span></div>` +
+      `<div class="muted text-sm mt-2">This engine does not report which features it ` +
+      `deploys, so nothing here can promise a feature will work. Update the engine ` +
+      `to ${esc(installed || "the extension's version")}.</div>`;
+    notice.classList.remove("hidden");
+    return;
+  }
+  notice.innerHTML = "";
+  notice.classList.add("hidden");
+}
+
+// The gate (§1.6). Called BEFORE a capability is used, never after the request
+// has already come back wearing someone else's error message.
+function capabilityRefusal(key) {
+  if (!state.installedVersion) {
+    // Chrome did not say what is loaded, and neither guess is safe: claiming
+    // support we cannot prove is the silent failure this gate exists to remove,
+    // and claiming a gap that may not exist sends the owner to reload for
+    // nothing. Passing "unknown" down as if it were a version would throw
+    // inside the comparison and lose the click entirely.
+    return `«${key}» cannot be checked: this extension cannot read its own ` +
+      `version from Chrome, so nothing here can promise the engine ` +
+      `(${state.engineVersion || "unknown"}) supports it. Close and reopen ` +
+      `the side panel, and reload ScrapeX in chrome://extensions if it persists.`;
+  }
+  return capabilityProblem(key, {
+    extensionVersion: state.installedVersion,
+    engineVersion: state.engineVersion || "unknown",
+    deployed: deployedFrom(state.versionReport),
+    updateInstructions: state.versionReport
+      ? state.versionReport.update_instructions : "",
+  });
 }
 
 // ---- crawl pace and engine control -----------------------------------------
@@ -294,6 +412,14 @@ async function saveCrawlSettings() {
     out("crawl-msg", "seconds between requests must be greater than zero", "err");
     return;
   }
+  // §1.6, on the one case that is already in the wild. An engine that does not
+  // know `crawl_parallel_sources` answers this POST with 400 "unknown setting
+  // 'crawl_parallel_sources'" — a sentence about a typo, for what is a version
+  // gap — and the panel printed it as "not saved: unknown setting". Every other
+  // field in the same request would have saved. Ask the version question first,
+  // and answer it naming both versions.
+  const refusal = capabilityRefusal("crawl_parallel_sources");
+  if (refusal) { out("crawl-msg", esc(refusal), "err"); return; }
   out("crawl-msg", "saving…");
   try {
     await post("/api/settings", {
@@ -1914,6 +2040,9 @@ async function renderAutostart() {
 async function render() {
   const engine = await checkEngine();
   setStatus(engine);
+  // Before anything is loaded or offered: a panel that cannot work half of what
+  // it is showing should say so at the top of the screen, not after the click.
+  await loadVersions(engine);
   $("setup").classList.toggle("hidden", engine.running);
   if (engine.running) {
     await Promise.all([loadCurrentSite(), loadSources(), loadOutputs(), pollJob()]);

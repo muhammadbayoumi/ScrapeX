@@ -12,6 +12,13 @@
 </head>
 <body>
   <main>
+    <!-- The outdated-extension notice. It sits OUTSIDE every view on purpose:
+         the engine's own status lives inside a collapsed settings panel, and a
+         warning that has to be hunted for is a warning that arrives after the
+         owner has already asked why a feature is missing. Empty and hidden
+         until the engine says the installed extension is behind it. -->
+    <div id="version-notice" class="card warn hidden" role="status" aria-live="polite"></div>
+
     <!-- ============================ RUN ============================ -->
     <section id="view-run" class="hidden" role="tabpanel" aria-labelledby="tab-run" tabindex="0">
       <header class="view-heading">
@@ -929,9 +936,23 @@
                 <use href="icons/material-icons.svg#chevron-right"></use>
               </svg>
             </button>
+            <!-- Every number here is labelled with the side it belongs to.
+                 "Engine 0.1.0" beside nothing else was the whole defect: the
+                 extension's own version was displayed nowhere at all, so the
+                 one number that says what this panel is could not be read off
+                 the panel. -->
             <div id="s-about" class="settings-panel hidden muted text-sm">
               ScrapeX — local-first price tracking.
-              Engine <span id="about-version" class="tech">—</span>
+              <div class="kv"><span>This extension</span>
+                <span id="about-extension-version" class="tech">—</span></div>
+              <div class="kv"><span>Engine</span>
+                <span id="about-version" class="tech">—</span></div>
+              <div class="kv"><span>Newest extension this engine ships</span>
+                <span id="about-latest-version" class="tech">—</span></div>
+              <div class="kv"><span>Minimum extension required</span>
+                <span id="about-minimum-version" class="tech">—</span></div>
+              <div id="about-latest-source" class="text-xs mt-2"></div>
+              <div id="about-capabilities" class="text-xs mt-2"></div>
             </div>
           </article>
         </div>
