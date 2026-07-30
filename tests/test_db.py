@@ -262,3 +262,42 @@ def test_a_brand_the_promotion_fills_is_not_reported_as_lost(monkeypatch):
         ).fetchone()[0] == "Riyadh Cement"
     finally:
         conn.close()
+
+
+# ---- the default path stopped guessing, 2026-07-30 ------------------------
+
+def test_connect_with_no_path_refuses_instead_of_opening_the_wrong_file(monkeypatch):
+    """The old default was ~/.scrapex/harvest.db — NOT the warehouse, which is
+    ~/.scrapex/marketlens/marketlens.db. So a caller that forgot its path got a
+    blank database, and a WRITE would have gone into a file nothing else in the
+    product reads. It happened: one settings write landed there before it was
+    caught. A guess that is wrong in silence is worse than a refusal."""
+    import importlib
+    monkeypatch.delenv("SCRAPEX_DB_PATH", raising=False)
+    fresh = importlib.reload(dbmod)
+    try:
+        assert fresh.DEFAULT_DB_PATH is None
+        with pytest.raises(fresh.NoDatabasePathError) as caught:
+            fresh.connect()
+        # The message must name both files, or the reader repeats the mistake.
+        assert "harvest.db" in str(caught.value)
+        assert "marketlens.db" in str(caught.value)
+    finally:
+        importlib.reload(dbmod)
+
+
+def test_naming_a_path_by_env_var_is_still_honoured(monkeypatch, tmp_path):
+    """Omitting a path is an accident; naming one is a decision. Only the
+    accident is refused."""
+    import importlib
+    chosen = tmp_path / "named.db"
+    monkeypatch.setenv("SCRAPEX_DB_PATH", str(chosen))
+    fresh = importlib.reload(dbmod)
+    try:
+        assert fresh.DEFAULT_DB_PATH == chosen
+        conn = fresh.connect()
+        conn.close()
+        assert chosen.exists()
+    finally:
+        monkeypatch.delenv("SCRAPEX_DB_PATH", raising=False)
+        importlib.reload(dbmod)

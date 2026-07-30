@@ -24,9 +24,29 @@ DB_DIR = Path(__file__).resolve().parent.parent / "db"
 SCHEMA_FILE = DB_DIR / "schema.sql"
 MIGRATIONS_DIR = DB_DIR / "migrations"
 
-DEFAULT_DB_PATH = Path(
-    os.environ.get("SCRAPEX_DB_PATH", str(Path.home() / ".scrapex" / "harvest.db"))
-)
+# WHY SILENCE IS NOT A PATH (2026-07-30)
+#
+# This used to fall back to ~/.scrapex/harvest.db, which is NOT the warehouse —
+# the real one is ~/.scrapex/marketlens/marketlens.db, and harvest.db has been
+# sitting there empty since 21 July. So a caller that forgot its path opened a
+# blank database, found no tables, and in the worst case would have WRITTEN a
+# whole crawl into a file nothing else in the product reads. It happened: one
+# settings write went there today before being caught.
+#
+# The env var stays, because naming a path is a deliberate act. Omitting one is
+# not, and now says so. Every legitimate caller already passes a path or is a
+# method on a database object that carries its own; nothing was relying on the
+# guess (verified across scrapex/, tests/ and tools/).
+_ENV_DB_PATH = os.environ.get("SCRAPEX_DB_PATH")
+DEFAULT_DB_PATH = Path(_ENV_DB_PATH) if _ENV_DB_PATH else None
+
+
+class NoDatabasePathError(RuntimeError):
+    """connect() was called with no path and SCRAPEX_DB_PATH is unset.
+
+    Deliberately louder than a default: the default was a DIFFERENT database
+    from the one the product uses, so guessing wrote to the wrong file quietly.
+    """
 
 _MIGRATION_NAME = re.compile(r"^(\d{4})_.+\.sql$")
 
@@ -39,12 +59,18 @@ class WrongDatabaseKindError(RuntimeError):
     """The legacy MarketLens facade was pointed at the General database."""
 
 
-def connect(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+def connect(db_path: Path | str | None = DEFAULT_DB_PATH) -> sqlite3.Connection:
     """Open the legacy/MarketLens price database with the mandated pragmas.
 
     This compatibility facade remains for price-domain modules while they move
     behind repositories. It explicitly refuses the General database.
     """
+    if db_path is None:
+        raise NoDatabasePathError(
+            "db.connect() needs a database path: pass one, or set SCRAPEX_DB_PATH. "
+            "There is no default, because the old default (~/.scrapex/harvest.db) "
+            "was not the warehouse (~/.scrapex/marketlens/marketlens.db) and a "
+            "forgotten path silently opened the wrong, empty file.")
     path = Path(db_path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
