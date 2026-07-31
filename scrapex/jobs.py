@@ -1134,9 +1134,6 @@ class JobRunner:
             self._thread.join(timeout=timeout_s)
             self._thread = None
 
-    def wake(self) -> None:
-        """Called after enqueueing so a new job starts without waiting a full poll."""
-
     def _locked_capture(self, conn: sqlite3.Connection, entry,
                         job_id: int | None = None, **extras) -> CaptureResult:
         # Whatever run_job_once decided the capture needs — history, resume,
