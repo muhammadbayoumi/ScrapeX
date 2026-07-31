@@ -53,6 +53,33 @@
 .dataset-choice>.source-identity-meta{grid-column:2;align-self:end;font-size:.58rem;white-space:nowrap}
 .dataset-choice-detail{display:grid;grid-column:2;align-self:end;justify-items:end;gap:.12rem}
 .dataset-choice-state{color:var(--muted);font-size:var(--fs-2xs)}
+
+/* Google Finance is reference data, not a shop-shaped source. Its dedicated
+   page still uses the same workspace frame, spacing, and dataset switcher. */
+.google-finance-overview{margin:.7rem 0}
+.google-finance-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}
+.google-finance-facts>span{display:flex;flex-direction:column;gap:.2rem;padding:.85rem 1rem;
+  min-width:0;border-inline-end:1px solid var(--line)}
+.google-finance-facts>span:last-child{border-inline-end:0}
+.google-finance-facts small{color:var(--muted);font-size:var(--fs-2xs)}
+.google-finance-facts strong{font-size:var(--fs-xs);overflow-wrap:anywhere}
+.google-finance-table-wrap{overflow:auto}
+.google-finance-table{width:100%;border-collapse:collapse;font-size:var(--fs-xs)}
+.google-finance-table th,.google-finance-table td{padding:.72rem .85rem;border-bottom:1px solid var(--line);
+  text-align:start;white-space:nowrap}
+.google-finance-table th{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;
+  letter-spacing:.04em;background:var(--bg)}
+.google-finance-table tr:last-child td{border-bottom:0}
+.rate-dataset-pager{display:flex;align-items:center;justify-content:space-between;gap:.75rem;
+  padding:.7rem .9rem;border-top:1px solid var(--line);color:var(--muted);font-size:var(--fs-xs)}
+.rate-dataset-pager .ghost{display:inline-flex;padding:.35rem .65rem;border:1px solid var(--line);
+  border-radius:var(--radius-sm);text-decoration:none;color:var(--text)}
+@media (max-width:760px){.google-finance-facts{grid-template-columns:1fr 1fr}
+  .google-finance-facts>span:nth-child(2){border-inline-end:0}
+  .google-finance-facts>span:nth-child(-n+2){border-bottom:1px solid var(--line)}}
+@media (max-width:440px){.google-finance-facts{grid-template-columns:1fr}
+  .google-finance-facts>span{border-inline-end:0;border-bottom:1px solid var(--line)}
+  .google-finance-facts>span:last-child{border-bottom:0}}
 .dataset-no-results{margin:.5rem;padding:.85rem;text-align:center;border:1px dashed var(--line);
   border-radius:9px;color:var(--muted);font-size:.68rem}
 

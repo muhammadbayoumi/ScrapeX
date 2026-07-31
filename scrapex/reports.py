@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
-from . import fields, tax
+from . import fields, rates, tax
 from .normalize import option_axes_from
 from .vocab import DETAIL_GROUP_ORDER
 
@@ -117,6 +117,49 @@ class BrowsePage:
     @property
     def has_next(self) -> bool:
         return self.offset + self.limit < self.total
+
+
+def google_finance_status(conn: sqlite3.Connection) -> dict:
+    """One bounded read model shared by Settings, Data, and the extension."""
+    row = conn.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT currency), MAX(as_of) "
+        "FROM currency_rate WHERE source_key = ?",
+        (rates.SOURCE_KEY,),
+    ).fetchone()
+    tracked = rates.currencies_in_use(conn)
+    return {
+        "provider": "Google Finance",
+        "source_key": rates.SOURCE_KEY,
+        "provider_url": "https://www.google.com/finance/",
+        "automatic": rates.automatic_refresh_enabled(conn),
+        "refresh_hours": rates.refresh_interval_hours(conn),
+        "minimum_refresh_hours": rates.MIN_REFRESH_HOURS,
+        "maximum_refresh_hours": rates.MAX_REFRESH_HOURS,
+        "last_checked": rates.last_checked(conn),
+        "latest_market_at": row[2] or "",
+        "rows": int(row[0] or 0),
+        "currencies": int(row[1] or 0),
+        "tracked_currencies": tracked,
+        "due": rates.refresh_is_due(conn),
+    }
+
+
+def browse_google_finance_rates(conn: sqlite3.Connection, *,
+                                offset: int = 0, limit: int = 50) -> BrowsePage:
+    """Google Finance rate history, newest first and always bounded."""
+    offset = max(0, int(offset))
+    limit = min(max(1, int(limit)), 200)
+    total = _scalar(
+        conn, "SELECT COUNT(*) FROM currency_rate WHERE source_key = ?",
+        (rates.SOURCE_KEY,),
+    )
+    rows = [dict(row) for row in conn.execute(
+        "SELECT currency, per_usd, as_of, recorded_at, source_key, source_kind "
+        "FROM currency_rate WHERE source_key = ? "
+        "ORDER BY as_of DESC, currency ASC LIMIT ? OFFSET ?",
+        (rates.SOURCE_KEY, limit, offset),
+    )]
+    return BrowsePage(rows=rows, total=total, offset=offset, limit=limit)
 
 
 # One row per offer = its LATEST observation (current price), reused by browse+count.

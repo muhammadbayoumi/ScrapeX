@@ -19,10 +19,11 @@ from scrapex.ingest import ingest_payloads  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
 from tests.test_ingest import make_entry, make_payload, one_row  # noqa: E402
 
-# Spec 33 names these thirteen, in this order.
+# Google Finance is a fourteenth display-only section; controls remain in the
+# extension under the owner's one-settings-surface rule.
 SECTIONS = [
     "General", "Local runtime", "Storage", "Crawling", "Engines",
-    "Jobs and scheduling", "Excel", "Apps Script", "Google account",
+    "Jobs and scheduling", "Google Finance", "Excel", "Apps Script", "Google account",
     "Data and history", "Privacy and security", "Logs and diagnostics", "About",
 ]
 
@@ -62,7 +63,7 @@ def prose(client, path: str = "/settings") -> str:
     return re.sub(r"\s+", " ", client.get(path).text)
 
 
-# ---- the thirteen sections (spec 24) ----------------------------------------
+# ---- the fourteen sections --------------------------------------------------
 
 def test_every_named_section_is_present(client):
     body = client.get("/settings").text
@@ -280,6 +281,94 @@ def test_crawl_settings_are_real_knobs_not_decoration(client, db_path):
     conn = dbmod.connect(db_path)
     try:
         assert crawl_settings(conn)["min_interval_s"] == 2.5
+    finally:
+        conn.close()
+
+
+def test_google_finance_settings_control_the_real_worker_predicate(client, db_path):
+    from scrapex import rates, settings
+
+    response = client.post("/api/settings", json={
+        "google_finance_auto_refresh": False,
+        "google_finance_refresh_hours": 2.5,
+    })
+    assert response.status_code == 200
+    conn = dbmod.connect(db_path)
+    try:
+        assert rates.automatic_refresh_enabled(conn) is False
+        assert rates.refresh_interval_hours(conn) == 2.5
+        assert rates.refresh_is_due(conn) is False
+        settings.save(conn, {"google_finance_auto_refresh": "1"})
+        conn.execute(
+            "INSERT INTO scrapex_meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (rates.LAST_CHECK_KEY, "2026-07-31T10:00:00Z"),
+        )
+        conn.commit()
+        assert rates.refresh_is_due(conn, now="2026-07-31T12:29:59Z") is False
+        assert rates.refresh_is_due(conn, now="2026-07-31T12:30:00Z") is True
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("hours", [0, 0.1, 169, "not a number"])
+def test_google_finance_rejects_an_unsafe_refresh_interval(client, hours):
+    response = client.post(
+        "/api/settings", json={"google_finance_refresh_hours": hours},
+    )
+    assert response.status_code == 400
+    assert "between 0.25 and 168" in response.json()["detail"]
+
+
+def test_google_finance_settings_page_reports_provenance_and_freshness(client):
+    body = prose(client)
+    assert "Google Finance supplies the exchange rates" in body
+    assert "Stored prices never change" in body
+    assert "Latest market time" in body
+    assert 'href="/data/google-finance"' in body
+
+
+def test_manual_google_finance_refresh_bypasses_the_automatic_schedule(
+        client, db_path, monkeypatch):
+    import scrapex.webui.app as appmod
+
+    class FakeFetcher:
+        closed = False
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def get(self, _url):
+            class Response:
+                text = ('<div data-source="USD" data-target="EGP" '
+                        'data-last-price="48.25" '
+                        'data-last-normal-market-timestamp="1785167520"></div>')
+            return Response()
+
+        def close(self):
+            FakeFetcher.closed = True
+
+    monkeypatch.setattr(appmod, "HttpFetcher", FakeFetcher)
+    assert client.post("/api/settings", json={
+        "google_finance_auto_refresh": False,
+        "google_finance_refresh_hours": 168,
+    }).status_code == 200
+
+    response = client.post("/api/rates/google-finance/refresh")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["updated"] == 1
+    assert result["warnings"] == []
+    assert result["latest_market_at"] == "2026-07-27T15:52:00Z"
+    assert FakeFetcher.closed is True
+
+    conn = dbmod.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT per_usd, source_kind FROM currency_rate "
+            "WHERE source_key='google_finance'",
+        ).fetchone()
+        assert tuple(row) == (48.25, "provider")
     finally:
         conn.close()
 

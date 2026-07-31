@@ -337,6 +337,21 @@ def test_only_currencies_the_warehouse_actually_prices_in_are_fetched(tmp_path):
     assert rates.currencies_in_use(conn) == []
 
 
+def test_manual_refresh_with_no_non_usd_data_is_an_honest_no_op(tmp_path):
+    from scrapex import db as dbmod, rates
+
+    conn = dbmod.connect(tmp_path / "manual-empty.db")
+    dbmod.migrate(conn)
+
+    class _Tripwire:
+        def get(self, _url):
+            raise AssertionError("no currency means no network request")
+
+    batch = rates.refresh_now(conn, _Tripwire(), now="2026-07-31T12:00:00Z")
+    assert batch.rates == [] and batch.warnings == []
+    assert rates.last_checked(conn) == "", "no request was attempted"
+
+
 def test_a_failing_quote_page_costs_one_attempt_per_interval_not_one_per_poll():
     """The attempt is stamped BEFORE the fetch, deliberately.
 

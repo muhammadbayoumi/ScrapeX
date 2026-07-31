@@ -13,7 +13,7 @@
   </div>
 </header>
 
-{# Spec 33/24: thirteen sections, every one closed by default. Progressive
+{# Fourteen sections, every one closed by default. Progressive
    disclosure here is not decoration — Storage and Data and history hold the
    only controls in the product that can rewrite the warehouse, and they should
    take a deliberate act to reach, not scroll past under a thumb. #}
@@ -251,7 +251,32 @@
   </div>
 </details>
 
-<!-- 7, 8, 9 -------------------------------------------------------------- -->
+<!-- 7 ------------------------------------------------------------------- -->
+<details class="sect" id="s-google-finance">
+  <summary><span class="sect-name">Google Finance</span>
+    <span class="sect-sub">Exchange-rate source, freshness and update policy</span></summary>
+  <div class="sect-body">
+    <p class="hint">Google Finance supplies the exchange rates used for estimated
+      USD values. Stored prices never change: every conversion keeps the rate,
+      provider and market time that produced it.</p>
+    <p class="hint">Controls live in the ScrapeX side panel under
+      <strong>Settings &rarr; Google Finance</strong>. There you can change the
+      automatic interval or run an immediate update.</p>
+    <table>
+      <tr><th>Automatic updates</th><td>{{ "On" if google_finance.automatic else "Off" }}</td></tr>
+      <tr><th>Update interval</th><td class="tech">{{ "%g"|format(google_finance.refresh_hours) }} hours</td></tr>
+      <tr><th>Currencies in use</th><td class="tech">
+        {{ google_finance.tracked_currencies|join(", ") if google_finance.tracked_currencies else "None yet" }}</td></tr>
+      <tr><th>Last update attempt</th><td class="tech">{{ google_finance.last_checked or "Never" }}</td></tr>
+      <tr><th>Latest market time</th><td class="tech">{{ google_finance.latest_market_at or "No rates stored yet" }}</td></tr>
+      <tr><th>Stored history</th><td>{{ google_finance.rows }} rate rows across
+        {{ google_finance.currencies }} currencies</td></tr>
+    </table>
+    <p class="hint"><a class="link" href="/data/google-finance">open the Google Finance dataset</a></p>
+  </div>
+</details>
+
+<!-- 8, 9, 10 ------------------------------------------------------------- -->
   </div>
 </section>
 
@@ -297,7 +322,7 @@
   </div>
 </details>
 
-<!-- 10 ------------------------------------------------------------------ -->
+<!-- 11 ------------------------------------------------------------------ -->
   </div>
 </section>
 
@@ -316,7 +341,7 @@
   </div>
 </details>
 
-<!-- 11 ------------------------------------------------------------------ -->
+<!-- 12 ------------------------------------------------------------------ -->
 <details class="sect" id="s-privacy">
   <summary><span class="sect-name">Privacy and security</span>
     <span class="sect-sub">What is stored, where, and what is never done</span></summary>
@@ -338,7 +363,7 @@
   </div>
 </details>
 
-<!-- 12 ------------------------------------------------------------------ -->
+<!-- 13 ------------------------------------------------------------------ -->
 <details class="sect" id="s-logs">
   <summary><span class="sect-name">Logs and diagnostics</span>
     <span class="sect-sub">Job logs and how long they are kept</span></summary>
@@ -360,7 +385,7 @@
   </div>
 </details>
 
-<!-- 13 ------------------------------------------------------------------ -->
+<!-- 14 ------------------------------------------------------------------ -->
 <details class="sect" id="s-about">
   <summary><span class="sect-name">About</span>
     <span class="sect-sub">Versions and what this build does not do yet</span></summary>

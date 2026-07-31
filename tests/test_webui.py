@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from scrapex import db as dbmod  # noqa: E402
+from scrapex import db as dbmod, rates  # noqa: E402
 from scrapex.ingest import ingest_payloads  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
 from tests.test_ingest import make_entry, make_payload, one_row  # noqa: E402
@@ -34,6 +34,35 @@ def test_data_landing_lists_the_source(client):
     r = client.get("/data")
     assert r.status_code == 200
     assert "ELSEWEDYSHOP" in r.text and "السويدي شوب" in r.text
+
+
+def test_google_finance_is_a_first_class_dataset_with_bounded_history(client):
+    conn = dbmod.connect(client.app.state.db_path)
+    try:
+        rates.store_rates(conn, [
+            rates.Rate("EGP", 48.25, "2026-07-27T15:52:00Z",
+                       rates.QUOTE_URL_TEMPLATE.format(code="EGP")),
+            rates.Rate("EGP", 48.10, "2026-07-26T15:52:00Z",
+                       rates.QUOTE_URL_TEMPLATE.format(code="EGP")),
+        ])
+    finally:
+        conn.close()
+
+    landing = client.get("/data")
+    assert landing.status_code == 200
+    assert 'href="/data/google-finance"' in landing.text
+    assert "Reference data" in landing.text
+
+    response = client.get("/data/google-finance?per_page=25")
+    assert response.status_code == 200
+    body = response.text
+    assert "Google Finance exchange rates" in body
+    assert "Stored rate history" in body
+    assert "48.25" in body and "48.1" in body
+    assert "2026-07-27T15:52:00Z" in body
+    assert "1 USD equals" in body
+    assert 'href="/source/google_finance"' not in body
+    assert 'href="/data" title="Data"' in body
 
 
 def test_overview_summarizes_the_workspace_and_data_uses_one_dropdown(client):
