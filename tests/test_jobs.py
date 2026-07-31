@@ -364,6 +364,43 @@ def test_healthy_volume_passes_the_canary(conn):
 
 # ---- the worker thread (spec 4: the runtime executes, not the panel) --------
 
+def test_runner_never_advertises_an_inert_early_wake_api(tmp_path):
+    """If an early-wake API exists, it must actually bypass the poll delay.
+
+    Deleting the API is also honest: the shipped interval is only 0.5 seconds
+    and no enqueue path currently asks for an earlier wake. What must not exist
+    is a public method whose docstring promises signalling while its body does
+    nothing.
+    """
+    wake = getattr(JobRunner, "wake", None)
+    if wake is None:
+        return
+
+    import threading
+
+    db = tmp_path / "wake.db"
+    setup = dbmod.connect(db)
+    dbmod.migrate(setup)
+    create_job(setup, ["A"], RunMode.UPDATE)
+    setup.close()
+
+    captured = threading.Event()
+
+    def capture(_conn, entry, _job_id=None):
+        captured.set()
+        return _result(entry.source_key)
+
+    runner = JobRunner(str(db), lambda: _FakeManifest(["A"]),
+                       poll_interval_s=5.0, capture=capture)
+    runner.start()
+    try:
+        wake(runner)
+        assert captured.wait(0.25), (
+            "JobRunner.wake() exists but did not bypass the five-second poll delay")
+    finally:
+        runner.stop()
+
+
 def test_runner_thread_drains_the_queue(tmp_path):
     """The job outlives whoever queued it: nothing but the worker touches it."""
     import time
