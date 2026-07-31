@@ -1047,7 +1047,14 @@ class _HostedManifest:
 
 def _timed_capture(events, gate, hold_s):
     """A capture that records when it enters and leaves the crawl of a source,
-    so a test can prove two crawls of one host never overlap."""
+    so a test can prove two crawls of one host never overlap.
+
+    These intervals can be shorter than one Windows scheduler tick. The local
+    monotonic clock is GetTickCount64 (15.625 ms resolution), which collapses
+    genuinely ordered events to identical timestamps. perf_counter is also
+    monotonic and uses the high-resolution performance counter, so strict
+    interval comparisons retain their meaning on every supported platform.
+    """
     import threading
     import time
 
@@ -1055,10 +1062,10 @@ def _timed_capture(events, gate, hold_s):
 
     def capture(_conn, entry, _job_id=None, **_kw):
         with lock:
-            events.append(("enter", entry.source_key, time.monotonic()))
+            events.append(("enter", entry.source_key, time.perf_counter()))
         gate.wait(hold_s)          # hold the "crawl" open long enough to overlap
         with lock:
-            events.append(("exit", entry.source_key, time.monotonic()))
+            events.append(("exit", entry.source_key, time.perf_counter()))
         return _result(entry.source_key)
 
     return capture
