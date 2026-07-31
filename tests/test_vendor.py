@@ -405,8 +405,13 @@ def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
     assert ".split-button-primary:active:not(:disabled)" in shared_css
     assert ".split-button-options" in shared_css
     options_rule = shared_css.split(".split-button-options {", 1)[1].split("}", 1)[0]
-    assert "top: calc(100% + var(--sp-2))" in options_rule
+    assert "inset-inline: 0" in options_rule
+    assert "top: calc(100% + var(--sp-1))" in options_rule
+    assert "width: 100%" in options_rule
     assert "bottom:" not in options_rule
+    assert ".split-button-trigger:focus-visible" in shared_css
+    focus_rule = shared_css.split(".split-button-trigger:focus-visible {", 1)[1].split("}", 1)[0]
+    assert "outline-offset: -2px" in focus_rule
     assert ".split-button-option:active:not(:disabled)" in shared_css
 
 

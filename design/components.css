@@ -1193,6 +1193,7 @@ code {
  * placement; everything visual and interactive is this. Behaviour: split-button.js.
  * ======================================================================== */
 .split-button {
+  position: relative;
   display: inline-flex;
   align-items: stretch;
   border: 1px solid var(--line-strong);
@@ -1234,7 +1235,7 @@ code {
   transform: none;
 }
 .split-button-menu {
-  position: relative;
+  position: static;
   display: flex;
 }
 .split-button-menu > summary { list-style: none; }
@@ -1250,6 +1251,12 @@ code {
   border-end-end-radius: calc(var(--radius) - 1px);
   cursor: pointer;
 }
+.split-button-trigger:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
 .split-button-trigger .sx-icon { width: 1.05rem; height: 1.05rem; }
 .split-button-chevron {
   margin-inline-start: auto;
@@ -1263,13 +1270,12 @@ code {
 .split-button-options {
   position: absolute;
   z-index: 120;
-  inset-inline-end: 0;
-  top: calc(100% + var(--sp-2));
+  inset-inline: 0;
+  top: calc(100% + var(--sp-1));
   display: grid;
   gap: 2px;
-  width: max-content;
-  min-width: 12rem;
-  max-width: calc(100vw - 2rem);
+  width: 100%;
+  min-width: 0;
   padding: var(--sp-1);
   background: var(--surface);
   border: 1px solid var(--line-strong);
