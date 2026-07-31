@@ -383,9 +383,11 @@ def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
     assert 'class="split-button-menu"' in page
     assert 'class="split-button-trigger"' in page
     assert '<span>Excel workbook</span>' in page
-    assert 'class="split-button-options-head"' in page
+    assert 'class="split-button-options-head"' not in page
     assert page.count('class="split-button-option"') == 2
     assert page.count('class="split-button-option-tag"') == 2
+    assert "Filtered rows in a spreadsheet-friendly file." not in page
+    assert "Structured data from the current table view." not in page
     assert page.count("data-split-action=") == 3
     assert 'class="chip" data-split-action=' not in page
     assert 'role="menu" aria-label="Export format"' in page
@@ -402,6 +404,9 @@ def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
     assert ".split-button-menu[open] .split-button-trigger" in shared_css
     assert ".split-button-primary:active:not(:disabled)" in shared_css
     assert ".split-button-options" in shared_css
+    options_rule = shared_css.split(".split-button-options {", 1)[1].split("}", 1)[0]
+    assert "top: calc(100% + var(--sp-2))" in options_rule
+    assert "bottom:" not in options_rule
     assert ".split-button-option:active:not(:disabled)" in shared_css
 
 

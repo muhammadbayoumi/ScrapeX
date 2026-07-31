@@ -1062,6 +1062,8 @@ def test_the_log_controls_are_one_shared_split_button(open_panel):
     # ScrapeXSplitButton, so the menu opens and closes like the Export one.
     assert page.locator('#activity .split-button-primary[data-split-action="copy"]').count() == 1
     assert page.locator('#activity [data-split-action="download"]').count() == 1
+    assert "Every line now on screen" not in split.text_content()
+    assert "engine's complete record" not in split.text_content()
 
     menu = page.locator("#activity .split-button-menu")
     assert not menu.evaluate("el => el.open")
