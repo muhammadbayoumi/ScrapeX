@@ -1202,12 +1202,34 @@ class JobRunner:
     def _refresh_rates(self, conn) -> None:
         """Keep the USD column's exchange rates current, quietly.
 
-        Rate-limited inside rates.refresh_if_due (six hours), so calling it every
-        poll costs one SELECT almost always. Isolated from the job loop: a
+        Rate-limited to six hours, so a poll costs the two SELECTs in
+        rates.refresh_is_due and stops there. Isolated from the job loop: a
         Google Finance outage must never stop a crawl from running — the USD
         column is an aid to ranking, and the prices are the product.
+
+        THE DECLINE HAS TO BE CHEAP, and for a long time it was not. The
+        six-hour throttle lives inside refresh_if_due, so this read as free —
+        but `HttpFetcher()` was built to be passed IN, before that function
+        could decline, and its httpx.Client reloads the OS certificate store:
+        1.3s of CPU, twice a second, for a client no request was ever made
+        with. An idle `scrapex ui` sat at ~44% of a core and quietly stretched
+        everything else on the machine, including this suite's own timings
+        (a migrate() measured 5.9s under two idle engines against 1.9s beside
+        none). Asking first is the whole fix.
         """
         from . import rates
+
+        # Before the lock and before the fetcher: a decline must touch nothing
+        # but two SELECTs. Taking the write lock 172,800 times a day to be told
+        # no was the cheaper half of the same mistake.
+        try:
+            if not rates.refresh_is_due(conn):
+                return
+        except Exception as exc:  # noqa: BLE001 — never fatal to the loop
+            traceback.print_exc(file=sys.stderr)
+            self._record_failure(conn, exc)
+            return
+
         from .connectors.base import HttpFetcher
 
         try:

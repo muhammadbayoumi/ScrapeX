@@ -360,6 +360,34 @@ def currencies_in_use(conn: sqlite3.Connection) -> list[str]:
         "ORDER BY currency")]
 
 
+def refresh_is_due(conn: sqlite3.Connection, *, now: str | None = None) -> bool:
+    """Whether refresh_if_due would actually fetch — two SELECTs, nothing else.
+
+    Exists so a caller can find out CHEAPLY. The worker asks this twice a second
+    and the answer is no for six hours at a time, so everything a refresh needs
+    but a decline does not — the write lock, and above all the HTTPS client —
+    must stay on the far side of it. Building that client cost 1.3s of CPU
+    (`load_verify_locations` reloads the whole OS certificate store) and the
+    worker was paying it every poll to hand a fetcher to a function whose first
+    act was to return None: an engine serving nothing burned half a core.
+
+    It is THE predicate refresh_if_due uses, not a copy of it. A second spelling
+    of "is it due" is how the pre-check and the real check drift apart until the
+    cheap answer is no while the expensive one still fetches.
+    """
+    if not currencies_in_use(conn):
+        return False                 # nothing priced yet — nothing to convert
+    previous = last_checked(conn)
+    if not previous:
+        return True                  # never asked
+    try:
+        age = (datetime.strptime(now or utc_now_iso(), "%Y-%m-%dT%H:%M:%SZ")
+               - datetime.strptime(previous, "%Y-%m-%dT%H:%M:%SZ")).total_seconds()
+    except ValueError:
+        return True                  # an unparseable stamp is not a fresh one
+    return not (0 <= age < REFRESH_AFTER_S)
+
+
 def refresh_if_due(conn: sqlite3.Connection, fetcher, *,
                    now: str | None = None) -> RateBatch | None:
     """Fetch and store rates when we last asked longer ago than the interval.
@@ -367,30 +395,35 @@ def refresh_if_due(conn: sqlite3.Connection, fetcher, *,
     Returns the batch when it fetched, or None when nothing was due — so a
     caller can report what happened without inspecting the clock itself.
 
-    The attempt is stamped BEFORE the fetch, so a quote page that is failing
-    does not turn into a request on every single poll. A failure costs one
-    attempt per interval, exactly like a success.
+    The attempt is stamped BEFORE the fetch, and COMMITTED before it, so a quote
+    page that is failing does not turn into a request on every single poll. A
+    failure costs one attempt per interval, exactly like a success.
 
     Never raises for a fetch failure: the batch carries per-currency warnings
     (the Turkey rule) and the caller reports them. CrawlBlocked still
     propagates, because the brakes are not decorative.
+
+    Still safe to call unconditionally: the decision lives in refresh_is_due and
+    is re-made here, so a caller that pre-checks (the worker does, to avoid
+    building a fetcher it will not use) is an optimisation and not the guard.
     """
     stamp = now or utc_now_iso()
-    if not (wanted := currencies_in_use(conn)):
-        return None                  # nothing priced yet — nothing to convert
-    previous = last_checked(conn)
-    if previous:
-        try:
-            age = (datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
-                   - datetime.strptime(previous, "%Y-%m-%dT%H:%M:%SZ")).total_seconds()
-        except ValueError:
-            age = None               # an unparseable stamp is not a fresh one
-        if age is not None and 0 <= age < REFRESH_AFTER_S:
-            return None
+    if not refresh_is_due(conn, now=stamp):
+        return None
+    wanted = currencies_in_use(conn)
     conn.execute(
         "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (LAST_CHECK_KEY, stamp))
+    # Committed here, on its own, or the throttle only holds for exceptions this
+    # function chooses to swallow. An escaping one — CrawlBlocked, which is
+    # deliberately allowed through — reaches the worker's recorder, and that
+    # rolls back before writing, taking an uncommitted stamp with it. The next
+    # poll was then due again: a blocked quote page turned into a request every
+    # half-second against the one site this module most needs to stay welcome
+    # at, each one preceded by rebuilding the 1.3s HTTPS client. "One attempt
+    # per interval" is the promise above; this is what makes it true.
+    conn.commit()
     batch = fetch_rates(fetcher, wanted)
     store_rates(conn, batch.rates)
     return batch
