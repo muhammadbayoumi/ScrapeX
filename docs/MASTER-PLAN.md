@@ -262,7 +262,221 @@ The honest gap: **1 of 9 families implemented.** A Shopify-only public release m
 
 ---
 
-## 8. Open Decisions for the Owner
+## 8. Future Direction — Pluggable Crawler Backends
+
+> **Status: exploratory future development — not the final architecture and not
+> a commitment in the current roadmap.** This section records a promising
+> direction so it is not lost. Every boundary, name, backend, integration order,
+> and UI concept below remains open to discussion, measurement, restructuring,
+> replacement, or removal. It must not pull work forward from Phases A–F. A
+> backend enters the product only after a small spike proves a real user need,
+> acceptable packaging and maintenance cost, output compatibility, and licence
+> safety for the exact version being considered.
+
+The long-term opportunity is for ScrapeX to become a **control plane for several
+open-source web-acquisition systems**, while continuing to develop its own native
+collection path. The value is not copying several large repositories into this
+one. The value is choosing, configuring, observing, comparing, and composing the
+right system for each job, then passing every result through ScrapeX's contracts,
+normalisation, validation, history, and publishing path.
+
+This is intentionally a platform direction rather than a promise to bundle
+"every open-source scraper." The catalogue may be broad; the installed product
+should contain only the backends a user chooses and ScrapeX has certified.
+
+### 8.1 Keep three concepts separate
+
+The current plan uses **engine** to mean a data-domain capsule. External crawlers
+must not overload that word:
+
+- **Domain Engine** — what the collected data means: price, listing, table,
+  document, archive, etc. It owns RowSpecs, ingest, read models, and its schema
+  slice, as defined in §3.
+- **Connector Family** — the shape and semantics of a site: Shopify, Magento,
+  Salla, WooCommerce, a specific JSON contract, etc.
+- **Crawler Backend** — how pages are discovered, fetched, rendered, or
+  transformed: ScrapeX Native, Scrapy, Crawlee, Crawl4AI, Firecrawl, Katana,
+  Heritrix, or a future adapter.
+
+The UI and code may use different final names after a terminology review, but
+the responsibilities must remain orthogonal. In particular, the existing
+settings screen must not present connector families as if they were execution
+backends once both concepts exist.
+
+### 8.2 Candidate architecture and the invariant that protects the warehouse
+
+```text
+ScrapeX UI / scheduler
+        -> planner + policy router
+        -> versioned Crawler Adapter Protocol
+        -> {Native | Scrapy | Crawlee | Crawl4AI | Firecrawl | Katana | Heritrix}
+        -> canonical crawl artifacts + structured events
+        -> ScrapeX normalise + validate + RowSpec
+        -> Domain Engine ingest
+        -> the one append-only ScrapeX warehouse
+```
+
+**Non-negotiable invariant:** no external backend writes directly to
+`harvest.db`, constructs price keys, or reimplements ScrapeX normalisation.
+Backends return evidence and candidate records through a versioned contract;
+ScrapeX remains the sole authority that accepts, rejects, deduplicates, and
+ingests them. This preserves the history and hash guarantees that justified
+Topology B in the first place.
+
+A backend may implement one or several capabilities — discovery, HTTP fetch,
+browser rendering, extraction, Markdown conversion, or WARC archiving. The
+planner should reason over those declared capabilities rather than assume each
+large upstream project is one indivisible all-purpose engine. That allows a
+future recipe such as `Katana discover -> Crawlee render -> ScrapeX connector
+extract -> PriceEngine ingest` without baking that exact pipeline into core.
+
+### 8.3 Initial backend map — candidates, not commitments
+
+| Candidate | Natural role inside ScrapeX | Integration shape | Licence note to verify per pinned release |
+|---|---|---|---|
+| **ScrapeX Native** | Known site families and highest-confidence price extraction | In-process reference adapter | ScrapeX MIT; remains the default where a proven connector exists |
+| **Scrapy** | Mature structured spiders and large static crawls | Isolated Python worker | BSD-3-Clause |
+| **Crawlee** | Persistent queues, sessions, proxies, HTTP and Playwright crawling | Prefer evaluating the official Python implementation first; Node sidecar remains possible | Apache-2.0 |
+| **Crawl4AI** | Clean Markdown/documents and AI/RAG-oriented extraction | Isolated Python worker or local service | Apache-2.0 repository; attribution text and transitive dependencies still require review |
+| **Firecrawl** | Optional self-hosted or hosted scraping/crawling API | Separate HTTP provider/sidecar, never copied into core by default | Primarily AGPL-3.0; some SDK/UI directories are MIT — legal review required before distribution or service exposure |
+| **Katana** | Fast URL, route, form, and JavaScript-endpoint discovery | Versioned Go binary or container adapter | MIT |
+| **Heritrix** | Web-scale archival crawling and WARC production | Separate Java/container archival pack | Apache-2.0, with some files/dependencies under other licences |
+
+Scrapy and Crawlee overlap, as do Crawl4AI and Firecrawl. Overlap is not by
+itself a reason to ship both. A backend is added when its measured capability is
+materially better for a real ScrapeX job, not because its repository is popular.
+
+### 8.4 Candidate Crawler Adapter Protocol
+
+The adapter boundary should be small enough that Python libraries, Node
+services, Go binaries, Java applications, containers, and remote APIs can all
+implement it without special cases in the warehouse. A first spike should test
+the shape; it must not freeze it prematurely.
+
+An adapter descriptor may declare:
+
+- stable adapter ID, adapter version, upstream version, runtime, licence and
+  source URL;
+- capabilities such as `discover`, `http_fetch`, `browser_render`, `extract`,
+  `markdown`, `archive_warc`, `resume`, and `authenticated_session`;
+- dependency and health checks, supported platforms, resource estimates, and
+  whether installation is local, containerised, or remote;
+- a machine-readable settings schema from which ScrapeX can build an advanced
+  form without hand-coding every upstream option;
+- input/output contract versions and the precise upstream versions against
+  which its conformance tests pass.
+
+Candidate operations are `health`, `plan`, `run`, `cancel`, `resume`, and
+`diagnostics`. During `run`, the adapter should stream structured events such as
+`discovered`, `fetched`, `artifact`, `candidate_record`, `checkpoint`, `metric`,
+`warning`, `blocked`, `failed`, and `completed`. Final artifacts should carry at
+least canonical URL, requested/final URLs, timestamp, HTTP evidence, MIME type,
+content hash, raw-artifact reference, parent/discovery evidence, and backend
+provenance. The exact fields remain a design exercise and require fixtures from
+at least two genuinely different backends before acceptance.
+
+### 8.5 Installation and isolation — an engine manager, not one giant installer
+
+Do not put Python, Node, Go, Java, Chromium, and Docker into the default ScrapeX
+installer. That would turn optional power into mandatory size, dependency
+conflicts, slow updates, and a much larger security surface.
+
+The possible product shape is an **Engine Manager** that installs isolated,
+version-pinned packs on demand:
+
+- **Core** — ScrapeX Native only;
+- **Python pack** — selected Scrapy, Crawlee Python, or Crawl4AI adapters, each
+  isolated when dependencies conflict;
+- **Browser pack** — Playwright/browser dependencies;
+- **Discovery pack** — Katana;
+- **Archive pack** — Heritrix and its Java/container runtime;
+- **Provider adapters** — Firecrawl or future local/remote HTTP services.
+
+Each backend should have a health state, installed and certified versions,
+licence/notice view, disk footprint, last compatibility test, update channel,
+logs, and an explicit uninstall path. Untrusted community adapters execute out
+of process with job-scoped secrets and the narrowest filesystem access practical.
+
+### 8.6 User experience and routing
+
+The UI should not expose seven unfamiliar products before the user can run one
+job. A candidate layered experience is:
+
+1. **Auto** — ScrapeX recommends a backend/pipeline and records why.
+2. **Recipe** — compose discovery, fetch/render, extraction, validation, and
+   archive steps.
+3. **Expert** — backend-specific settings generated from the adapter schema,
+   with a raw pass-through escape hatch where safe.
+4. **Compare Lab** — run a bounded sample through multiple backends and compare
+   coverage, correctness, requests, elapsed time, resource use, and failure
+   reasons before choosing a site profile.
+
+Automatic routing should escalate deliberately, not run everything:
+
+1. a proven ScrapeX connector through the cheapest compliant transport;
+2. a static/high-volume crawler when queues and breadth are needed;
+3. a browser backend only when JavaScript, interaction, or an authorised session
+   makes it necessary;
+4. an AI/document transformer only when the requested output benefits from it;
+5. specialised discovery, remote API, or archival backends only for those jobs.
+
+Fallback must react to classified causes — access denial, JavaScript required,
+transport failure, schema drift, empty/low-quality output, unsupported content —
+and obey per-job limits for pages, requests, time, resources, cost, retries, and
+backend switches. A fallback must never become an unbounded request multiplier.
+Every switch and its reason belongs in the existing run audit trail.
+
+### 8.7 Community development without surrendering compatibility
+
+Upstream communities improve the crawlers; ScrapeX still owns the compatibility
+layer. The sustainable community surface is therefore:
+
+- a documented Adapter SDK and example adapter;
+- shared conformance fixtures and contract tests;
+- a compatibility matrix keyed by adapter and upstream versions;
+- pinned stable releases plus an explicit beta channel — never an untested
+  automatic jump to `latest`;
+- checksums/signatures where available, dependency inventory, SBOM, bundled
+  copyright/NOTICE material, and visible security advisories;
+- shareable backend profiles and pipeline recipes that contain no credentials;
+- an approval/trust model for community code before it can execute locally.
+
+Software licence compliance is separate from permission to crawl a site. The
+central ScrapeX policy must continue to govern rate, robots behaviour, terms,
+privacy, authorised sessions, secret handling, retries, and audit evidence even
+when a backend offers more aggressive defaults.
+
+### 8.8 Possible exploration order after Phase F
+
+This order is deliberately revisable and must be reordered by measured demand:
+
+1. Write a short architecture decision record that settles terminology and the
+   first experimental contract without declaring it permanent.
+2. Wrap **ScrapeX Native** as the reference adapter so the protocol proves it
+   can preserve current behaviour before any external dependency is added.
+3. Spike **one** classic crawler (initial candidate: Scrapy) in an isolated
+   worker against recorded fixtures and a bounded live source.
+4. Spike one materially different output path (initial candidate: Crawl4AI) so
+   the contract is not accidentally shaped only around price spiders.
+5. Build the smallest Engine Manager and Compare Lab capable of installing,
+   health-checking, running, cancelling, and comparing those adapters.
+6. Add policy routing only after manual selection produces enough run evidence
+   to justify routing rules.
+7. Evaluate Crawlee Python and Katana next; evaluate the Node Crawlee sidecar,
+   Firecrawl, and Heritrix only when their distinct capabilities are demanded.
+8. Open the SDK to community adapters only after versioning, isolation,
+   conformance, provenance, and uninstall behaviour are proven internally.
+
+**Future review gate:** before this direction becomes an implementation phase,
+rewrite this section from evidence. Confirm which concepts survived the spikes,
+which tools still merit integration, whether adapters should be processes,
+containers, or services, and whether the product should remain a backend router
+at all. The permission to restructure is intentional: this section preserves the
+idea, not a final design.
+
+---
+
+## 9. Open Decisions for the Owner
 
 1. **Confirm Topology B.** This plan recommends the local Python app as the primary public product with the extension optional. If you instead want the browser-native TS extension as primary, **stop and spike two things first** (wa-sqlite/OPFS running `schema.sql` verbatim in an MV3 worker **and** byte-identical `spec_fingerprint` parity over adversarial Arabic input) — the rest of the plan would need reworking and the ingest would be re-implemented in TS. My strong recommendation is B.
 
