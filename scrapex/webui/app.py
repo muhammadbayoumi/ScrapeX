@@ -10,6 +10,7 @@ Bound to 127.0.0.1 by the CLI — a local, single-machine surface.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
@@ -29,9 +30,10 @@ from fastapi.templating import Jinja2Templates
 from .. import db as dbmod
 from .. import localinbox
 from .. import nativehost
-from ..capture import capture_source
+from ..capture import capture_source, crawl_settings
 from ..changes import change_summary, changes_for_offer, recent_changes
 from ..config import MANIFEST_FILE, SourceEntry, load_manifest
+from ..connectors.base import CrawlBlocked, HttpFetcher
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
     DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
@@ -63,7 +65,7 @@ from ..publish import workbook_tables
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
-from .. import compaction, pricehistory, retention
+from .. import compaction, pricehistory, rates, retention
 from ..storage import (
     StorageRefused, backup_folder, backup_now, check_move, export_database,
     wipe_source,
@@ -74,9 +76,11 @@ from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
 from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..reports import (
-    BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_observations, column_presence,
+    BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_google_finance_rates,
+    browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
-    data_model_report, export_source_table, history_counts, list_sources, offer_identity,
+    data_model_report, export_source_table, google_finance_status, history_counts,
+    list_sources, offer_identity,
     schema_report,
     offer_observations, price_extremes, product_attributes,
     table_payload,
@@ -121,6 +125,39 @@ def _appearance_value(body: dict | None) -> dict:
         "deviceColors": device_colors,
         "updatedAt": int(updated_at),
     }
+
+
+def _google_finance_setting_values(body: dict) -> dict:
+    """Validate and canonicalise the two public rate-control settings."""
+    values = dict(body or {})
+    if "google_finance_auto_refresh" in values:
+        raw = values["google_finance_auto_refresh"]
+        accepted = isinstance(raw, (bool, int, str)) and raw in {
+            True, False, 0, 1, "0", "1", "true", "false",
+        }
+        if not accepted:
+            raise HTTPException(
+                status_code=400,
+                detail="google_finance_auto_refresh must be true or false",
+            )
+        values["google_finance_auto_refresh"] = (
+            "1" if raw in {True, 1, "1", "true"} else "0"
+        )
+    if "google_finance_refresh_hours" in values:
+        try:
+            hours = float(values["google_finance_refresh_hours"])
+        except (TypeError, ValueError):
+            hours = math.nan
+        if (not math.isfinite(hours)
+                or not rates.MIN_REFRESH_HOURS <= hours <= rates.MAX_REFRESH_HOURS):
+            raise HTTPException(
+                status_code=400,
+                detail=("google_finance_refresh_hours must be between "
+                        f"{rates.MIN_REFRESH_HOURS:g} and "
+                        f"{rates.MAX_REFRESH_HOURS:g}"),
+            )
+        values["google_finance_refresh_hours"] = f"{hours:g}"
+    return values
 
 def database_state(request: Request) -> dict:
     """Runtime status for every page, derived from the request's own app.
@@ -473,12 +510,38 @@ def create_app(
         conn = read_conn()
         try:
             sources, pending, _ = _source_catalog(conn)
+            rate_dataset = google_finance_status(conn)
         finally:
             conn.close()
         return TEMPLATES.TemplateResponse(request=request, name="data.html",
                                           context={"sources": sources, "pending": pending,
+                                                   "rate_dataset": rate_dataset,
                                                    "tab": "data", "source_key": None,
                                                    "wide_page": True})
+
+    @app.get("/data/google-finance", response_class=HTMLResponse)
+    def google_finance_dataset(request: Request, page: int = 1, per_page: int = 50):
+        """The provider's stored rate history as a first-class dataset."""
+        page = max(1, page)
+        per_page = per_page if per_page in {25, 50, 100, 200} else 50
+        conn = read_conn()
+        try:
+            sources, pending, _ = _source_catalog(conn)
+            rate_dataset = google_finance_status(conn)
+            page_data = browse_google_finance_rates(
+                conn, offset=(page - 1) * per_page, limit=per_page,
+            )
+        finally:
+            conn.close()
+        return TEMPLATES.TemplateResponse(
+            request=request, name="google_finance_dataset.html",
+            context={"sources": sources, "pending": pending,
+                     "rate_dataset": rate_dataset, "page_data": page_data,
+                     "page": page, "per_page": per_page,
+                     "tab": "data", "source_key": None,
+                     "rate_dataset_active": True,
+                     "wide_page": True},
+        )
 
     def _view_defaults(source_key: str, view_id: int) -> dict:
         """A saved view as query parameters. Unknown keys never reach SQL.
@@ -581,6 +644,7 @@ def create_app(
         conn = read_conn()
         try:
             sources, pending, source_sites = _source_catalog(conn)
+            rate_dataset = google_finance_status(conn)
             summary = next((source for source in sources
                             if source.source_key == source_key), None)
             page_data, fields, views, columns = None, [], [], []
@@ -630,6 +694,7 @@ def create_app(
             request=request, name="source.html",
             context={"summary": summary, "page_data": page_data, "source_key": source_key,
                      "sources": sources, "pending": pending,
+                     "rate_dataset": rate_dataset,
                      "source_sites": source_sites,
                      "source_site": source_sites.get(source_key, ""),
                      "wide_page": True,
@@ -981,7 +1046,7 @@ def create_app(
 
     @app.get("/settings", response_class=HTMLResponse)
     def page_settings(request: Request):
-        """Spec 33: thirteen sections, every one closed until it is asked for."""
+        """Settings remain collapsed and display the engine's current truth."""
         conn = read_conn()
         try:
             return _page(request, "settings.html", "settings", None,
@@ -990,6 +1055,7 @@ def create_app(
                          retention=_retention_view(conn),
                          excel=excel_status(conn), funnel=apps_script_status(conn),
                          google=google_status(conn),
+                         google_finance=google_finance_status(conn),
                          engines=_engine_rows(),
                          schedule_count=len(list_schedules(conn)),
                          about=_about(conn))
@@ -1744,6 +1810,7 @@ def create_app(
 
     @app.post("/api/settings")
     def api_save_settings(body: dict):
+        body = _google_finance_setting_values(body)
         try:
             with dbmod.write_lock(app.state.db_path):
                 conn = _write_conn()
@@ -1756,6 +1823,46 @@ def create_app(
         except UnknownSettingError as exc:
             raise HTTPException(status_code=400, detail=f"unknown setting {exc}")
         return {"changed": changed, "settings": current}
+
+    @app.get("/api/rates/google-finance")
+    def api_google_finance_status():
+        conn = read_conn()
+        try:
+            return google_finance_status(conn)
+        finally:
+            conn.close()
+
+    @app.post("/api/rates/google-finance/refresh")
+    def api_refresh_google_finance():
+        """Owner-requested refresh, independent of automatic cadence."""
+        try:
+            with dbmod.write_lock(app.state.db_path):
+                conn = _write_conn()
+                fetcher = None
+                try:
+                    wanted = rates.currencies_in_use(conn)
+                    if not wanted:
+                        status = google_finance_status(conn)
+                        return {
+                            "ok": True, "updated": 0, "warnings": [],
+                            "detail": "No non-USD currencies are in use yet.",
+                            **status,
+                        }
+                    fetcher = HttpFetcher(**crawl_settings(conn))
+                    batch = rates.refresh_now(conn, fetcher)
+                    status = google_finance_status(conn)
+                finally:
+                    if fetcher is not None:
+                        fetcher.close()
+                    conn.close()
+        except CrawlBlocked as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        updated = len(batch.rates)
+        detail = f"Updated {updated} of {len(wanted)} currencies."
+        return {
+            "ok": True, "updated": updated, "warnings": batch.warnings,
+            "detail": detail, **status,
+        }
 
     @app.get("/api/outputs/excel")
     def api_excel_status():

@@ -77,6 +77,13 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # in the order the job listed them. Raising it crawls that many SITES at
     # once — never two sources of one site, whatever the number says.
     Setting("crawl_parallel_sources", "1", label="Sources crawled at the same time"),
+    # --- Google Finance exchange rates ---
+    # Six hours remains the shipped default, but is no longer hidden policy.
+    # Manual refresh remains available even when automatic refresh is off.
+    Setting("google_finance_auto_refresh", "1",
+            label="Refresh Google Finance rates automatically"),
+    Setting("google_finance_refresh_hours", "6",
+            label="Hours between Google Finance refreshes"),
     # UI-only preference shared by the local Workspace and Chrome side panel.
     # It lives with the engine because browser localStorage is origin-scoped:
     # a chrome-extension:// page and http://127.0.0.1 cannot read each other.

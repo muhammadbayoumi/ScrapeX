@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Google Finance rates - ScrapeX{% endblock %}
+{% block head %}
+  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=google-finance-1">
+  <script src="/static/datasets-browser.js?v=source-ui-8" defer></script>
+{% endblock %}
+{% block content %}
+<div class="data-workspace">
+  <section class="data-view" aria-label="Google Finance exchange-rate dataset">
+    <section class="data-records">
+      <header class="data-records-head">
+        <div class="data-records-title">
+          <span class="data-grid-eyebrow">Reference dataset</span>
+          <h1>Google Finance exchange rates</h1>
+          <p class="muted">Historical provider rates used for estimated USD values.
+            One USD equals the amount shown in each currency.</p>
+        </div>
+        <details class="dataset-menu">
+          <summary class="dataset-menu-trigger" aria-controls="dataset-list" aria-expanded="false">
+            {{ icon("storage") }}<span>Datasets</span>{{ icon("expand-more", "dataset-menu-chevron") }}
+          </summary>
+          {% include "_source_list.html" %}
+        </details>
+      </header>
+
+      <section class="data-source-overview google-finance-overview" aria-label="Provider status">
+        <div class="google-finance-facts">
+          <span><small>Automatic updates</small><strong>{{ "On" if rate_dataset.automatic else "Off" }}</strong></span>
+          <span><small>Interval</small><strong>{{ "%g"|format(rate_dataset.refresh_hours) }} hours</strong></span>
+          <span><small>Last attempt</small><strong class="tech">{{ rate_dataset.last_checked or "Never" }}</strong></span>
+          <span><small>Latest market time</small><strong class="tech">{{ rate_dataset.latest_market_at or "No rates yet" }}</strong></span>
+        </div>
+      </section>
+
+      <section class="data-grid-frame" aria-label="Exchange-rate history">
+        <header class="data-grid-frame-head">
+          <div class="data-grid-heading">
+            <span class="data-grid-eyebrow">Dataset table</span>
+            <h2>Stored rate history</h2>
+            <p>{{ "{:,}".format(page_data.total) }} rows with provider and timestamps preserved.</p>
+          </div>
+        </header>
+        {% if page_data.rows %}
+        <div class="tablewrap google-finance-table-wrap">
+          <table class="google-finance-table">
+            <thead><tr>
+              <th>Currency</th><th>1 USD equals</th><th>Market time (UTC)</th>
+              <th>Recorded at (UTC)</th><th>Provider</th>
+            </tr></thead>
+            <tbody>
+            {% for row in page_data.rows %}
+              <tr>
+                <td><strong class="tech">{{ row.currency }}</strong></td>
+                <td class="num tech">{{ "%.8g"|format(row.per_usd) }}</td>
+                <td class="tech">{{ row.as_of }}</td>
+                <td class="tech">{{ row.recorded_at }}</td>
+                <td><a href="https://www.google.com/finance/quote/USD-{{ row.currency }}"
+                       target="_blank" rel="noopener noreferrer">Google Finance {{ icon("open-in-new", "inline-icon") }}</a></td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <footer class="rate-dataset-pager" aria-label="Dataset pages">
+          <span>Rows {{ page_data.offset + 1 }}-{{ [page_data.offset + page_data.rows|length, page_data.total]|min }} of {{ page_data.total }}</span>
+          <span class="row">
+            {% if page_data.has_prev %}<a class="ghost" href="?page={{ page - 1 }}&amp;per_page={{ per_page }}">Previous</a>{% endif %}
+            {% if page_data.has_next %}<a class="ghost" href="?page={{ page + 1 }}&amp;per_page={{ per_page }}">Next</a>{% endif %}
+          </span>
+        </footer>
+        {% else %}
+          <div class="empty">No Google Finance rates are stored yet.<br>
+            <span class="muted">Collect non-USD price data, then choose Update now in the extension.</span></div>
+        {% endif %}
+      </section>
+    </section>
+  </section>
+</div>
+{% endblock %}

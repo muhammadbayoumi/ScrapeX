@@ -8,7 +8,8 @@ number must NEVER be shown without the rate used AND the date of that rate.
 `currency_rate` already holds publisher-implied rates (GPP's local/USD pairs,
 migration 0028); this module adds a second, deliberate source — the quote
 pages themselves — under its own source_key, so provenance stays in the row
-by construction. UI wiring comes later; this file only fetches and stores.
+by construction. The UI reads this module's policy; fetching and storage stay
+here so automatic and manual updates cannot drift.
 
 WHAT THE LIVE PAGES LOOK LIKE (observed 2026-07-27, USD-SAR and USD-EGP)
 ------------------------------------------------------------------------
@@ -62,7 +63,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from . import db as dbmod
+from . import db as dbmod, settings
 from .connectors.base import CrawlBlocked
 from .payload import utc_now_iso
 
@@ -326,9 +327,11 @@ def store_shop_rates(conn: sqlite3.Connection, source_key: str,
 # How stale a stored rate may be before the worker fetches again. Google Finance
 # moves continuously, but the owner's question is "what was this worth", not
 # "what is it worth this second" — and a scraper that reloads a quote page every
-# poll is a scraper that gets blocked. Six hours keeps the USD column honest
-# within a trading day while costing one request per currency per quarter-day.
-REFRESH_AFTER_S = 6 * 60 * 60
+# poll is a scraper that gets blocked. Six hours remains the shipped default;
+# the owner can now choose the actual cadence in Settings.
+DEFAULT_REFRESH_HOURS = 6.0
+MIN_REFRESH_HOURS = 0.25
+MAX_REFRESH_HOURS = 24.0 * 7
 
 
 # When WE last asked, which is not the same as how old the rate is. Throttling
@@ -337,6 +340,24 @@ REFRESH_AFTER_S = 6 * 60 * 60
 # so every worker poll would decide a refresh was due and hammer the quote page
 # — the exact failure the interval exists to prevent.
 LAST_CHECK_KEY = "rates_last_checked"
+
+
+def automatic_refresh_enabled(conn: sqlite3.Connection) -> bool:
+    """Whether the background worker may refresh rates automatically."""
+    return settings.get(conn, "google_finance_auto_refresh") not in {
+        "0", "false", "False", False,
+    }
+
+
+def refresh_interval_hours(conn: sqlite3.Connection) -> float:
+    """Return the owner-selected interval, bounded to a safe range."""
+    try:
+        value = float(settings.get(conn, "google_finance_refresh_hours"))
+    except (TypeError, ValueError):
+        return DEFAULT_REFRESH_HOURS
+    if not math.isfinite(value) or not MIN_REFRESH_HOURS <= value <= MAX_REFRESH_HOURS:
+        return DEFAULT_REFRESH_HOURS
+    return value
 
 
 def last_checked(conn: sqlite3.Connection) -> str:
@@ -361,10 +382,10 @@ def currencies_in_use(conn: sqlite3.Connection) -> list[str]:
 
 
 def refresh_is_due(conn: sqlite3.Connection, *, now: str | None = None) -> bool:
-    """Whether refresh_if_due would actually fetch — two SELECTs, nothing else.
+    """Whether refresh_if_due would actually fetch — small reads, nothing else.
 
     Exists so a caller can find out CHEAPLY. The worker asks this twice a second
-    and the answer is no for six hours at a time, so everything a refresh needs
+    and the answer is usually no for the selected interval, so refresh-only work
     but a decline does not — the write lock, and above all the HTTPS client —
     must stay on the far side of it. Building that client cost 1.3s of CPU
     (`load_verify_locations` reloads the whole OS certificate store) and the
@@ -375,6 +396,8 @@ def refresh_is_due(conn: sqlite3.Connection, *, now: str | None = None) -> bool:
     of "is it due" is how the pre-check and the real check drift apart until the
     cheap answer is no while the expensive one still fetches.
     """
+    if not automatic_refresh_enabled(conn):
+        return False
     if not currencies_in_use(conn):
         return False                 # nothing priced yet — nothing to convert
     previous = last_checked(conn)
@@ -385,7 +408,26 @@ def refresh_is_due(conn: sqlite3.Connection, *, now: str | None = None) -> bool:
                - datetime.strptime(previous, "%Y-%m-%dT%H:%M:%SZ")).total_seconds()
     except ValueError:
         return True                  # an unparseable stamp is not a fresh one
-    return not (0 <= age < REFRESH_AFTER_S)
+    return not (0 <= age < refresh_interval_hours(conn) * 60 * 60)
+
+
+def refresh_now(conn: sqlite3.Connection, fetcher, *,
+                now: str | None = None) -> RateBatch:
+    """Refresh currencies in use immediately, regardless of auto cadence."""
+    stamp = now or utc_now_iso()
+    wanted = currencies_in_use(conn)
+    if not wanted:
+        return RateBatch()
+    conn.execute(
+        "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (LAST_CHECK_KEY, stamp))
+    # The attempt must survive an escaping CrawlBlocked exception, otherwise a
+    # failed request becomes another request on the next worker poll.
+    conn.commit()
+    batch = fetch_rates(fetcher, wanted)
+    store_rates(conn, batch.rates)
+    return batch
 
 
 def refresh_if_due(conn: sqlite3.Connection, fetcher, *,
@@ -410,20 +452,4 @@ def refresh_if_due(conn: sqlite3.Connection, fetcher, *,
     stamp = now or utc_now_iso()
     if not refresh_is_due(conn, now=stamp):
         return None
-    wanted = currencies_in_use(conn)
-    conn.execute(
-        "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (LAST_CHECK_KEY, stamp))
-    # Committed here, on its own, or the throttle only holds for exceptions this
-    # function chooses to swallow. An escaping one — CrawlBlocked, which is
-    # deliberately allowed through — reaches the worker's recorder, and that
-    # rolls back before writing, taking an uncommitted stamp with it. The next
-    # poll was then due again: a blocked quote page turned into a request every
-    # half-second against the one site this module most needs to stay welcome
-    # at, each one preceded by rebuilding the 1.3s HTTPS client. "One attempt
-    # per interval" is the promise above; this is what makes it true.
-    conn.commit()
-    batch = fetch_rates(fetcher, wanted)
-    store_rates(conn, batch.rates)
-    return batch
+    return refresh_now(conn, fetcher, now=stamp)
