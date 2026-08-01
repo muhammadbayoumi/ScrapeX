@@ -39,7 +39,7 @@ from ..normalize import (option_axes_json, option_fingerprint, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import (Availability, DetailGroup, DisplayMethod, ExtractKind,
                      group_for_code)
-from .base import CrawlBlocked, HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable, declare_frontier
 
 PAGE_SIZE = 100
 
@@ -109,10 +109,22 @@ _QUERY = _QUERY_TEMPLATE.format(extra="", quantity=_QUANTITY_FACTS)
 # `image` and `media_gallery` were READ by _enrichment_rows since the day it
 # was written and never ASKED FOR here, so every madar product arrived with no
 # picture and the panel's gallery was empty for the whole source. The reader
-# was right; the query was the hole. Live check 2026-07-25: 11 of the first 60
-# products carry a real image, the other 49 answer with the shop's own
-# placeholder URL — which the reader already refuses, because a grey box where
-# a product belongs is worse than an honest blank.
+# was right; the query was the hole.
+#
+# THE WHOLE CATALOGUE, 2026-07-30 (761 products, 4 pages of 200), because the
+# 186 madar products that look imageless get re-reported as a bug about this
+# query roughly once a month:
+#
+#   publish an `image` url          761   — every one
+#     ... of which the placeholder  185   — one shared URL, placeholder_4.png
+#     ... a real file               576
+#   publish a media_gallery         577
+#   no gallery AND placeholder      184
+#   no gallery BUT a real image       0   <- there is nothing here to fetch
+#
+# So the empty column is the SITE's answer, not a gap in this query: a product
+# with no gallery is a product whose only image is the shop's grey box. The
+# reader refuses it, and an honest blank beats a placeholder in a data column.
 #
 # meta_title / meta_description / meta_keyword are asked for BY NAME because
 # custom_attributesV2 is filtered to is_visible_on_front:true and these are not
@@ -145,6 +157,25 @@ _QUERY_ENRICHED = _QUERY_TEMPLATE.format(
 # comes from.
 _AGGREGATIONS_QUERY = """query{products(filter:{price:{from:"0"}},pageSize:1,currentPage:1){
   aggregations{attribute_code label}}}"""
+
+# THE UNIT THE SHOP'S OWN WEIGHTS ARE IN. Magento carries it on StoreConfig,
+# and madar answers "kgs" on both store views — read live 2026-07-30, ar_SA and
+# en_SA alike, one request, no session and no state change.
+#
+# It matters because `weight` is a bare float in the schema and the rebar's
+# 1000 is about to be shown to a reader as the basis its price is quoted
+# against. "kg" was, until this query existed, the one word in that sentence
+# that came out of OUR mouth: normalize.selling_unit_from hardcodes it and so
+# does the enrichment weight row. Now the shop says it. A store configured in
+# "lbs" renders lbs with nothing here changing, and a crawl that cannot reach
+# this answer publishes no basis at all rather than a number with a unit we
+# assumed — the same rule selling_unit_from already applies when a name and a
+# weight disagree.
+#
+# One request per crawl, and unlike aggregations it runs on EVERY crawl: this
+# one qualifies a price, so a prices-only run needs it as much as an enriched
+# one does.
+_STORE_CONFIG_QUERY = "query{storeConfig{weight_unit}}"
 
 # EVERY attribute's human label, in the store's own language — the owner's
 # screenshot of madar's «المزيد من المعلومات» tab shows «المصنع», «بلد
@@ -459,6 +490,10 @@ class MagentoGraphqlConnector:
                 "when the store answers restores it")
         ctx["axis_labels_en"] = english["axis_labels"]
         ctx["axis_values_en"] = english["axis_values"]
+        # The unit the shop states its weights in, read once and stamped on
+        # every row that carries a weight — the qualifier travels with the
+        # number it qualifies, same rule as `currency`.
+        ctx["weight_unit"] = self._weight_unit(endpoint, notes)
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
         fetched: list[dict] = []      # kept so enrichment needs no second fetch
         page = 1
@@ -508,6 +543,14 @@ class MagentoGraphqlConnector:
                 page_token=token,
             )
             total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
+            # The store has just told us how many listing pages there are, so
+            # from here the crawl's size is known rather than guessed. Declared
+            # every page (expect_requests only ever raises the number) because
+            # total_pages can grow under us on a live catalogue, and minus the
+            # pages a resume already holds, which cost no request.
+            declare_frontier(self._fetcher,
+                             len([p for p in range(page + 1, int(total_pages) + 1)
+                                  if f"page-{p}" not in self.skip_tokens]))
             if page >= total_pages:
                 break
             page += 1
@@ -639,6 +682,33 @@ class MagentoGraphqlConnector:
                 continue
             found[code] = str(aggregation.get("label") or "") or code
         return found
+
+    def _weight_unit(self, endpoint: str, notes: list) -> str:
+        """The unit this store states its `weight` values in — or "" if it won't say.
+
+        One request per crawl, on every crawl. The answer qualifies a NUMBER
+        that ends up beside a price, so silence here has to cost the whole
+        basis rather than be papered over: without a unit from the shop, the
+        display layer shows no basis at all, and the price cell reads exactly
+        as it does today. That is the same refusal selling_unit_from makes when
+        a name and a weight disagree — publishing 1000 with a unit nobody
+        stated is the one outcome this whole change exists to avoid.
+        """
+        try:
+            answer = (self._fetcher.post(endpoint, json={"query": _STORE_CONFIG_QUERY})
+                      .json() or {})
+        except CrawlBlocked:
+            raise
+        except Exception as exc:  # noqa: BLE001 — the crawl does not hang on this
+            notes.append(f"the store did not state the unit of its weights ({exc}) "
+                         "— prices quoted against a weight show no basis this run")
+            return ""
+        stated = str((((answer.get("data") or {}).get("storeConfig")) or {})
+                     .get("weight_unit") or "")
+        if not stated:
+            notes.append("storeConfig published no weight_unit — prices quoted "
+                         "against a weight show no basis this run")
+        return stated
 
     def _english_names(self, endpoint: str, notes: list,
                        enriched: bool = False) -> dict:
@@ -907,7 +977,8 @@ class MagentoGraphqlConnector:
 
         def row(pid, vid, sku, name, reg, fin, stock, label="", fp="",
                 basis="", unit="", vat=None, axes=None, axes_en=None,
-                variant_en="", quantity=("", "", ""), stock_qty=None):
+                variant_en="", quantity=("", "", ""), stock_qty=None,
+                weight=None):
             effective = fin if fin is not None else reg
             if effective is None:
                 return  # a product with no price — skip, don't emit an empty required field
@@ -955,6 +1026,21 @@ class MagentoGraphqlConnector:
                 # WHAT THE SITE SAYS ABOUT THE QUANTITY, and only what it says.
                 minimum_quantity=minimum, quantity_increment=increment,
                 quantity_is_decimal=is_decimal,
+                # THE WEIGHT THE SITE PUBLISHES FOR THIS LEAF, beside the unit
+                # the STORE says its weights are in. Asked for since 0056 and
+                # until now delivered only to selling_unit_from, which throws
+                # it away unless the product's NAME corroborates it — so the
+                # rebar's 1000 was fetched and dropped on every crawl.
+                #
+                # NOT interpreted here. This connector does not decide whether
+                # 1000 is a basis or a mass; it records that the shop said
+                # 1000 kgs, next to the shop saying the quantity is decimal,
+                # and the display layer reads the two together. The unit is
+                # dropped when there is no weight to qualify — a store-wide
+                # constant on a row that carries no number is noise.
+                weight="" if weight in (None, "") else str(weight),
+                weight_unit=("" if weight in (None, "")
+                             else (ctx.get("weight_unit") or "")),
                 # HOW THE PAGE PRESENTS THE PRODUCT — constant across its rows.
                 display_method=display,
                 # The shop's own count when it publishes one. rowspec and ingest
@@ -1024,6 +1110,13 @@ class MagentoGraphqlConnector:
                     if child.get("sku") else "",
                     basis=basis, unit=unit,
                     quantity=_quantity_facts(child),
+                    # The member's OWN weight — the group publishes none. This
+                    # is the 1000 the rebar has been stating all along, and the
+                    # `... on PhysicalProductInterface` fragment in the query
+                    # is what reaches it: `weight` is not on ProductInterface,
+                    # so a member selection without that fragment is refused by
+                    # the schema outright.
+                    weight=child.get("weight"),
                     stock_qty=child.get("only_x_left_in_stock"))
             if not out:
                 # Never fall back to the group figure: it is the cheapest
@@ -1111,6 +1204,10 @@ class MagentoGraphqlConnector:
                              if code in axis_labels_en},
                     basis=basis, unit=unit, vat=variant_vat,
                     quantity=_quantity_facts(child),
+                    # Per CHILD, never the parent's: madar's steel mesh states
+                    # 6.74 .. 66.02 kg across its thirteen children, so one
+                    # figure for the family would be wrong twelve times.
+                    weight=child.get("weight"),
                     stock_qty=child.get("only_x_left_in_stock"))
         else:
             # A product standing alone must have ONE price, not a span. Every
@@ -1133,6 +1230,7 @@ class MagentoGraphqlConnector:
             row(product.get("uid"), product.get("uid"), product.get("sku"),
                 product.get("name"), reg, fin, product.get("stock_status"),
                 quantity=_quantity_facts(product),
+                weight=product.get("weight"),
                 stock_qty=product.get("only_x_left_in_stock"))
         return out
 
@@ -1243,11 +1341,26 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     # The product's pictures, primary first. A placeholder is the site saying
     # "no image" — storing it would put a grey box where a product belongs.
     # Language-neutral: a file is a file, so lang stays unstated.
-    for position, media in enumerate([product.get("image") or {},
-                                      *(product.get("media_gallery") or [])]):
+    #
+    # `image` IS the gallery's chosen main on this store: it repeats
+    # media_gallery[0] on 575 of the 577 products that publish a gallery (live
+    # census 2026-07-30, 761 products). Filing it under both `image` and
+    # `image_1` stored ONE picture twice for 576 products and made the panel
+    # show every product's main shot as a duplicate, so the URL is
+    # de-duplicated — first code wins, which keeps the main image at `image`.
+    #
+    # The position is counted over what is KEPT, not over what was offered. It
+    # used to come from enumerate() BEFORE the placeholder skip, so the one
+    # product whose main image is the placeholder while its gallery is real
+    # published `image_1` with no `image` at all.
+    seen: set[str] = set()
+    for media in [product.get("image") or {},
+                  *(product.get("media_gallery") or [])]:
         href = str(media.get("url") or "")
-        if not href or "placeholder" in href.lower():
+        if not href or "placeholder" in href.lower() or href in seen:
             continue
+        position = len(seen)
+        seen.add(href)
         add(f"image_{position}" if position else "image", "Image",
             str(media.get("label") or "") or href.rsplit("/", 1)[-1], url=href)
 

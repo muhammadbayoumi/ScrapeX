@@ -34,6 +34,12 @@ class SourceSummary:
     curation: dict[str, int] = field(default_factory=dict)
     last_run: str | None = None
     last_status: str | None = None
+    # The last run that actually SUCCEEDED, and what it measured — the freshness
+    # of the data on screen, which is the first thing anyone asks and the one
+    # fact the source cards were missing. None means it has never succeeded, a
+    # real answer the card must state rather than paper over. Shape is
+    # ingest.last_successful_run's dict.
+    last_success: dict | None = None
     # unified layer (post-curation)
     matched_variants: int = 0
     published_rows: int = 0
@@ -71,6 +77,11 @@ def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary |
         "ORDER BY started_at DESC LIMIT 1", (source_id,)).fetchone()
     if run is not None:
         s.last_run, s.last_status = run[0], run[1]
+    # The last SUCCESS, which is a different question from the last run: a source
+    # whose most recent crawl failed still has data, and its freshness is the
+    # date of the last good one. The ONE reader both this page and the panel use.
+    from .ingest import last_successful_run
+    s.last_success = last_successful_run(conn, source_key)
 
     s.matched_variants = _scalar(conn,
         "SELECT COUNT(*) FROM source_variant_match svm "
@@ -162,6 +173,75 @@ def price_unit(unit_code: str | None, basis_quantity: float | None = 1) -> str:
         return unit_code
     quantity = int(basis) if basis.is_integer() else basis
     return f"{quantity} {unit_code}"
+
+
+def price_basis(unit_code: str | None, weight, weight_unit: str | None,
+                quantity_is_decimal) -> str:
+    """'1,000 kg' — the WEIGHT a price is quoted against, when the source
+    quotes it that way and names no unit. "" in every other case.
+
+    THE PROBLEM THIS SOLVES, in the source's own numbers. madar's Ø8mm rebar
+    member costs 4,830 and its Ø32mm member costs 4,045. Per piece that is
+    impossible: a 12 m Ø8 bar is 4.7 kg of steel and a 12 m Ø32 bar is 75.8 kg,
+    so those two figures would be 1,020 and 53 riyals a kilogram, on the same
+    shelf. The shop states weight = 1000 on both — on all 96 members, whatever
+    the diameter — and against that they are 4.83 and 4.05 a kilogram, thin
+    dearer than thick, exactly as rolling mills price rebar. The number is only
+    readable beside the weight, and until now nothing on the page carried it.
+
+    WHAT THIS FUNCTION WILL NOT DO IS NAME THE UNIT. madar DECLARES none: its
+    GraphQL schema has no `unit`, `uom` or `measure` field at all, and not one
+    of the rebar member's 22 published attributes says what its price is quoted
+    in. Its MARKETING PROSE is a different matter and must be recorded as such
+    — measured on the crawl of 2026-07-30, seven of the nineteen products
+    behind these offers print «سعر طن الحديد» in a meta field. That corroborates
+    the reading and is still not a declaration: it is a search keyword on a
+    parent product, it names no SKU and no figure, the other twelve say nothing,
+    and promoting it would make the same 109 offers disagree with each other
+    about a fact none of them states.
+
+    So the Unit column beside this one stays EMPTY, because empty is the honest
+    answer to "what unit did the shop state?", and what a reader sees here is
+    two facts the shop did publish, side by side: its weight and its own word
+    for the unit that weight is in. Nobody's inference is on screen.
+
+    THREE CONDITIONS, and all three are the SOURCE's:
+
+    1. The source states no selling unit. If it does, that IS the answer and
+       price_unit() already gives it — riyadh cement says «50كجم» in the name
+       AND weight 50, so it reads "50 kg" through the ordinary path and never
+       reaches here. A stated unit always wins over an inferred basis.
+    2. The source says the quantity is decimal. This is the load-bearing gate.
+       All 3,418 madar leaves publish a weight (measured live 2026-07-30) and
+       for 3,309 of them it is the mass of one piece — a steel angle's 4.986 kg
+       — so weight alone would print "per 4.986 kg" across the whole shop,
+       which is precisely the guess normalize.selling_unit_from was written to
+       refuse. is_qty_decimal narrows it to 109.
+    3. The source publishes a weight AND the unit of its weights. Both or
+       neither: a number whose unit we failed to read is not shown as a bare
+       number (ingest._quantity_facts stores the pair or nothing).
+
+    Kept apart from price_unit() rather than folded into it because the two
+    answer different questions and one of them has to be allowed to answer
+    "nothing". Merging them would fill the Unit column with a word the shop
+    never said, which is the whole defect.
+    """
+    if unit_code:
+        return ""
+    if not quantity_is_decimal:
+        return ""
+    if not weight_unit:
+        return ""
+    try:
+        heavy = float(weight)
+    except (TypeError, ValueError):
+        return ""
+    if heavy <= 0:
+        return ""
+    # Grouped so 1000 reads as a thousand at a glance — the whole point is that
+    # this number is large, and "1000" beside a price is easy to read past.
+    shown = f"{int(heavy):,}" if float(heavy).is_integer() else f"{heavy:,}"
+    return f"{shown} {weight_unit}"
 
 
 def _discounted(regular, effective) -> bool:
@@ -427,7 +507,12 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         # keyed on the name the SOURCE publishes, whichever language that is.
         "       COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar), "
         # Appended LAST again (0052), for the same reason.
-        "       po.price_trade "
+        "       po.price_trade, "
+        # Appended LAST again (0057). The weight a price is quoted against and
+        # the shop's own word for its unit, plus the flag that says the shop
+        # sells this by a divisible quantity — three facts that only mean
+        # something together, so they travel together.
+        "       so.quantity_is_decimal, so.weight, so.weight_unit "
         f"{_LATEST_PER_OFFER}{filt} {_order_by(sort, direction)} LIMIT ? OFFSET ?",
         [*base_params, limit, offset],
     ).fetchall()
@@ -443,6 +528,10 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
          # A price without its unit is not a comparable number: 325 per tonne and
          # 325 per bag are different facts that look identical on screen.
          "unit": price_unit(r[14], r[15]),
+         # ...and where the source states NO unit but does state a weight it
+         # prices by, what that weight is. The two never both fill: a stated
+         # unit is the answer, and this is what stands in when there is none.
+         "price_basis": price_basis(r[14], r[20], r[21], r[19]),
          # Resolved per ROW because one source can hold a different tax position
          # per country. Rules are loaded once above, never queried per row.
          # for_row() then reads that evidence for THIS figure: the rule owns the
@@ -824,6 +913,12 @@ _EXPORT_SELECT: dict[str, str] = {
     "last_confirmed_at": "ost.last_confirmed_at",
     "unit_code": "su.unit_code",
     "basis_quantity": "so.basis_quantity",
+    # The weight a price is quoted against, the shop's own word for its unit,
+    # and the flag that says the shop sells this by a divisible quantity. Read
+    # together by price_basis() and meaningless apart (0057).
+    "quantity_is_decimal": "so.quantity_is_decimal",
+    "weight": "so.weight",
+    "weight_unit": "so.weight_unit",
     "brand": "sp.brand",
     "brand_ar": "sp.brand_ar",
     "category_path": "sp.category_path_ar",
@@ -907,6 +1002,20 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # where some are per tonne and some per bag is not a price list, it is a
     # trap.
     ("unit", lambda r, s: price_unit(r["unit_code"], r["basis_quantity"])),
+    # ...and the column that fills in where the source states no unit but does
+    # price by a weight. The pair is deliberately TWO columns that never both
+    # fill: "what unit did the shop state?" and "what weight is this price
+    # quoted against?" are different questions, and the first one is allowed to
+    # answer nothing. Folding them into one cell would put the word "kg" under
+    # a heading that means "the shop said this", for a shop that did not.
+    #
+    # It has to be in the FILE and not only on screen for the reason the Unit
+    # column exists at all: a spreadsheet of bare numbers where 4,830 is per
+    # 1,000 kg and 30.19 is per sheet is not a price list, it is a trap — and
+    # the export is the record leaving the building.
+    ("price_basis", lambda r, s: price_basis(r["unit_code"], r["weight"],
+                                             r["weight_unit"],
+                                             r["quantity_is_decimal"])),
     ("price_before", lambda r, s: _or_blank(r["price_before"])),
     ("price_sale", lambda r, s: _or_blank(r["price_sale"])),
     ("price_trade", lambda r, s: _or_blank(r.get("price_trade"))),
@@ -1344,7 +1453,10 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
     row = conn.execute(
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, so.country_code_alpha2, "
         "       so.currency, su.unit_code, so.basis_quantity, sp.product_link, "
-        "       ss.source_key, sp.product_name, sv.variant "
+        "       ss.source_key, sp.product_name, sv.variant, "
+        # Appended LAST: the inspector prints the price too, so it needs the
+        # same basis the table cell shows or the panel and the row disagree.
+        "       so.quantity_is_decimal, so.weight, so.weight_unit "
         "FROM source_offer so "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
@@ -1359,6 +1471,7 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
             "sku": row[2] or "",
             "country_code_alpha2": row[3] or "", "country": region_name(row[3]),
             "currency": row[4], "unit": price_unit(row[5], row[6]),
+            "price_basis": price_basis(row[5], row[12], row[13], row[11]),
             "product_link": row[7] or "", "source_key": row[8],
             "offer_id": offer_id}
 
@@ -1729,7 +1842,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         f"       {_RATE_BY_AUTHORITY}) AS usd_rate_as_of, "
         "       (SELECT cr.source_key FROM currency_rate cr "
         "        WHERE cr.currency = po.currency "
-        f"       {_RATE_BY_AUTHORITY}) AS usd_rate_source "
+        f"       {_RATE_BY_AUTHORITY}) AS usd_rate_source, "
+        # Appended LAST, obeying the rule stated twice above: the three facts
+        # that let the price cell say what one unit of the price buys where the
+        # shop quotes by weight and names no unit (0057).
+        "       so.quantity_is_decimal, so.weight, so.weight_unit "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1764,6 +1881,11 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "country": region_name(r[11]),
                "last_confirmed_on": (r[12] or "")[:10],
                "unit": price_unit(r[13], r[14]), "offer_id": r[15],
+               # The price cell renders this when the Unit column is empty. It
+               # is NOT a unit and must never fill that column: it is the
+               # weight the shop publishes for the thing it is pricing, shown
+               # because the shop also says the quantity is divisible.
+               "price_basis": price_basis(r[13], r[39], r[40], r[38]),
                "official_source": r[16] or "",
                "official_source_link": r[17] or "",
                "brand": r[18] or "",
@@ -1981,7 +2103,15 @@ COLUMN_NOTES: dict[str, str] = {
     "price_min": "The lowest price ever recorded for this record.",
     "price_max": "The highest price ever recorded for this record.",
     "observations": "How many times this price has been recorded.",
-    "unit": "What one price BUYS: a litre, a 50 kg bag, a 100 m roll.",
+    "unit": "What one price BUYS: a litre, a 50 kg bag, a 100 m roll. "
+            "Empty when the source states no unit — never guessed.",
+    "price_basis": "The WEIGHT a price is quoted against, where the source "
+                   "prices by weight and names no unit: madar's rebar is "
+                   "4,830 per 1,000 kg, and per bar it would be nonsense. "
+                   "Both numbers are the shop's — its published weight and "
+                   "its own word for the unit of that weight. Empty wherever "
+                   "the Unit column is filled, and wherever the source does "
+                   "not say its quantity is divisible.",
     "availability": "In stock or out, as the source states it.",
     "tax": "Whether THIS figure includes tax, and at what rate.",
     "tax_included": "The same fact as yes/no, for a spreadsheet.",
@@ -2252,6 +2382,8 @@ _COMPUTED_FROM: dict[str, str] = {
     "category_ar": "source_product.category_path_ar",
     "variant": "source_variant.variant",
     "unit": "selling_unit + source_offer.basis_quantity",
+    "price_basis": ("source_offer.weight + weight_unit, shown only where "
+                    "quantity_is_decimal and no selling_unit"),
     "discount": "computed: price_observation.price_before − price",
     "discount_pct": "computed: the same two prices, as a percentage",
     "price_usd": "computed: price_observation × currency_rate",

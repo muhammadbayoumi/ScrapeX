@@ -65,12 +65,16 @@ def _host_dom(source_key: str) -> str:
     <div id="grid" class="tablewrap" data-source="{source_key}"></div>
   </div>
   <div id="grid-toolbar" class="toolbar">
-    <details class="grid-export-menu">
-      <summary class="grid-export-trigger">Export</summary>
-      <button type="button" data-export="csv">CSV</button>
-      <button type="button" data-export="json">JSON</button>
-      <button type="button" data-export="xlsx">Excel</button>
-    </details>
+    <div class="split-button">
+      <button type="button" class="split-button-primary" data-split-action="xlsx">Excel</button>
+      <details class="split-button-menu">
+        <summary class="split-button-trigger">Export</summary>
+        <div class="split-button-options">
+          <button type="button" class="split-button-option" data-split-action="csv">CSV</button>
+          <button type="button" class="split-button-option" data-split-action="json">JSON</button>
+        </div>
+      </details>
+    </div>
   </div>
   <section id="offer-panel" class="record-panel" tabindex="-1" hidden></section>
 </div>
@@ -140,9 +144,14 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
     vendor_css = (STATIC / "vendor" / "tabulator.min.css").read_text(encoding="utf-8")
     vendor_js = (STATIC / "vendor" / "tabulator.min.js").read_text(encoding="utf-8")
     tokens_css = (STATIC / "tokens.css").read_text(encoding="utf-8")
+    components_css = (STATIC / "components.css").read_text(encoding="utf-8")
     table_css = (STATIC / "table-theme.css").read_text(encoding="utf-8")
     grid_css = (STATIC / "grid-theme.css").read_text(encoding="utf-8")
     ui_js = (STATIC / "ui.js").read_text(encoding="utf-8")
+    # The Export control's split button is the SHARED component: its styles live
+    # in components.css and its behaviour in split-button.js, so the harness must
+    # carry both or grid.js's wireExport calls into an undefined global.
+    split_button_js = (STATIC / "split-button.js").read_text(encoding="utf-8")
     grid_js = (STATIC / "grid.js").read_text(encoding="utf-8")
 
     # The icon helper resolves <use href="/static/..."> against the server. On
@@ -169,6 +178,7 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
         "<style>html,body{margin:0;height:100%}"
         ".data-grid-frame{height:100%}.data-grid-viewport{height:80vh}</style>"
         f"<style>{tokens_css}</style>"
+        f"<style>{components_css}</style>"
         f"<style>{vendor_css}</style>"
         f"<style>{table_css}</style>"
         f"<style>{grid_css}</style>\n"
@@ -178,6 +188,7 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
         f"<script>{stub}</script>\n"
         f"<script>{vendor_js}</script>\n"
         f"<script>{ui_js}</script>\n"
+        f"<script>{split_button_js}</script>\n"
         # grid.js last: it runs its fetch immediately, so the stub above and the
         # library it constructs against must both already exist.
         f"<script>{grid_js}</script>",

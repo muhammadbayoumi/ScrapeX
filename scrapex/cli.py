@@ -265,7 +265,13 @@ def _cmd_crawl(args: argparse.Namespace) -> int:
 def _cmd_ingest(args: argparse.Namespace) -> int:
     entry = load_manifest().get(args.source)
     base = args.inbox or localinbox.DEFAULT_INBOX_DIR
-    payloads = localinbox.read_payloads(base, entry.source_key)
+    read = localinbox.read_payloads(base, entry.source_key)
+    payloads = read.payloads
+    # Said BEFORE the ingest and on stderr: if every payload was skipped, the
+    # "no payloads" exit below is the only other thing printed, and "run
+    # scrapex crawl" would be advice about the wrong problem entirely.
+    for line in read.report():
+        print(f"  ! {line}", file=sys.stderr)
     if not payloads:
         print(f"no payloads in local inbox for {entry.source_key} — run: scrapex crawl {entry.source_key}")
         return 1

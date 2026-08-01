@@ -384,3 +384,64 @@ def test_a_failing_quote_page_costs_one_attempt_per_interval_not_one_per_poll():
     for _ in range(10):
         assert rates.refresh_if_due(conn, _Broken(), now="2026-07-28T00:05:00Z") is None
     assert _Broken.calls == 1
+
+
+def test_the_attempt_survives_an_exception_that_escapes_the_fetch(tmp_path):
+    """The throttle has to hold for the errors this module lets THROUGH, too.
+
+    A per-currency failure is swallowed into warnings, so the caller commits and
+    the stamp lands. CrawlBlocked deliberately propagates — and the worker's
+    recorder, which is where it lands, calls conn.rollback() before writing its
+    report. An uncommitted stamp went with it, so the very next poll was due
+    again: a blocked quote page became a request every half-second against the
+    one site this module most needs to stay welcome at. Hence the stamp is
+    committed on its own, before the fetch.
+    """
+    from scrapex import db as dbmod, rates
+
+    db = tmp_path / "blocked.db"
+    conn = dbmod.connect(db)
+    dbmod.migrate(conn)
+    conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
+                 " source_name, base_url, platform, currency, timezone, authority, active) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+    conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
+    conn.execute("INSERT INTO source_product (source_product_id, source_id, "
+                 " external_product_id, product_name, product_name_ar) "
+                 "VALUES (1,1,'p','P','ب')")
+    conn.execute("INSERT INTO source_variant (source_variant_id, source_product_id, "
+                 " external_variant_id) VALUES (1,1,'v')")
+    conn.execute("INSERT INTO source_offer (offer_id, source_variant_id, "
+                 " country_code_alpha2, customer_segment, basis_quantity, currency, "
+                 " tax_included) VALUES (1,1,'SA','retail',1,'SAR',1)")
+    conn.execute("INSERT INTO price_observation (offer_id, run_id, observed_at, "
+                 " business_date, price, currency, tax_included, availability, "
+                 " record_hash, price_hash, price_fields, provenance) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','2026-07-01',100,'SAR',1,"
+                 "'in_stock','rh','ph','effective','observed')")
+    conn.commit()
+
+    class _Blocked:
+        calls = 0
+        def get(self, url):
+            _Blocked.calls += 1
+            raise CrawlBlocked("the site said no")
+
+    with pytest.raises(CrawlBlocked):
+        rates.refresh_if_due(conn, _Blocked(), now="2026-07-28T00:00:00Z")
+    assert _Blocked.calls == 1
+
+    # What the worker does with a propagated failure: roll back, then report.
+    conn.rollback()
+
+    assert rates.last_checked(conn) == "2026-07-28T00:00:00Z", (
+        "the attempt was rolled back with the failure it was reporting")
+    for _ in range(10):
+        assert rates.refresh_if_due(conn, _Blocked(), now="2026-07-28T00:05:00Z") is None
+    assert _Blocked.calls == 1
+
+    # And it is a THROTTLE, not a lockout: due again once the window passes.
+    with pytest.raises(CrawlBlocked):
+        rates.refresh_if_due(conn, _Blocked(), now="2026-07-29T00:00:00Z")
+    assert _Blocked.calls == 2

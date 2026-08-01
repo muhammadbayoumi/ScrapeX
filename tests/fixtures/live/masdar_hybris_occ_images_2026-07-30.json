@@ -1,0 +1,155 @@
+{
+ "pagination": {
+  "currentPage": 0,
+  "pageSize": 100,
+  "sort": "relevance",
+  "totalPages": 14,
+  "totalResults": 1354
+ },
+ "products": [
+  {
+   "code": "1000061922",
+   "images": [
+    {
+     "format": "thumbnail",
+     "imageType": "PRIMARY",
+     "url": "/medias/96Wx96H-1000061922-1200Wx1200H-0.jpg?context=bWFzdGVyfGltYWdlc3wxODI4fGltYWdlL2pwZWd8YUdSbUwyaGxaUzh4TlRVeU5UYzVNalF4TlRjM05DODVObGQ0T1RaSVh6RXdNREF3TmpFNU1qSXRNVEl3TUZkNE1USXdNRWd0TUM1cWNHY3w2ZjhmYjhjOTc1MjcyMzQ3ZTgyMDFlOGJhZDNmYzE1OGZlYTc1NGU0MDU5MDZjZDY3NGY1MTIwMWI5ZDkzNDJm"
+    },
+    {
+     "format": "product",
+     "imageType": "PRIMARY",
+     "url": "/medias/300Wx300H-1000061922-1200Wx1200H-0.jpg?context=bWFzdGVyfGltYWdlc3wxMDk1MnxpbWFnZS9qcGVnfGFERmtMMmhsWlM4eE5UVXlOVGM1TWpRNE1UTXhNQzh6TURCWGVETXdNRWhmTVRBd01EQTJNVGt5TWkweE1qQXdWM2d4TWpBd1NDMHdMbXB3Wnd8YTU3Mjc1NGMwYjUxZWI4YTNiMTY0YTA4OGU1OTg3MWYyMmQ2Yjc4ZDRlOTQwNzc5Yjk3MTJiMzhiODJmMTAwNg"
+    },
+    {
+     "format": "zoom",
+     "imageType": "PRIMARY",
+     "url": "/medias/515Wx515H-1000061922-1200Wx1200H-0.jpg?context=bWFzdGVyfGltYWdlc3wzMTM3NHxpbWFnZS9qcGVnfGFESXdMMmhsWWk4eE5UVXlOVGM1TWpVME5qZzBOaTgxTVRWWGVEVXhOVWhmTVRBd01EQTJNVGt5TWkweE1qQXdWM2d4TWpBd1NDMHdMbXB3Wnd8YTIwMWViYmE5ZWRkZWZiNjY1ZWUzMjQxMWZkOWVhMzM1ZjAzNGQ4MjMyOWM3M2QwYTc2NDlkYjIyZmYxMmMwNQ"
+    }
+   ],
+   "manufacturer": "AREB",
+   "name": "جرس أريب الذكي لون أبيض موديل 51DBRL8L",
+   "price": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 207.00",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 206.99999999999997
+   },
+   "priceWithTax": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 207.00",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 206.99999999999997
+   },
+   "priceWithoutTax": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 180.00",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 180.0
+   },
+   "salesUnit": {
+    "conversion": 0.0,
+    "name": "قطعة",
+    "unit": "PCE"
+   },
+   "stock": {
+    "isValueRounded": false,
+    "stockLevel": 0,
+    "stockLevelStatus": "outOfStock"
+   },
+   "url": "/smart-home-devices-and-automation/smart-intercom-systems/areb-smart-kinetic-wireless-doorbell-with-intercom-white-51dbrl8l/p/1000061922"
+  },
+  {
+   "code": "1000061940",
+   "images": [
+    {
+     "format": "thumbnail",
+     "imageType": "PRIMARY",
+     "url": "/medias/96Wx96H-1000061940-1200Wx1200H-0.jpg?context=bWFzdGVyfGltYWdlc3wyMzEwfGltYWdlL2pwZWd8YUdVekwyaGhNQzh4TlRVeU5UZ3dOamd6TXpZNU5DODVObGQ0T1RaSVh6RXdNREF3TmpFNU5EQXRNVEl3TUZkNE1USXdNRWd0TUM1cWNHY3xjN2E1NjM4ZjY4NmZmYTFkM2I0NDU2ODZhNGQ5M2ZlYTM2NzViNjhjOTAxZTgxNzA5ZWY3OTMwZDMxN2E1NGQ5"
+    },
+    {
+     "format": "product",
+     "imageType": "PRIMARY",
+     "url": "/medias/300Wx300H-1000061940-1200Wx1200H-0.jpg?context=bWFzdGVyfGltYWdlc3wxMDc2NnxpbWFnZS9qcGVnfGFEa3hMMmhoTVM4eE5UVXlOVGd3TmpnNU9USXpNQzh6TURCWGVETXdNRWhmTVRBd01EQTJNVGswTUMweE1qQXdWM2d4TWpBd1NDMHdMbXB3Wnd8NTY3ZjcyZjgzMDQyYTExN2NkZjM3NGZkMmNmMDNiMTdiOGRlYzM2YmM3NTg0Y2Y1ZjllNGMwNzczOTYyYjZmNg"
+    },
+    {
+     "format": "zoom",
+     "imageType": "PRIMARY",
+     "url": "/medias/515Wx515H-1000061940-1200Wx1200H-0.jpg?context=bWFzdGVyfGltYWdlc3wzMDA0NHxpbWFnZS9qcGVnfGFHRXlMMmhoTkM4eE5UVXlOVGd3TmprMk5EYzJOaTgxTVRWWGVEVXhOVWhmTVRBd01EQTJNVGswTUMweE1qQXdWM2d4TWpBd1NDMHdMbXB3Wnd8N2JmNDRiYTg2YmY5ZjkzOTNkN2E4ZmM3MTI2YWEwOWVlMTk0NWQyMzlkMTU0MmRlNTdmYTg0MzM1OTA5OTEyZA"
+    }
+   ],
+   "manufacturer": "AREB",
+   "name": "مستشعر أريب الذكي للحركة  لون أبيض موديل 30MSAR00",
+   "price": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 57.50",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 57.49999999999999
+   },
+   "priceWithTax": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 57.50",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 57.49999999999999
+   },
+   "priceWithoutTax": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 50.00",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 50.0
+   },
+   "salesUnit": {
+    "conversion": 0.0,
+    "name": "قطعة",
+    "unit": "PCE"
+   },
+   "stock": {
+    "isValueRounded": false,
+    "stockLevel": 3,
+    "stockLevelStatus": "lowStock"
+   },
+   "url": "/smart-home-devices-and-automation/smart-home-sensors/areb-smart-wifi-pir-montion-sensor-white-60icar00/p/1000061940"
+  },
+  {
+   "code": "1000068754",
+   "name": "شريطPVC كرونسبان رقم K543 مقاس 1X44X100",
+   "price": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 230.00",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 229.99999999999997
+   },
+   "priceWithTax": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 230.00",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 229.99999999999997
+   },
+   "priceWithoutTax": {
+    "currencyIso": "SAR",
+    "formattedValue": "SAR 200.00",
+    "priceType": "BUY",
+    "symbolLoc": "SAR",
+    "value": 200.0
+   },
+   "salesUnit": {
+    "conversion": 0.0,
+    "name": "لفة",
+    "unit": "RO"
+   },
+   "stock": {
+    "isValueRounded": false,
+    "stockLevel": 0,
+    "stockLevelStatus": "outOfStock"
+   },
+   "url": "/c/pvc-edgeband-k543-sn-sand-barbera-44m/p/1000068754"
+  }
+ ]
+}

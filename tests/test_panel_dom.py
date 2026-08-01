@@ -905,6 +905,234 @@ def test_history_backfill_is_offered_only_where_the_source_publishes_history(ope
     assert "Energy Prices" in page.text_content("#mode-help")
 
 
+# ---- the rebuilt Activity panel: progress that states its denominator --------
+
+def _running_job(**over):
+    job = {
+        "job_ref": "job_live", "source_keys": ["SALLA_SHOP"],
+        "status": "running", "stage": "fetching",
+        "started_at": "2026-07-30T10:00:00Z", "current_source_key": "SALLA_SHOP",
+        "progress": {"done": 0, "total": 1},
+        "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None,
+                  "unknown_sources": [], "sources": {}},
+        "counters": {"observations": 0, "duplicates": 0, "products": 0,
+                     "requests": 0, "errors": 0},
+        "queued_behind": None,
+    }
+    job.update(over)
+    return job
+
+
+def _bar_width_pct(page):
+    return page.evaluate("""() => {
+        const bar = document.getElementById("act-bar");
+        const fill = bar.getBoundingClientRect().width;
+        const track = bar.parentElement.getBoundingClientRect().width;
+        return track ? Math.round(fill / track * 100) : 0;
+    }""")
+
+
+def _open_on_run(open_panel, **kw):
+    """Open the panel and reveal the Run view, where the Activity card lives."""
+    page = open_panel(**kw)
+    page.click(RUN_TAB)
+    page.wait_for_timeout(400)
+    return page
+
+
+def test_the_bar_is_a_fraction_of_requests_against_a_stated_denominator(open_panel):
+    """The whole complaint: 0% for 18 minutes because the bar measured SOURCES.
+    Now it measures requests against a real total, and the sentence beneath it
+    says what that total is and — for an estimate — its date."""
+    job = _running_job(
+        current_source_key="SALLA_SHOP",
+        fetch={"requests": 1030, "expected": 2461, "basis": "estimate",
+               "as_of": "2026-07-29", "unknown_sources": [],
+               "sources": {"SALLA_SHOP": {"state": "fetching", "requests": 1030,
+                                          "expected": 2461, "basis": "estimate",
+                                          "as_of": "2026-07-29", "not_modified": 40,
+                                          "retries": 2, "pace_s": 1.0,
+                                          "honouring_delay": True}}})
+    page = _open_on_run(open_panel, jobs=[job])
+
+    label = text_of(page, "#act-progress-label")
+    assert "1,030" in label and "2,461" in label, label
+    assert "42%" in label, label                 # 1030/2461
+    assert "estimate" in label and "29 Jul" in label, label
+    width = _bar_width_pct(page)
+    assert 38 <= width <= 46, f"the bar did not reflect the fraction: {width}%"
+    # The politeness read-out the owner asked for: 304s against the total.
+    assert "304" in text_of(page, "#act-counters")
+    assert not page.js_errors
+
+
+def test_a_declared_total_reads_as_a_count_not_an_estimate(open_panel):
+    """A sitemap connector KNOWS its frontier — that is a count, so no "~" and no
+    date, and the bar is a true fraction from the first pages."""
+    job = _running_job(
+        fetch={"requests": 50, "expected": 400, "basis": "declared", "as_of": None,
+               "unknown_sources": [],
+               "sources": {"SALLA_SHOP": {"state": "fetching", "requests": 50,
+                                          "expected": 400, "basis": "declared"}}})
+    page = _open_on_run(open_panel, jobs=[job])
+    label = text_of(page, "#act-progress-label")
+    assert "50" in label and "400" in label
+    assert "estimate" not in label
+    assert "page count" in label            # "the site's own page count"
+    assert not page.js_errors
+
+
+def test_an_unknown_denominator_reads_as_unknown_not_zero_percent(open_panel):
+    """A first-ever crawl of a site with no sitemap genuinely cannot know its
+    total. The bar is indeterminate and SAYS the total is not known — the one
+    thing it must never do is sit at 0% of a number nobody has."""
+    job = _running_job(
+        fetch={"requests": 340, "expected": None, "basis": None, "as_of": None,
+               "unknown_sources": ["SALLA_SHOP"],
+               "sources": {"SALLA_SHOP": {"state": "fetching", "requests": 340}}})
+    page = _open_on_run(open_panel, jobs=[job])
+
+    label = text_of(page, "#act-progress-label")
+    assert "340" in label
+    assert "not known yet" in label, label
+    assert "0%" not in label
+    assert page.locator("#act-bar").evaluate("el => el.classList.contains('indeterminate')")
+    assert not page.js_errors
+
+
+def test_a_queued_second_job_says_why_it_waits(open_panel):
+    """"queued" with no reason read as the parallel feature failing. Now it names
+    what holds the worker and this job's place in line."""
+    job = _running_job(
+        status="queued", stage=None, current_source_key=None, started_at=None,
+        fetch={"requests": 0, "expected": None, "basis": None, "as_of": None,
+               "unknown_sources": [], "sources": {}},
+        queued_behind={"position": 1, "capacity": 1, "running_count": 1,
+                       "starting_now": False,
+                       "running": [{"job_ref": "job_first",
+                                    "source_keys": ["ELBUROJ"]}]})
+    page = _open_on_run(open_panel, jobs=[job])
+    queue = text_of(page, "#act-queue")
+    assert "Queued" in queue
+    assert "ELBUROJ" in queue
+    assert "slot frees" in queue
+    assert "Sites crawled at the same time" in queue   # points to the fix
+    assert not page.js_errors
+
+
+# ---- the log: no cap, one split button, no auto-scroll button ----------------
+
+def _log_entries(n):
+    return [{"logged_at": f"2026-07-30T10:{i // 60:02d}:{i % 60:02d}Z",
+             "level": "info", "message": f"fetching — {i} requests so far"}
+            for i in range(n)]
+
+
+def test_no_log_entry_is_dropped_and_the_cap_is_gone(open_panel):
+    """The 200 cap was the client's, and it dropped exactly the line that
+    explained a long run's failure. Every entry is shown, and the request no
+    longer asks for a limited slice."""
+    entries = _log_entries(250)
+    page = _open_on_run(open_panel, jobs=[_running_job()], logs=entries)
+
+    assert page.locator("#logbox .logline").count() == 250, "the log was truncated"
+    assert "250" in text_of(page, "#log-caption") and "all shown" in text_of(page, "#log-caption")
+    # No caller asked for ?limit=200 (or any limit) on the log endpoint.
+    limited = page.evaluate(
+        "() => window.__calls.filter(p => /\\/logs/.test(p) && /limit=/.test(p))")
+    assert limited == [], f"a log fetch still capped itself: {limited}"
+
+
+def test_the_pause_auto_scroll_button_is_gone(open_panel):
+    """He asked for it removed."""
+    page = _open_on_run(open_panel, jobs=[_running_job()], logs=_log_entries(5))
+    assert page.locator("#autoscroll").count() == 0
+    body = page.text_content("#activity")
+    assert "auto-scroll" not in body.lower()
+
+
+def test_the_log_controls_are_one_shared_split_button(open_panel):
+    """Copy and Download become ONE split button — the SAME component the dataset
+    Export uses, not a second implementation."""
+    page = _open_on_run(open_panel, jobs=[_running_job()], logs=_log_entries(5))
+
+    split = page.locator("#activity .split-button")
+    assert split.count() == 1
+    # The primary copies; the menu holds copy + download. Wired by the shared
+    # ScrapeXSplitButton, so the menu opens and closes like the Export one.
+    assert page.locator('#activity .split-button-primary[data-split-action="copy"]').count() == 1
+    assert page.locator('#activity [data-split-action="download"]').count() == 1
+    assert "Every line now on screen" not in split.text_content()
+    assert "engine's complete record" not in split.text_content()
+
+    menu = page.locator("#activity .split-button-menu")
+    assert not menu.evaluate("el => el.open")
+    page.click("#activity .split-button-trigger")
+    assert menu.evaluate("el => el.open"), "the shared split-button behaviour did not open the menu"
+    assert not page.js_errors
+
+
+def test_the_split_button_copies_the_visible_log_and_downloads_the_full_one(open_panel):
+    """Both actions do what they say: copy writes the on-screen lines to the
+    clipboard; download opens the FULL log endpoint, uncapped."""
+    page = _open_on_run(open_panel, jobs=[_running_job()], logs=_log_entries(3))
+    page.evaluate("""() => {
+        window.__copied = [];
+        navigator.clipboard.writeText = (t) => { window.__copied.push(t); return Promise.resolve(); };
+        window.__opened = [];
+        window.chrome.tabs.create = (o) => window.__opened.push(o.url);
+    }""")
+
+    page.click('#activity .split-button-primary[data-split-action="copy"]')
+    page.wait_for_timeout(100)
+    copied = page.evaluate("() => window.__copied")
+    assert copied and "fetching — 0 requests so far" in copied[0]
+    assert copied[0].count("\n") == 2, "copy did not carry every visible line"
+
+    page.click("#activity .split-button-trigger")
+    page.click('#activity [data-split-action="download"]')
+    page.wait_for_timeout(100)
+    opened = page.evaluate("() => window.__opened")
+    assert len(opened) == 1 and opened[0].endswith("/api/jobs/job_live/logs"), opened
+    assert "limit=" not in opened[0], "the full-log download capped itself"
+    assert not page.js_errors
+
+
+def test_the_data_tab_states_when_each_source_was_last_crawled(open_panel):
+    """The card read "no recorded changes yet"; the freshness of the data is the
+    fact the owner actually asked for."""
+    sources = [
+        {"source_key": "SALLA_SHOP", "base_url": "https://shop.example.com",
+         "source_name": "Example Shop", "family": "salla-html", "active": True,
+         "implemented": True, "observations": 763, "products": 763,
+         "last_success": {"started_at": "2026-07-29T08:30:00Z", "finished_at": "",
+                          "rows_seen": 763, "requests_count": 812,
+                          "products_discovered": 763, "errors_count": 0}},
+    ]
+    page = open_panel(sources=sources)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    card = page.text_content("#datasets")
+    assert "Last crawled 2026-07-29 08:30" in card
+    assert "763 rows seen" in card
+    assert "no recorded changes yet" not in card
+    assert not page.js_errors
+
+
+def test_a_source_that_never_succeeded_says_so_on_the_data_tab(open_panel):
+    """"never" is a real answer the card must state, not paper over with a zero."""
+    sources = [
+        {"source_key": "NEWSHOP", "base_url": "https://new.example.com",
+         "source_name": "New Shop", "family": "salla-html", "active": True,
+         "implemented": True, "observations": 5, "products": 5, "last_success": None},
+    ]
+    page = open_panel(sources=sources)
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    assert "no successful crawl yet" in page.text_content("#datasets")
+    assert not page.js_errors
+
+
 # ---- active crawl status bar -------------------------------------------------
 
 def test_the_active_crawl_minimizes_to_a_statusbar_and_opens_again(open_panel):

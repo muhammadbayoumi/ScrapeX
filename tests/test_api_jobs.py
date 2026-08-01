@@ -48,7 +48,9 @@ def test_create_job_queues_without_executing(client):
 
     state = client.get(f"/api/jobs/{body['job_ref']}").json()
     assert state["status"] == "queued"          # queued, NOT run by the request
-    assert state["progress"] == {"done": 0, "total": 1, "percent": 0}
+    # Sites done, and no percentage: 0/1 is true about a one-source job, and the
+    # "0%" that used to ride beside it was the complaint, not the measurement.
+    assert state["progress"] == {"done": 0, "total": 1}
     assert state["started_at"] is None
 
 
@@ -70,6 +72,61 @@ def test_create_job_rejects_bad_run_mode(client):
 def test_create_job_accepts_multiple_sources(client):
     r = client.post("/api/jobs", json={"source_keys": [REAL_SOURCE, "MADAR"]})
     assert r.status_code == 200 and r.json()["source_keys"] == [REAL_SOURCE, "MADAR"]
+
+
+# ---- the honest queue: a second run says WHY it waits ------------------------
+
+def test_a_second_queued_job_is_told_what_it_is_waiting_for(client, db_path):
+    """A crawl behind a crawl said "queued" with no reason, and the owner read
+    it as the parallel feature failing. The API now states the fact: how many
+    are running, and this job's place in line."""
+    from scrapex import db as dbmod
+    from scrapex.jobs import _update, get_job
+
+    first = client.post("/api/jobs", json={"source_keys": [REAL_SOURCE]}).json()["job_ref"]
+    second = client.post("/api/jobs", json={"source_keys": ["MADAR"]}).json()["job_ref"]
+
+    # Put the first into a running state, as the worker would, so the second is
+    # genuinely waiting behind it (default budget 1).
+    conn = dbmod.connect(db_path)
+    try:
+        _update(conn, get_job(conn, first)["job_id"], status="running")
+        conn.commit()
+    finally:
+        conn.close()
+
+    listing = client.get("/api/jobs").json()
+    assert listing["queue"]["capacity"] == 1
+    assert [j["job_ref"] for j in listing["queue"]["running"]] == [first]
+
+    state = client.get(f"/api/jobs/{second}").json()
+    behind = state["queued_behind"]
+    assert behind is not None
+    assert behind["position"] == 1 and behind["running_count"] == 1
+    assert behind["starting_now"] is False           # budget full, it truly waits
+    assert behind["running"][0]["source_keys"] == [REAL_SOURCE]
+
+    # The running job itself is not "behind" anything.
+    assert client.get(f"/api/jobs/{first}").json()["queued_behind"] is None
+
+
+def test_a_queued_job_within_the_free_budget_is_starting_not_waiting(client, db_path):
+    """With a free slot, a queued job is not really waiting — the worker starts
+    it on the next poll — and the panel must not dress that as a stall."""
+    from scrapex import db as dbmod, settings
+
+    conn = dbmod.connect(db_path)
+    try:
+        settings.save(conn, {"crawl_parallel_sources": "2"})
+        conn.commit()
+    finally:
+        conn.close()
+
+    only = client.post("/api/jobs", json={"source_keys": [REAL_SOURCE]}).json()["job_ref"]
+    state = client.get(f"/api/jobs/{only}").json()
+    behind = state["queued_behind"]
+    assert behind is not None and behind["starting_now"] is True
+    assert behind["capacity"] == 2 and behind["running_count"] == 0
 
 
 # ---- resume: the kept pages the panel could not see or reach -----------------
@@ -279,8 +336,13 @@ def test_finished_job_reports_progress_and_counters(client, db_path):
         conn.close()
     state = client.get(f"/api/jobs/{ref}").json()
     assert state["status"] == "completed"
-    assert state["progress"] == {"done": 1, "total": 1, "percent": 100}
+    assert state["progress"] == {"done": 1, "total": 1}
     assert state["counters"]["observations"] == 3 and state["finished_at"] is not None
+    # A finished source's expectation IS its actual count: the run is history and
+    # history is not a prediction, so the bar closes on a measurement.
+    assert state["fetch"]["requests"] == state["fetch"]["expected"]
+    assert state["fetch"]["basis"] == "measured"
+    assert state["fetch"]["unknown_sources"] == []
 
 
 # ---- records for the panel's Browse Data screen (spec 20) -------------------

@@ -97,16 +97,55 @@ def crawl_settings(conn: sqlite3.Connection) -> dict:
     }
 
 
-def _job_progress(conn: sqlite3.Connection, job_id: int,
-                  source_key: str) -> Callable[[int, str], None]:
+def _job_progress(conn: sqlite3.Connection, job_id: int, source_key: str,
+                  fetcher=None) -> Callable[[int, str], None]:
     """A per-request heartbeat for the job row, throttled to stay negligible.
 
-    Every 10 requests the heartbeat and the live request counter move — the
-    panel's Requests figure ticks and a watchdog can tell life from a hang.
-    Every 50, one log line states plainly what is happening. The counter is
-    provisional (this source's count so far); the authoritative total is merged
-    per source by the job loop as before.
+    Every 10 requests the heartbeat and this source's live slot move — the
+    panel's progress figure ticks and a watchdog can tell life from a hang.
+    Every 50, one log line states plainly what is happening.
+
+    `fetcher` is read, never written: it is already counting everything worth
+    showing (304s, retries, the pace actually in force, the frontier a connector
+    declared), and reading it here is what puts those facts on the panel without
+    a second accounting of any of them. Omitted, the tick still records the
+    count — every existing caller and test keeps working.
     """
+    def measurements(count: int) -> dict:
+        live: dict = {"requests": count, "state": "fetching"}
+        if fetcher is None:
+            return live
+        # A connector that enumerated its frontier outranks the estimate seeded
+        # from the last successful run: it counted, the estimate guessed.
+        expected = getattr(fetcher, "expected_requests", None)
+        if expected:
+            live["expected"] = int(expected)
+            live["basis"] = "declared"
+            live["as_of"] = None
+        # 304s are the single best sign a recurring crawl is being cheap and
+        # polite, and retries the best early sign a site is pushing back.
+        live["not_modified"] = int(getattr(fetcher, "not_modified_count", 0) or 0)
+        live["retries"] = int(getattr(fetcher, "retry_count", 0) or 0)
+        # The pace IN FORCE, which is not the setting: robots.txt can raise it
+        # (see HttpFetcher._robots_for), and whether that was honoured is the
+        # owner's own per-run choice. A run that was fast because the site asked
+        # for nothing and one that was fast because we overrode a 10s delay must
+        # not look identical while it happens.
+        live["pace_s"] = float(getattr(fetcher, "_min_interval_s", 0.0) or 0.0)
+        live["honouring_delay"] = bool(getattr(fetcher, "_honour_crawl_delay", True))
+        return live
+
+    def publish(count: int, *, force: bool = False) -> None:
+        from .jobs import record_source_fetch
+
+        record_source_fetch(conn, job_id, source_key, **measurements(count))
+        if not force and count and count % 50 == 0:
+            # Local import: jobs.py imports this module at its top.
+            from .jobs import append_log
+            append_log(conn, job_id, f"fetching — {count} requests so far",
+                       source_key=source_key)
+        conn.commit()
+
     def tick(count: int, url: str) -> None:
         if count % 10:
             return
@@ -119,17 +158,14 @@ def _job_progress(conn: sqlite3.Connection, job_id: int,
         if control and control[0] in ("cancel", "pause"):
             from .connectors.base import CrawlInterrupted
             raise CrawlInterrupted(control[0])
-        conn.execute(
-            "UPDATE crawl_job SET last_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
-            "counters_json = json_set(COALESCE(NULLIF(counters_json,''),'{}'), "
-            "'$.requests', ?) WHERE job_id = ?",
-            (count, job_id))
-        if count % 50 == 0:
-            # Local import: jobs.py imports this module at its top.
-            from .jobs import append_log
-            append_log(conn, job_id, f"fetching — {count} requests so far",
-                       source_key=source_key)
-        conn.commit()
+        publish(count)
+
+    # A declaration arrives once, normally while the count is still in single
+    # figures, so it must not wait for the tenth-request tick — otherwise every
+    # crawl that DOES know its total would show "unknown" for its first ten
+    # pages, which is the complaint this is here to answer.
+    tick.on_expectation = lambda _total: publish(
+        getattr(fetcher, "requests_count", 0) or 0, force=True)
     return tick
 
 
@@ -212,7 +248,12 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         # start-time heartbeat for a quarter hour — indistinguishable from a
         # hang. The fetch holds no lock (see above), so these tiny job-row
         # writes are exactly the kind the lock design set out to keep flowing.
-        fetcher.on_request = _job_progress(conn, job_id, entry.source_key)
+        tick = _job_progress(conn, job_id, entry.source_key, fetcher)
+        fetcher.on_request = tick
+        # The other half of the same display: the moment a connector knows how
+        # many pages it will fetch, the panel's bar gains a real denominator.
+        if hasattr(fetcher, "on_expectation"):
+            fetcher.on_expectation = tick.on_expectation
     tables: list = []
     try:
         for t in connector.fetch(entry):            # network only — no DB involved
@@ -247,10 +288,16 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         raise
     finally:
         fetcher.close()
+    journal_skips: list[str] = []
     if journal:
         # The journal holds this run's pages PLUS any kept from before the
         # pause — reading it back is what makes the resumed ingest whole.
-        payloads = localinbox.read_payloads(localinbox.JOURNAL_DIR, entry.source_key)
+        # A page that will not read back is contained to itself; the account of
+        # what was skipped goes onto the run below, because `clear` a few lines
+        # further down is the last moment those pages exist.
+        read = localinbox.read_payloads(localinbox.JOURNAL_DIR, entry.source_key)
+        payloads = read.payloads
+        journal_skips = read.report()
     else:
         payloads = [t.to_payload() for t in tables]
     with (lock() if lock is not None else nullcontext()):
@@ -273,10 +320,31 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         # per page. Read from `tables` and not from the journal, because a defect
         # describes what THIS attempt produced.
         defects = list(dict.fromkeys(d for t in tables for d in t.defects))
+        # What the fetch actually cost, recorded ON THE RUN. crawl_run has had a
+        # requests_count column since the schema was written and nothing ever
+        # wrote it, so every run in the warehouse reads 0 — which is why the
+        # panel had no measured expectation to show a bar against. From here a
+        # successful run leaves the next crawl of this source a real number, and
+        # it sharpens by itself every time.
         result = ingest_payloads(conn, entry, payloads, job_id=job_id,
-                                 fetch_defects=defects)
+                                 fetch_defects=defects,
+                                 requests_count=requests_count)
+        # ERRORS, not notices: rows a journaled page was holding did not land,
+        # so the run genuinely IS partial (the taxonomy on IngestResult). Any
+        # softer channel would let a resume that dropped 871 pages close as a
+        # clean success — the loss this path exists to prevent. PARTIAL rather
+        # than FAILED, because everything readable did land.
+        result.errors.extend(journal_skips)
         _store_published_rates(conn, entry, tables, result)
     if journal:
+        # `journal` is `job_id is not None`, so there is always a job to tell.
+        # Said in the log as well as on the result because the result is a
+        # return value and the log is what the owner actually reads.
+        if journal_skips:
+            from .jobs import append_log, LogLevel
+            for line in journal_skips:
+                append_log(conn, job_id, line, level=LogLevel.WARNING,
+                           source_key=entry.source_key)
         localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
     # rows/tables come from the PAYLOADS: on a resume the fetched tables are
     # only the tail of the crawl, and the F6 volume canary must see the whole.

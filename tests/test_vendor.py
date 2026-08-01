@@ -369,30 +369,50 @@ def test_status_bar_is_a_real_feature_and_owns_the_row_total():
 def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
     page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
-    css = THEME.read_text(encoding="utf-8")
+    # The split-button SHELL is now the shared component (components.css); the
+    # grid-theme keeps only where the exportbar sits and how it stacks.
+    theme_css = THEME.read_text(encoding="utf-8")
+    shared_css = (VENDOR.parent / "components.css").read_text(encoding="utf-8")
 
     assert 'class="data-grid-exportbar"' in page
     assert page.index('class="data-grid-viewport"') < page.index('class="data-grid-exportbar"')
-    assert 'class="grid-export-split"' in page
-    assert 'class="grid-export-primary" data-export="xlsx"' in page
-    assert 'class="grid-export-menu"' in page
-    assert 'class="grid-export-trigger"' in page
+    # The Export control IS the shared split button — the same classes the panel
+    # log control uses. That reuse is the DRY the owner asked for by name.
+    assert 'class="split-button"' in page
+    assert 'class="split-button-primary" data-split-action="xlsx"' in page
+    assert 'class="split-button-menu"' in page
+    assert 'class="split-button-trigger"' in page
     assert '<span>Excel workbook</span>' in page
-    assert 'class="grid-export-options-head"' in page
-    assert page.count('class="grid-export-option"') == 2
-    assert page.count('class="grid-export-extension"') == 2
-    assert page.count("data-export=") == 3
-    assert 'class="chip" data-export=' not in page
+    assert 'class="split-button-options-head"' not in page
+    assert page.count('class="split-button-option"') == 2
+    assert page.count('class="split-button-option-tag"') == 2
+    assert "Filtered rows in a spreadsheet-friendly file." not in page
+    assert "Structured data from the current table view." not in page
+    assert page.count("data-split-action=") == 3
+    assert 'class="chip" data-split-action=' not in page
     assert 'role="menu" aria-label="Export format"' in page
-    assert 'if (event.key !== "Escape" || !menu.open) return;' in script
-    assert 'if (menu.open && !menu.contains(event.target)) closeMenu();' in script
-    assert ".grid-export-split" in css
-    split_rule = css.split(".grid-export-split {", 1)[1].split("}", 1)[0]
+    # The behaviour lives ONCE, in split-button.js, and grid.js calls it rather
+    # than re-implementing the open/close/escape/outside-click dance.
+    assert "ScrapeXSplitButton.wire(" in script
+    assert 'if (event.key !== "Escape" || !menu.open) return;' not in script, \
+        "grid.js must not carry a second copy of the split-button behaviour"
+    # The shell styles live in the SHARED component, not re-declared per grid.
+    assert ".grid-export-split" not in theme_css and ".grid-export-menu" not in theme_css
+    assert ".split-button {" in shared_css
+    split_rule = shared_css.split(".split-button {", 1)[1].split("}", 1)[0]
     assert "overflow: hidden" not in split_rule, "the split must not clip its menu"
-    assert ".grid-export-menu[open] .grid-export-trigger" in css
-    assert "#grid-toolbar .grid-export-primary:active:not(:disabled)" in css
-    assert ".grid-export-options" in css
-    assert "#grid-toolbar .grid-export-option:active:not(:disabled)" in css
+    assert ".split-button-menu[open] .split-button-trigger" in shared_css
+    assert ".split-button-primary:active:not(:disabled)" in shared_css
+    assert ".split-button-options" in shared_css
+    options_rule = shared_css.split(".split-button-options {", 1)[1].split("}", 1)[0]
+    assert "inset-inline: 0" in options_rule
+    assert "top: calc(100% + var(--sp-1))" in options_rule
+    assert "width: 100%" in options_rule
+    assert "bottom:" not in options_rule
+    assert ".split-button-trigger:focus-visible" in shared_css
+    focus_rule = shared_css.split(".split-button-trigger:focus-visible {", 1)[1].split("}", 1)[0]
+    assert "outline-offset: -2px" in focus_rule
+    assert ".split-button-option:active:not(:disabled)" in shared_css
 
 
 def test_unimplemented_grid_features_are_visible_but_disabled():

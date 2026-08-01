@@ -153,6 +153,41 @@ PRODUCT_PRICES = RowSpec(
         "minimum_quantity",      # min_sale_qty: the smallest orderable amount
         "quantity_increment",    # qty_increments: the step it moves in
         "quantity_is_decimal",   # "0" | "1" — is_qty_decimal, as a FACT
+        # --- added 2026-07-30 -------------------------------------------------
+        # THE WEIGHT THE SOURCE PUBLISHES, and the unit the source says its
+        # weights are in. The pair that finally makes 4,830 readable without
+        # anyone writing «طن».
+        #
+        # 0056 stored is_qty_decimal / min_sale_qty / qty_increments and left
+        # the weight on the floor, so the row still could not say what 4,830
+        # was FOR. `weight` was already being ASKED for (magento's query has
+        # carried it since 0056) and reached exactly one destination:
+        # normalize.selling_unit_from, which returns ("","") unless the NAME
+        # states a matching kg quantity. The rebar member's name states a
+        # diameter and a length — «8مم × 12متر» — so weight 1000 arrived on
+        # every crawl and was discarded on every crawl.
+        #
+        # WHY THIS IS NOT `basis_quantity`. That column is one half of a pair
+        # whose other half is `unit`, it defaults to 1, and it is inside
+        # ux_source_offer_identity — so writing 1000 into it would both assert
+        # "the price is per 1000 <unit>" (the assertion we are refusing to
+        # make) and change the identity of every affected offer, minting a
+        # second one beside it. basis_quantity is what the site states IN
+        # WORDS; this is what it states as a NUMBER, and the two are different
+        # claims with different confidence.
+        #
+        # WHY THE UNIT RIDES ALONG. A weight with no unit is not a fact, and
+        # "kg" was the last thing in this chain still coming out of our own
+        # mouth (normalize.py hardcodes it, so does the enrichment weight
+        # row). Magento publishes StoreConfig.weight_unit and madar answers
+        # "kgs" on both store views — verified live 2026-07-30 — so the unit
+        # is now the SHOP's word too, and a store reporting "lbs" renders lbs
+        # without anything here changing. Per row rather than per source for
+        # the same reason `currency` is: a fact travels with the number it
+        # qualifies, and a source-level flag stamped on every observation is
+        # how this warehouse came to assert things a shop never said.
+        "weight",
+        "weight_unit",
     ),
     required=frozenset({"external_product_id", "country_code_alpha2", "currency", "tax_included", "price"}),
     # The four _ar columns are deliberately NOT additive. RowView returns ""
@@ -173,7 +208,8 @@ PRODUCT_PRICES = RowSpec(
                         "category_external_id",
                         "variant", "variant_axes", "variant_url", "parent_sku",
                         "display_method", "minimum_quantity",
-                        "quantity_increment", "quantity_is_decimal"}),
+                        "quantity_increment", "quantity_is_decimal",
+                        "weight", "weight_unit"}),
 )
 
 # ---- enrichment: the open-ended attribute bag, one ROW per attribute ---------

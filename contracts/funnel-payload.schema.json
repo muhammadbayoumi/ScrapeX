@@ -43,7 +43,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Content version 7, meaning generation 5. One contract for CLI + extension producers and the Apps Script consumer. A consumer gates on payload_compat_version and NEVER on payload_version: a newer content version is a payload with an extra column in it, which anything reading by column name can already read. See scraper/ENGINEERING.md T8.",
+  "description": "Content version 8, meaning generation 5. One contract for CLI + extension producers and the Apps Script consumer. A consumer gates on payload_compat_version and NEVER on payload_version: a newer content version is a payload with an extra column in it, which anything reading by column name can already read. See scraper/ENGINEERING.md T8.",
   "properties": {
     "payload_version": {
       "minimum": 1,
@@ -162,7 +162,8 @@
             "enum": [
               5,
               6,
-              7
+              7,
+              8
             ]
           }
         }

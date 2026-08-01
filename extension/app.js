@@ -42,7 +42,7 @@ async function openTab(path) { chrome.tabs.create({ url: (await getBackend()) + 
 const state = {
   sources: [], selected: new Set(), filter: "", sourceFilter: "",
   editingSourceKey: null,
-  job: null, jobRef: null, autoscroll: true, logs: [], logSignature: null,
+  job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
   engineUp: false,
 };
 
@@ -219,6 +219,28 @@ function renderRuntime(engine) {
   }).join("");
 }
 
+function renderSchemaLag(lag) {
+  // Absent is the normal case, so the banner is absent too: a badge that is
+  // always on screen is a badge nobody reads. When it IS there it must say the
+  // three things the owner needs — what is wrong, what breaks, what fixes it —
+  // because the alternative he met was a raw SQLite error on a broken page.
+  const box = $("schema-lag");
+  if (!lag || !lag.pending || !lag.pending.length) {
+    box.classList.add("hidden");
+    box.textContent = "";
+    return;
+  }
+  box.textContent = "";
+  const title = el("div", "setup-title", "Database is behind the engine");
+  const what = el("div", "muted steps mb-2", lag.message || "");
+  const how = el("div", "muted text-xs");
+  how.textContent = "Fix: " + (lag.fix || "python -m scrapex.cli init-db")
+    + " — back up first, and apply it before restarting the engine.";
+  const which = el("div", "muted text-xs tech", lag.pending.join(", "));
+  box.append(title, what, which, how);
+  box.classList.remove("hidden");
+}
+
 function setStatus(engine) {
   state.engineUp = engine.running;
   $("dot").className = "dot " + (engine.running ? "on" : "off");
@@ -227,6 +249,7 @@ function setStatus(engine) {
     ? `Ready${engine.version ? " · v" + engine.version : ""}`
     : "Setup required";
   $("about-version").textContent = engine.version || "—";
+  renderSchemaLag(engine.schema_lag);
   renderRuntime(engine);
 }
 
@@ -1030,33 +1053,176 @@ async function startRun() {
 const POLL_MS = 1500;   // throttled: aggregated progress, never per-record events
 let pollTimer = null;
 
+// ---- ONE formatter each (the DRY the owner asked for) ----------------------
+// A count with thousands separators. Every number the panel shows goes through
+// here, so 1030 reads as "1,030" everywhere and never as a bare 1030 in one
+// place and grouped in another.
+function fmtCount(n) {
+  return Number(n || 0).toLocaleString();
+}
+
+// A duration in seconds as human time. Shared by elapsed AND the finish
+// estimate, so the two can never format the same span two different ways.
+function fmtDuration(secs) {
+  secs = Math.max(0, Math.round(secs));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  if (m < 60) return `${m}m ${secs % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
 function fmtElapsed(startedAt) {
   if (!startedAt) return "";
-  const secs = Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000));
-  const m = Math.floor(secs / 60);
-  return m ? `${m}m ${secs % 60}s` : `${secs}s`;
+  return fmtDuration((Date.now() - Date.parse(startedAt)) / 1000);
+}
+
+// The date an estimate carries, "29 Jul" from "2026-07-29" — the same rule that
+// makes a converted price carry its rate's date. Bare YYYY-MM-DD if it cannot
+// be parsed, which is still a stated date.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function fmtAsOf(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : String(iso || "");
+}
+
+// The bar and the sentence beneath it, from job.fetch — requests against a
+// stated denominator. THREE honest shapes, never a bare percentage and never a
+// bar stuck at 0%:
+//   known total   -> a real fraction, the sentence says what OF and (for an
+//                    estimate) its date
+//   unknown total -> an indeterminate bar and "total not known yet", because a
+//                    first-ever crawl genuinely cannot say
+function renderProgress(job) {
+  const f = job.fetch || {};
+  const bar = $("act-bar");
+  const label = $("act-progress-label");
+  if (f.expected) {
+    const pct = Math.min(100, Math.round((f.requests / f.expected) * 100));
+    bar.classList.remove("indeterminate");
+    bar.style.width = pct + "%";
+    // "1,030 of ~2,461 expected (est. 29 Jul)" — a declared total drops the "~"
+    // and the date because it is a count, not a guess.
+    const tilde = f.basis === "estimate" ? "~" : "";
+    const basis = f.basis === "estimate"
+      ? ` · estimate from the last crawl${f.as_of ? " (" + fmtAsOf(f.as_of) + ")" : ""}`
+      : f.basis === "declared" ? " · the site's own page count"
+      : "";
+    label.textContent =
+      `${fmtCount(f.requests)} of ${tilde}${fmtCount(f.expected)} requests (${pct}%)${basis}`;
+  } else {
+    // No denominator anywhere: the count climbs and the bar says so, rather
+    // than drawing 0% of a number nobody has.
+    bar.classList.add("indeterminate");
+    bar.style.width = "100%";
+    const unknown = (f.unknown_sources || []).length;
+    label.textContent = f.requests
+      ? `${fmtCount(f.requests)} requests so far · total not known yet` +
+        (unknown ? ` (${unknown} source${unknown > 1 ? "s" : ""} with no past crawl to estimate from)` : "")
+      : "starting…";
+  }
+}
+
+// An honest finish estimate, ONLY when the denominator that could ground it
+// exists. Derived from the same numbers the bar draws, so it can never claim a
+// precision the bar does not have.
+function finishEstimate(job) {
+  const f = job.fetch || {};
+  if (!f.expected || !job.started_at || f.requests < 2) return "";
+  const elapsed = (Date.now() - Date.parse(job.started_at)) / 1000;
+  const rate = f.requests / elapsed;               // requests per second so far
+  if (rate <= 0) return "";
+  const remaining = Math.max(0, f.expected - f.requests) / rate;
+  const about = f.basis === "estimate" ? "about " : "";
+  return `~${about}${fmtDuration(remaining)} left`;
 }
 
 function renderActivity(job) {
   const box = $("activity");
   if (!job) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
-  $("act-elapsed").textContent = fmtElapsed(job.started_at);
+  const elapsed = fmtElapsed(job.started_at);
+  const left = finishEstimate(job);
+  $("act-elapsed").textContent = [elapsed && `elapsed ${elapsed}`, left]
+    .filter(Boolean).join(" · ");
   $("act-state").innerHTML =
     `<span>${esc(job.status.replace(/_/g, " "))}${job.stage ? " · " + esc(job.stage) : ""}</span>` +
     `<span class="content">${esc(job.current_source_key || "—")}</span>`;
-  $("act-bar").style.width = job.progress.percent + "%";
+  renderProgress(job);
+  renderQueue(job);
+  $("act-counters").innerHTML = activityCounters(job).map(([k, v, title]) =>
+    `<div class="kv"${title ? ` title="${esc(title)}"` : ""}>` +
+    `<span>${esc(k)}</span><span class="tech">${esc(v)}</span></div>`).join("");
+}
+
+// Every row states what it measures. The politeness rows (304s, pace) are the
+// owner's own asks: they are the clearest sign a recurring crawl is being cheap
+// and welcome, and they only appear when the crawl actually reported them.
+function activityCounters(job) {
   const c = job.counters || {};
+  const f = job.fetch || {};
+  const source = firstFetchingSource(job) || {};
   const rows = [
     ["Sites done", `${job.progress.done} / ${job.progress.total}`],
-    ["New data rows", c.observations || 0],
-    ["Unchanged", c.duplicates || 0],
-    ["New products", c.products || 0],
-    ["Requests", c.requests || 0],
-    ["Errors", c.errors || 0],
+    ["Requests", fmtCount(f.requests)],
+    ["New data rows", fmtCount(c.observations)],
+    ["Unchanged", fmtCount(c.duplicates)],
+    ["New products", fmtCount(c.products)],
+    ["Errors", fmtCount(c.errors)],
   ];
-  $("act-counters").innerHTML = rows.map(([k, v]) =>
-    `<div class="kv"><span>${esc(k)}</span><span class="tech">${esc(v)}</span></div>`).join("");
+  // 304 Not-Modified against the requests made: the single best sign a recurring
+  // crawl is being polite and cheap. Shown only once the source reports it.
+  if (source.not_modified) {
+    rows.push(["Unchanged pages (304)",
+               `${fmtCount(source.not_modified)} of ${fmtCount(source.requests)}`,
+               "Pages the site said had not changed since our last visit — fetched cheaply, nothing re-downloaded."]);
+  }
+  if (source.retries) {
+    rows.push(["Retries", fmtCount(source.retries),
+               "Requests we had to attempt more than once (a dropped connection, a rate-limit)."]);
+  }
+  // The pace ACTUALLY in force, and whether the site's Crawl-delay is honoured —
+  // a fast crawl and a polite one must not look the same while they happen.
+  if (source.pace_s != null && source.pace_s > 0) {
+    rows.push(["Pace", `${source.pace_s}s between requests`,
+               source.honouring_delay
+                 ? "Honouring the site's requested crawl delay."
+                 : "Crawl delay overridden for this run at your request."]);
+    const perMin = source.pace_s > 0 ? Math.round(60 / source.pace_s) : 0;
+    if (perMin) rows.push(["Rate", `~${perMin} requests/min at this pace`]);
+  }
+  return rows;
+}
+
+// The slot of whichever source is fetching right now — the source-level facts
+// (304s, pace) belong to a source, not the whole job.
+function firstFetchingSource(job) {
+  const slots = (job.fetch && job.fetch.sources) || {};
+  const current = job.current_source_key;
+  if (current && slots[current]) return slots[current];
+  return Object.values(slots).find((s) => s && s.state === "fetching") || null;
+}
+
+// Why a queued job is not moving — a fact, not a placeholder. Nothing invents a
+// finish time for the job in front; "when a slot frees" is the honest wait.
+function renderQueue(job) {
+  const box = $("act-queue");
+  const behind = job.queued_behind;
+  if (!behind || behind.starting_now) { box.classList.add("hidden"); box.textContent = ""; return; }
+  box.classList.remove("hidden");
+  const running = (behind.running || [])
+    .map((r) => r.source_keys.join(", ")).filter(Boolean);
+  const runningText = running.length
+    ? `${running.length === 1 ? "" : running.length + " jobs: "}${running.join("; ")}`
+    : "another job";
+  const ahead = behind.position - 1;
+  box.innerHTML =
+    `<strong>Queued.</strong> The engine crawls ${behind.capacity} ` +
+    `site${behind.capacity > 1 ? "s" : ""} at a time and is busy with ${esc(runningText)}. ` +
+    (ahead > 0 ? `${ahead} job${ahead > 1 ? "s" : ""} ahead of this one; it` : "This") +
+    ` starts when a slot frees. ` +
+    `<span class="muted">Raise “Sites crawled at the same time” in Settings to run more together.</span>`;
 }
 
 // The identity of a log AS DISPLAYED: level and message, in order. The
@@ -1067,7 +1233,8 @@ function logSignatureOf(entries) {
   return entries.map((e) => `${e.level}\u0000${e.message}`).join("\u0001");
 }
 
-function renderLogs(entries) {
+function renderLogs(entries, meta) {
+  const box = $("logbox");
   // Rewriting innerHTML destroys the selection inside it, and this runs on a
   // 1.5s poll — so an owner trying to copy an error message out of the log had
   // the highlight taken away from them every 1.5 seconds, whether or not a
@@ -1077,14 +1244,38 @@ function renderLogs(entries) {
   const signature = logSignatureOf(entries);
   // childElementCount guards the other direction: a view switch can empty this
   // box, and a signature that still matched would then leave it empty forever.
-  if (signature === state.logSignature && $("logbox").childElementCount) return;
+  if (signature === state.logSignature && box.childElementCount) return;
+  // Follow the tail only when the owner is ALREADY at the bottom. Auto-scroll is
+  // no longer a button he has to manage (he asked for that gone): the log simply
+  // keeps up if he is watching the newest line, and stays put the moment he
+  // scrolls up to read something, so a repaint never yanks him away mid-read.
+  const wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
   state.logSignature = signature;
   state.logs = entries;
-  $("logbox").innerHTML = entries.map((e) =>
+  box.innerHTML = entries.map((e) =>
     `<div class="logline"><span class="lvl muted">${esc(e.level)}</span>` +
     `<span class="content">${esc(e.message)}</span></div>`).join("") ||
     `<span class="muted">No log entries yet.</span>`;
-  if (state.autoscroll) $("logbox").scrollTop = $("logbox").scrollHeight;
+  if (wasAtBottom) box.scrollTop = box.scrollHeight;
+  // Say what is shown out of what exists — the caption that used to read
+  // "Last 200 log entries" is now the truth, whatever the count.
+  const total = meta && meta.total != null ? meta.total : entries.length;
+  $("log-caption").textContent = total
+    ? `Live log · ${fmtCount(total)} entr${total === 1 ? "y" : "ies"}, all shown`
+    : "Live log";
+}
+
+// The mini-player's own progress figure, drawn from the SAME fetch progress the
+// Activity bar uses — never the old sites-percentage that read 0% all run.
+function miniProgress(job) {
+  const f = job.fetch || {};
+  if (f.expected) {
+    const pct = Math.min(100, Math.round((f.requests / f.expected) * 100));
+    return { pct, text: `${pct}% · ${fmtCount(f.requests)}/${fmtCount(f.expected)}`,
+             indeterminate: false };
+  }
+  return { pct: 100, text: f.requests ? `${fmtCount(f.requests)} requests` : "starting…",
+           indeterminate: true };
 }
 
 function renderMiniplayer(job, queued) {
@@ -1093,12 +1284,14 @@ function renderMiniplayer(job, queued) {
   box.classList.remove("hidden");
   const scope = job.source_keys.length > 1 ? `${job.source_keys.length} sites` : job.source_keys[0];
   $("mini-title").textContent = `${scope} — ${job.status.replace(/_/g, " ")}`;
-  $("mini-pct").textContent = `${job.progress.percent}% (${job.progress.done}/${job.progress.total})`;
-  $("mini-bar").style.width = job.progress.percent + "%";
+  const prog = miniProgress(job);
+  $("mini-pct").textContent = prog.text;
+  $("mini-bar").style.width = prog.pct + "%";
+  $("mini-bar").classList.toggle("indeterminate", prog.indeterminate);
   const c = job.counters || {};
   const bits = [];
   if (job.current_source_key) bits.push(`now: ${job.current_source_key}`);
-  if (c.observations != null) bits.push(`${c.observations} new data rows`);
+  if (c.observations != null) bits.push(`${fmtCount(c.observations)} new data rows`);
   if (queued > 0) bits.push(`${queued} queued`);
   $("mini-sub").textContent = bits.join(" · ") || "starting…";
   const paused = job.status === "paused";
@@ -1118,8 +1311,13 @@ async function pollJob() {
     state.jobRef = job.job_ref;
     renderMiniplayer(job, Math.max(0, jobs.length - 1));
     renderActivity(job);
-    try { renderLogs((await api(`/api/jobs/${job.job_ref}/logs?limit=200`)).entries); }
-    catch (_) {}
+    // No ?limit: the log shows EVERY entry now (the 200 cap was the client's,
+    // and it dropped exactly the line that explained a long run's failure). The
+    // answer carries `total` so the caption can state what is shown out of what.
+    try {
+      const log = await api(`/api/jobs/${job.job_ref}/logs`);
+      renderLogs(log.entries, log);
+    } catch (_) {}
     refreshRunButton();
     pollTimer = setTimeout(pollJob, POLL_MS);
     return;
@@ -1130,7 +1328,8 @@ async function pollJob() {
     try {
       const done = await api(`/api/jobs/${state.jobRef}`);
       renderActivity(done);
-      renderLogs((await api(`/api/jobs/${state.jobRef}/logs?limit=200`)).entries);
+      const log = await api(`/api/jobs/${state.jobRef}/logs`);
+      renderLogs(log.entries, log);
     } catch (_) {}
     state.jobRef = null;
     await loadSources();
@@ -1162,9 +1361,9 @@ async function loadDatasets() {
                aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook">
         <span class="dataset-card-open">${icon("chevron-right", "sm")}</span>
         <div><div class="dataset-identity-line">${sourceIdentity(
-          s, false, Number(s.observations).toLocaleString())}</div>
-          <div class="n">${Number(s.products || 0).toLocaleString()} products</div>
-          <div class="n">${esc(s.changes || "no recorded changes yet")}</div></div>
+          s, false, fmtCount(s.observations))}</div>
+          <div class="n">${fmtCount(s.products)} products</div>
+          <div class="n muted">${esc(freshnessLine(s))}</div></div>
       </article>`).join("");
     box.querySelectorAll("[data-open]").forEach((card) => {
       card.addEventListener("click", () => openDataset(card.dataset.open));
@@ -1177,6 +1376,19 @@ async function loadDatasets() {
   } catch (_) {
     box.innerHTML = `<div class="card"><span class="err">Couldn't reach the engine.</span></div>`;
   }
+}
+
+// The freshness of a dataset — the first thing anyone asks, and the fact the
+// card was missing where it used to read "no recorded changes yet". A read-out
+// from the last SUCCESSFUL crawl; "never" is a real answer, not a blank.
+function freshnessLine(s) {
+  const last = s.last_success;
+  if (!last || !last.started_at) return "no successful crawl yet";
+  const when = String(last.started_at).slice(0, 16).replace("T", " ");
+  const measure = last.rows_seen
+    ? `${fmtCount(last.rows_seen)} rows seen`
+    : last.requests_count ? `${fmtCount(last.requests_count)} requests` : "";
+  return `Last crawled ${when} UTC${measure ? " · " + measure : ""}`;
 }
 
 function openDataset(key) {
@@ -2065,14 +2277,20 @@ async function init() {
   $("run-mode").addEventListener("change", refreshMode);
   $("run").addEventListener("click", startRun);
 
-  $("autoscroll").addEventListener("click", (e) => {
-    state.autoscroll = !state.autoscroll;
-    e.target.textContent = state.autoscroll ? "Pause auto-scroll" : "Resume auto-scroll";
-  });
-  $("copy-logs").addEventListener("click", () =>
-    navigator.clipboard.writeText(state.logs.map((l) => `${l.logged_at} ${l.level} ${l.message}`).join("\n")));
-  $("dl-logs").addEventListener("click", async () =>
-    state.jobRef && openTab(`/api/jobs/${state.jobRef}/logs?limit=200`));
+  // ONE split button (the shared component the dataset Export uses), no more
+  // "Pause auto-scroll" — the primary copies what is on screen, the menu
+  // downloads the engine's complete record. Same actions from either place.
+  window.ScrapeXSplitButton.wire($("activity").querySelector(".split-button"),
+    (action) => {
+      if (action === "copy") {
+        navigator.clipboard.writeText(
+          state.logs.map((l) => `${l.logged_at || ""} ${l.level} ${l.message}`).join("\n"));
+      } else if (action === "download") {
+        // No ?limit: the download is the FULL log, every entry, which is the
+        // whole reason it is a separate action from Copy visible.
+        if (state.jobRef) openTab(`/api/jobs/${state.jobRef}/logs`);
+      }
+    });
 
   $("mini-view").addEventListener("click", () => {
     showView("run"); $("activity").scrollIntoView({ behavior: "smooth", block: "center" });

@@ -7,6 +7,8 @@ is uniform: ScrapedTable -> funnel payload -> ingest.
 from __future__ import annotations
 
 import random
+import ssl
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Iterable, Protocol, runtime_checkable
@@ -21,6 +23,42 @@ from ..vocab import ExtractKind, Fetcher, PayloadClient
 # 403 generic clients get a browser UA via SourceEntry notes + per-family
 # override — explicitly, per connector, never silently global.
 DEFAULT_USER_AGENT = "ScrapeX/0.1 (+contact: owner)"
+
+# WHY ONE SHARED SSL CONTEXT (2026-07-31)
+#
+# Every httpx.Client() builds its own, and building one here costs 1.6 SECONDS —
+# not on the network, before a single byte is sent. cProfile puts 5.921s of 5.929s
+# for three constructions inside one C call: _ssl._SSLContext.load_verify_locations.
+# certifi's cacert.pem is 240 KB and this box has resident on-access AV, so OpenSSL
+# re-reads it through the scanner every time. Same certificates from memory
+# (cadata) cost 139 ms, so it is the file read, not the parse. Measured here:
+#
+#   httpx.Client()                          1633.1 ms
+#   httpx.Client(verify=<shared context>)       0.6 ms      2700x
+#
+# It does NOT amortise: six consecutive builds ran 4083, 1744, 2121, 2503, 1675,
+# 1601 ms. Nothing about that is ScrapeX's doing. What WAS ours is how often we
+# paid it. The job worker built a fetcher on every poll while holding the
+# warehouse write lock (jobs.py), so an idle engine burned ~42% of a core and
+# stalled the owner's job inserts; the test suite paid it 37 times per run
+# (10% of total wall clock).
+#
+# The context is built once, lazily, and shared. ssl.SSLContext is documented as
+# safe for concurrent use once configured and nothing here mutates it afterwards.
+# Verification is UNCHANGED — this is httpx's own default context, built via
+# httpx.create_ssl_context(), just not rebuilt per client.
+_SSL_CONTEXT: ssl.SSLContext | None = None
+_SSL_CONTEXT_LOCK = threading.Lock()
+
+
+def shared_ssl_context() -> ssl.SSLContext:
+    """httpx's default CA-verifying context, built once per process."""
+    global _SSL_CONTEXT
+    if _SSL_CONTEXT is None:
+        with _SSL_CONTEXT_LOCK:
+            if _SSL_CONTEXT is None:      # another thread may have won the race
+                _SSL_CONTEXT = httpx.create_ssl_context()
+    return _SSL_CONTEXT
 
 
 @dataclass
@@ -135,6 +173,29 @@ class CrawlInterrupted(CrawlBlocked):
         self.control = control
 
 
+def declare_frontier(fetcher, pages: int) -> None:
+    """"I now know I will fetch `pages` more pages" — for any fetcher, or none.
+
+    THE ONE GUARD, so no connector grows its own. A connector is handed whatever
+    fetcher its caller built, and the connector tests build minimal fakes with
+    just the methods under test: reaching straight for `expect_requests` turned a
+    progress-display improvement into an AttributeError that failed real crawls
+    of magento and salla. A display fact must never be able to do that.
+
+    The fetcher, when it can hear this, uses it to give the Activity panel a
+    denominator that is a count rather than a guess (HttpFetcher.expect_requests).
+    A fetcher that cannot falls back to the panel's dated estimate, which is a
+    worse number and an honest one.
+    """
+    declare = getattr(fetcher, "expect_requests", None)
+    if declare is None:
+        return
+    try:
+        declare(pages)
+    except Exception:  # noqa: BLE001 — a progress figure may never break a crawl
+        pass
+
+
 class HttpFetcher:
     """Shared polite HTTP transport (F5): rate-limited, retrying, one UA.
 
@@ -190,6 +251,7 @@ class HttpFetcher:
             headers={"User-Agent": user_agent},
             timeout=timeout_s,
             follow_redirects=True,
+            verify=shared_ssl_context(),   # see the note above: 1633ms -> 0.6ms
         )
         self._min_interval_s = min_interval_s
         self._last_request_at = 0.0
@@ -215,6 +277,17 @@ class HttpFetcher:
         self.requests_count = 0   # recorded into crawl_run (F5 accounting)
         self.not_modified_count = 0
         self.retry_count = 0
+        # How many requests this crawl expects to make IN TOTAL, once something
+        # actually knows. None until then, and None is the honest answer: a
+        # sitemap-driven connector learns its frontier before it fetches a
+        # single product page, while a connector that discovers pages as it
+        # walks genuinely cannot know, and must not be made to guess.
+        #
+        # It lives here because this object is already the one counting
+        # requests: an expectation in a different unit from the count it is
+        # compared against is how a progress bar starts lying. See
+        # expect_requests below for the one arithmetic rule.
+        self.expected_requests: int | None = None
         # Optional live-progress hook, called after EVERY completed request with
         # (requests_count, url). A 450-page country crawl used to be a quarter
         # hour of total silence — 0/1 sources, zero requests, a start-time
@@ -222,6 +295,51 @@ class HttpFetcher:
         # The display's failure must never become the crawl's: the call site
         # guards the hook.
         self.on_request = None
+        # Called once with the new total whenever expect_requests raises it, so
+        # a denominator reaches the panel the moment it is known instead of at
+        # the next throttled request tick.
+        self.on_expectation = None
+
+    # ---- what this crawl expects to cost ------------------------------------
+
+    def expect_requests(self, pages: int) -> None:      # noqa: D401 — see declare_frontier
+        """A connector declaring "I now know I will fetch `pages` more pages".
+
+        Counted FROM THE REQUESTS ALREADY MADE, because that is the only way the
+        expectation stays in the same unit as the counter it will be compared
+        with: reading a sitemap index costs real requests before the frontier is
+        known, and an expectation that ignored them would be short by exactly
+        those pages and the bar would arrive at 100% early.
+
+        The declaration only ever goes UP. A connector that enumerates a second
+        frontier (a second sitemap, a second category tree) is adding to what it
+        will fetch, not replacing it — and a bar that shrank mid-crawl would be
+        the same lie in the other direction.
+
+        The number remains an EXPECTATION and every screen that shows it says
+        so: a retry, a 404 or a variant page can still make the real count
+        differ. It is not a budget and nothing here enforces it.
+        """
+        try:
+            more = int(pages)
+        except (TypeError, ValueError):
+            return                      # a display input never breaks a crawl
+        if more < 0:
+            return
+        declared = self.requests_count + more
+        if self.expected_requests is None or declared > self.expected_requests:
+            self.expected_requests = declared
+            if self.on_expectation is not None:
+                # Published NOW rather than at the next request tick. That tick
+                # is throttled to every tenth request to keep the writes free,
+                # but a frontier is normally known while the count is still in
+                # single figures — so waiting for it would leave every crawl
+                # that DOES know its total showing "unknown" for its first ten
+                # pages, which is the exact complaint being fixed.
+                try:
+                    self.on_expectation(declared)
+                except Exception:  # noqa: BLE001 — progress display only
+                    pass
 
     # ---- validators, so a repeat crawl can be answered with 304 -------------
 

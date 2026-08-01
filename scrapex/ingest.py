@@ -129,6 +129,41 @@ def previous_rows_seen(conn: sqlite3.Connection, source_key: str) -> int | None:
     return int(row[0]) if row is not None else None
 
 
+def last_successful_run(conn: sqlite3.Connection, source_key: str) -> dict | None:
+    """The last run of this source that SUCCEEDED, and what it measured.
+
+    Two very different screens need exactly this row and neither may grow its
+    own copy of the query: the Activity panel takes `requests_count` as the
+    denominator its progress bar states, and the Data page shows when the data
+    on screen was last actually gathered. One reader, so the two can never
+    disagree about which run was the last good one.
+
+    'Succeeded' means status='success' — never 'partial', because a run that
+    lost half a catalogue is not a measurement of the catalogue, and using it
+    as an expectation would quietly halve the bar's denominator.
+
+    None means it has never succeeded (or never ran). That is a real answer and
+    both callers must say so rather than substituting a zero: a bar against 0 is
+    the 0% the owner has been staring at, and "last crawled: never" is the fact
+    the Data page is missing.
+    """
+    row = conn.execute(
+        "SELECT r.started_at, r.finished_at, r.rows_seen, r.requests_count, "
+        "       r.products_discovered, r.errors_count "
+        "FROM crawl_run r JOIN source_site s ON s.source_id = r.source_id "
+        "WHERE s.source_key = ? AND r.status = 'success' "
+        "ORDER BY r.run_id DESC LIMIT 1",
+        (source_key,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"started_at": row[0], "finished_at": row[1], "rows_seen": int(row[2] or 0),
+            # 0 means "this run predates requests_count ever being written"
+            # (see ingest_payloads) — an absence, not a measurement of zero.
+            "requests_count": int(row[3] or 0),
+            "products_discovered": int(row[4] or 0), "errors_count": int(row[5] or 0)}
+
+
 # ---- tiny DRY upsert helpers -------------------------------------------------
 
 def _find_id(conn: sqlite3.Connection, sql: str, params: tuple) -> int | None:
@@ -559,6 +594,25 @@ def _quantity_facts(r: dict) -> dict:
     stated = str(r.get("quantity_is_decimal", "") or "").strip()
     if stated:
         facts["quantity_is_decimal"] = 1 if stated == "1" else 0
+    # THE WEIGHT, AND ONLY WITH ITS UNIT (0057). The two are stored together or
+    # not at all: a bare 1000 in a column is not a fact, and the display layer
+    # would then be free to supply the missing word itself — which is the one
+    # thing this whole change exists to prevent. So a source that publishes a
+    # weight and will not say what unit it is in stores neither, exactly as
+    # normalize.selling_unit_from says nothing when a name and a weight
+    # disagree.
+    #
+    # canonical_unit folds the spelling the same way the SELLING unit is
+    # already folded ("kgs" -> "kg" via _UNIT_ALIASES). That is not editing
+    # source truth — it is the shared spelling table this warehouse has always
+    # run every unit through, and without it "kgs" and "kg" would be two units
+    # for one kilogram.
+    weight = _optional_quantity(r.get("weight", ""))
+    weight_unit = canonical_unit(str(r.get("weight_unit", "") or ""),
+                                 r.get("currency", ""))
+    if weight is not None and weight_unit:
+        facts["weight"] = weight
+        facts["weight_unit"] = weight_unit
     return facts
 
 
@@ -749,12 +803,22 @@ def _observation_values(r: dict, observed_at: str) -> dict:
 
 def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
                     payloads: list[FunnelPayload], job_id: int | None = None,
-                    fetch_defects: Sequence[str] = ()) -> IngestResult:
+                    fetch_defects: Sequence[str] = (),
+                    requests_count: int = 0) -> IngestResult:
     """Ingest one source's payloads into harvest.db in a single transaction.
 
     All-or-nothing at the DB level (F1): the crawl_run and every row commit
     together, or nothing does. Per-row *data* problems are isolated into
-    result.errors and do not abort the batch (Q3)."""
+    result.errors and do not abort the batch (Q3).
+
+    `requests_count` is how many HTTP requests the fetch spent. crawl_run has
+    carried a column for it since the schema was written, annotated "F5
+    politeness accounting" (schema.sql:381) — and NOTHING has ever written it,
+    so every run in the warehouse reads 0. A caller that does not know the
+    number (the local-inbox path ingests files, having made no requests) leaves
+    it alone and gets the same 0 as before. The job path does know, and once it
+    records it, the next crawl of that source has a measured expectation to
+    show a progress bar against instead of a percentage of nothing."""
     from .contract import assert_writable
     assert_writable(conn)  # two-engine guardrail: never write across contract versions
     source_id = _get_source_id(conn, entry, _first_currency(payloads))
@@ -846,10 +910,10 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     conn.execute(
         "UPDATE crawl_run SET finished_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
         "status = ?, products_discovered = ?, variants_discovered = ?, errors_count = ?, "
-        "rows_seen = ? WHERE run_id = ?",
+        "rows_seen = ?, requests_count = ? WHERE run_id = ?",
         (result.status.value, result.products, result.variants,
          len(result.errors) + len(result.contained),
-         sum(len(p.rows) for p in payloads), run_id),
+         sum(len(p.rows) for p in payloads), int(requests_count), run_id),
     )
     return result
 
@@ -1123,6 +1187,39 @@ def _still_the_same_price(conn: sqlite3.Connection, offer_id: int, v: dict) -> b
             "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1",
             (offer_id,)).fetchone()
         if latest is None or latest["price_trade"] != v["price_trade"]:
+            return False
+
+    # THE SAME DEFECT, THE SAME SHAPE, one column over — and this one had a
+    # second witness that should have settled it: record_hash ALREADY counts a
+    # stock move as a new observation (_observation_values hashes "stock"), and
+    # ux_price_obs_dedupe would have admitted the row. This gate disagreed with
+    # the hash and won, because it runs first and returns before the INSERT is
+    # ever reached.
+    #
+    # So madar asked the site for only_x_left_in_stock from 55ae064 on, was
+    # answered for 297 leaves, and appended none of them. Measured on the live
+    # warehouse 2026-07-30: 0 of 6,146 MADAR observations carry a stock figure
+    # while offer_state carries all 297 — and offer_state is DERIVED from the
+    # latest observation by pricehistory.rebuild_offer, so those 297 do not
+    # survive a rebuild. This table is the durable home; that one is a cache of
+    # it.
+    #
+    # The period stays keyed on the PRICE. A stock movement opens no period and
+    # is not a price change — the owner asked for the latest stock state, never a
+    # priced history of it — so it lands as an observation INSIDE the open
+    # period, exactly as the trade tier above does.
+    #
+    # `is not None` IS the no-invented-zero rule, not a null-safety habit: a leaf
+    # the site says nothing about arrives as None, never enters this branch,
+    # appends nothing and stays NULL. A published 0 means "none left", which is
+    # something the shop said, so it compares and it appends.
+    if v.get("stock_quantity") is not None:
+        latest = conn.execute(
+            "SELECT stock_quantity FROM price_observation "
+            "WHERE offer_id = ? AND provenance = 'observed' "
+            "ORDER BY observed_at DESC, price_observation_id DESC LIMIT 1",
+            (offer_id,)).fetchone()
+        if latest is None or latest["stock_quantity"] != v["stock_quantity"]:
             return False
     return True
 
