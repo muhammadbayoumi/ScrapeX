@@ -348,6 +348,68 @@ async function restartEngineFromPanel() {
   out("crawl-msg", "restart requested — the status dot turns green when it is back", "ok");
 }
 
+// ---- Google Finance rate control -----------------------------------------
+function renderGoogleFinanceStatus(status) {
+  const tracked = status.tracked_currencies || [];
+  $("finance-currencies").textContent = tracked.length ? tracked.join(", ") : "None yet";
+  $("finance-last-check").textContent = status.last_checked || "Never";
+  $("finance-latest-market").textContent = status.latest_market_at || "No rates yet";
+  $("finance-rows").textContent = `${Number(status.rows || 0).toLocaleString()} rate rows`;
+}
+
+async function loadGoogleFinance() {
+  try {
+    const status = await api("/api/rates/google-finance");
+    $("google_finance_auto_refresh").checked = Boolean(status.automatic);
+    $("google_finance_refresh_hours").value = String(status.refresh_hours ?? 6);
+    renderGoogleFinanceStatus(status);
+    out("finance-msg", "");
+  } catch (err) {
+    out("finance-msg", "could not read Google Finance status: " + esc(err.message), "err");
+  }
+}
+
+async function saveGoogleFinance() {
+  const hours = Number($("google_finance_refresh_hours").value);
+  if (!Number.isFinite(hours) || hours < 0.25 || hours > 168) {
+    out("finance-msg", "hours must be between 0.25 and 168", "err");
+    return;
+  }
+  out("finance-msg", "saving...");
+  try {
+    await post("/api/settings", {
+      google_finance_auto_refresh: $("google_finance_auto_refresh").checked,
+      google_finance_refresh_hours: hours,
+    });
+    await loadGoogleFinance();
+  } catch (err) {
+    out("finance-msg", "not saved: " + esc(err.message), "err");
+    return;
+  }
+  out("finance-msg", "saved - the new cadence applies immediately", "ok");
+}
+
+async function refreshGoogleFinance() {
+  const button = $("finance-refresh");
+  button.disabled = true;
+  const oldLabel = button.textContent;
+  button.textContent = "Updating...";
+  out("finance-msg", "requesting the latest rates...");
+  try {
+    const result = await post("/api/rates/google-finance/refresh", {});
+    renderGoogleFinanceStatus(result);
+    const warning = (result.warnings || []).length
+      ? ` ${result.warnings.length} warning(s): ${esc(result.warnings.join("; "))}` : "";
+    out("finance-msg", esc(result.detail || "Update complete.") + warning,
+        warning ? "" : "ok");
+  } catch (err) {
+    out("finance-msg", "update failed: " + esc(err.message), "err");
+  } finally {
+    button.disabled = false;
+    button.textContent = oldLabel;
+  }
+}
+
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
@@ -2323,6 +2385,14 @@ async function init() {
   document.querySelector('[data-sect="s-crawl"]')
     .addEventListener("click", () => {
       if (!$("s-crawl").classList.contains("hidden")) loadCrawlSettings();
+    });
+
+  $("finance-save").addEventListener("click", saveGoogleFinance);
+  $("finance-refresh").addEventListener("click", refreshGoogleFinance);
+  $("finance-dataset").addEventListener("click", () => openTab("/data/google-finance"));
+  document.querySelector('[data-sect="s-finance"]')
+    .addEventListener("click", () => {
+      if (!$("s-finance").classList.contains("hidden")) loadGoogleFinance();
     });
 
   refreshMode();
