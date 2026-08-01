@@ -1182,7 +1182,19 @@ def create_app(
                                 f"{type(exc).__name__}: {exc}"}
         worker["thread_alive"] = thread_alive
         from ..native import PROTOCOL_VERSION
+        from ..version import MINIMUM_EXTENSION_VERSION, VERSION
         return {"ok": True, "app": "scrapex", "version": __version__,
+                # The panel polls THIS and nothing else on a timer, so the two
+                # numbers a stale extension needs to notice itself ride along.
+                # The full ledger does not: it is fetched once from /api/version
+                # and would otherwise be re-sent every few seconds to answer a
+                # question whose answer only changes when the engine restarts.
+                #
+                # `version` above is the engine's. These two say whose they are
+                # in their own names, which is the whole complaint behind issue
+                # 32: a number displayed without its owner is the bug.
+                "latest_extension_version": VERSION,
+                "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
                 # The version handshake belongs on the transport that carries
                 # the traffic. It lived only on native messaging, which carries
                 # four control commands, while THIS path carries every record
@@ -1199,6 +1211,31 @@ def create_app(
                 # normal case — so the panel shows nothing rather than a badge
                 # that is always there and therefore never read.
                 "schema_lag": schema_lag}
+
+    @app.get("/api/version")
+    def api_version(extension_version: str | None = None):
+        """Which version this engine is, and what it deploys (issue 32 §1.3–§1.6).
+
+        ONE implementation of "is this extension outdated", and it is here
+        rather than in the panel: the panel states its own version, the engine
+        applies the rule, and the same answer is available to the web page. Two
+        surfaces computing one verdict from one ledger is what §2.5 asks for,
+        and it is also the only way the web page can display a state it has no
+        other way of knowing.
+
+        A malformed version is refused rather than treated as "very old": an
+        unreadable number is a bug in the caller, and answering it with
+        "everything is missing" would send the owner to reload an extension
+        that is perfectly current.
+        """
+        from ..version import version_report
+
+        try:
+            # An absent or empty parameter is "the caller did not say", which is
+            # a different answer from "the caller said something unreadable".
+            return version_report(extension_version or None)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     @app.get("/api/features")
     def api_features():
@@ -2044,9 +2081,22 @@ def create_app(
         from ..contract import CONTRACT_VERSION
         from ..jobs import worker_is_alive
 
+        from ..version import (LATEST_SOURCE, MINIMUM_EXTENSION_VERSION,
+                               UPDATE_INSTRUCTIONS, VERSION)
+
         worker = worker_health(conn)
         return {
             "version": __version__,
+            # DISPLAY, never a control (the owner's standing rule, and
+            # tests/test_settings_live_in_the_extension.py enforces it). The web
+            # page cannot know which extension is installed in a browser it does
+            # not run in, so it shows what the engine ships with and what it
+            # requires, each named for the side it belongs to, and leaves the
+            # installed-versus-required verdict to the panel that can see both.
+            "extension_version": VERSION,
+            "extension_version_source": LATEST_SOURCE,
+            "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
+            "update_instructions": UPDATE_INSTRUCTIONS,
             "contract_version": CONTRACT_VERSION,
             "schema_version": dbmod.schema_version(conn),
             "worker_alive": worker_is_alive(conn),

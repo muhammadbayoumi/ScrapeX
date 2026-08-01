@@ -69,15 +69,35 @@ OUTPUTS = [
 
 def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=None,
          records=None, changes=None, slow=False, tab=None, resolve=None, probe=None,
-         fail_routes=(), storage=None, logs=None) -> str:
+         fail_routes=(), storage=None, logs=None, extension_version=None,
+         engine_version=None, version_reporting=True, omit_capabilities=()) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
     cannot easily produce: a route that fails, an engine that is down, a tab that
     is not a website.
+
+    The three version knobs are what make the compatibility work testable:
+    `extension_version` is what `chrome.runtime.getManifest()` reports (Chrome's
+    only honest answer to "what is loaded"), `engine_version` is what the engine
+    says it is, and `version_reporting=False` removes /api/version entirely — an
+    engine built before it existed, which is not a broken route and must not be
+    read as one.
+
+    /api/version is answered by the REAL scrapex.version.version_report, never
+    by a hand-written fixture: a stub ledger would let the panel be tested
+    against a compatibility rule the engine does not have.
     """
+    from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION, version_report
+
+    manifest_version = json.loads(
+        (EXT / "manifest.json").read_text(encoding="utf-8"))["version"]
+    extension_version = manifest_version if extension_version is None else extension_version
+    engine_version = VERSION if engine_version is None else engine_version
     routes = {
-        "/api/health": {"ok": True, "app": "scrapex", "version": "0.1.0",
+        "/api/health": {"ok": True, "app": "scrapex", "version": engine_version,
+                        "latest_extension_version": VERSION,
+                        "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
                         "sources_with_data": 2},
         "/api/sources": {"sources": STRESS_SOURCES if sources is None else sources},
         "/api/jobs": {"jobs": jobs or []},
@@ -104,6 +124,17 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "crawl_user_agent": {"value": ""},
             "log_retention_days": {"value": "30"}}},
     }
+    if version_reporting:
+        # Keyed by the path WITHOUT its query string: the interceptor below
+        # matches by prefix, and the panel sends ?extension_version=…
+        report = version_report(extension_version or None)
+        if omit_capabilities:
+            # An engine that reports its capabilities and does not have this
+            # one. Not a fiction: it is every engine one release behind, which
+            # is what the panel meets the day the ledger grows an entry.
+            report = dict(report, capabilities=[
+                c for c in report["capabilities"] if c["key"] not in omit_capabilities])
+        routes["/api/version"] = report
     # A write answers differently from a read on the same path: POST /api/jobs
     # returns the new job's ref, and the panel stores it to start polling. The
     # read table would hand back the job LIST, so anything that checked what a
@@ -117,7 +148,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     log_payload = {"entries": entries, "total": len(entries), "truncated": False}
     return f"""
 window.chrome = {{
-  runtime: {{ getURL: p => p, lastError: null }},
+  // getManifest is the extension's only honest answer to "which version of ME
+  // is running", so the panel reads it and the harness has to provide it.
+  runtime: {{ getURL: p => p, lastError: null,
+              getManifest: () => ({{version: {extension_version!r}}}) }},
   tabs: {{ query: async () => [{json.dumps(tab if tab is not None else ACTIVE_TAB)}],
            create: () => {{}} }},
   storage: {{ local: {{ get: async () => ({{backend: {backend!r}}}), set: async () => {{}} }} }},
@@ -213,6 +247,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     split_button_js = (EXT / "split-button.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
     transport_js = (EXT / "transport.js").read_text(encoding="utf-8")
+    version_js = (EXT / "version.js").read_text(encoding="utf-8")
 
     # Flatten the ES-module graph. engine.js imports the protocol version from
     # transport.js, while app.js imports both modules; leaving even that
@@ -222,8 +257,10 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     app_js = re.sub(r"^import .*?;$", "", app_js, flags=re.M)
     engine_js = re.sub(r"^import .*?;$", "", engine_js, flags=re.M)
     transport_js = re.sub(r"^import .*?;$", "", transport_js, flags=re.M)
+    version_js = re.sub(r"^import .*?;$", "", version_js, flags=re.M)
     engine_js = re.sub(r"\bexport\s+", "", engine_js)
     transport_js = re.sub(r"\bexport\s+", "", transport_js)
+    version_js = re.sub(r"\bexport\s+", "", version_js)
 
     tmp.mkdir(parents=True, exist_ok=True)
     page = tmp / name
@@ -239,6 +276,6 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # BEFORE the browser fires the real event, so dispatching one as well
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
-        f"<script>{transport_js}\n{engine_js}\n{app_js}</script>",
+        f"<script>{transport_js}\n{version_js}\n{engine_js}\n{app_js}</script>",
         encoding="utf-8")
     return page

@@ -409,8 +409,15 @@ reachable from an extension whose id the old manifest does not know.)*
 
 ## 7. Done — newest first, so it is not re-proposed
 
+*This table and `CHANGELOG.md` answer two different questions and neither replaces the
+other. Here: what was done, when, and by which commit — the session-level record. There:
+which VERSION a capability is guaranteed from, generated from `scrapex/version.py` and
+never hand-written (`e9dd17e`). A feature can appear here the day it is built and there
+only when a release carries it.*
+
 | when | what | commit |
 |---|---|---|
+| 07-30 | Version management: one version with drift-tested mirrors in `pyproject.toml` and `extension/manifest.json`, a capability ledger whose minimum-extension gate is derived from it, a baseline that fails the build when the capability set moves while the number stands still, and a panel that says which version it is and what that version can do | `e9dd17e` |
 | 07-29 | Crawl pace controls moved into the panel; the web page proved display-only by a test that fails if it grows an input | `2253308` |
 | 07-29 | A market rate now outranks a storefront's in all four USD subqueries — authority first, then recency | `69e986c` |
 | 07-29 | advancedcastle's own published exchange rate captured under `source_kind='shop'`, on a session of its own because the country is a cookie, not a path (188 shop rows live) | `b43405c` |
