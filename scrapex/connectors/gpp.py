@@ -209,7 +209,17 @@ class GlobalPetrolPricesConnector:
         A 400-page crawl used to materialise as one giant table at the end —
         correct, but all-or-nothing: a pause at page 399 threw away every
         fetched page. Yielding per page lets capture journal each one as it
-        arrives; the tokens are the checkpoint."""
+        arrives; the tokens are the checkpoint.
+
+        NO expect_requests here either, and for a different reason from zid's.
+        This frontier is discovered IN PIECES: the number of materials is known
+        up front, but each material's country pages only exist once that
+        material's list page has been read (parse_country_links below). A total
+        declared material by material would rise all through the crawl, and a
+        bar whose denominator grows is one that runs backwards — 60% becoming
+        30% because the crawl found more work is less use than no bar at all.
+        The panel's estimate from the last successful run covers this source,
+        which is a recurring crawl of a stable page set and estimates well."""
         builder = RowBuilder(COMMODITY_PRICE)
         base = source.base_url.rstrip("/")
         currency = source.currency or "USD"

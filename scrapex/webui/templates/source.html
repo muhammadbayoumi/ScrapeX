@@ -9,9 +9,12 @@
   <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
   {# Loaded AFTER the library so the project's own table appearance wins. #}
   <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-45">
-  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=source-ui-8">
+  <link rel="stylesheet" href="/static/pages/data-workspace.css?v=source-ui-9">
   <script src="/static/vendor/tabulator.min.js" defer></script>
   <script src="/static/datasets-browser.js?v=source-ui-8" defer></script>
+{# The shared split-button behaviour, before grid.js which calls it. Deferred,
+   like grid.js, so both run after the DOM is parsed and in source order. #}
+  <script src="/static/split-button.js?v=design-system-44" defer></script>
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
@@ -280,45 +283,43 @@
                 current table view.</span>
         </div>
         <div id="grid-toolbar" class="toolbar" aria-label="Export">
-          <div class="grid-export-split" role="group" aria-label="Export data">
-            <button type="button" class="grid-export-primary" data-export="xlsx"
+          {# The shared split button (components.css + split-button.js), the
+             SAME control the Activity panel's log uses — one implementation, so
+             the two can never drift. data-split-action carries what each button
+             does; grid.js reads it. #}
+          <div class="split-button" role="group" aria-label="Export data">
+            <button type="button" class="split-button-primary" data-split-action="xlsx"
                     aria-label="Export complete record as an Excel workbook"
                     title="Export complete record as an Excel workbook">
               {{ icon("file-download") }}
               <span>Excel workbook</span>
             </button>
-            <details class="grid-export-menu">
-              <summary class="grid-export-trigger" aria-haspopup="menu"
+            <details class="split-button-menu">
+              <summary class="split-button-trigger" aria-haspopup="menu"
                        aria-expanded="false" aria-label="Other export formats"
                        title="Other export formats">
-                {{ icon("expand-more", "grid-export-chevron") }}
+                {{ icon("expand-more", "split-button-chevron") }}
               </summary>
-              <div class="grid-export-options" role="menu" aria-label="Export format">
-                <div class="grid-export-options-head">
-                  <strong>Other formats</strong>
-                  <span>Uses visible columns, filters and their current order.</span>
-                </div>
-                <button type="button" class="grid-export-option" data-export="csv"
+              <div class="split-button-options" role="menu" aria-label="Export format">
+                <button type="button" class="split-button-option" data-split-action="csv"
                         role="menuitem">
-                  <span class="grid-export-option-icon">
+                  <span class="split-button-option-icon">
                     {{ icon("description") }}
                   </span>
-                  <span class="grid-export-option-copy">
+                  <span class="split-button-option-copy">
                     <strong>CSV table</strong>
-                    <small>Filtered rows in a spreadsheet-friendly file.</small>
                   </span>
-                  <span class="grid-export-extension">.csv</span>
+                  <span class="split-button-option-tag">.csv</span>
                 </button>
-                <button type="button" class="grid-export-option" data-export="json"
+                <button type="button" class="split-button-option" data-split-action="json"
                         role="menuitem">
-                  <span class="grid-export-option-icon">
+                  <span class="split-button-option-icon">
                     {{ icon("insert-drive-file") }}
                   </span>
-                  <span class="grid-export-option-copy">
+                  <span class="split-button-option-copy">
                     <strong>JSON data</strong>
-                    <small>Structured data from the current table view.</small>
                   </span>
-                  <span class="grid-export-extension">.json</span>
+                  <span class="split-button-option-tag">.json</span>
                 </button>
               </div>
             </details>

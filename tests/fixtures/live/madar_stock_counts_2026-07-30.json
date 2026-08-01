@@ -1,0 +1,336 @@
+{
+ "data": {
+  "products": {
+   "page_info": {
+    "current_page": 1,
+    "total_pages": 1
+   },
+   "items": [
+    {
+     "__typename": "SimpleProduct",
+     "uid": "NzM0MA==",
+     "sku": "530458705",
+     "name": "PEGASO P52 STEEL BAR BENDING MACHIN",
+     "url_key": "530458705",
+     "stock_status": "IN_STOCK",
+     "categories": [],
+     "price_range": {
+      "minimum_price": {
+       "regular_price": {
+        "value": 27772.5
+       },
+       "final_price": {
+        "value": 27772.5
+       }
+      },
+      "maximum_price": {
+       "final_price": {
+        "value": 27772.5
+       }
+      }
+     },
+     "weight": 1,
+     "is_qty_decimal": false,
+     "min_sale_qty": 1,
+     "qty_increments": 1,
+     "only_x_left_in_stock": 1
+    },
+    {
+     "__typename": "SimpleProduct",
+     "uid": "NjEzNg==",
+     "sku": "71205003",
+     "name": "         DADCO POLYESTER-DP200 -4MM",
+     "url_key": "dadco-polyester-dp200-4mm",
+     "stock_status": "IN_STOCK",
+     "categories": [],
+     "price_range": {
+      "minimum_price": {
+       "regular_price": {
+        "value": 150.94
+       },
+       "final_price": {
+        "value": 150.94
+       }
+      },
+      "maximum_price": {
+       "final_price": {
+        "value": 150.94
+       }
+      }
+     },
+     "weight": 1,
+     "is_qty_decimal": false,
+     "min_sale_qty": 1,
+     "qty_increments": 1,
+     "only_x_left_in_stock": 8
+    },
+    {
+     "__typename": "GroupedProduct",
+     "uid": "MjI5OQ==",
+     "sku": "10115-HSS",
+     "name": " حديد تسليح ابوكسي من حديد",
+     "url_key": "hadeed-epoxy-coated-steel-rebar",
+     "stock_status": "IN_STOCK",
+     "categories": [
+      {
+       "uid": "Mw==",
+       "name": "المعادن والحديد الإنشائي",
+       "breadcrumbs": null
+      },
+      {
+       "uid": "NA==",
+       "name": "حديد التسليح والشبك",
+       "breadcrumbs": [
+        {
+         "category_name": "المعادن والحديد الإنشائي"
+        }
+       ]
+      }
+     ],
+     "price_range": {
+      "minimum_price": {
+       "regular_price": {
+        "value": 4045.13
+       },
+       "final_price": {
+        "value": 4045.13
+       }
+      },
+      "maximum_price": {
+       "final_price": {
+        "value": 4045.13
+       }
+      }
+     },
+     "items": [
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NzA=",
+        "sku": "101152012",
+        "name": "حديد أبوكسي من حديد | 20مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4045.13
+          },
+          "final_price": {
+           "value": 4045.13
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NjY=",
+        "sku": "101151212",
+        "name": "حديد أبوكسي من حديد | 12مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4165.88
+          },
+          "final_price": {
+           "value": 4165.88
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "Njk=",
+        "sku": "101151812",
+        "name": "حديد أبوكسي من حديد | 18مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4045.13
+          },
+          "final_price": {
+           "value": 4045.13
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NjU=",
+        "sku": "101151012",
+        "name": "حديد أبوكسي من حديد | 10مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4588.5
+          },
+          "final_price": {
+           "value": 4588.5
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NzI=",
+        "sku": "101153212",
+        "name": "حديد أبوكسي من حديد | 32مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4045.13
+          },
+          "final_price": {
+           "value": 4045.13
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "Njg=",
+        "sku": "101151612",
+        "name": "حديد أبوكسي من حديد | 16مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4045.13
+          },
+          "final_price": {
+           "value": 4045.13
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NjQ=",
+        "sku": "101150812",
+        "name": "حديد أبوكسي من حديد | 8مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4830
+          },
+          "final_price": {
+           "value": 4830
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "NzE=",
+        "sku": "101152512",
+        "name": "حديد أبوكسي من حديد | 25مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4045.13
+          },
+          "final_price": {
+           "value": 4045.13
+          }
+         }
+        }
+       }
+      },
+      {
+       "qty": 1,
+       "position": 0,
+       "product": {
+        "uid": "Njc=",
+        "sku": "101151412",
+        "name": "حديد أبوكسي من حديد | 14مم × 12متر | ASTM A775 جريد 60",
+        "stock_status": "IN_STOCK",
+        "weight": 1000,
+        "is_qty_decimal": true,
+        "min_sale_qty": 0.25,
+        "qty_increments": 0.05,
+        "only_x_left_in_stock": null,
+        "price_range": {
+         "minimum_price": {
+          "regular_price": {
+           "value": 4105.5
+          },
+          "final_price": {
+           "value": 4105.5
+          }
+         }
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

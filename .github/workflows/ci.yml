@@ -38,6 +38,15 @@ jobs:
           echo "panel tests collected: ${count:-0}"
           test "${count:-0}" -ge 40
       - name: Tests (Python engine + Python-vs-frozen contract)
+        # tests/conftest.py restores a prebuilt schema template instead of
+        # replaying 57 migrations per test, which is what turns a ~30-minute
+        # local suite into ~6 minutes. It is a developer-loop convenience, and
+        # this is the line that keeps it one: CI runs the REAL stream 805 times,
+        # so the authority on green tests exactly what it tested before that file
+        # existed. Same reasoning as the panel gate above — a guard that can
+        # vanish quietly is the defect.
+        env:
+          SCRAPEX_FULL_MIGRATIONS: "1"
         run: python -m pytest -q
 
   contract-parity:

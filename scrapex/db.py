@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -142,6 +143,53 @@ def latest_schema_version() -> int:
     it live and then guess at a schema it does not understand.
     """
     return _migration_files()[-1][0]
+
+
+def pending_migrations(conn: sqlite3.Connection) -> list[tuple[int, str]]:
+    """Migrations that exist on disk and have NOT been applied to this database.
+
+    WHY THIS IS A PRODUCT FEATURE AND NOT A DIAGNOSTIC (2026-07-30)
+    --------------------------------------------------------------
+    CI was green and the Data page was broken at the same time, and both were
+    correct. CI builds a database from schema.sql plus EVERY migration, so code
+    that reads a new column passes there by construction. The owner's machine
+    had the code and not the migration, so the same query answered
+
+        sqlite3.OperationalError: no such column: so.weight
+
+    Nothing said "the database is one migration behind"; the product simply
+    broke and the raw SQLite text was the only clue. The gap was never in the
+    code — it was that `main` can move ahead of a database and nothing notices
+    until a page fails.
+
+    Same definition of "not applied" that migrate() uses, so the two can never
+    disagree: a number above the recorded user_version.
+    """
+    # WHICH MIGRATIONS BELONG TO THIS DATABASE, and this took two wrong
+    # answers to get right — both of which cried wolf, which is worse than
+    # silence.
+    #
+    # First attempt compared filename numbers against user_version: the ledger
+    # numbers a migration by its POSITION in this database's stream (0057 is
+    # recorded as 55), so it announced two applied migrations as pending.
+    #
+    # Second attempt compared filenames against the ledger, and announced 0013,
+    # 0014 and 0017 as pending — they are GENERAL-database migrations. One
+    # directory holds both streams, and the legacy facade cannot tell them
+    # apart. The domain layer already declares the split, so it is asked rather
+    # than re-derived here; one list, and it is the one the migrator obeys.
+    from .databases.domain import _MARKETLENS_LEGACY_NUMBERS as _MINE
+    try:
+        applied = {row[0] for row in conn.execute(
+            "SELECT migration_name FROM database_migration")}
+    except sqlite3.DatabaseError:
+        # Older than the ledger: user_version is all there is, and on such a
+        # database no renumbering has happened yet, so it is still true.
+        current = schema_version(conn)
+        return [(number, file.name) for number, file in _migration_files()
+                if number > current and number in _MINE]
+    return [(number, file.name) for number, file in _migration_files()
+            if number in _MINE and file.name not in applied]
 
 
 def migrate(conn: sqlite3.Connection) -> list[int]:
@@ -298,6 +346,45 @@ def _reclaim_if_stale(lock_path: Path) -> bool:
         return False
 
 
+# One gate per database file, for the writers INSIDE this process.
+#
+# THE FILE LOCK CANNOT SERIALISE US FROM OURSELVES. It is keyed by pid, and
+# _reclaim_if_stale deliberately refuses to steal a lock whose owner is alive —
+# so when a second THREAD of this same runtime arrives, it finds a live owner
+# that is us, waits out the whole timeout, and is then told "another scrapex
+# process (pid 43572) is writing to the database", naming its own pid.
+#
+# Measured 2026-07-30, two threads of one process on one database: the second
+# raised DbLockedError after its full budget. That is not serialisation, it is
+# refusal — and it is reachable today, because crawl_parallel_sources > 1 runs
+# per-host lanes as threads of this process (jobs.py _drive_lanes) and every
+# lane ingests under this lock. Two lanes whose ingests overlap by more than
+# the timeout lose a source outright, with a message that blames a process
+# that does not exist.
+#
+# A real lock in front of the file lock fixes it: threads of this runtime QUEUE
+# here, and whichever one holds this gate is the only one that ever races the
+# file against other processes. The caller's timeout still bounds the wait, so
+# an HTTP route that must answer keeps answering (409) rather than hanging.
+_GATES: dict[str, threading.Lock] = {}
+_GATES_GUARD = threading.Lock()
+
+
+def _process_gate(lock_path: Path) -> threading.Lock:
+    """The in-process gate for a lock file, created once per path.
+
+    Keyed on the LOCK FILE, normalised the way the filesystem compares it, so
+    two spellings of one database cannot end up with two gates and fall back to
+    racing the file.
+    """
+    key = os.path.normcase(os.path.abspath(str(lock_path)))
+    with _GATES_GUARD:
+        gate = _GATES.get(key)
+        if gate is None:
+            gate = _GATES[key] = threading.Lock()
+    return gate
+
+
 @contextmanager
 def write_lock(db_path: Path | str = DEFAULT_DB_PATH, timeout_s: float = 10.0):
     """CLI-level lock file: two `scrapex` write commands never interleave (A10).
@@ -305,31 +392,45 @@ def write_lock(db_path: Path | str = DEFAULT_DB_PATH, timeout_s: float = 10.0):
     O_CREAT|O_EXCL is atomic on Windows and POSIX. A lock left behind by a
     CRASHED process is reclaimed automatically once its pid is confirmed gone;
     only a genuinely live holder makes us wait.
+
+    Threads of THIS process queue on an in-process gate first (see _GATES): the
+    file lock can only tell processes apart, and asking it to tell our own
+    threads apart made it refuse them instead.
     """
     lock_path = Path(str(db_path) + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout_s
-    while True:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError:
-            if _reclaim_if_stale(lock_path):
-                continue                       # dead owner: retry immediately
-            if time.monotonic() >= deadline:
-                owner, _ = _lock_owner(
-                    lock_path.read_text(encoding="ascii", errors="replace"))
-                raise DbLockedError(
-                    f"another scrapex process (pid {owner}) is writing to the database; "
-                    "wait for its crawl to finish and retry"
-                ) from None
-            time.sleep(0.2)
+    gate = _process_gate(lock_path)
+    if not gate.acquire(timeout=max(0.0, timeout_s)):
+        raise DbLockedError(
+            "another crawl in this runtime is writing to the database; it has "
+            f"held the write lock for more than {timeout_s:g}s. Wait for it to "
+            "finish and retry — nothing was written."
+        )
     try:
-        os.write(fd, f"{os.getpid()}:{_process_started_at(os.getpid())}".encode("ascii"))
-        os.close(fd)
-        yield
-    finally:
+        while True:
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                break
+            except FileExistsError:
+                if _reclaim_if_stale(lock_path):
+                    continue                       # dead owner: retry immediately
+                if time.monotonic() >= deadline:
+                    owner, _ = _lock_owner(
+                        lock_path.read_text(encoding="ascii", errors="replace"))
+                    raise DbLockedError(
+                        f"another scrapex process (pid {owner}) is writing to the database; "
+                        "wait for its crawl to finish and retry"
+                    ) from None
+                time.sleep(0.2)
         try:
-            lock_path.unlink()
-        except FileNotFoundError:  # already cleaned up — not an error path worth failing
-            pass
+            os.write(fd, f"{os.getpid()}:{_process_started_at(os.getpid())}".encode("ascii"))
+            os.close(fd)
+            yield
+        finally:
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:  # already cleaned up — not an error path worth failing
+                pass
+    finally:
+        gate.release()
