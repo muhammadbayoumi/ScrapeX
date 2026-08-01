@@ -398,13 +398,60 @@ def test_pending_migrations_names_what_has_not_been_applied(tmp_path):
 
 
 def test_pending_migrations_agrees_with_migrate(tmp_path):
-    """The two must never disagree: what migrate() would apply is exactly what
-    pending_migrations() reports, or the banner lies in one direction or the
-    other."""
+    """What the guard reports must be a SUBSET of what migrate() applies, never
+    a superset — the banner may under-report in an edge case, but it must never
+    name a migration that will not run.
+
+    Not equality, and the difference is the point: the legacy migrate() applies
+    every file in the directory, which holds BOTH database streams, while the
+    guard reports only this database's own. Asserting equality was asserting
+    that the two streams are one, which is how 0013, 0014 and 0017 — General
+    migrations — were announced as pending on a current MarketLens database."""
     conn = dbmod.connect(tmp_path / "agree.db")
     try:
-        expected = [n for n, _name in dbmod.pending_migrations(conn)]
-        applied = dbmod.migrate(conn)
-        assert applied == expected
+        reported = {n for n, _name in dbmod.pending_migrations(conn)}
+        applied = set(dbmod.migrate(conn))
+        assert reported <= applied, (
+            f"the guard named migrations migrate() never ran: "
+            f"{sorted(reported - applied)}")
+        assert dbmod.pending_migrations(conn) == []
+    finally:
+        conn.close()
+
+
+def test_the_lag_guard_does_not_cry_wolf_on_a_current_database(tmp_path):
+    """TWO WRONG ANSWERS, both of which announced work that was already done —
+    and a guard that cries wolf is worse than no guard.
+
+    1. Comparing filename numbers against user_version: the ledger numbers a
+       migration by its POSITION in this database's stream (0057 is recorded as
+       55), so a fully current database was told 0056 and 0057 were pending.
+    2. Comparing filenames against the ledger: 0013, 0014 and 0017 are GENERAL
+       database migrations. One directory holds both streams and the legacy
+       facade cannot tell them apart, so a current database was told three
+       migrations were waiting that will never apply to it.
+
+    A fully migrated database must report NOTHING. That is the whole promise.
+    """
+    conn = dbmod.connect(tmp_path / "current.db")
+    try:
+        dbmod.migrate(conn)
+        assert dbmod.pending_migrations(conn) == [], (
+            "a fully migrated database was told it is behind")
+    finally:
+        conn.close()
+
+
+def test_the_lag_guard_ignores_the_other_databases_migrations(tmp_path):
+    """The migrations directory holds BOTH streams. Only this database's own
+    may ever be reported, or the banner names files that will never apply."""
+    from scrapex.databases.domain import _MARKETLENS_LEGACY_NUMBERS
+
+    conn = dbmod.connect(tmp_path / "streams.db")
+    try:
+        reported = {n for n, _name in dbmod.pending_migrations(conn)}
+        assert reported, "a fresh database must be behind something"
+        stray = reported - set(_MARKETLENS_LEGACY_NUMBERS)
+        assert not stray, f"migrations from the other stream reported: {sorted(stray)}"
     finally:
         conn.close()

@@ -422,8 +422,18 @@ def refresh_now(conn: sqlite3.Connection, fetcher, *,
         "INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (LAST_CHECK_KEY, stamp))
-    # The attempt must survive an escaping CrawlBlocked exception, otherwise a
-    # failed request becomes another request on the next worker poll.
+    # Committed here, on its own, or the throttle only holds for exceptions this
+    # function chooses to swallow. An escaping one — CrawlBlocked, which is
+    # deliberately allowed through — reaches the worker's recorder, and that
+    # rolls back before writing, taking an uncommitted stamp with it. The next
+    # poll was then due again: a blocked quote page turned into a request every
+    # half-second against the one site this module most needs to stay welcome
+    # at, each one preceded by rebuilding the 1.3s HTTPS client. "One attempt
+    # per interval" is the promise above; this is what makes it true.
+    #
+    # This paragraph moved here from refresh_if_due, which now delegates. It is
+    # the record of a real incident, and the two-line summary that replaced it
+    # would not have stopped anyone reordering these statements.
     conn.commit()
     batch = fetch_rates(fetcher, wanted)
     store_rates(conn, batch.rates)

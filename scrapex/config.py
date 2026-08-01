@@ -14,6 +14,32 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+# WHY THE C LOADER (2026-07-31)
+#
+# The parser was 97% of load_manifest and pydantic was 0.5% of it — all the
+# validators in this file together cost 0.85 ms, while reading 34 KB of YAML cost
+# 180 ms. PyYAML ships a libyaml-backed loader that parses the SAME grammar:
+#
+#   yaml.safe_load(text)                     180.11 ms
+#   yaml.load(text, CSafeLoader)              11.89 ms      15x
+#   load_manifest() end to end          185 ms -> 16 ms     11.6x
+#
+# That is 308 parses per test-suite run, and it is a live cost too: five routes
+# re-parse the manifest on every source edit (webui/app.py add/update/remove/
+# set-active/rename), so every "Add Site" click paid 185 ms of pure-Python parsing.
+#
+# SafeLoader stays the fallback because libyaml is an optional C extension and a
+# pure-Python wheel must still work. That path is byte-identical to the old code:
+# yaml.safe_load(s) IS yaml.load(s, SafeLoader). Both loaders were checked against
+# each other on 28 inputs (duplicate keys, timestamps, Arabic literals, anchors,
+# merge keys, !!python/object, tabs, BOM, multi-document, 200-deep nesting) and on
+# all 7 defect classes this function must reject — same values, same exception
+# types, same yaml.error hierarchy. No behaviour rides on which one loads.
+try:
+    from yaml import CSafeLoader as _ManifestLoader
+except ImportError:                          # PyYAML built without libyaml
+    from yaml import SafeLoader as _ManifestLoader
+
 from .vocab import Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher, VatMode
 
 MANIFEST_FILE = Path(__file__).resolve().parent.parent / "sources.yaml"
@@ -334,7 +360,7 @@ def _host_of(url: str) -> str:
 
 def load_manifest(path: Path | str = MANIFEST_FILE) -> Manifest:
     """Parse + validate sources.yaml. Raises with a precise message on any defect."""
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    raw = yaml.load(Path(path).read_text(encoding="utf-8"), Loader=_ManifestLoader)
     if raw is None:
         raise ValueError(f"{path}: manifest is empty")
     return Manifest.model_validate(raw)

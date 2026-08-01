@@ -7,6 +7,8 @@ is uniform: ScrapedTable -> funnel payload -> ingest.
 from __future__ import annotations
 
 import random
+import ssl
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Iterable, Protocol, runtime_checkable
@@ -21,6 +23,42 @@ from ..vocab import ExtractKind, Fetcher, PayloadClient
 # 403 generic clients get a browser UA via SourceEntry notes + per-family
 # override — explicitly, per connector, never silently global.
 DEFAULT_USER_AGENT = "ScrapeX/0.1 (+contact: owner)"
+
+# WHY ONE SHARED SSL CONTEXT (2026-07-31)
+#
+# Every httpx.Client() builds its own, and building one here costs 1.6 SECONDS —
+# not on the network, before a single byte is sent. cProfile puts 5.921s of 5.929s
+# for three constructions inside one C call: _ssl._SSLContext.load_verify_locations.
+# certifi's cacert.pem is 240 KB and this box has resident on-access AV, so OpenSSL
+# re-reads it through the scanner every time. Same certificates from memory
+# (cadata) cost 139 ms, so it is the file read, not the parse. Measured here:
+#
+#   httpx.Client()                          1633.1 ms
+#   httpx.Client(verify=<shared context>)       0.6 ms      2700x
+#
+# It does NOT amortise: six consecutive builds ran 4083, 1744, 2121, 2503, 1675,
+# 1601 ms. Nothing about that is ScrapeX's doing. What WAS ours is how often we
+# paid it. The job worker built a fetcher on every poll while holding the
+# warehouse write lock (jobs.py), so an idle engine burned ~42% of a core and
+# stalled the owner's job inserts; the test suite paid it 37 times per run
+# (10% of total wall clock).
+#
+# The context is built once, lazily, and shared. ssl.SSLContext is documented as
+# safe for concurrent use once configured and nothing here mutates it afterwards.
+# Verification is UNCHANGED — this is httpx's own default context, built via
+# httpx.create_ssl_context(), just not rebuilt per client.
+_SSL_CONTEXT: ssl.SSLContext | None = None
+_SSL_CONTEXT_LOCK = threading.Lock()
+
+
+def shared_ssl_context() -> ssl.SSLContext:
+    """httpx's default CA-verifying context, built once per process."""
+    global _SSL_CONTEXT
+    if _SSL_CONTEXT is None:
+        with _SSL_CONTEXT_LOCK:
+            if _SSL_CONTEXT is None:      # another thread may have won the race
+                _SSL_CONTEXT = httpx.create_ssl_context()
+    return _SSL_CONTEXT
 
 
 @dataclass
@@ -213,6 +251,7 @@ class HttpFetcher:
             headers={"User-Agent": user_agent},
             timeout=timeout_s,
             follow_redirects=True,
+            verify=shared_ssl_context(),   # see the note above: 1633ms -> 0.6ms
         )
         self._min_interval_s = min_interval_s
         self._last_request_at = 0.0

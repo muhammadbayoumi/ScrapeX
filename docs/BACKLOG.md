@@ -261,7 +261,9 @@ lose).
   (`plan-closing-the-gaps` §5.2). Measured in `2253308`: 3,874 products at `Crawl-delay: 10`
   ≈ **eleven hours**.
 - **SIKA datasheets** want their own connector (§5.3).
-- **TABLER** has never been probed (§5.4).
+- **TABLER** has never been probed (§5.4). Now tracked with the rest of the unprobed
+  queue in `docs/CANDIDATE-SOURCES.md`, whose row also records that its URL was never
+  written down anywhere.
 
 ### DEC-6 · Authenticated capture for prices an anonymous crawl can never reach
 Decided in principle, unbuilt: ALSWEED's variant prices (`offers.price=0` in JSON-LD),
@@ -458,6 +460,8 @@ owner to-do — **inferred**; the check is which run wrote them.)*
 | file | status |
 |---|---|
 | `BACKLOG.md` (this file) | **live** — the tracking document |
+| `CANDIDATE-SOURCES.md` (07-31) | **live** — the queue of sites the owner has sent and nobody has probed yet. Deliberately outside `sources.yaml` (SR-13). A row leaves it when the site becomes a manifest entry |
+| `SOURCES-REGISTER.md` (07-31) | **live, derived** — the developer's per-source scoreboard, split MarketLens / General. Reads out of the manifest, the connector directory and this file; when it disagrees with `sources.yaml`, the manifest wins. Delete a reference in it when the matching `OP-`/`DEC-`/`BV-` closes |
 | `plan-closing-the-gaps.md` (07-25) | **superseded by this file.** Phases 0–2 delivered; its still-live items are DEC-4, DEC-5, DEC-6, DEBT-2, Q-10. Keep for its measured 07-25 snapshot |
 | `MASTER-PLAN.md` (07-18/23) | **stale and misleading** — see DEC-1. Its §8 asks the owner to confirm a topology its own header says he already rejected, and it cites a `spikes/` directory that has never existed in this repo. Keep as a design study; correct the header once Q-6 is answered |
 | `REVIEW-2026-07-28.md` | **live as evidence, superseded as a queue.** Its open items are OP-4, OP-5, OP-6, OP-7, OP-12, OP-13, OP-14 |

@@ -364,6 +364,43 @@ def test_healthy_volume_passes_the_canary(conn):
 
 # ---- the worker thread (spec 4: the runtime executes, not the panel) --------
 
+def test_runner_never_advertises_an_inert_early_wake_api(tmp_path):
+    """If an early-wake API exists, it must actually bypass the poll delay.
+
+    Deleting the API is also honest: the shipped interval is only 0.5 seconds
+    and no enqueue path currently asks for an earlier wake. What must not exist
+    is a public method whose docstring promises signalling while its body does
+    nothing.
+    """
+    wake = getattr(JobRunner, "wake", None)
+    if wake is None:
+        return
+
+    import threading
+
+    db = tmp_path / "wake.db"
+    setup = dbmod.connect(db)
+    dbmod.migrate(setup)
+    create_job(setup, ["A"], RunMode.UPDATE)
+    setup.close()
+
+    captured = threading.Event()
+
+    def capture(_conn, entry, _job_id=None):
+        captured.set()
+        return _result(entry.source_key)
+
+    runner = JobRunner(str(db), lambda: _FakeManifest(["A"]),
+                       poll_interval_s=5.0, capture=capture)
+    runner.start()
+    try:
+        wake(runner)
+        assert captured.wait(0.25), (
+            "JobRunner.wake() exists but did not bypass the five-second poll delay")
+    finally:
+        runner.stop()
+
+
 def test_runner_thread_drains_the_queue(tmp_path):
     """The job outlives whoever queued it: nothing but the worker touches it."""
     import time
@@ -1047,7 +1084,14 @@ class _HostedManifest:
 
 def _timed_capture(events, gate, hold_s):
     """A capture that records when it enters and leaves the crawl of a source,
-    so a test can prove two crawls of one host never overlap."""
+    so a test can prove two crawls of one host never overlap.
+
+    These intervals can be shorter than one Windows scheduler tick. The local
+    monotonic clock is GetTickCount64 (15.625 ms resolution), which collapses
+    genuinely ordered events to identical timestamps. perf_counter is also
+    monotonic and uses the high-resolution performance counter, so strict
+    interval comparisons retain their meaning on every supported platform.
+    """
     import threading
     import time
 
@@ -1055,10 +1099,10 @@ def _timed_capture(events, gate, hold_s):
 
     def capture(_conn, entry, _job_id=None, **_kw):
         with lock:
-            events.append(("enter", entry.source_key, time.monotonic()))
+            events.append(("enter", entry.source_key, time.perf_counter()))
         gate.wait(hold_s)          # hold the "crawl" open long enough to overlap
         with lock:
-            events.append(("exit", entry.source_key, time.monotonic()))
+            events.append(("exit", entry.source_key, time.perf_counter()))
         return _result(entry.source_key)
 
     return capture

@@ -313,16 +313,26 @@ def test_rates_refresh_only_when_the_stored_ones_have_gone_stale(tmp_path):
                  "'in_stock','rh','ph','effective','observed')")
     conn.commit()
 
-    first = rates.refresh_if_due(conn, _Fetcher())
+    # Every instant here is stated, because refresh_if_due stamps the store with
+    # the `now` it is given. Letting the first call take the real clock and then
+    # naming a fixed later date made this a bomb with a six-hour fuse: on
+    # 2026-07-31 at 18:17Z the real stamp was only 5h43m before the named
+    # 2026-08-01T00:00:00Z — inside the window, nothing due — and CI went red on
+    # a docs-only PR. Once the real clock passed that date the age went
+    # NEGATIVE, and `not (0 <= age < WINDOW)` calls a negative age due too, so
+    # the test went green again while testing nothing: measured, it still passed
+    # with REFRESH_AFTER_S set to ten years.
+    first = rates.refresh_if_due(conn, _Fetcher(), now="2026-07-01T00:00:00Z")
     assert first is not None and _Fetcher.calls == 1
     assert [r.currency for r in first.rates] == ["SAR"]
 
-    # Immediately after, nothing is due — no second request.
-    assert rates.refresh_if_due(conn, _Fetcher()) is None
+    # One second inside the window: nothing is due, no second request.
+    assert rates.refresh_if_due(conn, _Fetcher(), now="2026-07-01T05:59:59Z") is None
     assert _Fetcher.calls == 1
 
-    # Once the stored rate is older than the window, it is due again.
-    assert rates.refresh_if_due(conn, _Fetcher(), now="2026-08-01T00:00:00Z") is not None
+    # The exact instant the window closes: age == REFRESH_AFTER_S, and the
+    # predicate is `age < WINDOW`, so this is the first due moment.
+    assert rates.refresh_if_due(conn, _Fetcher(), now="2026-07-01T06:00:00Z") is not None
     assert _Fetcher.calls == 2
 
 
@@ -460,3 +470,42 @@ def test_the_attempt_survives_an_exception_that_escapes_the_fetch(tmp_path):
     with pytest.raises(CrawlBlocked):
         rates.refresh_if_due(conn, _Blocked(), now="2026-07-29T00:00:00Z")
     assert _Blocked.calls == 2
+
+
+def test_a_clock_that_went_backwards_counts_as_due_not_as_fresh(tmp_path):
+    """The mechanism that hid the bomb above, pinned deliberately.
+
+    refresh_is_due returns `not (0 <= age < REFRESH_AFTER_S)`, so a stored stamp
+    in the FUTURE — a corrected clock, a restored backup, a machine that ran in
+    another timezone — reads as due rather than as fresh. That is the safe
+    direction: we re-ask rather than sit on a figure we cannot date. Nothing may
+    quietly narrow it to `age >= WINDOW`, which would call a future stamp
+    permanently fresh and stop the USD column ever updating again."""
+    from scrapex import db as dbmod, rates
+
+    conn = dbmod.connect(tmp_path / "back.db")
+    dbmod.migrate(conn)
+    conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
+                 " source_name, base_url, platform, currency, timezone, authority, active) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop',1)")
+    conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
+    conn.execute("INSERT INTO source_product (source_product_id, source_id, "
+                 " external_product_id, product_name, product_name_ar) "
+                 "VALUES (1,1,'p','P','ب')")
+    conn.execute("INSERT INTO source_variant (source_variant_id, source_product_id, "
+                 " external_variant_id) VALUES (1,1,'v')")
+    conn.execute("INSERT INTO source_offer (offer_id, source_variant_id, "
+                 " country_code_alpha2, customer_segment, basis_quantity, currency, "
+                 " tax_included) VALUES (1,1,'SA','retail',1,'SAR',1)")
+    conn.execute("INSERT INTO price_observation (offer_id, run_id, observed_at, "
+                 " business_date, price, currency, tax_included, availability, "
+                 " record_hash, price_hash, price_fields, provenance) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','2026-07-01',100,'SAR',1,"
+                 "'in_stock','rh','ph','effective','observed')")
+    conn.execute("INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                 (rates.LAST_CHECK_KEY, "2027-01-01T00:00:00Z"))
+    conn.commit()
+
+    assert rates.refresh_is_due(conn, now="2026-07-01T00:00:00Z") is True
