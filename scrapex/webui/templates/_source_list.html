@@ -41,17 +41,22 @@
            was last gathered, and one honest measure of it. Every number states
            what it is. #}
         <span class="dataset-choice-detail" data-dataset-fresh>
-          {% if s.last_success %}
-          <small class="dataset-choice-state"
-                 title="Last crawled {{ (s.last_success.started_at or "")[:16]|replace("T", " ") }} UTC">
-            Last crawled {{ (s.last_success.started_at or "")[:16]|replace("T", " ") }} UTC
-            {%- if s.last_success.rows_seen %} · {{ "{:,}".format(s.last_success.rows_seen) }} rows seen
-            {%- elif s.last_success.requests_count %} · {{ "{:,}".format(s.last_success.requests_count) }} requests
+          {# Built ONCE and used twice. The line is clamped to one row, so the
+             title is the only way back to the part the ellipsis removes — and a
+             title that is merely a PREFIX of the text hides exactly the tail it
+             exists to recover. Same string, both places, by construction. #}
+          {%- if s.last_success %}
+            {%- set when = "Last crawled " ~ (s.last_success.started_at or "")[:16]|replace("T", " ") ~ " UTC" %}
+            {%- if s.last_success.rows_seen %}
+              {%- set fresh = when ~ " · " ~ "{:,}".format(s.last_success.rows_seen) ~ " rows seen" %}
+            {%- elif s.last_success.requests_count %}
+              {%- set fresh = when ~ " · " ~ "{:,}".format(s.last_success.requests_count) ~ " requests" %}
+            {%- else %}{% set fresh = when %}
             {%- endif %}
-          </small>
-          {% else %}
-          <small class="dataset-choice-state">Has data, but no crawl has succeeded yet</small>
-          {% endif %}
+          {%- else %}
+            {%- set fresh = "Has data, but no crawl has succeeded yet" %}
+          {%- endif %}
+          <small class="dataset-choice-state" title="{{ fresh }}">{{ fresh }}</small>
         </span>
       </a>
       {% endfor %}
@@ -68,7 +73,13 @@
          {% if p.source_key == source_key %}aria-current="page"{% endif %}>
         {{ source_identity(p, metric_value="0") }}
         <span class="dataset-choice-detail">
-          <small class="dataset-choice-state">Never run</small>
+          {# Titled like its sibling above. It is short enough today that the
+             clamp never reaches it, but the rule is the clamp's, not the
+             label's: anything inside .dataset-choice-detail is cut to one line,
+             so anything inside it must be recoverable. A guard that reasons
+             from how long a string happens to be stops guarding on the day
+             someone lengthens it. #}
+          <small class="dataset-choice-state" title="Never run">Never run</small>
         </span>
       </a>
       {% endfor %}

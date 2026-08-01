@@ -1056,10 +1056,12 @@ def test_the_dataset_freshness_line_does_not_crush_the_name():
     assert "grid-column:1/-1" in detail, (
         "the freshness caption is back in the narrow column beside the badge")
     assert "grid-column:2" not in detail
-    # The badge and the identity must own row 1 between them, or the caption
-    # can be auto-placed back beside one of them.
+    # The identity must own row 1, or the caption can be auto-placed back beside
+    # it. Only .source-identity and .dataset-choice-detail are grid items here:
+    # .dataset-choice>.source-identity-meta matches nothing, because the badge is
+    # nested inside .source-identity-footer. Asserting a rule that styles no
+    # element is how a guard comes to protect nothing.
     assert "grid-row:1" in css.split(".dataset-choice>.source-identity{", 1)[1].split("}", 1)[0]
-    assert "grid-row:1" in css.split(".dataset-choice>.source-identity-meta{", 1)[1].split("}", 1)[0]
 
 
 def test_the_dataset_freshness_line_stays_readable_when_truncated():
@@ -1072,4 +1074,33 @@ def test_the_dataset_freshness_line_stays_readable_when_truncated():
     assert "text-overflow:ellipsis" in line and "min-width:0" in line, (
         "without min-width:0 a grid item refuses to shrink below its content, "
         "so the caption widens the card instead of ellipsising")
-    assert 'title="Last crawled' in html, "the truncated value has no full form"
+    # The title must be the WHOLE line, not its opening. A title that stopped at
+    # "UTC" would hide exactly the "· 19,548 rows seen" tail the ellipsis cuts —
+    # a recovery mechanism that recovers the part you could already read.
+    assert 'title="{{ fresh }}">{{ fresh }}' in html, (
+        "the title and the visible text must be the same string by construction")
+    assert html.count("Last crawled") == 1, (
+        "the line is built twice, so the two copies can drift apart")
+
+
+def test_every_dataset_freshness_state_can_be_read_in_full(tmp_path):
+    """Not only the happy one. The clamp applies to whichever caption renders,
+    so a source that has data but has never finished a crawl gets a 39-character
+    sentence on one line with nothing to recover it — unless it is titled too."""
+    from fastapi.testclient import TestClient
+    from scrapex.webui.app import create_app
+    from scrapex import db as dbmod
+
+    p = tmp_path / "w.db"
+    conn = dbmod.connect(p)
+    dbmod.migrate(conn)
+    conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar,"
+                 " source_name, base_url, platform, currency, timezone, authority,"
+                 " active) VALUES (1,'MADAR','مدار','Madar',"
+                 "'https://madar.test','custom_json','SAR','UTC','shop',1)")
+    conn.commit()
+
+    page = TestClient(create_app(p)).get("/data").text
+    for state in page.split('class="dataset-choice-state"')[1:]:
+        head = state.split(">", 1)[0]
+        assert "title=" in head, f"a freshness caption ships unreadable: {head[:80]}"

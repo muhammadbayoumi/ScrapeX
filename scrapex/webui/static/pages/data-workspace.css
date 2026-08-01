@@ -50,15 +50,24 @@
   box-shadow:inset 3px 0 var(--accent)}
 .dataset-choice[hidden]{display:none}
 .dataset-choice>.source-identity{grid-column:1;grid-row:1;min-width:0}
-.dataset-choice>.source-identity-meta{grid-column:2;grid-row:1;align-self:end;font-size:.58rem;white-space:nowrap}
+/* Kept as it was. This selector matches NOTHING: source_metric nests
+   .source-identity-meta inside .source-identity-footer, so the [Row N] badge is
+   never a direct child of the card and never a grid item. Verified by rendering
+   a card: its ancestors are source-identity > source-identity-footer. Left in
+   place because removing pre-existing dead CSS is not this fix's business, but
+   named here so nobody reasons from it again — including this file's own
+   previous comment, which did. */
+.dataset-choice>.source-identity-meta{grid-column:2;align-self:end;font-size:.58rem;white-space:nowrap}
 /* THE FRESHNESS LINE IS A CAPTION ON THE CARD, NOT A FIGURE BESIDE IT.
-   It was placed in grid-column 2 — the narrow auto-width column the [Row N]
-   badge lives in — so "Last crawled 2026-07-30 10:15 UTC · 19,548 rows seen"
-   widened that column until the NAME had nothing left: madar, masdar,
-   samehgabriel and sika all rendered as four characters and an ellipsis, with
-   the badge sitting on top of the word it collided with.
-   It spans the whole card on its own row instead, which is also what it means:
-   the freshness describes the dataset, not the row count. */
+   The card is grid-template-columns:minmax(0,1fr) auto, and this line was the
+   ONLY thing in column 2. `auto` sizes to content, so "Last crawled 2026-07-30
+   10:15 UTC · 19,548 rows seen" set the width of that column, and minmax(0,1fr)
+   let column 1 give up everything to pay for it: madar, masdar, samehgabriel
+   and sika all rendered as four characters and an ellipsis. The [Row N] badge
+   is INSIDE column 1, which is why it appeared to collide — it was being
+   squeezed by the same track, not sitting in the other one.
+   The caption spans the whole card on its own row instead, which is also what
+   it means: the freshness describes the dataset, not the row count. */
 .dataset-choice-detail{display:grid;grid-column:1/-1;grid-row:2;
   justify-items:start;gap:.12rem;min-width:0}
 .dataset-choice-detail>.dataset-choice-state{
