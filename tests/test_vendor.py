@@ -1039,3 +1039,37 @@ def test_the_one_html_building_script_escapes_every_text_value_it_interpolates()
         assert not unescaped, (
             "these values reach innerHTML without esc(), so markup would be "
             f"rendered as markup: {unescaped}")
+
+
+def test_the_dataset_freshness_line_does_not_crush_the_name():
+    """The owner's screenshot: madar, masdar, samehgabriel and sika all rendered
+    as four characters and an ellipsis, with the [Row N] badge sitting on top of
+    the words it collided with.
+
+    The freshness line was placed in grid-column 2 — the narrow auto-width
+    column the badge lives in — so "Last crawled 2026-07-30 10:15 UTC · 19,548
+    rows seen" widened that column until the name had nothing left. It is a
+    caption on the card, not a figure beside the badge."""
+    css = (VENDOR.parent / "pages" / "data-workspace.css").read_text(encoding="utf-8")
+
+    detail = css.split(".dataset-choice-detail{", 1)[1].split("}", 1)[0]
+    assert "grid-column:1/-1" in detail, (
+        "the freshness caption is back in the narrow column beside the badge")
+    assert "grid-column:2" not in detail
+    # The badge and the identity must own row 1 between them, or the caption
+    # can be auto-placed back beside one of them.
+    assert "grid-row:1" in css.split(".dataset-choice>.source-identity{", 1)[1].split("}", 1)[0]
+    assert "grid-row:1" in css.split(".dataset-choice>.source-identity-meta{", 1)[1].split("}", 1)[0]
+
+
+def test_the_dataset_freshness_line_stays_readable_when_truncated():
+    """It is ellipsised to one line, so the whole value must be reachable — the
+    card decides where a fact is shown, never what it says."""
+    html = (TEMPLATES / "_source_list.html").read_text(encoding="utf-8")
+    css = (VENDOR.parent / "pages" / "data-workspace.css").read_text(encoding="utf-8")
+
+    line = css.split(".dataset-choice-detail>.dataset-choice-state{", 1)[1].split("}", 1)[0]
+    assert "text-overflow:ellipsis" in line and "min-width:0" in line, (
+        "without min-width:0 a grid item refuses to shrink below its content, "
+        "so the caption widens the card instead of ellipsising")
+    assert 'title="Last crawled' in html, "the truncated value has no full form"

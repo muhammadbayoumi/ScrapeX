@@ -42,7 +42,8 @@
            what it is. #}
         <span class="dataset-choice-detail" data-dataset-fresh>
           {% if s.last_success %}
-          <small class="dataset-choice-state">
+          <small class="dataset-choice-state"
+                 title="Last crawled {{ (s.last_success.started_at or "")[:16]|replace("T", " ") }} UTC">
             Last crawled {{ (s.last_success.started_at or "")[:16]|replace("T", " ") }} UTC
             {%- if s.last_success.rows_seen %} · {{ "{:,}".format(s.last_success.rows_seen) }} rows seen
             {%- elif s.last_success.requests_count %} · {{ "{:,}".format(s.last_success.requests_count) }} requests
