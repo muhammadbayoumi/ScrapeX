@@ -50,6 +50,16 @@ def test_the_crawl_pace_is_reachable_from_the_panel():
         assert f'id="{control}"' in panel, f"{control} is not in the side panel"
 
 
+def test_google_finance_control_is_reachable_from_the_panel():
+    panel = PANEL.read_text(encoding="utf-8")
+    script = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+
+    for control in ("google_finance_auto_refresh", "google_finance_refresh_hours",
+                    "finance-save", "finance-refresh", "finance-dataset"):
+        assert f'id="{control}"' in panel
+    assert 'post("/api/rates/google-finance/refresh"' in script
+
+
 def test_the_web_page_still_shows_what_the_engine_holds():
     """Display-only is not the same as blank: moving the controls must not
     take the VALUES away, or the page stops being able to answer the one

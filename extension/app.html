@@ -871,6 +871,48 @@
               </div>
             </div>
           </article>
+          <article class="settings-item">
+            <button class="link sect settings-toggle" data-sect="s-finance" aria-expanded="false">
+              <span class="settings-index" aria-hidden="true">03</span>
+              <span class="settings-toggle-copy">
+                <span class="settings-title">Google Finance</span>
+                <span class="settings-description">Exchange-rate cadence and manual update</span>
+              </span>
+              <svg class="settings-chevron sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#chevron-right"></use>
+              </svg>
+            </button>
+            <div id="s-finance" class="settings-panel hidden">
+              <p class="muted hint">Google Finance supplies the exchange rates used
+                for estimated USD values. Stored prices are never rewritten; each
+                conversion keeps its rate, provider and market time.</p>
+
+              <label class="row" for="google_finance_auto_refresh">
+                <input id="google_finance_auto_refresh" type="checkbox">
+                <span>Update exchange rates automatically</span>
+              </label>
+
+              <label for="google_finance_refresh_hours">Hours between automatic updates</label>
+              <input id="google_finance_refresh_hours" type="number" step="0.25"
+                     min="0.25" max="168" dir="ltr">
+              <p class="muted text-xs">Allowed range: 15 minutes to 7 days.
+                The shipped default is 6 hours.</p>
+
+              <div class="finance-status" aria-label="Google Finance status">
+                <div class="out"><span>Currencies in use</span><strong id="finance-currencies" class="tech">-</strong></div>
+                <div class="out"><span>Last update attempt</span><strong id="finance-last-check" class="tech">-</strong></div>
+                <div class="out"><span>Latest market time</span><strong id="finance-latest-market" class="tech">-</strong></div>
+                <div class="out"><span>Stored history</span><strong id="finance-rows">-</strong></div>
+              </div>
+
+              <div class="row mt-2 finance-actions">
+                <button id="finance-save" type="button" class="primary">Save</button>
+                <button id="finance-refresh" type="button" class="ghost">Update now</button>
+                <button id="finance-dataset" type="button" class="link">Open dataset</button>
+              </div>
+              <div id="finance-msg" class="muted text-sm" role="status" aria-live="polite"></div>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -882,7 +924,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-sched" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">03</span>
+              <span class="settings-index" aria-hidden="true">04</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Jobs and scheduling</span>
                 <span class="settings-description">Run cadence and worker availability</span>
@@ -898,7 +940,7 @@
           </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-output" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">04</span>
+              <span class="settings-index" aria-hidden="true">05</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Data output settings</span>
                 <span class="settings-description">Local exports and external sync</span>
@@ -918,7 +960,7 @@
                the owner actually works, they did not exist at all. -->
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-crawl" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">05</span>
+              <span class="settings-index" aria-hidden="true">06</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Crawl pace and engine</span>
                 <span class="settings-description">Pace, log retention and engine restart</span>
@@ -973,7 +1015,7 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-about" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">06</span>
+              <span class="settings-index" aria-hidden="true">07</span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">About</span>
                 <span class="settings-description">Version and product details</span>

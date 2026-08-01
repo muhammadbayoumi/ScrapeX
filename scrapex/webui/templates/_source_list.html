@@ -21,6 +21,35 @@
   </header>
 
   <nav class="dataset-list" id="dataset-list" data-dataset-list aria-label="Choose a dataset">
+    {% if rate_dataset %}
+    <section class="dataset-group" data-dataset-group>
+      <span class="dataset-group-label">Reference data</span>
+      <a class="dataset-choice" href="/data/google-finance"
+         data-dataset-choice data-search="google finance exchange rates currencies google_finance"
+         data-domain="google.com/finance"
+         {% if rate_dataset_active or source_key == rate_dataset.source_key %}aria-current="page"{% endif %}>
+        {{ source_identity({"source_key": rate_dataset.source_key,
+                            "source_name": rate_dataset.provider,
+                            "source_name_ar": "",
+                            "base_url": rate_dataset.provider_url},
+                           metric_value="{:,}".format(rate_dataset.rows), metric_label="Rate") }}
+        <span class="dataset-choice-detail" data-dataset-fresh>
+          {# Same rule as its two siblings below: built once, used for the text
+             and the title. Everything inside .dataset-choice-detail is clamped
+             to one line, so everything inside it must be recoverable. This card
+             arrived from a different branch and its caption had no title; the
+             guard in tests/test_vendor.py caught it at the merge. #}
+          {%- if rate_dataset.latest_market_at %}
+            {%- set quote = "Latest quote " ~ rate_dataset.latest_market_at[:16]|replace("T", " ") ~ " UTC" %}
+          {%- else %}
+            {%- set quote = "Ready - refresh after price data is collected" %}
+          {%- endif %}
+          <small class="dataset-choice-state" title="{{ quote }}">{{ quote }}</small>
+        </span>
+      </a>
+    </section>
+    {% endif %}
+
     {% if sources %}
     <section class="dataset-group" data-dataset-group>
       <span class="dataset-group-label">Available data</span>
@@ -86,7 +115,7 @@
     </section>
     {% endif %}
 
-    {% if not sources and not pending %}
+    {% if not sources and not pending and not rate_dataset %}
       {# Server-rendered: "Loading…" with nothing left to load was a permanent
          lie on a zero-source install (merge-review finding). #}
       <p class="dataset-no-results" data-dataset-placeholder>No datasets configured yet.</p>
