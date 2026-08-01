@@ -172,9 +172,10 @@ Publishes 91/95/98, diesel, kerosene — **not LPG**. Writes Saudi fuel rows onl
   SIKAEGSHOP's trade tier. All three need an **extension session capture**; none is a
   connector change. Decided in principle, unbuilt.
 - **DEC-5 · Sika datasheets** want a connector of their own. The family exists in the
-  vocabulary (`datasheet-enrichment`) with **no builder** — and `sources.yaml:664` still
-  carries a stale header comment for it, *"probed: Sika Egypt corporate (AEM) — enrichment
-  only, no prices"*, sitting above ARAMCO_FUEL_SA where it describes nothing.
+  vocabulary (`datasheet-enrichment`) with **no builder**, so no manifest entry may declare
+  it — `test_no_manifest_entry_declares_a_family_nothing_can_build` enforces that. What the
+  source is and why the old entry was removed live in `BACKLOG.md` DEC-5; the stale header
+  comment it left above ARAMCO_FUEL_SA in `sources.yaml` is gone.
 - **SR-2 bilingual debt** — OP-9 (154 names with no Arabic character in the Arabic column),
   OP-10 (MASDAR), OP-11 (2,385 attribute rows with no language mark).
 

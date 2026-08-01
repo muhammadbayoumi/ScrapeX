@@ -260,7 +260,17 @@ lose).
 - **ELBUROJ** needs a second pass for English names, on a 10s-delay crawl
   (`plan-closing-the-gaps` §5.2). Measured in `2253308`: 3,874 products at `Crawl-delay: 10`
   ≈ **eleven hours**.
-- **SIKA datasheets** want their own connector (§5.3).
+- **SIKA datasheets** want their own connector (§5.3). The site is Sika Egypt's *corporate*
+  AEM instance (`egy.sika.com`), not the shop: ~310 products and ~1,050 TDS PDFs behind
+  stable DMS GUIDs, with sitemap `lastmod` driving an incremental re-scrape. It publishes
+  **no prices** — it would feed `material_attribute_value` only, never `price_observation`.
+  `datasheet-enrichment` is in `vocab.ConnectorFamily` with **no builder** in
+  `connectors/factory.py`, so the connector is the whole of the work and a manifest entry
+  cannot come first: `test_no_manifest_entry_declares_a_family_nothing_can_build` refuses a
+  family nothing can build. That is why `SIKA_EGYPT_DATASHEETS` was removed in `256cd27`,
+  which also records the two things that make this bigger than it looks — SIKAEGSHOP already
+  stores 154 datasheet PDFs as `Attachment` rows, so the only new gain is reading *inside*
+  the PDFs, and `pyproject.toml` declares no PDF library at all.
 - **TABLER** has never been probed (§5.4). Now tracked with the rest of the unprobed
   queue in `docs/CANDIDATE-SOURCES.md`, whose row also records that its URL was never
   written down anywhere.
