@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 {% block title %}{{ source_key }} — ScrapeX{% endblock %}
 {% block head %}
 {# The grid is served from OUR origin, never a CDN: this tool must work with no
@@ -85,10 +86,10 @@
           <span class="chip amber">Never run</span>
         {% elif summary.last_status == "success" %}
           <span class="chip accent">Last run completed</span>
-          <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+          <span class="muted tech">{{ stamp(summary.last_run, zone=true) }}</span>
         {% else %}
           <span class="chip amber">Last run {{ summary.last_status or "did not finish" }}</span>
-          <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+          <span class="muted tech">{{ stamp(summary.last_run, zone=true) }}</span>
         {% endif %}
       </div>
       <a class="icon-label" href="/history?source_key={{ summary.source_key }}">
@@ -333,10 +334,10 @@
             <span class="chip amber">Never run</span>
           {% elif summary.last_status == "success" %}
             <span class="chip accent">Last run completed</span>
-            <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+            <span class="muted tech">{{ stamp(summary.last_run, zone=true) }}</span>
           {% else %}
             <span class="chip amber">Last run {{ summary.last_status or "did not finish" }}</span>
-            <span class="muted tech">{{ summary.last_run[:16].replace("T", " ") }}</span>
+            <span class="muted tech">{{ stamp(summary.last_run, zone=true) }}</span>
           {% endif %}
         </div>
         <a class="icon-label" href="/history?source_key={{ summary.source_key }}">
