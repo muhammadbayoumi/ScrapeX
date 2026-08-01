@@ -419,8 +419,18 @@ def test_a_compacted_marketlens_warehouse_still_opens_through_the_products_door(
     assert 0 < result.observations_after < before
 
     # The archive has to open through the same door too, or the undo path — the
-    # owner's only way back to the observations left behind — leads nowhere.
-    MarketLensDatabase(Path(result.sealed_path)).connect().close()
+    # owner's only way back to the observations left behind — leads nowhere. It
+    # is asserted on its CONTENTS, not merely that it opens: on Windows the
+    # predecessor usually keeps its own name (an open handle blocks the rename),
+    # so "it opens" alone would be re-asserting that the untouched source is
+    # still a MarketLens database, which was never in doubt.
+    archive = MarketLensDatabase(Path(result.sealed_path)).connect()
+    try:
+        assert archive.execute(
+            "SELECT COUNT(*) FROM price_observation").fetchone()[0] == before, (
+            "every observation must still be reachable from the sealed archive")
+    finally:
+        archive.close()
 
 
 def test_a_typed_warehouse_previews_as_a_measurement_not_as_a_bad_policy(tmp_path):
@@ -476,3 +486,29 @@ def test_a_successor_the_product_cannot_open_is_refused_before_anything_moves(
     assert not list(path.parent.glob("*.building-*")), "a rejected build was kept"
     assert not storage.sealed_at(path), "the warehouse was sealed despite the refusal"
     MarketLensDatabase(path).connect().close()   # exactly where the owner was
+
+
+def test_a_source_whose_kind_cannot_be_read_is_refused_rather_than_guessed(
+        conn, db_path, monkeypatch):
+    """Silence is not an answer, and must not be heard as "legacy".
+
+    `_typed_class_for` decides BOTH how the successor is built and whether the
+    identity gate runs at all, so if an unreadable header were treated as a
+    legacy warehouse it would build the old way AND switch off the check that
+    catches the old way — #53's exact shape, one layer down. This uses the
+    legacy fixture deliberately: there, guessing "legacy" would be RIGHT, the
+    compaction would succeed, and nothing else in the suite would notice.
+    """
+    digest = set_aggressive(conn)
+    before = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
+    monkeypatch.setattr(compaction, "_application_id", lambda path: None)
+
+    with pytest.raises(compaction.CompactionAborted, match="could not read what kind"):
+        compaction.compact_warehouse(conn, db_path, today=TODAY, expected_digest=digest)
+
+    assert storage.read_pointer() is None, "nothing may be promoted after a refusal"
+    assert not list(db_path.parent.glob("*.compact-*"))
+    assert not list(db_path.parent.glob("*.building-*"))
+    assert not storage.sealed_at(db_path)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM price_observation").fetchone()[0] == before

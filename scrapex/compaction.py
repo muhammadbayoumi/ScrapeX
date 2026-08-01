@@ -99,6 +99,35 @@ def _existing_tables(conn: sqlite3.Connection) -> set[str]:
         "AND name NOT LIKE 'sqlite_%'")}
 
 
+def _application_id(path: Path) -> int | None:
+    """This file's `PRAGMA application_id`, or None if it would not answer.
+
+    None is NOT an application id and must never be read as one — see
+    `_typed_class_for`, which is the whole reason this is a separate function.
+    """
+    # `sqlite3.connect` CREATES what it cannot find, and this is asked about the
+    # source — the file `build_successor` promises to read and never write. A
+    # missing warehouse must stay missing and fail at the caller's open, not be
+    # quietly conjured here as an empty database with no application id.
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(str(path))
+    except sqlite3.DatabaseError:
+        return None
+    try:
+        # The busy_timeout every other connection in this product sets. Without
+        # it a probe takes SQLITE_BUSY for an answer: a warehouse that is merely
+        # locked for a moment reports no kind at all, and one transient lock
+        # would decide how the successor gets built.
+        conn.execute("PRAGMA busy_timeout = 5000")
+        return int(conn.execute("PRAGMA application_id").fetchone()[0])
+    except sqlite3.DatabaseError:
+        return None
+    finally:
+        conn.close()
+
+
 def _typed_class_for(path: Path):
     """The typed database boundary that owns this file, or None for a legacy one.
 
@@ -114,25 +143,25 @@ def _typed_class_for(path: Path):
     a General database has no `price_observation` to compact, and `dbmod.connect`
     refuses it outright before ever reaching here. Anything else is a legacy
     unmarked warehouse, which has no typed door and keeps the legacy build.
+
+    A FILE THAT WILL NOT SAY IS REFUSED, not treated as legacy. Those are two
+    different facts and collapsing them is the same defect as #53 itself: this
+    function decides BOTH how the successor is built AND whether the new gate in
+    `_refused_by_the_product` runs at all, so a source whose header could not be
+    read — truncated, foreign, or held exclusively by another program — would
+    quietly build the legacy way AND switch off the check that would have caught
+    it. An id of 0 is an answer and means legacy. Silence is not an answer.
     """
     from .databases.domain import MarketLensDatabase   # local: databases/ imports down to here
 
-    # `sqlite3.connect` CREATES what it cannot find, and this is asked about the
-    # source — the file `build_successor` promises to read and never write. A
-    # missing warehouse must stay missing and fail at the caller's open, not be
-    # quietly conjured here as an empty database with no application id.
-    if not path.is_file():
-        return None
-    try:
-        conn = sqlite3.connect(str(path))
-    except sqlite3.DatabaseError:
-        return None
-    try:
-        app_id = int(conn.execute("PRAGMA application_id").fetchone()[0])
-    except sqlite3.DatabaseError:
-        return None
-    finally:
-        conn.close()
+    app_id = _application_id(path)
+    if app_id is None:
+        raise CompactionAborted(
+            f"ScrapeX could not read what kind of database {path} is, so it will "
+            "not build a successor for it — a source whose kind is unknown cannot "
+            "be verified against the door the product opens it with. Check that "
+            "the file is present, readable, and not held open exclusively by "
+            "another program.")
     return MarketLensDatabase if app_id == MARKETLENS_APPLICATION_ID else None
 
 
@@ -285,7 +314,14 @@ def _refused_by_the_product(source: Path, successor: Path) -> list[str]:
     acceptable — a compaction that stamped its own output into shape would be
     hiding exactly the divergence this exists to report.
     """
-    typed = _typed_class_for(source)
+    try:
+        typed = _typed_class_for(source)
+    except CompactionAborted as exc:
+        # A source whose kind could not be read is a REFUSAL, never a skip. This
+        # is the branch that keeps the gate closed when it cannot be opened:
+        # returning [] here would mean "nothing to check", which is exactly the
+        # silence #53 travelled through.
+        return [str(exc)]
     if typed is None:
         return []          # a legacy unmarked warehouse has no typed door to try
     try:
