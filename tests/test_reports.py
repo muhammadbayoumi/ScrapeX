@@ -652,3 +652,43 @@ def test_the_newest_market_rate_still_wins_among_market_rates(conn):
 
     rate, _source = _usd_rate_shown(conn)
     assert float(rate) == 50.75
+
+
+# ---- the price sits in the same place in every table, 2026-07-31 ----------
+
+def test_the_offer_block_comes_before_the_filing():
+    """The owner hunted for the price in a different place in every table.
+
+    Measured before this: position 19 in madar, 10 in sika, 8 in alsweed, 6 in
+    gpp. The relative order was never wrong — zero out-of-order pairs anywhere —
+    but Price sat at index 33 of BROWSE_COLUMNS, behind twenty-four
+    classification columns, and each source is shown only the columns it fills.
+    So the more levels a source publishes, the further right its price drifts.
+    """
+    from scrapex.reports import BROWSE_COLUMNS
+
+    keys = [key for key, _label in BROWSE_COLUMNS]
+    price = keys.index("price")
+    # Every classification column must come AFTER the price, not before it.
+    filing = [k for k in keys if k.startswith("category")]
+    assert filing, "no classification columns — the guard would pass vacuously"
+    assert min(keys.index(k) for k in filing) > price, (
+        "a classification column is ahead of Price again, which is what made "
+        "its position depend on how many levels a source publishes")
+    # And identity still leads: a price with no name beside it is unreadable.
+    assert keys.index("product_name") < price
+    assert keys.index("sku") < price
+
+
+def test_the_reorder_lost_no_column(conn):
+    """Reordering a list by hand is how a column silently disappears from the
+    table AND from the export, which share this list."""
+    from scrapex.reports import BROWSE_COLUMNS, EXPORT_HEADER
+
+    keys = [key for key, _label in BROWSE_COLUMNS]
+    assert len(keys) == len(set(keys)), "a column was duplicated"
+    assert len(keys) == 50, f"the column count changed to {len(keys)}"
+    # Every browse column must still be exportable, or the grid and the
+    # spreadsheet stop agreeing — the drift EXPORT_HEADER exists to prevent.
+    missing = [k for k in keys if k not in EXPORT_HEADER]
+    assert not missing, f"browse columns missing from the export: {missing}"

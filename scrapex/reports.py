@@ -605,84 +605,80 @@ def _level_columns() -> list[tuple[str, str]]:
 
 
 BROWSE_COLUMNS: list[tuple[str, str]] = [
-    # The two languages of one field sit TOGETHER, English first. They used to
-    # be filed in separate blocks — every English column, then Country, then
-    # every Arabic one — so a bilingual shop showed Record (AR), Record,
-    # Category, Country, Category (AR): the same fact twice with an unrelated
-    # column wedged between. The label for each pair is written once, by
-    # BILINGUAL_COLUMNS below. The "(AR)" is AUTHORED into the label, not
-    # appended at runtime: the mark is a property of the column, not of the
-    # pair, so an Arabic-only source is still told which language it is
-    # reading. (It also makes /api/fields and the grid agree by construction
-    # rather than by both remembering to run the same loop.)
-    ("product_name", "Product name"),
-    ("product_name_ar", "Product name (AR)"),
-    ("country_code_alpha2", "Country code"),
-    ("brand", "Brand"),
-    ("brand_ar", "Brand (AR)"),
-    # Classification (owner ruling 2026-07-22): part of the MAIN table, with
-    # every level the source publishes. "category" carries the source's full
-    # path ("Cables > Low voltage") or, for a source that only files products
-    # under flat labels, the labels themselves. The per-level columns split
-    # the path so the table can sort and group by any layer; presence gating
-    # keeps each level to the sources that actually reach that depth.
-    ("category", "Category"),
-    ("category_ar", "Category (AR)"),
-    # The DEEPEST level this row actually reaches, in one column. The owner's
-    # ask (2026-07-28): «عاوز عمود يكون مجمع اخر تصنيف لكل صف» — sources like
-    # MADAR and ADVANCEDCASTLE classify to different depths row by row, so no
-    # single Category L-column holds "the most specific thing this is". Reading
-    # it off the row means never asking which level to look in.
-    ("category_leaf", "Category leaf"),
-    ("category_leaf_ar", "Category leaf (AR)"),
-    *_level_columns(),
-    ("variant", "Variant"),
-    ("variant_ar", "Variant (AR)"),
-    ("sku", "SKU"),
-    ("price", "Price"),
-    # Derived from currency_rate (the publisher's own implied rates) so 128
-    # currencies can be RANKED in one column. Approximate by nature and
-    # labelled so.
-    ("price_trade", "Trade price"),
-    ("price_usd", "Price (USD est.)"),
-    # The price that held immediately before the current one, and the move
-    # between them. Different questions from the DISCOUNT (which is within
-    # one listing, was -> sale) — this is across TIME.
-    ("price_previous", "Previous price"),
-    ("price_change", "Price change"),
-    ("price_min", "Lowest price"),
-    ("price_max", "Highest price"),
-    ("observations", "Observations"),
-    # The pre-discount price rides INSIDE the price cell, struck through beside
-    # the current one (the owner's asked-for shape) — a separate Was column
-    # would state the same number twice. The discount itself is TWO columns,
-    # matching the export: one cell reading "-84.67 (-7.0%)" can be neither
-    # sorted by size nor by severity, and the owner asked for the split in both
-    # places rather than in one.
-    ("discount", "Discount"),
-    ("discount_pct", "Discount %"),
-    ("unit", "Unit"),
-    ("availability", "Availability"),
-    ("tax", "Tax"),
-    ("price_changed_on", "Price changed on"),
-    ("last_confirmed_on", "Last confirmed on"),
-    # The official body the source names for its figure. Only sources that
-    # actually attribute (GPP country pages) populate it; the presence sweep
-    # hides it everywhere else.
-    ("official_source", "Official source"),
-    ("curation", "Curation"),
-    # Last, and narrow: the arrow that opens the record on the site itself.
-    # It replaced a Details column — the details now open UNDER the table
-    # when a row is selected, so a column for them was a second door to a
-    # room the row already opens (owner's ruling).
+    # WHY IDENTITY, THEN THE OFFER, THEN THE FILING (2026-07-31)
     #
-    # Named `product_link` since 0051, the same key the export uses: the arrow
-    # and the export's URL column were one fact (the link to the record on the
-    # site) arriving down two seeding paths that never reconciled, and
-    # dataset_field allows one row per (source, key). The label stays blank —
-    # the cell is an icon, and the schema page reads the label from the export
-    # list where it is written out in full.
-    ("product_link", ""),
+    # The relative order was always consistent across sources — measured, zero
+    # out-of-order pairs anywhere, so there was nothing to "unify". What was NOT
+    # consistent was where Price LANDED: position 19 in madar, 10 in sika, 8 in
+    # alsweed, 6 in gpp. Price sat at index 33 of this list, behind twenty-four
+    # classification columns, and each source is shown only the columns it
+    # actually fills — so the more levels a source publishes the further right
+    # its price drifts, and the owner hunted for the one number the product
+    # exists to track in a different place in every table.
+    #
+    # Nothing is pinned and no column is forced to appear: the per-source gates
+    # still decide PRESENCE, which is the ruling that keeps a fuel site's USD
+    # estimate off a shop's table. Only the ORDER changed, so that what precedes
+    # Price is the handful of columns nearly every source fills rather than a
+    # variable-length taxonomy.
+    #
+    # The two languages of one field still sit TOGETHER, English first, and the
+    # "(AR)" is authored into the label rather than appended at runtime — see
+    # BILINGUAL_COLUMNS below.
+
+    # ---- identity ----
+    ('product_name', 'Product name'),
+    ('product_name_ar', 'Product name (AR)'),
+    ('sku', 'SKU'),
+    ('variant', 'Variant'),
+    ('variant_ar', 'Variant (AR)'),
+    # ---- the offer: what this record costs ----
+    ('price', 'Price'),
+    ('price_trade', 'Trade price'),
+    ('price_usd', 'Price (USD est.)'),
+    ('discount', 'Discount'),
+    ('discount_pct', 'Discount %'),
+    ('unit', 'Unit'),
+    ('availability', 'Availability'),
+    ('tax', 'Tax'),
+    # ---- the filing, and everything that describes the record ----
+    ('country_code_alpha2', 'Country code'),
+    ('brand', 'Brand'),
+    ('brand_ar', 'Brand (AR)'),
+    ('category', 'Category'),
+    ('category_ar', 'Category (AR)'),
+    ('category_leaf', 'Category leaf'),
+    ('category_leaf_ar', 'Category leaf (AR)'),
+    ('category_l1', 'Category L1'),
+    ('category_l1_ar', 'Category L1 (AR)'),
+    ('category_l2', 'Category L2'),
+    ('category_l2_ar', 'Category L2 (AR)'),
+    ('category_l3', 'Category L3'),
+    ('category_l3_ar', 'Category L3 (AR)'),
+    ('category_l4', 'Category L4'),
+    ('category_l4_ar', 'Category L4 (AR)'),
+    ('category_l5', 'Category L5'),
+    ('category_l5_ar', 'Category L5 (AR)'),
+    ('category_l6', 'Category L6'),
+    ('category_l6_ar', 'Category L6 (AR)'),
+    ('category_l7', 'Category L7'),
+    ('category_l7_ar', 'Category L7 (AR)'),
+    ('category_l8', 'Category L8'),
+    ('category_l8_ar', 'Category L8 (AR)'),
+    ('category_l9', 'Category L9'),
+    ('category_l9_ar', 'Category L9 (AR)'),
+    ('category_l10', 'Category L10'),
+    ('category_l10_ar', 'Category L10 (AR)'),
+    ('price_previous', 'Previous price'),
+    ('price_change', 'Price change'),
+    ('price_min', 'Lowest price'),
+    ('price_max', 'Highest price'),
+    ('observations', 'Observations'),
+    ('price_changed_on', 'Price changed on'),
+    ('last_confirmed_on', 'Last confirmed on'),
+    ('official_source', 'Official source'),
+    ('curation', 'Curation'),
+    ('product_link', ''),
 ]
 
 # The bilingual pairs, declared ONCE (owner's standing rule: a site that
