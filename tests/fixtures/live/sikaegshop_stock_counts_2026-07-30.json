@@ -1,0 +1,171 @@
+{
+ "success": true,
+ "data": [
+  {
+   "product_id": 213,
+   "product_enname": "Sika Gard 701 W 20KG",
+   "product_arname": "سيكا جارد 701 دبليو 20كيلو",
+   "short_description_en": "A transparent paint to protect concrete and stone structures from weather and rain.",
+   "short_description_ar": "دهان شفاف لحماية المنشآت الخرسانية والحجريةمن العوامل الجويه و الامطار",
+   "keywords_en": "Sika Gard 701 W,",
+   "keywords_ar": "سيكا جارد 701 دبليو , حمايه الاحجار و الرخام",
+   "price": 2280,
+   "sale_price": null,
+   "specail_price": 1710,
+   "stock_quantity": 0,
+   "weight": 20,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 19,
+   "product_categories": {
+    "category_id": 19,
+    "category_enname": "Protective coating",
+    "category_arname": "\tدهانات الحمايه"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3400,
+     "file_name": "61gPstGuCoL.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1761765107676_qmrw7qri2bq.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 67377,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3400,
+     "product_id": 213,
+     "file_name": "61gPstGuCoL.jpg",
+     "file_url": "/uploads/productattachments/product_temp_1761765107676_qmrw7qri2bq.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 67377,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  },
+  {
+   "product_id": 252,
+   "product_enname": "Sika Backing ® Rod 1 CM",
+   "product_arname": "سيكا باكينج رود 1 سم",
+   "short_description_en": "Backing rod for joint sealing",
+   "short_description_ar": "مادة حشو خلفي لمواد سيكا فليكس لملىء الفواصل على البارد و ذلك لإعطاء الفاصل العمق المطلوب",
+   "keywords_en": "Sika Backing rod",
+   "keywords_ar": "سيكا باكينج رود",
+   "price": 10,
+   "sale_price": null,
+   "specail_price": 7,
+   "stock_quantity": 198,
+   "weight": 1,
+   "is_shippable": true,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 22,
+   "product_categories": {
+    "category_id": 22,
+    "category_enname": "Joints Sealing",
+    "category_arname": "ملئ فواصل التمدد"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 3105,
+     "file_name": "Sika Backing Rod  (1).jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767561337784_23tx671bvjq.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 59118,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 3105,
+     "product_id": 252,
+     "file_name": "Sika Backing Rod  (1).jpg",
+     "file_url": "/uploads/productattachments/product_temp_1767561337784_23tx671bvjq.jpg",
+     "file_type": "image/jpeg",
+     "file_size": 59118,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  },
+  {
+   "product_id": 288,
+   "product_enname": "ROFLEX-PE-4mm-PT 10M",
+   "product_arname": "روفليكس بي  4مم 10متر",
+   "short_description_en": "APP MODIFIED BITUMEN PLASTOMERIC WATERPROOFING MEMBRANE",
+   "short_description_ar": "لفات الممبرين للعزل المائي",
+   "keywords_en": "waterproofing, membrane, ROFLEX",
+   "keywords_ar": "عزل مائي, ممبرين , روفليكس",
+   "price": 650,
+   "sale_price": null,
+   "specail_price": 500,
+   "stock_quantity": 4000,
+   "weight": 50,
+   "is_shippable": false,
+   "is_active": true,
+   "created_at": {},
+   "updated_at": {},
+   "category_id": 4,
+   "product_categories": {
+    "category_id": 4,
+    "category_enname": "Water proofing",
+    "category_arname": "العزل المائي"
+   },
+   "product_attachments": [
+    {
+     "attachment_id": 2837,
+     "file_name": "_وليد _3498 (1).png",
+     "file_url": "/uploads/productattachments/product_temp_1773581621273_9trilpe08bo.png",
+     "file_type": "image/png",
+     "file_size": 222606,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_products": [],
+   "attachments": [
+    {
+     "attachment_id": 2837,
+     "product_id": 288,
+     "file_name": "_وليد _3498 (1).png",
+     "file_url": "/uploads/productattachments/product_temp_1773581621273_9trilpe08bo.png",
+     "file_type": "image/png",
+     "file_size": 222606,
+     "is_primary": true,
+     "sort_order": 1,
+     "created_at": {}
+    }
+   ],
+   "flash_sale_price": null,
+   "flash_sale_discount": null,
+   "flash_sale_info": null
+  }
+ ],
+ "pagination": {
+  "total": 87,
+  "page": 1,
+  "limit": 12,
+  "totalPages": 1,
+  "hasMore": false
+ }
+}

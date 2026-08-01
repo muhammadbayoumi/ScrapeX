@@ -174,11 +174,33 @@ def _prices(product: dict) -> tuple[str, str, str]:
     return _fmt(regular), _fmt(effective if effective < regular else None), _fmt(effective)
 
 
+def _stock_count(product: dict) -> float | None:
+    """The count the shop PUBLISHES, or None when it publishes none.
+
+    Deliberately NOT `_num`: that one folds 0 into None because a price of zero
+    is no price, and a stock of zero is the opposite — it is the shop saying
+    "none left", the most decision-changing thing it can say about a count. So
+    the only rejection here is a value that is not a number at all.
+
+    `bool` is excluded because `isinstance(True, int)` is True in Python, and
+    this family's sibling keys (`in_stock`) are flags: `stock: true` would
+    otherwise be recorded as a count of one item.
+
+    Extracted so _availability and the price row read the SAME number through
+    the same fallback chain. They used to derive it separately — that is how one
+    of them could answer `in_stock` from a figure the other never wrote down.
+    """
+    qty = product.get("stock_quantity", product.get("stock", product.get("quantity")))
+    if isinstance(qty, (int, float)) and not isinstance(qty, bool):
+        return qty
+    return None
+
+
 def _availability(product: dict) -> str:
     """Stock first, then the active flag. `is_active` is a listing state, not a
     stock level — a live product with zero stock is out of stock, not in it."""
-    qty = product.get("stock_quantity", product.get("stock", product.get("quantity")))
-    if isinstance(qty, (int, float)) and not isinstance(qty, bool):
+    qty = _stock_count(product)
+    if qty is not None:
         return Availability.IN_STOCK.value if qty > 0 else Availability.OUT_OF_STOCK.value
     flag = product.get("is_active", product.get("in_stock"))
     if isinstance(flag, bool):
@@ -464,6 +486,29 @@ class CustomJsonConnector:
             # rather than "0" when the shop states none: absent is not zero.
             price_trade=_num(product.get("specail_price")) or "",
             availability=_availability(product),
+            # THE COUNT ITSELF, beside the word derived from it. `_availability`
+            # has read this number since this connector was written, but only to
+            # answer in_stock/out_of_stock — so 198 and 1 both left as
+            # "in_stock" and the figure was discarded at the door. Measured on
+            # the live warehouse 2026-07-30: 0 of 252 SIKAEGSHOP observations and
+            # 0 of 87 offer_state rows carry a count, while the API publishes one
+            # for every product (198, 83, 8, 1, 99, 100 in the captures).
+            #
+            # The column is not new — rowspec has carried it since before this
+            # connector existed and ingest has always stored it, so this asks for
+            # no migration and no PAYLOAD_VERSION bump. The connector simply
+            # never filled it in.
+            #
+            # `_fmt(None) == ""` is the no-invented-zero rule doing its work: a
+            # product the API says nothing about stays empty and lands as NULL,
+            # never as a 0 that would read as "sold out". A PUBLISHED 0 is a
+            # statement and `_fmt` writes it — which is the OPPOSITE of the
+            # falsy guard on `enrichment_rows`' own "Stock quantity" row below,
+            # where a 0 is deliberately dropped because `_availability` already says
+            # `out_of_stock` for it and the reason is recorded there. Two rules,
+            # both intended: the detail row is prose for a reader, this is the
+            # measurement.
+            stock_quantity=_fmt(_stock_count(product)),
             unit=unit, basis_quantity=basis,
         )
 
@@ -520,11 +565,18 @@ def enrichment_rows(builder: RowBuilder, product: dict, base: str) -> list[list[
     add("weight", "Weight", product.get("weight"), numeric=product.get("weight"),
         unit="kg", group=DetailGroup.SPECIFICATIONS)
     # `add` skips a falsy value, so a stock_quantity of 0 emits no row. That is
-    # a real omission and it is left standing: the fact is NOT lost, because
-    # _availability reads the same number and the price row states
-    # `out_of_stock` for it — which is what a zero means to a reader. Lifting
-    # the guard to let this 0 through would also start writing "Maximum stock
-    # level: 0" on 85 of 87 products (below), which would be a lie.
+    # a real omission and it is left standing: the fact is NOT lost, and since
+    # the count started riding the PRICE row (`_row`, `stock_quantity=`) it is
+    # not even approximated any more — price_observation.stock_quantity now
+    # holds the literal 0, in the column a reader can filter and chart, next to
+    # the `out_of_stock` that says the same thing in words. Lifting the guard
+    # here would also start writing "Maximum stock level: 0" on 85 of 87
+    # products (below), which would be a lie.
+    #
+    # So the two rules are opposite ON PURPOSE and each is right where it sits:
+    # this bag is prose keyed by an attribute name, where an absent row and a
+    # "0" row read the same to a human; the price column is a measurement, where
+    # NULL and 0 are different claims and only one of them is "none left".
     add("stock_quantity", "Stock quantity", product.get("stock_quantity"),
         numeric=product.get("stock_quantity"), group=DetailGroup.STORE)
     # The shop's own reorder thresholds, detail-only. Emitted only when
