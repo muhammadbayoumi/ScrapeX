@@ -1413,7 +1413,7 @@ async function loadDatasets() {
         <div><div class="dataset-identity-line">${sourceIdentity(
           s, false, fmtCount(s.observations))}</div>
           <div class="n">${fmtCount(s.products)} products</div>
-          <div class="n muted">${esc(freshnessLine(s))}</div></div>
+          <div class="n muted">${freshnessLine(s)}</div></div>
       </article>`).join("");
     box.querySelectorAll("[data-open]").forEach((card) => {
       card.addEventListener("click", () => openDataset(card.dataset.open));
@@ -1434,11 +1434,16 @@ async function loadDatasets() {
 function freshnessLine(s) {
   const last = s.last_success;
   if (!last || !last.started_at) return "no successful crawl yet";
-  const when = String(last.started_at).slice(0, 16).replace("T", " ");
+  // Returns MARKUP, so the call site must not esc() it — the same shape
+  // fmtStopped uses. It named UTC in fixed text, which made this line the one
+  // place in the panel the owner had to convert in his head; and the workspace
+  // shows the very same fact from _source_list.html, so the two surfaces
+  // disagreed about a date the owner reads to decide whether to re-crawl.
+  const when = window.ScrapeXTime.markup(last.started_at, "datetime", {zone: true});
   const measure = last.rows_seen
     ? `${fmtCount(last.rows_seen)} rows seen`
     : last.requests_count ? `${fmtCount(last.requests_count)} requests` : "";
-  return `Last crawled ${when} UTC${measure ? " · " + measure : ""}`;
+  return `Last crawled ${when}${measure ? " · " + esc(measure) : ""}`;
 }
 
 function openDataset(key) {

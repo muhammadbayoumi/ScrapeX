@@ -108,7 +108,16 @@
     row.querySelector('[data-cell="progress"]').textContent = progress;
     row.querySelector('[data-cell="observations"]').textContent = fmt(job.counters.observations);
     row.querySelector('[data-cell="requests"]').textContent = fmt(job.counters.requests);
-    row.querySelector('[data-cell="finished"]').textContent = job.finished_at || "—";
+    // replaceChildren and NOT textContent. The server rendered this cell as
+    // stamp(j.finished_at), i.e. a <time data-utc> CHILD of this <dd>;
+    // assigning textContent deletes that child, so the Finished field flips
+    // to raw 2026-07-30T11:05:00Z on the first tick and ScrapeXTime.paint()
+    // — which selects [data-utc] — has nothing left to repair on a zone
+    // change. The loop below paints EVERY job row, so one live job was
+    // enough to do this to every finished card on the page.
+    row.querySelector('[data-cell="finished"]').replaceChildren(
+      job.finished_at ? ScrapeXTime.node(job.finished_at)
+                      : document.createTextNode("—"));
   };
   const tick = async () => {
     try {

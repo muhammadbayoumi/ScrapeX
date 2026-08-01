@@ -60,7 +60,12 @@
       const cells = [e.logged_at || "", e.level || "", e.source_key || "—", e.message || ""];
       cells.forEach((value, i) => {
         const td = document.createElement("td");
-        td.textContent = String(value);
+        // The Time column is column 0, and it is an instant: it goes
+        // through the one formatter, exactly as the server-rendered row
+        // above did. Writing it as textContent would leave this page
+        // showing raw UTC while every other page showed the chosen zone.
+        if (i === 0) td.append(ScrapeXTime.node(value, "datetime"));
+        else td.textContent = String(value);
         if (i === 3) td.dir = "auto";
         if (i === 0) td.className = "num muted";
         tr.append(td);

@@ -345,14 +345,32 @@ def _ui_scripts() -> list[Path]:
 # that bypasses the single formatter, and each was really in the tree before
 # issue #33 — so this list is a record of what was fixed, not a guess at what
 # might break.
+#
+# Note what these key on: the MANIPULATION, not the name of the field. The first
+# version of the last rule read `[a-zA-Z_]+_at ... slice(0, 1[06])` and was blind
+# by construction to `summary.last_run[:16]` — the owner found that one himself,
+# under the source table, after this suite had gone green. Hand-formatting an
+# instant has only a few shapes; a vocabulary of field names is always one
+# product decision behind.
 _SECOND_FORMATTER = [
     (r"\.toLocaleDateString\(", "toLocaleDateString"),
     (r"\.toLocaleTimeString\(", "toLocaleTimeString"),
     (r"\.toLocaleString\(\s*\[\s*\]", "toLocaleString([], {date parts})"),
     (r"new Intl\.DateTimeFormat\([^)]*\)\s*\.\s*format", "Intl.DateTimeFormat().format"),
-    (r"[a-zA-Z_]+_at[^;\n]{0,60}\.slice\(\s*0\s*,\s*1[06]\s*\)",
-     "slicing an instant into a date by hand"),
+    (r"\.slice\(\s*0\s*,\s*(?:10|16|19)\s*\)",
+     "slicing a value to a date or minute by hand"),
+    (r"""\.replace\(\s*(["'])T\1\s*,""",
+     'swapping the ISO "T" for a space by hand'),
 ]
+
+# The one written value that legitimately wears the truncation shape. Named
+# rather than pattern-matched, so the exemption is a decision on the record.
+_SLICE_EXEMPT = {
+    # The CSV/JSON export FILENAME stamp. A written value, not a rendering, and
+    # a filename dated in a display zone would disagree with the UTC inside the
+    # file it names.
+    ("grid.js", "toISOString"),
+}
 
 
 @pytest.mark.parametrize("pattern,name", _SECOND_FORMATTER)
@@ -365,8 +383,13 @@ def test_no_surface_grows_a_second_date_formatter(pattern, name):
     for script in _ui_scripts():
         if script.name in _FORMATTER_EXEMPT:
             continue
-        for match in re.finditer(pattern, script.read_text(encoding="utf-8")):
-            offenders.append(f"{script.relative_to(ROOT).as_posix()}: {match.group(0)[:60]}")
+        source = script.read_text(encoding="utf-8")
+        for match in re.finditer(pattern, source):
+            line = source[source.rfind("\n", 0, match.start()) + 1:
+                          source.find("\n", match.end())]
+            if any(script.name == f and token in line for f, token in _SLICE_EXEMPT):
+                continue
+            offenders.append(f"{script.relative_to(ROOT).as_posix()}: {line.strip()[:70]}")
     assert not offenders, (
         f"{name} is a second date formatter: {offenders}. Every displayed "
         "instant goes through ScrapeXTime (extension/timezone.js) — see §6.7.")
@@ -386,11 +409,48 @@ _TEMPLATE_TIME_EXEMPT = {
     "schedules.html",
 }
 
+# The shape of hand-formatting an instant, in Jinja. This is the guard that
+# would have caught what the owner found, and the NAME guard below is the one
+# that did not: `summary.last_run` does not end in _at, so no vocabulary of
+# field names could have seen it. Keep both — shape catches hand-FORMATTING,
+# name catches hand-NAMING — and note the residual blind spot they share: a bare
+# {{ summary.last_run }} with no manipulation at all is invisible to both, and
+# still needs a reader.
+_TEMPLATE_TIME_SHAPES = [
+    (re.compile(r"\{\{[^}]*\[\s*:\s*(?:10|16|19)\s*\][^}]*\}\}"),
+     "slicing a value to its first 10, 16 or 19 characters"),
+    (re.compile(r"""\{\{[^}]*replace\(\s*["']T["']"""),
+     'swapping the ISO "T" for a space'),
+]
+
+
+@pytest.mark.parametrize("pattern,name", _TEMPLATE_TIME_SHAPES)
+def test_no_template_formats_a_time_by_hand(pattern, name):
+    """The guard the owner's report earned.
+
+    Four copies of `{{ summary.last_run[:16].replace("T", " ") }}` sat under the
+    source table while this suite was green, because the guard below keys on the
+    field's NAME and `last_run` does not end in _at. This one keys on what the
+    template DOES, which is the part that cannot be renamed out of view.
+    """
+    offenders = []
+    for template in sorted(TEMPLATES.glob("*.html")):
+        if template.name in _TEMPLATE_TIME_EXEMPT:
+            continue
+        for match in pattern.finditer(template.read_text(encoding="utf-8")):
+            offenders.append(f"{template.name}: {match.group(0)[:70]}")
+    assert not offenders, (
+        f"these templates format a time by hand ({name}): {offenders}. "
+        'Use {% from "_time.html" import stamp %} and stamp(value) — one '
+        "formatter, so no page can disagree with another (§6.7).")
+
 
 def test_every_template_that_renders_an_instant_uses_the_macro():
     """The server-side half of the same rule. A page added next month gets
     caught here rather than by a reader noticing its times are four hours out."""
-    pattern = re.compile(r"\{\{[^}]*\b[a-z_]+_at\b[^}]*\}\}")
+    pattern = re.compile(
+        r"\{\{[^}]*\b(?:[a-z_]+_at|last_run|next_run|last_success|last_crawl|"
+        r"last_seen|last_updated)\b[^}]*\}\}")
     offenders = []
     for template in sorted(TEMPLATES.glob("*.html")):
         if template.name in _TEMPLATE_TIME_EXEMPT:
@@ -403,6 +463,30 @@ def test_every_template_that_renders_an_instant_uses_the_macro():
         f"these templates render an instant without the macro: {offenders}. "
         'Use {% from "_time.html" import stamp %} and stamp(value) so every '
         "page converts through the one formatter (§6.7).")
+
+
+# A template's inline <script> is a third surface, and the one the sweep found
+# two live defects in: both jobs.html and logs.html re-rendered a cell that the
+# server had already stamped, writing the raw instant back over it. That is
+# worse than never converting at all — the page is right until the first poll
+# tick, then silently wrong, and because textContent deletes the <time data-utc>
+# element, ScrapeXTime.paint() can never repair it on a zone change.
+_TEMPLATE_SCRIPT_SINK = re.compile(
+    r"\.textContent\s*=\s*[^;\n]*\b(?:[a-z_]+_at|last_run|next_run)\b")
+
+
+def test_no_template_script_writes_a_raw_instant_into_the_page():
+    """A poll must not undo what the macro did."""
+    offenders = []
+    for template in sorted(TEMPLATES.glob("*.html")):
+        source = template.read_text(encoding="utf-8")
+        for match in _TEMPLATE_SCRIPT_SINK.finditer(source):
+            offenders.append(f"{template.name}: {match.group(0).strip()[:70]}")
+    assert not offenders, (
+        f"these inline scripts write a raw instant back into the page: "
+        f"{offenders}. Use ScrapeXTime.node(value) with replaceChildren/append "
+        "— textContent deletes the <time data-utc> element the macro rendered, "
+        "so the value reverts to UTC and paint() cannot fix it (§6.7, §6.10).")
 
 
 def test_the_web_page_shows_the_active_zone_and_offers_no_control(client):
@@ -428,3 +512,53 @@ def test_the_panel_is_where_the_zone_is_chosen():
     assert 'id="ui_time_zone"' in panel, "the zone selector is not in the side panel"
     assert "data-time-zone-select" in panel
     assert 'src="timezone.js"' in panel, "the panel does not load the formatter"
+
+
+def test_the_two_polls_that_repainted_a_stamped_cell_now_use_the_formatter():
+    """The defect the generic guard above is generic ABOUT, named concretely.
+
+    Both pages server-render a time through the macro and then overwrite it on a
+    4s poll. Before this, jobs.html wrote `job.finished_at` and logs.html wrote
+    `e.logged_at` straight into the cell, so each page was correct until its
+    first tick and silently raw UTC afterwards — and because `textContent`
+    deletes the <time data-utc> element, a later zone change could not repair
+    either one.
+    """
+    jobs = (TEMPLATES / "jobs.html").read_text(encoding="utf-8")
+    assert "ScrapeXTime.node(job.finished_at)" in jobs, (
+        "the jobs poll no longer routes the Finished cell through the formatter")
+    assert 'replaceChildren(' in jobs, (
+        "the jobs poll must replace the cell's CHILDREN — assigning textContent "
+        "deletes the <time data-utc> element and paint() cannot repair it")
+
+    logs = (TEMPLATES / "logs.html").read_text(encoding="utf-8")
+    assert 'ScrapeXTime.node(value, "datetime")' in logs, (
+        "the log tail no longer routes the Time column through the formatter")
+
+
+def test_the_freshness_line_reads_the_same_on_both_surfaces():
+    """One fact, two surfaces, and they disagreed.
+
+    "Last crawled ..." is rendered by the Workspace from _source_list.html and
+    by the panel from freshnessLine() in app.js. Both hard-coded the word UTC
+    beside a hand-formatted instant, which is what the owner reported under the
+    source table. Neither may go back to doing that.
+    """
+    partial = (TEMPLATES / "_source_list.html").read_text(encoding="utf-8")
+    assert "stamp(s.last_success.started_at, zone=true)" in partial
+    # The RENDERED text, not the file: a comment may say "UTC" (this one does,
+    # explaining the fix), but no expression may be followed by the fixed word
+    # again — that is the exact shape the owner reported.
+    assert "}} UTC" not in partial, (
+        "the workspace freshness line names UTC in fixed text again, beside a "
+        "value that is no longer in UTC")
+
+    panel = (EXT / "app.js").read_text(encoding="utf-8")
+    assert 'ScrapeXTime.markup(last.started_at, "datetime", {zone: true})' in panel, (
+        "the panel's freshness line no longer uses the one formatter")
+
+    page = (TEMPLATES / "source.html").read_text(encoding="utf-8")
+    assert page.count("stamp(summary.last_run, zone=true)") == 4, (
+        "the source page's own freshness footer is rendered in four places — "
+        "the empty state and the populated one, each twice — and all four must "
+        "convert, or the owner sees two formats on one page")

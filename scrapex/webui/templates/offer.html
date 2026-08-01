@@ -77,6 +77,12 @@
     <tbody>
     {% for o in observations %}
       <tr>
+        {# NOT stamp(). business_date is a calendar date, not a moment: it is
+           the day the price is filed under, and pushing it through a zone
+           would move it and invent a market fact. It sits in the same row
+           as {{ stamp(o.observed_at, "date") }} below, which IS an instant
+           and does convert — the two look identical on screen and are not
+           the same kind of thing. #}
         <td class="num muted nowrap">{{ o.business_date }}</td>
         <td class="nowrap">
           <span class="price">{{ "%g"|format(o.price) }} {{ o.currency }}</span>

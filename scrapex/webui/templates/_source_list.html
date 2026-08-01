@@ -1,5 +1,6 @@
 {% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 <div class="dataset-menu-popover" data-dataset-browser aria-label="Datasets">
   <header class="dataset-browser-head">
     <div class="dataset-browser-title">
@@ -43,7 +44,10 @@
         <span class="dataset-choice-detail" data-dataset-fresh>
           {% if s.last_success %}
           <small class="dataset-choice-state">
-            Last crawled {{ (s.last_success.started_at or "")[:16]|replace("T", " ") }} UTC
+            {# The other half of the freshness line the owner reported. It
+               named UTC in fixed text, so it read four hours out from the
+               same fact shown anywhere else on the page. #}
+            Last crawled {{ stamp(s.last_success.started_at, zone=true) }}
             {%- if s.last_success.rows_seen %} · {{ "{:,}".format(s.last_success.rows_seen) }} rows seen
             {%- elif s.last_success.requests_count %} · {{ "{:,}".format(s.last_success.requests_count) }} requests
             {%- endif %}

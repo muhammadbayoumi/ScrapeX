@@ -1109,13 +1109,25 @@ def test_the_data_tab_states_when_each_source_was_last_crawled(open_panel):
                           "rows_seen": 763, "requests_count": 812,
                           "products_discovered": 763, "errors_count": 0}},
     ]
-    page = open_panel(sources=sources)
+    # The zone is PINNED, so this asserts the product's format rather than the
+    # zone of whichever machine runs it. It used to expect "2026-07-29 08:30" —
+    # the hand-formatted UTC this line printed before spec 33 — which is the
+    # very shape the owner reported as inconsistent with the rest of the
+    # product (and which the Workspace showed differently again).
+    page = open_panel(sources=sources,
+                      timezone={"zone": "Asia/Riyadh", "updatedAt": 9_999_999_999_999})
     page.click(DATA_TAB)
     page.wait_for_timeout(300)
     card = page.text_content("#datasets")
-    assert "Last crawled 2026-07-29 08:30" in card
+    assert "Last crawled 29 July 2026, 11:30 AM — Asia/Riyadh" in card, (
+        f"08:30Z is 11:30 in Riyadh and the zone is named beside it: {card!r}")
     assert "763 rows seen" in card
     assert "no recorded changes yet" not in card
+
+    # And the stored instant is still reachable on the element itself (§6.12).
+    stamp = page.locator("#datasets time[data-utc]").first
+    assert stamp.get_attribute("data-utc") == "2026-07-29T08:30:00Z"
+    assert stamp.get_attribute("title") == "Stored as 2026-07-29T08:30:00Z (UTC)"
     assert not page.js_errors
 
 

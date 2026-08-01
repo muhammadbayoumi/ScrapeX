@@ -100,6 +100,12 @@
   {% for table, count in retention.prunable.items() %}
     <tr><th>{{ table }}</th>
         <td class="num">{{ "{:,}".format(count) }} rows older than
+          {# NOT stamp(), and the blast radius is the reason. This same
+             string is posted back as before_date below, so showing a
+             converted day here would put a different date on screen from
+             the one the button acts on — rows pruned that the owner never
+             saw listed. A display feature must never move a boundary a
+             control uses. #}
           {{ retention.prune_before }}</td></tr>
   {% endfor %}
 </table>
