@@ -1388,6 +1388,49 @@ def _with_axis_columns(header: list[str], table: list[list],
     return widened, rows
 
 
+def stated_order(alias: str = "spa") -> str:
+    """ORDER BY terms that give back the sequence the SOURCE published.
+
+    A shop ranks a product's pictures — first is first — and every connector
+    records that rank the only place the row format offers: inside
+    `attribute_code`, as `image`, `image_1`, `image_2` … (magento.py:1364,
+    shopify.py:214, hybris.py:208, jsonld.py for salla and zid,
+    woocommerce.py). Both readers below then sorted by `attribute_group,
+    attribute_label, raw_value` — and all six connectors write the identical
+    label "Image", so group tied, label tied, and the effective sort key was
+    `raw_value`: the filename, alphabetically. The card renders the first row
+    it is handed (grid.js, productSummaryCard), so the picture shown as a
+    product's main image was the one whose file happened to sort first. The
+    rank was never lost from the warehouse; only these two queries threw it
+    away.
+
+    So the code is decoded rather than compared as text. `ORDER BY
+    attribute_code` would not do: it is lexicographic, so `image_10` lands
+    before `image_2` and bare `image` after both. `rtrim` strips the trailing
+    digits, leaving the family (`image_`), and what it stripped is cast to the
+    number it is:
+
+        image      -> ("image",  0)      the shop's first, and it sorts first
+        image_1    -> ("image_", 1)      because "image" < "image_" (shorter)
+        image_2    -> ("image_", 2)
+        image_10   -> ("image_", 10)     after 2, not before it
+
+    NOT a heuristic and NOT a re-ranking: nothing here reads the URL, the file
+    name, the image size or the word "main". It reproduces the number the
+    connector wrote down, which is the position the site published. A code that
+    carries no number (`sku`, `brand`, `color_ar`) yields a rank of 0 for every
+    row, so within one attribute the order is unchanged — `raw_value` stays as
+    the last term and keeps deciding those, exactly as before.
+
+    Both readers take it so the export and the card cannot disagree about which
+    picture came first; the export had no third key at all and was returning
+    whatever order SQLite happened to produce.
+    """
+    code = f"COALESCE({alias}.attribute_code, '')"
+    family = f"rtrim({code}, '0123456789')"
+    return f"{family}, CAST(substr({code}, length({family}) + 1) AS INTEGER)"
+
+
 # Both tabs carry BOTH name columns, like the price tab: they are enumerated
 # on no page, so nothing else would ever tell you they had only one.
 DETAILS_HEADER = ["product_name", "product_name_ar", "country_code_alpha2", "sku", "group",
@@ -1415,7 +1458,8 @@ def export_details_table(conn: sqlite3.Connection, source_key: str,
         "WHERE ss.source_key = ? AND sv.status = 'active' "
         "GROUP BY spa.source_product_attribute_id "
         "ORDER BY sp.product_name, sp.product_name_ar, spa.attribute_group, "
-        "         spa.attribute_label LIMIT ?",
+        f"         spa.attribute_label, {stated_order('spa')}, spa.raw_value "
+        "LIMIT ?",
         (source_key, limit)).fetchall()
     return list(DETAILS_HEADER), [
         [r[0] or "", r[1] or "", (r[2] or "") if r[2] != "*" else "", r[3] or "",
@@ -1631,7 +1675,8 @@ def product_attributes(conn: sqlite3.Connection, offer_id: int,
         "JOIN source_variant sv ON sv.source_product_id = spa.source_product_id "
         "JOIN source_offer so ON so.source_variant_id = sv.source_variant_id "
         "WHERE so.offer_id = ? "
-        "ORDER BY spa.attribute_group, spa.attribute_label, spa.raw_value LIMIT ?",
+        "ORDER BY spa.attribute_group, spa.attribute_label, "
+        f"         {stated_order('spa')}, spa.raw_value LIMIT ?",
         (offer_id, max(1, min(limit, 1000)))).fetchall()
     # `code` and `lang` travel with every row so the panel can PAIR the two
     # languages of one fact (description + description_en) into ONE entry
