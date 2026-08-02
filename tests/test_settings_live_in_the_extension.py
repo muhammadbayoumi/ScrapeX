@@ -21,7 +21,12 @@ PANEL = ROOT / "extension" / "app.html"
 
 # The engine's OWN lifecycle is not a setting: restarting or upgrading the
 # runtime is a repair you may need precisely when the panel cannot reach it.
-# Named here so the exemption is a decision on the record, not a loophole.
+# So these two may appear on the web page.
+#
+# What they may NOT do is appear ONLY there. Owner ruling, 2026-08-01: the
+# extension is the control room, and a capability the page has and the panel
+# lacks is a defect. This set was an exemption list; it is now a parity list,
+# and the test below reads it in the other direction too.
 RUNTIME_REPAIR_IDS = {"runtime-restart", "runtime-upgrade"}
 
 
@@ -39,6 +44,44 @@ def test_the_web_page_offers_no_setting_to_change():
         f"{sorted(stray)}. Settings belong in extension/app.html — a setting "
         "the owner cannot reach from the side panel is a setting he does not "
         "have.")
+
+
+def test_the_panel_can_do_everything_the_web_page_can():
+    """The owner's ruling: «مينفعش يكون فى ميزة على الويب لا توجد فى extension».
+
+    The version notice had to tell him to press "Restart engine" on the web
+    Settings page, because the panel — the application — had no such button.
+    An action that exists on only one of the two surfaces sends the reader
+    somewhere else at the exact moment they most need to act.
+
+    Display may live anywhere. Doing may not live only on the page."""
+    page = WEB_SETTINGS.read_text(encoding="utf-8")
+    panel = PANEL.read_text(encoding="utf-8")
+
+    on_page = {i for i in RUNTIME_REPAIR_IDS if f'id="{i}"' in page}
+    missing = {i for i in on_page if f'id="{i}"' not in panel}
+
+    assert not missing, (
+        f"the web page can do {sorted(missing)} and the side panel cannot. "
+        "Every action on that page must have its equivalent in "
+        "extension/app.html, wired to the same endpoint.")
+
+
+def test_the_panel_repair_buttons_reach_the_same_endpoints():
+    """Present is not the same as wired. A button that renders and does nothing
+    is worse than an absent one: it looks like the feature is broken rather
+    than missing."""
+    script = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+
+    # Quoted, so the path must END where it is supposed to. A bare substring
+    # check passed happily on "/api/engine/restart_DISABLED" — it asserted a
+    # prefix, not an endpoint, which is the same shape of mistake as a title
+    # that recovers only the part you could already read.
+    for endpoint in ('"/api/engine/restart"', '"/api/databases/upgrade"'):
+        assert endpoint in script, (
+            f"the panel has no call to {endpoint}, so its button cannot work")
+    assert "runtime-restart" in script and "runtime-upgrade" in script, (
+        "the buttons are in the markup and nothing listens to them")
 
 
 def test_the_crawl_pace_is_reachable_from_the_panel():
