@@ -337,3 +337,50 @@ def test_health_states_the_protocol_version_the_panel_can_check(client):
 
     body = client.get("/api/health").json()
     assert body["protocol_version"] == PROTOCOL_VERSION
+
+
+def test_health_carries_the_two_numbers_a_stale_extension_needs(client):
+    """The panel polls health and nothing else on a timer, so the pair that
+    lets it notice itself has to ride along. The full ledger deliberately does
+    NOT: it is fetched once from /api/version, because re-sending it every few
+    seconds would answer a question that changes only when the engine restarts.
+    """
+    from scrapex.version import MINIMUM_EXTENSION_VERSION, VERSION
+
+    body = client.get("/api/health").json()
+    assert body["version"] == VERSION, "the engine's own version"
+    assert body["latest_extension_version"] == VERSION
+    assert body["minimum_extension_version"] == MINIMUM_EXTENSION_VERSION
+
+
+def test_the_version_report_answers_the_five_facts_a_notification_needs(client):
+    """One implementation of "is this extension outdated", and it is here: the
+    panel states its version, the engine applies the rule, and the web page can
+    read the same verdict instead of inventing a second one."""
+    from scrapex.version import VERSION
+
+    body = client.get("/api/version", params={"extension_version": "0.1.0"}).json()
+    assert body["installed_extension_version"] == "0.1.0"      # 1
+    assert body["latest_extension_version"] == VERSION         # 2
+    assert body["minimum_extension_version"]                   # 3
+    assert body["missing"] and all(                            # 4
+        item["summary"] and item["since"] for item in body["missing"])
+    assert "chrome://extensions" in body["update_instructions"]  # 5
+    assert body["outdated"] is True
+    assert "no remote update server" in body["latest_source"], (
+        "the wire implies an update server that does not exist")
+
+
+def test_the_version_report_refuses_a_number_that_is_not_a_version(client):
+    """Answering an unreadable version with "everything is missing" would send
+    the owner to reload an extension that is perfectly current."""
+    response = client.get("/api/version", params={"extension_version": "banana"})
+    assert response.status_code == 400
+    assert "not a ScrapeX version" in response.json()["detail"]
+
+
+def test_the_version_report_without_a_caller_version_judges_nobody(client):
+    body = client.get("/api/version").json()
+    assert body["installed_extension_version"] is None
+    assert body["outdated"] is False and body["missing"] == []
+    assert body["capabilities"], "the ledger is empty"

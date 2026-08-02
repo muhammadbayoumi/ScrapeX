@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "minimum_extension_version": "0.2.0",
+  "capabilities": {
+    "crawl_pace": "0.2.0",
+    "crawl_parallel_sources": "0.2.0",
+    "crawl_resume": "0.2.0",
+    "source_admin": "0.2.0",
+    "version_visibility": "0.2.0",
+    "compatibility_notice": "0.2.0",
+    "display_method_and_unit": "0.2.0"
+  }
+}

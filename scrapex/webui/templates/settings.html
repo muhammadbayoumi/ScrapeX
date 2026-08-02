@@ -140,7 +140,10 @@
     <span class="sect-sub">The engine this page is served by</span></summary>
   <div class="sect-body">
     <table>
-      <tr><th>Version</th><td class="tech">{{ about.version }}</td></tr>
+      {# Every number says whose it is. "Version" on its own was the defect
+         issue 32 is about: a number with no owner, on a page that also talks
+         about the extension. #}
+      <tr><th>Engine version</th><td class="tech">{{ about.version }}</td></tr>
       <tr><th>Contract version</th><td class="tech">{{ about.contract_version }}</td></tr>
       <tr><th>Database schema</th><td class="tech">{{ about.schema_version }}</td></tr>
       <tr><th>Job worker</th>
@@ -390,8 +393,21 @@
   <summary><span class="sect-name">About</span>
     <span class="sect-sub">Versions and what this build does not do yet</span></summary>
   <div class="sect-body">
+    {# DISPLAY, never a control (SR-10, and tests/test_settings_live_in_the_
+       extension.py fails the build if this page grows an input). The page
+       cannot know which extension is loaded in a browser it does not run in,
+       so it shows what this engine ships and what it requires, and leaves the
+       installed-versus-required verdict to the panel, which can see both. #}
     <table>
-      <tr><th>ScrapeX</th><td class="tech">{{ about.version }}</td></tr>
+      <tr><th>ScrapeX engine</th><td class="tech">{{ about.version }}</td></tr>
+      <tr><th>Extension shipped with this engine</th>
+          <td class="tech">{{ about.extension_version }}</td></tr>
+      <tr><th>Minimum extension required</th>
+          <td class="tech">{{ about.minimum_extension_version }}</td></tr>
+      <tr><th>Where that comes from</th>
+          <td>{{ about.extension_version_source }}. To check what is actually
+            loaded, open the ScrapeX side panel: Settings &rarr; About.
+            {{ about.update_instructions }}</td></tr>
       <tr><th>Database</th><td class="tech">{{ about.db_path }}</td></tr>
       <tr><th>Not built yet</th>
           <td>Two-way Sheet sync; proxy and anti-bot handling; automatic
