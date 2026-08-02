@@ -97,6 +97,15 @@
       try {
         const asked = await fetch("/api/engine/restart", {method: "POST"});
         missing = asked.status === 404;
+        // Same rule as the settings page: a delivered refusal must not fall
+        // through to a poll that the refusing engine answers itself.
+        if (!missing && !asked.ok) {
+          let detail = "The engine refused (HTTP " + asked.status + ").";
+          try { detail = (await asked.json()).detail || detail; } catch (e) {}
+          note.textContent = detail;
+          done(this);
+          return;
+        }
       } catch (err) { /* the engine exits mid-answer, which is the success path */ }
       if (missing) { note.textContent = stale(); done(this); return; }
       // Poll until something answers again, then reload. Never claim it is back

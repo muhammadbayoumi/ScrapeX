@@ -105,6 +105,41 @@ def test_a_refused_restart_is_shown_and_not_covered_with_good_news():
         "for a specific fault")
 
 
+def test_every_caller_of_the_restart_endpoint_reads_the_refusal():
+    """Four copies of one handler, and the bug was in all four.
+
+    Each one asked only `status === 404` and let everything else fall through to
+    a poll — a poll the refusing engine answers ITSELF, because the engine that
+    refused is the one still holding the port. So a hard 500 ("could not start
+    the helper ([Errno 13] Permission denied ...)") became "The engine is back."
+    on one surface and was printed inside the words "restart requested" on
+    another. The owner pressed the button and, correctly, said nothing happened.
+
+    A DROPPED request is the success case here: the restart tears down the
+    connection carrying its own reply. A DELIVERED non-2xx is its opposite. Any
+    caller that cannot tell them apart will report the failure as progress, so
+    the rule is on the class and not on the three copies I happened to fix."""
+    callers = {
+        "extension/app.js": (ROOT / "extension" / "app.js"),
+        "settings.html": (ROOT / "scrapex" / "webui" / "templates" / "settings.html"),
+        "database_unavailable.html":
+            (ROOT / "scrapex" / "webui" / "templates" / "database_unavailable.html"),
+    }
+    for name, path in callers.items():
+        text = path.read_text(encoding="utf-8")
+        if "/api/engine/restart" not in text:
+            continue
+        for block in text.split("/api/engine/restart")[1:]:
+            window = block[:1400]
+            assert ".ok" in window, (
+                f"{name} calls the restart endpoint and never inspects whether "
+                "the answer was ok — only a 404 would be noticed, and every "
+                "other refusal reads as a restart in progress")
+            assert "detail" in window, (
+                f"{name} discards the engine's own reason, so a specific fault "
+                "reaches the owner as a generic outcome")
+
+
 def test_the_crawl_pace_is_reachable_from_the_panel():
     """The specific controls that were unreachable, now where they belong."""
     panel = PANEL.read_text(encoding="utf-8")
