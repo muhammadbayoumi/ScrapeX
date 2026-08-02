@@ -40,6 +40,13 @@ export function parseVersion(value) {
 }
 
 // True when `left` is strictly behind `right`.
+// The Python twin lives in scrapex/version.py and the shared contract carries
+// it, so the two cannot drift: the first engine that publishes a capability
+// report at all. Below this line, silence means "too old to say", and the
+// remedy is to reach THIS version — not whatever number the extension happens
+// to wear. Both sides can sit at the same version and both be below it.
+export const CAPABILITY_REPORTING_SINCE = "0.2.0";
+
 export function isOlder(left, right) {
   const a = parseVersion(left);
   const b = parseVersion(right);

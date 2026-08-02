@@ -1583,6 +1583,44 @@ def test_an_engine_older_than_the_extension_says_so_in_different_words(open_pane
     assert not page.js_errors
 
 
+def test_two_sides_at_the_same_version_are_not_told_one_is_older(open_panel):
+    """The owner's screenshot. Installed extension 0.1.0, Engine 0.1.0, and a
+    heading that said the engine was OLDER than the extension — contradicted by
+    the two numbers printed directly beneath it — followed by "Update the engine
+    to 0.1.0", which is the version already installed.
+
+    The branch fired on the engine's silence and never compared the two numbers.
+    Silence has three causes and they do not share a remedy: an engine really
+    behind, both sides below the line where reporting began, or a process that
+    did not restart when its files did."""
+    page = open_panel(extension_version="0.1.0", engine_version="0.1.0",
+                      version_reporting=False)
+
+    text = page.locator("#version-notice").inner_text()
+    assert "older than this extension" not in text.lower(), (
+        "it called the engine older than an extension of the same version")
+    assert "update the engine to 0.1.0" not in text.lower(), (
+        "the remedy is the version already installed")
+    assert "0.2.0" in text, "the sentence must name a version that would help"
+    assert not page.js_errors
+
+
+def test_an_engine_at_a_reporting_version_that_stays_silent_is_told_to_restart(open_panel):
+    """The third cause, and the only one where downloading anything is wasted
+    effort: the files on disk moved to a version that publishes a report, and
+    the running process did not. Nothing to install — restart it."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.2.0",
+                      version_reporting=False)
+
+    text = page.locator("#version-notice").inner_text().lower()
+    assert "restart" in text, "a stale process was sent to download something"
+    # "older than its own files" is the true and useful sentence here. The claim
+    # this guards against is the other one: older than the EXTENSION, which at
+    # equal versions is false.
+    assert "older than this extension" not in text
+    assert not page.js_errors
+
+
 def test_an_unsupported_feature_fails_with_a_version_error_not_a_generic_one(open_panel):
     """Section 1.6. An engine that does not deploy `crawl_parallel_sources`
     answers the save with 400 "unknown setting 'crawl_parallel_sources'" — a
