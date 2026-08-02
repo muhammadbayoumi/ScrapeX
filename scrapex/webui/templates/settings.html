@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_time.html" import stamp %}
 {% block title %}Settings — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/settings.css?v=appearance-1">
@@ -282,7 +283,7 @@
       <tr><th>Currencies in use</th><td class="tech">
         {{ google_finance.tracked_currencies|join(", ") if google_finance.tracked_currencies else "None yet" }}</td></tr>
       <tr><th>Last update attempt</th><td class="tech">{{ google_finance.last_checked or "Never" }}</td></tr>
-      <tr><th>Latest market time</th><td class="tech">{{ google_finance.latest_market_at or "No rates stored yet" }}</td></tr>
+      <tr><th>Latest market time</th><td class="tech">{{ stamp(google_finance.latest_market_at, zone=true, empty="No rates stored yet") }}</td></tr>
       <tr><th>Stored history</th><td>{{ google_finance.rows }} rate rows across
         {{ google_finance.currencies }} currencies</td></tr>
     </table>

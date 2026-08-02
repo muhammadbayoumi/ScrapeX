@@ -533,6 +533,9 @@ async function refreshGoogleFinance() {
   } finally {
     button.disabled = false;
     button.textContent = oldLabel;
+  }
+}
+
 // ---- display time zone (spec 33) -------------------------------------------
 //
 // The panel owns the CONTROL; timezone.js owns the preference, the sharing and

@@ -35,17 +35,19 @@
                             "base_url": rate_dataset.provider_url},
                            metric_value="{:,}".format(rate_dataset.rows), metric_label="Rate") }}
         <span class="dataset-choice-detail" data-dataset-fresh>
-          {# Same rule as its two siblings below: built once, used for the text
-             and the title. Everything inside .dataset-choice-detail is clamped
-             to one line, so everything inside it must be recoverable. This card
-             arrived from a different branch and its caption had no title; the
-             guard in tests/test_vendor.py caught it at the merge. #}
+          {# This card arrived from another branch and broke both rules at once,
+             and a test caught each: it had no title (tests/test_vendor.py), and
+             it spelled its own time instead of asking the macro
+             (tests/test_display_time_zone.py). One instant, one formatter, and
+             a clamped line stays reachable whole. #}
           {%- if rate_dataset.latest_market_at %}
-            {%- set quote = "Latest quote " ~ rate_dataset.latest_market_at[:16]|replace("T", " ") ~ " UTC" %}
+          <small class="dataset-choice-state" data-clamped-title>
+            Latest quote {{ stamp(rate_dataset.latest_market_at, zone=true) }}
+          </small>
           {%- else %}
-            {%- set quote = "Ready - refresh after price data is collected" %}
+          <small class="dataset-choice-state"
+                 title="Ready - refresh after price data is collected">Ready - refresh after price data is collected</small>
           {%- endif %}
-          <small class="dataset-choice-state" title="{{ quote }}">{{ quote }}</small>
         </span>
       </a>
     </section>

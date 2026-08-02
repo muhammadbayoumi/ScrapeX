@@ -1082,8 +1082,10 @@ def test_the_dataset_freshness_line_stays_readable_when_truncated():
     # time only timezone.js can convert is marked data-clamped-title and the
     # formatter fills it from the rendered text. What is forbidden is a title
     # that is a PREFIX of what it recovers.
-    assert 'title="{{ quote }}">{{ quote }}' in html
-    assert "data-clamped-title" in html
+    assert html.count("data-clamped-title") == 2, (
+        "both time-bearing captions must ask the formatter to title them")
+    assert 'title="Ready - refresh' in html, (
+        "a caption with no time in it the server can title itself")
     assert html.count("Last crawled") == 1, (
         "the line is built twice, so the two copies can drift apart")
 
