@@ -833,6 +833,17 @@
                   <button id="recheck" class="ghost">Recheck status</button>
                   <button id="diagnostics" class="ghost">Run diagnostics</button>
                 </div>
+                <!-- The two repair actions, beside the status they repair. They
+                     used to live only on the web Settings page, so the panel —
+                     the application — had to send the owner somewhere else to
+                     perform the most important thing they can do to a stuck
+                     engine. The panel is the control room: nothing the page can
+                     do may be missing here. -->
+                <div class="links mt-2" id="runtime-actions">
+                  <button id="runtime-restart" class="ghost">Restart engine</button>
+                  <button id="runtime-upgrade" class="ghost">Upgrade database</button>
+                </div>
+                <div id="runtime-note" class="muted text-xs" role="status"></div>
                 <div id="diag-out" class="muted text-xs"></div>
               </div>
               <label class="muted text-xs" for="backend">Engine URL</label>

@@ -2371,6 +2371,82 @@ async function render() {
   refreshRunButton();
 }
 
+// ---- runtime repair, in the panel ------------------------------------------
+//
+// Restart and Upgrade lived only on the web Settings page. The panel is the
+// application, so it was sending the owner to another surface to perform the
+// most important thing they can do to a stuck engine — and the version notice
+// had to name that surface in words, which is how the gap surfaced.
+//
+// Deliberately plain fetch and no `api()`: these two must work on the day the
+// engine is otherwise unhappy, which is the only day they are wanted. api()
+// throws on a non-2xx, and a 404 here is not a failure to report but a fact to
+// explain — an engine that started before these endpoints existed.
+const ENGINE_TOO_OLD =
+  "This engine started before these actions existed, so it does not have them " +
+  "yet. Start it from the Windows Startup folder (Win+R, shell:startup, " +
+  "double-click ScrapeX Engine.vbs), or sign out and in.";
+
+function wireRuntimeRepair() {
+  const note = $("runtime-note");
+  const restart = $("runtime-restart");
+  const upgrade = $("runtime-upgrade");
+  if (!note || !restart || !upgrade) return;
+
+  upgrade.addEventListener("click", async () => {
+    upgrade.disabled = true;
+    note.textContent = "Upgrading the database…";
+    try {
+      const res = await fetch((await getBackend()) + "/api/databases/upgrade",
+                              {method: "POST"});
+      if (res.status === 404) { note.textContent = ENGINE_TOO_OLD; return; }
+      const body = await res.json();
+      note.textContent = res.ok ? body.message
+        : (body.detail || "The upgrade did not run.");
+    } catch (err) {
+      note.textContent = "Could not reach the engine: " + err.message;
+    } finally { upgrade.disabled = false; }
+  });
+
+  restart.addEventListener("click", async () => {
+    restart.disabled = true;
+    note.textContent = "Restarting — the engine goes quiet for a few seconds.";
+    let missing = false;
+    try {
+      const asked = await fetch((await getBackend()) + "/api/engine/restart",
+                                {method: "POST"});
+      missing = asked.status === 404;
+    } catch (_) {
+      // It exits mid-answer. A dead socket here IS the success path, so a
+      // catch that reported an error would call the working case a failure.
+    }
+    if (missing) { note.textContent = ENGINE_TOO_OLD; restart.disabled = false; return; }
+    // Poll until it answers again, then re-render so every version and status
+    // on this screen comes from the engine that is now running.
+    let attempts = 0;
+    const timer = setInterval(async () => {
+      attempts += 1;
+      try {
+        const probe = await fetch((await getBackend()) + "/api/marketlens/health",
+                                  {cache: "no-store"});
+        if (probe.ok) {
+          clearInterval(timer);
+          restart.disabled = false;
+          note.textContent = "The engine is back.";
+          await render();
+          return;
+        }
+      } catch (_) { /* still down, which is expected */ }
+      if (attempts >= 30) {
+        clearInterval(timer);
+        restart.disabled = false;
+        note.textContent = "The engine has not answered in 30 seconds. " +
+          "Start it from the Windows Startup folder, or sign out and in.";
+      }
+    }, 1000);
+  });
+}
+
 async function init() {
   const backend = await getBackend();
   $("backend").value = backend;
@@ -2419,6 +2495,7 @@ async function init() {
       b.setAttribute("aria-expanded", String(!open));
     }));
 
+  wireRuntimeRepair();
   $("recheck").addEventListener("click", render);
   $("setup-recheck").addEventListener("click", render);
   $("engine-start").addEventListener("click", startEngineFromPanel);
