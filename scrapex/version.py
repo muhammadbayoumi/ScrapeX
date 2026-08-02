@@ -211,6 +211,14 @@ def _newest(versions: tuple[str, ...]) -> str:
 # capability costs the extension nothing, which is what keeps an engine-side
 # improvement from telling the owner to go and reload a browser for no reason.
 # (The same logic as the payload contract's additive changes being free.)
+# The first engine that publishes a capability report at all. Before it, an
+# engine's silence about its features means "too old to say", never "does not
+# have them" — and the remedy is to reach THIS version, not to reach whatever
+# number the extension happens to wear. An engine and an extension can sit at
+# the same number and both be below this line; telling the owner to update to
+# the number already installed is not a remedy, it is a loop.
+CAPABILITY_REPORTING_SINCE = "0.2.0"
+
 MINIMUM_EXTENSION_VERSION = _newest(tuple(
     capability.since for capability in CAPABILITIES
     if Surface.PANEL in capability.surfaces
@@ -386,6 +394,7 @@ def export_vectors() -> dict:
     return {
         "version": VERSION,
         "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
+        "capability_reporting_since": CAPABILITY_REPORTING_SINCE,
         "note": "Both copies of capabilityProblem must reproduce every `problem` "
                 "string exactly. Python: scrapex/version.py. JavaScript: "
                 "extension/version.js.",
@@ -418,6 +427,7 @@ def version_report(extension_version: str | None = None) -> dict:
         "latest_extension_version": VERSION,
         "latest_source": LATEST_SOURCE,
         "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
+        "capability_reporting_since": CAPABILITY_REPORTING_SINCE,
         "update_instructions": UPDATE_INSTRUCTIONS,
         "capabilities": [
             {"key": capability.key, "since": capability.since,

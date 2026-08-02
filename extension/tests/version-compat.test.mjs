@@ -13,7 +13,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { capabilityProblem, isOlder, parseVersion } from "../version.js";
+import { CAPABILITY_REPORTING_SINCE, capabilityProblem, isOlder,
+         parseVersion } from "../version.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const VECTORS = JSON.parse(
@@ -52,5 +53,33 @@ test("a version that is not a version is refused, never read as very old", () =>
   // missing and send the owner to reload an extension that is current.
   for (const bad of ["", "0.2", "0.2.0.1", "v0.2.0", "0.2.x"]) {
     assert.throws(() => parseVersion(bad), /not a ScrapeX version/);
+  }
+});
+
+
+test("the reporting floor is the contract's, not a second opinion", () => {
+  assert.equal(CAPABILITY_REPORTING_SINCE, VECTORS.capability_reporting_since,
+    "extension/version.js and scrapex/version.py disagree about the first " +
+    "version that reports capabilities; the remedy sentence would then name " +
+    "a version one side does not believe in");
+});
+
+test("no refusal ever prescribes a version you already have", () => {
+  // The owner's card said "Update the engine to 0.1.0" while showing 0.1.0
+  // installed. A remedy that has already been carried out is not a remedy, and
+  // every sentence these functions produce is a remedy.
+  for (const c of VECTORS.cases) {
+    const problem = capabilityProblem(c.key, {
+      extensionVersion: c.extension_version,
+      engineVersion: c.engine_version,
+      deployed: c.deployed,
+      updateInstructions: c.update_instructions || "",
+    });
+    if (!problem) continue;
+    const told = problem.match(/[Uu]pdate the engine to ([0-9]+\.[0-9]+\.[0-9]+)/);
+    if (!told) continue;
+    assert.ok(isOlder(c.engine_version, told[1]),
+      `"${c.name}" tells the owner to update the engine to ${told[1]} ` +
+      `while it is already ${c.engine_version}`);
   }
 });

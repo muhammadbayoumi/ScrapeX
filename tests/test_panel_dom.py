@@ -1578,8 +1578,58 @@ def test_an_engine_older_than_the_extension_says_so_in_different_words(open_pane
     text = page.locator("#version-notice").inner_text()
     assert "engine is older" in text.lower()
     assert "0.1.0" in text and "0.2.0" in text, "both versions must be named"
+    # The engine is local and started from the same checkout, so it reports the
+    # version of the code RUNNING, not the code on disk. After a pull those
+    # differ until the process restarts, and that is the ordinary case — a
+    # remedy that only says "update" sends the owner hunting for a download
+    # they already have.
+    assert "restart engine" in text.lower(), (
+        "the usual fix for a locally-run engine is not mentioned")
+    # A reader cannot see which version is on disk, so an instruction that
+    # branches on it is not an instruction. Restart first — it is free and it
+    # fixes the common case — and let the number afterwards decide the rest.
+    assert text.lower().index("restart engine") < text.lower().index("updat"), (
+        "it asks the reader to decide something they cannot see before acting")
     assert "chrome://extensions" not in text, (
         "it told the owner to reload the extension for a stale engine")
+    assert not page.js_errors
+
+
+def test_two_sides_at_the_same_version_are_not_told_one_is_older(open_panel):
+    """The owner's screenshot. Installed extension 0.1.0, Engine 0.1.0, and a
+    heading that said the engine was OLDER than the extension — contradicted by
+    the two numbers printed directly beneath it — followed by "Update the engine
+    to 0.1.0", which is the version already installed.
+
+    The branch fired on the engine's silence and never compared the two numbers.
+    Silence has three causes and they do not share a remedy: an engine really
+    behind, both sides below the line where reporting began, or a process that
+    did not restart when its files did."""
+    page = open_panel(extension_version="0.1.0", engine_version="0.1.0",
+                      version_reporting=False)
+
+    text = page.locator("#version-notice").inner_text()
+    assert "older than this extension" not in text.lower(), (
+        "it called the engine older than an extension of the same version")
+    assert "update the engine to 0.1.0" not in text.lower(), (
+        "the remedy is the version already installed")
+    assert "0.2.0" in text, "the sentence must name a version that would help"
+    assert not page.js_errors
+
+
+def test_an_engine_at_a_reporting_version_that_stays_silent_is_told_to_restart(open_panel):
+    """The third cause, and the only one where downloading anything is wasted
+    effort: the files on disk moved to a version that publishes a report, and
+    the running process did not. Nothing to install — restart it."""
+    page = open_panel(extension_version="0.2.0", engine_version="0.2.0",
+                      version_reporting=False)
+
+    text = page.locator("#version-notice").inner_text().lower()
+    assert "restart" in text, "a stale process was sent to download something"
+    # "older than its own files" is the true and useful sentence here. The claim
+    # this guards against is the other one: older than the EXTENSION, which at
+    # equal versions is false.
+    assert "older than this extension" not in text
     assert not page.js_errors
 
 

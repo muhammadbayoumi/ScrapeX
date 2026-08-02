@@ -1,6 +1,7 @@
 {
   "version": "0.2.0",
   "minimum_extension_version": "0.2.0",
+  "capability_reporting_since": "0.2.0",
   "note": "Both copies of capabilityProblem must reproduce every `problem` string exactly. Python: scrapex/version.py. JavaScript: extension/version.js.",
   "cases": [
     {

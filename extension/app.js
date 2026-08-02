@@ -9,7 +9,7 @@
 // Arabic renders right-to-left without disturbing the English chrome around it.
 import { checkEngine, getBackend, setBackend } from "./engine.js";
 import { autostartStatus, setAutostart, startEngine } from "./transport.js";
-import { capabilityProblem, deployedFrom, installedVersion } from "./version.js";
+import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
@@ -332,15 +332,58 @@ function renderVersionNotice(engine) {
     return;
   }
   if (!report && engine.reachable && engine.version) {
-    // The other direction, and it needs different words: this extension is the
-    // newer of the two and the engine cannot even state what it deploys.
+    // The engine is silent about its features. That is ONE fact, and it has
+    // three different causes, so it cannot have one sentence.
+    //
+    // The first version of this printed "the engine is older than this
+    // extension" without ever comparing the two numbers, and prescribed
+    // "update the engine to <the extension's own version>". With both sides at
+    // 0.1.0 the owner got a card that contradicted itself twice: a claim of
+    // "older" that the two numbers printed directly beneath it denied, and an
+    // instruction to update to the version already installed. A remedy you
+    // have already carried out is not a remedy.
+    const engineIsOlder = installed && isOlder(engine.version, installed);
+    const bothPredateReporting = isOlder(engine.version, CAPABILITY_REPORTING_SINCE);
+    let title;
+    let remedy;
+    if (engineIsOlder) {
+      title = "The ScrapeX engine is older than this extension";
+      // Lead with the action, and name where it is. The engine runs on this
+      // machine from the same checkout and reports the version of the code
+      // RUNNING, not the code on disk — so after a pull it is behind until the
+      // process restarts, which is the ordinary case. The reader cannot see
+      // which version is on disk, so do not make the instruction depend on it:
+      // restart first, because it is free and fixes the common case, and let
+      // the number afterwards decide whether anything else is needed.
+      remedy = `Press "Restart engine" on the ScrapeX Settings page. If it ` +
+        `still reports ${esc(engine.version)} afterwards, its files really are ` +
+        `older and need updating to ${esc(installed)}.`;
+    } else if (bothPredateReporting) {
+      // Same number, or a newer engine, and below the line where reporting
+      // began. Nothing is "behind" anything; both sides are simply early.
+      title = "This ScrapeX engine cannot say what it deploys";
+      // Both sides are early, so both have to move — and each moves a different
+      // way, so both ways are named.
+      remedy = `Version reporting starts at ${esc(CAPABILITY_REPORTING_SINCE)}, ` +
+        `and both sides are below it. Update the files, then press "Restart ` +
+        `engine" on the ScrapeX Settings page and reload this extension from ` +
+        `chrome://extensions.`;
+    } else {
+      // It claims a version that DOES report, and reported nothing: the files
+      // on disk moved and the process did not. Restarting is the whole fix,
+      // and sending the owner to download something would waste their time.
+      title = "This ScrapeX engine is not reporting what it deploys";
+      remedy = `Version ${esc(engine.version)} publishes a capability report and ` +
+        `this one did not, so the running engine is older than its own files. ` +
+        `Press "Restart engine" on the ScrapeX Settings page — there is nothing ` +
+        `to download.`;
+    }
     notice.innerHTML =
-      `<div class="setup-title">The ScrapeX engine is older than this extension</div>` +
+      `<div class="setup-title">${title}</div>` +
       `<div class="kv"><span>Installed extension</span><span class="tech">${esc(installed || "unknown")}</span></div>` +
       `<div class="kv"><span>Engine</span><span class="tech">${esc(engine.version)}</span></div>` +
-      `<div class="muted text-sm mt-2">This engine does not report which features it ` +
-      `deploys, so nothing here can promise a feature will work. Update the engine ` +
-      `to ${esc(installed || "the extension's version")}.</div>`;
+      `<div class="muted text-sm mt-2">Nothing here can promise a feature will ` +
+      `work until it does. ${remedy}</div>`;
     notice.classList.remove("hidden");
     return;
   }
