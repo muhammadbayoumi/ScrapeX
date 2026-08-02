@@ -140,6 +140,48 @@ def test_every_caller_of_the_restart_endpoint_reads_the_refusal():
                 "reaches the owner as a generic outcome")
 
 
+# The Windows rituals. Owner ruling, 2026-08-01: «انا مستخدم على قدى غير محترف
+# عاوز كل حاجة تتم اتوماتك فى الخلفية بسلاسة كالتطبيقات الاحترافية». A message
+# that ends in a four-step keyboard ritual is the application handing its own job
+# to a person who did not ask for it.
+_RITUALS = ("shell:startup", "Win+R", "sign out and in",
+            "ScrapeX Engine.vbs", "double-click")
+
+
+def test_no_surface_teaches_a_windows_ritual():
+    """Six of these were live: two on the settings page, two on the
+    database-unavailable page, two in the panel. Each one appeared at the exact
+    moment the owner was already stuck, and each one asked him to leave the
+    product to repair the product.
+
+    A sentence naming a control that exists is fine. A sentence naming a
+    keyboard shortcut, a folder path or a .vbs file is not — and if no control
+    exists for that state yet, the honest text says so in one line rather than
+    teaching a ritual."""
+    surfaces = {
+        "extension/app.js": ROOT / "extension" / "app.js",
+        "extension/app.html": ROOT / "extension" / "app.html",
+        "settings.html": ROOT / "scrapex" / "webui" / "templates" / "settings.html",
+        "database_unavailable.html":
+            ROOT / "scrapex" / "webui" / "templates" / "database_unavailable.html",
+    }
+    offenders = []
+    for name, path in surfaces.items():
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            # A comment explaining WHY something happens may name the folder;
+            # what may not is text the owner reads.
+            if stripped.startswith("//") or stripped.startswith("#"):
+                continue
+            for ritual in _RITUALS:
+                if ritual in line:
+                    offenders.append(f"{name}:{number} — {ritual}")
+
+    assert not offenders, (
+        "these send the owner out of the product to repair the product: "
+        + "; ".join(offenders))
+
+
 def test_the_crawl_pace_is_reachable_from_the_panel():
     """The specific controls that were unreachable, now where they belong."""
     panel = PANEL.read_text(encoding="utf-8")

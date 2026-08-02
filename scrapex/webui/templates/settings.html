@@ -536,8 +536,8 @@ revealSettingsHash();
   // An engine older than these buttons does not serve them, and a bare 404
   // reads as "the button is broken" — the opposite of the truth.
   const stale = "This engine started before these buttons existed, so it does not " +
-    "have them yet. Start the engine from the Windows Startup folder " +
-    "(Win+R, shell:startup, double-click ScrapeX Engine.vbs), or sign out and in.";
+    "have them yet, so this page cannot ask it to. ScrapeX replaces a stale " +
+    "engine by itself once the updater is installed; that work is under way.";
 
   upgrade.addEventListener("click", async () => {
     upgrade.disabled = true;
@@ -581,7 +581,8 @@ revealSettingsHash();
       if (attempts > 60) {
         clearInterval(timer);
         note.textContent = "The engine has not come back. Start it from the Windows " +
-          "Startup folder (ScrapeX Engine.vbs), or sign out and in again.";
+          "side panel and press Start engine — it can launch one when none " +
+          "is answering.";
         restart.disabled = false;
       }
     }, 1000);
