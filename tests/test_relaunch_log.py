@@ -79,3 +79,51 @@ def test_a_rotation_that_cannot_happen_never_stops_a_start(tmp_path: Path, monke
     finally:
         handle.close()
     assert log.read_bytes().endswith(b"the engine started anyway\n")
+
+
+def test_a_log_the_live_engine_is_holding_does_not_block_the_restart(tmp_path, monkeypatch):
+    """Reproduced on the owner's machine: the button answered 500 with
+    "could not start the helper ([Errno 13] Permission denied:
+    ...\.scrapex\engine.log)".
+
+    On Windows the running engine holds engine.log through the stdout handle it
+    was launched with, and that handle carries no write sharing — so a second
+    opener gets EACCES while the file is plainly writable (mode 0o666,
+    os.access says yes; measured). And that is the ONLY state a restart ever
+    runs in: the engine being replaced is still running. So the one action that
+    repairs a stuck engine could never start, on any Windows machine.
+
+    Housekeeping does not outrank the point."""
+    from scrapex import relaunch
+
+    log = tmp_path / "engine.log"
+    log.write_bytes(b"held by the live engine\n")
+
+    def held(path=None):
+        raise PermissionError(13, "Permission denied", str(log))
+
+    monkeypatch.setattr(relaunch, "open_engine_log", held)
+    recorded = {}
+
+    class _Popen:
+        def __init__(self, command, **kwargs):
+            recorded["stdout"] = kwargs.get("stdout")
+            self.pid = 4242
+
+    monkeypatch.setattr(relaunch.subprocess, "Popen", _Popen)
+
+    pid = relaunch._spawn_detached(["python", "-c", "pass"], tmp_path, log)
+
+    assert pid == 4242, "the helper did not launch when the main log was held"
+    assert recorded["stdout"] is not None, "it launched with nowhere to write"
+    assert relaunch._restart_log(log).exists(), (
+        "the helper's output has no file beside the one it could not open")
+
+
+def test_the_fallback_log_sits_beside_the_one_it_replaces(tmp_path):
+    """Read by the same person, from the same folder, on the same bad day."""
+    from scrapex import relaunch
+
+    log = tmp_path / "engine.log"
+    assert relaunch._restart_log(log).parent == log.parent
+    assert relaunch._restart_log(log).name.startswith(log.name)
