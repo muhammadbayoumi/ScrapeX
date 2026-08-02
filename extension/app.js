@@ -506,14 +506,25 @@ async function saveCrawlSettings() {
 
 async function restartEngineFromPanel() {
   out("crawl-msg", "restarting the engine…");
-  try { await post("/api/engine/restart", {}); }
-  catch (err) {
-    // A restart tears down the very connection carrying its own reply, so a
-    // dropped request here is the SUCCESS case as often as the failure case.
-    // Claiming failure would be a lie; the status dot settles it either way.
-    out("crawl-msg", "restart requested — watch the status dot (" + err.message + ")");
-    return;
-  }
+  // A DROPPED request is the success case: the restart tears down the very
+  // connection carrying its own reply. A DELIVERED refusal is the opposite, and
+  // the previous version could not tell them apart because it only read
+  // err.message from a thrown api() call. So a hard 500 — "could not start the
+  // helper ([Errno 13] Permission denied ...)" — was printed INSIDE the words
+  // "restart requested", and the owner was told to watch a status dot that
+  // would never change. Raw fetch, so the status and the body are both readable.
+  let refused = null;
+  try {
+    const asked = await fetch((await getBackend()) + "/api/engine/restart",
+                              {method: "POST"});
+    if (asked.status === 404) refused = ENGINE_TOO_OLD;
+    else if (!asked.ok) {
+      let detail = `The engine refused (HTTP ${asked.status}).`;
+      try { detail = (await asked.json()).detail || detail; } catch (_) {}
+      refused = detail;
+    }
+  } catch (_) { /* the socket died: it is going down, which is the point */ }
+  if (refused) { out("crawl-msg", esc(refused), "err"); return; }
   out("crawl-msg", "restart requested — the status dot turns green when it is back", "ok");
 }
 

@@ -558,6 +558,17 @@ revealSettingsHash();
     try {
       const asked = await fetch("/api/engine/restart", {method: "POST"});
       missing = asked.status === 404;
+      // A delivered refusal is not a restart in progress. Reading only the 404
+      // let a 500 fall through to the poll below, which answers at once —
+      // because the engine that refused is the one still holding the port — and
+      // the page then reloaded as if it had worked.
+      if (!missing && !asked.ok) {
+        let detail = "The engine refused (HTTP " + asked.status + ").";
+        try { detail = (await asked.json()).detail || detail; } catch (e) {}
+        note.textContent = detail;
+        restart.disabled = false;
+        return;
+      }
     } catch (err) { /* it exits mid-answer, which is the success path */ }
     if (missing) { note.textContent = stale; restart.disabled = false; return; }
     let attempts = 0;
