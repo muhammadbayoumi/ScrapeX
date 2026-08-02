@@ -348,7 +348,13 @@ function renderVersionNotice(engine) {
     let remedy;
     if (engineIsOlder) {
       title = "The ScrapeX engine is older than this extension";
-      remedy = `Update the engine to ${esc(installed)}.`;
+      // The engine runs on this machine, from the same checkout. It reports
+      // the version of the CODE THAT IS RUNNING, which after a pull is older
+      // than the code on disk until the process is restarted — and that is the
+      // common case, not the rare one. "Update" alone sends the owner looking
+      // for a download they already have.
+      remedy = `Update the engine to ${esc(installed)} — and if its files are ` +
+        `already ${esc(installed)}, restart it so it loads them.`;
     } else if (bothPredateReporting) {
       // Same number, or a newer engine, and below the line where reporting
       // began. Nothing is "behind" anything; both sides are simply early.

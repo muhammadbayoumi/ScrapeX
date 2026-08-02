@@ -1578,6 +1578,13 @@ def test_an_engine_older_than_the_extension_says_so_in_different_words(open_pane
     text = page.locator("#version-notice").inner_text()
     assert "engine is older" in text.lower()
     assert "0.1.0" in text and "0.2.0" in text, "both versions must be named"
+    # The engine is local and started from the same checkout, so it reports the
+    # version of the code RUNNING, not the code on disk. After a pull those
+    # differ until the process restarts, and that is the ordinary case — a
+    # remedy that only says "update" sends the owner hunting for a download
+    # they already have.
+    assert "restart" in text.lower(), (
+        "the usual fix for a locally-run engine is not mentioned")
     assert "chrome://extensions" not in text, (
         "it told the owner to reload the extension for a stale engine")
     assert not page.js_errors
