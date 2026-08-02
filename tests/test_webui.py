@@ -478,11 +478,23 @@ def test_a_stale_engine_is_named_rather_than_reported_as_not_found():
     These buttons are served BY the engine they are asking you to fix, so an
     engine started before they existed does not have them — and the first time
     they are needed is the one time they are missing. A bare 404 reads as "the
-    button is broken", which is the opposite of what happened."""
+    button is broken", which is the opposite of what happened.
+
+    The third assertion used to be `"shell:startup" in body`, and it was
+    right when written: that ritual WAS the only route that worked. The
+    owner has since ruled that a message ending in a keyboard ritual is a
+    failure of the product, so the intent survives and the letter changes.
+    "Name the route that works" now means: name a control that exists, or
+    say plainly that none does. What is never allowed is leaving the reader
+    with nothing — which is what a bare 404 did, and what this test exists
+    to prevent."""
     for name in ("database_unavailable.html", "settings.html"):
         body = (Path(__file__).resolve().parent.parent / "scrapex" / "webui" /
                 "templates" / name).read_text(encoding="utf-8")
         assert "status === 404" in body, f"{name} does not notice a missing endpoint"
         assert "started before these buttons existed" in body, \
             f"{name} does not say what Not Found means"
-        assert "shell:startup" in body, f"{name} does not name the route that works"
+        assert ("Start engine" in body or "updater" in body), (
+            f"{name} says what Not Found means and then stops. It must name a "
+            "control that exists, or state that none does yet — the reader is "
+            "stuck at exactly this moment.")

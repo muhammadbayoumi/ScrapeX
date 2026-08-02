@@ -2457,8 +2457,8 @@ async function render() {
 // explain — an engine that started before these endpoints existed.
 const ENGINE_TOO_OLD =
   "This engine started before these actions existed, so it does not have them " +
-  "yet. Start it from the Windows Startup folder (Win+R, shell:startup, " +
-  "double-click ScrapeX Engine.vbs), or sign out and in.";
+  "yet, so it cannot be asked to replace itself from here. ScrapeX does this " +
+  "on its own once the updater is installed; that work is under way.";
 
 function wireRuntimeRepair() {
   const note = $("runtime-note");
@@ -2524,7 +2524,7 @@ function wireRuntimeRepair() {
         clearInterval(timer);
         restart.disabled = false;
         note.textContent = "The engine has not answered in 30 seconds. " +
-          "Start it from the Windows Startup folder, or sign out and in.";
+          "Press Start engine above — it launches one when none is answering.";
       }
     }, 1000);
   });

@@ -69,8 +69,7 @@
     function stale() {
       return "This engine started before these buttons existed, so it does not " +
         "have them yet — that is what Not Found means here. Start the engine " +
-        "from the Windows Startup folder (press Win+R, type shell:startup, and " +
-        "double-click ScrapeX Engine.vbs), or sign out and in. After that the " +
+        "from the ScrapeX side panel: open it and press Start engine. After that the " +
         "buttons are there and you will not need this again.";
     }
     function working(button, text) { button.disabled = true; button.dataset.was = button.textContent; button.textContent = text; }
@@ -120,7 +119,7 @@
         if (attempts > 60) {
           clearInterval(timer);
           note.textContent = "The engine has not come back. Start it from the Windows " +
-            "Startup folder (ScrapeX Engine.vbs), or sign out and in again.";
+            "side panel and press Start engine.";
           done(this);
         }
       }, 1000);
