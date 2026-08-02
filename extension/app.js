@@ -2473,16 +2473,26 @@ function wireRuntimeRepair() {
   restart.addEventListener("click", async () => {
     restart.disabled = true;
     note.textContent = "Restarting — the engine goes quiet for a few seconds.";
-    let missing = false;
+    // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
+    // socket dies. An answered fetch that is not ok is the opposite, and the
+    // first version of this treated both the same: it looked only for 404 and
+    // let every other status fall through to the health poll, which of course
+    // succeeded, because the engine had never gone anywhere. The owner pressed
+    // the button, read "The engine is back.", and nothing had happened. The
+    // engine had in fact answered 500 with a precise reason, and the panel
+    // threw it away.
+    let refused = null;
     try {
       const asked = await fetch((await getBackend()) + "/api/engine/restart",
                                 {method: "POST"});
-      missing = asked.status === 404;
-    } catch (_) {
-      // It exits mid-answer. A dead socket here IS the success path, so a
-      // catch that reported an error would call the working case a failure.
-    }
-    if (missing) { note.textContent = ENGINE_TOO_OLD; restart.disabled = false; return; }
+      if (asked.status === 404) refused = ENGINE_TOO_OLD;
+      else if (!asked.ok) {
+        let detail = `The engine refused (HTTP ${asked.status}).`;
+        try { detail = (await asked.json()).detail || detail; } catch (_) {}
+        refused = detail;
+      }
+    } catch (_) { /* the socket died: it is going down, which is the point */ }
+    if (refused) { note.textContent = refused; restart.disabled = false; return; }
     // Poll until it answers again, then re-render so every version and status
     // on this screen comes from the engine that is now running.
     let attempts = 0;

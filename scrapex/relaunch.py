@@ -88,9 +88,37 @@ def open_engine_log(path: Path | None = None):
     return open(target, "ab")
 
 
+def _restart_log(log: Path) -> Path:
+    """Where a helper writes when the engine still owns the main log.
+
+    Deliberately a sibling and not a temp file: it is read by the same person,
+    from the same folder, on the same bad day.
+    """
+    return log.with_suffix(log.suffix + ".restart")
+
+
 def _spawn_detached(command: list[str], cwd: Path, log: Path) -> int:
-    """Start a process that survives this one. Its output goes to the engine log."""
-    handle = open_engine_log(log)
+    """Start a process that survives this one. Its output goes to the engine log.
+
+    Unless it cannot. On Windows the LIVE engine holds engine.log through the
+    stdout handle it was launched with, and that handle carries no write
+    sharing — so a second opener gets EACCES even though the file is plainly
+    writable (mode 0o666, os.access says yes). That is exactly the state a
+    restart runs in, by definition: the engine being replaced is still running.
+    So the one action that can repair a stuck engine could never start, on any
+    Windows machine, and the button reported "could not start the helper
+    ([Errno 13] Permission denied)".
+
+    Housekeeping does not outrank the point — the same rule rotate_engine_log
+    already states. If the main log is held, the helper writes beside it and
+    the launch proceeds.
+    """
+    try:
+        handle = open_engine_log(log)
+    except OSError:
+        fallback = _restart_log(log)
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(fallback, "ab")
     flags = 0
     if sys.platform == "win32":
         flags = subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS

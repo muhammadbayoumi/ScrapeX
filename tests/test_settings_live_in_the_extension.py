@@ -84,6 +84,27 @@ def test_the_panel_repair_buttons_reach_the_same_endpoints():
         "the buttons are in the markup and nothing listens to them")
 
 
+def test_a_refused_restart_is_shown_and_not_covered_with_good_news():
+    """The owner pressed Restart, read "The engine is back.", and nothing had
+    happened. The engine had answered 500 with a precise reason — the helper
+    could not open the log the live engine was holding — and the panel threw it
+    away, because only 404 was treated as an answer worth reading and every
+    other status fell through to the health poll. The poll of course succeeded:
+    the engine had never gone anywhere.
+
+    A thrown fetch is the success path here, since the process exits mid-answer.
+    An ANSWERED fetch that is not ok is its opposite, and the two must not share
+    a branch."""
+    script = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    block = script.split('"/api/engine/restart"', 1)[1].split("setInterval", 1)[0]
+
+    assert "asked.ok" in block or "!asked.ok" in block, (
+        "the panel reads only the 404 and treats every other refusal as success")
+    assert "detail" in block, (
+        "the engine's reason is discarded, so the owner sees a generic outcome "
+        "for a specific fault")
+
+
 def test_the_crawl_pace_is_reachable_from_the_panel():
     """The specific controls that were unreachable, now where they belong."""
     panel = PANEL.read_text(encoding="utf-8")
