@@ -1583,8 +1583,13 @@ def test_an_engine_older_than_the_extension_says_so_in_different_words(open_pane
     # differ until the process restarts, and that is the ordinary case — a
     # remedy that only says "update" sends the owner hunting for a download
     # they already have.
-    assert "restart" in text.lower(), (
+    assert "restart engine" in text.lower(), (
         "the usual fix for a locally-run engine is not mentioned")
+    # A reader cannot see which version is on disk, so an instruction that
+    # branches on it is not an instruction. Restart first — it is free and it
+    # fixes the common case — and let the number afterwards decide the rest.
+    assert text.lower().index("restart engine") < text.lower().index("updat"), (
+        "it asks the reader to decide something they cannot see before acting")
     assert "chrome://extensions" not in text, (
         "it told the owner to reload the extension for a stale engine")
     assert not page.js_errors
