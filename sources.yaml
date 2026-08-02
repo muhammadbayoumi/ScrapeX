@@ -370,6 +370,38 @@ sources:
       # sentence is here so that decision is made with the price in front of it.
       - kind: enrichment
         scope: census
+    # WHAT ONE OF THESE IS. Owner ruling 2026-08-02, after he checked the
+    # site himself: on THIS shop the product name settles every conflict —
+    # «اسم المنتج يحسم كل شى بالنسبة لموقع سيكا (قاعدة لا تعمم)». Written
+    # here, under this source, because it is a fact about this shop and not
+    # a law about shops.
+    #
+    # It matters because the shop states a weight TWICE and the two disagree
+    # on 14 of the 76 products carrying both: an authored Specifications row
+    # («الوزن» / "weight") and the platform's own numeric `weight` field. On
+    # product 261 the page shows 1 and 20. The name says 20 KG, so 20 it is.
+    unit_charter:
+      version: 1
+      witnesses:
+        - {field: product_name,    lang: en, provenance: stated_in_name}
+        - {field: product_name_ar, lang: ar, provenance: stated_in_name}
+        - {field: attr_3,          lang: en, provenance: stated_field}
+        - {field: attr_3_ar,       lang: ar, provenance: stated_field}
+        - {field: attr_1,          lang: en, provenance: stated_in_prose}
+        - {field: attr_1_ar,       lang: ar, provenance: stated_in_prose}
+      corroborators:
+        # The platform's field. It may agree; it may never originate. It does
+        # not name its own unit — the "kg" was written in OUR code.
+        - {field: weight}
+      scales:
+        # Only these can be a SELLING unit here. That allow-list is what
+        # stops «سيكا باكينج رود 1 سم» becoming a one-centimetre unit — cm
+        # is simply not a candidate — and the word boundary in units.py is
+        # what stops the m in "18mm" being read as a metre. Measured over
+        # all 87: declaring a separate `dimension` list changed ZERO
+        # answers, so it is not declared. A rule that carries nothing reads
+        # like a guarantee and is not one.
+        pack: [kg, gm, ml, liter, m]
     min_expected_rows: 30
     max_drop_pct: 50
     notes: >

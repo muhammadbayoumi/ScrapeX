@@ -214,12 +214,80 @@ class IdentityRules(BaseModel):
     on_ambiguous: str = "review"   # review | keep_separate
 
 
+class UnitWitness(BaseModel):
+    """One field that may state a unit, and what kind of statement it is."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    # Which language the field is written in. It travels with the reading, so
+    # the owner can see that «20 كيلو» in the Arabic name is what answered —
+    # not a translation of the English one.
+    lang: str = "und"
+    # A closed vocabulary, so "where did this come from" has a small number of
+    # answers rather than free text. declared_by_source is a machine-readable
+    # field the site publishes; stated_in_name and stated_field are the site's
+    # own words for a person to read; stated_in_prose is a sentence it has to
+    # be dug out of; declared_by_owner is OUR constant, and says so.
+    provenance: Literal["declared_by_source", "stated_in_name", "stated_field",
+                        "stated_in_prose", "declared_by_owner"] = "stated_field"
+
+
+class UnitCorroborator(BaseModel):
+    """A field that may CONFIRM a unit and may never originate one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+
+
+class UnitScales(BaseModel):
+    """Which measurement units can be a selling unit on this site."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # An allow-list. Anything absent is not a candidate, which is what stops
+    # «سيكا باكينج رود 1 سم» becoming a one-centimetre selling unit.
+    pack: list[str] = Field(min_length=1)
+    # Units to strike from a text before reading it, for a site that writes a
+    # dimension using a pack-scale word. Optional, and deliberately absent
+    # where it earns nothing: measured over sikaegshop's 87 products it
+    # changed zero answers, so it is not declared there.
+    dimension: list[str] = []
+
+
+class UnitCharter(BaseModel):
+    """How ONE site states what one of its priced things is.
+
+    Data, not code. The owner has hundreds of sites waiting and a Python
+    branch per site is not a method — «كل موقع ندخله المفروض نشوف طريقة معينة
+    لقياس وتحديد وحداته ونطور الأمر مع الوقت». Validated here so a charter
+    that names an impossible provenance or declares no pack scale fails the
+    build rather than quietly resolving nothing.
+
+    The version travels into every witness string, so a reading can always be
+    traced to the rules that authorised it, and a revision is a diff the owner
+    can read.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = 1
+    witnesses: list[UnitWitness] = Field(min_length=1)
+    corroborators: list[UnitCorroborator] = []
+    scales: UnitScales
+
+
 class SourceEntry(BaseModel):
     """One source's full contract."""
 
     model_config = ConfigDict(extra="forbid")
 
     source_key: str
+    # Absent for a source nobody has studied yet, and that is a state
+    # rather than an omission: a source with no charter resolves no
+    # units at all, which is honest. Ten of eleven are in it today.
+    unit_charter: UnitCharter | None = None
     # English is the primary display language, so the unmarked name is English
     # and it is REQUIRED. Requiredness inverts here deliberately: these twelve
     # labels are owner-authored rather than scraped, all twelve already carry

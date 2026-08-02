@@ -521,7 +521,13 @@ def _get_unit_id(conn: sqlite3.Connection, unit_code: str) -> int | None:
                      (unit_code,))
     if found is not None:
         return found
-    return _insert(conn, "selling_unit", {"unit_code": unit_code})
+    # Named as it is born. The vocabulary is not seeded — a row here means
+    # something is actually priced in that unit — but a row with no words is a
+    # code on the owner's screen the moment the AR/EN switch is thrown.
+    from .units import UNIT_NAMES
+    english, arabic = UNIT_NAMES.get(unit_code, ("", ""))
+    return _insert(conn, "selling_unit",
+                   {"unit_code": unit_code, "name": english, "name_ar": arabic})
 
 
 def _unit_with_basis(r: dict) -> str:
@@ -669,8 +675,11 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         )
         if unstated is not None:
             conn.execute(
-                "UPDATE source_offer SET selling_unit_id = ?, basis_quantity = ? "
-                "WHERE offer_id = ?", (unit_id, basis, unstated))
+                "UPDATE source_offer SET selling_unit_id = ?, basis_quantity = ?, "
+                "unit_basis_provenance = COALESCE(NULLIF(unit_basis_provenance,''), ?), "
+                "unit_basis_witness = COALESCE(NULLIF(unit_basis_witness,''), ?) "
+                "WHERE offer_id = ?",
+                (unit_id, basis, *_witness_for(r), unstated))
             _apply_quantity_facts(conn, unstated, quantity)
             return unstated
     return _insert(conn, "source_offer", {
@@ -680,8 +689,29 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         "tax_included": vat,
         "selling_unit_id": unit_id,
         "basis_quantity": basis,
+        **(dict(zip(("unit_basis_provenance", "unit_basis_witness"), _witness_for(r)))
+           if unit_id else {}),
         **quantity,
     })
+
+
+def _witness_for(r: dict) -> tuple[str, str]:
+    """Where this offer's unit came from, for the trigger 0058 added.
+
+    A connector that has been taught a charter states both, and they travel on
+    the row. One that has not still writes units — magento and the fuel pages
+    do, from their own constants and from normalize.selling_unit_from — and
+    those are not facts anyone can trace to a field, so they say so. Marking
+    them is not bookkeeping: the resolution metric counts a unit with no named
+    witness as unresolved, and that is the honest score for a number whose
+    origin nobody recorded.
+    """
+    provenance = (r.get("unit_basis_provenance") or "").strip()
+    witness = (r.get("unit_basis_witness") or "").strip()
+    if provenance and witness:
+        return provenance, witness
+    return ("legacy_unwitnessed",
+            "written without a charter: the field it was read from was not recorded")
 
 
 # ---- price parsing (via the ONE shared parser, Q2) ---------------------------
