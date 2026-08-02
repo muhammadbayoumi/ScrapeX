@@ -27,6 +27,7 @@ SOURCE_TAB = 'nav.tabs button[data-view="source"]'
 RUN_TAB = 'nav.tabs button[data-view="run"]'
 DATA_TAB = 'nav.tabs button[data-view="data"]'
 SOURCES_TAB = 'nav.tabs button[data-view="sources"]'
+FINANCE_TAB = 'nav.tabs button[data-view="finance"]'
 SETTINGS_TAB = 'nav.tabs button[data-view="settings"]'
 
 
@@ -97,8 +98,8 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["y"] == pytest.approx(0, abs=1)
     assert bounds["height"] == pytest.approx(800, abs=1)
 
-    assert page.locator("nav.side-rail button[data-view]").count() == 6
-    assert page.locator("nav.side-rail button.rail-item").count() == 7
+    assert page.locator("nav.side-rail button[data-view]").count() == 7
+    assert page.locator("nav.side-rail button.rail-item").count() == 8
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
     # Rolled 10 -> 11 when Data Model joined System: the panel mirrors the
@@ -605,19 +606,423 @@ def test_dataset_hover_does_not_move_the_card_out_of_its_scrollport(open_panel):
 
 # ---- source management ------------------------------------------------------
 
-def test_sources_has_its_own_page_immediately_above_settings(open_panel):
+def test_finance_tab_sits_immediately_above_workspace(open_panel):
     page = open_panel()
-    sources_y, settings_y = page.evaluate("""() => [
+    assert page.locator("#tab-sources use").get_attribute("href") == "#add"
+    data_y, finance_y, workspace_y, sources_y = page.evaluate("""() => [
+        document.querySelector('[data-view="data"]').offsetTop,
+        document.querySelector('[data-view="finance"]').offsetTop,
+        document.querySelector('#workspace-toggle').offsetTop,
         document.querySelector('[data-view="sources"]').offsetTop,
-        document.querySelector('[data-view="settings"]').offsetTop,
     ]""")
-    assert sources_y < settings_y
+    assert data_y < finance_y < workspace_y < sources_y
+    assert page.evaluate("""() => {
+        const divider = document.querySelector('.rail-tablist').nextElementSibling;
+        return divider.classList.contains('rail-divider') &&
+          divider.nextElementSibling.id === 'finance-tablist' &&
+          divider.nextElementSibling.querySelector('#tab-finance') &&
+          divider.nextElementSibling.nextElementSibling.id === 'workspace-toggle';
+    }""")
 
     page.click(SOURCES_TAB)
     page.wait_for_timeout(300)
     assert page.is_visible("#view-sources")
     assert page.locator("#source-manager-list .source-manager-card").count() == 3
     assert "3 of 3" in text_of(page, "#source-manager-count")
+
+
+def test_google_finance_is_a_standalone_responsive_page(open_panel):
+    page = open_panel()
+    assert page.locator('#view-settings [data-sect="s-finance"]').count() == 0
+
+    page.click(FINANCE_TAB)
+    page.wait_for_timeout(250)
+
+    assert page.is_visible("#view-finance")
+    assert not page.is_visible("#view-settings")
+    assert page.get_attribute(FINANCE_TAB, "aria-current") == "page"
+    assert page.locator("#view-finance .finance-summary").count() == 0
+    finance_source_link = page.locator("#view-finance .finance-source-link")
+    assert finance_source_link.count() == 1
+    assert finance_source_link.get_attribute("href") == "https://www.google.com/finance/"
+    assert finance_source_link.get_attribute("target") == "_blank"
+    assert finance_source_link.locator("use").get_attribute("href") == \
+        "#open-in-new"
+    assert page.locator("#view-finance .finance-card").count() == 3
+    assert page.locator("details.finance-preferences-card[open]").count() == 0
+    assert page.locator("#view-finance .finance-card").evaluate_all("""elements =>
+      elements.map(element => element.querySelector('h2')?.id)
+    """) == [
+        "finance-status-heading", "finance-refresh-heading", "finance-converter-heading"]
+    page.click(".finance-preferences-card > summary")
+    assert page.locator("details.finance-preferences-card[open]").count() == 1
+    assert page.locator("#view-finance .finance-rate-fact").count() == 3
+    card_elevation = page.locator("#view-finance .finance-card").evaluate_all("""elements =>
+      elements.map(element => {
+        const style = getComputedStyle(element);
+        return [style.backgroundColor, style.borderTopWidth, style.borderRadius, style.boxShadow];
+      })
+    """)
+    assert len({tuple(style) for style in card_elevation}) == 1
+    assert card_elevation[0][3] == "none"
+    assert page.locator(".finance-settings-surface > .finance-setting-row").count() == 2
+    assert page.locator(".finance-settings-surface > .finance-setting-row").evaluate_all("""elements =>
+      elements.map(element => getComputedStyle(element).borderTopWidth)
+    """) == ["0px", "0px"]
+    preferences_surface = page.locator(".finance-settings-surface").evaluate("""element => ({
+      background: getComputedStyle(element).backgroundColor,
+      sideBorder: getComputedStyle(element).borderLeftWidth,
+      radius: getComputedStyle(element).borderRadius,
+    })""")
+    assert preferences_surface == {
+        "background": "rgba(0, 0, 0, 0)", "sideBorder": "0px", "radius": "0px"}
+    assert page.locator(".finance-settings-surface #google_finance_refresh_hours").count() == 1
+    assert page.locator(".finance-preferences-card #finance-save").count() == 1
+    assert page.locator(".finance-converter-card #finance-dataset").count() == 1
+    assert page.locator(".finance-converter-card > .finance-section-heading #finance-dataset").count() == 1
+    assert text_of(page, "#finance-save") == "Saved"
+    assert page.is_disabled("#finance-save")
+    assert not page.locator("#finance-save").is_visible()
+    assert text_of(page, "#finance-saved-summary") == \
+        "Rates refresh automatically every 6 hours."
+    saved_summary_style = page.locator("#finance-saved-summary").evaluate("""element => {
+      const style = getComputedStyle(element);
+      return [style.fontFamily, style.fontSize, style.fontWeight, style.color];
+    }""")
+    currency_summary_style = page.locator("#finance-currency-details summary").evaluate(
+        """element => {
+          const style = getComputedStyle(element);
+          return [style.fontFamily, style.fontSize, style.fontWeight, style.color];
+        }""")
+    assert saved_summary_style == currency_summary_style
+    saved_text_styles = page.locator("#finance-saved-state > *").evaluate_all("""elements =>
+      elements.map(element => {
+        const style = getComputedStyle(element);
+        return [style.fontFamily, style.fontSize, style.fontWeight, style.color, style.opacity];
+      })
+    """)
+    assert len({tuple(style) for style in saved_text_styles}) == 1
+    assert "Consolas" not in saved_text_styles[0][0]
+    assert saved_text_styles[0][2] == "500"
+    assert page.is_checked("#google_finance_auto_refresh")
+    assert page.input_value("#google_finance_refresh_hours") == "6"
+    switch = page.get_by_role("switch", name="Keep rates up to date")
+    switch_box = switch.bounding_box()
+    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    assert switch_box and switch_box["width"] == pytest.approx(46, abs=.1)
+    assert switch_box["height"] == pytest.approx(40, abs=.1)
+    assert track_box and track_box["width"] == pytest.approx(46, abs=.1)
+    assert track_box["height"] == pytest.approx(28, abs=.1)
+    switch_styles = switch.evaluate("""element => ({
+      opacity: getComputedStyle(element).opacity,
+      borderWidth: getComputedStyle(element).borderTopWidth,
+      background: getComputedStyle(element).backgroundColor,
+    })""")
+    assert switch_styles == {
+        "opacity": "0", "borderWidth": "0px", "background": "rgba(0, 0, 0, 0)"}
+    handle = page.locator(".finance-m3-switch-handle")
+    handle_box = handle.bounding_box()
+    assert handle_box and handle_box["width"] == pytest.approx(20, abs=.1)
+    assert handle_box["height"] == pytest.approx(20, abs=.1)
+    assert track_box["x"] + track_box["width"] - handle_box["x"] - handle_box["width"] \
+        == pytest.approx(4, abs=.1)
+    assert handle_box["y"] - track_box["y"] == pytest.approx(4, abs=.1)
+    assert page.locator("#finance-saved-state").evaluate(
+        "element => element.scrollHeight <= element.clientHeight")
+    saved_layout = page.locator("#finance-saved-state").evaluate("""element => ({
+      display: getComputedStyle(element).display,
+      direction: getComputedStyle(element).flexDirection,
+    })""")
+    assert saved_layout == {"display": "flex", "direction": "row"}
+    saved_background = page.locator("#finance-saved-state").evaluate(
+        "element => getComputedStyle(element).backgroundColor")
+    switch.click()
+    page.wait_for_timeout(350)
+    assert not switch.is_checked()
+    handle_box = handle.bounding_box()
+    assert handle_box and handle_box["width"] == pytest.approx(14, abs=.1)
+    assert handle_box["height"] == pytest.approx(14, abs=.1)
+    assert handle_box["x"] - track_box["x"] == pytest.approx(7, abs=.1)
+    assert handle_box["y"] - track_box["y"] == pytest.approx(7, abs=.1)
+    assert text_of(page, "#finance-save") == "Apply changes"
+    assert page.locator("#finance-save .finance-save-icon-dirty").is_visible()
+    assert not page.locator("#finance-save .finance-save-icon-saved").is_visible()
+    assert page.locator("#finance-saved-state").evaluate(
+        "element => getComputedStyle(element).backgroundColor") == saved_background
+    switch.click()
+    page.wait_for_timeout(350)
+    assert switch.is_checked()
+    assert text_of(page, "#finance-save") == "Saved"
+    assert not page.locator("#finance-save").is_visible()
+    page.fill("#google_finance_refresh_hours", "12")
+    assert text_of(page, "#finance-save") == "Apply changes"
+    assert not page.is_disabled("#finance-save")
+    assert page.locator("#finance-save").is_visible()
+    dirty_save_box = page.locator("#finance-save").bounding_box()
+    dirty_actions_box = page.locator("#finance-save").locator("..").bounding_box()
+    dirty_saved_state_box = page.locator("#finance-saved-state").bounding_box()
+    assert dirty_save_box and dirty_actions_box and dirty_saved_state_box
+    action_padding = page.locator("#finance-save").locator("..").evaluate("""element => {
+      const style = getComputedStyle(element);
+      return parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    }""")
+    assert dirty_save_box["width"] + action_padding == \
+        pytest.approx(dirty_actions_box["width"], abs=.1)
+    assert dirty_saved_state_box["y"] + dirty_saved_state_box["height"] <= dirty_save_box["y"]
+    assert page.get_attribute("#finance-saved-state", "data-dirty") == "true"
+    assert text_of(page, "#finance-saved-summary") == \
+        "Rates refresh automatically every 6 hours."
+    page.fill("#google_finance_refresh_hours", "6")
+    assert text_of(page, "#finance-save") == "Saved"
+    assert page.is_disabled("#finance-save")
+    assert not page.locator("#finance-save").is_visible()
+    assert text_of(page, "#finance-status-heading") == "Rate coverage"
+    assert text_of(page, "#finance-rate-state-title") == "Rates are up to date"
+    assert text_of(page, "#finance-currency-count") == "5 currencies"
+    assert not page.locator("#finance-currencies").is_visible()
+    page.click("#finance-currency-details summary")
+    assert page.locator("#finance-currencies").is_visible()
+    assert "SAR·AED·EUR" in text_of(page, "#finance-currencies").replace(" ", "")
+    currency_list_style = page.locator("#finance-currencies").evaluate("""element => ({
+      height: Math.round(element.getBoundingClientRect().height),
+      overflow: getComputedStyle(element).overflowY,
+      background: getComputedStyle(element).backgroundColor,
+    })""")
+    assert currency_list_style["height"] == 120
+    assert currency_list_style["overflow"] == "auto"
+    assert currency_list_style["background"] != "rgba(0, 0, 0, 0)"
+    assert page.locator("#finance-converter-currency option").count() == 5
+    page.select_option("#finance-converter-currency", "EUR")
+    assert text_of(page, "#finance-converter-equation") == "1 Euro equals"
+    assert text_of(page, "#finance-converter-usd") == \
+        "1.087 United States Dollar"
+    assert text_of(page, "#finance-converter-output") == "1.087"
+    assert text_of(page, "#finance-converter-currency-trigger") == "Euro"
+    page.click("#finance-converter-currency-trigger")
+    assert page.locator("#finance-converter-currency-list").is_visible()
+    assert page.locator("#finance-converter-currency-list .finance-converter-option").count() == 5
+    source_trigger_box = page.locator("#finance-converter-currency-trigger").bounding_box()
+    source_list_box = page.locator("#finance-converter-currency-list").bounding_box()
+    assert source_trigger_box and source_list_box
+    assert source_list_box["x"] == pytest.approx(source_trigger_box["x"], abs=.1)
+    assert source_list_box["width"] == pytest.approx(source_trigger_box["width"], abs=.1)
+    assert page.locator("#finance-converter-currency-trigger").evaluate(
+        "element => getComputedStyle(element).textAlign") in {"end", "right"}
+    selected_currency = page.locator(
+        "#finance-converter-currency-list .finance-converter-option[aria-selected='true']")
+    assert selected_currency.count() == 1
+    assert selected_currency.evaluate(
+        "element => getComputedStyle(element).textAlign") in {"start", "left"}
+    selected_colors = selected_currency.evaluate("""element => {
+      const probe = document.createElement('span');
+      probe.style.background = 'var(--primary-container)';
+      document.body.append(probe);
+      const colors = [getComputedStyle(element).backgroundColor,
+                      getComputedStyle(probe).backgroundColor];
+      probe.remove();
+      return colors;
+    }""")
+    assert selected_colors[0] == selected_colors[1]
+    source_option_font = selected_currency.evaluate("""element => {
+      const style = getComputedStyle(element);
+      return [style.fontFamily, style.fontSize, style.fontWeight];
+    }""")
+    page.evaluate("""() => {
+      const select = document.querySelector('#finance-converter-currency');
+      select.add(new Option('Australian Dollar', 'AUD'));
+      select.add(new Option('Argentine Peso', 'ARS'));
+      select.dispatchEvent(new Event('change', {bubbles: true}));
+    }""")
+    page.click("#finance-converter-currency-trigger")
+    page.click("#finance-converter-currency-trigger")
+    page.wait_for_timeout(50)
+    page.keyboard.press("a")
+    first_a_currency = page.evaluate("() => document.activeElement.textContent.trim()")
+    page.keyboard.press("a")
+    second_a_currency = page.evaluate("() => document.activeElement.textContent.trim()")
+    assert first_a_currency != second_a_currency
+    assert first_a_currency.lower().startswith("a")
+    assert second_a_currency.lower().startswith("a")
+    page.wait_for_timeout(750)
+    page.keyboard.press("j")
+    assert "Japanese Yen" in page.evaluate("() => document.activeElement.textContent")
+    page.keyboard.press("Enter")
+    assert page.input_value("#finance-converter-currency") == "JPY"
+    assert not page.locator("#finance-converter-currency-list").is_visible()
+    page.select_option("#finance-converter-currency", "EUR")
+
+    page.click("#finance-converter-target-trigger")
+    assert page.locator("#finance-converter-target-list").is_visible()
+    target_option = page.locator("#finance-converter-target-list .finance-converter-option")
+    assert target_option.count() == 1
+    target_option_font = target_option.evaluate("""element => {
+      const style = getComputedStyle(element);
+      return [style.fontFamily, style.fontSize, style.fontWeight];
+    }""")
+    assert target_option_font == source_option_font
+    assert target_option.evaluate(
+        "element => getComputedStyle(element).textAlign") in {"start", "left"}
+    target_trigger_box = page.locator("#finance-converter-target-trigger").bounding_box()
+    target_list_box = page.locator("#finance-converter-target-list").bounding_box()
+    assert target_trigger_box and target_list_box
+    assert target_list_box["x"] == pytest.approx(target_trigger_box["x"], abs=.1)
+    assert target_list_box["width"] == pytest.approx(target_trigger_box["width"], abs=.1)
+    assert page.locator("#finance-converter-target-trigger").evaluate(
+        "element => getComputedStyle(element).textAlign") in {"end", "right"}
+    target_option.click()
+    converter_rows = page.locator(".finance-converter-row").evaluate_all("""elements =>
+      elements.map(element => ({
+        height: Math.round(element.getBoundingClientRect().height),
+        separatorHeight: getComputedStyle(element, '::after').height,
+      }))
+    """)
+    assert converter_rows == [
+        {"height": 40, "separatorHeight": "24px"},
+        {"height": 40, "separatorHeight": "24px"},
+    ]
+    assert "Google Finance" in text_of(page, "#finance-converter-as-of")
+    page.evaluate("() => window.ScrapeXTime.set('UTC')")
+    utc_market_time = text_of(page, "#finance-latest-market")
+    utc_rate_time = text_of(page, "#finance-converter-as-of")
+    page.evaluate("() => window.ScrapeXTime.set('Asia/Riyadh')")
+    assert text_of(page, "#finance-latest-market") != utc_market_time
+    assert text_of(page, "#finance-converter-as-of") != utc_rate_time
+    page.fill("#finance-converter-amount", "2")
+    assert text_of(page, "#finance-converter-equation") == "2 Euro equals"
+    assert text_of(page, "#finance-converter-output") == "2.174"
+    assert "/api/rates/google-finance" in page.evaluate("() => window.__calls")
+    assert page.locator("#finance-currencies .finance-currency-chip").count() == 0
+    assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
+    interval_copy_box = page.locator(".finance-interval-row .finance-setting-copy").bounding_box()
+    interval_field_box = page.locator(".finance-interval-row .finance-number-field").bounding_box()
+    assert interval_copy_box and interval_field_box
+    assert interval_field_box["y"] >= interval_copy_box["y"] + interval_copy_box["height"]
+
+    page.set_viewport_size({"width": 560, "height": 800})
+    page.wait_for_timeout(100)
+    setting_copy_lefts = page.locator(".finance-settings-surface .finance-setting-copy").evaluate_all(
+        "elements => elements.map(element => Math.round(element.getBoundingClientRect().left))")
+    assert len(set(setting_copy_lefts)) == 1
+    stat_tops = page.locator(".finance-rate-facts .finance-rate-fact").evaluate_all(
+        "elements => elements.map(element => Math.round(element.getBoundingClientRect().top))")
+    assert len(set(stat_tops)) == 1
+    action_sizes = page.locator("#finance-refresh, #finance-dataset").evaluate_all("""elements =>
+        elements.map(element => ({
+          width: Math.round(element.getBoundingClientRect().width),
+          height: Math.round(element.getBoundingClientRect().height),
+        }))
+    """)
+    assert len({size["width"] for size in action_sizes}) == 1
+    assert len({size["height"] for size in action_sizes}) == 1
+    saved_state_box = page.evaluate("""() =>
+      document.querySelector('#finance-saved-state').getBoundingClientRect().toJSON()
+    """)
+    assert saved_state_box["height"] > 0
+    saved_state_style = page.locator("#finance-saved-state").evaluate("""element => ({
+      border: getComputedStyle(element).borderTopWidth,
+      background: getComputedStyle(element).backgroundColor,
+    })""")
+    assert saved_state_style == {"border": "0px", "background": "rgba(0, 0, 0, 0)"}
+
+    page.click("#finance-refresh")
+    page.wait_for_timeout(100)
+    assert page.locator("#finance-refresh svg").count() == 1
+    assert "Update now" in text_of(page, "#finance-refresh")
+    assert any(write["path"] == "/api/rates/google-finance/refresh"
+               for write in page.evaluate("() => window.__writes"))
+    page.click(".finance-preferences-card > summary")
+    assert page.locator("details.finance-preferences-card:not([open])").count() == 1
+    assert not page.locator(".finance-settings-surface").is_visible()
+
+
+def test_rate_status_color_follows_automatic_refresh_policy(open_panel):
+    base_status = {
+        "refresh_hours": 6,
+        "tracked_currencies": ["EUR"],
+        "latest_rates": [{
+            "currency": "EUR", "per_usd": .92,
+            "as_of": "2026-08-02T10:29:00Z",
+        }],
+        "last_checked": "2026-08-02T01:00:00Z",
+        "latest_market_at": "2026-08-02T10:29:00Z",
+        "rows": 10,
+        "warnings": [],
+    }
+
+    overdue = open_panel(rates_status={
+        **base_status, "automatic": True, "due": True,
+    })
+    overdue.click(FINANCE_TAB)
+    overdue.wait_for_timeout(100)
+    assert overdue.get_attribute("#finance-rate-state", "data-tone") == "error"
+    assert text_of(overdue, "#finance-rate-state-title") == "Rate update overdue"
+    overdue_colors = overdue.locator("#finance-rate-state").evaluate("""element => {
+      const probe = document.createElement('span');
+      probe.style.background = 'var(--red-weak)';
+      document.body.append(probe);
+      const colors = [getComputedStyle(element).backgroundColor,
+                      getComputedStyle(probe).backgroundColor];
+      probe.remove();
+      return colors;
+    }""")
+    assert overdue_colors[0] == overdue_colors[1]
+
+    manual = open_panel(rates_status={
+        **base_status, "automatic": False, "due": True,
+    })
+    manual.click(FINANCE_TAB)
+    manual.wait_for_timeout(100)
+    assert manual.get_attribute("#finance-rate-state", "data-tone") == "neutral"
+    assert text_of(manual, "#finance-rate-state-title") == "Rates update manually"
+    manual_colors = manual.locator("#finance-rate-state").evaluate("""element => {
+      const probe = document.createElement('span');
+      probe.style.background = 'var(--surface-subtle)';
+      document.body.append(probe);
+      const colors = [getComputedStyle(element).backgroundColor,
+                      getComputedStyle(probe).backgroundColor];
+      probe.remove();
+      return colors;
+    }""")
+    assert manual_colors[0] == manual_colors[1]
+
+
+def test_finance_converter_keeps_small_nonzero_values_visible(open_panel):
+    page = open_panel(rates_status={
+        "automatic": True,
+        "refresh_hours": 6,
+        "tracked_currencies": ["EGP", "MGA"],
+        "latest_rates": [
+            {"currency": "EGP", "per_usd": 50.99649,
+             "as_of": "2026-08-02T10:29:00Z"},
+            {"currency": "MGA", "per_usd": 3125,
+             "as_of": "2026-08-02T10:29:00Z"},
+        ],
+        "last_checked": "2026-08-02T10:28:32Z",
+        "latest_market_at": "2026-08-02T10:29:00Z",
+        "rows": 2,
+        "due": False,
+        "warnings": [],
+    })
+    page.click(FINANCE_TAB)
+    page.wait_for_timeout(100)
+
+    page.select_option("#finance-converter-currency", "EGP")
+    assert text_of(page, "#finance-converter-output") == "0.020"
+    page.select_option("#finance-converter-currency", "MGA")
+    assert text_of(page, "#finance-converter-output") == "0.00032"
+
+
+def test_settings_cards_use_the_canonical_icon_sprite_instead_of_numbers(open_panel):
+    page = open_panel()
+    page.click(SETTINGS_TAB)
+
+    icons = page.locator("#view-settings .settings-icon use")
+    assert icons.count() == 7
+    assert icons.evaluate_all("elements => elements.map(element => element.getAttribute('href'))") == [
+        "#dns", "#storage", "#schedule", "#file-download",
+        "#restart-alt", "#language", "#info",
+    ]
+    assert page.locator("#view-settings .settings-index").count() == 0
 
 
 def test_add_source_opens_the_existing_working_form(open_panel):
@@ -1206,6 +1611,65 @@ def test_each_native_failure_is_named_rather_than_blamed_on_the_install():
     # Starting an engine is not a ping and may not be judged by a ping's budget.
     assert "START_TIMEOUT_MS = 60000" in transport
     assert "sendNative({ command: \"START_ENGINE\" }, START_TIMEOUT_MS)" in transport
+    assert "Native helper unavailable — restarting through the engine." in panel
+    assert "title: \"Local helper did not answer\"" in panel
+
+
+def test_startup_blockers_have_a_visible_repair_path():
+    """A failed restart must name the real blocker and leave its repair action
+    reachable while the HTTP engine is down."""
+    transport = (ROOT / "extension" / "transport.js").read_text(encoding="utf-8")
+    panel = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    html = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
+
+    assert '"CHECK_STARTUP"' in transport
+    assert '"UPGRADE_DATABASE"' in transport
+    assert 'kind === "startup_blocked"' in panel
+    assert "checkStartup()" in panel
+    assert "upgradeDatabase()" in panel
+    assert 'id="runtime-details"' in html
+    assert 'class="engine-runtime-status"' in html
+    assert 'id="runtime-note"' in html
+    assert 'id="runtime-upgrade"' in html
+
+
+def test_engine_actions_are_consistent_and_the_next_card_is_separate(open_panel):
+    page = open_panel()
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-engine"]')
+
+    engine_card = page.locator("#s-engine").locator("..")
+    storage_card = page.locator("#s-storage").locator("..")
+    engine_box = engine_card.bounding_box()
+    storage_box = storage_card.bounding_box()
+    assert engine_box and storage_box
+    assert storage_box["y"] - (engine_box["y"] + engine_box["height"]) >= 8
+
+    actions = page.locator("#s-engine .engine-maintenance-actions .engine-action")
+    assert actions.count() == 2
+    widths = [actions.nth(index).bounding_box()["width"] for index in range(2)]
+    assert max(widths) - min(widths) <= 1
+    assert page.locator("#s-engine .engine-action .sx-icon").count() == 2
+
+    smart = page.locator("#runtime-check-action")
+    assert smart.get_attribute("data-action") == "diagnostics"
+    assert smart.text_content().strip() == "Run diagnostics"
+    assert smart.locator("use").get_attribute("href").endswith("#tune")
+    smart.click()
+    assert "Engine reachable" in page.text_content("#diag-out")
+    assert not page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+
+
+def test_the_engine_check_action_becomes_recheck_while_the_engine_is_down(open_panel):
+    page = open_panel(engine_up=False)
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-engine"]')
+
+    smart = page.locator("#runtime-check-action")
+    assert smart.get_attribute("data-action") == "recheck"
+    assert smart.text_content().strip() == "Recheck status"
+    assert smart.locator("use").get_attribute("href").endswith("#sync")
 
 
 # ---- adding a site: which SYSTEM it goes to ----------------------------------

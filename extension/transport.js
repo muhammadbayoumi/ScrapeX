@@ -98,7 +98,13 @@ export class VersionMismatchError extends Error {
 
 function unwrap(response) {
   if (response && response.error === "version_mismatch") throw new VersionMismatchError(response);
-  if (response && response.ok === false) throw new Error(response.detail || response.error);
+  if (response && response.ok === false) {
+    const error = new Error(response.detail || response.error);
+    error.kind = response.error || "refused";
+    error.action = response.action || "";
+    error.databases = response.databases || null;
+    throw error;
+  }
   return response;
 }
 
@@ -122,9 +128,23 @@ export function startEngine() {
   return sendNative({ command: "START_ENGINE" }, START_TIMEOUT_MS).then((response) => {
     if (response && response.ok === false) {
       const refused = new Error(response.detail || response.error || "the host refused");
-      refused.kind = "refused";      // the host ANSWERED; it just could not start it
+      refused.kind = response.error || "refused";
+      refused.action = response.action || "";
+      refused.databases = response.databases || null;
+      // The host ANSWERED; it just could not start it.
       throw refused;
     }
     return response;
   });
+}
+
+// These two commands remain available when the HTTP engine is down. That is
+// the important boundary: a failed startup must not hide the one action that
+// can repair it behind the failed server.
+export function checkStartup() {
+  return sendNative({command: "CHECK_STARTUP"}).then(unwrap);
+}
+
+export function upgradeDatabase() {
+  return sendNative({command: "UPGRADE_DATABASE"}).then(unwrap);
 }

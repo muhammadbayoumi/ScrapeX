@@ -59,6 +59,7 @@ PROTOCOL_VERSION = 1
 # reading `conn` would meet None.
 STANDALONE_COMMANDS = frozenset({
     "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART",
+    "CHECK_STARTUP", "UPGRADE_DATABASE",
 })
 
 
@@ -135,6 +136,18 @@ def _dispatch(conn, command, message: dict, manifest) -> dict:
         # terminal every session, which is the exact friction being removed.
         return start_engine(message)
 
+    if command == "CHECK_STARTUP":
+        # This is deliberately native-only. The HTTP engine may be the very
+        # thing that cannot start, so a page cannot be the only place that
+        # checks whether the next build can open the warehouse.
+        return startup_check()
+
+    if command == "UPGRADE_DATABASE":
+        # The same escape hatch must also work while the engine is down. The
+        # old UI could show "Upgrade database" but its HTTP request had no
+        # server left to receive it after a failed restart.
+        return upgrade_database()
+
     if command == "AUTOSTART_STATUS":
         from . import autostart
         return {"ok": True, **autostart.status()}
@@ -169,6 +182,78 @@ def _engine_listening(port: int) -> bool:
     with socket.socket() as probe:
         probe.settimeout(0.4)
         return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _database_report() -> tuple[dict[str, dict] | None, str | None]:
+    """Read the current build's database readiness without opening the engine.
+
+    Missing databases are not a blocker: the engine creates them on first
+    start. Existing databases with a failed health report are different and
+    must be named before the launcher starts a process that will immediately
+    disappear.
+    """
+    try:
+        from .databases import DatabaseRegistry
+
+        registry = DatabaseRegistry.defaults()
+        states = registry.health()
+    except Exception as exc:  # noqa: BLE001 - the UI needs the actual reason
+        return None, str(exc)
+    return states, None
+
+
+def startup_check() -> dict:
+    """Return a structured, actionable preflight result for engine startup."""
+    states, failure = _database_report()
+    if failure:
+        return _error(
+            "startup_check_failed",
+            f"ScrapeX could not inspect its databases: {failure}",
+            action="check_storage",
+        )
+    blocked = [
+        (name, state) for name, state in (states or {}).items()
+        if not state["ok"] and state["status"] != "Missing"
+    ]
+    if not blocked:
+        return {"ok": True, "databases": states or {}}
+    details = "; ".join(
+        f"{name}: {state['status']}. {state['action']}"
+        for name, state in blocked
+    )
+    action = "upgrade_database" if any(
+        state["status"] == "Needs upgrade" for _, state in blocked
+    ) else "check_storage"
+    return _error(
+        "startup_blocked",
+        details,
+        action=action,
+        databases=states or {},
+    )
+
+
+def upgrade_database() -> dict:
+    """Apply forward migrations from the native host when HTTP is unavailable."""
+    try:
+        from .databases import DatabaseRegistry
+
+        applied = DatabaseRegistry.defaults().initialize()
+        states, failure = _database_report()
+        if failure:
+            return _error("database_upgrade_failed", failure, action="check_storage")
+        moved = {name: numbers for name, numbers in applied.items() if numbers}
+        message = (
+            "Both databases are already up to date."
+            if not moved else
+            "Applied " + ", ".join(
+                f"{len(numbers)} migration{'s' if len(numbers) != 1 else ''} to {name}"
+                for name, numbers in moved.items()
+            ) + "."
+        )
+        return {"ok": True, "applied": applied, "databases": states or {},
+                "message": message}
+    except Exception as exc:  # noqa: BLE001 - preserve the actionable database error
+        return _error("database_upgrade_failed", str(exc), action="check_storage")
 
 
 def _spawn_engine(port: int) -> None:
@@ -219,6 +304,9 @@ def start_engine(message: dict) -> dict:
     port = int(message.get("port") or DEFAULT_ENGINE_PORT)
     if _engine_listening(port):
         return {"ok": True, "already_running": True, "confirmed": True, "port": port}
+    preflight = startup_check()
+    if not preflight["ok"]:
+        return {**preflight, "port": port}
     _spawn_engine(port)
     deadline = time.monotonic() + _START_CONFIRM_BUDGET_S
     while time.monotonic() < deadline:

@@ -196,8 +196,15 @@ def test_google_finance_control_is_reachable_from_the_panel():
     script = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
 
     for control in ("google_finance_auto_refresh", "google_finance_refresh_hours",
-                    "finance-save", "finance-refresh", "finance-dataset"):
+                    "finance-save", "finance-refresh", "finance-dataset",
+                    "finance-converter-currency", "finance-converter-usd"):
         assert f'id="{control}"' in panel
+    assert 'id="tab-finance"' in panel
+    assert 'id="view-finance"' in panel
+    assert 'data-view="finance"' in panel
+    assert 'role="switch"' in panel
+    assert 'class="finance-m3-switch-track"' in panel
+    assert 'data-sect="s-finance"' not in panel
     assert 'post("/api/rates/google-finance/refresh"' in script
 
 

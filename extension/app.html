@@ -791,6 +791,210 @@
       </section>
     </section>
 
+    <!-- ====================== GOOGLE FINANCE ====================== -->
+    <section id="view-finance" class="hidden finance-page" role="tabpanel"
+             aria-labelledby="tab-finance" tabindex="0">
+      <header class="view-heading finance-page-heading">
+        <span class="finance-page-eyebrow">Exchange rates</span>
+        <h1>Google Finance</h1>
+        <p>Control the rates used for estimated USD values.</p>
+        <a class="finance-source-link" href="https://www.google.com/finance/"
+           target="_blank" rel="noopener noreferrer">
+          <span>Google Finance</span>
+          <svg class="sx-icon sm" aria-hidden="true">
+            <use href="icons/material-icons.svg#open-in-new"></use>
+          </svg>
+        </a>
+      </header>
+
+      <section class="finance-card finance-status-card" aria-labelledby="finance-status-heading">
+        <div class="finance-section-heading">
+          <div>
+            <h2 id="finance-status-heading">Rate coverage</h2>
+            <p id="finance-coverage-summary">Reading the rates stored by the local engine.</p>
+          </div>
+          <button id="finance-refresh" type="button"
+                  class="ghost compact finance-inline-action finance-action-button">
+            <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#sync"></use></svg>
+            <span>Update now</span>
+          </button>
+        </div>
+
+        <div id="finance-rate-state" class="finance-rate-state" data-tone="neutral"
+             role="status" aria-live="polite">
+          <span class="finance-rate-state-copy">
+            <span class="finance-rate-state-dot" aria-hidden="true"></span>
+            <strong id="finance-rate-state-title">Reading rate status</strong>
+          </span>
+          <span id="finance-last-check">Please wait</span>
+        </div>
+
+        <div class="finance-rate-facts" aria-label="Rate details">
+          <article class="finance-rate-fact">
+            <span>Coverage</span>
+            <strong id="finance-currency-count">0 currencies</strong>
+          </article>
+          <article class="finance-rate-fact">
+            <span>Market time</span>
+            <strong id="finance-latest-market">No rates yet</strong>
+          </article>
+          <article class="finance-rate-fact">
+            <span>Stored history</span>
+            <strong id="finance-rows">0 rates</strong>
+          </article>
+        </div>
+
+        <details id="finance-currency-details" class="finance-currency-details">
+          <summary>
+            <span>View supported currencies</span>
+            <svg class="sx-icon sm" aria-hidden="true">
+              <use href="icons/material-icons.svg#expand-more"></use>
+            </svg>
+          </summary>
+          <p id="finance-currencies" class="tech">None yet</p>
+        </details>
+      </section>
+
+      <details class="finance-card finance-preferences-card"
+               aria-labelledby="finance-refresh-heading">
+        <summary class="finance-section-heading">
+          <div>
+            <h2 id="finance-refresh-heading">Rate update preferences</h2>
+            <p>Choose how often ScrapeX checks for new exchange rates.</p>
+          </div>
+          <svg class="sx-icon sm finance-preferences-chevron" aria-hidden="true">
+            <use href="icons/material-icons.svg#expand-more"></use>
+          </svg>
+        </summary>
+
+        <div class="finance-settings-surface">
+          <label class="finance-setting-row finance-toggle-row"
+                 for="google_finance_auto_refresh">
+            <span class="finance-setting-copy">
+              <strong>Keep rates up to date</strong>
+              <small>Run this check automatically while the engine is available.</small>
+            </span>
+            <span class="finance-m3-switch">
+              <input id="google_finance_auto_refresh" type="checkbox" role="switch"
+                     aria-label="Keep rates up to date">
+              <span class="finance-m3-switch-track" aria-hidden="true">
+                <span class="finance-m3-switch-handle-container">
+                  <span class="finance-m3-switch-handle"></span>
+                </span>
+              </span>
+            </span>
+          </label>
+
+          <div class="finance-setting-row finance-interval-row">
+            <label class="finance-setting-copy" for="google_finance_refresh_hours">
+              <strong>Refresh interval</strong>
+              <small>Between 15 minutes and 7 days. The default is 6 hours.</small>
+            </label>
+            <div class="finance-number-field">
+              <input id="google_finance_refresh_hours" type="number" step="0.25"
+                     min="0.25" max="168" dir="ltr">
+              <span>hours</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="finance-card-actions">
+          <div id="finance-saved-state" class="finance-saved-state" data-dirty="false">
+            <span id="finance-saved-summary">Loading saved update behavior...</span>
+          </div>
+          <button id="finance-save" type="button"
+                  class="ghost compact finance-action-button finance-save-button"
+                  data-save-state="saved" disabled>
+            <svg class="sx-icon sm finance-save-icon finance-save-icon-saved" aria-hidden="true">
+              <use href="icons/material-icons.svg#check"></use>
+            </svg>
+            <svg class="sx-icon sm finance-save-icon finance-save-icon-dirty" aria-hidden="true">
+              <use href="icons/material-icons.svg#sync"></use>
+            </svg>
+            <span>Saved</span>
+          </button>
+        </div>
+      </details>
+
+      <section class="finance-card finance-converter-card"
+               aria-labelledby="finance-converter-heading">
+        <div class="finance-section-heading">
+          <div>
+            <h2 id="finance-converter-heading">Currency to USD</h2>
+            <p>Enter an amount to see its stored US dollar value.</p>
+          </div>
+          <button id="finance-dataset" type="button"
+                  class="ghost compact finance-inline-action finance-action-button">
+            <svg class="sx-icon sm" aria-hidden="true">
+              <use href="icons/material-icons.svg#open-in-new"></use>
+            </svg>
+            <span>Open dataset</span>
+          </button>
+        </div>
+
+        <div class="finance-converter">
+          <output id="finance-converter-result" class="finance-converter-result"
+                  for="finance-converter-amount finance-converter-currency" aria-live="polite">
+            <span id="finance-converter-equation">Select a currency</span>
+            <strong id="finance-converter-usd">— United States Dollar</strong>
+            <small id="finance-converter-as-of">No stored rate yet</small>
+          </output>
+
+          <div class="finance-converter-fields">
+            <div class="finance-converter-row finance-converter-source-row">
+              <label class="visually-hidden" for="finance-converter-amount">Amount</label>
+              <input id="finance-converter-amount" type="number" min="0" step="any"
+                     value="1" inputmode="decimal" aria-label="Amount">
+              <label class="visually-hidden" for="finance-converter-currency">Source currency</label>
+              <div class="finance-converter-select">
+                <select id="finance-converter-currency" class="finance-converter-native-select"
+                        aria-label="Source currency" tabindex="-1"></select>
+                <button id="finance-converter-currency-trigger" type="button"
+                        class="finance-converter-select-trigger"
+                        aria-haspopup="listbox" aria-expanded="false"
+                        aria-controls="finance-converter-currency-list">
+                  <span data-finance-select-label>Select a currency</span>
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#expand-more"></use>
+                  </svg>
+                </button>
+                <div id="finance-converter-currency-list"
+                     class="finance-converter-options hidden"
+                     role="listbox" aria-label="Source currency"></div>
+              </div>
+            </div>
+
+            <div class="finance-converter-row finance-converter-target-row">
+              <output id="finance-converter-output" for="finance-converter-amount finance-converter-currency"
+                      aria-label="Converted amount">—</output>
+              <label class="visually-hidden" for="finance-converter-target">Target currency</label>
+              <div class="finance-converter-select">
+                <select id="finance-converter-target" class="finance-converter-native-select"
+                        aria-label="Target currency" tabindex="-1">
+                  <option value="USD">United States Dollar</option>
+                </select>
+                <button id="finance-converter-target-trigger" type="button"
+                        class="finance-converter-select-trigger"
+                        aria-haspopup="listbox" aria-expanded="false"
+                        aria-controls="finance-converter-target-list">
+                  <span data-finance-select-label>United States Dollar</span>
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#expand-more"></use>
+                  </svg>
+                </button>
+                <div id="finance-converter-target-list"
+                     class="finance-converter-options hidden"
+                     role="listbox" aria-label="Target currency"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+      <div id="finance-msg" class="muted text-sm finance-message"
+           role="status" aria-live="polite"></div>
+    </section>
+
     <!-- ========================== SETTINGS ========================== -->
     <section id="view-settings" class="hidden" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
       <header class="view-heading">
@@ -814,7 +1018,9 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-engine" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">01</span>
+              <span class="settings-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="icons/material-icons.svg#dns"></use></svg>
+              </span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Engine connection</span>
                 <span class="settings-description">Local runtime URL and privacy</span>
@@ -826,41 +1032,82 @@
             <div id="s-engine" class="settings-panel hidden">
               <div id="runtime-details" class="engine-runtime">
                 <div class="engine-runtime-status">
-                  <span id="dot" class="dot"></span>
-                  <strong id="estat-text">Checking…</strong>
+                  <div class="engine-runtime-heading">
+                    <span id="dot" class="dot" aria-hidden="true"></span>
+                    <span class="engine-runtime-copy">
+                      <span>Local runtime</span>
+                      <strong id="estat-text">Checking…</strong>
+                    </span>
+                  </div>
+                  <button id="runtime-check-action" class="ghost engine-smart-action"
+                          type="button" data-action="recheck">
+                    <svg class="sx-icon sm" aria-hidden="true">
+                      <use id="runtime-check-icon" href="icons/material-icons.svg#sync"></use>
+                    </svg>
+                    <span id="runtime-check-label">Recheck status</span>
+                  </button>
                 </div>
-                <div id="components"></div>
-                <div class="links mt-2">
-                  <button id="recheck" class="ghost">Recheck status</button>
-                  <button id="diagnostics" class="ghost">Run diagnostics</button>
-                </div>
+                <div id="components" class="engine-component-grid"
+                     aria-label="Runtime components"></div>
                 <!-- The two repair actions, beside the status they repair. They
                      used to live only on the web Settings page, so the panel —
                      the application — had to send the owner somewhere else to
                      perform the most important thing they can do to a stuck
                      engine. The panel is the control room: nothing the page can
                      do may be missing here. -->
-                <div class="links mt-2" id="runtime-actions">
-                  <button id="runtime-restart" class="ghost">Restart engine</button>
-                  <button id="runtime-upgrade" class="ghost">Upgrade database</button>
+                <div class="engine-maintenance-actions" id="runtime-actions"
+                     aria-label="Engine maintenance">
+                  <button id="runtime-restart" class="ghost engine-action engine-action-emphasis">
+                    <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#restart-alt"></use></svg>
+                    <span>Restart engine</span>
+                  </button>
+                  <button id="runtime-upgrade" class="ghost engine-action">
+                    <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#storage"></use></svg>
+                    <span>Upgrade database</span>
+                  </button>
                 </div>
                 <div id="runtime-note" class="muted text-xs" role="status"></div>
                 <div id="diag-out" class="muted text-xs"></div>
               </div>
-              <label class="muted text-xs" for="backend">Engine URL</label>
-              <div class="field"><input id="backend" placeholder="http://127.0.0.1:8000" class="tech">
-                <button id="save" class="ghost">Save</button></div>
-              <div class="muted text-xs mt-1">
-                Your data stays on this machine. Nothing is sent to any server.</div>
-              <div class="field mt-2">
-                <span id="autostart-state" class="muted text-xs">Start with Windows: checking…</span>
-                <button id="autostart-toggle" class="ghost hidden" type="button"></button>
-              </div>
+              <section class="engine-connection-surface" aria-labelledby="engine-url-label">
+                <div class="engine-connection-heading">
+                  <label id="engine-url-label" for="backend">Connection address</label>
+                  <span>Local only</span>
+                </div>
+                <div class="engine-url-field">
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#link"></use>
+                  </svg>
+                  <input id="backend" placeholder="http://127.0.0.1:8000" class="tech"
+                         aria-describedby="engine-privacy-note">
+                  <button id="save" class="ghost engine-url-save" type="button">
+                    <svg class="sx-icon sm" aria-hidden="true">
+                      <use href="icons/material-icons.svg#check"></use>
+                    </svg>
+                    <span>Save</span>
+                  </button>
+                </div>
+                <p id="engine-privacy-note" class="engine-privacy-note">
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#security"></use>
+                  </svg>
+                  <span>Your data stays on this machine. Nothing is sent to any server.</span>
+                </p>
+                <div class="engine-autostart-row">
+                  <svg class="sx-icon sm" aria-hidden="true">
+                    <use href="icons/material-icons.svg#schedule"></use>
+                  </svg>
+                  <span id="autostart-state">Start with Windows: checking…</span>
+                  <button id="autostart-toggle" class="ghost compact hidden" type="button"></button>
+                </div>
+              </section>
             </div>
           </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-storage" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">02</span>
+              <span class="settings-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="icons/material-icons.svg#storage"></use></svg>
+              </span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Storage</span>
                 <span class="settings-description">Database health, backups, and source management</span>
@@ -890,48 +1137,6 @@
               </div>
             </div>
           </article>
-          <article class="settings-item">
-            <button class="link sect settings-toggle" data-sect="s-finance" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">03</span>
-              <span class="settings-toggle-copy">
-                <span class="settings-title">Google Finance</span>
-                <span class="settings-description">Exchange-rate cadence and manual update</span>
-              </span>
-              <svg class="settings-chevron sx-icon" aria-hidden="true">
-                <use href="icons/material-icons.svg#chevron-right"></use>
-              </svg>
-            </button>
-            <div id="s-finance" class="settings-panel hidden">
-              <p class="muted hint">Google Finance supplies the exchange rates used
-                for estimated USD values. Stored prices are never rewritten; each
-                conversion keeps its rate, provider and market time.</p>
-
-              <label class="row" for="google_finance_auto_refresh">
-                <input id="google_finance_auto_refresh" type="checkbox">
-                <span>Update exchange rates automatically</span>
-              </label>
-
-              <label for="google_finance_refresh_hours">Hours between automatic updates</label>
-              <input id="google_finance_refresh_hours" type="number" step="0.25"
-                     min="0.25" max="168" dir="ltr">
-              <p class="muted text-xs">Allowed range: 15 minutes to 7 days.
-                The shipped default is 6 hours.</p>
-
-              <div class="finance-status" aria-label="Google Finance status">
-                <div class="out"><span>Currencies in use</span><strong id="finance-currencies" class="tech">-</strong></div>
-                <div class="out"><span>Last update attempt</span><strong id="finance-last-check" class="tech">-</strong></div>
-                <div class="out"><span>Latest market time</span><strong id="finance-latest-market" class="tech">-</strong></div>
-                <div class="out"><span>Stored history</span><strong id="finance-rows">-</strong></div>
-              </div>
-
-              <div class="row mt-2 finance-actions">
-                <button id="finance-save" type="button" class="primary">Save</button>
-                <button id="finance-refresh" type="button" class="ghost">Update now</button>
-                <button id="finance-dataset" type="button" class="link">Open dataset</button>
-              </div>
-              <div id="finance-msg" class="muted text-sm" role="status" aria-live="polite"></div>
-            </div>
-          </article>
         </div>
       </section>
 
@@ -943,7 +1148,9 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-sched" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">04</span>
+              <span class="settings-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="icons/material-icons.svg#schedule"></use></svg>
+              </span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Jobs and scheduling</span>
                 <span class="settings-description">Run cadence and worker availability</span>
@@ -959,7 +1166,9 @@
           </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-output" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">05</span>
+              <span class="settings-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="icons/material-icons.svg#file-download"></use></svg>
+              </span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Data output settings</span>
                 <span class="settings-description">Local exports and external sync</span>
@@ -979,7 +1188,9 @@
                the owner actually works, they did not exist at all. -->
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-crawl" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">06</span>
+              <span class="settings-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="icons/material-icons.svg#restart-alt"></use></svg>
+              </span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Crawl pace and engine</span>
                 <span class="settings-description">Pace, log retention and engine restart</span>
@@ -1039,7 +1250,9 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-timezone" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">06</span>
+              <span class="settings-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="icons/material-icons.svg#language"></use></svg>
+              </span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">Time zone</span>
                 <span class="settings-description">The zone every date and time is shown in</span>
@@ -1072,7 +1285,9 @@
         <div class="settings-list">
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-about" aria-expanded="false">
-              <span class="settings-index" aria-hidden="true">07</span>
+              <span class="settings-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="icons/material-icons.svg#info"></use></svg>
+              </span>
               <span class="settings-toggle-copy">
                 <span class="settings-title">About</span>
                 <span class="settings-description">Version and product details</span>
@@ -1160,6 +1375,17 @@
     </div>
 
     <span class="rail-divider" aria-hidden="true"></span>
+    <div id="finance-tablist" class="rail-tablist" role="tablist"
+         aria-label="Exchange rates">
+      <button class="rail-item" id="tab-finance" role="tab" data-view="finance"
+              aria-controls="view-finance" aria-selected="false" tabindex="-1"
+              aria-label="Google Finance" title="Google Finance">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#trending-up"></use>
+        </svg>
+        <span class="visually-hidden">Google Finance</span>
+      </button>
+    </div>
     <button class="rail-item" id="workspace-toggle" type="button"
             aria-controls="workspace-menu" aria-expanded="false"
             aria-label="Workspace pages" title="Workspace pages">
@@ -1184,7 +1410,7 @@
               aria-controls="view-sources" aria-selected="false" tabindex="-1"
               aria-label="Add or edit sources" title="Add or edit sources">
         <svg class="sx-icon" aria-hidden="true">
-          <use href="icons/material-icons.svg#tune"></use>
+          <use href="icons/material-icons.svg#add"></use>
         </svg>
         <span class="visually-hidden">Add or edit sources</span>
       </button>

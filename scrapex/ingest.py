@@ -638,6 +638,27 @@ def _apply_quantity_facts(conn, offer_id: int, facts: dict) -> None:
                  (*facts.values(), offer_id))
 
 
+def _unit_facts(r: dict) -> dict[str, str]:
+    """The statement behind a resolved unit, including its literal wording."""
+    provenance, witness = _witness_for(r)
+    return {
+        "selling_unit_raw": (r.get("selling_unit_raw") or "").strip(),
+        "selling_unit_raw_lang": (r.get("selling_unit_raw_lang") or "").strip(),
+        "unit_basis_provenance": provenance,
+        "unit_basis_witness": witness,
+    }
+
+
+def _apply_unit_facts(conn, offer_id: int, r: dict) -> None:
+    """Refresh legacy provenance when a charter can now name the witness."""
+    facts = _unit_facts(r)
+    conn.execute(
+        "UPDATE source_offer SET selling_unit_raw = ?, selling_unit_raw_lang = ?, "
+        "unit_basis_provenance = ?, unit_basis_witness = ? WHERE offer_id = ?",
+        (*facts.values(), offer_id),
+    )
+
+
 def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     vat = 1 if r["tax_included"] == "1" else 0
     unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
@@ -655,6 +676,8 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         (variant_id, r["country_code_alpha2"], unit_id or 0, basis),
     )
     if found is not None:
+        if unit_id:
+            _apply_unit_facts(conn, found, r)
         _apply_quantity_facts(conn, found, quantity)
         return found
     # AN OFFER LEARNING ITS UNIT IS NOT A SECOND OFFER. The rule above is right
@@ -674,12 +697,13 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
             (variant_id, r["country_code_alpha2"]),
         )
         if unstated is not None:
+            unit_facts = _unit_facts(r)
             conn.execute(
                 "UPDATE source_offer SET selling_unit_id = ?, basis_quantity = ?, "
-                "unit_basis_provenance = COALESCE(NULLIF(unit_basis_provenance,''), ?), "
-                "unit_basis_witness = COALESCE(NULLIF(unit_basis_witness,''), ?) "
+                "selling_unit_raw = ?, selling_unit_raw_lang = ?, "
+                "unit_basis_provenance = ?, unit_basis_witness = ? "
                 "WHERE offer_id = ?",
-                (unit_id, basis, *_witness_for(r), unstated))
+                (unit_id, basis, *unit_facts.values(), unstated))
             _apply_quantity_facts(conn, unstated, quantity)
             return unstated
     return _insert(conn, "source_offer", {
@@ -689,8 +713,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         "tax_included": vat,
         "selling_unit_id": unit_id,
         "basis_quantity": basis,
-        **(dict(zip(("unit_basis_provenance", "unit_basis_witness"), _witness_for(r)))
-           if unit_id else {}),
+        **(_unit_facts(r) if unit_id else {}),
         **quantity,
     })
 

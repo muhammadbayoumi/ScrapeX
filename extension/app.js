@@ -8,7 +8,7 @@
 // markup goes through esc(), and content spans use unicode-bidi:plaintext so
 // Arabic renders right-to-left without disturbing the English chrome around it.
 import { checkEngine, getBackend, setBackend } from "./engine.js";
-import { autostartStatus, setAutostart, startEngine } from "./transport.js";
+import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDatabase } from "./transport.js";
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 
 const $ = (id) => document.getElementById(id);
@@ -44,6 +44,7 @@ const state = {
   sources: [], selected: new Set(), filter: "", sourceFilter: "",
   editingSourceKey: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
+  financeRates: [], financeSavedSettings: null, financeStatus: null,
   engineUp: false,
   // The two versions and what the engine says it deploys. `versionReport` is
   // null for an engine too old to publish one, which is NOT the same as an
@@ -54,7 +55,7 @@ const state = {
 
 // ---- views ----------------------------------------------------------------
 const VIEWS = [
-  "source", "run", "data", "sources", "source-edit", "appearance", "settings",
+  "source", "run", "data", "sources", "source-edit", "appearance", "finance", "settings",
 ];
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
@@ -199,30 +200,125 @@ function showView(name, animate = true) {
   }
   if (name === "data") loadDatasets();
   if (name === "sources") loadSources();
+  if (name === "finance") loadGoogleFinance();
   if (name === "settings") { loadSchedules(); loadStorage(); }
   if (name === "source") loadCurrentPage();
 }
 
 // ---- runtime status --------------------------------------------------------
 const COMPONENTS = [
-  ["Core service", (e) => (e.running ? "Running" : "Stopped")],
-  ["Python runtime", (e) => (e.running ? "Ready" : "Unknown")],
-  ["HTTP fetcher", (e) => (e.running ? "Ready" : "Unknown")],
+  ["Core service", "dns", (e) => (e.running ? "Running" : "Stopped")],
+  ["Python runtime", "settings", (e) => (e.running ? "Ready" : "Unknown")],
+  ["HTTP fetcher", "link", (e) => (e.running ? "Ready" : "Unknown")],
   // The engine creates and owns both databases; the panel only reports them. A
   // reachable engine sitting on an unusable database read as healthy from here.
-  ["Databases", (e) => {
+  ["Databases", "storage", (e) => {
     if (!e.running) return "Unknown";
     if (!e.databases) return "Ready";
     return e.databases.ok ? "Healthy" : `Needs attention — ${e.databases.detail}`;
   }],
-  ["Browser automation", () => "Optional"],
+  ["Browser automation", "language", () => "Optional"],
 ];
 
 function renderRuntime(engine) {
-  $("components").innerHTML = COMPONENTS.map(([label, fn]) => {
+  $("components").innerHTML = COMPONENTS.map(([label, componentIcon, fn]) => {
     const value = fn(engine);
-    return `<div class="kv"><span>${esc(label)}</span><span class="muted">${esc(value)}</span></div>`;
+    const tone = /Stopped|Unknown|Needs attention/i.test(value)
+      ? "warning"
+      : /Optional/i.test(value) ? "neutral" : "ready";
+    return `<article class="engine-component" data-tone="${tone}">` +
+      `<span class="engine-component-icon">${icon(componentIcon, "sm")}</span>` +
+      `<span class="engine-component-copy"><strong>${esc(label)}</strong>` +
+      `<small>${esc(value)}</small></span></article>`;
   }).join("");
+}
+
+function renderRuntimeCheckAction(engine) {
+  const button = $("runtime-check-action");
+  if (!button) return;
+  const diagnostics = Boolean(engine.running);
+  const label = diagnostics ? "Run diagnostics" : "Recheck status";
+  button.dataset.action = diagnostics ? "diagnostics" : "recheck";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  $("runtime-check-label").textContent = label;
+  $("runtime-check-icon").setAttribute(
+    "href", `${ICON_SPRITE}#${diagnostics ? "tune" : "sync"}`);
+}
+
+function issueCopy(error) {
+  const kind = error && error.kind;
+  if (kind === "startup_blocked" || kind === "database_needs_upgrade") {
+    return {
+      title: "Engine cannot start yet",
+      body: error.message || "The engine found a database that needs attention before it can start.",
+      action: error.action === "upgrade_database" ? "upgrade" : "",
+    };
+  }
+  if (kind === "database_upgrade_failed") {
+    return {
+      title: "Database upgrade failed",
+      body: error.message || "The database could not be upgraded.",
+      action: "",
+    };
+  }
+  if (kind === "startup_check_failed") {
+    return {
+      title: "Startup check failed",
+      body: error.message || "ScrapeX could not inspect its local databases.",
+      action: "",
+    };
+  }
+  if (kind === "timeout") {
+    return {
+      title: "Local helper did not answer",
+      body: state.engineUp
+        ? "The engine is online, but Chrome could not reach the native messaging helper."
+        : (error.message || "The helper did not answer in time. It may still be starting."),
+      action: "",
+    };
+  }
+  return {
+    title: "Engine action failed",
+    body: error && error.message ? error.message : "The engine did not complete the requested action.",
+    action: "",
+  };
+}
+
+function renderIssueInto(box, error) {
+  if (!box) return;
+  if (!error) {
+    box.classList.add("hidden");
+    box.textContent = "";
+    return;
+  }
+  const copy = issueCopy(error);
+  box.innerHTML = `<div><strong>${esc(copy.title)}</strong>` +
+    `<p>${esc(copy.body)}</p>` +
+    (copy.action === "upgrade"
+      ? `<button type="button" class="ghost compact runtime-alert-action" data-runtime-upgrade>Upgrade database</button>`
+      : "") + `</div>`;
+  box.classList.remove("hidden");
+  const action = box.querySelector("[data-runtime-upgrade]");
+  if (action) action.addEventListener("click", upgradeDatabaseFromPanel);
+}
+
+function setRuntimeIssue(error) {
+  const runtimeError = $("runtime-error");
+  const engineError = $("engine-error");
+  if (runtimeError || engineError) {
+    renderIssueInto(runtimeError, error);
+    renderIssueInto(engineError, error);
+    return;
+  }
+  if (error) {
+    const note = $("runtime-note");
+    if (note) note.textContent = issueCopy(error).body;
+  }
+}
+
+function clearRuntimeIssue() {
+  setRuntimeIssue(null);
 }
 
 function renderSchemaLag(lag) {
@@ -257,6 +353,7 @@ function setStatus(engine) {
   $("estat-text").textContent = engine.running
     ? `Ready${engine.version ? " · engine v" + engine.version : ""}`
     : "Setup required";
+  renderRuntimeCheckAction(engine);
   $("about-version").textContent = engine.version || "—";
   renderSchemaLag(engine.schema_lag);
   renderRuntime(engine);
@@ -529,12 +626,311 @@ async function restartEngineFromPanel() {
 }
 
 // ---- Google Finance rate control -----------------------------------------
+function financeCurrencyName(currency) {
+  if (currency === "USD") return "United States Dollar";
+  try {
+    return new Intl.DisplayNames(["en"], {type: "currency"}).of(currency) || currency;
+  } catch (_) {
+    return currency;
+  }
+}
+
+function financeNumber(value) {
+  return new Intl.NumberFormat("en-US", {
+    maximumSignificantDigits: 8,
+  }).format(value);
+}
+
+function financeUsdNumber(value) {
+  let digits = 3;
+  while (value !== 0 && Number(value.toFixed(digits)) === 0 && digits < 9) {
+    digits += 2;
+  }
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
+function financeDateTime(value, empty) {
+  if (!value) return empty;
+  const time = window.ScrapeXTime;
+  return time && time.isInstant(value) ? time.format(value, "datetime") : String(value);
+}
+
+function financeRelativeCheck(value) {
+  const checkedAt = Date.parse(value || "");
+  if (!Number.isFinite(checkedAt)) return "Not checked yet";
+  const elapsedSeconds = Math.max(0, Math.round((Date.now() - checkedAt) / 1000));
+  if (elapsedSeconds < 60) return "Checked just now";
+  const elapsedMinutes = Math.round(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) {
+    return `Checked ${elapsedMinutes.toLocaleString()} minute${elapsedMinutes === 1 ? "" : "s"} ago`;
+  }
+  const elapsedHours = Math.round(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return `Checked ${elapsedHours.toLocaleString()} hour${elapsedHours === 1 ? "" : "s"} ago`;
+  }
+  return `Checked ${financeDateTime(value, String(value))}`;
+}
+
+function setFinanceRateState(title, detail, tone = "neutral") {
+  const surface = $("finance-rate-state");
+  surface.dataset.tone = tone;
+  surface.setAttribute("aria-busy", String(tone === "loading"));
+  $("finance-rate-state-title").textContent = title;
+  $("finance-last-check").textContent = detail;
+}
+
+function financeRefreshIsOverdue(status) {
+  if (!status.automatic) return false;
+  if (typeof status.due === "boolean") return status.due;
+  const checkedAt = Date.parse(status.last_checked || "");
+  const refreshHours = Number(status.refresh_hours);
+  if (!Number.isFinite(checkedAt) || !Number.isFinite(refreshHours) || refreshHours <= 0) {
+    return false;
+  }
+  return Date.now() - checkedAt >= refreshHours * 60 * 60 * 1000;
+}
+
+let financeCurrencySelectUi = null;
+let financeTargetSelectUi = null;
+
+function setupFinanceConverterSelect({selectId, triggerId, listId, labelPrefix}) {
+  const select = $(selectId);
+  const trigger = $(triggerId);
+  const label = trigger.querySelector("[data-finance-select-label]");
+  const list = $(listId);
+  const row = trigger.closest(".finance-converter-row");
+  let typed = "";
+  let typeTimer = null;
+
+  const buttons = () => [...list.querySelectorAll(".finance-converter-option")];
+
+  function close({restoreFocus = false} = {}) {
+    list.classList.add("hidden");
+    list.classList.remove("opens-up");
+    row.classList.remove("is-open");
+    trigger.setAttribute("aria-expanded", "false");
+    if (restoreFocus) trigger.focus({preventScroll: true});
+  }
+
+  function focusOption(direction = 1) {
+    const choices = buttons();
+    if (!choices.length) return;
+    const current = choices.indexOf(document.activeElement);
+    const selected = choices.findIndex(
+      (button) => button.getAttribute("aria-selected") === "true");
+    const start = current >= 0 ? current : Math.max(selected, 0);
+    choices[(start + direction + choices.length) % choices.length]
+      .focus({preventScroll: true});
+  }
+
+  function typeAhead(event) {
+    if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return false;
+    const key = event.key.toLocaleLowerCase();
+    const nextTyped = typed + key;
+    const repeatedKey = nextTyped.length > 1 && [...nextTyped].every(
+      (character) => character === key);
+    const query = repeatedKey ? key : nextTyped;
+    typed = repeatedKey ? key : nextTyped;
+    window.clearTimeout(typeTimer);
+    typeTimer = window.setTimeout(() => { typed = ""; }, 700);
+    const choices = buttons();
+    const matches = choices.filter((button) =>
+      button.textContent.trim().toLocaleLowerCase().startsWith(query));
+    let match = matches[0];
+    if (repeatedKey && matches.length > 1) {
+      const current = choices.indexOf(document.activeElement);
+      match = [...choices.slice(current + 1), ...choices.slice(0, current + 1)]
+        .find((button) => matches.includes(button));
+    }
+    if (!match) return false;
+    match.focus({preventScroll: true});
+    match.scrollIntoView({block: "nearest"});
+    return true;
+  }
+
+  function open() {
+    if (select.disabled || !select.options.length) return;
+    const bounds = row.getBoundingClientRect();
+    const below = window.innerHeight - bounds.bottom;
+    list.classList.toggle("opens-up", below < 250 && bounds.top > below);
+    list.classList.remove("hidden");
+    row.classList.add("is-open");
+    trigger.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => {
+      (buttons().find((button) => button.getAttribute("aria-selected") === "true") ||
+        buttons()[0])?.focus({preventScroll: true});
+    });
+  }
+
+  function choose(value) {
+    if (![...select.options].some((option) => option.value === value)) return;
+    select.value = value;
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+    close({restoreFocus: true});
+  }
+
+  function sync() {
+    const selected = select.selectedOptions[0];
+    label.textContent = selected?.textContent || "Select a currency";
+    trigger.disabled = select.disabled;
+    trigger.setAttribute("aria-label", `${labelPrefix}: ${label.textContent}`);
+    list.replaceChildren(...[...select.options].map((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "finance-converter-option";
+      button.dataset.currency = option.value;
+      button.tabIndex = -1;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", String(option.selected));
+      button.innerHTML = `<span>${esc(option.textContent)}</span>${icon("check", "sm")}`;
+      button.addEventListener("click", () => choose(option.value));
+      return button;
+    }));
+  }
+
+  trigger.addEventListener("click", () => {
+    if (list.classList.contains("hidden")) open();
+    else close();
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (list.classList.contains("hidden")) open();
+      else focusOption(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (list.classList.contains("hidden")) open();
+      else close();
+    }
+  });
+  list.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close({restoreFocus: true});
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOption(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      const choices = buttons();
+      (event.key === "Home" ? choices[0] : choices[choices.length - 1])
+        ?.focus({preventScroll: true});
+    } else if (typeAhead(event)) {
+      event.preventDefault();
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (!row.contains(event.target)) close();
+  });
+  select.addEventListener("change", sync);
+  sync();
+  return {close, sync};
+}
+
+function updateFinanceConverter() {
+  const select = $("finance-converter-currency");
+  const quote = state.financeRates.find((rate) => rate.currency === select.value);
+  const amount = Number($("finance-converter-amount").value);
+  if (!quote || !Number.isFinite(amount) || amount < 0) {
+    $("finance-converter-equation").textContent = "No stored rate available";
+    $("finance-converter-usd").textContent = "— United States Dollar";
+    $("finance-converter-as-of").textContent = "Update rates to use the converter";
+    $("finance-converter-output").textContent = "—";
+    return;
+  }
+  const formattedAmount = financeNumber(amount);
+  const formattedUsd = financeUsdNumber(amount / quote.per_usd);
+  $("finance-converter-equation").textContent =
+    `${formattedAmount} ${financeCurrencyName(quote.currency)} equals`;
+  $("finance-converter-usd").textContent =
+    `${formattedUsd} ${financeCurrencyName("USD")}`;
+  $("finance-converter-as-of").textContent =
+    `${financeDateTime(quote.as_of, "Unknown market time")} · Google Finance`;
+  $("finance-converter-output").textContent = formattedUsd;
+}
+
+function renderFinanceConverter(status) {
+  const select = $("finance-converter-currency");
+  const previous = select.value;
+  state.financeRates = (status.latest_rates || [])
+    .map((rate) => ({
+      currency: String(rate.currency || "").toUpperCase(),
+      per_usd: Number(rate.per_usd),
+      as_of: String(rate.as_of || ""),
+    }))
+    .filter((rate) => /^[A-Z]{3}$/.test(rate.currency) &&
+      Number.isFinite(rate.per_usd) && rate.per_usd > 0);
+  select.innerHTML = state.financeRates.length
+    ? state.financeRates.map((rate) =>
+      `<option value="${esc(rate.currency)}">${esc(financeCurrencyName(rate.currency))}</option>`).join("")
+    : `<option value="">No stored currencies</option>`;
+  select.disabled = !state.financeRates.length;
+  if (state.financeRates.some((rate) => rate.currency === previous)) select.value = previous;
+  financeCurrencySelectUi?.sync();
+  updateFinanceConverter();
+}
+
 function renderGoogleFinanceStatus(status) {
+  state.financeStatus = status;
   const tracked = status.tracked_currencies || [];
-  $("finance-currencies").textContent = tracked.length ? tracked.join(", ") : "None yet";
-  $("finance-last-check").textContent = status.last_checked || "Never";
-  $("finance-latest-market").textContent = status.latest_market_at || "No rates yet";
-  $("finance-rows").textContent = `${Number(status.rows || 0).toLocaleString()} rate rows`;
+  const count = tracked.length;
+  const rows = Number(status.rows || 0);
+  $("finance-coverage-summary").textContent = count
+    ? `The local engine currently has rates for ${count.toLocaleString()} currencies.`
+    : "No non-USD currencies are using stored rates yet.";
+  $("finance-currency-count").textContent =
+    `${count.toLocaleString()} ${count === 1 ? "currency" : "currencies"}`;
+  $("finance-currencies").textContent = tracked.length ? tracked.join(" · ") : "None yet";
+  $("finance-latest-market").textContent =
+    financeDateTime(status.latest_market_at, "No rates yet");
+  $("finance-rows").textContent =
+    `${rows.toLocaleString()} ${rows === 1 ? "rate" : "rates"}`;
+  if (!status.automatic) {
+    setFinanceRateState("Rates update manually", financeRelativeCheck(status.last_checked), "neutral");
+  } else if (financeRefreshIsOverdue(status)) {
+    setFinanceRateState("Rate update overdue", financeRelativeCheck(status.last_checked), "error");
+  } else if (!rows) {
+    setFinanceRateState("No stored rates yet", financeRelativeCheck(status.last_checked), "neutral");
+  } else {
+    setFinanceRateState("Rates are up to date", financeRelativeCheck(status.last_checked), "positive");
+  }
+  renderFinanceConverter(status);
+}
+
+function financeSettingsFromControls() {
+  return {
+    automatic: $("google_finance_auto_refresh").checked,
+    refreshHours: Number($("google_finance_refresh_hours").value),
+  };
+}
+
+function renderFinanceSaveState() {
+  const saved = state.financeSavedSettings;
+  const current = financeSettingsFromControls();
+  const dirty = Boolean(saved) && (
+    current.automatic !== saved.automatic ||
+    current.refreshHours !== saved.refreshHours
+  );
+  const stateBox = $("finance-saved-state");
+  const button = $("finance-save");
+  const label = button.querySelector("span");
+  const savedHours = saved
+    ? saved.refreshHours.toLocaleString("en-US", {maximumFractionDigits: 2})
+    : "";
+  stateBox.dataset.dirty = String(dirty);
+  $("finance-saved-summary").textContent = saved
+    ? (saved.automatic
+      ? `Rates refresh automatically every ${savedHours} hours.`
+      : "Automatic refresh is off. Use Update now when needed.")
+    : "Not loaded";
+  button.disabled = !dirty;
+  button.dataset.saveState = dirty ? "dirty" : "saved";
+  button.classList.toggle("primary", dirty);
+  button.classList.toggle("ghost", !dirty);
+  label.textContent = dirty ? "Apply changes" : "Saved";
 }
 
 async function loadGoogleFinance() {
@@ -542,7 +938,12 @@ async function loadGoogleFinance() {
     const status = await api("/api/rates/google-finance");
     $("google_finance_auto_refresh").checked = Boolean(status.automatic);
     $("google_finance_refresh_hours").value = String(status.refresh_hours ?? 6);
+    state.financeSavedSettings = {
+      automatic: Boolean(status.automatic),
+      refreshHours: Number(status.refresh_hours ?? 6),
+    };
     renderGoogleFinanceStatus(status);
+    renderFinanceSaveState();
     out("finance-msg", "");
   } catch (err) {
     out("finance-msg", "could not read Google Finance status: " + esc(err.message), "err");
@@ -556,6 +957,9 @@ async function saveGoogleFinance() {
     return;
   }
   out("finance-msg", "saving...");
+  const saveButton = $("finance-save");
+  saveButton.disabled = true;
+  saveButton.querySelector("span").textContent = "Applying...";
   try {
     await post("/api/settings", {
       google_finance_auto_refresh: $("google_finance_auto_refresh").checked,
@@ -564,6 +968,7 @@ async function saveGoogleFinance() {
     await loadGoogleFinance();
   } catch (err) {
     out("finance-msg", "not saved: " + esc(err.message), "err");
+    renderFinanceSaveState();
     return;
   }
   out("finance-msg", "saved - the new cadence applies immediately", "ok");
@@ -571,9 +976,11 @@ async function saveGoogleFinance() {
 
 async function refreshGoogleFinance() {
   const button = $("finance-refresh");
+  const label = button.querySelector("span");
   button.disabled = true;
-  const oldLabel = button.textContent;
-  button.textContent = "Updating...";
+  setFinanceRateState("Checking for newer rates", "Please wait", "loading");
+  const oldLabel = label.textContent;
+  label.textContent = "Updating...";
   out("finance-msg", "requesting the latest rates...");
   try {
     const result = await post("/api/rates/google-finance/refresh", {});
@@ -583,10 +990,11 @@ async function refreshGoogleFinance() {
     out("finance-msg", esc(result.detail || "Update complete.") + warning,
         warning ? "" : "ok");
   } catch (err) {
+    setFinanceRateState("Rates could not be updated", err.message, "error");
     out("finance-msg", "update failed: " + esc(err.message), "err");
   } finally {
     button.disabled = false;
-    button.textContent = oldLabel;
+    label.textContent = oldLabel;
   }
 }
 
@@ -2284,6 +2692,7 @@ async function startEngineFromPanel() {
   const note = $("engine-note");
   button.disabled = true;
   button.textContent = "Starting…";
+  clearRuntimeIssue();
   try {
     await startEngine();
     // Sixty seconds, not fourteen. A cold interpreter opening two databases is
@@ -2305,7 +2714,12 @@ async function startEngineFromPanel() {
     // the owner does not use one, so an instruction to open one is not a next
     // step, it is a dead end.
     const kind = err && err.kind;
-    if (kind === "absent") {
+    setRuntimeIssue(err);
+    if (kind === "startup_blocked") {
+      note.textContent = "The engine found a setup problem. Fix the issue shown below, then try again.";
+    } else if (kind === "database_upgrade_failed") {
+      note.textContent = "The database could not be upgraded. The reason is shown below.";
+    } else if (kind === "absent") {
       note.textContent = "Chrome cannot find the ScrapeX helper on this machine — " +
         "open Setup below for the one-time install.";
     } else if (kind === "forbidden") {
@@ -2335,7 +2749,10 @@ async function startEngineFromPanel() {
     } else if (kind === "refused") {
       note.textContent = "The helper could not start the engine: " + (err.message || "") +
         " — Check again, or open Logs.";
-    } else if (kind === "timeout" || !kind) {
+    } else if (kind === "timeout") {
+      note.textContent = "The local helper did not answer. Check Setup below, " +
+        "then try again.";
+    } else if (!kind) {
       note.textContent = "The engine is taking longer than usual to answer. " +
         "It may still be starting — press Check again in a few seconds.";
     } else {
@@ -2460,30 +2877,82 @@ const ENGINE_TOO_OLD =
   "yet, so it cannot be asked to replace itself from here. ScrapeX does this " +
   "on its own once the updater is installed; that work is under way.";
 
+async function upgradeDatabaseFromPanel() {
+  const note = $("runtime-note");
+  const upgrade = $("runtime-upgrade");
+  const actionButtons = [upgrade, $("runtime-restart"), $("runtime-check-action")]
+    .filter(Boolean);
+  actionButtons.forEach((button) => { button.disabled = true; });
+  note.textContent = "Upgrading the database…";
+  try {
+    let result;
+    let httpAnswered = false;
+    try {
+      const response = await fetch((await getBackend()) + "/api/databases/upgrade",
+                                   {method: "POST"});
+      if (response.status !== 404) httpAnswered = true;
+      if (response.status === 404) throw Object.assign(new Error("old engine"), {kind: "old_engine"});
+      if (!response.ok) {
+        let detail = `The upgrade failed (HTTP ${response.status}).`;
+        try { detail = (await response.json()).detail || detail; } catch (_) {}
+        throw Object.assign(new Error(detail), {kind: "database_upgrade_failed"});
+      }
+      result = await response.json();
+    } catch (httpError) {
+      // If the engine is down, the native host is still alive and can perform
+      // the same forward-only migration. This is the missing repair path that
+      // left the owner staring at a dead Restart button.
+      if (httpAnswered) throw httpError;
+      result = await upgradeDatabase();
+    }
+    clearRuntimeIssue();
+    note.textContent = result.message || "The database is up to date.";
+    const engineNote = $("engine-note");
+    if (engineNote) {
+      engineNote.textContent = `${note.textContent} Start the engine again.`;
+    }
+    await render();
+  } catch (err) {
+    setRuntimeIssue(err);
+    note.textContent = "The database was not changed. The reason is shown above.";
+    const engineNote = $("engine-note");
+    if (engineNote) engineNote.textContent = note.textContent;
+  } finally {
+    actionButtons.forEach((button) => { button.disabled = false; });
+  }
+}
+
 function wireRuntimeRepair() {
   const note = $("runtime-note");
   const restart = $("runtime-restart");
   const upgrade = $("runtime-upgrade");
   if (!note || !restart || !upgrade) return;
 
-  upgrade.addEventListener("click", async () => {
-    upgrade.disabled = true;
-    note.textContent = "Upgrading the database…";
-    try {
-      const res = await fetch((await getBackend()) + "/api/databases/upgrade",
-                              {method: "POST"});
-      if (res.status === 404) { note.textContent = ENGINE_TOO_OLD; return; }
-      const body = await res.json();
-      note.textContent = res.ok ? body.message
-        : (body.detail || "The upgrade did not run.");
-    } catch (err) {
-      note.textContent = "Could not reach the engine: " + err.message;
-    } finally { upgrade.disabled = false; }
-  });
+  upgrade.addEventListener("click", upgradeDatabaseFromPanel);
 
   restart.addEventListener("click", async () => {
-    restart.disabled = true;
+    [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+      .forEach((button) => { button.disabled = true; });
     note.textContent = "Restarting — the engine goes quiet for a few seconds.";
+    clearRuntimeIssue();
+    // Check the CURRENT build's database expectations before asking the old
+    // process to leave. Without this gate, a newer process could die during
+    // startup and the panel would only be able to say "30 seconds".
+    try {
+      await checkStartup();
+    } catch (startupError) {
+      const nativeFailureKinds = ["absent", "forbidden", "crashed", "timeout"];
+      if (!nativeFailureKinds.includes(startupError && startupError.kind)) {
+        setRuntimeIssue(startupError);
+        note.textContent = "Restart was not attempted. Fix the issue shown above first.";
+        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+          .forEach((button) => { button.disabled = false; });
+        return;
+      }
+      // The engine is already reachable in this path, so HTTP restart remains
+      // useful even when the native helper is unavailable or slow.
+      note.textContent = "Native helper unavailable — restarting through the engine.";
+    }
     // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
     // socket dies. An answered fetch that is not ok is the opposite, and the
     // first version of this treated both the same: it looked only for 404 and
@@ -2503,7 +2972,14 @@ function wireRuntimeRepair() {
         refused = detail;
       }
     } catch (_) { /* the socket died: it is going down, which is the point */ }
-    if (refused) { note.textContent = refused; restart.disabled = false; return; }
+    if (refused) {
+      const error = Object.assign(new Error(refused), {kind: "refused"});
+      setRuntimeIssue(error);
+      note.textContent = "Restart was refused. The reason is shown above.";
+      [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+        .forEach((button) => { button.disabled = false; });
+      return;
+    }
     // Poll until it answers again, then re-render so every version and status
     // on this screen comes from the engine that is now running.
     let attempts = 0;
@@ -2514,7 +2990,8 @@ function wireRuntimeRepair() {
                                   {cache: "no-store"});
         if (probe.ok) {
           clearInterval(timer);
-          restart.disabled = false;
+          [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+            .forEach((button) => { button.disabled = false; });
           note.textContent = "The engine is back.";
           await render();
           return;
@@ -2522,9 +2999,25 @@ function wireRuntimeRepair() {
       } catch (_) { /* still down, which is expected */ }
       if (attempts >= 30) {
         clearInterval(timer);
-        restart.disabled = false;
-        note.textContent = "The engine has not answered in 30 seconds. " +
-          "Press Start engine above — it launches one when none is answering.";
+        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+          .forEach((button) => { button.disabled = false; });
+        // The process may have failed before it could expose /api/health. Ask
+        // the native host for the same current-build preflight so a schema
+        // error, missing registry, or other startup blocker is not lost.
+        try {
+          await checkStartup();
+          const timeout = Object.assign(
+            new Error("The engine did not answer in 30 seconds. It may still be starting."),
+            {kind: "timeout"});
+          setRuntimeIssue(timeout);
+          note.textContent = "The engine has not answered in 30 seconds. Check the reason above.";
+        } catch (startupError) {
+          setRuntimeIssue(startupError);
+          note.textContent = startupError && ["absent", "forbidden", "crashed", "timeout"]
+            .includes(startupError.kind)
+            ? "The engine did not confirm its restart because the local helper is unavailable."
+            : "The engine stopped during startup. The reason is shown above.";
+        }
       }
     }, 1000);
   });
@@ -2582,12 +3075,19 @@ async function init() {
     }));
 
   wireRuntimeRepair();
-  $("recheck").addEventListener("click", render);
   $("setup-recheck").addEventListener("click", render);
   $("engine-start").addEventListener("click", startEngineFromPanel);
-  $("diagnostics").addEventListener("click", async () => {
+  $("runtime-check-action").addEventListener("click", async () => {
+    const button = $("runtime-check-action");
+    if (button.dataset.action === "recheck") {
+      $("diag-out").textContent = "";
+      await render();
+      return;
+    }
+    button.disabled = true;
     $("diag-out").textContent = "Running diagnostics…";
     const engine = await checkEngine();
+    setStatus(engine);
     // A protocol mismatch OUTRANKS "reachable": an engine that answers while
     // speaking an older command surface produces 404s and missing fields, and
     // those read as broken features rather than as a stale engine. Say which
@@ -2603,6 +3103,7 @@ async function init() {
       // starts it, and Windows starts it at logon.
       : `No engine at ${await getBackend()}. Press Start engine above — it also ` +
         `starts by itself when you sign in to Windows.`;
+    button.disabled = false;
   });
 
   $("site-search").addEventListener("input", (e) => {
@@ -2724,20 +3225,35 @@ async function init() {
       if (!$("s-crawl").classList.contains("hidden")) loadCrawlSettings();
     });
 
+  financeCurrencySelectUi = setupFinanceConverterSelect({
+    selectId: "finance-converter-currency",
+    triggerId: "finance-converter-currency-trigger",
+    listId: "finance-converter-currency-list",
+    labelPrefix: "Source currency",
+  });
+  financeTargetSelectUi = setupFinanceConverterSelect({
+    selectId: "finance-converter-target",
+    triggerId: "finance-converter-target-trigger",
+    listId: "finance-converter-target-list",
+    labelPrefix: "Target currency",
+  });
   $("finance-save").addEventListener("click", saveGoogleFinance);
+  $("google_finance_auto_refresh").addEventListener("change", renderFinanceSaveState);
+  $("google_finance_refresh_hours").addEventListener("input", renderFinanceSaveState);
   $("finance-refresh").addEventListener("click", refreshGoogleFinance);
+  $("finance-converter-amount").addEventListener("input", updateFinanceConverter);
+  $("finance-converter-currency").addEventListener("change", updateFinanceConverter);
   $("finance-dataset").addEventListener("click", () => openTab("/data/google-finance"));
-  document.querySelector('[data-sect="s-finance"]')
-    .addEventListener("click", () => {
-      if (!$("s-finance").classList.contains("hidden")) loadGoogleFinance();
-    });
   // The zone needs no loader: timezone.js has already read the stored
   // preference and filled the select before this runs. Choosing one re-renders
   // every visible time from the data already on screen — nothing is refetched
   // and nothing stored is touched (§6.10) — so all that is left is to keep the
   // example sentence honest and say whether the engine took the choice.
   timeZoneEffect();
-  window.ScrapeXTime.subscribe(() => timeZoneEffect());
+  window.ScrapeXTime.subscribe(() => {
+    timeZoneEffect();
+    if (state.financeStatus) renderGoogleFinanceStatus(state.financeStatus);
+  });
   $("ui_time_zone").addEventListener("change", () => {
     timeZoneEffect();
     out("timezone-msg", "saving…");

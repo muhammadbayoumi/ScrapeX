@@ -127,6 +127,19 @@ def google_finance_status(conn: sqlite3.Connection) -> dict:
         (rates.SOURCE_KEY,),
     ).fetchone()
     tracked = rates.currencies_in_use(conn)
+    latest_rates = [dict(rate) for rate in conn.execute(
+        "SELECT current.currency, current.per_usd, current.as_of "
+        "FROM currency_rate AS current "
+        "JOIN ("
+        "  SELECT currency, MAX(as_of) AS latest_as_of "
+        "  FROM currency_rate WHERE source_key = ? GROUP BY currency"
+        ") AS latest "
+        "ON latest.currency = current.currency "
+        "AND latest.latest_as_of = current.as_of "
+        "WHERE current.source_key = ? AND current.per_usd > 0 "
+        "ORDER BY current.currency",
+        (rates.SOURCE_KEY, rates.SOURCE_KEY),
+    )]
     return {
         "provider": "Google Finance",
         "source_key": rates.SOURCE_KEY,
@@ -140,6 +153,7 @@ def google_finance_status(conn: sqlite3.Connection) -> dict:
         "rows": int(row[0] or 0),
         "currencies": int(row[1] or 0),
         "tracked_currencies": tracked,
+        "latest_rates": latest_rates,
         "due": rates.refresh_is_due(conn),
     }
 

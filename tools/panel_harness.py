@@ -71,7 +71,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          records=None, changes=None, slow=False, tab=None, resolve=None, probe=None,
          fail_routes=(), storage=None, logs=None, extension_version=None,
          engine_version=None, version_reporting=True, omit_capabilities=(),
-         timezone=None, schedules=None) -> str:
+         timezone=None, schedules=None, rates_status=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -114,6 +114,29 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "path": "C:\\Users\\Owner\\.scrapex\\harvest.db",
             "sizes": {"db_bytes": 4194304, "backup_count": 2},
             "health": {"status": "healthy", "ok": True}},
+        "/api/rates/google-finance": rates_status if rates_status is not None else {
+            "automatic": True,
+            "refresh_hours": 6,
+            "tracked_currencies": ["SAR", "AED", "EUR", "GBP", "JPY"],
+            "latest_rates": [
+                {"currency": "AED", "per_usd": 3.6725,
+                 "as_of": "2026-08-02T10:29:00Z"},
+                {"currency": "EUR", "per_usd": 0.92,
+                 "as_of": "2026-08-02T10:29:00Z"},
+                {"currency": "GBP", "per_usd": 0.79,
+                 "as_of": "2026-08-02T10:29:00Z"},
+                {"currency": "JPY", "per_usd": 147.3,
+                 "as_of": "2026-08-02T10:29:00Z"},
+                {"currency": "SAR", "per_usd": 3.75,
+                 "as_of": "2026-08-02T10:29:00Z"},
+            ],
+            "last_checked": "2026-08-02T10:28:32Z",
+            "latest_market_at": "2026-08-02T10:29:00Z",
+            "rows": 710,
+            "due": False,
+            "detail": "Exchange rates updated.",
+            "warnings": [],
+        },
         "/api/resolve": resolve if resolve is not None else {"matched": False},
         "/api/probe": probe if probe is not None else PROBE_RESULT,
         # The crawl pace lives in the panel now (owner's rule, 2026-07-29:

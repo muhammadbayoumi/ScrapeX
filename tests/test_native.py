@@ -168,6 +168,7 @@ def test_start_engine_spawns_and_confirms_when_the_port_comes_up(conn, monkeypat
     spawned = []
     answers = iter([False, True])          # down at the probe, up after the spawn
     monkeypatch.setattr(native, "_engine_listening", lambda port: next(answers))
+    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
 
     r = handle(conn, {"command": "START_ENGINE"})
@@ -183,6 +184,7 @@ def test_start_engine_that_cannot_be_confirmed_says_so(conn, monkeypatch):
     from scrapex import native
 
     monkeypatch.setattr(native, "_engine_listening", lambda port: False)
+    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
     monkeypatch.setattr(native, "_START_CONFIRM_BUDGET_S", 0.05)
 
@@ -190,6 +192,32 @@ def test_start_engine_that_cannot_be_confirmed_says_so(conn, monkeypatch):
 
     assert r["ok"] and r["started"]
     assert r["confirmed"] is False
+
+
+def test_start_engine_surfaces_a_database_blocker_before_spawning(conn, monkeypatch):
+    """A newer build must not start, die, and leave the panel with only a
+    timeout. The native host is still available while the HTTP engine is down,
+    so it can name the migration and its repair action first."""
+    from scrapex import native
+
+    spawned = []
+    monkeypatch.setattr(native, "_engine_listening", lambda port: False)
+    monkeypatch.setattr(native, "startup_check", lambda: {
+        "ok": False,
+        "error": "startup_blocked",
+        "detail": "marketlens: Needs upgrade. Apply migration 56.",
+        "action": "upgrade_database",
+        "databases": {"marketlens": {"status": "Needs upgrade"}},
+    })
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
+
+    answer = handle(conn, {"command": "START_ENGINE"})
+
+    assert answer["ok"] is False
+    assert answer["error"] == "startup_blocked"
+    assert answer["action"] == "upgrade_database"
+    assert "migration 56" in answer["detail"]
+    assert spawned == []
 
 
 def test_start_engine_honours_a_requested_port(conn, monkeypatch):
@@ -429,7 +457,7 @@ def test_the_retired_data_commands_are_gone_from_the_router(conn):
     its own pagination and its own validation, kept alive only by its own
     tests — so the two could drift and no test in the suite would notice. The
     panel reaches the engine over HTTP for data and over native messaging for
-    the four things only a spawned process can do.
+    the six things only the local launcher can do.
     """
     for command in RETIRED_COMMANDS:
         answer = handle(conn, {"command": command, "request_id": "r"})
@@ -440,7 +468,7 @@ def test_the_retired_data_commands_are_gone_from_the_router(conn):
 
 
 def test_the_control_commands_the_panel_actually_calls_still_answer(conn, monkeypatch):
-    """The other half: retiring the data surface must not touch the four
+    """The other half: retiring the data surface must not touch the six
     commands the panel genuinely uses. Grep the extension before changing this
     list — it is the whole reason this host exists."""
     from scrapex import native
@@ -449,7 +477,27 @@ def test_the_control_commands_the_panel_actually_calls_still_answer(conn, monkey
     for command in ("PING", "START_ENGINE"):
         assert handle(conn, {"command": command})["ok"] is True, command
     assert set(native.STANDALONE_COMMANDS) == {
-        "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART"}
+        "PING", "START_ENGINE", "AUTOSTART_STATUS", "SET_AUTOSTART",
+        "CHECK_STARTUP", "UPGRADE_DATABASE"}
+
+
+def test_startup_check_names_the_database_action(monkeypatch):
+    from scrapex import native
+
+    monkeypatch.setattr(native, "_database_report", lambda: ({
+        "marketlens": {
+            "ok": False,
+            "status": "Needs upgrade",
+            "action": "Run init-db",
+        },
+    }, None))
+
+    answer = native.startup_check()
+
+    assert answer["ok"] is False
+    assert answer["error"] == "startup_blocked"
+    assert answer["action"] == "upgrade_database"
+    assert "marketlens: Needs upgrade. Run init-db" == answer["detail"]
 
 
 def test_the_two_protocol_constants_cannot_drift(conn):

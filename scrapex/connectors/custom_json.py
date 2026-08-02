@@ -97,6 +97,7 @@ from typing import Iterable
 from ..config import SourceEntry
 from ..normalize import brand_pair, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
+from ..units import Charter, Resolution, charter_for
 from ..vocab import DetailGroup, group_for_code, Availability, ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
@@ -281,6 +282,60 @@ def _total_pages(payload) -> int:
         return 1
 
 
+def _charter_fields(product: dict) -> dict[str, str | None]:
+    """Expose family fields under the names declared by a source charter."""
+    fields: dict[str, str | None] = {
+        "product_name": product.get("product_enname") or product.get("name_en"),
+        "product_name_ar": product.get("product_arname") or product.get("name_ar"),
+        "weight": product.get("weight"),
+    }
+    for assignment in product.get("product_attribute_assignments") or []:
+        if not isinstance(assignment, dict):
+            continue
+        attribute = assignment.get("product_attributes") or {}
+        code = str(assignment.get("attribute_id")
+                   or attribute.get("attribute_id") or "")
+        if not code:
+            continue
+        fields[f"attr_{code}"] = assignment.get("value_en")
+        fields[f"attr_{code}_ar"] = assignment.get("value_ar")
+    return fields
+
+
+def _resolution_values(resolution: Resolution | None) -> dict[str, str]:
+    if resolution is None:
+        return {
+            "unit": "", "basis_quantity": "", "selling_unit_raw": "",
+            "selling_unit_raw_lang": "", "unit_basis_provenance": "",
+            "unit_basis_witness": "",
+        }
+    return {
+        "unit": resolution.unit,
+        "basis_quantity": resolution.basis,
+        "selling_unit_raw": resolution.raw,
+        "selling_unit_raw_lang": resolution.raw_lang,
+        "unit_basis_provenance": resolution.provenance,
+        "unit_basis_witness": resolution.witness,
+    }
+
+
+def _unit_values(product: dict, charter: Charter) -> dict[str, str]:
+    """Use a source charter when declared; otherwise preserve legacy agreement."""
+    if charter:
+        return _resolution_values(charter.resolve(_charter_fields(product)))
+    english = str(product.get("product_enname") or product.get("name_en") or "").strip()
+    basis, unit = selling_unit_from(english, product.get("weight"))
+    return {"unit": unit, "basis_quantity": basis}
+
+
+def _replace_chartered_unit(row: list[str], product: dict, charter: Charter) -> None:
+    """Let detail-only witnesses refine an already-built price row."""
+    if not charter:
+        return
+    for column, value in _unit_values(product, charter).items():
+        row[PRODUCT_PRICES.columns.index(column)] = value
+
+
 class CustomJsonConnector:
     connector_id = "custom-json-api"
 
@@ -289,6 +344,7 @@ class CustomJsonConnector:
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
         builder = RowBuilder(PRODUCT_PRICES)
+        charter = charter_for(source)
         base = source.base_url.rstrip("/")
         endpoint = f"{base}/api/products"
         vat = "1" if source.vat_mode.value == "incl" else "0"
@@ -318,7 +374,8 @@ class CustomJsonConnector:
         sku_at = builder.header.index("external_sku")
         by_id: dict[str, list[str]] = {}
         for product in products:
-            row = self._row(builder, product, base, currency, vat, source.default_region)
+            row = self._row(builder, product, base, currency, vat,
+                            source.default_region, charter)
             if row is None:
                 continue
             key = row[id_at]
@@ -342,7 +399,7 @@ class CustomJsonConnector:
         if any(spec.kind == ExtractKind.ENRICHMENT for spec in source.extract):
             try:
                 detail_rows = self._detail_rows(extra, products, endpoint, base,
-                                                by_id, sku_at, notes)
+                                                by_id, sku_at, notes, charter)
             except CrawlBlocked:
                 # Stopping mid-detail must not ALSO throw away the prices we
                 # already read. capture.py journals a table the moment it is
@@ -358,7 +415,7 @@ class CustomJsonConnector:
 
     def _detail_rows(self, builder: RowBuilder, products: list, endpoint: str,
                      base: str, price_rows: dict[str, list[str]], sku_at: int,
-                     notes: list[str]) -> list[list[str]]:
+                     notes: list[str], charter: Charter) -> list[list[str]]:
         """One GET per product: the enrichment the LIST endpoint does not carry.
 
         87 products = 87 extra requests through the shared HttpFetcher (rate
@@ -416,10 +473,15 @@ class CustomJsonConnector:
                 # failed, or a product the shop gives no sku, keeps the fallback
                 # — the owner's approved exception, never a silent blank.
                 price_rows[pid][sku_at] = sku
+            if detail is not None:
+                # Detail carries SIKA's attr_1/attr_3 witnesses. Merge with the
+                # list record so a thin response cannot erase its product name.
+                _replace_chartered_unit(price_rows[pid], {**product, **detail}, charter)
         return rows
 
     @staticmethod
-    def _row(builder: RowBuilder, product: dict, base: str, currency: str, vat: str, region: str):
+    def _row(builder: RowBuilder, product: dict, base: str, currency: str, vat: str,
+             region: str, charter: Charter):
         regular, sale, effective = _prices(product)
         pid = str(product.get("product_id") or product.get("id") or product.get("sku") or "")
         if not effective or not pid:
@@ -456,7 +518,9 @@ class CustomJsonConnector:
         # 0 of the 87 state a pack size in Arabic that the English name omits
         # (checked live 2026-07-25). Teaching the shared rule that spelling
         # would change another family's output to buy nothing here.
-        basis, unit = selling_unit_from(english, product.get("weight"))
+        # SIKA's manifest charter ranks its own witnesses. A sibling using the
+        # same connector but declaring no charter keeps the old agreement rule.
+        unit_values = _unit_values(product, charter)
         # THE SKU FALLBACK (owner ruling 2026-07-25), applied here so no row can
         # leave without one. The list entry states no sku — this shop's list
         # endpoint has no such field at all — so `pid` is what stands in, and
@@ -509,7 +573,7 @@ class CustomJsonConnector:
             # both intended: the detail row is prose for a reader, this is the
             # measurement.
             stock_quantity=_fmt(_stock_count(product)),
-            unit=unit, basis_quantity=basis,
+            **unit_values,
         )
 
 

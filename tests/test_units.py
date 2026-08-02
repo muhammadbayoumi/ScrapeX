@@ -118,6 +118,25 @@ def test_the_name_settles_a_conflict_on_this_site_and_the_ruling_is_recorded():
     assert (resolution.unit, resolution.basis) == ("kg", "20")
 
 
+def test_a_corroborator_disambiguates_two_candidates_without_overruling_a_witness():
+    """Product 279 contains model token 163M before its real 20 kg pack size."""
+    charter = charter_for(_sika())
+
+    resolution = charter.resolve({
+        "product_name": "Sikament 163M ® 20 kg",
+        "weight": "20",
+    })
+
+    assert (resolution.unit, resolution.basis) == ("kg", "20")
+    assert resolution.witness == "product_name@en/v1: 20 kg"
+
+    # Corroboration chooses between statements already present; it does not
+    # veto the sole witness in product 261 merely because weight disagrees.
+    conflict = charter.resolve({"product_name": "Sika Creat 114 ® 20 KG",
+                                "weight": "1"})
+    assert (conflict.unit, conflict.basis) == ("kg", "20")
+
+
 def test_the_arabic_name_alone_can_state_the_unit():
     """Bilingual capture is not decoration here. «سيكا لاتكس -5 كيلو» states
     the pack in Arabic, and a resolver that reads only English would drop it.

@@ -145,7 +145,8 @@ class Charter:
             text = fields.get(field)
             if not text:
                 continue
-            found = self._read(str(text))
+            corroborators = [fields.get(name) for name in self.corroborators]
+            found = self._read(str(text), corroborators)
             if found is None:
                 continue
             quantity, unit, literal = found
@@ -159,8 +160,8 @@ class Charter:
             )
         return None
 
-    def _read(self, text: str) -> tuple[float, str, str] | None:
-        """The first pack-scale quantity in this text.
+    def _read(self, text: str, corroborators=()) -> tuple[float, str, str] | None:
+        """The first pack-scale quantity, unless a corroborator disambiguates.
 
         "Sika Fiber Polypropylene 18mm ® 900 gm" is the shape that defeats a
         rule which simply takes the first number-and-unit it finds. Two things
@@ -175,15 +176,35 @@ class Charter:
         cleaned = unicodedata.normalize("NFKC", text).translate(_ARABIC_DIGITS)
         if self.dimension:
             cleaned = self._pattern_for(self.dimension).sub(" ", cleaned)
-        match = self._pattern_for(self.pack).search(cleaned)
-        if not match:
+        matches = list(self._pattern_for(self.pack).finditer(cleaned))
+        if not matches:
             return None
-        number = float(match.group(1).replace(",", "."))
-        word = match.group(2).lower()
-        unit = _WORD_TO_UNIT.get(word)
-        if unit is None or unit not in self.pack:
+        candidates = []
+        for match in matches:
+            number = float(match.group(1).replace(",", "."))
+            word = match.group(2).lower()
+            unit = _WORD_TO_UNIT.get(word)
+            if unit is not None and unit in self.pack:
+                candidates.append((number, unit, match.group(0).strip()))
+        if not candidates:
             return None
-        return number, unit, match.group(0).strip()
+
+        # A corroborator may confirm, never originate. This matters when one
+        # witness contains two plausible readings: SIKA's "Sikament 163M 20
+        # kg" contains a model token that looks like metres and a pack size;
+        # its numeric weight 20 confirms exactly one of them. If corroboration
+        # is absent, conflicting, or matches more than one candidate, witness
+        # order remains the deterministic rule.
+        numbers = set()
+        for value in corroborators:
+            try:
+                cleaned_value = unicodedata.normalize("NFKC", str(value)).translate(
+                    _ARABIC_DIGITS).strip().replace(",", ".")
+                numbers.add(float(cleaned_value))
+            except (TypeError, ValueError):
+                continue
+        confirmed = [candidate for candidate in candidates if candidate[0] in numbers]
+        return confirmed[0] if len(confirmed) == 1 else candidates[0]
 
     @staticmethod
     def _pattern_for(units: tuple[str, ...]) -> re.Pattern[str]:
@@ -202,6 +223,18 @@ class Charter:
             re.IGNORECASE | re.UNICODE)
 
 
-def charter_for(source: dict | None) -> Charter:
-    """The charter declared by a manifest entry, or an empty one."""
-    return Charter((source or {}).get("unit_charter"))
+def charter_for(source) -> Charter:
+    """The charter declared by a manifest entry or ``SourceEntry``.
+
+    Connectors receive the validated Pydantic object while audit tools and
+    tests often read the YAML mapping directly.  Accepting both is what keeps
+    the charter data-driven all the way into a live crawl instead of leaving
+    the resolver usable only by tests.
+    """
+    if source is None:
+        return Charter(None)
+    block = (source.get("unit_charter") if isinstance(source, dict)
+             else getattr(source, "unit_charter", None))
+    if hasattr(block, "model_dump"):
+        block = block.model_dump()
+    return Charter(block)

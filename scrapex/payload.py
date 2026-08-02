@@ -90,13 +90,18 @@ from .vocab import ExtractKind, PayloadClient
 # broken and replays unchanged, the sheet grows two columns on its own, and the
 # owner pastes nothing — which is the case 7 built the ledger for, arriving one
 # commit later.
-PAYLOAD_VERSION = 8
+# 9: PRODUCT_PRICES carries the unit's literal text, language, provenance and
+# witness added to the warehouse by migration 0058. All four are additive: an
+# older capture remains complete, but a new capture can finally deliver a
+# source-specific charter decision to ingest instead of dropping it between
+# those layers. Sources without a charter leave the four slots empty.
+PAYLOAD_VERSION = 9
 
 # WHICH GENERATION EACH CONTENT VERSION BELONGS TO — the prose above, encoded.
 #
 # Read it as the ledger it is: 2, 3, 4 and 5 each open their own generation
 # because each renamed a column or inverted a meaning; 6, 7 and 8 stay in 5's
-# because all three only added. Adding a version WITHOUT adding its entry here is an
+# because all four only added. Adding a version WITHOUT adding its entry here is an
 # import-time KeyError two lines down, which is deliberate: a bump has to say
 # which kind it is, and the loudest possible place to ask is the build.
 #
@@ -104,7 +109,7 @@ PAYLOAD_VERSION = 8
 # stamped 6 and carrying no generation at all, because they were written before
 # the field existed; this table is how a reader knows a 6 is a 5, so an inbox
 # that predates the split keeps publishing instead of going stale.
-GENERATION_OF_VERSION = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 5, 7: 5, 8: 5}
+GENERATION_OF_VERSION = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 5, 7: 5, 8: 5, 9: 5}
 
 # The generation THIS build speaks, derived rather than typed: it cannot drift
 # from the ledger, and a bump that forgets to declare its kind cannot start.

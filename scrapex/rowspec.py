@@ -89,6 +89,14 @@ PRODUCT_PRICES = RowSpec(
         # be mostly empty. They go to ENRICHMENT below, one row per attribute.
         "unit",                  # the SELLING unit: m | kg | liter | item | tonne
         "basis_quantity",        # how many of `unit` one offer buys ("100" for a 100 m roll)
+        # The literal statement and the rule that authorised the reading.
+        # 0058 made these database facts; carrying them on the row is what
+        # connects a source charter to ingest instead of leaving provenance
+        # trapped inside the connector process.
+        "selling_unit_raw",
+        "selling_unit_raw_lang",
+        "unit_basis_provenance",
+        "unit_basis_witness",
         # The language this source's primary extraction ran in — the
         # CONNECTOR's own claim, not a statement about product_name (the
         # vocabulary answers that now). 0039's attribute rule leans on it.
@@ -204,7 +212,9 @@ PRODUCT_PRICES = RowSpec(
     # (never said) / "0" (not a decimal quantity), which is the truthful state
     # of every row already in the warehouse — and no backfill is possible,
     # because raw_snapshot holds 0 rows.
-    additive=frozenset({"unit", "basis_quantity", "lang", "price_trade",
+    additive=frozenset({"unit", "basis_quantity", "selling_unit_raw",
+                        "selling_unit_raw_lang", "unit_basis_provenance",
+                        "unit_basis_witness", "lang", "price_trade",
                         "category_external_id",
                         "variant", "variant_axes", "variant_url", "parent_sku",
                         "display_method", "minimum_quantity",

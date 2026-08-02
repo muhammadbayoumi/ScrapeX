@@ -328,6 +328,31 @@ def test_google_finance_settings_page_reports_provenance_and_freshness(client):
     assert 'href="/data/google-finance"' in body
 
 
+def test_google_finance_status_returns_the_latest_rate_for_conversion(client, db_path):
+    conn = dbmod.connect(db_path)
+    try:
+        conn.executemany(
+            "INSERT INTO currency_rate "
+            "(currency, per_usd, as_of, source_key, source_kind) "
+            "VALUES (?,?,?,'google_finance','provider')",
+            [
+                ("EGP", 48.0, "2026-08-01T10:00:00Z"),
+                ("EGP", 48.5, "2026-08-02T10:00:00Z"),
+                ("SAR", 3.75, "2026-08-02T09:00:00Z"),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    response = client.get("/api/rates/google-finance")
+    assert response.status_code == 200
+    assert response.json()["latest_rates"] == [
+        {"currency": "EGP", "per_usd": 48.5, "as_of": "2026-08-02T10:00:00Z"},
+        {"currency": "SAR", "per_usd": 3.75, "as_of": "2026-08-02T09:00:00Z"},
+    ]
+
+
 def test_manual_google_finance_refresh_bypasses_the_automatic_schedule(
         client, db_path, monkeypatch):
     import scrapex.webui.app as appmod

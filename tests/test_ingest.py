@@ -71,6 +71,47 @@ def test_ingest_creates_full_chain(conn):
     assert obs[0] == 1200.00 and obs[1] == 1 and obs[2] == "EGP"  # comma parsed by the shared parser
 
 
+def test_a_chartered_unit_keeps_its_literal_and_witness(conn):
+    row = one_row(
+        unit="kg", basis_quantity="20", selling_unit_raw="20 KG",
+        selling_unit_raw_lang="en", unit_basis_provenance="stated_in_name",
+        unit_basis_witness="product_name@en/v1: 20 KG",
+    )
+
+    ingest_payloads(conn, make_entry(), [make_payload([row])])
+
+    stored = conn.execute(
+        "SELECT selling_unit_raw, selling_unit_raw_lang, unit_basis_provenance, "
+        "unit_basis_witness FROM source_offer"
+    ).fetchone()
+    assert tuple(stored) == (
+        "20 KG", "en", "stated_in_name", "product_name@en/v1: 20 KG")
+
+
+def test_a_chartered_crawl_replaces_an_existing_legacy_witness(conn):
+    legacy = one_row(unit="kg", basis_quantity="20")
+    ingest_payloads(conn, make_entry(), [make_payload([legacy])])
+    assert conn.execute(
+        "SELECT unit_basis_provenance FROM source_offer").fetchone()[0] == "legacy_unwitnessed"
+
+    chartered = one_row(
+        price="1,250.00", unit="kg", basis_quantity="20",
+        selling_unit_raw="20 KG", selling_unit_raw_lang="en",
+        unit_basis_provenance="stated_in_name",
+        unit_basis_witness="product_name@en/v1: 20 KG",
+    )
+    ingest_payloads(conn, make_entry(), [make_payload(
+        [chartered], scraped_at="2026-07-17T10:00:00Z")])
+
+    assert conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0] == 1
+    stored = conn.execute(
+        "SELECT selling_unit_raw, selling_unit_raw_lang, unit_basis_provenance, "
+        "unit_basis_witness FROM source_offer"
+    ).fetchone()
+    assert tuple(stored) == (
+        "20 KG", "en", "stated_in_name", "product_name@en/v1: 20 KG")
+
+
 def test_new_source_product_is_inventoried(conn):
     ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
     status = conn.execute("SELECT curation FROM source_product").fetchone()[0]

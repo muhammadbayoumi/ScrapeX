@@ -24,6 +24,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
@@ -34,6 +35,7 @@ from scrapex.rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder, RowView
 from scrapex.vocab import ExtractKind, ExtractScope
 
 FX = Path(__file__).parent / "fixtures"
+ROOT = Path(__file__).resolve().parent.parent
 PAGE1 = json.loads((FX / "sikaegshop_page1.json").read_text(encoding="utf-8"))
 PAGE2 = json.loads((FX / "sikaegshop_page2.json").read_text(encoding="utf-8"))
 DETAIL_252 = json.loads((FX / "sikaegshop_detail_252.json").read_text(encoding="utf-8"))
@@ -87,15 +89,25 @@ class _StubFetcher:
     def close(self): pass
 
 
-def make_entry(enrichment: bool = False) -> SourceEntry:
+def _sika_unit_charter() -> dict:
+    manifest = yaml.safe_load((ROOT / "sources.yaml").read_text(encoding="utf-8"))
+    sources = manifest["sources"] if isinstance(manifest, dict) else manifest
+    return next(source["unit_charter"] for source in sources
+                if source["source_key"] == "SIKAEGSHOP")
+
+
+def make_entry(enrichment: bool = False, *, charter: bool = False) -> SourceEntry:
     extract = [ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)]
     if enrichment:
         extract.append(ExtractSpec(kind=ExtractKind.ENRICHMENT, scope=ExtractScope.CENSUS))
-    return SourceEntry.model_validate(dict(
+    values = dict(
         source_key="SIKAEGSHOP", source_name="سيكا مصر شوب", base_url="https://www.sikaegshop.com",
         family="custom-json-api", currency="EGP", default_region="EG", vat_mode="incl",
         extract=extract,
-    ))
+    )
+    if charter:
+        values["unit_charter"] = _sika_unit_charter()
+    return SourceEntry.model_validate(values)
 
 
 def fetch_rows(fetcher):
@@ -699,6 +711,46 @@ def test_a_name_that_CONTRADICTS_the_weight_states_nothing():
     row = RowView(PRODUCT_PRICES, table.header).as_dict(table.rows[0])
 
     assert row["unit"] == "" and row["basis_quantity"] == ""
+
+
+def test_sikas_charter_lets_the_name_settle_the_same_conflict():
+    """The exception is attached to SIKA's manifest, not this connector family."""
+    contradicting = {**PRODUCT_252, "product_enname": "Sika Creat 114 ® 20 KG",
+                     "weight": 1}
+    table = crawl(_StubFetcher(payloads=list_page(contradicting)),
+                  make_entry(charter=True))[0]
+    row = RowView(PRODUCT_PRICES, table.header).as_dict(table.rows[0])
+
+    assert (row["unit"], row["basis_quantity"]) == ("kg", "20")
+    assert row["selling_unit_raw"] == "20 KG"
+    assert row["selling_unit_raw_lang"] == "en"
+    assert row["unit_basis_provenance"] == "stated_in_name"
+    assert row["unit_basis_witness"] == "product_name@en/v1: 20 KG"
+
+
+def test_sikas_weight_disambiguates_a_model_token_from_the_pack_size():
+    product = {**PRODUCT_252, "product_enname": "Sikament 163M ® 20 kg",
+               "weight": 20}
+    table = crawl(_StubFetcher(payloads=list_page(product)),
+                  make_entry(charter=True))[0]
+    row = RowView(PRODUCT_PRICES, table.header).as_dict(table.rows[0])
+
+    assert (row["unit"], row["basis_quantity"]) == ("kg", "20")
+    assert row["unit_basis_witness"] == "product_name@en/v1: 20 kg"
+
+
+def test_sikas_detail_witness_can_replace_a_dimension_in_the_name():
+    """Backing Rod's 1 CM is a diameter; detail attr_1 states the 1 Meter pack."""
+    fetcher = _StubFetcher(payloads=list_page(PRODUCT_252),
+                           details={"252": DETAIL_252})
+    tables = crawl(fetcher, make_entry(enrichment=True, charter=True))
+    prices = next(table for table in tables if table.kind is PRODUCT_PRICES.kind)
+    row = RowView(PRODUCT_PRICES, prices.header).as_dict(prices.rows[0])
+
+    assert (row["unit"], row["basis_quantity"]) == ("m", "1")
+    assert row["selling_unit_raw"] == "1 Meter"
+    assert row["unit_basis_provenance"] == "stated_in_prose"
+    assert row["unit_basis_witness"] == "attr_1@en/v1: 1 Meter"
 
 
 # ---- error paths (T3): one product's detail is never the whole crawl ---------
