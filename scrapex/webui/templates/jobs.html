@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 {% block title %}Jobs — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/jobs.css?v=source-ui-1">
@@ -68,11 +69,11 @@
           </div>
           <div>
             <dt>Started</dt>
-            <dd>{{ j.started_at or "—" }}</dd>
+            <dd>{{ stamp(j.started_at) }}</dd>
           </div>
           <div>
             <dt>Finished</dt>
-            <dd data-cell="finished">{{ j.finished_at or "—" }}</dd>
+            <dd data-cell="finished">{{ stamp(j.finished_at) }}</dd>
           </div>
         </dl>
       </div>
@@ -107,7 +108,16 @@
     row.querySelector('[data-cell="progress"]').textContent = progress;
     row.querySelector('[data-cell="observations"]').textContent = fmt(job.counters.observations);
     row.querySelector('[data-cell="requests"]').textContent = fmt(job.counters.requests);
-    row.querySelector('[data-cell="finished"]').textContent = job.finished_at || "—";
+    // replaceChildren and NOT textContent. The server rendered this cell as
+    // stamp(j.finished_at), i.e. a <time data-utc> CHILD of this <dd>;
+    // assigning textContent deletes that child, so the Finished field flips
+    // to raw 2026-07-30T11:05:00Z on the first tick and ScrapeXTime.paint()
+    // — which selects [data-utc] — has nothing left to repair on a zone
+    // change. The loop below paints EVERY job row, so one live job was
+    // enough to do this to every finished card on the page.
+    row.querySelector('[data-cell="finished"]').replaceChildren(
+      job.finished_at ? ScrapeXTime.node(job.finished_at)
+                      : document.createTextNode("—"));
   };
   const tick = async () => {
     try {

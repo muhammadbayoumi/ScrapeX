@@ -88,6 +88,13 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # It lives with the engine because browser localStorage is origin-scoped:
     # a chrome-extension:// page and http://127.0.0.1 cannot read each other.
     Setting("ui_appearance", "", label="Shared appearance"),
+    # The display time zone (spec 33), stored beside the appearance for the same
+    # reason: both surfaces must read ONE preference, and localStorage is
+    # origin-scoped. Empty means "follow whatever each browser detects" — a
+    # detected default is never written here, so nothing can silently overwrite
+    # a zone the owner chose. It changes DISPLAY only; every stored timestamp
+    # stays the "%Y-%m-%dT%H:%M:%SZ" UTC that payload.py already enforces.
+    Setting("ui_time_zone", "", label="Shared display time zone"),
     # --- Storage (spec 17) ---
     Setting("backup_folder", "", label="Folder for backups"),
     # --- Logs and diagnostics (spec 33) ---

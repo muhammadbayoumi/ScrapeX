@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 {% block title %}Google Sheets Synchronization — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/sync.css">
@@ -267,7 +268,7 @@
       </header>
       {% if funnel.last %}
         <dl class="sync-activity-grid">
-          <div><dt>When</dt><dd class="num">{{ funnel.last.at }}</dd></div>
+          <div><dt>When</dt><dd class="num">{{ stamp(funnel.last.at, zone=true) }}</dd></div>
           <div class="sync-activity-wide"><dt>Details</dt><dd>{{ funnel.last.detail }}</dd></div>
         </dl>
       {% else %}
@@ -469,7 +470,7 @@
       </header>
       {% if google.last %}
         <dl class="sync-activity-grid">
-          <div><dt>When</dt><dd class="num">{{ google.last.at }}</dd></div>
+          <div><dt>When</dt><dd class="num">{{ stamp(google.last.at, zone=true) }}</dd></div>
           <div class="sync-activity-wide"><dt>Details</dt><dd>{{ google.last.detail }}</dd></div>
           {% if google.last.location %}
             <div class="sync-activity-wide">

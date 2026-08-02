@@ -1,5 +1,6 @@
 {% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 <div class="dataset-menu-popover" data-dataset-browser aria-label="Datasets">
   <header class="dataset-browser-head">
     <div class="dataset-browser-title">
@@ -70,22 +71,25 @@
            was last gathered, and one honest measure of it. Every number states
            what it is. #}
         <span class="dataset-choice-detail" data-dataset-fresh>
-          {# Built ONCE and used twice. The line is clamped to one row, so the
-             title is the only way back to the part the ellipsis removes — and a
-             title that is merely a PREFIX of the text hides exactly the tail it
-             exists to recover. Same string, both places, by construction. #}
+          {# Two rules meet here and both hold. The TIME goes through stamp(),
+             so it reads in the owner's zone like every other instant on the
+             page — a fixed "UTC" here read four hours out from the same fact
+             shown elsewhere. And the caption is clamped to one line, so the
+             whole of it must stay reachable; the server cannot write that
+             title, because half the sentence is a time only timezone.js will
+             convert. So the element ASKS to be titled and the formatter fills
+             it from the text the reader actually sees, after converting. #}
           {%- if s.last_success %}
-            {%- set when = "Last crawled " ~ (s.last_success.started_at or "")[:16]|replace("T", " ") ~ " UTC" %}
-            {%- if s.last_success.rows_seen %}
-              {%- set fresh = when ~ " · " ~ "{:,}".format(s.last_success.rows_seen) ~ " rows seen" %}
-            {%- elif s.last_success.requests_count %}
-              {%- set fresh = when ~ " · " ~ "{:,}".format(s.last_success.requests_count) ~ " requests" %}
-            {%- else %}{% set fresh = when %}
+          <small class="dataset-choice-state" data-clamped-title>
+            Last crawled {{ stamp(s.last_success.started_at, zone=true) }}
+            {%- if s.last_success.rows_seen %} · {{ "{:,}".format(s.last_success.rows_seen) }} rows seen
+            {%- elif s.last_success.requests_count %} · {{ "{:,}".format(s.last_success.requests_count) }} requests
             {%- endif %}
+          </small>
           {%- else %}
-            {%- set fresh = "Has data, but no crawl has succeeded yet" %}
+          <small class="dataset-choice-state"
+                 title="Has data, but no crawl has succeeded yet">Has data, but no crawl has succeeded yet</small>
           {%- endif %}
-          <small class="dataset-choice-state" title="{{ fresh }}">{{ fresh }}</small>
         </span>
       </a>
       {% endfor %}

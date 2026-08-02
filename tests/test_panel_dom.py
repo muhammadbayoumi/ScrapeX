@@ -1109,13 +1109,25 @@ def test_the_data_tab_states_when_each_source_was_last_crawled(open_panel):
                           "rows_seen": 763, "requests_count": 812,
                           "products_discovered": 763, "errors_count": 0}},
     ]
-    page = open_panel(sources=sources)
+    # The zone is PINNED, so this asserts the product's format rather than the
+    # zone of whichever machine runs it. It used to expect "2026-07-29 08:30" —
+    # the hand-formatted UTC this line printed before spec 33 — which is the
+    # very shape the owner reported as inconsistent with the rest of the
+    # product (and which the Workspace showed differently again).
+    page = open_panel(sources=sources,
+                      timezone={"zone": "Asia/Riyadh", "updatedAt": 9_999_999_999_999})
     page.click(DATA_TAB)
     page.wait_for_timeout(300)
     card = page.text_content("#datasets")
-    assert "Last crawled 2026-07-29 08:30" in card
+    assert "Last crawled 29 July 2026, 11:30 AM — Asia/Riyadh" in card, (
+        f"08:30Z is 11:30 in Riyadh and the zone is named beside it: {card!r}")
     assert "763 rows seen" in card
     assert "no recorded changes yet" not in card
+
+    # And the stored instant is still reachable on the element itself (§6.12).
+    stamp = page.locator("#datasets time[data-utc]").first
+    assert stamp.get_attribute("data-utc") == "2026-07-29T08:30:00Z"
+    assert stamp.get_attribute("title") == "Stored as 2026-07-29T08:30:00Z (UTC)"
     assert not page.js_errors
 
 
@@ -1668,3 +1680,243 @@ def test_a_panel_that_cannot_read_its_own_version_says_so_and_loses_nothing(open
     assert "cannot read its own version" in page.inner_text("#crawl-msg")
     assert text_of(page, "#about-extension-version") == "unknown"
     assert not page.js_errors, f"the gate threw instead of speaking: {page.js_errors}"
+# ---- the display time zone (spec 33 / issue #33), 2026-07-30 ----------------
+#
+# The owner ruled on 2026-07-30 that the SELECTOR lives here and nowhere else:
+# the web page displays the active zone and never offers to change it (issue #32
+# §2.3). So the panel is the only surface where "can he choose a zone" can be
+# asked at all, and these are the tests that ask it.
+
+# 22:30 UTC is deliberate. In Asia/Riyadh (+03, no DST) it is 01:30 the NEXT
+# DAY, so every assertion below distinguishes a real conversion from a string
+# that merely got reformatted — the day has to move too.
+KEPT_LATE = {**KEPT_SITE, "kept_at": "2026-07-30T22:30:00Z"}
+
+SCHEDULE_SOON = {
+    "schedules": [{"source_key": "MADAR", "schedule_id": 1, "enabled": True,
+                   "frequency": "daily", "run_at": "09:00", "weekday": None,
+                   "timezone": "Asia/Riyadh", "run_mode": "update",
+                   "missed_run_policy": "run_when_available",
+                   "overlap_policy": "queue",
+                   "next_run_at": "2026-07-30T22:30:00Z"}],
+    "note": "Schedules run only while the ScrapeX engine is running.",
+}
+
+
+def _open_time_zone(page):
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-timezone"]')
+    page.wait_for_timeout(300)
+
+
+def _choose_zone(page, zone: str):
+    page.select_option("#ui_time_zone", zone)
+    page.wait_for_timeout(350)
+
+
+def test_the_time_zone_can_be_chosen_from_the_panels_settings_tab(open_panel):
+    """Spec 33 6.1 and 6.4: a real selector, filled from the browser's own list.
+
+    The count matters. A hand-written list is the thing 6.4 rules out, because
+    it starts rotting the day a country moves its clocks — so the assertion is
+    that the list is far longer than anyone would type, and that the issue's own
+    four examples are all in it.
+    """
+    page = open_panel()
+    _open_time_zone(page)
+
+    assert page.is_visible("#ui_time_zone")
+    options = page.eval_on_selector(
+        "#ui_time_zone", "s => [...s.options].map(o => o.value)")
+    assert len(options) > 100, (
+        f"only {len(options)} zones offered — that is a hand-written list, and "
+        "6.4 asks for the IANA set the browser itself publishes")
+    for example in ["Asia/Riyadh", "Europe/London", "America/New_York", "Asia/Dubai"]:
+        assert example in options, f"{example} (named in 6.4) is not offered"
+
+    # "" is first and means Detected: 6.5's default is an option he can come
+    # back to, not a zone silently written in his name.
+    assert options[0] == ""
+    assert "Detected" in page.eval_on_selector("#ui_time_zone", "s => s.options[0].text")
+
+    _choose_zone(page, "Asia/Riyadh")
+    assert page.evaluate("() => window.ScrapeXTime.get().zone") == "Asia/Riyadh"
+    assert page.evaluate("() => window.ScrapeXTime.resolution().step") == "selected"
+    assert not page.js_errors
+
+
+def test_choosing_a_zone_shares_it_with_the_engine_for_the_web_page(open_panel):
+    """Spec 33 6.9, the half that can be tested here: the choice is PUSHED to
+    the one shared preference, which is what the web page reads. One preference,
+    so the two surfaces cannot be showing different times."""
+    page = open_panel()
+    _open_time_zone(page)
+    page.evaluate("() => { window.__writes.length = 0; }")
+    _choose_zone(page, "Asia/Riyadh")
+
+    writes = [w for w in page.evaluate("() => window.__writes.slice()")
+              if w["path"].startswith("/api/timezone")]
+    assert writes, "the chosen zone never reached the engine"
+    assert writes[-1]["method"] == "POST"
+    assert writes[-1]["body"]["zone"] == "Asia/Riyadh"
+    assert writes[-1]["body"]["updatedAt"] > 0, (
+        "without a timestamp the two surfaces cannot tell which choice is newer")
+    assert not page.js_errors
+
+
+def test_a_zone_saved_on_the_other_surface_arrives_here(open_panel):
+    """The other direction of 6.9: the engine already holds a zone, so the
+    panel adopts it on connect rather than starting from its own detection."""
+    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE],
+                      timezone={"zone": "Asia/Riyadh", "updatedAt": 9_999_999_999_999})
+    assert page.evaluate("() => window.ScrapeXTime.get().zone") == "Asia/Riyadh"
+    _run_tab(page)
+    assert "31 Jul" in page.inner_text(".source-row-kept"), (
+        "the panel rendered a time without the zone the engine already held")
+    assert not page.js_errors
+
+
+def test_changing_the_zone_re_renders_visible_times_without_refetching(open_panel):
+    """Spec 33 6.10, and the assertion that gives it teeth: NOTHING is refetched.
+
+    Re-rendering by reloading the data would satisfy the sentence and miss the
+    point — a zone change is a presentation change, and on a panel polling a
+    live crawl it must not cost a single request for data.
+    """
+    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE])
+    # A known starting zone, because "detected" is whatever machine runs this.
+    # UTC also makes the before/after the clearest possible evidence: 22:30 on
+    # the 30th becomes 01:30 on the 31st.
+    page.evaluate("() => window.ScrapeXTime.set('UTC')")
+    page.wait_for_timeout(150)
+    _run_tab(page)
+
+    kept = page.locator(".source-row-kept time[data-utc]")
+    assert kept.count() == 1, page.inner_text(".source-row-kept")
+    before = kept.inner_text()
+    assert "30 Jul" in before and "10:30 PM" in before, (
+        f"expected the stored 22:30Z to read as itself in UTC, got {before!r}")
+
+    _open_time_zone(page)
+    page.evaluate("() => { window.__calls.length = 0; }")
+    _choose_zone(page, "Asia/Riyadh")
+
+    _run_tab(page)
+    after = page.locator(".source-row-kept time[data-utc]").inner_text()
+    assert after != before, "the visible time did not follow the new zone"
+    assert "31 Jul" in after, (
+        f"22:30 UTC is 01:30 the next day in Riyadh, so the DAY must move: {after!r}")
+
+    # No DATA route may be touched. The two preference-sync endpoints are
+    # excluded because neither carries data: /api/timezone is the change itself,
+    # and /api/appearance is the colour module's own poll, which runs on its own
+    # clock whether or not anyone touches the zone.
+    calls = page.evaluate("() => window.__calls.slice()")
+    preferences = ("/api/timezone", "/api/appearance")
+    refetched = [c for c in calls if not c.startswith(preferences)]
+    assert not refetched, (
+        f"changing the zone refetched data: {refetched}. 6.10 asks for a "
+        "re-render from what is already in hand.")
+    assert not page.js_errors
+
+
+def test_the_raw_utc_stays_reachable_on_every_converted_time(open_panel):
+    """Spec 33 6.12: the interface may convert, but the stored value must remain
+    available for diagnosis. The truncated category does this with `title`
+    already (grid.js), so a converted time does it the same way."""
+    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE],
+                      timezone={"zone": "Asia/Riyadh", "updatedAt": 9_999_999_999_999})
+    _run_tab(page)
+    stamp = page.locator(".source-row-kept time[data-utc]")
+
+    assert stamp.get_attribute("data-utc") == "2026-07-30T22:30:00Z", (
+        "the raw instant left the element, so the conversion is no longer "
+        "reversible or checkable")
+    assert stamp.get_attribute("title") == "Stored as 2026-07-30T22:30:00Z (UTC)"
+    # <time datetime> stays machine-readable UTC, never the converted text.
+    assert stamp.get_attribute("datetime") == "2026-07-30T22:30:00Z"
+    assert not page.js_errors
+
+
+def test_the_zone_is_named_beside_a_time_whose_reading_depends_on_it(open_panel):
+    """Spec 33 6.8, in the issue's own shape: "30 July 2026, 11:05 AM — Zone".
+
+    A schedule's next fire is the case that earned it: the row used to say
+    "UTC" in fixed text, so a 09:00 daily run read as 09:00 and fired at noon.
+    """
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
+                      timezone={"zone": "Asia/Riyadh", "updatedAt": 9_999_999_999_999})
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    next_run = page.locator('.sched-row [data-role="next"]')
+    assert next_run.count() >= 1, page.inner_text("#schedules")
+    shown = next_run.first.inner_text()
+
+    assert "— Asia/Riyadh" in shown, (
+        f"the zone is not named beside the time: {shown!r}")
+    assert "31 July 2026" in shown and "1:30 AM" in shown, (
+        f"expected the issue's shape for 22:30Z in Riyadh, got {shown!r}")
+    assert "UTC" not in shown, (
+        "the row still claims UTC while showing a converted time — the exact "
+        "misreading 6.8 exists to prevent")
+    assert not page.js_errors
+
+
+def test_an_invalid_zone_falls_back_down_the_chain_and_says_which_step(open_panel):
+    """Spec 33 6.11, all three of its promises at once.
+
+    A zone the browser cannot resolve — a typo, or one this tz database dropped
+    — must fall back in order, must NOT rewrite the stored preference, and must
+    say where it landed instead of failing silently.
+    """
+    page = open_panel(sources=[KEPT_LATE, CLEAN_SITE],
+                      timezone={"zone": "Mars/Phobos", "updatedAt": 9_999_999_999_999})
+
+    state = page.evaluate("() => window.ScrapeXTime.resolution()")
+    assert state["step"] == "detected", (
+        f"an unresolvable zone did not fall through to the detected one: {state}")
+    assert state["zone"] == page.evaluate("() => window.ScrapeXTime.detected()")
+
+    # It must not have quietly corrected the preference. Fixing the tz data has
+    # to restore his choice, not find it overwritten.
+    assert page.evaluate("() => window.ScrapeXTime.get().zone") == "Mars/Phobos", (
+        "the fallback rewrote the stored preference, which 6.11 forbids")
+
+    # And it says so, naming both the rejected zone and where it landed.
+    _open_time_zone(page)
+    note = page.inner_text("[data-time-zone-note]")
+    assert "Mars/Phobos" in note and state["zone"] in note, (
+        f"the fallback did not say which step it landed on: {note!r}")
+
+    # Times still render, in the fallback zone, with the stored value intact.
+    _run_tab(page)
+    stamp = page.locator(".source-row-kept time[data-utc]")
+    assert stamp.count() == 1, "an invalid zone stopped a time from rendering"
+    assert stamp.get_attribute("data-utc") == "2026-07-30T22:30:00Z"
+    assert stamp.inner_text().strip(), "the time rendered empty"
+    assert not page.js_errors
+
+
+def test_a_business_date_is_never_shifted_by_the_display_zone(open_panel):
+    """The line this feature must not cross.
+
+    A calendar date — a price_observation.business_date — is not a moment in
+    time. Pushing it through a zone would either do nothing or move it a day,
+    and a price filed under the wrong day is a false fact about the market. The
+    formatter refuses anything that is not an instant, and returns it verbatim.
+    """
+    page = open_panel(timezone={"zone": "Pacific/Kiritimati",
+                                "updatedAt": 9_999_999_999_999})
+    verdicts = page.evaluate("""() => ({
+        date_only: window.ScrapeXTime.format("2026-07-30"),
+        is_instant: window.ScrapeXTime.isInstant("2026-07-30"),
+        empty: window.ScrapeXTime.format(""),
+        instant: window.ScrapeXTime.isInstant("2026-07-30T22:30:00Z"),
+    })""")
+    assert verdicts["date_only"] == "2026-07-30", (
+        f"a calendar date was converted: {verdicts['date_only']!r}")
+    assert verdicts["is_instant"] is False
+    assert verdicts["empty"] == ""
+    assert verdicts["instant"] is True
+    assert not page.js_errors

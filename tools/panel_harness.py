@@ -70,7 +70,8 @@ OUTPUTS = [
 def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=None,
          records=None, changes=None, slow=False, tab=None, resolve=None, probe=None,
          fail_routes=(), storage=None, logs=None, extension_version=None,
-         engine_version=None, version_reporting=True, omit_capabilities=()) -> str:
+         engine_version=None, version_reporting=True, omit_capabilities=(),
+         timezone=None, schedules=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -103,10 +104,11 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         "/api/jobs": {"jobs": jobs or []},
         "/api/records": records or {"records": [], "total": 0, "next_cursor": None},
         "/api/changes": changes or {"summary": {}, "changes": []},
-        "/api/schedules": {"schedules": [],
-                           "note": "Schedules run only while the ScrapeX engine is "
-                                   "running. Nothing can wake a sleeping or "
-                                   "powered-off machine."},
+        "/api/schedules": schedules or {
+            "schedules": [],
+            "note": "Schedules run only while the ScrapeX engine is "
+                    "running. Nothing can wake a sleeping or "
+                    "powered-off machine."},
         "/api/outputs": {"outputs": OUTPUTS},
         "/api/storage": storage or {
             "path": "C:\\Users\\Owner\\.scrapex\\harvest.db",
@@ -123,6 +125,9 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "crawl_timeout_s": {"value": "30"},
             "crawl_user_agent": {"value": ""},
             "log_retention_days": {"value": "30"}}},
+        # The shared display time zone (spec 33). None is the real default state
+        # — no zone chosen yet, so every surface follows what it detects.
+        "/api/timezone": {"timezone": timezone},
     }
     if version_reporting:
         # Keyed by the path WITHOUT its query string: the interceptor below
@@ -245,6 +250,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # classic head script, which build_page drops with the rest of <head>, so
     # the harness must carry it explicitly or app.js's init throws.
     split_button_js = (EXT / "split-button.js").read_text(encoding="utf-8")
+    timezone_js = (EXT / "timezone.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
     transport_js = (EXT / "transport.js").read_text(encoding="utf-8")
     version_js = (EXT / "version.js").read_text(encoding="utf-8")
@@ -270,6 +276,19 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         f"<style>{tokens_css}</style><style>{components_css}</style>"
         f"<style>{style}</style>\n{body}\n"
         f"<script>{appearance_js}</script>\n"
+        # Every page this harness builds is a file:// document, and Chromium
+        # gives them all ONE localStorage. A zone chosen by one test would
+        # therefore be the starting state of the next, which made a real test
+        # pass for the wrong reason (it read the previous test's Riyadh as its
+        # own "before"). Cleared BEFORE timezone.js reads it, so each page opens
+        # in the state a fresh install is in.
+        "<script>try{window.localStorage.removeItem('scrapex-timezone-v1')}"
+        "catch(e){}</script>\n"
+        # Same order as app.html's <head>, and it matters: timezone.js registers
+        # its DOMContentLoaded binder before app.js registers init(), so the
+        # select is populated and the module's own change listener is attached
+        # before the panel adds its own.
+        f"<script>{timezone_js}</script>\n"
         f"<script>{split_button_js}</script>\n"
         f"<script>{stub_js}</script>\n"
         # No manual DOMContentLoaded dispatch: this inline script is parsed

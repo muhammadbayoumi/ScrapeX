@@ -1,3 +1,4 @@
+{% from "_time.html" import stamp %}
 {# Spec 17/25: location, size, health, backup, restore, repair, compact, export
    and a move with progress. Every control here can rewrite the database file,
    so each one states its consequence beside itself rather than in a tooltip. #}
@@ -87,7 +88,12 @@
       <label for="restore-pick">Backup</label>
       <select id="restore-pick">
         {% for b in storage.backups %}
-          <option value="{{ b.path }}">{{ b.name }} — {{ "{:,}".format(b.bytes) }} bytes,
+          {# An <option> cannot hold a child element, so the label rides in
+             data-utc-prefix and timezone.js writes the whole text. Same one
+             formatter as everywhere else — see _time.html. #}
+          <option value="{{ b.path }}" data-utc="{{ b.modified_at }}"
+                  data-utc-prefix="{{ b.name }} — {{ '{:,}'.format(b.bytes) }} bytes, "
+                  title="Stored as {{ b.modified_at }} (UTC)">{{ b.name }} — {{ "{:,}".format(b.bytes) }} bytes,
             {{ b.modified_at }}</option>
         {% endfor %}
       </select>
@@ -154,7 +160,7 @@
   <table>
     <tr><th>Result</th><td><span class="badge {{ 'ok' if storage.last.ok else 'off' }}">
       {{ "Succeeded" if storage.last.ok else "Failed" }}</span></td></tr>
-    <tr><th>When</th><td class="num">{{ storage.last.at }}</td></tr>
+    <tr><th>When</th><td class="num">{{ stamp(storage.last.at, zone=true) }}</td></tr>
     <tr><th>Details</th><td>{{ storage.last.detail }}</td></tr>
   </table>
 {% endif %}

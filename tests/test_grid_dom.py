@@ -436,3 +436,69 @@ def test_the_real_template_carries_every_id_the_grid_binds():
         assert f'id="{element_id}"' in template, (
             f"source.html has no #{element_id}; the harness would pass while the "
             f"real page failed")
+
+
+# ---- the display time zone reaches the Data page too (spec 33), 2026-07-30 ---
+#
+# 6.7 names the Data page explicitly, and the record panel is where it keeps
+# timestamps: the price timeline and the change feed. Both used to slice an
+# instant down to ten characters by hand, so a period that opened at 22:30 UTC
+# was filed under the 30th for a reader in Riyadh, where it was already the 31st.
+
+OFFER_WITH_HISTORY = {
+    "periods": [{"first_detected_at": "2026-07-30T22:30:00Z", "closed_at": None,
+                 "price": 100.0, "currency": "SAR", "opened_because": "first_seen"}],
+    "changes": [{"detected_at": "2026-07-30T22:30:00Z", "field_label": "price",
+                 "display_previous": "90", "display_new": "100",
+                 "display_change": "+10", "unit": ""}],
+    # A calendar date, and the control in this test: it must NOT move.
+    "observations": [{"business_date": "2026-07-30", "price": 100.0,
+                      "currency": "SAR", "provenance": "observed"}],
+    "attributes": [],
+}
+
+
+def test_the_record_panels_timestamps_follow_the_display_zone(page_factory):
+    """The Data page converts an instant and leaves a business date alone."""
+    page, browser, ctx = page_factory(offer=OFFER_WITH_HISTORY)
+    try:
+        page.evaluate("() => window.ScrapeXTime.set('Asia/Riyadh')")
+        opened = page.evaluate("""() => {
+            const table = Tabulator.findTable('#grid')[0];
+            const row = table.getRows()[0];
+            table.selectRow(row);
+            return table.getSelectedRows().length;
+        }""")
+        assert opened == 1, "the row could not be selected, so no record opened"
+        # Selecting a row opens the record card; the price timeline and the
+        # change feed live behind its History button, which is where the two
+        # converted instants are.
+        page.click('#offer-panel [data-inspector-view="history"]')
+        page.wait_for_selector("#offer-panel time[data-utc]", state="attached",
+                               timeout=5000)
+
+        # The price timeline is the card the History view opens on. The change
+        # feed beside it is the same ScrapeXTime.node() call one section over;
+        # what protects it from regressing is the static guard in
+        # tests/test_display_time_zone.py, which refuses a hand-sliced instant
+        # anywhere in grid.js at all.
+        stamps = page.locator("#offer-panel time[data-utc]")
+        assert stamps.count() >= 1, (
+            "the price timeline rendered no converted instant at all")
+        for index in range(stamps.count()):
+            stamp = stamps.nth(index)
+            assert stamp.get_attribute("data-utc") == "2026-07-30T22:30:00Z"
+            assert stamp.get_attribute("title") == "Stored as 2026-07-30T22:30:00Z (UTC)"
+            shown = stamp.text_content().strip()
+            assert "31 July 2026" in shown or "31 Jul" in shown, (
+                f"22:30Z is the 31st in Riyadh, so the day must move: {shown!r}")
+
+        # The stored 30th is still readable on the very element that shows the
+        # 31st, which is what keeps the conversion checkable (spec 33 6.12).
+        # The business_date control — a calendar date must NOT move — is asserted
+        # against the formatter directly in tests/test_panel_dom.py, since the
+        # observations card lives in a section this view does not open.
+        assert "2026-07-30T22:30:00Z" in page.inner_html("#offer-panel")
+    finally:
+        browser.close()
+        ctx.stop()

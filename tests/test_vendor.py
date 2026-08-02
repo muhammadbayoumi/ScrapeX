@@ -1077,8 +1077,13 @@ def test_the_dataset_freshness_line_stays_readable_when_truncated():
     # The title must be the WHOLE line, not its opening. A title that stopped at
     # "UTC" would hide exactly the "· 19,548 rows seen" tail the ellipsis cuts —
     # a recovery mechanism that recovers the part you could already read.
-    assert 'title="{{ fresh }}">{{ fresh }}' in html, (
-        "the title and the visible text must be the same string by construction")
+    # Two ways to satisfy one rule, and both are exact. A caption the server can
+    # write in full carries the string twice by construction; a caption whose
+    # time only timezone.js can convert is marked data-clamped-title and the
+    # formatter fills it from the rendered text. What is forbidden is a title
+    # that is a PREFIX of what it recovers.
+    assert 'title="{{ quote }}">{{ quote }}' in html
+    assert "data-clamped-title" in html
     assert html.count("Last crawled") == 1, (
         "the line is built twice, so the two copies can drift apart")
 
@@ -1103,4 +1108,5 @@ def test_every_dataset_freshness_state_can_be_read_in_full(tmp_path):
     page = TestClient(create_app(p)).get("/data").text
     for state in page.split('class="dataset-choice-state"')[1:]:
         head = state.split(">", 1)[0]
-        assert "title=" in head, f"a freshness caption ships unreadable: {head[:80]}"
+        assert "title=" in head or "data-clamped-title" in head, (
+            f"a freshness caption ships unreadable: {head[:80]}")
