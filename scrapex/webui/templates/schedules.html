@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 {% block title %}Schedules — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/schedules.css">
@@ -110,7 +111,11 @@
         <div class="schedule-card-state">
           <span class="schedule-state schedule-state-{{ state }}" data-role="state">{{ state|capitalize }}</span>
           <span class="schedule-next" data-role="next">
-            {% if s and s.enabled and s.next_run_at %}Next {{ s.next_run_at[:16].replace("T", " ") }} UTC
+            {# A FUTURE instant is the one a wrong zone costs you a run over, so
+               it names its zone. It used to say "UTC" in fixed text, which was
+               true and was also the one place the owner had to convert in his
+               head every time he read it. #}
+            {% if s and s.enabled and s.next_run_at %}Next {{ stamp(s.next_run_at, zone=true) }}
             {% elif s and not s.enabled %}Schedule paused
             {% elif not s %}no schedule yet{% else %}Runs manually{% endif %}
           </span>
@@ -330,9 +335,19 @@
             : data.next_run_at
               ? "Saved — next run updated."
               : "Saved.";
-          pick(row, "next").textContent = data.next_run_at && body.enabled
-            ? "Next " + String(data.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
-            : (body.enabled && body.frequency === "manual" ? "Runs manually" : "Schedule paused");
+          // The saved row must read exactly like the server-rendered one above
+          // it — same formatter, same zone beside it. Built as nodes rather
+          // than markup: this page renders scraped values, and none of it
+          // should be one string concatenation away from becoming live HTML.
+          const nextCell = pick(row, "next");
+          if (data.next_run_at && body.enabled) {
+            nextCell.replaceChildren(
+              document.createTextNode("Next "),
+              ScrapeXTime.node(data.next_run_at, "datetime", {zone: true}));
+          } else {
+            nextCell.textContent = body.enabled && body.frequency === "manual"
+              ? "Runs manually" : "Schedule paused";
+          }
           row.classList.remove("is-dirty");
           save.textContent = "Save schedule";
           syncState(row);

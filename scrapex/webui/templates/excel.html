@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 {% block title %}Excel exports — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/exports.css?v=exports-workspace-1">
@@ -305,7 +306,7 @@
             </div>
             <div>
               <dt>When</dt>
-              <dd class="num">{{ status.last.at }}</dd>
+              <dd class="num">{{ stamp(status.last.at) }}</dd>
             </div>
             <div>
               <dt>Rows</dt>

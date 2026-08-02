@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_time.html" import stamp, time_zone_note %}
 {% block title %}Changes — ScrapeX{% endblock %}
 {% block content %}
 <header class="page-header">
@@ -37,7 +38,7 @@
        per new record, saying nothing a reader could use. #}
     {% for c in changes %}
       <tr>
-        <td class="num muted" dir="ltr">{{ c.detected_at[:16].replace("T", " ") }}</td>
+        <td class="num muted" dir="ltr">{{ stamp(c.detected_at) }}</td>
         <td dir="auto">{{ c.product_name or c.product_name_ar or "—" }}</td>
         <td>{{ c.country or c.country_code_alpha2 or "—" }}</td>
         <td class="muted">{{ c.field_label }}</td>
@@ -163,8 +164,8 @@
       <thead><tr><th>Price</th><th>From</th><th>Confirmed through</th><th>Why it began</th></tr></thead>
       <tbody>${periods.map((p) => `<tr>
         <td class="num price">${esc(p.price)} ${esc(p.currency || "")}</td>
-        <td class="num">${esc((p.first_detected_at || "").slice(0, 10))}</td>
-        <td class="num">${esc((p.last_confirmed_at || "").slice(0, 10))}${
+        <td class="num">${ScrapeXTime.markup(p.first_detected_at, "date")}</td>
+        <td class="num">${ScrapeXTime.markup(p.last_confirmed_at, "date")}${
           p.closed_at ? "" : ' <span class="badge ok">current</span>'}</td>
         <td>${esc(WHY[p.opened_because] || p.opened_because)}</td>
       </tr>`).join("")}</tbody></table>`;

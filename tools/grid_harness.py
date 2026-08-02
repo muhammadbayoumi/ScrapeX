@@ -153,6 +153,10 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
     # carry both or grid.js's wireExport calls into an undefined global.
     split_button_js = (STATIC / "split-button.js").read_text(encoding="utf-8")
     grid_js = (STATIC / "grid.js").read_text(encoding="utf-8")
+    # The Data page's real <head> loads this before grid.js (base.html), and the
+    # record panel calls it to render a converted timestamp. Without it here the
+    # harness would answer a question the real page never asks.
+    timezone_js = (STATIC / "timezone.js").read_text(encoding="utf-8")
 
     # The icon helper resolves <use href="/static/..."> against the server. On
     # file:// that 404s silently and every icon renders empty, which is fine for
@@ -185,6 +189,12 @@ def build_page(tmp: Path, payload: dict, *, source_key: str = "TESTSRC",
         "<svg aria-hidden='true' width='0' height='0' "
         f"style='position:absolute;overflow:hidden'>{sprite_body}</svg>\n"
         f"{_host_dom(source_key)}\n"
+        # Cleared before the module reads it: every page this harness writes is
+        # a file:// document sharing one localStorage, so a zone left by one test
+        # would silently become the starting state of the next.
+        "<script>try{window.localStorage.removeItem('scrapex-timezone-v1')}"
+        "catch(e){}</script>\n"
+        f"<script>{timezone_js}</script>\n"
         f"<script>{stub}</script>\n"
         f"<script>{vendor_js}</script>\n"
         f"<script>{ui_js}</script>\n"

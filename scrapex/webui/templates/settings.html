@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_time.html" import stamp %}
 {% block title %}Settings — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/settings.css?v=appearance-1">
@@ -125,6 +126,17 @@
       <tr><th>Interface language</th>
           <td>English. Scraped names and values are shown in whatever language
             they were written in, right-to-left where that applies.</td></tr>
+      {# Spec 33 §6.9, and the owner's ruling of 2026-07-30: ONE shared
+         preference, and its only control is in the extension. This page shows
+         which zone is in force — §2.3 allows display and forbids exactly the
+         select that would make a second place to change it. #}
+      <tr><th>Display time zone</th>
+          <td><strong class="tech" data-time-zone-active>UTC</strong>
+            <span class="text-block muted" data-time-zone-note>Times are shown in UTC.</span>
+            <span class="text-block muted">Every date and time on these pages is
+              converted for reading only — the values stored in the database and
+              sent in any payload stay in UTC. Change the zone from the ScrapeX
+              extension's Settings tab; this page follows it.</span></td></tr>
       <tr><th>Where your data goes</th>
           <td>Nowhere, unless you send it. Crawling writes only to the database on
             this machine; Excel, Apps Script and Drive are opt-in and each is
@@ -271,7 +283,7 @@
       <tr><th>Currencies in use</th><td class="tech">
         {{ google_finance.tracked_currencies|join(", ") if google_finance.tracked_currencies else "None yet" }}</td></tr>
       <tr><th>Last update attempt</th><td class="tech">{{ google_finance.last_checked or "Never" }}</td></tr>
-      <tr><th>Latest market time</th><td class="tech">{{ google_finance.latest_market_at or "No rates stored yet" }}</td></tr>
+      <tr><th>Latest market time</th><td class="tech">{{ stamp(google_finance.latest_market_at, zone=true, empty="No rates stored yet") }}</td></tr>
       <tr><th>Stored history</th><td>{{ google_finance.rows }} rate rows across
         {{ google_finance.currencies }} currencies</td></tr>
     </table>

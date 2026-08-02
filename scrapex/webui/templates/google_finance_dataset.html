@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_time.html" import stamp %}
 {% from "_icons.html" import icon %}
 {% block title %}Google Finance rates - ScrapeX{% endblock %}
 {% block head %}
@@ -29,7 +30,7 @@
           <span><small>Automatic updates</small><strong>{{ "On" if rate_dataset.automatic else "Off" }}</strong></span>
           <span><small>Interval</small><strong>{{ "%g"|format(rate_dataset.refresh_hours) }} hours</strong></span>
           <span><small>Last attempt</small><strong class="tech">{{ rate_dataset.last_checked or "Never" }}</strong></span>
-          <span><small>Latest market time</small><strong class="tech">{{ rate_dataset.latest_market_at or "No rates yet" }}</strong></span>
+          <span><small>Latest market time</small><strong class="tech">{{ stamp(rate_dataset.latest_market_at, zone=true, empty="No rates yet") }}</strong></span>
         </div>
       </section>
 
@@ -54,7 +55,7 @@
                 <td><strong class="tech">{{ row.currency }}</strong></td>
                 <td class="num tech">{{ "%.8g"|format(row.per_usd) }}</td>
                 <td class="tech">{{ row.as_of }}</td>
-                <td class="tech">{{ row.recorded_at }}</td>
+                <td class="tech">{{ stamp(row.recorded_at) }}</td>
                 <td><a href="https://www.google.com/finance/quote/USD-{{ row.currency }}"
                        target="_blank" rel="noopener noreferrer">Google Finance {{ icon("open-in-new", "inline-icon") }}</a></td>
               </tr>

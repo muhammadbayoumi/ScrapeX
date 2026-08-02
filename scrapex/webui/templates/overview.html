@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% from "_source_identity.html" import source_identity %}
+{% from "_time.html" import stamp %}
 {% block title %}Overview — ScrapeX{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/pages/overview.css?v=command-center-1">
@@ -30,9 +31,10 @@
         <span class="overview-health-time">
           {% if latest_job %}
             Latest collection ·
-            <time datetime="{{ latest_job.finished_at or latest_job.started_at or latest_job.created_at }}">
-              {{ (latest_job.finished_at or latest_job.started_at or latest_job.created_at)[:16]|replace("T", " ") }}
-            </time>
+            {# The headline "when did this last run" is exactly where a reader
+               who is not in UTC can be misled by four hours, so this one names
+               its zone beside it (§6.8). #}
+            {{ stamp(latest_job.finished_at or latest_job.started_at or latest_job.created_at, zone=true) }}
           {% else %}
             No collection yet
           {% endif %}
@@ -250,9 +252,7 @@
                 <small>{{ job.run_mode.replace("_", " ") }} ·
                   {{ job.status.replace("_", " ") }}</small>
               </span>
-              <time datetime="{{ job.finished_at or job.started_at or job.created_at }}">
-                {{ (job.finished_at or job.started_at or job.created_at)[:10] }}
-              </time>
+              {{ stamp(job.finished_at or job.started_at or job.created_at, "date") }}
             </a>
           {% endfor %}
           {% for change in recent_changes[:3] %}
@@ -263,7 +263,7 @@
                 <small>{{ change.change_type.replace("_", " ") }}
                   {% if change.display_change %} · {{ change.display_change }}{% endif %}</small>
               </span>
-              <time datetime="{{ change.detected_at }}">{{ change.detected_at[:10] }}</time>
+              {{ stamp(change.detected_at, "date") }}
             </a>
           {% endfor %}
         </div>

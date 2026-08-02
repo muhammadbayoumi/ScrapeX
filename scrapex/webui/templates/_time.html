@@ -1,0 +1,37 @@
+{# The ONE way a server-rendered page emits a stored instant (spec 33).
+
+   The macro writes the raw UTC value into the element and lets
+   static/timezone.js convert it there. That is deliberate and it is the whole
+   DRY argument: a second formatter in Jinja would have to be kept in step with
+   the JS one forever, and the two would disagree the first time either changed.
+   Here the template decides only WHICH SHAPE it wants; the conversion lives in
+   exactly one place, and re-rendering after a zone change is re-reading an
+   attribute that is already in the DOM.
+
+   Before the script runs — and for anything reading the markup rather than the
+   page — what shows is the stored UTC value itself. Not a second format: the
+   warehouse's own truth, which §6.12 requires to stay reachable anyway.
+
+     stamp(value)                       -> 30 July 2026, 11:05 AM
+     stamp(value, "date")               -> 30 July 2026
+     stamp(value, zone=true)            -> 30 July 2026, 11:05 AM — Asia/Riyadh
+     stamp(none)                        -> the em dash, untouched
+
+   `empty` exists because these call sites disagree about what an absent time
+   means: a job with no finished_at shows "—" and a schedule with no next run
+   shows nothing at all. #}
+{% macro stamp(value, format="datetime", zone=false, empty="—") -%}
+{%- if value -%}
+<time data-utc="{{ value }}" data-utc-format="{{ format }}"
+      {%- if zone %} data-utc-zone="show"{% endif %}
+      datetime="{{ value }}" title="Stored as {{ value }} (UTC)"
+      dir="ltr">{{ value }}</time>
+{%- else -%}{{ empty }}{%- endif -%}
+{%- endmacro %}
+
+{# One line above a table of times, so every row does not have to repeat the
+   zone. The text is written by timezone.js — it is the same sentence that
+   reports which step of the fallback chain produced the zone (§6.11). #}
+{% macro time_zone_note() -%}
+<p class="muted text-xs" data-time-zone-note>Times are shown in UTC.</p>
+{%- endmacro %}

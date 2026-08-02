@@ -579,6 +579,56 @@ async function refreshGoogleFinance() {
   }
 }
 
+// ---- display time zone (spec 33) -------------------------------------------
+//
+// The panel owns the CONTROL; timezone.js owns the preference, the sharing and
+// the one formatter. Everything here is the sentence around the select: what
+// the current choice looks like on a real time, and whether it reached the
+// engine — because a preference that silently failed to save would come back
+// on the next crawl and look like the panel had forgotten it.
+
+function timeZoneEffect() {
+  const time = window.ScrapeXTime;
+  // A LIVE example in the issue's own shape, on the moment he is reading it.
+  // "Asia/Riyadh" tells him nothing he can check; "30 July 2026, 2:05 PM"
+  // beside a clock he can see tells him everything.
+  //
+  // The caveat rides here and NOT in #timezone-msg, which belongs to the save:
+  // this function runs on every zone change, so writing the status region would
+  // wipe the "Saved" line it had just been given.
+  const {zones, complete} = time.zones();
+  const caveat = complete ? "" :
+    " This browser publishes no full zone list, so only " + zones.length +
+    " zones can be offered.";
+  $("timezone-example").textContent =
+    "Right now this reads " + time.label(new Date().toISOString()) + "." + caveat;
+  return time.resolution();
+}
+
+/** Report whether a chosen zone actually reached the engine.
+ *
+ * The module pushes on its own and swallows the result, which is right for a
+ * colour and wrong for this: if the engine refuses the identifier or is down,
+ * the workspace keeps showing the old zone and only this line can say so. */
+async function confirmTimeZoneShared() {
+  const chosen = window.ScrapeXTime.get().zone;
+  try {
+    const remote = await api("/api/timezone");
+    const shared = remote && remote.timezone ? remote.timezone.zone : "";
+    if (shared === chosen) {
+      out("timezone-msg", chosen
+        ? "Saved — the workspace pages show " + esc(chosen) + " too."
+        : "Saved — every surface follows the zone each browser detects.", "ok");
+    } else {
+      out("timezone-msg", "saved on this device; the engine still has " +
+        esc(shared || "no zone") + ". It will catch up when the engine is reachable.");
+    }
+  } catch (err) {
+    out("timezone-msg", "saved on this device — the engine is not reachable, " +
+      "so the workspace pages will catch up later (" + esc(err.message) + ")");
+  }
+}
+
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
@@ -633,16 +683,16 @@ function visibleSources() {
 
 const keptPages = (source) => Number(source?.kept_pages || 0);
 
-/** The interrupted run's own stopping point, in local time.
+/** The interrupted run's own stopping point, in the display time zone.
  *
  * A date and not "3 hours ago": a journal can sit for days, and the question
- * this answers is WHICH run stopped here, not how long ago it was. */
-function fmtStopped(iso) {
-  const at = Date.parse(iso || "");
-  if (!Number.isFinite(at)) return "";
-  return new Date(at).toLocaleString([], {
-    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-}
+ * this answers is WHICH run stopped here, not how long ago it was.
+ *
+ * It used to call toLocaleString() itself, which meant this line and the rest
+ * of the product could disagree about what zone they were in. There is one
+ * formatter now (timezone.js) and this returns its markup, so the value also
+ * carries its raw UTC in a title and re-renders on a zone change for free. */
+const fmtStopped = (iso) => window.ScrapeXTime.markup(iso, "short");
 
 const pageCount = (n) => `${n.toLocaleString()} page${n === 1 ? "" : "s"}`;
 
@@ -705,7 +755,7 @@ function renderSites() {
             title="Continue this crawl from the ${esc(pageCount(kept))} already kept. None of them is fetched again.">Resume ${
               esc(pageCount(kept))}</button>
           <span><strong>${esc(pageCount(kept))} kept</strong> from a run that
-          stopped${stopped ? " " + esc(stopped) : ""}. Resume continues from
+          stopped${stopped ? " " + stopped : ""}. Resume continues from
           there and re-fetches none of them; starting a run discards them.</span>
         </span>` : "";
       return `<div class="srow ${ready ? "" : "off"}">
@@ -1594,7 +1644,7 @@ async function loadDatasets() {
         <div><div class="dataset-identity-line">${sourceIdentity(
           s, false, fmtCount(s.observations))}</div>
           <div class="n">${fmtCount(s.products)} products</div>
-          <div class="n muted">${esc(freshnessLine(s))}</div></div>
+          <div class="n muted">${freshnessLine(s)}</div></div>
       </article>`).join("");
     box.querySelectorAll("[data-open]").forEach((card) => {
       card.addEventListener("click", () => openDataset(card.dataset.open));
@@ -1615,11 +1665,16 @@ async function loadDatasets() {
 function freshnessLine(s) {
   const last = s.last_success;
   if (!last || !last.started_at) return "no successful crawl yet";
-  const when = String(last.started_at).slice(0, 16).replace("T", " ");
+  // Returns MARKUP, so the call site must not esc() it — the same shape
+  // fmtStopped uses. It named UTC in fixed text, which made this line the one
+  // place in the panel the owner had to convert in his head; and the workspace
+  // shows the very same fact from _source_list.html, so the two surfaces
+  // disagreed about a date the owner reads to decide whether to re-crawl.
+  const when = window.ScrapeXTime.markup(last.started_at, "datetime", {zone: true});
   const measure = last.rows_seen
     ? `${fmtCount(last.rows_seen)} rows seen`
     : last.requests_count ? `${fmtCount(last.requests_count)} requests` : "";
-  return `Last crawled ${when} UTC${measure ? " · " + measure : ""}`;
+  return `Last crawled ${when}${measure ? " · " + esc(measure) : ""}`;
 }
 
 function openDataset(key) {
@@ -1653,9 +1708,14 @@ async function loadSchedules() {
       const paused = sched.schedule_id != null && !sched.enabled;
       const summary = freq === "manual" ? "manual"
         : freq + (freq === "weekly" ? " · " + WEEKDAYS[weekday] : "") + " · " + esc(runAt);
+      // The next fire, in the display zone and NAMING it (§6.8) — a schedule
+      // read four hours out is a run the owner waits for and does not get.
+      // This is display only: the scheduler still computes and stores the
+      // instant in UTC, and the row's own Timezone field below is a different
+      // thing entirely (it decides WHEN the job fires, not how it is read).
       const next = paused ? "paused"
         : sched.next_run_at
-          ? "next " + esc(String(sched.next_run_at).slice(0, 16).replace("T", " ")) + " UTC"
+          ? "next " + window.ScrapeXTime.markup(sched.next_run_at, "datetime", {zone: true})
           : "";
       // The scheduler fires only ACTIVE sources (the Auto switch). A schedule
       // saved on an inactive one is a real record that will not fire — the
@@ -1752,9 +1812,11 @@ async function loadSchedules() {
           if (freq.value === "weekly") body.weekday = Number(weekday.value);
           const result = await post(
             "/api/schedules/" + encodeURIComponent(row.dataset.sched), body);
+          // A textContent sink, so label() — the same formatter, returning the
+          // plain sentence instead of markup.
           status.textContent = !body.enabled ? "Saved — paused."
             : result && result.next_run_at
-              ? "Saved — next " + String(result.next_run_at).slice(0, 16).replace("T", " ") + " UTC"
+              ? "Saved — next " + window.ScrapeXTime.label(result.next_run_at)
               : "Saved.";
         } catch (e) {
           status.textContent = "Couldn't save: " + e.message;
@@ -2375,6 +2437,9 @@ async function init() {
   const backend = await getBackend();
   $("backend").value = backend;
   window.ScrapeXAppearance?.connect(backend);
+  // The zone travels the same road as the appearance, so the panel and the
+  // workspace can never be showing two different times (§6.9).
+  window.ScrapeXTime?.connect(backend);
   renderAutostart();
   adoptUiContract();
 
@@ -2536,7 +2601,9 @@ async function init() {
 
   $("save").addEventListener("click", async () => {
     await setBackend($("backend").value);
-    window.ScrapeXAppearance?.connect(await getBackend());
+    const moved = await getBackend();
+    window.ScrapeXAppearance?.connect(moved);
+    window.ScrapeXTime?.connect(moved);
     render();
   });
   $("how").addEventListener("click", () =>
@@ -2566,6 +2633,18 @@ async function init() {
     .addEventListener("click", () => {
       if (!$("s-finance").classList.contains("hidden")) loadGoogleFinance();
     });
+  // The zone needs no loader: timezone.js has already read the stored
+  // preference and filled the select before this runs. Choosing one re-renders
+  // every visible time from the data already on screen — nothing is refetched
+  // and nothing stored is touched (§6.10) — so all that is left is to keep the
+  // example sentence honest and say whether the engine took the choice.
+  timeZoneEffect();
+  window.ScrapeXTime.subscribe(() => timeZoneEffect());
+  $("ui_time_zone").addEventListener("change", () => {
+    timeZoneEffect();
+    out("timezone-msg", "saving…");
+    confirmTimeZoneShared();
+  });
 
   refreshMode();
   // The opening view must be ENTERED through showView like every other one.
