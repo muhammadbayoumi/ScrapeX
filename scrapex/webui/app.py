@@ -323,7 +323,13 @@ class RefuseForeignOrigins(BaseHTTPMiddleware):
         origin = request.headers.get("origin")
         pattern = (self._any_extension if request.url.path == self.RELINK_PATH
                    else self._pattern)
-        if origin and not pattern.match(origin):
+        # Browsers include Origin on same-origin writes as well as cross-origin
+        # requests. The engine's own page is safe only when its scheme, host and
+        # port match this request exactly; TrustedHostMiddleware independently
+        # guarantees that this Host is loopback before the request reaches us.
+        engine_origin = f"{request.url.scheme}://{request.url.netloc}"
+        is_engine_page = origin == engine_origin
+        if origin and not is_engine_page and not pattern.fullmatch(origin):
             return JSONResponse(
                 status_code=403,
                 content={"detail": "This engine answers its own pages and the ScrapeX "

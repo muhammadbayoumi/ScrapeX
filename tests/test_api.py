@@ -234,10 +234,22 @@ def test_a_web_page_cannot_read_the_funnel_token_or_repoint_the_helper(client):
 
 
 def test_the_engines_own_pages_and_local_tools_still_work(client):
-    """No Origin header at all is the engine's own page, curl, or the CLI —
-    refusing those would break the product to fix the boundary."""
+    """The page is same-origin, while curl and the CLI send no Origin at all.
+
+    Browsers attach Origin to same-origin writes, so testing only the absent
+    header leaves the settings page looking authorised until its first save.
+    """
     assert client.get("/api/health").status_code == 200
     assert client.get("/").status_code == 200
+    same_engine = {"Origin": "http://testserver"}
+    assert client.get("/api/health", headers=same_engine).status_code == 200
+    assert client.post("/api/settings", json={}, headers=same_engine).status_code == 200
+
+
+def test_an_origin_that_only_looks_local_must_match_the_engine_port(client):
+    """A loopback-looking origin is not enough: origin includes the port."""
+    wrong_port = {"Origin": "http://testserver:8001"}
+    assert client.get("/api/health", headers=wrong_port).status_code == 403
 
 
 def test_the_extension_is_still_allowed(tmp_path, monkeypatch, db_path, manifest_copy):
@@ -266,6 +278,10 @@ def test_a_rebinding_host_header_is_refused(client):
     browser is concerned, carrying no Origin for the check above to catch."""
     assert client.get("/api/health",
                       headers={"Host": "attacker.example"}).status_code == 400
+    assert client.get("/api/health", headers={
+        "Host": "attacker.example",
+        "Origin": "http://attacker.example",
+    }).status_code == 400, "the same-origin exception bypassed the Host boundary"
 
 
 def test_the_allowlist_is_the_native_host_manifest_not_a_second_copy(tmp_path, monkeypatch):
