@@ -808,6 +808,19 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     assert source_list_box["width"] == pytest.approx(source_trigger_box["width"], abs=.1)
     assert page.locator("#finance-converter-currency-trigger").evaluate(
         "element => getComputedStyle(element).textAlign") in {"end", "right"}
+    source_trigger_label_style = page.locator(
+        "#finance-converter-currency-trigger [data-finance-select-label]").evaluate(
+        """element => {
+          const label = element.getBoundingClientRect();
+          const trigger = element.parentElement.getBoundingClientRect();
+          return {
+            centerDelta: Math.abs((label.top + label.height / 2) -
+                                  (trigger.top + trigger.height / 2)),
+            fontWeight: Number(getComputedStyle(element).fontWeight),
+          };
+        }""")
+    assert source_trigger_label_style["centerDelta"] <= 1
+    assert source_trigger_label_style["fontWeight"] <= 400
     selected_currency = page.locator(
         "#finance-converter-currency-list .finance-converter-option[aria-selected='true']")
     assert selected_currency.count() == 1
@@ -869,6 +882,19 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     assert target_list_box["width"] == pytest.approx(target_trigger_box["width"], abs=.1)
     assert page.locator("#finance-converter-target-trigger").evaluate(
         "element => getComputedStyle(element).textAlign") in {"end", "right"}
+    target_trigger_label_style = page.locator(
+        "#finance-converter-target-trigger [data-finance-select-label]").evaluate(
+        """element => {
+          const label = element.getBoundingClientRect();
+          const trigger = element.parentElement.getBoundingClientRect();
+          return {
+            centerDelta: Math.abs((label.top + label.height / 2) -
+                                  (trigger.top + trigger.height / 2)),
+            fontWeight: Number(getComputedStyle(element).fontWeight),
+          };
+        }""")
+    assert target_trigger_label_style["centerDelta"] <= 1
+    assert target_trigger_label_style["fontWeight"] <= 400
     target_option.click()
     converter_rows = page.locator(".finance-converter-row").evaluate_all("""elements =>
       elements.map(element => ({
