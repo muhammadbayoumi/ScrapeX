@@ -18,7 +18,7 @@
   * { min-width: 0; }
   .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
 
-  main { grid-column: 1; grid-row: 1; overflow-y: auto; padding: var(--sp-4);
+  main { grid-column: 1; grid-row: 1; overflow: hidden; padding: var(--sp-4);
          display: flex; flex-direction: column; gap: var(--sp-4);
          background: var(--surface);
          scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
@@ -29,6 +29,15 @@
     border-radius: var(--radius-pill);
     background: var(--muted);
     background-clip: padding-box;
+  }
+  /* A compatibility warning can contain several missing capabilities. Keep it
+     visible without allowing it to consume the destination's entire viewport. */
+  #version-notice {
+    flex: none;
+    max-height: min(18rem, 45%);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
   }
   h2 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em;
        color: var(--muted); margin: var(--sp-1) 0; }
@@ -192,17 +201,73 @@
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-data, #view-sources, #view-source-edit,
-  #view-appearance, #view-settings {
+  #view-run, #view-source, #view-data, #view-sources, #view-source-edit,
+  #view-appearance, #view-finance, #view-settings {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: var(--sp-3);
+    min-height: 0;
+    padding-inline-end: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
+      #view-appearance, #view-finance, #view-settings)::-webkit-scrollbar {
+    width: .45rem;
+  }
+  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
+      #view-appearance, #view-finance, #view-settings)::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
+      #view-appearance, #view-finance, #view-settings)::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    background-clip: padding-box;
+  }
+  /* Run, Finance and Settings have a fixed page introduction followed by one
+     independent scrollport. The scrollbar therefore starts exactly where the
+     moving content starts, rather than beside the fixed heading. */
+  :is(#view-run, #view-finance, #view-settings) {
+    padding-inline-end: 0;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+  }
+  .view-scroll {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--sp-3);
+    min-height: 0;
+    padding-inline-end: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+  .view-scroll::-webkit-scrollbar { width: .45rem; }
+  .view-scroll::-webkit-scrollbar-track { background: transparent; }
+  .view-scroll::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    background-clip: padding-box;
+  }
+  /* Cards retain their natural height so the inner viewport scrolls instead of
+     flexbox compressing and clipping controls in a short panel. */
+  .view-scroll > *,
+  :is(#view-source, #view-source-edit, #view-appearance) > * {
+    flex-shrink: 0;
   }
   /* Data follows the same pattern as Choose sites: the page frame stays put
      while the repeated rows scroll inside their own card. */
-  body:has(#view-data:not(.hidden)) main,
-  body:has(#view-sources:not(.hidden)) main { overflow-y: hidden; }
-  #view-data, #view-sources { flex: 1; min-height: 0; }
+  #view-data, #view-sources { overflow-y: hidden; }
   #view-data > .card, #view-sources > .card {
     display: flex;
     flex: 1;
@@ -211,6 +276,16 @@
     overflow: hidden;
   }
   .view-heading { display: flex; flex-direction: column; gap: 2px; }
+  :is(#view-run, #view-source, #view-data, #view-sources,
+      #view-appearance, #view-finance, #view-settings) > .view-heading,
+  #view-source-edit > .source-edit-heading {
+    position: sticky;
+    z-index: 2;
+    inset-block-start: 0;
+    flex: none;
+    padding-block-end: var(--sp-2);
+    background: var(--surface);
+  }
   .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
   .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
   .data-view-heading, .source-manager-heading {
@@ -1488,7 +1563,21 @@
   .finance-converter-row output {
     display: flex;
     align-items: center;
+    padding-block: 0;
+    line-height: 1;
     font-variant-numeric: tabular-nums;
+  }
+  /* Segoe UI's glyph box sits slightly below the mathematical centre of a
+     compact control. Apply the same optical correction to both values and the
+     visible select labels so the two halves share one visual baseline. */
+  .finance-converter-row input,
+  .finance-converter-row output,
+  .finance-converter-select-trigger > span {
+    position: relative;
+    inset-block-start: -1px;
+  }
+  .finance-converter-row input {
+    line-height: calc(var(--control-height-sm) - 2px);
   }
   .finance-converter-row::after {
     position: absolute;

@@ -30,6 +30,7 @@
         <p>Choose the sites to crawl, then set how this run should update their data.</p>
       </header>
 
+      <div class="view-scroll">
       <div id="setup" class="card warn hidden">
         <div class="setup-title">Engine not running</div>
         <div class="muted steps mb-2">
@@ -171,10 +172,16 @@
           </div>
         </div>
       </section>
+      </div>
     </section>
 
     <!-- =========================== SOURCE =========================== -->
     <section id="view-source" role="tabpanel" aria-labelledby="tab-source" tabindex="0">
+      <header class="view-heading">
+        <h1>Choose a Data Source</h1>
+        <p>Check a page or address, then add supported product sites to ScrapeX.</p>
+      </header>
+
       <!-- Two different jobs live on this screen, and the split is deliberate.
            ADD SITE registers a product site for PRICE TRACKING: a stable source
            with a connector, a currency, a region and a schedule, whose history
@@ -184,12 +191,6 @@
            expect price history from a one-off scrape, or expect a one-off scrape
            to survive a rebuild. -->
       <div class="source-picker">
-        <h2 class="source-picker-title">Choose a Data Source</h2>
-        <p class="hint">The first three check what a page or address exposes. General
-          extraction from any page is not built yet — today a checked address that
-          turns out to be a product site hands you to <b>Add Site</b>, which is the
-          finished path.</p>
-
         <article class="source-choice">
           <input class="source-radio" type="radio" name="data-source" id="source-current" checked>
           <label class="source-choice-label" for="source-current">
@@ -807,6 +808,7 @@
         </a>
       </header>
 
+      <div class="view-scroll">
       <section class="finance-card finance-status-card" aria-labelledby="finance-status-heading">
         <div class="finance-section-heading">
           <div>
@@ -993,6 +995,7 @@
       </section>
       <div id="finance-msg" class="muted text-sm finance-message"
            role="status" aria-live="polite"></div>
+      </div>
     </section>
 
     <!-- ========================== SETTINGS ========================== -->
@@ -1002,6 +1005,7 @@
         <p>Configure how ScrapeX runs, stores data, and sends results.</p>
       </header>
 
+      <div class="view-scroll">
       <aside class="settings-principle" aria-label="Privacy summary">
         <span class="dot on" aria-hidden="true"></span>
         <div>
@@ -1317,6 +1321,7 @@
           </article>
         </div>
       </section>
+      </div>
     </section>
   </main>
 

@@ -86,6 +86,54 @@ def test_opening_the_panel_raises_no_script_errors(open_panel):
     assert page.js_errors == [], f"the panel threw on load: {page.js_errors}"
 
 
+def test_each_destination_owns_its_scroll_and_keeps_its_heading_fixed(open_panel):
+    page = open_panel()
+    assert page.locator("main").evaluate(
+        "element => getComputedStyle(element).overflowY") == "hidden"
+
+    destinations = (
+        (SOURCE_TAB, "#view-source"),
+        (RUN_TAB, "#view-run"),
+        (DATA_TAB, "#view-data"),
+        (SOURCES_TAB, "#view-sources"),
+        (FINANCE_TAB, "#view-finance"),
+        ("#tab-appearance", "#view-appearance"),
+        (SETTINGS_TAB, "#view-settings"),
+    )
+    internally_scrolling = {
+        "#view-run", "#view-data", "#view-sources", "#view-finance", "#view-settings"}
+    for tab, view_selector in destinations:
+        page.click(tab)
+        view = page.locator(view_selector)
+        heading = view.locator(":scope > .view-heading")
+        assert heading.count() == 1
+        assert heading.evaluate(
+            "element => getComputedStyle(element).position") == "sticky"
+        overflow = view.evaluate(
+            "element => getComputedStyle(element).overflowY")
+        assert overflow == ("hidden" if view_selector in internally_scrolling else "auto")
+        if view_selector in {"#view-run", "#view-finance", "#view-settings"}:
+            body = view.locator(":scope > .view-scroll")
+            assert body.count() == 1
+            assert body.evaluate(
+                "element => getComputedStyle(element).overflowY") == "auto"
+            heading_box = heading.bounding_box()
+            body_box = body.bounding_box()
+            assert heading_box and body_box
+            assert body_box["y"] >= heading_box["y"] + heading_box["height"]
+
+    page.click(SETTINGS_TAB)
+    settings = page.locator("#view-settings > .view-scroll")
+    heading = page.locator("#view-settings > .view-heading")
+    page.wait_for_timeout(150)
+    before = heading.bounding_box()
+    page.evaluate("() => { document.querySelector('#view-settings > .view-scroll').scrollTop = 240; }")
+    page.wait_for_timeout(100)
+    after = heading.bounding_box()
+    assert settings.evaluate("element => element.scrollTop") > 0
+    assert before and after and after["y"] == pytest.approx(before["y"], abs=.1)
+
+
 def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel):
     page = open_panel()
     page.evaluate("""() => {
@@ -739,7 +787,9 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     switch.click()
     page.wait_for_timeout(350)
     assert not switch.is_checked()
+    track_box = page.locator(".finance-m3-switch-track").bounding_box()
     handle_box = handle.bounding_box()
+    assert track_box
     assert handle_box and handle_box["width"] == pytest.approx(14, abs=.1)
     assert handle_box["height"] == pytest.approx(14, abs=.1)
     assert handle_box["x"] - track_box["x"] == pytest.approx(7, abs=.1)
@@ -752,6 +802,12 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     switch.click()
     page.wait_for_timeout(350)
     assert switch.is_checked()
+    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    handle_box = handle.bounding_box()
+    assert track_box and handle_box
+    assert track_box["x"] + track_box["width"] - handle_box["x"] - handle_box["width"] \
+        == pytest.approx(4, abs=.1)
+    assert handle_box["y"] - track_box["y"] == pytest.approx(4, abs=.1)
     assert text_of(page, "#finance-save") == "Saved"
     assert not page.locator("#finance-save").is_visible()
     page.fill("#google_finance_refresh_hours", "12")
@@ -959,6 +1015,32 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     page.click(".finance-preferences-card > summary")
     assert page.locator("details.finance-preferences-card:not([open])").count() == 1
     assert not page.locator(".finance-settings-surface").is_visible()
+
+
+def test_finance_cards_keep_their_content_when_the_panel_is_short(open_panel):
+    page = open_panel()
+    page.set_viewport_size({"width": 360, "height": 320})
+    page.click(FINANCE_TAB)
+    page.click(".finance-preferences-card > summary")
+
+    layout = page.evaluate("""() => {
+      const view = document.querySelector('#view-finance > .view-scroll');
+      const card = document.querySelector('.finance-preferences-card');
+      const saved = document.querySelector('#finance-saved-state');
+      const cardRect = card.getBoundingClientRect();
+      const savedRect = saved.getBoundingClientRect();
+      return {
+        viewScrolls: view.scrollHeight > view.clientHeight,
+        cardIsClipped: card.scrollHeight > card.clientHeight,
+        savedInsideCard: savedRect.bottom <= cardRect.bottom + 0.1,
+      };
+    }""")
+    assert layout == {
+        "viewScrolls": True,
+        "cardIsClipped": False,
+        "savedInsideCard": True,
+    }
+    assert page.locator("#finance-saved-summary").is_visible()
 
 
 def test_rate_status_color_follows_automatic_refresh_policy(open_panel):
@@ -2057,7 +2139,14 @@ def test_an_extension_older_than_its_engine_is_told_all_five_facts(open_panel):
     assert "chrome://extensions" in text, "5: how to update is missing"
     # It must be readable without hunting: the engine's own status lives in a
     # collapsed settings panel, and this cannot.
-    assert page.is_visible("#view-source")
+    source_view_state = page.locator("#view-source").evaluate("""element => ({
+      className: element.className,
+      display: getComputedStyle(element).display,
+      height: element.getBoundingClientRect().height,
+      mainHeight: element.parentElement.getBoundingClientRect().height,
+      noticeHeight: document.querySelector('#version-notice').getBoundingClientRect().height,
+    })""")
+    assert page.is_visible("#view-source"), source_view_state
     assert not page.js_errors
 
 
