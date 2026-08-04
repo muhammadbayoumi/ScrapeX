@@ -42,7 +42,7 @@ from ..databases import (
 from ..jobs import (JobRunner, create_job, get_job, job_log_count, job_logs,
                     list_jobs, set_control, worker_health)
 from ..fields import (
-    delete_view, ensure_fields, list_fields, list_views, promotable_attributes,
+    arranged, delete_view, ensure_fields, list_fields, list_views, promotable_attributes,
     reorder, reset_view, save_view, set_display_name, set_promotion,
     set_visibility, visible_columns,
 )
@@ -76,7 +76,7 @@ from ..storage import compact as storage_compact
 from ..probe import probe as probe_url
 from ..ui_manifest import ui_manifest, workspace_navigation_groups
 from ..reports import (
-    BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_google_finance_rates,
+    BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_columns, browse_google_finance_rates,
     browse_observations, column_presence,
     crawl_history, facet_options, parse_filters, watch,
     data_model_report, export_source_table, google_finance_status, history_counts,
@@ -1649,11 +1649,19 @@ def create_app(
             # does not publish — and they then showed up in the manage list
             # forever, because ensure_fields is additive by design.
             present = column_presence(conn, source_key)
+            # Seeded in the AGREED order, not the order the list happens to be
+            # written in: ensure_fields assigns display_order by insertion, so
+            # a source registered here would otherwise carry the unsorted order
+            # the moment its owner arranges anything.
             ensure_fields(conn, source_key,
-                          [key for key, _ in BROWSE_COLUMNS if key in present])
+                          [key for key, _ in browse_columns() if key in present])
             conn.commit()
             return {"source_key": source_key, "fields": list_fields(conn, source_key),
-                    "views": list_views(conn, source_key)}
+                    "views": list_views(conn, source_key),
+                    # Whose order this is. The panel says it out loud, because an
+                    # owner who arranged his columns should never have to wonder
+                    # whether an update replaced them.
+                    "order_source": "yours" if arranged(conn, source_key) else "agreed"}
         finally:
             conn.close()
 

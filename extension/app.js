@@ -1271,6 +1271,95 @@ function renderSourceManager() {
     button.addEventListener("click", () => openSourceEditor(button.dataset.editSource)));
 }
 
+// ---- which columns a source shows, from the panel ---------------------------
+//
+// Owner ruling, 2026-08-01: «انا عاوز extension غرفة التحكم فى كل شى — يعنى
+// مينفعش يكون فى ميزة على الويب لا توجد فى extension».
+//
+// The same endpoint the web page's chooser uses — /api/fields/{source} — because
+// two writers of one order is how the grid and the chooser came to disagree in
+// the first place. The panel is the control room; it does not get its own path
+// to the same fact.
+
+async function loadSourceColumns(sourceKey) {
+  const list = $("source-columns-list");
+  const origin = $("source-columns-origin");
+  if (!list) return;
+  list.innerHTML = "";
+  out("source-columns-result", "");
+  try {
+    const answer = await api("/api/fields/" + encodeURIComponent(sourceKey));
+    const fields = answer.fields || [];
+    // Whose order this is. The owner should never have to wonder whether an
+    // update replaced an arrangement he made.
+    origin.textContent = answer.order_source === "yours"
+      ? "This is the order you arranged."
+      : "This is the agreed order — identity, then the offer, then the filing.";
+    if (!fields.length) {
+      list.innerHTML = `<li class="muted text-xs">This source has no columns yet — it has not been crawled.</li>`;
+      return;
+    }
+    fields.forEach((field, index) => {
+      const item = document.createElement("li");
+      item.className = "row source-column-row";
+      const shown = !field.is_hidden;
+      item.innerHTML =
+        `<label class="row gap-1"><input type="checkbox" data-column-visible="${esc(field.field_key)}"` +
+        `${shown ? " checked" : ""}> <span>${esc(field.display_name || field.original_name || field.field_key)}</span></label>` +
+        `<span class="spacer"></span>` +
+        `<button type="button" class="ghost compact" data-column-up="${esc(field.field_key)}"` +
+        `${index === 0 ? " disabled" : ""} aria-label="Move up">↑</button>` +
+        `<button type="button" class="ghost compact" data-column-down="${esc(field.field_key)}"` +
+        `${index === fields.length - 1 ? " disabled" : ""} aria-label="Move down">↓</button>`;
+      list.append(item);
+    });
+    state.sourceColumns = fields.map((field) => field.field_key);
+  } catch (err) {
+    list.innerHTML = "";
+    out("source-columns-result", "could not read the columns: " + esc(err.message), "err");
+  }
+}
+
+async function saveSourceColumns(sourceKey, body) {
+  out("source-columns-result", "saving…");
+  try {
+    await post("/api/fields/" + encodeURIComponent(sourceKey), body);
+  } catch (err) {
+    out("source-columns-result", "not saved: " + esc(err.message), "err");
+    return;
+  }
+  await loadSourceColumns(sourceKey);
+  out("source-columns-result", "saved — the table and the export both follow this", "ok");
+}
+
+function wireSourceColumns() {
+  const list = $("source-columns-list");
+  if (!list) return;
+  list.addEventListener("change", (event) => {
+    const key = event.target.dataset && event.target.dataset.columnVisible;
+    if (!key) return;
+    saveSourceColumns(state.editingSourceKey,
+                      {field_key: key, hidden: !event.target.checked});
+  });
+  list.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-column-up],[data-column-down]");
+    if (!button) return;
+    const key = button.dataset.columnUp || button.dataset.columnDown;
+    const order = (state.sourceColumns || []).slice();
+    const at = order.indexOf(key);
+    const to = button.dataset.columnUp ? at - 1 : at + 1;
+    if (at < 0 || to < 0 || to >= order.length) return;
+    order[at] = order[to];
+    order[to] = key;
+    saveSourceColumns(state.editingSourceKey, {order});
+  });
+  const reset = $("source-columns-reset");
+  if (reset) {
+    reset.addEventListener("click", () =>
+      saveSourceColumns(state.editingSourceKey, {reset: true}));
+  }
+}
+
 function renderSourceEditor(source) {
   state.editingSourceKey = source.source_key;
   $("source-edit-identity").innerHTML = sourceIdentity(
@@ -1294,6 +1383,7 @@ function renderSourceEditor(source) {
   out("source-edit-rename-result", "");
   out("source-edit-danger-result", "");
   $("source-edit-holds").textContent = "…";
+  loadSourceColumns(source.source_key);
   $("source-edit-wipe-scope").textContent = "";
   // What it HOLDS, fetched rather than guessed: a destructive button that says
   // how much it is about to erase is the difference between a choice and a
@@ -3075,6 +3165,7 @@ async function init() {
     }));
 
   wireRuntimeRepair();
+  wireSourceColumns();
   $("setup-recheck").addEventListener("click", render);
   $("engine-start").addEventListener("click", startEngineFromPanel);
   $("runtime-check-action").addEventListener("click", async () => {

@@ -698,6 +698,31 @@
         </div>
       </form>
 
+      <!-- WHICH COLUMNS THIS SOURCE SHOWS, AND IN WHAT ORDER.
+           Owner ruling: no capability may exist on the web page that is absent
+           from this panel. Choosing columns lived only on the web page —
+           /api/fields was called from grid.js and from nowhere else — so the
+           control room could not do the one thing the owner most often wants
+           to do to a table. His words are quoted in app.js, where the logic is:
+           this file is interface, and Arabic here is data, never chrome.
+           Reordering here is Up/Down rather than drag: the panel is a narrow
+           column and a drag target that thin is a control you fight. -->
+      <section class="card" aria-labelledby="source-edit-columns-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="source-edit-columns-heading">Columns</h2>
+            <p>What this source shows, and in what order.</p>
+          </div>
+          <button type="button" id="source-columns-reset" class="ghost compact">Reset to agreed order</button>
+        </div>
+        <!-- Says WHOSE order is on screen. An owner who has arranged his
+             columns should not have to wonder whether an update replaced them,
+             and one who has not should know the order is ours to improve. -->
+        <p id="source-columns-origin" class="hint" role="status" aria-live="polite"></p>
+        <ul id="source-columns-list" class="stack" aria-live="polite"></ul>
+        <span id="source-columns-result" class="hint" role="status" aria-live="polite"></span>
+      </section>
+
       <!-- TWO actions, never one. The owner's ruling: stopping a source and
            erasing its data are different things with different outcomes, so
            neither can be mistaken for the other. Each says what it keeps. -->
