@@ -138,6 +138,44 @@ sources:
         #
         # A store-wide weight_unit is the shop saying "my weight numbers are in
         # kg". It is not the shop saying what one of THIS product is.
+        #
+        # 3./4. THE SAME TWO FIELDS, READ AS A PLAIN QUANTITY. «المقاس: 3.25 Kg»
+        #    is the shop stating what one of these is, in the same option value
+        #    the container witness above reads — it simply names a weight
+        #    instead of a box. Ranked BELOW the containers so «4 كجم/صندوق»
+        #    still resolves as a box: measured over all 3,550 active offers,
+        #    these two witnesses alter ZERO container readings.
+        #
+        #    This is what a full rebuild could never fix, and I recorded the
+        #    opposite in 0060. The owner ran one on 2026-08-04; all 74
+        #    unwitnessed readings came back identical, because re-fetching
+        #    cannot teach a charter to look at a field it was never pointed at.
+        #
+        #    Measured on the live warehouse before writing this: 55 legacy rows
+        #    gain a witness WITHOUT ANY NUMBER CHANGING — the axis says 3.25 Kg
+        #    and the row already said 3.25 kg, it just could not say who told
+        #    it. 32 more offers carry no unit at all today (basis 1.0, unit
+        #    NULL) and gain one the shop states, e.g. «Size: 320 g». Zero rows
+        #    with a stored unit are contradicted.
+        #
+        #    TWO SEPARATE DEFENCES STOP THIS BEING A DISASTER, and I first
+        #    wrote that only one did. These option values also carry «amperage:
+        #    20A» (54 of them), «gangs: 1 Gang» (190), «Poles: 1P», «Feature:
+        #    2BB», «Size: 8 In» and «Size: 20 mm», and a rule that read "a
+        #    number then a word" would announce that one of these is twenty
+        #    amperes.
+        #
+        #      - A, Gang, P, BB, In are refused by units.py's UNIT_WORDS: they
+        #        are not measurements at all, and no charter can admit them.
+        #        Adding "a" to the pack below changes nothing — verified.
+        #      - mm and cm ARE real measurements and are refused by the pack
+        #        list, which says which measurements can be a SELLING unit
+        #        here. This is the line that would break if someone widened it.
+        #
+        #    «Size: 1 Ton» does resolve, to one tonne, because tonne is on the
+        #    pack list and a tonne of steel is a thing this shop sells.
+        - {field: variant_axes_ar, lang: ar, provenance: stated_field, shape: quantity}
+        - {field: variant_axes,    lang: en, provenance: stated_field, shape: quantity}
       # The site writes the SAME container in two languages, and this maps both
       # to one code. Measured: without it «صندوق» (16) and "box" (24) become two
       # different selling units for one shop's box, and two prices for the same
