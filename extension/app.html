@@ -35,6 +35,12 @@
         <div class="setup-title">Engine not running</div>
         <div class="muted steps mb-2">
           <span id="engine-note">Start it from here — no terminal needed.</span>
+          <!-- The rich form of the same news. setRuntimeIssue() renders a title,
+               a sentence and, where one exists, the button that repairs it —
+               and it has been reaching for this element since 04687f3 while
+               only the plain line above existed, so the panel could name a
+               database lag and never offer the Upgrade that ends it. -->
+          <div id="engine-error" class="card warn hidden" role="status"></div>
           First time? <button type="button" class="link" id="how">Open setup</button>.
         </div>
         <button id="engine-start">Start engine</button>
@@ -1071,6 +1077,9 @@
                   </button>
                 </div>
                 <div id="runtime-note" class="muted text-xs" role="status"></div>
+                <!-- Its twin, beside the repair buttons: this is where the
+                     owner already is when something is wrong with the runtime. -->
+                <div id="runtime-error" class="card warn hidden" role="status"></div>
                 <div id="diag-out" class="muted text-xs"></div>
               </div>
               <section class="engine-connection-surface" aria-labelledby="engine-url-label">
