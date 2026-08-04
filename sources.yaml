@@ -817,6 +817,15 @@ sources:
     # the warehouse marked active with nothing in the code able to crawl or
     # update them. That is 22% of every offer this warehouse holds. Restored
     # here so the data has a definition again.
+    # Everything below is READ OFF THE SHOP, not inferred. /meta.json,
+    # 2026-08-03: {"name":"Spark","city":"El Weili","province":"Cairo",
+    # "country":"EG","currency":"EGP","ships_to_countries":["EG"],
+    # "money_format":"LE {{amount}}","published_products_count":1789}. The
+    # storefront's <html lang> is "en" and every product title is English —
+    # "Himel Variable Speed Drive VFD, 380V 3-Phase Motor Control".
+    #
+    # The first draft asserted EGP and EG without asking. They happened to be
+    # right, and a guess that turns out right is still a guess.
     source_name_ar: سبارك إي شوب
     source_name: Spark eShop
     base_url: https://www.spark-eshop.com/
@@ -826,6 +835,10 @@ sources:
     active: false
     currency: EGP
     default_region: EG
+    # UNVERIFIED, and the one field here nobody has checked. Egypt charges 14%
+    # VAT and the shop prints "LE {{amount}}" with no statement either way; the
+    # cart would settle it in one look, and until someone looks this is the
+    # cautious reading rather than a finding. Do not cite it as evidence.
     vat_mode: incl
     extract:
       - kind: product_prices
@@ -839,8 +852,21 @@ sources:
     min_expected_rows: 50
     max_drop_pct: 50
     notes: >-
-      Shopify storefront. Declared after the fact: the source already held
+      Shopify storefront, declared after the fact: the source already held
       1,789 products and 3,149 offers from the 2026-08-03 run when its
       manifest entry was found to be missing. Left inactive until the owner
-      schedules it, so nothing crawls on a definition nobody has reviewed
-      against the live site.
+      schedules it.
+
+
+      THE ROWS ALREADY IN THE WAREHOUSE ARE NOT TRUSTWORTHY, and the counts
+      say so. Audited 2026-08-03 against the live shop: currency is UNKNOWN on
+      all 3,149 observations where the shop states EGP; country is '*' on all
+      3,149 where the shop ships only to EG; product_name is EMPTY on all
+      1,789 while the ENGLISH titles sit in product_name_ar, which inverts the
+      bilingual rule — 'ABB 1SDA100487R1 | XT5H 630 TMA 630-6300' is not
+      Arabic; and there are zero attribute rows, so not one of the images the
+      shop publishes was stored. The last is explained by the missing
+      enrichment kind and is fixed above. The first three are not explained,
+      and a re-crawl is what would replace them — not a repair of these rows,
+      because rewriting a stored observation is the one thing this project
+      does not do.
