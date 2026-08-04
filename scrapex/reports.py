@@ -719,6 +719,21 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     ("discount", "Discount"),
     ("discount_pct", "Discount %"),
     ("unit", "Unit"),
+    # HOW THE PAGE PRESENTS IT — single, options_priced, options_one_price or
+    # member_list. It answers the question a reader asks first when one product
+    # occupies four rows: what KIND of row is this. Captured for 868 of MADAR's
+    # 869 products since 0056 and shown nowhere until now; the owner asked for
+    # «عمود نظام العرض» by name.
+    ("display_method", "Display method"),
+    # WHAT MAKES THE PRICE OBTAINABLE. Cement is 450 bags in steps of 450 — the
+    # price exists only at 22.5 tonnes an order — and 3,531 offers carry these
+    # two while no surface has ever shown either. They qualify the price, so
+    # they sit with it.
+    ("minimum_quantity", "Minimum quantity"),
+    ("quantity_increment", "Quantity step"),
+    # The shop's own count, on 1,303 observations. Beside availability, because
+    # "in stock" and "nine left" answer the same question at two resolutions.
+    ("stock_quantity", "Stock count"),
     ("availability", "Availability"),
     ("tax", "Tax"),
     ("price_changed_on", "Price changed on"),
@@ -757,7 +772,10 @@ for _key, _label in BROWSE_COLUMNS:
     if _key.startswith("category") or _key in ("brand", "brand_ar"):
         COLUMN_BLOCK[_key] = Block.FILING
     elif _key in ("product_name", "product_name_ar", "sku", "variant", "variant_ar",
-                  "country_code_alpha2"):
+                  "country_code_alpha2",
+                  # It answers 'what KIND of row is this' — one product, or one
+                  # of several priced options. That is which thing the row is.
+                  "display_method"):
         COLUMN_BLOCK[_key] = Block.IDENTITY
     elif _key in ("price_changed_on", "last_confirmed_on", "official_source",
                   "curation", "product_link", "observations"):
@@ -1871,6 +1889,17 @@ def fold_variant_rows(rows: list[dict]) -> list[dict]:
     return folded
 
 
+def _plain(value) -> str:
+    """A number the shop published, written the way it published it — no
+    trailing .0 on a whole one, because 450 is what it said and 450.0 is not."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    whole = int(number)
+    return str(whole) if number == whole else str(number)
+
+
 def table_payload(conn: sqlite3.Connection, source_key: str,
                   limit: int = TABLE_ROW_CAP, fold_variants: bool = False) -> dict:
     """Every row of one source, shaped for a client-side grid.
@@ -1943,7 +1972,15 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # Appended LAST, obeying the rule stated twice above: the three facts
         # that let the price cell say what one unit of the price buys where the
         # shop quotes by weight and names no unit (0057).
-        "       so.quantity_is_decimal, so.weight, so.weight_unit "
+        "       so.quantity_is_decimal, so.weight, so.weight_unit, "
+        # THE FOUR THAT WERE CAPTURED AND SHOWN NOWHERE. display_method is
+        # filled for 868 of MADAR's 869 products, minimum_quantity and
+        # quantity_increment for 3,531 offers, and a stock count for 1,303
+        # observations — and until now every one lived in rowspec.py and the
+        # warehouse and no reader could reach any of it. The owner asked for
+        # «عمود نظام العرض» by name.
+        "       sp.display_method, so.minimum_quantity, so.quantity_increment, "
+        "       po.stock_quantity "
         f"{_LATEST_PER_OFFER} ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
         (source_key, limit)).fetchall()
 
@@ -1966,7 +2003,13 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                               .for_row(tax_included).as_dict())
         return tax_index[key]
 
-    shaped = [{"product_name_ar": r[0], "variant_ar": r[1] or "", "variant": r[30] or "",
+    shaped = [{# Indexed from the END, so appending another column later cannot
+               # silently shift these four onto the wrong values.
+               "display_method": r[-4] or "",
+               "minimum_quantity": "" if r[-3] is None else _plain(r[-3]),
+               "quantity_increment": "" if r[-2] is None else _plain(r[-2]),
+               "stock_quantity": "" if r[-1] is None else _plain(r[-1]),
+               "product_name_ar": r[0], "variant_ar": r[1] or "", "variant": r[30] or "",
                # The variation's own page where there is one; the row's arrow
                # and the record panel both open the most specific address.
                "product_link": r[31] or r[9] or "",
@@ -2178,6 +2221,27 @@ def _tree_shape(rows: list[dict]) -> dict:
 # product must describe the product AS IT IS. Columns whose name is due to
 # change say so, in RENAMING_TO below, instead of pretending it already did.
 COLUMN_NOTES: dict[str, str] = {
+    "display_method": (
+        "How the site itself presents this product, in its own terms: `single` "
+        "for one product with one price, `options_priced` where each option "
+        "carries its own price, `options_one_price` where the options share "
+        "one, and `member_list` for a product that is a list of other products. "
+        "It is why one product can occupy four rows, and it is the site's "
+        "structure — not a judgement about the product."),
+    "minimum_quantity": (
+        "The smallest amount the shop will sell at this price. Cement is 450 "
+        "bags: below that the price on the row is not obtainable at all. Blank "
+        "means the shop states no minimum, which is not the same as a minimum "
+        "of one."),
+    "quantity_increment": (
+        "The step the shop sells in. Rebar moves in 0.05 of its basis and "
+        "cement in whole pallets of 450, so a quantity between two steps "
+        "cannot be ordered. Read it beside the minimum: together they say "
+        "which amounts exist."),
+    "stock_quantity": (
+        "The shop's own count of what is left, where it publishes one. A "
+        "published 0 is a fact and is shown as 0; a blank means the shop said "
+        "nothing, and the Availability column is then the only answer there is."),
     "product_name": "The product's name in English, where the source publishes one.",
     "product_name_ar": "The same name in Arabic, where the source publishes one.",
     "country_code_alpha2": "The country the price applies to, as an ISO 3166-1 alpha-2 code.",
