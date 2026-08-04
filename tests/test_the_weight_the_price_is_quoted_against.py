@@ -551,7 +551,7 @@ def test_migration_0057_adds_the_two_columns_without_touching_offer_identity():
         columns = {r[1] for r in conn.execute("PRAGMA table_info(source_offer)")}
         assert "weight" not in columns and "weight_unit" not in columns
 
-        assert dbmod.migrate(conn) == [57, 58]   # 0058 rides along: it adds the
+        assert dbmod.migrate(conn) == [57, 58, 59]   # 0058 rides along: it adds the
             # witness columns 0057's units will need, and the chain runs forward
 
         columns = {r[1]: r for r in conn.execute("PRAGMA table_info(source_offer)")}

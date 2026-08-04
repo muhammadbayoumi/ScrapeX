@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 from . import fields, rates, tax
 from .normalize import option_axes_from
-from .vocab import DETAIL_GROUP_ORDER
+from .vocab import BLOCK_ORDER, Block, DETAIL_GROUP_ORDER
 
 
 @dataclass
@@ -741,6 +741,46 @@ BROWSE_COLUMNS: list[tuple[str, str]] = [
     # list where it is written out in full.
     ("product_link", ""),
 ]
+
+
+# WHICH PART OF THE SENTENCE EACH COLUMN IS. The list above keeps the order its
+# authors gave it and every comment they wrote; this says where each block of it
+# belongs when the table is read. Two facts stay separate on purpose: what a
+# column IS (above) and where it SITS (here), so adding a column means naming
+# its block rather than finding a line number.
+#
+# The owner's agreed order is identity, then the offer, then the filing. Before
+# it, MADAR opened with eighteen columns before the price and ten of them were
+# classification.
+COLUMN_BLOCK: dict[str, Block] = {}
+for _key, _label in BROWSE_COLUMNS:
+    if _key.startswith("category") or _key in ("brand", "brand_ar"):
+        COLUMN_BLOCK[_key] = Block.FILING
+    elif _key in ("product_name", "product_name_ar", "sku", "variant", "variant_ar",
+                  "country_code_alpha2"):
+        COLUMN_BLOCK[_key] = Block.IDENTITY
+    elif _key in ("price_changed_on", "last_confirmed_on", "official_source",
+                  "curation", "product_link", "observations"):
+        COLUMN_BLOCK[_key] = Block.PROVENANCE
+    else:
+        COLUMN_BLOCK[_key] = Block.OFFER
+del _key, _label
+
+
+def browse_columns() -> list[tuple[str, str]]:
+    """BROWSE_COLUMNS in the order the owner agreed to read them.
+
+    A stable sort by block and nothing else, so every column keeps the place
+    its author chose INSIDE its block and the category levels keep coming from
+    _level_columns() — raising CATEGORY_LEVELS stays the one-line change this
+    file promises.
+    """
+    return sorted(BROWSE_COLUMNS, key=lambda pair: BLOCK_ORDER.index(COLUMN_BLOCK[pair[0]]))
+
+
+# Where a key sits when nobody has arranged this source by hand. Built from the
+# agreed order, so the three surfaces cannot disagree by construction.
+COLUMN_RANK: dict[str, int] = {key: rank for rank, (key, _) in enumerate(browse_columns())}
 
 # The bilingual pairs, declared ONCE (owner's standing rule: a site that
 # publishes both languages is captured in both). Everything downstream reads
@@ -2043,8 +2083,18 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
 
     return {
         "source_key": source_key,
-        "columns": [{"key": key, "label": labels[key]} for key, label in BROWSE_COLUMNS
-                    if key in present and key not in hidden]
+        # MEMBERSHIP is unchanged — present, and not hidden. Only the ORDER
+        # moved, and it moved to the one answer every surface now shares.
+        # Before this, the grid read the literal list above and the
+        # Choose-Columns panel and the export read dataset_field.display_order,
+        # so dragging a column saved, reloaded the page, and changed nothing on
+        # screen. The site-named extras keep following the agreed ones, as they
+        # always have.
+        "columns": [{"key": key, "label": labels[key]}
+                    for key in fields.column_order(
+                        conn, source_key,
+                        [key for key, _ in BROWSE_COLUMNS
+                         if key in present and key not in hidden])]
                    # Named the way the SITE names them, like the export.
                    + [{"key": label, "label": label} for label in extra
                       if label not in hidden],

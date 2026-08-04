@@ -52,6 +52,38 @@ class Cadence(StrEnum):
     MONTHLY = "monthly"
 
 
+class Block(StrEnum):
+    """Which part of the sentence a MAIN-TABLE column belongs to.
+
+    DetailGroup below files a fact into the record panel. This files a column
+    into the table itself, and they are different questions: a column can be
+    in the table and still belong to a block, and a fact can be in a group and
+    never be a column at all.
+
+    The owner's agreed reading order, «الهوية ثم العرض ثم التصنيف»:
+
+      IDENTITY    which thing this row is — the name, the sku, the variant
+      OFFER       what it costs and on what terms — the reason the table exists
+      FILING      where the shop files it — brand, category, every level
+      PROVENANCE  where the row came from and when it was last true
+
+    It exists because the table opened with twenty-seven filing columns before
+    the price. Measured on the owner's MADAR: price at grid index 18, and ten
+    of the eighteen before it were classification.
+    """
+
+    IDENTITY = "identity"
+    OFFER = "offer"
+    FILING = "filing"
+    PROVENANCE = "provenance"
+
+
+# The reading order itself. A column's block decides where it sits; its
+# position inside the block stays exactly where its author put it.
+BLOCK_ORDER: tuple[Block, ...] = (
+    Block.IDENTITY, Block.OFFER, Block.FILING, Block.PROVENANCE)
+
+
 class DetailGroup(StrEnum):
     """Where a detail is filed in the record panel. Owner ruling
     2026-07-26: FIVE groups, and anything a future site publishes goes

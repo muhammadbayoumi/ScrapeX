@@ -83,6 +83,53 @@ def hidden_columns(conn: sqlite3.Connection, source_key: str) -> set[str]:
         (source_key,))}
 
 
+def arranged(conn: sqlite3.Connection, source_key: str) -> bool:
+    """Has a person arranged this source's columns, or is it still the default?
+
+    The distinction decides which order every surface shows. A default is ours
+    to improve; an arrangement is his, and the day we "correct" one is the day
+    the product overwrote its owner.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM dataset_field WHERE source_key = ? AND arranged_at IS NOT NULL "
+        "LIMIT 1", (source_key,)).fetchone()
+    return row is not None
+
+
+def column_order(conn: sqlite3.Connection, source_key: str,
+                 keys: list[str]) -> list[str]:
+    """The order to show `keys` in — the ONE answer all three surfaces use.
+
+    Until now there were three. The grid read a literal list in reports.py, the
+    Choose-Columns panel and the export read dataset_field.display_order, and
+    they disagreed at position 0: MADAR opened product_name on the grid and
+    product_name_ar in the panel, with price 18th against 13th. So the only
+    reorder control the product has — the drag handles in Choose Columns —
+    saved, reloaded the page, and changed nothing the owner could see.
+
+    Not arranged: the agreed reading order, identity then the offer then the
+    filing, computed from reports.COLUMN_RANK. Anything with no rank keeps its
+    given position, after the ranked ones, so a column this file has never
+    heard of is never dropped.
+
+    Arranged: his display_order, exactly. No blending, no "improving" — a
+    default we may replace and an arrangement we may not are different things.
+    """
+    from . import reports
+
+    if arranged(conn, source_key):
+        stored = {row["field_key"]: row["display_order"]
+                  for row in conn.execute(
+                      "SELECT field_key, display_order FROM dataset_field "
+                      "WHERE source_key = ?", (source_key,))}
+        ceiling = len(stored) + len(keys)
+        return sorted(keys, key=lambda key: (stored.get(key, ceiling), key))
+    ceiling = len(reports.COLUMN_RANK)
+    return [key for _, key in sorted(
+        enumerate(keys),
+        key=lambda pair: reports.COLUMN_RANK.get(pair[1], ceiling + pair[0]))]
+
+
 def set_display_name(conn: sqlite3.Connection, source_key: str, field_key: str,
                      display_name: str | None) -> bool:
     """Rename the LABEL. field_key and original_name are untouched, so a rename
@@ -119,13 +166,21 @@ def reorder(conn: sqlite3.Connection, source_key: str, ordered_keys: list[str]) 
         conn.execute(
             "UPDATE dataset_field SET display_order = ? WHERE source_key = ? AND field_key = ?",
             (position, source_key, field_key))
+    # This is the only path a PERSON can reach — the drag handles and the
+    # Arrow Up/Down keys in Choose Columns both land here. Stamping it is what
+    # lets every surface tell an arrangement from a default, which is the whole
+    # reason a stored order can be trusted at all (0059).
+    conn.execute(
+        "UPDATE dataset_field SET arranged_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+        "WHERE source_key = ?", (source_key,))
 
 
 def reset_view(conn: sqlite3.Connection, source_key: str) -> None:
     """Restore the default: original names, everything visible, discovery order."""
     conn.execute(
         "UPDATE dataset_field SET display_name = NULL, is_hidden = 0, "
-        "display_order = dataset_field_id WHERE source_key = ?", (source_key,))
+        "display_order = dataset_field_id, arranged_at = NULL "
+        "WHERE source_key = ?", (source_key,))
 
 
 # ---- saved views -------------------------------------------------------------

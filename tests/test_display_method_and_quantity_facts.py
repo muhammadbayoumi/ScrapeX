@@ -575,7 +575,7 @@ def test_migration_0056_corrects_has_variants_on_rows_that_already_exist():
                          " VALUES (2, ?)", (member,))
         conn.commit()
 
-        assert dbmod.migrate(conn) == [56, 57, 58]
+        assert dbmod.migrate(conn) == [56, 57, 58, 59]
 
         flags = dict(conn.execute(
             "SELECT external_product_id, has_variants FROM source_product"))
