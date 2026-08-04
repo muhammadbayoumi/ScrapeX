@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from scrapex import db as dbmod
+from scrapex import db as dbmod, fields
 from scrapex.reports import (BILINGUAL_COLUMNS, CATEGORY_LEVELS,
                             _category_leaf, fold_variant_rows,
                             recent_observations, source_summary,
@@ -255,6 +255,12 @@ def test_each_variation_axis_becomes_its_own_export_column(conn):
         one_row(external_variant_id="v2", variant_ar="Color: أخضر",
                 variant_axes_ar='{"Color":"أخضر"}', price="99.00"),
     ])])
+    # An axis is a detail until the owner promotes it (2026-08-04): madar
+    # reached 59 axis columns, 33 of them non-empty on under 1% of its rows.
+    # This test's finding is about the SHAPE a column takes when there IS
+    # one - welding two facts into one cell would still be wrong - so it
+    # asks for the column, then asserts exactly what it always asserted.
+    fields.set_promotion(conn, "ELSEWEDYSHOP", fields.AXIS_PREFIX + "Color", True)
     header, table = export_source_table(conn, "ELSEWEDYSHOP")
 
     assert "Color" in header, "the axis never became a column"
@@ -273,6 +279,9 @@ def test_site_columns_share_one_group_order_in_table_and_export(conn):
     ingest_payloads(conn, make_entry(), [make_payload([
         one_row(variant_ar="Color: أحمر",
                 variant_axes_ar='{"Color":"أحمر"}')])])
+    # The subject here is the FILTER order; the axis proves it sits ahead
+    # of them, so it is asked for rather than expected unbidden.
+    fields.set_promotion(conn, "ELSEWEDYSHOP", fields.AXIS_PREFIX + "Color", True)
     product_id = conn.execute(
         "SELECT source_product_id FROM source_product").fetchone()[0]
     attributes = [

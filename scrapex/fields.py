@@ -239,6 +239,55 @@ def apply_schema(conn: sqlite3.Connection, source_key: str, header: list[str],
 # an attribute became a column only where the site published it as a facet, so
 # madar got 64 and sika, whose shop publishes none, got nothing at all.
 
+# An axis and an attribute can share a name — madar publishes «المقاس» as both a
+# variation axis and a product specification — so a promotion has to say WHICH
+# it promoted. The prefix is stored, never displayed.
+AXIS_PREFIX = "axis:"
+
+
+def promotable_axes(conn: sqlite3.Connection, source_key: str) -> list[dict]:
+    """Every variation axis this source publishes, with how many products carry it.
+
+    An axis is what the SHOP varies a product by — a 20mm blade against a 30mm
+    one. Until now every axis became a main-table column the moment it was
+    first seen, with no way to send it back, because the chooser only ever read
+    source_product_attribute. Madar reached 59 of them, 33 non-empty on under
+    1% of its rows, and the owner asked three times to have them moved.
+
+    Counted per PRODUCT rather than per variant, so the number means the same
+    thing as the attribute counts beside it in the chooser.
+    """
+    rows = conn.execute(
+        "SELECT sv.variant_axes, sv.variant_axes_ar, sp.source_product_id "
+        "FROM source_variant sv "
+        "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND sv.status = 'active' AND sp.status = 'active'",
+        (source_key,)).fetchall()
+    seen: dict[str, set] = {}
+    for axes_en, axes_ar, product in rows:
+        for blob in (axes_en, axes_ar):
+            try:
+                parsed = json.loads(blob or "{}") or {}
+            except (TypeError, ValueError):
+                continue
+            for name in parsed:
+                seen.setdefault(name, set()).add(product)
+    total = conn.execute(
+        "SELECT COUNT(*) FROM source_product sp "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND sp.status = 'active'", (source_key,)).fetchone()[0] or 0
+    chosen = promoted_attributes(conn, source_key)
+    return [{"attribute_code": AXIS_PREFIX + name, "label": name, "group": "",
+             "lang": "", "products": len(products), "of_products": total,
+             # Never "the site said so": a site filter is the shop saying this
+             # is how people shop for it, and an axis is only how it varies.
+             "by_the_site": False, "promoted": AXIS_PREFIX + name in chosen,
+             "is_column": AXIS_PREFIX + name in chosen, "kind": "axis"}
+            for name, products in sorted(seen.items(),
+                                         key=lambda kv: (-len(kv[1]), kv[0]))]
+
+
 def promotable_attributes(conn: sqlite3.Connection, source_key: str) -> list[dict]:
     """Every detail this source publishes that COULD be a column, with the
     count of products that actually fill it, and whether it is a column now.
@@ -277,7 +326,7 @@ def promotable_attributes(conn: sqlite3.Connection, source_key: str) -> list[dic
                 # Two different reasons a detail is a column, and the owner
                 # should tell them apart: the site said so, or he did.
                 "by_the_site": bool(r[5]), "promoted": r[0] in chosen,
-                "is_column": bool(r[5]) or r[0] in chosen}
+                "is_column": bool(r[5]) or r[0] in chosen, "kind": "detail"}
                for r in rows
                # A code that covers exactly ONE product is that product's own
                # row, not a KIND of fact — sika publishes 535 image_N and 202
@@ -287,7 +336,10 @@ def promotable_attributes(conn: sqlite3.Connection, source_key: str) -> list[dic
                # already a column stays listed whatever its coverage, so a
                # choice can always be undone.
                if r[4] > 1 or bool(r[5]) or r[0] in chosen]
-    return offered
+    # The axes ride the same list, so the panel that already reads it gains
+    # them without a second endpoint — and the owner sees details and axes in
+    # one place, ranked by how much of his data each actually fills.
+    return offered + promotable_axes(conn, source_key)
 
 
 def promoted_attributes(conn: sqlite3.Connection, source_key: str) -> set[str]:
