@@ -24,6 +24,17 @@ PAGE_SIZE = 250  # Shopify hard max per page
 ENGLISH_LOCALE = "en"
 
 
+def _root_title(title: str, language: str) -> dict[str, str]:
+    """The root locale's title, in the column that names its language.
+
+    Two columns, and which one is not a detail: an unmarked column is English
+    by the project's root rule and the _ar one is the site's own Arabic. Put
+    the wrong one in and the AR|EN switch shows a reader English under a
+    heading that says Arabic, which is worse than a blank.
+    """
+    return {"product_name": title} if language == "en" else {"product_name_ar": title}
+
+
 class ShopifyConnector:
     connector_id = "shopify-json"
 
@@ -55,7 +66,9 @@ class ShopifyConnector:
                 break
             for product in products:
                 titles[str(product.get("id") or "")] = str(product.get("title") or "")
-                rows.extend(self._product_rows(builder, product, base, currency, vat_flag, source.default_region))
+                rows.extend(self._product_rows(builder, product, base, currency, vat_flag,
+                                               source.default_region,
+                                               source.default_language))
                 if wants_enrichment:
                     detail_rows.extend(enrichment_rows(detail, product))
             if len(products) < PAGE_SIZE:
@@ -65,12 +78,18 @@ class ShopifyConnector:
         # The owner's standing rule: a site that publishes both languages is
         # captured in both. Applied to the rows already built, so a failed
         # English pass costs a note and never a price.
-        english = self._english_titles(base, titles, notes)
-        if english:
+        # The second language is whatever the root is NOT. A shop serving
+        # English at its root has no /en to fetch — that URL 404s on
+        # spark-eshop — and asking for it was how an English shop ended up
+        # with an empty English column.
+        other_locale = "ar" if source.default_language == "en" else ENGLISH_LOCALE
+        other = self._other_locale_titles(base, other_locale, titles, notes)
+        if other:
             product_at = builder.header.index("external_product_id")
-            english_at = builder.header.index("product_name")
+            other_at = builder.header.index(
+                "product_name_ar" if source.default_language == "en" else "product_name")
             for row in rows:
-                row[english_at] = english.get(row[product_at], "")
+                row[other_at] = other.get(row[product_at], "")
 
         yield ScrapedTable(
             source_key=source.source_key,
@@ -90,9 +109,9 @@ class ShopifyConnector:
                 rows=detail_rows,
             )
 
-    def _english_titles(self, base: str, titles: dict[str, str],
-                        notes: list[str]) -> dict[str, str]:
-        """product id -> English title, or {} when the shop has only one language.
+    def _other_locale_titles(self, base: str, locale: str, titles: dict[str, str],
+                             notes: list[str]) -> dict[str, str]:
+        """product id -> the title in the shop's OTHER locale, or {}.
 
         Joined by id, and kept only where it DIFFERS from the title already
         collected: a shop whose locale prefix simply re-serves its single
@@ -103,15 +122,17 @@ class ShopifyConnector:
         found: dict[str, str] = {}
         page = 1
         while True:
-            url = f"{base}/{ENGLISH_LOCALE}/products.json?limit={PAGE_SIZE}&page={page}"
+            url = f"{base}/{locale}/products.json?limit={PAGE_SIZE}&page={page}"
             try:
                 products = self._fetcher.get(url).json().get("products", [])
             except CrawlBlocked:
                 raise
             except Exception as exc:  # noqa: BLE001 — bilingual is additive
                 if page == 1:
-                    notes.append(f"{ENGLISH_LOCALE} locale unavailable — names "
-                                 f"stay single-language this run: {exc}")
+                    notes.append(
+                        f"{locale} locale unavailable — every name stays in the "
+                        f"{'product_name' if locale == 'ar' else 'product_name_ar'} "
+                        f"column this run: {exc}")
                 break
             if not products:
                 break
@@ -130,7 +151,8 @@ class ShopifyConnector:
         return found
 
     @staticmethod
-    def _product_rows(builder, product, base, currency, vat_flag, region) -> list[list[str]]:
+    def _product_rows(builder, product, base, currency, vat_flag, region,
+                      language: str = "ar") -> list[list[str]]:
         option_names = [opt.get("name", f"option{i}") for i, opt in enumerate(product.get("options", []), start=1)]
         handle = product.get("handle", "")
         rows = []
@@ -146,9 +168,12 @@ class ShopifyConnector:
                 external_product_id=product.get("id"),
                 external_variant_id=variant.get("id"),
                 external_sku=variant.get("sku") or "",
-                # This store answers in Arabic; the English pass above fills
-                # the unmarked column from the same shop's en locale.
-                product_name_ar=product.get("title") or "",
+                # The root locale's title goes in ITS OWN column, not always
+                # the Arabic one. shopify had "ar" written in as an assumption,
+                # and a shop serving English at its root then filed 1,789
+                # English titles as Arabic while the English column — the one
+                # config calls required — stayed empty on every product.
+                **_root_title(product.get("title") or "", language),
                 **brand_pair(product.get("vendor") or ""),
                 variant_ar=variant.get("title") if options else "",
                 # The axes as STRUCTURE beside the sentence built from them

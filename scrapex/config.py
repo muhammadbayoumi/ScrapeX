@@ -303,6 +303,19 @@ class SourceEntry(BaseModel):
     # rather than an omission: a source with no charter resolves no
     # units at all, which is honest. Ten of eleven are in it today.
     unit_charter: UnitCharter | None = None
+    # WHICH LANGUAGE THE SITE SERVES AT ITS ROOT. Not a preference and not a
+    # guess: shopify's connector files the default locale's title and then
+    # fetches the OTHER locale for the second column, and it had "ar" written
+    # into it as an assumption. SPARK_ESHOP serves English at its root and has
+    # no /en locale at all — that URL 404s — so 1,789 English titles were filed
+    # as Arabic and the English column, which config calls required, stayed
+    # empty on every one.
+    #
+    # Declared per source because the alternative is detecting it, and
+    # detecting it is guessing: "ABB 1SDA100487R1 | XT5H 630 TMA 630-6300"
+    # carries no letters to detect. The shop states it — <html lang> — and a
+    # person checks it once.
+    default_language: Literal["ar", "en"] = "ar"
     # English is the primary display language, so the unmarked name is English
     # and it is REQUIRED. Requiredness inverts here deliberately: these twelve
     # labels are owner-authored rather than scraped, all twelve already carry

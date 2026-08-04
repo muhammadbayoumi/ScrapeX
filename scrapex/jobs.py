@@ -652,6 +652,18 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
         for warning in shown[:30]:
             append_log(conn, run.job_id, warning, level=LogLevel.WARNING,
                        source_key=source_key)
+        # AND ON THE RUN ITSELF. The log has always had them — SPARK_ESHOP's
+        # "en locale unavailable ... 404" is sitting in job_log_entry right now
+        # and it is the one sentence that explains 1,789 mislabelled products.
+        # But a run row could not answer "what went wrong in THIS run" without
+        # someone knowing to go and join a log by job id, and nobody did for
+        # two days. The count is what makes a clean run visibly clean; the
+        # first line is what makes a dirty one worth opening.
+        if shown:
+            conn.execute(
+                "UPDATE crawl_run SET warning_count = ?, first_warning = ? "
+                "WHERE run_id = ?",
+                (len(shown), str(shown[0])[:500], result.ingest.run_id))
         if len(shown) > 30:
             append_log(conn, run.job_id,
                        f"...and {len(shown) - 30} more warnings like these "
