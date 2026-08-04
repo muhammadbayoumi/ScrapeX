@@ -113,12 +113,23 @@ def test_madar_declares_no_weight_witness_and_the_reason_is_written_down():
     in writing, and what the owner ruled on 2026-07-29: «الحقائق الخام فقط».
 
     A store-wide weight_unit is the shop saying "my weight numbers are in kg".
-    It is not the shop saying what one of THIS product is."""
+    It is not the shop saying what one of THIS product is.
+
+    THE ASSERTION HERE CHANGED ON 2026-08-04, and the reason is worth keeping.
+    It read `all(shape == "container")` — a proxy for "no weight witness",
+    written when a weight witness was the only addition anyone was
+    contemplating. MADAR then gained a `quantity` witness on its own option
+    values («المقاس: 3.25 Kg»), which is the shop stating what one of these is
+    and is exactly what this charter is for. The proxy failed it. The rule
+    being defended was never "every witness is a container"; it was "no witness
+    reads `weight`", so that is what is asserted now — narrower in letter and
+    stronger in fact, because it names the field instead of a shape."""
     charter = charter_for(_madar())
 
-    assert all(shape == "container" for shape in charter.shapes), (
-        "MADAR gained a witness that is not a container; if it reads `weight`, "
-        "it is asserting a unit for thousands of rows the shop never gave one")
+    assert all(field != "weight" for field, *_ in charter.witnesses), (
+        "MADAR gained a witness on `weight`; that asserts a unit for thousands "
+        "of rows the shop never gave one")
+    assert all(field != "weight_unit" for field, *_ in charter.witnesses)
 
     # And the state that would have been resolved stays silent, as ruled.
     assert charter.resolve({"weight": "1000", "weight_unit": "kg"}) is None
