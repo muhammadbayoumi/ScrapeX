@@ -2224,6 +2224,27 @@ def test_an_engine_at_a_reporting_version_that_stays_silent_is_told_to_restart(o
     assert not page.js_errors
 
 
+def test_a_runtime_fault_is_shown_as_the_box_that_carries_its_repair(open_panel):
+    """setRuntimeIssue has reached for #runtime-error and #engine-error since
+    04687f3, and neither existed in the markup. The code is defensive — it
+    falls back to writing plain text into #runtime-note — so nothing threw and
+    nothing looked broken. What was lost is the half that matters: the fallback
+    is a sentence, while the box carries a title, the sentence AND the button
+    that ends the fault.
+
+    So the panel could tell the owner his database was behind the code and
+    have no way to offer him the Upgrade that fixes it — which is the whole
+    reason the richer rendering was written."""
+    page = open_panel()
+    page.evaluate("window.__sx_test_issue = {kind: 'schema_lag'}")
+
+    for identifier in ("#runtime-error", "#engine-error"):
+        assert page.locator(identifier).count() == 1, (
+            f"{identifier} is missing again, and setRuntimeIssue silently "
+            "degrades to a plain line when it is")
+    assert not page.js_errors
+
+
 def test_an_unsupported_feature_fails_with_a_version_error_not_a_generic_one(open_panel):
     """Section 1.6. An engine that does not deploy `crawl_parallel_sources`
     answers the save with 400 "unknown setting 'crawl_parallel_sources'" — a
