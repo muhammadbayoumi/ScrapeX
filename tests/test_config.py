@@ -163,6 +163,38 @@ def test_a_probe_placeholder_cannot_be_shipped_active():
     assert "scrapex probe" in str(caught.value)
 
 
+def test_no_source_holds_data_the_manifest_has_forgotten(tmp_path):
+    """A source can be crawled and then lose its definition, and nothing said so.
+
+    It happened: SPARK_ESHOP was crawled on 2026-08-03 — 1,789 products, 3,149
+    offers, 3,149 observations, a successful run — and its manifest entry was
+    deleted afterwards while the rows stayed, marked active. That is 22% of the
+    warehouse belonging to a source no code could crawl, update or explain, and
+    it was found by censusing the database rather than by anything failing.
+
+    The manifest is the definition; the warehouse is the consequence. A
+    consequence with no definition is not a small untidiness — every count
+    includes it, every table shows it, and nothing can ever refresh it."""
+    from scrapex import db as dbmod
+    declared = {entry.source_key for entry in load_manifest(MANIFEST_FILE).sources}
+
+    conn = dbmod.connect(tmp_path / "w.db")
+    dbmod.migrate(conn)
+    conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
+                 " source_name, base_url, platform, currency, timezone, authority, "
+                 " active) VALUES (1,'GHOST','ش','G','http://g','shopify-json',"
+                 "'EGP','UTC','shop',1)")
+    conn.commit()
+
+    stored = {row[0] for row in conn.execute(
+        "SELECT source_key FROM source_site WHERE active = 1")}
+    orphans = sorted(stored - declared)
+
+    assert orphans == ["GHOST"], (
+        "the check itself is broken — it should see exactly the source this "
+        f"test invented, and it saw {orphans}")
+
+
 def test_no_manifest_entry_declares_a_family_nothing_can_build():
     """An entry whose family has no connector is a promise the engine cannot
     keep. SIKA_EGYPT_DATASHEETS declared `datasheet-enrichment` for months with
