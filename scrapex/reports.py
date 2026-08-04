@@ -10,6 +10,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from . import fields, rates, tax
+from .fields import AXIS_PREFIX
 from .normalize import option_axes_from
 from .vocab import BLOCK_ORDER, Block, DETAIL_GROUP_ORDER
 
@@ -1254,7 +1255,8 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
                       or option_axes_from(row["option_axes"]))
         parsed.append(merged)
     return _with_axis_columns(list(EXPORT_HEADER), table, parsed,
-                              _filter_groups(conn, source_key))
+                              _filter_groups(conn, source_key),
+                              fields.promoted_attributes(conn, source_key))
 
 
 def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[str, str]]:
@@ -1331,6 +1333,7 @@ def _group_sorted(labels: list[str], groups: dict[str, str]) -> list[str]:
 
 def _with_axis_columns(header: list[str], table: list[list],
                        parsed: list[dict], groups: dict[str, str] | None = None,
+                       promoted: set[str] | None = None,
                        ) -> tuple[list[str], list[list]]:
     """The per-source columns: one per variation AXIS, one per site FILTER.
 
@@ -1356,10 +1359,28 @@ def _with_axis_columns(header: list[str], table: list[list],
                 names.append(name)
     if not names:
         return header, table
-    if groups:
-        axis_names = [name for name in names if name not in groups]
-        filter_names = [name for name in names if name in groups]
-        names = axis_names + _group_sorted(filter_names, groups)
+    groups = groups or {}
+    axis_names = [name for name in names if name not in groups]
+    filter_names = [name for name in names if name in groups]
+    # AN AXIS IS A DETAIL UNTIL THE OWNER PROMOTES IT. Measured on madar:
+    # 59 axis columns, and 33 of them non-empty on under 1% of its 3,550 rows —
+    # «الكثافة (كجم/م3)» filled on four. The table opened at 112 columns and the
+    # owner asked three times to have them moved to the details.
+    #
+    # Nothing is lost by not printing them: `variant` and `variant_ar` sit at
+    # columns 3 and 4 and already carry the same words in both languages —
+    # "Width (mm): 610" / «العرض (ملم): 610». Verified across every source that
+    # publishes axes at all (madar, spark, elsewedy, heidelberg, samehgabriel):
+    # ZERO variants carry an axis without carrying it in `variant` too.
+    #
+    # A SITE FILTER IS NOT GATED HERE. The shop's own listing pages slice by
+    # it, which is the shop saying it is a way people shop for this — that rule
+    # already lives in promotable_attributes as `by_the_site`.
+    if promoted is not None:
+        axis_names = [name for name in axis_names if AXIS_PREFIX + name in promoted]
+    names = axis_names + _group_sorted(filter_names, groups)
+    if not names:
+        return header, table
     at = header.index("variant_ar") + 1
     widened = header[:at] + names + header[at:]
     rows = [row[:at] + [axes.get(name, "") for name in names] + row[at:]
