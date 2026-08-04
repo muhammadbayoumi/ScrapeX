@@ -14,8 +14,48 @@ import yaml
 from .config import MANIFEST_FILE, IdentityRules, SourceEntry, load_manifest
 
 # Field order in the written block — matches the hand-authored entries (readability).
+# THIS IS AN ORDERING HINT, NEVER THE SET OF FIELDS THAT SURVIVE. It was both
+# for a year, and everything the model grew afterwards was deleted in silence by
+# the first panel edit: source_name_ar on every bilingual source,
+# default_language, brand, api, taxonomy, user_agent, tax — and unit_charter,
+# which is days of measured per-source rules. See _remaining_fields below.
 _FIELD_ORDER = ("source_key", "source_name", "base_url", "family", "cadence",
                 "authority", "fetcher", "currency", "default_region", "vat_mode", "active")
+
+# Written by name above, or by the hand-maintained tail of entry_to_block.
+# Everything else reaches the file through _remaining_fields.
+_EXPLICIT = frozenset(_FIELD_ORDER) | {
+    "extract", "fallback_families", "auth_required", "fold_variants", "identity",
+    "min_expected_rows", "max_drop_pct", "notes"}
+
+
+def _remaining_fields(dumped: dict) -> dict:
+    """Every model field the block above does not name, unless it is a default.
+
+    A source is edited by REPLACING its block with what this function helps
+    build, so a field missing here is a field deleted from the manifest. The
+    old code listed the fields to keep, which meant every field added to
+    SourceEntry afterwards was dropped by the next edit and nothing said so —
+    an English shop's `default_language: en` would revert to the Arabic default
+    and re-file 1,789 product names under the wrong column, and MADAR's unit
+    charter would simply cease to exist.
+
+    Defaults are still omitted, so a simple source's YAML stays as short as a
+    hand-written one: the value round-trips to the same thing either way.
+    """
+    out: dict = {}
+    for name, field in SourceEntry.model_fields.items():
+        if name in _EXPLICIT:
+            continue
+        value = dumped.get(name)
+        if not field.is_required():
+            default = field.get_default(call_default_factory=True)
+            if hasattr(default, "model_dump"):
+                default = default.model_dump(mode="json")
+            if value == default:
+                continue
+        out[name] = value
+    return out
 
 
 class DuplicateSourceError(ValueError):
@@ -48,6 +88,7 @@ def entry_to_block(entry: SourceEntry) -> str:
     for opt in ("min_expected_rows", "max_drop_pct", "notes"):
         if dumped.get(opt) is not None:
             body[opt] = dumped[opt]
+    body.update(_remaining_fields(dumped))
 
     raw = yaml.safe_dump([body], sort_keys=False, allow_unicode=True, default_flow_style=False)
     return "\n".join("  " + line if line else line for line in raw.splitlines()) + "\n"
