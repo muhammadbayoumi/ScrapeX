@@ -176,6 +176,30 @@ sources:
         #    pack list and a tonne of steel is a thing this shop sells.
         - {field: variant_axes_ar, lang: ar, provenance: stated_field, shape: quantity}
         - {field: variant_axes,    lang: en, provenance: stated_field, shape: quantity}
+        #
+        # 5. THE SIZE THE SHOP STATES IN ITS SPECIFICATIONS, ranked last of all.
+        #    «إسمنت السعودية» carries no size on its variants — its option value
+        #    is «Cement Type: Sulphate Resistant» — and states «المقاس: 50 Kg»
+        #    in its Specifications panel, which is the shop saying what one bag
+        #    is. 48 madar products state a mass or volume that way.
+        #
+        #    LAST BECAUSE IT DESCRIBES THE FAMILY, not the member. A product
+        #    with variants that differ in size states the family's figure here,
+        #    and printing it on each member is the exact mistake reports.py
+        #    names in writing about product-level attributes. Nine of the 48
+        #    have more than one variant, so the ordering is load-bearing rather
+        #    than theoretical: the variant's own axis answers first wherever it
+        #    speaks, and this is heard only where the variant is silent.
+        #
+        #    Measured over all 3,550 active offers before it was added:
+        #      13 agree with what is stored, changing no number
+        #      53 carry no unit today and gain the one the shop states
+        #       2 CONTRADICT — stored 25 kg where the shop's own panel says
+        #         «20 Kg», both provenance legacy_unwitnessed, both written by
+        #         code that could not name a field. The charter answers 20, and
+        #         the retirement rule below is what stops the 25 standing
+        #         beside it.
+        - {field: spec_size, lang: und, provenance: stated_field, shape: quantity}
       # The site writes the SAME container in two languages, and this maps both
       # to one code. Measured: without it «صندوق» (16) and "box" (24) become two
       # different selling units for one shop's box, and two prices for the same

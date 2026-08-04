@@ -422,7 +422,31 @@ def _quantity_facts(child: dict) -> tuple[str, str, str]:
             "" if decimal is None else ("1" if decimal else "0"))
 
 
-def _apply_charter(row: list[str], charter) -> None:
+def _spec_size(product: dict | None) -> str:
+    """The `size` the shop states in a product's Specifications panel.
+
+    «إسمنت السعودية» carries no size on its variants at all — its option value
+    is «Cement Type: Sulphate Resistant» — and states «المقاس: 50 Kg» in its
+    specifications, which is the shop saying what one bag is. 48 madar products
+    state a mass or volume this way.
+
+    Read from the response the price row is already built from: when a source
+    declares enrichment, this crawl asks _QUERY_ENRICHED and custom_attributesV2
+    arrives with the price. It costs no request.
+    """
+    if not product:
+        return ""
+    for item in ((product.get("custom_attributesV2") or {}).get("items")) or []:
+        if str(item.get("code") or "") not in ("size", "size_ar"):
+            continue
+        selected = item.get("selected_options") or []
+        if selected:
+            return str(selected[0].get("label") or "")
+        return str(item.get("value") or "")
+    return ""
+
+
+def _apply_charter(row: list[str], charter, product: dict | None = None) -> None:
     """Let a declared charter decide the unit, from the row this crawl built.
 
     Applied AFTER the row exists rather than inside the three call sites of
@@ -446,6 +470,12 @@ def _apply_charter(row: list[str], charter) -> None:
         "variant_axes_ar": row[at("variant_axes_ar")],
         "product_name": row[at("product_name")],
         "product_name_ar": row[at("product_name_ar")],
+        # Not a row column: the shop's Specifications value, handed straight to
+        # the charter. It describes the FAMILY, so any charter that reads it
+        # must rank it below the variant's own axes — a product-level size
+        # printed on every variant is how a family's figure becomes each
+        # member's, which is the mistake reports.py already names in writing.
+        "spec_size": _spec_size(product),
     })
     if resolution is None:
         return
@@ -565,7 +595,7 @@ class MagentoGraphqlConnector:
             for product in items:
                 made = self._product_rows(builder, product, ctx)
                 for built in made:
-                    _apply_charter(built, charter)
+                    _apply_charter(built, charter, product)
                 page_rows.extend(made)
                 if made and wants_enrichment:
                     # Details hang off the PRICE row's product, so the
