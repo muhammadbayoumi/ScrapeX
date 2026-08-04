@@ -163,6 +163,100 @@ def test_a_probe_placeholder_cannot_be_shipped_active():
     assert "scrapex probe" in str(caught.value)
 
 
+def _warehouse(tmp_path, *source_keys):
+    """A warehouse holding one active source_site row per key."""
+    from scrapex import db as dbmod
+    conn = dbmod.connect(tmp_path / "w.db")
+    dbmod.migrate(conn)
+    for i, key in enumerate(source_keys, start=1):
+        conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
+                     " source_name, base_url, platform, currency, timezone, authority, "
+                     " active) VALUES (?,?,'ش','G','http://g','shopify-json',"
+                     "'EGP','UTC','shop',1)", (i, key))
+    conn.commit()
+    return conn
+
+
+def test_a_source_the_manifest_has_forgotten_is_reported(tmp_path):
+    """SPARK_ESHOP was crawled on 2026-08-03 — 1,789 products, 3,149 offers,
+    3,149 observations, a successful run — and its manifest entry was deleted
+    afterwards while the rows stayed, marked active. 22% of every offer in the
+    warehouse belonged to a source no code could crawl, update or explain, and
+    it was found by hand-censusing the database two days later.
+
+    THIS TEST REPLACES ONE THAT COULD NOT FAIL. The first version inserted a
+    row called GHOST into an empty temp database and asserted that GHOST came
+    back — true for any manifest, including one with every source deleted. An
+    adversarial review proved it by removing SPARK_ESHOP from the manifest and
+    watching the two tests beside it go red while this one stayed green: the
+    test named after the incident was the only one that could not see it.
+
+    Worse, it checked nothing that shipped. No production code read
+    source_site.active at all, so the "guard" was a query living in a test."""
+    from scrapex import storage
+    declared = load_manifest(MANIFEST_FILE).sources[0].source_key
+    conn = _warehouse(tmp_path, declared, "SPARK_ESHOP_GONE")
+
+    forgotten = storage.undeclared_sources(conn)
+
+    assert forgotten == ["SPARK_ESHOP_GONE"]
+    assert declared not in forgotten, (
+        "a source the manifest DOES declare was reported as forgotten; the "
+        "check is comparing against nothing")
+
+
+def test_a_warehouse_whose_sources_are_all_declared_is_quiet(tmp_path):
+    """The negative half, and the half the vacuous version never had: with
+    every stored source declared, the answer is empty. Without this, a check
+    that always returned its whole input would pass the test above."""
+    from scrapex import storage
+    keys = [entry.source_key for entry in load_manifest(MANIFEST_FILE).sources[:3]]
+
+    assert storage.undeclared_sources(_warehouse(tmp_path, *keys)) == []
+
+
+def test_the_warehouse_says_it_on_the_page_the_owner_already_opens(tmp_path):
+    """A function nobody calls is the same defect one layer down. It rides
+    storage.health(), which the Storage page runs on every visit — and `ok`
+    stays true, because a forgotten source is not corruption."""
+    from scrapex import storage
+    _warehouse(tmp_path, "SPARK_ESHOP_GONE").close()
+
+    verdict = storage.health(tmp_path / "w.db")
+
+    assert verdict["ok"] is True
+    assert verdict["undeclared_sources"] == ["SPARK_ESHOP_GONE"]
+    assert "SPARK_ESHOP_GONE" in verdict["detail"]
+
+
+def test_the_english_shop_declares_that_it_is_an_english_shop():
+    """One line stands between this source and 1,789 mislabelled names again.
+
+    spark-eshop serves English at its root — <html lang="en">, and every title
+    reads like "Himel Variable Speed Drive VFD, 380V 3-Phase Motor Control" —
+    and it has no /en locale at all; that URL answers 404, verified live. The
+    connector defaults to assuming Arabic at the root, which is right for the
+    eleven sources that were crawled under that assumption and wrong here.
+
+    Without this declaration the crawl files English titles under the Arabic
+    heading and leaves product_name — which this module calls required — empty
+    on every row, and REPORTS SUCCESS. That is how the 3,149 rows already in
+    the warehouse were written. Deleting this line would not fail anything; it
+    would quietly recreate the defect on the next crawl."""
+    spark = load_manifest(MANIFEST_FILE).get("SPARK_ESHOP")
+
+    assert spark.default_language == "en"
+
+
+def test_the_shop_with_no_definition_is_not_crawled_before_someone_says_so():
+    """Restoring the entry gives 3,149 orphaned rows a definition. It does not
+    endorse them: the manifest's own notes record that currency is UNKNOWN on
+    all 3,149, country is '*' on all 3,149, and there are zero images. Active
+    would mean the scheduler replaces them tonight without the owner deciding
+    to."""
+    assert load_manifest(MANIFEST_FILE).get("SPARK_ESHOP").active is False
+
+
 def test_no_manifest_entry_declares_a_family_nothing_can_build():
     """An entry whose family has no connector is a promise the engine cannot
     keep. SIKA_EGYPT_DATASHEETS declared `datasheet-enrichment` for months with

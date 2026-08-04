@@ -810,3 +810,71 @@ sources:
       rides source_date. robots.txt allows the path. Parsed from reading-order
       text, not selectors: the React class names churn, the words do not.
 
+  - source_key: SPARK_ESHOP
+    # It was crawled before it was declared, and then the declaration was
+    # deleted while the data stayed: 1,789 products, 3,149 offers and 3,149
+    # observations from a successful run on 2026-08-03T05:19:45Z, sitting in
+    # the warehouse marked active with nothing in the code able to crawl or
+    # update them. That is 22% of every offer this warehouse holds. Restored
+    # here so the data has a definition again.
+    # Everything below is READ OFF THE SHOP, not inferred. /meta.json,
+    # 2026-08-03: {"name":"Spark","city":"El Weili","province":"Cairo",
+    # "country":"EG","currency":"EGP","ships_to_countries":["EG"],
+    # "money_format":"LE {{amount}}","published_products_count":1789}. The
+    # storefront's <html lang> is "en" and every product title is English —
+    # "Himel Variable Speed Drive VFD, 380V 3-Phase Motor Control".
+    #
+    # The first draft asserted EGP and EG without asking. They happened to be
+    # right, and a guess that turns out right is still a guess.
+    source_name_ar: سبارك إي شوب
+    source_name: Spark eShop
+    base_url: https://www.spark-eshop.com/
+    family: shopify-json
+    cadence: daily
+    authority: shop
+    active: false
+    currency: EGP
+    default_region: EG
+    # THE SHOP SERVES ENGLISH AT ITS ROOT. <html lang="en">, and every title is
+    # English — "Himel Variable Speed Drive VFD, 380V 3-Phase Motor Control".
+    # It has no /en locale at all; that URL answers 404, verified live
+    # 2026-08-03. Without this line the connector files the root title as
+    # Arabic and then asks a shop that has no /en for its /en, which is exactly
+    # how 1,789 English names ended up under the Arabic heading with the
+    # English column — which config.py calls required — empty on every one.
+    default_language: en
+    # UNVERIFIED, and the one field here nobody has checked. Egypt charges 14%
+    # VAT and the shop prints "LE {{amount}}" with no statement either way; the
+    # cart would settle it in one look, and until someone looks this is the
+    # cautious reading rather than a finding. Do not cite it as evidence.
+    vat_mode: incl
+    extract:
+      - kind: product_prices
+        scope: census
+      # THE LINE THE FIRST DRAFT WAS MISSING. Without it the connector never
+      # asks for enrichment, so a shopify source that publishes images stores
+      # none — and tests/test_images_every_connector.py said so by name the
+      # moment the draft was added.
+      - kind: enrichment
+        scope: census
+    min_expected_rows: 50
+    max_drop_pct: 50
+    notes: >-
+      Shopify storefront, declared after the fact: the source already held
+      1,789 products and 3,149 offers from the 2026-08-03 run when its
+      manifest entry was found to be missing. Left inactive until the owner
+      schedules it.
+
+
+      THE ROWS ALREADY IN THE WAREHOUSE ARE NOT TRUSTWORTHY, and the counts
+      say so. Audited 2026-08-03 against the live shop: currency is UNKNOWN on
+      all 3,149 observations where the shop states EGP; country is '*' on all
+      3,149 where the shop ships only to EG; product_name is EMPTY on all
+      1,789 while the ENGLISH titles sit in product_name_ar, which inverts the
+      bilingual rule — 'ABB 1SDA100487R1 | XT5H 630 TMA 630-6300' is not
+      Arabic; and there are zero attribute rows, so not one of the images the
+      shop publishes was stored. The last is explained by the missing
+      enrichment kind and is fixed above. The first three are not explained,
+      and a re-crawl is what would replace them — not a repair of these rows,
+      because rewriting a stored observation is the one thing this project
+      does not do.

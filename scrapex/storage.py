@@ -504,6 +504,35 @@ def space_warning(db_path: Path | str) -> str:
     return ""
 
 
+def undeclared_sources(conn) -> list[str]:
+    """Sources this warehouse holds data for that the manifest no longer names.
+
+    SPARK_ESHOP was crawled on 2026-08-03 — 1,789 products, 3,149 offers, 3,149
+    observations, a successful run — and its manifest entry was deleted
+    afterwards while the rows stayed, marked active. That was 22% of every offer
+    here belonging to a source no code could crawl, update or explain, and it
+    was found by hand-censusing the database two days later.
+
+    The manifest is the definition; the warehouse is the consequence. A
+    consequence with no definition is not a small untidiness: every count
+    includes it, every table shows it, and nothing can ever refresh it.
+
+    Reads the CURRENT manifest each call rather than a cached one, because the
+    failure mode is precisely that the manifest changed.
+    """
+    from .config import MANIFEST_FILE, load_manifest
+    try:
+        declared = {entry.source_key for entry in load_manifest(MANIFEST_FILE).sources}
+    except Exception:  # noqa: BLE001 — a broken manifest is validate-manifest's job
+        return []
+    try:
+        stored = {row[0] for row in conn.execute(
+            "SELECT source_key FROM source_site WHERE active = 1")}
+    except sqlite3.DatabaseError:
+        return []                      # not a warehouse; health says so already
+    return sorted(stored - declared)
+
+
 def health(db_path: Path | str) -> dict:
     """SQLite's own verdict, reported as a word plus the raw findings.
 
@@ -533,6 +562,7 @@ def health(db_path: Path | str) -> dict:
         freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
         page_size = conn.execute("PRAGMA page_size").fetchone()[0]
         identity_problem = _warehouse_identity(conn)
+        forgotten = undeclared_sources(conn)
     except sqlite3.DatabaseError as exc:
         return {"status": "unreadable", "ok": False,
                 "detail": f"SQLite could not read this file: {exc}",
@@ -550,12 +580,20 @@ def health(db_path: Path | str) -> dict:
         return {"status": status, "ok": False, "problems": [detail],
                 "foreign_key_problems": 0, "reclaimable_bytes": reclaimable,
                 "detail": detail}
+    # A forgotten source is not corruption — the file is sound and `ok` stays
+    # true — but it is the one thing quick_check can never see, so it rides the
+    # verdict the Storage page already reads on every visit rather than waiting
+    # for someone to think of censusing the database again.
     return {
         "status": "healthy", "ok": True, "problems": [], "foreign_key_problems": 0,
         "reclaimable_bytes": reclaimable,
+        "undeclared_sources": forgotten,
         "detail": ("No problems found." + (
             f" Compacting would return about {reclaimable:,} bytes of free pages."
-            if reclaimable else "")),
+            if reclaimable else "") + (
+            f" {len(forgotten)} source(s) hold data here but are not in the "
+            f"manifest and can never be refreshed: {', '.join(forgotten)}."
+            if forgotten else "")),
     }
 
 
