@@ -246,6 +246,42 @@ def test_the_engines_own_pages_and_local_tools_still_work(client):
     assert client.post("/api/settings", json={}, headers=same_engine).status_code == 200
 
 
+def test_the_refusal_does_not_rely_on_whoever_wrote_the_pattern_anchoring_it():
+    """`match` was changed to `fullmatch` alongside the same-origin exception,
+    and nothing caught it: both patterns in this file already end in `$`, so
+    the two behave identically today and the improvement is invisible.
+
+    It is not decoration. `match` anchors only the start, so the day someone
+    writes a pattern without a trailing `$` — or builds one by joining ids and
+    forgets it — `chrome-extension://<valid-id>.attacker.example` becomes a
+    permitted origin. The middleware must be safe on its own rather than on
+    the assumption that every future pattern is written correctly."""
+    import re
+
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    from scrapex.webui.app import RefuseForeignOrigins
+
+    valid = "a" * 32
+    unanchored = r"^chrome-extension://" + valid          # deliberately no $
+
+    app = Starlette(routes=[Route("/x", lambda r: PlainTextResponse("ok"))])
+    app.add_middleware(RefuseForeignOrigins, pattern=unanchored)
+    client = TestClient(app)
+
+    assert client.get("/x", headers={"Origin": f"chrome-extension://{valid}"}).status_code == 200
+    suffixed = f"chrome-extension://{valid}.attacker.example"
+    assert client.get("/x", headers={"Origin": suffixed}).status_code == 403, (
+        "an origin that merely STARTS with a permitted one was accepted; the "
+        "refusal is anchoring only at the front")
+
+    # And the pattern really is the unanchored one, or this proves nothing.
+    assert re.compile(unanchored).match(suffixed) is not None
+
+
 def test_an_origin_that_only_looks_local_must_match_the_engine_port(client):
     """A loopback-looking origin is not enough: origin includes the port."""
     wrong_port = {"Origin": "http://testserver:8001"}
