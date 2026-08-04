@@ -182,6 +182,45 @@ def test_no_surface_teaches_a_windows_ritual():
         + "; ".join(offenders))
 
 
+def test_choosing_columns_is_reachable_from_the_panel():
+    """Owner ruling: «مينفعش يكون فى ميزة على الويب لا توجد فى extension».
+
+    /api/fields is the endpoint behind Choose Columns — hide a column, reorder
+    them, reset the view — and until now grid.js was its only caller. So the
+    control room could not do the thing the owner most often wants to do to a
+    table, and the web page could.
+
+    Present is not wired, so the endpoint is asserted too: a section that
+    renders and calls nothing looks broken rather than missing."""
+    panel = PANEL.read_text(encoding="utf-8")
+    script = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+
+    for control in ("source-columns-list", "source-columns-reset",
+                    "source-columns-origin"):
+        assert f'id="{control}"' in panel, f"{control} is not in the side panel"
+
+    assert '"/api/fields/"' in script, (
+        "the panel's Columns section calls nothing; the buttons render and the "
+        "order never changes")
+    for action in ("hidden:", "order}", "reset: true"):
+        assert action in script, (
+            f"the panel cannot {action.strip(':}')} — the web chooser can do all "
+            "three and this one cannot")
+
+
+def test_the_panel_says_whose_column_order_it_is_showing():
+    """An owner who arranged his columns should never have to wonder whether an
+    update replaced them, and one who has not should know the order is ours to
+    improve. The engine answers it; the panel prints it."""
+    script = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    engine = (ROOT / "scrapex" / "webui" / "app.py").read_text(encoding="utf-8")
+
+    assert '"order_source"' in engine, (
+        "/api/fields no longer says whose order it returned")
+    assert "order_source" in script, (
+        "the panel shows an order without saying whose it is")
+
+
 def test_the_crawl_pace_is_reachable_from_the_panel():
     """The specific controls that were unreachable, now where they belong."""
     panel = PANEL.read_text(encoding="utf-8")
