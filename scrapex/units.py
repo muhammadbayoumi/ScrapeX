@@ -45,6 +45,7 @@ refuses a unit that arrives without the last two (migration 0058).
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -98,6 +99,12 @@ class Resolution:
     witness: str
     raw: str
     raw_lang: str
+    # What is INSIDE one of them, when the shop names a container. «4 كجم/صندوق»
+    # is a box you buy and four kilograms you get, and those are two facts. One
+    # column carrying both is why 18 MADAR offers are stored as kg-with-basis-4
+    # while the shop's own option value says BOX.
+    content_quantity: float | None = None
+    content_unit: str = ""
 
     @property
     def basis(self) -> str:
@@ -123,6 +130,26 @@ class Charter:
             (w["field"], w.get("lang", "und"), w.get("provenance", "stated_field"))
             for w in block.get("witnesses", ()))
         self.corroborators = tuple(c["field"] for c in block.get("corroborators", ()))
+        # A witness may declare HOW its field speaks. "quantity" is the default
+        # and the only shape sikaegshop needs: one field holding "20 kg". The
+        # other two exist because madar states the same fact differently.
+        self.shapes = tuple(w.get("shape", "quantity") for w in block.get("witnesses", ()))
+        self.unit_fields = tuple(w.get("unit_field", "") for w in block.get("witnesses", ()))
+        # Which words name a CONTAINER on this site, and what each canonicalises
+        # to. The canonicalising IS the point: a site that writes «صندوق» on the
+        # Arabic axis and "box" on the English one would otherwise carry two
+        # selling units for one box, and two prices for the same product would
+        # stop being comparable. Measured on madar: 16 and 24 respectively.
+        #
+        # It is not what keeps a size out. The axis holding "1000 Pcs/Box" also
+        # holds "1-1/2\"", and what refuses that is _PACKED requiring LETTERS on
+        # both sides of the slash — a fraction never reaches this list. I first
+        # wrote the opposite in three places and the measurement corrected it.
+        self.containers = {
+            word.lower(): canonical
+            for canonical, words in (block.get("containers") or {}).items()
+            for word in words
+        }
         scales = block.get("scales") or {}
         self.pack = tuple(scales.get("pack", ()))
         self.dimension = tuple(scales.get("dimension", ()))
@@ -141,8 +168,44 @@ class Charter:
         """
         if not self:
             return None
-        for field, lang, provenance in self.witnesses:
+        for index, (field, lang, provenance) in enumerate(self.witnesses):
+            shape = self.shapes[index] if index < len(self.shapes) else "quantity"
             text = fields.get(field)
+
+            if shape == "pair":
+                # The number and its unit word live in two fields. madar's
+                # platform publishes weight and weight_unit, and the pair IS
+                # the basis the price is quoted against — three steel products
+                # at 368, 1000 and 2052 kg all land between 3.26 and 3.47
+                # SAR/kg, which a shipping weight would not do.
+                unit_field = self.unit_fields[index] if index < len(self.unit_fields) else ""
+                word = str(fields.get(unit_field) or "").strip().lower()
+                unit = _WORD_TO_UNIT.get(word)
+                if text in (None, "") or unit is None or unit not in self.pack:
+                    continue
+                try:
+                    quantity = float(str(text).replace(",", "."))
+                except ValueError:
+                    continue
+                if quantity <= 0:
+                    continue
+                literal = f"{text} {fields.get(unit_field)}"
+                return Resolution(
+                    unit=unit, quantity=quantity, provenance=provenance,
+                    witness=f"{field}+{unit_field}@{lang}/v{self.version}: {literal}",
+                    raw=literal, raw_lang=lang)
+
+            if shape == "container":
+                found = self._read_container(text)
+                if found is None:
+                    continue
+                container, count, content_unit, literal = found
+                return Resolution(
+                    unit=container, quantity=1.0, provenance=provenance,
+                    witness=f"{field}@{lang}/v{self.version}: {literal}",
+                    raw=literal, raw_lang=lang,
+                    content_quantity=count, content_unit=content_unit)
+
             if not text:
                 continue
             corroborators = [fields.get(name) for name in self.corroborators]
@@ -158,6 +221,48 @@ class Charter:
                 raw=literal,
                 raw_lang=lang,
             )
+        return None
+
+    # «N unit / container» — the shop naming what you buy AND what is in it.
+    _PACKED = re.compile(
+        r"^\s*(\d+(?:[.,]\d+)?)\s*([^\W\d_]+)\s*/\s*([^\W\d_]+)\s*$", re.UNICODE)
+
+    def _read_container(self, blob) -> tuple[str, float, str, str] | None:
+        """The first axis value that names a container from the allow-list.
+
+        `blob` is whatever the connector put under the declared field — for a
+        variant-axis field that is a JSON object of axis -> value, because the
+        axis KEY varies («المقاس», "Size", "Diameter (inch)") while the shape of
+        the value does not. Reading the value rather than trusting the key is
+        what lets one rule cover all three.
+        """
+        if not blob:
+            return None
+        values: list[str] = []
+        if isinstance(blob, dict):
+            values = [v for v in blob.values() if isinstance(v, str)]
+        else:
+            text = str(blob).strip()
+            if text.startswith("{"):
+                try:
+                    parsed = json.loads(text)
+                except ValueError:
+                    return None
+                values = [v for v in parsed.values() if isinstance(v, str)]
+            else:
+                values = [text]
+        for value in values:
+            match = self._PACKED.match(value.strip())
+            if not match:
+                continue
+            container = self.containers.get(match.group(3).lower())
+            if container is None:
+                continue        # a size like 1-1/2" — not a container at all
+            content_unit = _WORD_TO_UNIT.get(match.group(2).lower(), "")
+            if not content_unit:
+                continue
+            return (container, float(match.group(1).replace(",", ".")),
+                    content_unit, value.strip())
         return None
 
     def _read(self, text: str, corroborators=()) -> tuple[float, str, str] | None:

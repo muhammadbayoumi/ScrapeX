@@ -95,6 +95,11 @@ PRODUCT_PRICES = RowSpec(
         # trapped inside the connector process.
         "selling_unit_raw",
         "selling_unit_raw_lang",
+        # What is inside ONE of them, when the shop names a container. «4
+        # كجم/صندوق» is a box you buy and four kilograms you get; one column
+        # carrying both is why offers whose option says BOX are stored as kg.
+        "content_quantity",
+        "content_unit",
         "unit_basis_provenance",
         "unit_basis_witness",
         # The language this source's primary extraction ran in — the
@@ -213,7 +218,8 @@ PRODUCT_PRICES = RowSpec(
     # of every row already in the warehouse — and no backfill is possible,
     # because raw_snapshot holds 0 rows.
     additive=frozenset({"unit", "basis_quantity", "selling_unit_raw",
-                        "selling_unit_raw_lang", "unit_basis_provenance",
+                        "selling_unit_raw_lang", "content_quantity",
+                        "content_unit", "unit_basis_provenance",
                         "unit_basis_witness", "lang", "price_trade",
                         "category_external_id",
                         "variant", "variant_axes", "variant_url", "parent_sku",

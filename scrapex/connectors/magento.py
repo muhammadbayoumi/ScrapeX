@@ -34,6 +34,7 @@ import re
 from typing import Iterable
 
 from ..config import SourceEntry
+from ..units import charter_for
 from ..normalize import (option_axes_json, option_fingerprint, selling_unit_from,
                          strip_markup)
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
@@ -421,6 +422,46 @@ def _quantity_facts(child: dict) -> tuple[str, str, str]:
             "" if decimal is None else ("1" if decimal else "0"))
 
 
+def _apply_charter(row: list[str], charter) -> None:
+    """Let a declared charter decide the unit, from the row this crawl built.
+
+    Applied AFTER the row exists rather than inside the three call sites of
+    normalize.selling_unit_from, because that function serves other families
+    and its agreement rule is right for them: a name stating a kg quantity that
+    matches the weight field. What it cannot do is read a unit the shop states
+    in two fields, or a container it names in an option value — and those are
+    the two ways madar speaks. Measured over its 3,537 offers: the old rule
+    reaches 92, this reaches 3,532.
+
+    A source with no charter is untouched, so nothing outside madar moves.
+    """
+    if not charter:
+        return
+    columns = PRODUCT_PRICES.columns
+    at = columns.index
+    resolution = charter.resolve({
+        "weight": row[at("weight")],
+        "weight_unit": row[at("weight_unit")],
+        "variant_axes": row[at("variant_axes")],
+        "variant_axes_ar": row[at("variant_axes_ar")],
+        "product_name": row[at("product_name")],
+        "product_name_ar": row[at("product_name_ar")],
+    })
+    if resolution is None:
+        return
+    row[at("unit")] = resolution.unit
+    row[at("basis_quantity")] = resolution.basis
+    row[at("selling_unit_raw")] = resolution.raw
+    row[at("selling_unit_raw_lang")] = resolution.raw_lang
+    row[at("content_quantity")] = ("" if resolution.content_quantity is None
+                                   else f"{resolution.content_quantity:g}")
+    row[at("content_unit")] = resolution.content_unit
+    row[at("unit_basis_provenance")] = resolution.provenance
+    row[at("unit_basis_witness")] = resolution.witness
+
+
+
+
 class MagentoGraphqlConnector:
     connector_id = "magento-graphql"
 
@@ -429,6 +470,7 @@ class MagentoGraphqlConnector:
         self.skip_tokens: set[str] = set()      # resume: pages already journaled
 
     def fetch(self, source: SourceEntry) -> Iterable[ScrapedTable]:
+        charter = charter_for(source)
         builder = RowBuilder(PRODUCT_PRICES)
         base = source.base_url.rstrip("/")
         endpoint = f"{base}/graphql"
@@ -522,6 +564,8 @@ class MagentoGraphqlConnector:
             page_rows: list[list[str]] = []
             for product in items:
                 made = self._product_rows(builder, product, ctx)
+                for built in made:
+                    _apply_charter(built, charter)
                 page_rows.extend(made)
                 if made and wants_enrichment:
                     # Details hang off the PRICE row's product, so the

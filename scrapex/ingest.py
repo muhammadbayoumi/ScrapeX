@@ -649,13 +649,35 @@ def _unit_facts(r: dict) -> dict[str, str]:
     }
 
 
+def _content_facts(conn, r: dict) -> dict:
+    """What is inside one selling unit, when the shop named a container.
+
+    Kept beside the unit rather than folded into it: «4 كجم/صندوق» is a box you
+    buy and four kilograms you get, and a warehouse that stores only the four
+    has thrown away the word the shop actually published. price-per-kg then
+    becomes arithmetic on two stated facts instead of a rewrite of one.
+    """
+    quantity = (r.get("content_quantity") or "").strip()
+    code = (r.get("content_unit") or "").strip()
+    if not quantity or not code:
+        return {"content_quantity": None, "content_unit_id": None}
+    try:
+        amount = float(quantity)
+    except ValueError:
+        return {"content_quantity": None, "content_unit_id": None}
+    return {"content_quantity": amount, "content_unit_id": _get_unit_id(conn, code)}
+
+
 def _apply_unit_facts(conn, offer_id: int, r: dict) -> None:
     """Refresh legacy provenance when a charter can now name the witness."""
     facts = _unit_facts(r)
+    content = _content_facts(conn, r)
     conn.execute(
         "UPDATE source_offer SET selling_unit_raw = ?, selling_unit_raw_lang = ?, "
-        "unit_basis_provenance = ?, unit_basis_witness = ? WHERE offer_id = ?",
-        (*facts.values(), offer_id),
+        "unit_basis_provenance = ?, unit_basis_witness = ?, "
+        "content_quantity = ?, content_unit_id = ? WHERE offer_id = ?",
+        (*facts.values(), content["content_quantity"], content["content_unit_id"],
+         offer_id),
     )
 
 
@@ -698,12 +720,15 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         )
         if unstated is not None:
             unit_facts = _unit_facts(r)
+            content = _content_facts(conn, r)
             conn.execute(
                 "UPDATE source_offer SET selling_unit_id = ?, basis_quantity = ?, "
                 "selling_unit_raw = ?, selling_unit_raw_lang = ?, "
-                "unit_basis_provenance = ?, unit_basis_witness = ? "
+                "unit_basis_provenance = ?, unit_basis_witness = ?, "
+                "content_quantity = ?, content_unit_id = ? "
                 "WHERE offer_id = ?",
-                (unit_id, basis, *unit_facts.values(), unstated))
+                (unit_id, basis, *unit_facts.values(),
+                 content["content_quantity"], content["content_unit_id"], unstated))
             _apply_quantity_facts(conn, unstated, quantity)
             return unstated
     return _insert(conn, "source_offer", {
@@ -714,6 +739,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         "selling_unit_id": unit_id,
         "basis_quantity": basis,
         **(_unit_facts(r) if unit_id else {}),
+        **(_content_facts(conn, r) if unit_id else {}),
         **quantity,
     })
 
