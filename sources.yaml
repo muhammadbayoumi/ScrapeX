@@ -835,6 +835,14 @@ sources:
     active: false
     currency: EGP
     default_region: EG
+    # THE SHOP SERVES ENGLISH AT ITS ROOT. <html lang="en">, and every title is
+    # English — "Himel Variable Speed Drive VFD, 380V 3-Phase Motor Control".
+    # It has no /en locale at all; that URL answers 404, verified live
+    # 2026-08-03. Without this line the connector files the root title as
+    # Arabic and then asks a shop that has no /en for its /en, which is exactly
+    # how 1,789 English names ended up under the Arabic heading with the
+    # English column — which config.py calls required — empty on every one.
+    default_language: en
     # UNVERIFIED, and the one field here nobody has checked. Egypt charges 14%
     # VAT and the shop prints "LE {{amount}}" with no statement either way; the
     # cart would settle it in one look, and until someone looks this is the
