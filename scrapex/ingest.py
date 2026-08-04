@@ -681,6 +681,39 @@ def _apply_unit_facts(conn, offer_id: int, r: dict) -> None:
     )
 
 
+def _retire_replaced_readings(conn, variant_id: int, offer_id: int) -> None:
+    """Retire a legacy reading of this variant that THIS offer now answers for.
+
+    Migration 0060 did exactly this once, by hand, for the 18 madar offers that
+    read "4 kg" where the shop's own option says «4 كجم/صندوق». It ran on one
+    warehouse on one day. Nothing made it a rule, so the next charter that
+    learns to read a field recreates the same pair: one row written by code that
+    could not name a witness, one by code that can, both active, the same
+    product answering "what is one of these" twice.
+
+    It happens again the moment a charter grows a witness. MADAR's
+    Specifications size resolves «20 Kg» for two offers stored as 25 kg with
+    provenance legacy_unwitnessed — a different basis_quantity, so a NEW offer
+    is minted beside the old one rather than replacing it, which is right for
+    two STATED units and wrong for two readings of one.
+
+    Only a row that says of itself that nobody can name its source is touched,
+    and only when the row replacing it names one. Nothing is deleted:
+    price_observation is append-only and the history stays; `status` is the
+    lifecycle 0032 defined, and read paths show 'active'.
+    """
+    conn.execute(
+        "UPDATE source_offer SET status = 'superseded' "
+        " WHERE source_variant_id = ? AND offer_id <> ? AND status = 'active' "
+        "   AND unit_basis_provenance = 'legacy_unwitnessed' "
+        "   AND EXISTS (SELECT 1 FROM source_offer replacement "
+        "                WHERE replacement.offer_id = ? "
+        "                  AND replacement.unit_basis_provenance IS NOT NULL "
+        "                  AND replacement.unit_basis_provenance "
+        "                      NOT IN ('', 'legacy_unwitnessed'))",
+        (variant_id, offer_id, offer_id))
+
+
 def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     vat = 1 if r["tax_included"] == "1" else 0
     unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
@@ -700,6 +733,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     if found is not None:
         if unit_id:
             _apply_unit_facts(conn, found, r)
+            _retire_replaced_readings(conn, variant_id, found)
         _apply_quantity_facts(conn, found, quantity)
         return found
     # AN OFFER LEARNING ITS UNIT IS NOT A SECOND OFFER. The rule above is right
@@ -730,8 +764,9 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
                 (unit_id, basis, *unit_facts.values(),
                  content["content_quantity"], content["content_unit_id"], unstated))
             _apply_quantity_facts(conn, unstated, quantity)
+            _retire_replaced_readings(conn, variant_id, unstated)
             return unstated
-    return _insert(conn, "source_offer", {
+    minted = _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
         "country_code_alpha2": r["country_code_alpha2"],
         "currency": r["currency"],
@@ -742,6 +777,9 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         **(_content_facts(conn, r) if unit_id else {}),
         **quantity,
     })
+    if unit_id:
+        _retire_replaced_readings(conn, variant_id, minted)
+    return minted
 
 
 def _witness_for(r: dict) -> tuple[str, str]:
