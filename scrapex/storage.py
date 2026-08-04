@@ -588,6 +588,7 @@ def health(db_path: Path | str) -> dict:
         "status": "healthy", "ok": True, "problems": [], "foreign_key_problems": 0,
         "reclaimable_bytes": reclaimable,
         "undeclared_sources": forgotten,
+        "prunable_backup_bytes": sum(b["bytes"] for b in prunable_backups(path)),
         "detail": ("No problems found." + (
             f" Compacting would return about {reclaimable:,} bytes of free pages."
             if reclaimable else "") + (
@@ -636,9 +637,71 @@ def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
     if not where.is_dir():
         return []
     found = [{"path": str(p), "name": p.name, "bytes": _size(p),
-              "modified_at": _mtime_iso(p)}
-             for p in where.glob(f"{base_stem(path)}.*backup*")]
+              "modified_at": _mtime_iso(p), "tag": backup_tag(p, path)}
+             # SQLite leaves `-shm` and `-wal` beside a database it has opened,
+             # and the glob was matching them: the Restore list offered a
+             # write-ahead log as something you could make live again.
+             for p in where.glob(f"{base_stem(path)}.*backup*")
+             if p.suffix == Path(path).suffix or p.suffix == ".db"]
     return sorted(found, key=lambda b: b["modified_at"], reverse=True)
+
+
+# What backup_database writes: <stem>.<tag>-<stamp>.backup<suffix>. Reset writes
+# <stem>.reset-backup-<stamp><suffix>, which is the same fact in a different
+# order and predates the helper. Both are read, and ANYTHING ELSE IS NOT OURS —
+# a file a person named by hand has no tag, is never grouped, and is never
+# pruned. That is the whole safety rule: the policy removes only what this
+# product itself wrote.
+_STAMP = r"(?:\d{8}T\d{6}Z|\d{8}-\d{6}|[\d-]{10}T[\d:]{8}Z)"
+
+
+def backup_tag(backup_path: Path | str, db_path: Path | str) -> str:
+    """Which lineage this backup belongs to, or "" if this product did not name it."""
+    stem = re.escape(base_stem(db_path))
+    match = re.match(rf"^{stem}\.(?:(?P<tag>.+?)-{_STAMP}\.backup|reset-backup-{_STAMP})$",
+                     Path(backup_path).stem)
+    if match is None:
+        return ""
+    return match.group("tag") or "reset"
+
+
+BACKUPS_KEPT_PER_TAG = 3
+
+
+def backups_kept(conn: sqlite3.Connection) -> int:
+    """How many of each lineage to keep. Three, unless the owner says otherwise.
+
+    Three rather than one because the reason to keep a backup at all is that
+    the newest one might be the one carrying the defect: measured on the
+    owner's warehouse, a rebuild backup taken minutes before a bad crawl is
+    indistinguishable from a good one until the data is read.
+    """
+    try:
+        saved = int(settings.get(conn, "backups_kept_per_tag") or BACKUPS_KEPT_PER_TAG)
+    except (TypeError, ValueError):
+        return BACKUPS_KEPT_PER_TAG
+    return max(1, saved)
+
+
+def prunable_backups(db_path: Path | str, folder: Path | None = None,
+                     keep: int = BACKUPS_KEPT_PER_TAG) -> list[dict]:
+    """The backups a keep-N-per-lineage policy would remove, newest kept.
+
+    Untagged files are absent by construction — see backup_tag. Grouping by
+    lineage rather than by age is what stops a run of rebuild backups evicting
+    the one pre-wipe copy of a source that was erased months ago: measured on
+    the owner's warehouse, `rebuild` alone held 10 files and 491 MB while
+    `pre-wipe-SIKAEGSHOP` held the only copy of 13.7 MB nothing else has.
+    """
+    by_tag: dict[str, list[dict]] = {}
+    for backup in list_backups(db_path, folder):
+        if backup.get("tag"):
+            by_tag.setdefault(backup["tag"], []).append(backup)
+    drop: list[dict] = []
+    for entries in by_tag.values():
+        # list_backups is already newest-first, so the tail is the old ones.
+        drop.extend(entries[max(1, keep):])
+    return sorted(drop, key=lambda b: b["modified_at"], reverse=True)
 
 
 def _mtime_iso(path: Path) -> str:
@@ -649,6 +712,42 @@ def _mtime_iso(path: Path) -> str:
     except OSError:
         return ""
     return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def prune_backups(conn: sqlite3.Connection, db_path: Path | str,
+                  keep: int | None = None) -> RunResult:
+    """Remove the backups the policy no longer keeps. Returns what it freed.
+
+    The owner's warehouse reached 1.61 GB of backups against a 100 MB database
+    — 16x — because nothing ever removed one. He asked for a policy rather than
+    a one-off sweep, and this is it: it runs after each new backup, so a
+    lineage cannot grow past its keep count in the first place.
+
+    Deliberately NOT a sweep of everything old. It only ever removes files this
+    product named (backup_tag), it keeps the newest of every lineage, and it
+    never touches the live database or its sidecars.
+    """
+    keep = backups_kept(conn) if keep is None else keep
+    folder = backup_folder(conn, db_path)
+    doomed = prunable_backups(db_path, folder, keep)
+    freed, removed = 0, []
+    for backup in doomed:
+        target = Path(backup["path"])
+        try:
+            size = _size(target)
+            target.unlink()
+        except OSError:
+            # A backup held open by another process is not an error worth
+            # failing a crawl over — it is simply still there next time.
+            continue
+        freed += size
+        removed.append(target.name)
+    return RunResult(
+        ok=True, rows=len(removed), location=str(folder),
+        detail=(f"Removed {len(removed)} superseded backup(s), freeing "
+                f"{freed:,} bytes; keeping the {keep} newest of each kind."
+                if removed else
+                f"Nothing to remove: every kind is within its {keep} newest."))
 
 
 def backup_now(conn: sqlite3.Connection, db_path: Path | str, tag: str = "manual") -> RunResult:
@@ -676,6 +775,12 @@ def backup_now(conn: sqlite3.Connection, db_path: Path | str, tag: str = "manual
         result.detail += (" This backup is on the same disk as the database, so it "
                           "does not survive that drive failing. Set a backup folder "
                           "on another disk to protect against that.")
+    # Pruned AFTER the new copy exists, never before: a policy that made room
+    # first would, on the one run where the backup then failed, have deleted
+    # the old one for nothing.
+    swept = prune_backups(conn, path)
+    if swept.rows:
+        result.detail += f" {swept.detail}"
     settings.set_state(conn, "storage_last", result.as_state())
     return result
 

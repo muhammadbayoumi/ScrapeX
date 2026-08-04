@@ -97,6 +97,11 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     Setting("ui_time_zone", "", label="Shared display time zone"),
     # --- Storage (spec 17) ---
     Setting("backup_folder", "", label="Folder for backups"),
+    # Backups grew to 1.61 GB against a 100 MB warehouse — 16x — because
+    # nothing ever removed one, and the `rebuild` lineage alone held ten
+    # files. Kept PER KIND rather than in total, so a run of rebuilds can
+    # never evict the only pre-wipe copy of a source erased months ago.
+    Setting("backups_kept_per_tag", "3", label="Backups kept of each kind"),
     # --- Logs and diagnostics (spec 33) ---
     Setting("log_retention_days", "30", label="Keep job logs for"),
 ]}
