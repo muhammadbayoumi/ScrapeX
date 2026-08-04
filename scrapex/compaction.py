@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import db as dbmod
 from . import retention, settings, storage
+from .database_ids import MARKETLENS_APPLICATION_ID
 
 # Tables NOT copied verbatim. Everything else is discovered from the schema
 # rather than listed here: a hand-written copy list silently drops whatever a
@@ -98,6 +99,104 @@ def _existing_tables(conn: sqlite3.Connection) -> set[str]:
         "AND name NOT LIKE 'sqlite_%'")}
 
 
+def _application_id(path: Path) -> int | None:
+    """This file's `PRAGMA application_id`, or None if it would not answer.
+
+    None is NOT an application id and must never be read as one — see
+    `_typed_class_for`, which is the whole reason this is a separate function.
+    """
+    # `sqlite3.connect` CREATES what it cannot find, and this is asked about the
+    # source — the file `build_successor` promises to read and never write. A
+    # missing warehouse must stay missing and fail at the caller's open, not be
+    # quietly conjured here as an empty database with no application id.
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(str(path))
+    except sqlite3.DatabaseError:
+        return None
+    try:
+        # The busy_timeout every other connection in this product sets. Without
+        # it a probe takes SQLITE_BUSY for an answer: a warehouse that is merely
+        # locked for a moment reports no kind at all, and one transient lock
+        # would decide how the successor gets built.
+        conn.execute("PRAGMA busy_timeout = 5000")
+        return int(conn.execute("PRAGMA application_id").fetchone()[0])
+    except sqlite3.DatabaseError:
+        return None
+    finally:
+        conn.close()
+
+
+def _typed_class_for(path: Path):
+    """The typed database boundary that owns this file, or None for a legacy one.
+
+    Asked of `PRAGMA application_id`, which SQLite keeps in the file header and
+    no query can copy — deliberately NOT of `scrapex_meta.database_kind`. That
+    row is an ordinary row in an ordinary table, so `_copy_table` carries it into
+    the successor verbatim: a successor built the wrong way still says
+    'marketlens' about itself. Asked that way, a wrong successor vouches for
+    itself and the check is worthless. The application id is the one answer it
+    cannot forge, and it is exactly the one `MarketLensDatabase._verify` reads.
+
+    Only MarketLens is recognised because only MarketLens has price observations;
+    a General database has no `price_observation` to compact, and `dbmod.connect`
+    refuses it outright before ever reaching here. Anything else is a legacy
+    unmarked warehouse, which has no typed door and keeps the legacy build.
+
+    A FILE THAT WILL NOT SAY IS REFUSED, not treated as legacy. Those are two
+    different facts and collapsing them is the same defect as #53 itself: this
+    function decides BOTH how the successor is built AND whether the new gate in
+    `_refused_by_the_product` runs at all, so a source whose header could not be
+    read — truncated, foreign, or held exclusively by another program — would
+    quietly build the legacy way AND switch off the check that would have caught
+    it. An id of 0 is an answer and means legacy. Silence is not an answer.
+    """
+    from .databases.domain import MarketLensDatabase   # local: databases/ imports down to here
+
+    app_id = _application_id(path)
+    if app_id is None:
+        raise CompactionAborted(
+            f"ScrapeX could not read what kind of database {path} is, so it will "
+            "not build a successor for it — a source whose kind is unknown cannot "
+            "be verified against the door the product opens it with. Check that "
+            "the file is present, readable, and not held open exclusively by "
+            "another program.")
+    return MarketLensDatabase if app_id == MARKETLENS_APPLICATION_ID else None
+
+
+def _prepare_successor(source: Path, target: Path) -> None:
+    """Create the successor's schema the way the SOURCE'S OWN KIND creates it.
+
+    This is the defect in #53. Compaction used to build every successor with
+    `dbmod.migrate` — the legacy, untyped stream — whatever the source was. That
+    stream is not the MarketLens one: it replays all 57 legacy files, including
+    the three (0013, 0014, 0017) that belong to General alone, and it never
+    applies MarketLens's own identity migration. Measured against the owner's
+    warehouse the two disagree on everything that identifies a database:
+
+        source (MarketLensDatabase)   40 tables  v55  app id 1398295884  ledger 55
+        successor (dbmod.migrate)     50 tables  v57  app id 0           no ledger
+
+    So the product could not open its own output. Building it through the same
+    typed boundary the source came from is the fix, and it is a fix rather than a
+    patch: nothing is stamped onto the successor afterwards to make it acceptable.
+    It is the right kind because it was BUILT as that kind, and if it cannot be,
+    the build fails here — before anything has been promoted or retired.
+    """
+    typed = _typed_class_for(source)
+    if typed is None:
+        # A legacy unmarked warehouse: the untyped stream IS its own stream.
+        conn = dbmod.connect(target)
+        try:
+            dbmod.migrate(conn)
+            conn.commit()
+        finally:
+            conn.close()
+        return
+    typed(target).initialize()
+
+
 def _copy_table(src: sqlite3.Connection, dst: sqlite3.Connection, table: str) -> int:
     columns = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
     if not columns:
@@ -120,19 +219,21 @@ def build_successor(db_path: Path | str, out_path: Path | str, *,
     temporary file and leaves the warehouse untouched.
     """
     source_path, target_path = Path(db_path), Path(out_path)
-    target_path.unlink(missing_ok=True)
+    # Siblings too, not just the file: a `-wal` left by an earlier database of
+    # this name describes different content, and the schema about to be created
+    # here would inherit it. Same reason `_discard` exists.
+    _discard(target_path)
 
     def step(name: str, done: int = 0, total: int = 0) -> None:
         if progress is not None:
             progress({"step": name, "done": done, "total": total})
 
+    step("preparing")
+    _prepare_successor(source_path, target_path)
+
     src = dbmod.connect(source_path)
     dst = dbmod.connect(target_path)
     try:
-        step("preparing")
-        dbmod.migrate(dst)
-        dst.commit()
-
         before = src.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
         protected = retention.protected_keys(src)
 
@@ -193,14 +294,57 @@ def _copy_observations(src: sqlite3.Connection, dst: sqlite3.Connection,
 
 # ---- verifying ---------------------------------------------------------------
 
+def _refused_by_the_product(source: Path, successor: Path) -> list[str]:
+    """The successor must open through the door the application itself uses.
+
+    Asked by OPENING it — `MarketLensDatabase(successor).connect()`, the same
+    call the engine makes at startup — and not by re-listing what that call
+    checks. A re-listed check is a second implementation of the gate, and it
+    drifts from the first one silently: #53 walked past a verifier that compares
+    schema version, trigger presence, every table's row count and the protected
+    set, all of them real checks, not one of them "and can it be opened".
+
+    It is the SOURCE that decides which door to try, never the successor. A
+    successor built the wrong way still carries a copied
+    `scrapex_meta.database_kind` of 'marketlens' (see `_typed_class_for`), so
+    letting the successor nominate its own door lets it pass by answering for
+    itself.
+
+    Every failure is a refusal. The successor is not repaired to make it
+    acceptable — a compaction that stamped its own output into shape would be
+    hiding exactly the divergence this exists to report.
+    """
+    try:
+        typed = _typed_class_for(source)
+    except CompactionAborted as exc:
+        # A source whose kind could not be read is a REFUSAL, never a skip. This
+        # is the branch that keeps the gate closed when it cannot be opened:
+        # returning [] here would mean "nothing to check", which is exactly the
+        # silence #53 travelled through.
+        return [str(exc)]
+    if typed is None:
+        return []          # a legacy unmarked warehouse has no typed door to try
+    try:
+        typed(successor).connect().close()
+    except Exception as exc:            # noqa: BLE001 — any refusal is a problem
+        return [f"the successor is not a {typed.kind} database this product can "
+                f"open ({type(exc).__name__}: {exc})"]
+    return []
+
+
 def verify_successor(src_path: Path | str, dst_path: Path | str) -> list[str]:
     """Every reason the successor is unacceptable. An empty list is the gate.
 
     The protected set is re-derived from the SOURCE by the independent Python
     implementation — deliberately not the view the selection used — so the two
     definitions have to agree before anything is promoted.
+
+    Called before the pointer moves and before the predecessor is sealed, so
+    everything it refuses is still free to refuse: the successor is a temporary
+    file under a name nothing resolves to, and discarding it costs the owner one
+    build and no data.
     """
-    problems: list[str] = []
+    problems: list[str] = _refused_by_the_product(Path(src_path), Path(dst_path))
     src = dbmod.connect(Path(src_path))
     dst = dbmod.connect(Path(dst_path))
     try:
