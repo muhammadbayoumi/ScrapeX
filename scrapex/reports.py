@@ -193,6 +193,12 @@ _LATEST_PER_OFFER = (
     # stand-in a per-variation upgrade replaced must leave the current-prices
     # table, the export, and every count derived from this join.
     "AND sv.status = 'active' "
+    # And the same one level down (0060). An offer whose unit was read by code
+    # that could not see the shop's own word — «4 كجم/صندوق» stored as "4 kg" —
+    # is not a second offer, it is an older reading of this one. It stays in the
+    # warehouse with its history; it does not stand beside the reading that
+    # replaced it and give the same product two answers.
+    "AND so.status = 'active' "
     # The offer's face is what WE saw, newest first; a reported claim speaks
     # only for an offer with no observation at all. TWO indexed probes rather
     # than one expression-ordered subquery: ORDER BY (provenance='observed')
