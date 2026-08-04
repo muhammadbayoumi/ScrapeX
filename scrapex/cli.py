@@ -4,7 +4,8 @@ Commands land phase by phase; Phase 0 ships exactly what Phase 0 built:
   init-db            create/upgrade harvest.db (A10 lock + S6 migrations)
   validate-manifest  parse + validate sources.yaml (S5; same check runs in CI)
   export-contract    write contracts/funnel-payload.schema.json from the model (T8)
-  export-version     write the capability baseline, version vectors and CHANGELOG
+  export-version     write the capability baseline, version vectors, CHANGELOG
+                     and the Data page ruling's generated column tables
   funnel-test        send a tiny self-test payload through the staging funnel
   status             per-source last-run age (S8 watchdog; stub until ingest lands)
 
@@ -223,7 +224,141 @@ def _cmd_export_version(args: argparse.Namespace) -> int:
     changelog = ROOT_DIR / "CHANGELOG.md"
     changelog.write_text(_render_changelog(), encoding="utf-8")
     print(f"wrote {changelog} (generated from scrapex/version.py — do not hand-edit)")
+    schema = ROOT_DIR / "docs" / "data-page-schema.md"
+    schema.write_text(_render_data_page_schema() + chr(10), encoding="utf-8")
+    print(f"wrote {schema} (column tables generated from scrapex/reports.py)")
     return 0
+
+
+_DATA_PAGE_RULES = """
+## The rules behind it
+
+1. **A column's name states the language of its content — in display and in
+   storage.** English is the primary display language, so an unmarked column is
+   English and Arabic lives in one marked `ar`. A source that publishes only
+   Arabic fills only the marked column, and its single visible column reads
+   `Record (AR)`, because the label describes the content, not the presence of
+   a counterpart.
+2. **One language at a time.** The AR|EN switch governs the table AND the
+   container. Printing both languages side by side in the cards under the table
+   is the same fact twice, not more detail.
+3. **A missing translation shows the fact, never a blank.** Where a source
+   published only one side of a pair, that side is shown under a heading that
+   names its language.
+4. **Presence is per source.** A column appears only where that source's own
+   rows fill it — no global gate. A shop with no geography shows no Country
+   column; a source with no variations gains no axis columns.
+5. **The owner moves fields between the two places.** Choose Columns has two
+   zones; hiding a field moves it into the container rather than losing it. It
+   is reachable from the side panel and from the web page, and both write the
+   same order — the panel is the control room, and nothing it cannot do may
+   live on the page.
+6. **An order you arranged is yours.** Until you move a column, the table shows
+   the agreed order above and we may improve it. The moment you do, that
+   arrangement wins on every surface and no update replaces it. Each screen
+   says which of the two you are looking at.
+7. **Nothing is computed into a price.** Every figure is what the source
+   published; the Tax column states, per row, whether that figure includes tax.
+   Where a shop names a container and what is in it — «4 كجم/صندوق» — both are
+   stored, and a price per kilogram is arithmetic over two stated facts rather
+   than a rewrite of one.
+
+## What an export carries
+
+The Excel download is not the view — it is the whole record: a `prices` sheet,
+a `details` sheet, a `history` sheet and an `about` sheet naming the source,
+the export time, the counts and what each sheet is. CSV and JSON stay the view
+you are looking at, filters and column order included.
+"""
+
+
+def _render_data_page_schema() -> str:
+    """The Data page ruling, with its column tables GENERATED (issue 32).
+
+    The file calls itself the ruling, and it had drifted into stating the
+    opposite of the code: it listed classification levels L1 to L4 while
+    CATEGORY_LEVELS is 10, filed Brand under identity where reports.py files it
+    under the classification, described the reading order as identity then
+    classification then the offer — the order the agreement replaced — and named
+    none of display_method, minimum_quantity, quantity_increment or
+    stock_quantity, nor eight of the price columns.
+
+    A ruling nobody can trust is worse than no ruling, and PR #63 was sent back
+    partly for leaving this file behind. So the PROSE stays hand-written — those
+    are the owner's decisions and no code can derive them — and the tables come
+    from the same lists the table itself is built from. tests/test_docs.py fails
+    when the committed file no longer matches.
+    """
+    from . import reports
+    from .vocab import BLOCK_ORDER, DETAIL_GROUP_ORDER
+
+    heading = {
+        "identity": "**Identity** — which thing this row is",
+        "offer": "**The offer** — what it costs and on what terms",
+        "filing": "**The filing** — where the shop files it",
+        "provenance": "**Provenance** — where the row came from, and when it was last true",
+    }
+    lines = [
+        "# What the Data page shows, and where",
+        "",
+        "The column tables below are GENERATED from `scrapex/reports.py` by",
+        "`python -m scrapex.cli export-docs`. Do not hand-edit them: the code is the",
+        "truth and this is its readable form. The prose is hand-written, because those",
+        "are the owner's rulings and nothing derives them.",
+        "",
+        "The owner asked to review the schema of the Data page: what belongs in the",
+        "table at the top, what belongs in the container that opens underneath when a",
+        "row is selected, and what a language switch governs. This file is the ruling,",
+        "so the answer stops being re-decided per screen.",
+        "",
+        "## The table, in reading order",
+        "",
+        "**The table answers \"how do these compare?\"** — what you scan across many",
+        "rows at once and sort, filter or group by. Identity, then the offer, then the",
+        "filing: the price is the reason the table exists, so nothing files in front",
+        "of it.",
+        "",
+    ]
+    columns = reports.browse_columns()
+    for block in BLOCK_ORDER:
+        members = [(key, label) for key, label in columns
+                   if reports.COLUMN_BLOCK[key] is block]
+        if not members:
+            continue
+        lines += [heading[block.value], "", "| column | what it means |", "|---|---|"]
+        for key, label in members:
+            note = (reports.COLUMN_NOTES.get(key) or "").strip()
+            note = " ".join(note.split())
+            if len(note) > 150:
+                note = note[:147].rstrip() + "…"
+            lines.append(f"| {label or key} | {note or '—'} |")
+        lines.append("")
+    lines += [
+        f"Category levels are generated: `CATEGORY_LEVELS = {reports.CATEGORY_LEVELS}`,",
+        "so raising the ceiling is one line and this table follows it.",
+        "",
+        "## The container, and what is filed where",
+        "",
+        "**The container answers \"what is this one thing?\"** — what describes a single",
+        "record and would be noise repeated eighty-seven times.",
+        "",
+        "| group | |",
+        "|---|---|",
+    ]
+    for group in DETAIL_GROUP_ORDER:
+        lines.append(f"| {group} | |")
+    lines += [
+        "",
+        "Selecting two or more rows turns the same container into a **comparison** of",
+        "them, marking the fields that differ.",
+        "",
+    ]
+    # THE PROSE. Hand-written and kept verbatim: these are the owner's rulings
+    # and no list in the code derives them. Generating them would be inventing
+    # decisions; leaving them out would lose the only part a reader argues with.
+    lines += _DATA_PAGE_RULES.strip().split(chr(10))
+    lines.append("")
+    return chr(10).join(lines)
 
 
 def _write_capability_baseline() -> str:
@@ -296,7 +431,7 @@ def _render_changelog() -> str:
             lines.append(f"- **{capability.key}**{evidence} — {capability.summary} "
                          f"_Runs in: {surfaces}._")
         lines.append("")
-    return "\n".join(lines)
+    return chr(10).join(lines)
 
 
 def _cmd_funnel_test(args: argparse.Namespace) -> int:
