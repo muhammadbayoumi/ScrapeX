@@ -1,0 +1,14 @@
+{
+  "name": "scrapex-spike-opfs-sqlite",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Spike 2: can wa-sqlite over OPFS carry the MarketLens warehouse inside an MV3 extension? Experiment only — nothing here ships.",
+  "type": "module",
+  "scripts": {
+    "vendor": "node vendor.mjs"
+  },
+  "dependencies": {
+    "@sqlite.org/sqlite-wasm": "3.53.0-build1",
+    "wa-sqlite": "1.0.0"
+  }
+}

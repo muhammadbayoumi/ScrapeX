@@ -1,0 +1,106 @@
+{
+  "started": "2026-07-30T13:49:36",
+  "snapshot_bytes": 78450688,
+  "unlimited_storage": true,
+  "phases": {
+    "import": {
+      "download_wal": {
+        "path": "marketlens-wal.db",
+        "bytes": 78450688,
+        "ms": 351,
+        "mode": "sync-access-handle"
+      },
+      "download_nowal": {
+        "path": "marketlens.db",
+        "bytes": 78450688,
+        "ms": 248,
+        "mode": "sync-access-handle"
+      },
+      "tree_after": {
+        "files": [
+          {
+            "path": "/marketlens.db",
+            "bytes": 78450688
+          },
+          {
+            "path": "/marketlens-wal.db",
+            "bytes": 78450688
+          }
+        ],
+        "total_bytes": 156901376
+      },
+      "estimate_after": {
+        "quota": 13521249962,
+        "usage": 157619882,
+        "usageDetails": {
+          "fileSystem": 156901728,
+          "serviceWorkerRegistrations": 718154
+        },
+        "persisted": false
+      }
+    },
+    "sw": {
+      "scope": {
+        "scope": "ServiceWorkerGlobalScope",
+        "canSpawnWorker": false,
+        "hasOpfs": true,
+        "hasWasm": true,
+        "hasSharedArrayBuffer": true,
+        "boot": 1785408577695,
+        "alive_ms": 650,
+        "lives": 1
+      },
+      "opfs_write_capabilities_sw": {
+        "createSyncAccessHandle": "undefined",
+        "createWritable": "function",
+        "canSpawnWorker": false,
+        "sync_handle_acquired": false,
+        "sync_handle_error": "TypeError: handle.createSyncAccessHandle is not a function"
+      },
+      "opfs_write_capabilities_worker": {
+        "createSyncAccessHandle": "undefined",
+        "createWritable": "function",
+        "scope": "Window"
+      },
+      "opfs_write_capabilities_dedicated_worker": {
+        "scope": "DedicatedWorker",
+        "createSyncAccessHandle": "function",
+        "createWritable": "function",
+        "canSpawnWorker": true,
+        "sync_handle_acquired": true
+      },
+      "opened_in_service_worker": {
+        "engine": "wa-sqlite",
+        "sqlite": "3.44.0",
+        "page_size": 4096,
+        "page_count": 19153,
+        "user_version": 54,
+        "journal_mode": "delete",
+        "tables": 40,
+        "triggers": 2,
+        "views": 2,
+        "indexes": 59,
+        "price_observation": 73278
+      },
+      "write_from_service_worker": {
+        "wrote": false,
+        "error_name": "Error",
+        "error": "unable to open database file"
+      },
+      "heartbeat": {
+        "survived_seconds": 420,
+        "ticks": 414,
+        "boot": 1785408577695,
+        "driver_wall_s": 420.1
+      },
+      "after_heartbeat": {
+        "last_boot": 1785408577695,
+        "lives": 1,
+        "this_boot": 1785408577695,
+        "alive_ms": 421815
+      }
+    }
+  },
+  "chromium": "C:\\Users\\User01\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe",
+  "extension_id": "cdammhkgfdofnkmcaefakbemephmgdjl"
+}

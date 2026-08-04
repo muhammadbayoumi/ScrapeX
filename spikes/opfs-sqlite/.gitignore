@@ -1,0 +1,7 @@
+# Everything this spike GENERATES. The spike is the code, FINDINGS.md and the
+# committed run under evidence/; the rest is re-made by `python prepare.py`,
+# `npm run vendor` and `python run.py`.
+.work/
+node_modules/
+extension/vendor/
+results/
