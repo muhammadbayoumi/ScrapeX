@@ -100,6 +100,57 @@ sources:
       # The connector could read it all along; nothing asked for it.
       - kind: enrichment
         scope: census
+    # WHAT ONE OF THESE IS. Two shapes, because madar states it two ways and
+    # neither is the shape sikaegshop uses.
+    #
+    # Measured 2026-08-03 over all 3,537 offers: 3,480 resolve from the
+    # platform's declared weight+weight_unit, 52 from an option value that
+    # names a container, 5 stay silent. Today 92 carry a unit, all kg.
+    unit_charter:
+      version: 1
+      witnesses:
+        # 1. The shop naming a CONTAINER and what is in it: «4 كجم/صندوق»,
+        #    "1000 Pcs/Box". First, because it is richer — it says what the
+        #    thing IS, where the weight below says only how much of it there is.
+        #    18 offers are stored today as kg-with-basis-3-or-4 while the shop's
+        #    own published option says BOX; that is this warehouse overwriting
+        #    what the shop said.
+        - {field: variant_axes_ar, lang: ar, provenance: stated_field, shape: container}
+        - {field: variant_axes,    lang: en, provenance: stated_field, shape: container}
+        # THERE IS NO SECOND WITNESS, AND THAT IS THE FINDING.
+        #
+        # The first draft of this charter had one: weight + storeConfig's
+        # weight_unit, which would have resolved 3,480 of the 3,537 offers. It
+        # was justified with three steel products at 368.4, 1000 and 2052 kg
+        # pricing out at 3.36, 3.47 and 3.26 SAR/kg — a tight band a shipping
+        # figure would not produce.
+        #
+        # Six rows, all steel. Testing the claim properly killed it. Across all
+        # 6,764 observations price/weight has a median of 3.46 and a 99th
+        # percentile of 1,253, with a maximum of 38,923. Within single products:
+        # Steel Square Tube runs 2.81 to 374.72, Corrugated Sheet 0.47 to 7.64.
+        # A price of 38,923 "per kg" is not a price per kg. So `weight` is the
+        # quoting basis for some products and a piece mass for others, exactly
+        # as magento.py says in writing — "this connector does not decide
+        # whether 1000 is a basis or a mass" — and exactly as the owner ruled on
+        # 2026-07-29: «الحقائق الخام فقط», the unit column stays empty where the
+        # shop states no unit for THAT product.
+        #
+        # A store-wide weight_unit is the shop saying "my weight numbers are in
+        # kg". It is not the shop saying what one of THIS product is.
+      # The site writes the SAME container in two languages, and this maps both
+      # to one code. Measured: without it «صندوق» (16) and "box" (24) become two
+      # different selling units for one shop's box, and two prices for the same
+      # product stop being comparable. It does NOT reject sizes like 1-1/2" —
+      # the reader requires letters on both sides of the slash and never sees
+      # them. I wrote the opposite here first; the measurement corrected it.
+      containers:
+        box:  [box, صندوق]
+        roll: [roll, لفة]
+        bag:  [bag, كيس]
+        drum: [drum, درم]
+      scales:
+        pack: [kg, gm, ml, liter, m, tonne, piece]
     min_expected_rows: 50
     max_drop_pct: 50
     notes: >

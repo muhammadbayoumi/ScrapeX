@@ -231,6 +231,14 @@ class UnitWitness(BaseModel):
     # be dug out of; declared_by_owner is OUR constant, and says so.
     provenance: Literal["declared_by_source", "stated_in_name", "stated_field",
                         "stated_in_prose", "declared_by_owner"] = "stated_field"
+    # HOW the field speaks. "quantity" is one field holding "20 kg" and is all
+    # sikaegshop needs. "pair" is a number here and its unit word in
+    # `unit_field` — madar's platform publishes weight and weight_unit that way.
+    # "container" is «N unit / container», where what you buy is the container
+    # and N of the unit is what is in it.
+    shape: Literal["quantity", "pair", "container"] = "quantity"
+    # Only for shape "pair": where the unit WORD lives.
+    unit_field: str = ""
 
 
 class UnitCorroborator(BaseModel):
@@ -276,6 +284,13 @@ class UnitCharter(BaseModel):
     witnesses: list[UnitWitness] = Field(min_length=1)
     corroborators: list[UnitCorroborator] = []
     scales: UnitScales
+    # canonical container -> the words this site writes for it. Its job is to
+    # make one code out of the two languages the same shop uses: measured on
+    # madar, without it «صندوق» (16) and "box" (24) are two different selling
+    # units for one box and two prices for the same product stop comparing.
+    # It is NOT what rejects a size like 1-1/2" — the reader requires letters
+    # on both sides of the slash, so a fraction never reaches this list.
+    containers: dict[str, list[str]] = {}
 
 
 class SourceEntry(BaseModel):

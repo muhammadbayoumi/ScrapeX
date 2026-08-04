@@ -306,7 +306,8 @@ def _resolution_values(resolution: Resolution | None) -> dict[str, str]:
     if resolution is None:
         return {
             "unit": "", "basis_quantity": "", "selling_unit_raw": "",
-            "selling_unit_raw_lang": "", "unit_basis_provenance": "",
+            "selling_unit_raw_lang": "", "content_quantity": "",
+            "content_unit": "", "unit_basis_provenance": "",
             "unit_basis_witness": "",
         }
     return {
@@ -314,6 +315,9 @@ def _resolution_values(resolution: Resolution | None) -> dict[str, str]:
         "basis_quantity": resolution.basis,
         "selling_unit_raw": resolution.raw,
         "selling_unit_raw_lang": resolution.raw_lang,
+        "content_quantity": ("" if resolution.content_quantity is None
+                             else f"{resolution.content_quantity:g}"),
+        "content_unit": resolution.content_unit,
         "unit_basis_provenance": resolution.provenance,
         "unit_basis_witness": resolution.witness,
     }
