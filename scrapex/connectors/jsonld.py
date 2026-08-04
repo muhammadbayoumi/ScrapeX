@@ -81,11 +81,45 @@ class WalkTally:
     unreachable: int = 0
     skipped: int = 0
     english_lost: int = 0
+    # The fuller picture route (below): pages whose OWN picture record was
+    # readable, and pages that published pictures in their JSON-LD while that
+    # record could not be found. The second is the number that matters — it is
+    # how a theme update announces itself instead of silently halving the
+    # images a source lands.
+    pictures_read: int = 0
+    pictures_route_lost: int = 0
     unreadable_children: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.unreadable_children is None:
             self.unreadable_children = []
+
+    def picture_route_defects(self) -> list[str]:
+        """Stated as a DEFECT, not a warning, when the route stops matching.
+
+        A CSS class or a bootstrap variable is a contract the shop's theme can
+        end without telling anyone, and the failure mode is silence: the reader
+        matches nothing, every product keeps the one picture its JSON-LD names,
+        and the run reports plain success while the catalogue quietly loses the
+        rest. base.py draws the line — a warning says something went wrong and
+        was contained, a defect says the data this run produced is KNOWN to be
+        degraded, and only a defect reaches crawl_run.errors_count.
+
+        The rule is deliberately blunt: the route failing on MORE pages than it
+        worked on is not a handful of odd products, it is the shape having
+        changed. That covers the total case (`pictures_read == 0`) without
+        needing a second threshold for it.
+        """
+        if self.pictures_route_lost and self.pictures_route_lost > self.pictures_read:
+            return [
+                f"the page's own picture list could not be read on "
+                f"{self.pictures_route_lost} product page(s) that publish images, "
+                f"against {self.pictures_read} where it could — the shop's theme "
+                "has almost certainly changed and this run stored only the "
+                "pictures the JSON-LD summary names. The images are NOT gone "
+                "from the site; the reader stopped matching and needs updating."
+            ]
+        return []
 
     def notes(self) -> list[str]:
         notes: list[str] = []
@@ -111,6 +145,12 @@ class WalkTally:
                 "product JSON-LD could not be read (unreachable, unparsable, or "
                 "a different product) — their English columns are empty and "
                 "were never translated or guessed")
+        if self.pictures_route_lost:
+            notes.append(
+                f"{self.pictures_route_lost} product page(s) publish images in "
+                "their JSON-LD but carry no readable picture list of their own — "
+                "those products kept only the pictures the summary names, and "
+                "none were guessed at")
         return notes
 
 
@@ -275,7 +315,85 @@ def product_row(builder, node: dict, url: str, source, vat: str, pid: str,
     )
 
 
-def enrichment_rows(builder, node: dict, pid: str) -> list[list[str]]:
+@dataclass(frozen=True)
+class Picture:
+    """One picture a product page publishes.
+
+    `identity` is how the SITE tells two pictures apart, and it is deliberately
+    NOT the URL. A shop publishes the same picture at several sizes, and
+    advancedcastle names it at `.../thumbs/<uuid>-thumbnail-1000x1000-70.jpg`
+    in its JSON-LD while its own gallery renders `.../<uuid>.jpg`. MEASURED on
+    the full 168-product catalogue: of 435 JSON-LD image URLs, exactly 0 appear
+    as a gallery `<img src>` string, and yet 0 name a picture the gallery does
+    not have. Deduplicating on the URL would therefore have stored one picture
+    twice, under two attribute codes, on every product that has one — the
+    "two codes holding one URL" defect, arrived at from the other direction.
+
+    So the connector says what identity means for ITS shop: a media id where
+    the platform states one (zid publishes an image uuid), the URL itself where
+    the shop publishes each picture at exactly one address (salla does).
+
+    `label` is the alternative text the SITE wrote, empty when it wrote none.
+    Never invented and never translated: advancedcastle publishes ONE alt_text
+    per picture and serves the SAME Arabic string on its English locale, so
+    there is no second language to capture and no `_ar` pair to make.
+    """
+
+    identity: str
+    url: str
+    label: str = ""
+
+
+def merge_pictures(record: Iterable[Picture],
+                   summary: Iterable[Picture]) -> list[Picture]:
+    """Every picture the page publishes, the shop's own order, each one once.
+
+    `record` is the page's own picture list — the fuller truth — and `summary`
+    is what the machine-readable summary named. The record LEADS because its
+    order is the order the shop displays: schema.org allows `image` to name one
+    representative picture, and on 44 of advancedcastle's 168 products the
+    picture it names is not the gallery's first. Taking the summary's order
+    would put a middle picture where the main one belongs.
+
+    The summary is still merged in rather than replaced by, because it is not
+    always a subset: on 4 of those 168 products the page's own list and the
+    JSON-LD disagree about which pictures the product has, and 6 pictures exist
+    only in the JSON-LD. Dropping them would be a regression wearing the
+    clothes of an improvement — this run must never store less than the last.
+    """
+    out: list[Picture] = []
+    seen: set[str] = set()
+    for picture in [*record, *summary]:
+        if not picture.url or not picture.identity or picture.identity in seen:
+            continue
+        seen.add(picture.identity)
+        out.append(picture)
+    return out
+
+
+def jsonld_pictures(node: dict,
+                    identity: Callable[[str], str] | None = None) -> list[Picture]:
+    """The pictures schema.org `image` names.
+
+    Allowed to be a single URL or a list of them, and advancedcastle publishes
+    both forms (a string on single-image products, a list otherwise), so both
+    are read and neither is guessed at. `identity` is how the caller's shop
+    tells two pictures apart; without one the URL stands in, which is the right
+    answer for a shop that publishes each picture at exactly one address.
+    """
+    images = node.get("image")
+    if isinstance(images, str):
+        images = [images]
+    pictures: list[Picture] = []
+    for href in images or []:
+        if isinstance(href, str) and href.startswith("http"):
+            pictures.append(Picture(
+                identity=(identity(href) if identity else href), url=href))
+    return pictures
+
+
+def enrichment_rows(builder, node: dict, pid: str,
+                    pictures: Iterable[Picture] | None = None) -> list[list[str]]:
     """The pictures and prose the product page's JSON-LD already carried.
 
     Written for salla and left in salla, so the SECOND SSR family to want
@@ -286,9 +404,10 @@ def enrichment_rows(builder, node: dict, pid: str) -> list[list[str]]:
     caller's argument rather than a connector importing another connector
     (base.py). Nothing else here is site-specific.
 
-    schema.org allows `image` as a single URL or a list of them; advancedcastle
-    publishes both forms (a string on single-image products, a list otherwise),
-    so both are read and neither is guessed at.
+    `pictures` is the merged list the CALLER assembled from its shop's own
+    picture record and the JSON-LD summary (merge_pictures). Passing none keeps
+    the original behaviour — the JSON-LD's `image` alone — which is the honest
+    answer for a family whose pages publish nothing richer.
     """
     rows: list[list[str]] = []
 
@@ -306,14 +425,16 @@ def enrichment_rows(builder, node: dict, pid: str) -> list[list[str]]:
             value_url=url_value, lang="",
             attribute_group=decided if recognised else (group or decided)))
 
-    images = node.get("image")
-    if isinstance(images, str):
-        images = [images]
-    for position, href in enumerate(images or []):
-        if not isinstance(href, str) or not href.startswith("http"):
-            continue
+    if pictures is None:
+        pictures = jsonld_pictures(node)
+    for position, picture in enumerate(pictures):
+        # The shop's own alternative text when it wrote one, the file name when
+        # it did not — the same standing-in woocommerce and shopify already do,
+        # so the panel always has something to render an <img> alt with. The
+        # URL in value_url is the record and is never touched.
         add(f"image_{position}" if position else "image", "Image",
-            href.rsplit("/", 1)[-1], url_value=href, group=DetailGroup.MEDIA)
+            picture.label or picture.url.rsplit("/", 1)[-1],
+            url_value=picture.url, group=DetailGroup.MEDIA)
 
     add("description", "Description", node.get("description"), group="Description")
     add("sku", "SKU", node.get("sku"), group="Specs")
