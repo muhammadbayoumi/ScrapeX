@@ -23,12 +23,12 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 import panel_harness as harness  # noqa: E402
 
-SOURCE_TAB = 'nav.tabs button[data-view="source"]'
-RUN_TAB = 'nav.tabs button[data-view="run"]'
-DATA_TAB = 'nav.tabs button[data-view="data"]'
-SOURCES_TAB = 'nav.tabs button[data-view="sources"]'
-FINANCE_TAB = 'nav.tabs button[data-view="finance"]'
-SETTINGS_TAB = 'nav.tabs button[data-view="settings"]'
+SOURCE_TAB = 'nav.side-rail button[data-view="source"]'
+RUN_TAB = 'nav.side-rail button[data-view="run"]'
+DATA_TAB = 'nav.side-rail button[data-view="data"]'
+SOURCES_TAB = 'nav.side-rail button[data-view="sources"]'
+FINANCE_TAB = 'nav.side-rail button[data-view="finance"]'
+SETTINGS_TAB = 'nav.side-rail button[data-view="settings"]'
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +58,7 @@ def open_panel(browser, tmp_path):
         page.goto(page_file.as_uri())
         page.wait_for_timeout(500)
         if view is not None:
-            page.click(f'nav.tabs button[data-view="{view}"]')
+            page.click(f'nav.side-rail button[data-view="{view}"]')
             page.wait_for_timeout(400)
         page.js_errors = errors
         pages.append(page)
@@ -1269,7 +1269,7 @@ def test_the_workspace_links_can_be_reached_and_fired_from_the_keyboard(open_pan
         window.__opened = [];
         window.chrome.tabs.create = (o) => window.__opened.push(o.url);
     }""")
-    page.click('nav.tabs button[data-view="settings"]')
+    page.click('nav.side-rail button[data-view="settings"]')
     page.wait_for_timeout(300)
     # The links live behind progressive disclosure, so reaching them by keyboard
     # means the section toggle has to be operable that way too.

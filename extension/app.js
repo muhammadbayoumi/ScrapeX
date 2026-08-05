@@ -181,8 +181,8 @@ function showView(name, animate = true) {
   closeWorkspaceMenu();
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
   const activeButton = document.querySelector(
-    `nav.tabs button[data-view="${navigationName}"]`);
-  document.querySelectorAll("nav.tabs button[data-view]").forEach((b) => {
+    `nav.side-rail button[data-view="${navigationName}"]`);
+  document.querySelectorAll("nav.side-rail button[data-view]").forEach((b) => {
     const selected = b.dataset.view === navigationName;
     b.setAttribute("aria-selected", String(selected));
     b.tabIndex = selected ? 0 : -1;
@@ -947,7 +947,9 @@ function renderFinanceSaveState() {
     : "Not loaded";
   button.disabled = !dirty;
   button.dataset.saveState = dirty ? "dirty" : "saved";
-  button.classList.toggle("primary", dirty);
+  // `ghost` off IS primary: the base button rule is the filled style. A
+  // `primary` class was toggled here for years and no stylesheet ever
+  // defined it.
   button.classList.toggle("ghost", !dirty);
   label.textContent = dirty ? "Apply changes" : "Saved";
 }
@@ -3156,7 +3158,7 @@ async function init() {
   renderAutostart();
   adoptUiContract();
 
-  const tabs = [...document.querySelectorAll("nav.tabs button[data-view]")];
+  const tabs = [...document.querySelectorAll("nav.side-rail button[data-view]")];
   tabs.forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
   $("workspace-toggle").addEventListener("click", () => {
     const open = $("workspace-toggle").getAttribute("aria-expanded") === "true";
@@ -3171,7 +3173,7 @@ async function init() {
       closeWorkspaceMenu(true);
     }
   });
-  document.querySelector("nav.tabs").addEventListener("keydown", (event) => {
+  document.querySelector("nav.side-rail").addEventListener("keydown", (event) => {
     if (!event.target.matches("button[data-view]")) return;
     if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -3184,7 +3186,7 @@ async function init() {
     showView(tabs[next].dataset.view);
   });
   window.addEventListener("resize", () => {
-    const active = document.querySelector('nav.tabs button[aria-current="page"]');
+    const active = document.querySelector('nav.side-rail button[aria-current="page"]');
     positionRailIndicator(active, true);
   });
   // `[data-sect]` is load-bearing: other buttons borrow the `.sect` LOOK (the
