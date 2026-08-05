@@ -257,6 +257,57 @@ def test_the_shop_with_no_definition_is_not_crawled_before_someone_says_so():
     assert load_manifest(MANIFEST_FILE).get("SPARK_ESHOP").active is False
 
 
+def test_no_provenance_header_contradicts_the_source_beneath_it():
+    """A header outlived the source it described, and sat above another one.
+
+    `256cd27` removed SIKA_EGYPT_DATASHEETS and took ARAMCO_FUEL_SA's own header
+    line with it, leaving Sika's — "probed: Sika Egypt corporate (AEM) —
+    enrichment only, no prices" — directly above ARAMCO, a source whose whole
+    purpose is the official monthly fuel PRICE. The register even asserted the
+    stale header was gone while it was still in the file.
+
+    NOTHING CAUGHT IT, and nothing would: measured 2026-08-05, deleting a
+    provenance header outright leaves `validate-manifest` at exit 0 and
+    `tests/test_config.py` fully green. A comment is invisible to every gate
+    this project has.
+
+    So the rule is deliberately narrow rather than "every source must have a
+    header" — ten of the twelve do and two do not, and inventing a convention
+    here would be a separate decision. This asserts only what cannot be true: a
+    header that says the source below it has no prices, above a source that
+    declares a price kind."""
+    import re
+
+    from scrapex.vocab import ExtractKind
+
+    text = MANIFEST_FILE.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    priced = {ExtractKind.PRODUCT_PRICES.value, ExtractKind.COMMODITY_PRICE.value}
+    manifest = load_manifest(MANIFEST_FILE)
+
+    contradictions = []
+    for index, line in enumerate(lines):
+        key = re.match(r"\s*- source_key:\s*(\S+)", line)
+        if not key:
+            continue
+        above = index - 1
+        while above >= 0 and not lines[above].strip():
+            above -= 1
+        if above < 0:
+            continue
+        header = lines[above].strip()
+        if not header.startswith("# ----"):
+            continue
+        says_no_prices = "no prices" in header.lower() or "enrichment only" in header.lower()
+        kinds = {spec.kind.value if hasattr(spec.kind, "value") else str(spec.kind)
+                 for spec in manifest.get(key.group(1)).extract}
+        if says_no_prices and kinds & priced:
+            contradictions.append(f"{key.group(1)}: {header}")
+
+    assert contradictions == [], (
+        "a provenance header says its source has no prices while that source "
+        f"declares a price kind: {contradictions}")
+
 def test_no_manifest_entry_declares_a_family_nothing_can_build():
     """An entry whose family has no connector is a promise the engine cannot
     keep. SIKA_EGYPT_DATASHEETS declared `datasheet-enrichment` for months with
