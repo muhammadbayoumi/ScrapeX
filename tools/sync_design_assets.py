@@ -92,7 +92,14 @@ def _gallery_generated() -> str:
         f'{SPRITE_OPEN}  <svg hidden aria-hidden="true">\n{body}\n  </svg>\n'
         f'{SPRITE_CLOSE}')
 
-    mark = base64.b64encode((ROOT / "design" / "x-mark.svg").read_bytes()).decode()
+    # read_text, not read_bytes: git hands this file CRLF on Windows and LF on
+    # Linux, and raw bytes therefore base64-encode to two different strings. CI
+    # failed on exactly that — the generated block was "stale" on Linux and
+    # current on the machine that wrote it. Universal newlines make the output
+    # the same on both.
+    mark = base64.b64encode(
+        (ROOT / "design" / "x-mark.svg").read_text(encoding="utf-8").encode("utf-8")
+    ).decode()
     return _replace_between(
         text, MARK_OPEN, MARK_CLOSE,
         f'{MARK_OPEN}    :root {{ --brand-mark: '

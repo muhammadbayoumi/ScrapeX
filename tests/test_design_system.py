@@ -14,6 +14,33 @@ def test_generated_design_assets_are_current() -> None:
     assert sync(check=True) == []
 
 
+def test_the_generated_catalogue_is_the_same_on_every_platform() -> None:
+    """CI failed on this and the machine that wrote it could not see it.
+
+    The catalogue embeds `design/x-mark.svg` as a data URI, and the first
+    version read it with `read_bytes`. Git hands that file CRLF on Windows and
+    LF on Linux, so the same source encoded to two different base64 strings:
+    the generated block was current on the machine that generated it and stale
+    everywhere else — a red build with nothing to see in the diff.
+
+    Reading through universal newlines fixes it, and this is the assertion that
+    would have caught it: what is embedded carries no Windows line ending, and
+    is byte-identical to the LF form of the asset.
+    """
+    import base64
+
+    gallery = (ROOT / "design" / "gallery.html").read_text(encoding="utf-8")
+    match = re.search(r'url\("data:image/svg\+xml;base64,([^"]+)"\)', gallery)
+    assert match, "the catalogue no longer embeds the brand mark"
+
+    embedded = base64.b64decode(match.group(1))
+    assert b"\r\n" not in embedded, (
+        "the embedded mark carries Windows line endings, so this file is "
+        "generated differently on Linux and CI will call it stale")
+    assert embedded == (ROOT / "design" / "x-mark.svg").read_text(
+        encoding="utf-8").encode("utf-8")
+
+
 def test_ui_templates_do_not_embed_svg_paths() -> None:
     files = [
         *ROOT.joinpath("extension").glob("*.html"),
