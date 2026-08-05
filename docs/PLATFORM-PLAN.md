@@ -20,7 +20,7 @@ Everything else — open-source crawlers, the Console — hangs off those two.
 | 1 | An engine is a **separate installed program**. | ScrapeX needs an install / launch / monitor / version contract, not a plugin loader. |
 | 2 | **Engine crawls everything, not only prices.** Prices are one domain beside contractors, tenders, equipment, jobs. | The name `MarketLens` retires. The schema stops being price-shaped. |
 | 3 | **One device at a time, with restore.** | Drive is enough. No server, no shared SQLite file. A lease stops two devices at once. |
-| 4 | **Updates are tracked through GitHub Releases**, not self-updating. | **Overrides `CLAUDE.md`'s "silent OTA updates" requirement.** The brief must be amended. |
+| 4 | **Releasing is manual; updating is not.** We cut a release on GitHub; the tool reads it, tells the owner, and installs it itself — like any desktop application. | **Overrides `CLAUDE.md`'s "silent OTA" requirement**: the install is not silent, it is announced and accepted. It is also not a manual download — the earlier wording said "explicit user install" and that was wrong. The pattern is already proven in `mbiXaddin/Infrastructure/Update/UpdateService.cs`: `CheckForUpdatesAsync` → `ShowUpdatePromptIfNeeded` → `ExecuteFullInstallAsync`, with a 10-second check timeout held separately from the client timeout so a stalled GitHub fetch cannot hang startup. Copy it. |
 | 5 | The existing Excel add-in **reads from a Google Sheet**. | The Console's job is to write that Sheet. Sheets is a publishing target, never the configuration store. |
 | 6 | First publish: **owner plus a few testers, unlisted**. | A privacy policy and a support contact are required; the repository has neither. OAuth stays in testing mode (100 users), so the `spreadsheets` scope needs no verification yet. |
 | 7 | **Engine gets ONE database** covering every crawl type it performs. | `general.db` retires. One migration stream. A question can cross types: *which contractor also sells?* |
@@ -304,6 +304,10 @@ Decision 4 asks the extension to detect an incompatible engine. **That is imposs
 - Google sign-in moves to the extension (`identity`, an `oauth2` client, the same `drive.file` + `spreadsheets` scopes). The extension owns the token and lends it to Engine.
 - The extension reads Engine's installed version and protocol and **states compatibility before any job can start**, with the exact action when it is insufficient.
 - A GitHub Release feed is the source of truth for "latest Engine" (Decision 4).
+  Three calls, mirroring what XaddIn already does: check on startup (with its own
+  short timeout, so a stalled fetch never delays the panel), prompt when there is
+  something newer, install on acceptance. The owner is never sent to a browser to
+  fetch an installer.
 
 **Done when:** an intentionally mismatched engine is refused with a named action, instead of a dead panel.
 
@@ -460,7 +464,11 @@ importer that takes a tool's own output files into Engine's database (Decision 1
 
 ## 8. `CLAUDE.md` amendments
 
-- **"Local Runtime Distribution and Updates"** requires silent OTA updates. Decision 4 replaces this with GitHub-Release-driven checks and an explicit install. The intent — a non-technical user never touches a command line or `pip` — still binds.
+- **"Local Runtime Distribution and Updates"** requires silent OTA updates.
+  Decision 4 replaces *silent* with *announced*: the tool checks GitHub, says
+  there is a newer version, and installs it itself on acceptance. The brief's
+  intent — that a non-technical user never touches a command line, `pip`, or a
+  download page — is not weakened by this; it is how it gets delivered.
 - **Cross-Cutting Gate DB1** mandates two physically separate databases. Decision 7 replaces it with one database per *engine*, which is what the gate was protecting: no engine may write into another's store.
 
 Everything else stands, including the sections the previous plan omitted: bilingual capture and RTL, the price-history semantics of §15, OS resource limits, proxy and anti-bot handling, and adapter drift.
