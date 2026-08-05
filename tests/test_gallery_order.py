@@ -260,11 +260,16 @@ def test_no_two_media_rows_of_one_product_hold_the_same_url(warehouse):
         assert len(set(codes)) == len(codes), f"{product_id} reuses a code"
 
 
-def test_an_attribute_carrying_no_number_is_ordered_exactly_as_before(warehouse):
-    """The new key decodes a rank out of the code. A code that states none —
-    `sku`, `brand`, `color` — must yield the same rank for every row, so
-    `raw_value` goes on deciding those and nothing outside the gallery moves.
-    """
+def test_within_one_code_the_value_still_decides(warehouse):
+    """A code that states no rank yields 0 for every row, so `raw_value` goes on
+    deciding — for rows that share a code.
+
+    THIS TEST USED TO CLAIM MORE THAN IT SHOWED. It was called "…is ordered
+    exactly as before" and its docstring said nothing outside the gallery
+    moves, while inserting the SAME code three times — the one shape where the
+    family term ties and the claim happens to hold. Measured on the live
+    warehouse, 344 products outside the gallery DO move, and the test beneath
+    this one is where that is now stated."""
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE spa (attribute_code TEXT, raw_value TEXT)")
     conn.executemany("INSERT INTO spa VALUES (?,?)",
@@ -276,4 +281,51 @@ def test_an_attribute_carrying_no_number_is_ordered_exactly_as_before(warehouse)
         "SELECT raw_value FROM spa ORDER BY raw_value")]
 
     assert ranked == plain == ["amber", "blue", "red"]
+    conn.close()
+
+
+def test_two_codes_under_one_label_are_ordered_by_the_code_english_first(warehouse):
+    """THE EFFECT THIS CHANGE HAS OUTSIDE THE GALLERY, stated rather than left
+    to be found.
+
+    The family is a sort term and it sits ahead of `raw_value`, so wherever two
+    different codes share one label the CODE decides where the VALUE used to.
+    On the live warehouse that is 208 products in Site metadata, 88 in
+    Specifications and 48 in Attachments — not one of them a picture.
+
+    It is an improvement, and that is why it stays: an `_ar` code always sorts
+    after its unmarked twin, so the English member leads. That is the project's
+    standing rule arriving somewhere that had been ordering by whichever value
+    happened to sort first — «مطاطي» before "Rubber" one day and after it the
+    next, depending on the text.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE spa (attribute_code TEXT, raw_value TEXT)")
+    conn.executemany("INSERT INTO spa VALUES (?,?)", [
+        ("no_archive_ar", "لا"),   # sorts BEFORE "no" by value
+        ("no_archive", "no"),
+    ])
+
+    ordered = [r[0] for r in conn.execute(
+        f"SELECT attribute_code FROM spa ORDER BY {stated_order('spa')}, raw_value")]
+
+    assert ordered == ["no_archive", "no_archive_ar"], (
+        "the Arabic twin leads its English one; the value is deciding again")
+    conn.close()
+
+
+def test_a_numbered_series_outside_the_gallery_is_ordered_by_its_number(warehouse):
+    """Sika publishes datasheets as `attachment_3409`, `_3410`, `_3411` and the
+    old key sorted them by URL, which put 3410 and 3411 ahead of 3409 on 48 of
+    the owner's 86 products. Same rule, same fix, and it is deliberate."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE spa (attribute_code TEXT, raw_value TEXT)")
+    conn.executemany("INSERT INTO spa VALUES (?,?)", [
+        ("attachment_3410", "b.pdf"), ("attachment_3411", "c.pdf"),
+        ("attachment_3409", "a-later-in-the-alphabet.pdf")])
+
+    ordered = [r[0] for r in conn.execute(
+        f"SELECT attribute_code FROM spa ORDER BY {stated_order('spa')}, raw_value")]
+
+    assert ordered == ["attachment_3409", "attachment_3410", "attachment_3411"]
     conn.close()

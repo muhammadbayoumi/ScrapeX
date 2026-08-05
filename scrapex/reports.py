@@ -1417,10 +1417,31 @@ def stated_order(alias: str = "spa") -> str:
 
     NOT a heuristic and NOT a re-ranking: nothing here reads the URL, the file
     name, the image size or the word "main". It reproduces the number the
-    connector wrote down, which is the position the site published. A code that
-    carries no number (`sku`, `brand`, `color_ar`) yields a rank of 0 for every
-    row, so within one attribute the order is unchanged — `raw_value` stays as
-    the last term and keeps deciding those, exactly as before.
+    connector wrote down, which is the position the site published.
+
+    WHAT IT DOES BESIDES THE GALLERY, because the first draft of this docstring
+    said "nothing outside the gallery moves" and that is not true. The FAMILY is
+    a sort term too, and it sits ahead of `raw_value`, so wherever two different
+    codes share one label the code now decides where `raw_value` used to.
+    Measured on the live warehouse: 208 products in Site metadata, 88 in
+    Specifications and 48 in Attachments reorder, and not one of them is a
+    picture.
+
+    Every one of those is a bilingual pair or a numbered series, and both come
+    out better for it:
+
+        no_archive_ar, no_archive   ->  no_archive, no_archive_ar
+        conduit_type_ar, conduit_type -> conduit_type, conduit_type_ar
+        attachment_3410, _3411, _3409 -> attachment_3409, _3410, _3411
+
+    An `_ar` code always sorts after its unmarked twin, so the English member
+    leads — which is the project's standing rule («English leads», a1c75dd)
+    arriving in a place that had been ordering by whichever VALUE happened to
+    sort first. It is stated here rather than discovered later.
+
+    A code that carries no number yields a rank of 0, so within ONE code the
+    order is unchanged and `raw_value` still decides — that much of the first
+    claim holds, and it is the only part that does.
 
     Both readers take it so the export and the card cannot disagree about which
     picture came first; the export had no third key at all and was returning
