@@ -253,6 +253,24 @@ sources:
       need the Salla options XHR or an extension capture. Crawl canonical slug
       URLs from the ar sitemap (short /-/p{id} URLs redirect-loop).
 
+
+      PICTURES: the JSON-LD summary names ONE image per product; the page's own
+      lightbox slides carry the rest. Measured over the whole catalogue
+      2026-07-30, 1,231 of 1,233 products fetched once each — the summary names
+      1,170 pictures, the slides name 3,322. A gap of 2,162 across 749
+      products, and 61 products publish no picture at all and stay honestly
+      blank. The slides are read from the page the price already paid for, so
+      this costs no extra request.
+
+
+      AND THE LABEL CHANGES WITH IT. An image row's raw_value was the file
+      name; it is now the slide's own data-caption — the merchant's words, in
+      the merchant's language. The ingest upsert key is (source_product_id,
+      attribute_code, raw_value), so on the first crawl after this lands every
+      existing ALSWEED image row is written anew and the old one retires.
+      Nothing is lost and nothing is rewritten; the count of image rows for
+      this source will roughly double once, and then settle.
+
   - source_key: ELBUROJ
     source_name_ar: البروج
     source_name: Elburoj
