@@ -804,6 +804,20 @@ function setupFinanceConverterSelect({selectId, triggerId, listId, labelPrefix})
       event.preventDefault();
       if (list.classList.contains("hidden")) open();
       else close();
+    } else if (event.key === "Escape" && !list.classList.contains("hidden")) {
+      // ESCAPE HAS TO BE HEARD HERE TOO, and the only other listener is on the
+      // LIST. open() moves focus into the list inside a requestAnimationFrame,
+      // so between the click that opens it and the frame that lands, focus is
+      // still on this trigger and Escape reached NOTHING — the list stayed open
+      // with no keyboard way out of it. The same holds afterwards for anyone
+      // who shift-tabs back to the trigger.
+      //
+      // It surfaced as an intermittently red CI job and I first recorded it as
+      // a race in the test, "not a defect in the panel". It is a defect in the
+      // panel: waiting for the list properly did not make the test pass, it
+      // made it fail for thirty seconds with the list resolved visible 63 times.
+      event.preventDefault();
+      close({restoreFocus: true});
     }
   });
   list.addEventListener("keydown", (event) => {
@@ -1700,6 +1714,20 @@ function setupRunModeSelect() {
       event.preventDefault();
       if (list.classList.contains("hidden")) open();
       else focusOption(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Escape" && !list.classList.contains("hidden")) {
+      // ESCAPE HAS TO BE HEARD HERE TOO, and the only other listener is on the
+      // LIST. open() moves focus into the list inside a requestAnimationFrame,
+      // so between the click that opens it and the frame that lands, focus is
+      // still on this trigger and Escape reached NOTHING — the list stayed open
+      // with no keyboard way out of it. The same holds afterwards for anyone
+      // who shift-tabs back to the trigger.
+      //
+      // It surfaced as an intermittently red CI job and I first recorded it as
+      // a race in the test, "not a defect in the panel". It is a defect in the
+      // panel: waiting for the list properly did not make the test pass, it
+      // made it fail for thirty seconds with the list resolved visible 63 times.
+      event.preventDefault();
+      close({restoreFocus: true});
     }
   });
   list.addEventListener("keydown", (event) => {
