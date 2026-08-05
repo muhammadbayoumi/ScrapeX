@@ -125,7 +125,7 @@
              of sources. act-progress-label says what it is a fraction OF; an
              unknown total renders the bar indeterminate, never stuck at 0%. -->
         <div class="act-progress">
-          <div class="bar my-1" role="progressbar" aria-labelledby="act-progress-label">
+          <div class="bar" role="progressbar" aria-labelledby="act-progress-label">
             <div id="act-bar" class="bar-fill"></div>
           </div>
           <div id="act-progress-label" class="muted text-xs" role="status" aria-live="polite"></div>
@@ -261,7 +261,7 @@
           </div>
         </article>
 
-        <article class="source-choice source-choice-file">
+        <article class="source-choice">
           <input class="source-radio" type="radio" name="data-source" id="source-file">
           <label class="source-choice-label" for="source-file">
             <span class="source-choice-check" aria-hidden="true">
@@ -757,7 +757,7 @@
     <!-- ========================= APPEARANCE ========================= -->
     <section id="view-appearance" class="hidden appearance-page" role="tabpanel"
              aria-labelledby="tab-appearance" tabindex="0" data-appearance-control>
-      <header class="view-heading appearance-page-heading">
+      <header class="view-heading">
         <span class="appearance-page-eyebrow">Personalize</span>
         <h1>Appearance</h1>
         <p>Choose how the extension and Workspace look.</p>
@@ -826,7 +826,7 @@
     <!-- ====================== GOOGLE FINANCE ====================== -->
     <section id="view-finance" class="hidden finance-page" role="tabpanel"
              aria-labelledby="tab-finance" tabindex="0">
-      <header class="view-heading finance-page-heading">
+      <header class="view-heading">
         <span class="finance-page-eyebrow">Exchange rates</span>
         <h1>Google Finance</h1>
         <p>Control the rates used for estimated USD values.</p>
@@ -938,10 +938,10 @@
           <button id="finance-save" type="button"
                   class="ghost compact finance-action-button finance-save-button"
                   data-save-state="saved" disabled>
-            <svg class="sx-icon sm finance-save-icon finance-save-icon-saved" aria-hidden="true">
+            <svg class="sx-icon sm finance-save-icon-saved" aria-hidden="true">
               <use href="icons/material-icons.svg#check"></use>
             </svg>
-            <svg class="sx-icon sm finance-save-icon finance-save-icon-dirty" aria-hidden="true">
+            <svg class="sx-icon sm finance-save-icon-dirty" aria-hidden="true">
               <use href="icons/material-icons.svg#sync"></use>
             </svg>
             <span>Saved</span>
@@ -1039,7 +1039,7 @@
            sign-in exists. -->
       <div class="view-scroll welcome">
         <h1>Welcome to ScrapeX</h1>
-        <button class="ghost welcome-signin" type="button" disabled>
+        <button class="ghost" type="button" disabled>
           <svg class="sx-icon" aria-hidden="true">
             <use href="icons/material-icons.svg#account-circle"></use>
           </svg>
@@ -1363,7 +1363,7 @@
               <input id="log_retention_days" type="number" min="1" dir="ltr">
 
               <div class="row mt-2">
-                <button id="crawl-save" class="primary">Save</button>
+                <button id="crawl-save">Save</button>
                 <button id="engine-restart" class="link">Restart engine</button>
               </div>
               <div id="crawl-msg" class="muted text-sm" role="status" aria-live="polite"></div>
@@ -1481,7 +1481,7 @@
     </div>
   </details>
 
-  <nav class="tabs side-rail" aria-label="ScrapeX navigation">
+  <nav class="side-rail" aria-label="ScrapeX navigation">
     <span id="rail-indicator" class="rail-indicator" aria-hidden="true"></span>
     <!-- OWNERSHIP IS THE GROUPING. Profile and Engines answer "who am I" and
          "what is installed"; they work on a device with no engine on it at all.

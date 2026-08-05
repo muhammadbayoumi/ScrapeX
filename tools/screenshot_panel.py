@@ -81,10 +81,10 @@ def main() -> int:
     parser.add_argument("--backend", default="http://127.0.0.1:8000")
     args = parser.parse_args()
 
-    TAB_RUN = 'nav.tabs button[data-view="run"]'
-    TAB_DATA = 'nav.tabs button[data-view="data"]'
-    TAB_SETTINGS = 'nav.tabs button[data-view="settings"]'
-    TAB_SOURCE = 'nav.tabs button[data-view="source"]'
+    TAB_RUN = 'nav.side-rail button[data-view="run"]'
+    TAB_DATA = 'nav.side-rail button[data-view="data"]'
+    TAB_SETTINGS = 'nav.side-rail button[data-view="settings"]'
+    TAB_SOURCE = 'nav.side-rail button[data-view="source"]'
     SOURCE_URLS = 'label[for="source-urls"]'
     SOURCE_FILE = 'label[for="source-file"]'
     SOURCE_ADDSITE = 'label[for="source-addsite"]'

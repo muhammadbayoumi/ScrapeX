@@ -33,7 +33,7 @@
      with no data rendered nothing about itself at all — the same blindness the
      overview had. #}
   <div class="idblock">
-    <div class="dataset-identity">
+    <div>
       {% set pending_source = pending | selectattr("source_key", "equalto", source_key) | first %}
       {% set identity_source = pending_source or {"source_key": source_key, "source_name": "", "source_name_ar": ""} %}
       {{ source_identity(identity_source) }}
