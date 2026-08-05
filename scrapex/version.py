@@ -1,11 +1,24 @@
 """The product version, and the ledger that says which version has what.
 
-ONE number, THREE places that have to carry it: this module (the authority),
-`pyproject.toml` (the installer reads it) and `extension/manifest.json` (Chrome
-reads it). Neither of the other two can import Python, so they are MIRRORS, and
-`tests/test_version.py` reads them back and fails the build the moment one of
-them drifts — the same arrangement `PROTOCOL_VERSION` already has across
-`scrapex/native.py` and `extension/transport.js`.
+THE ENGINE's number, and one mirror: this module is the authority and
+`pyproject.toml` carries a copy because the installer cannot import Python.
+`tests/test_version.py` reads it back and fails the build the moment it drifts —
+the same arrangement `PROTOCOL_VERSION` has across `scrapex/native.py` and
+`extension/transport.js`.
+
+THE EXTENSION'S NUMBER IS NOT HERE, and since 2026-08-05 it is not this one
+either. It lives in `extension/manifest.json`, which is the only thing Chrome
+reads, and the two are allowed to differ — because they ship down separate
+paths (PLATFORM-PLAN Decision 21): the extension is reviewed by Google and then
+pushed to every user automatically, while the engine is published to GitHub and
+installed when the owner accepts. Chrome can therefore move the extension
+tonight while a user's engine is last month's, and no equality rule can stop
+that — it can only stop the repository from saying so.
+
+WHAT REFUSES AN INCOMPATIBLE PAIR is `PROTOCOL_VERSION` and the ledger below,
+never a comparison of the two stamps. `capability_problem` already takes the two
+versions separately and names both in every sentence it produces; that was
+written before the split and needed no change for it.
 
 TWO NUMBERS, BECAUSE THERE ARE TWO QUESTIONS — the split the funnel payload
 contract already made for itself (`scrapex/payload.py`), applied here:
