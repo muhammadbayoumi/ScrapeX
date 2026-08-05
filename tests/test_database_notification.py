@@ -126,11 +126,25 @@ def test_a_reachable_engine_on_an_unusable_database_does_not_report_ok(tmp_path)
 
 def test_the_engine_refuses_to_start_with_the_action_not_a_traceback(tmp_path, capsys):
     """A database the engine cannot use must stop it — half-serving is worse. But
-    the owner has to be told what to run, and a stack trace does not tell them."""
+    the owner has to be told what to run, and a stack trace does not tell them.
+
+    THE FAULT THIS USES CHANGED ON 2026-08-05. It rewound the schema by one and
+    asserted the refusal, because being behind was a fault the owner had to go
+    and fix. It is not any more: `scrapex ui` now backs the file up and migrates
+    it when behind is the ONLY thing wrong, and this test would have been
+    asserting that the engine still refuses to do the thing it was just taught
+    to do.
+
+    So it uses a fault the engine still cannot fix and never will — a database
+    written by a LATER build, where the way out is to update ScrapeX and never
+    to touch the file. The rule under test is unchanged: stop, and say what to
+    do. The behind-and-upgraded path is covered in
+    test_the_engine_upgrades_its_own_warehouse.py, where it can be driven
+    without starting a server that would then not stop."""
     from scrapex.cli import main
 
     registry = make_registry(tmp_path)
-    rewind(registry.marketlens, registry.marketlens.latest_schema_version - 1)
+    rewind(registry.marketlens, registry.marketlens.latest_schema_version + 1)
     pointer = registry.pointer_file
 
     import scrapex.cli as cli
@@ -144,5 +158,6 @@ def test_the_engine_refuses_to_start_with_the_action_not_a_traceback(tmp_path, c
 
     assert code == 1, "the engine served requests against a database it cannot read"
     err = capsys.readouterr().err
-    assert "needs upgrade" in err
-    assert "init-db" in err, "the message named no way out"
+    assert "needs a newer scrapex" in err.lower()
+    assert "Update ScrapeX" in err, "the message named no way out"
+    assert "Traceback" not in err, "it answered with a stack trace"

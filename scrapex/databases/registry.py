@@ -116,6 +116,19 @@ class DatabaseRegistry:
         a database that is behind is reported with the command that upgrades it
         rather than upgraded behind their back. The caller decides what to do
         with a report that is not ok; this method never refuses on its own.
+
+        AND SINCE 2026-08-05 ONE CALLER DECIDES TO UPGRADE. `scrapex ui` — the
+        single path every launch takes, terminal or panel button or autostart —
+        backs the file up and migrates it when its ONLY fault is being behind
+        (cli._upgrade_what_is_only_behind). The owner asked for that after
+        migration 0061 merged, was never applied here, and the engine refused to
+        start with the exact command to fix it in a log he had no reason to
+        read: the rule protected his data and cost him the product.
+
+        This sentence stays true of THIS method, and the protections spec 40
+        existed for are kept in the caller — a backup first without exception,
+        forward only, never over damage, and said out loud. Nothing else in the
+        codebase may migrate an existing file.
         """
         created: list[str] = []
         for database in (self.general, self.marketlens):
