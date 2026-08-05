@@ -616,6 +616,38 @@
   </div>
 
   <div class="g-item">
+    <h3>Icon tile</h3>
+    <p class="g-why">
+      The mark at the head of a summary row, a route, an account, a group, an
+      empty state. It was written <strong>three times</strong> — fourteen
+      elements across the Exports, Sync and Overview pages — with the same six
+      declarations each time and only the size differing. The size is a custom
+      property the caller sets: a page keeps what makes it different and stops
+      restating what does not.
+    </p>
+    <div class="g-demo cluster">
+      <span class="icon-tile">
+        <svg aria-hidden="true"><use href="#storage"></use></svg>
+      </span>
+      <span class="icon-tile amber">
+        <svg aria-hidden="true"><use href="#info"></use></svg>
+      </span>
+      <span class="icon-tile danger">
+        <svg aria-hidden="true"><use href="#close"></use></svg>
+      </span>
+      <span class="icon-tile" style="--icon-tile:3rem;--icon-tile-glyph:1.5rem">
+        <svg aria-hidden="true"><use href="#sync"></use></svg>
+      </span>
+    </div>
+    <pre>&lt;span class="icon-tile"&gt;&lt;svg&gt;&lt;use href="…#storage"&gt;&lt;/use&gt;&lt;/svg&gt;&lt;/span&gt;
+&lt;span class="icon-tile amber"&gt;…   warning tone
+&lt;span class="icon-tile danger"&gt;…  problem tone
+
+/* a page that needs a different size says only that: */
+.sync-route-icon { --icon-tile: 3rem; --icon-tile-glyph: 1.5rem; }</pre>
+  </div>
+
+  <div class="g-item">
     <h3><code class="code">brand</code></h3>
     <p class="g-why">
       An EMPTY <code class="code">&lt;span&gt;</code>, not an

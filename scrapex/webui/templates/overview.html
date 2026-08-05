@@ -54,28 +54,28 @@
 
   <section class="overview-snapshot" aria-label="Workspace totals">
     <a class="overview-snapshot-item" href="/data">
-      <span class="overview-snapshot-icon">{{ icon("storage") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("storage") }}</span>
       <span>
         <strong>{{ "{:,}".format(totals.observations) }}</strong>
         <small>Data rows</small>
       </span>
     </a>
     <a class="overview-snapshot-item" href="/data">
-      <span class="overview-snapshot-icon">{{ icon("view-stream") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("view-stream") }}</span>
       <span>
         <strong>{{ "{:,}".format(totals.products) }}</strong>
         <small>Products collected</small>
       </span>
     </a>
     <a class="overview-snapshot-item" href="/review">
-      <span class="overview-snapshot-icon">{{ icon("check") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("check") }}</span>
       <span>
         <strong>{{ totals.reviews }}{% if totals.reviews_capped %}+{% endif %}</strong>
         <small>Awaiting review</small>
       </span>
     </a>
     <a class="overview-snapshot-item" href="/schedules">
-      <span class="overview-snapshot-icon">{{ icon("schedule") }}</span>
+      <span class="overview-snapshot-icon icon-tile">{{ icon("schedule") }}</span>
       <span>
         <strong>{{ totals.scheduled }}</strong>
         <small>Active automations</small>
@@ -186,7 +186,7 @@
         <div class="overview-action-list">
           {% if totals.attention %}
             <a class="overview-action-row" href="/data">
-              <span class="overview-action-icon is-warning">{{ icon("info") }}</span>
+              <span class="overview-action-icon is-warning icon-tile">{{ icon("info") }}</span>
               <span>
                 <strong>{{ totals.attention }} source{{ "" if totals.attention == 1 else "s" }}
                   need a successful run</strong>
@@ -197,7 +197,7 @@
           {% endif %}
           {% if totals.reviews %}
             <a class="overview-action-row" href="/review">
-              <span class="overview-action-icon">{{ icon("check") }}</span>
+              <span class="overview-action-icon icon-tile">{{ icon("check") }}</span>
               <span>
                 <strong>{{ totals.reviews }}{% if totals.reviews_capped %}+{% endif %}
                   match{{ "" if totals.reviews == 1 else "es" }} awaiting review</strong>
@@ -208,7 +208,7 @@
           {% endif %}
           {% if latest_job_failed %}
             <a class="overview-action-row" href="/jobs">
-              <span class="overview-action-icon is-danger">{{ icon("play-circle") }}</span>
+              <span class="overview-action-icon is-danger icon-tile">{{ icon("play-circle") }}</span>
               <span>
                 <strong>The latest collection did not finish cleanly</strong>
                 <small>{{ latest_job.source_keys|join(", ") }} ·
@@ -220,7 +220,7 @@
         </div>
       {% else %}
         <div class="overview-all-clear">
-          <span class="overview-all-clear-icon">{{ icon("check") }}</span>
+          <span class="overview-all-clear-icon icon-tile">{{ icon("check") }}</span>
           <div>
             <strong>Everything is ready.</strong>
             <p>Your sources are healthy, there is no review backlog, and the latest job
@@ -246,7 +246,7 @@
         <div class="overview-activity-list">
           {% for job in recent_jobs[:3] %}
             <a class="overview-activity-row" href="/jobs">
-              <span class="overview-activity-icon">{{ icon("play-circle") }}</span>
+              <span class="overview-activity-icon icon-tile">{{ icon("play-circle") }}</span>
               <span>
                 <strong>{{ job.source_keys|join(", ") }}</strong>
                 <small>{{ job.run_mode.replace("_", " ") }} ·
@@ -257,7 +257,7 @@
           {% endfor %}
           {% for change in recent_changes[:3] %}
             <a class="overview-activity-row" href="/changes">
-              <span class="overview-activity-icon">{{ icon("trending-up") }}</span>
+              <span class="overview-activity-icon icon-tile">{{ icon("trending-up") }}</span>
               <span>
                 <strong dir="auto">{{ change.product_name or change.product_name_ar or "Unnamed record" }}</strong>
                 <small>{{ change.change_type.replace("_", " ") }}

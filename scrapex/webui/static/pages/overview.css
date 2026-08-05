@@ -122,27 +122,14 @@
   color: var(--text);
 }
 
+/* .icon-tile carries the square at its default size. All four of these glyphs
+   are a sixteenth of a rem smaller than the shared default, which is the only
+   thing left to say about them. */
 .overview-snapshot-icon,
 .overview-action-icon,
 .overview-activity-icon,
 .overview-all-clear-icon {
-  display: grid;
-  width: 2.25rem;
-  height: 2.25rem;
-  place-items: center;
-  flex: none;
-  border-radius: var(--radius);
-  background: var(--accent-weak);
-  color: var(--accent-ink);
-}
-
-.overview-snapshot-icon svg,
-.overview-action-icon svg,
-.overview-activity-icon svg,
-.overview-all-clear-icon svg {
-  width: 1.1rem;
-  height: 1.1rem;
-  fill: currentColor;
+  --icon-tile-glyph: 1.1rem;
 }
 
 .overview-snapshot-item strong,

@@ -16,13 +16,9 @@
   align-items:center;gap:var(--sp-3);min-width:0;padding:var(--sp-3) var(--sp-4);
   border:1px solid var(--line);border-radius:var(--radius-lg);
   background:color-mix(in srgb,var(--surface) 88%,transparent);box-shadow:var(--shadow-xs)}
-.exports-summary-icon,.exports-group-icon,.exports-empty-icon,.exports-last-icon{
-  display:grid;place-items:center;flex:none;border-radius:var(--radius);
-  background:var(--accent-weak);color:var(--accent-ink)}
-.exports-summary-icon{width:2.35rem;height:2.35rem}
+/* .icon-tile carries the square; only the size differs here. */
+.exports-summary-icon{--icon-tile:2.35rem}
 .exports-summary-icon.is-warning{background:var(--amber-weak);color:var(--amber)}
-.exports-summary-icon svg,.exports-group-icon svg,.exports-empty-icon svg,
-.exports-last-icon svg{width:1.15rem;height:1.15rem;fill:currentColor}
 .exports-summary-card small,.exports-summary-card strong{display:block;min-width:0}
 .exports-summary-card small{color:var(--muted);font-size:var(--fs-xs)}
 .exports-summary-card strong{margin-top:.08rem;overflow:hidden;font-size:var(--fs-sm);
@@ -95,7 +91,7 @@
 .exports-settings-group legend strong,.exports-settings-group legend small{display:block}
 .exports-settings-group legend strong{font-size:var(--fs-sm)}
 .exports-settings-group legend small{margin-top:.08rem;color:var(--muted);font-size:var(--fs-xs)}
-.exports-group-icon{width:2rem;height:2rem}
+.exports-group-icon{--icon-tile:2rem}
 .exports-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
   gap:var(--sp-4);margin-top:var(--sp-3)}
 .exports-field-wide{grid-column:1/-1}
@@ -136,7 +132,7 @@
 .exports-run-output{display:block;min-height:1.2rem;margin-top:var(--sp-2)}
 .exports-last-card>header{display:flex;align-items:center;gap:var(--sp-3);
   padding-bottom:var(--sp-4);border-bottom:1px solid var(--line)}
-.exports-last-icon{width:2.4rem;height:2.4rem}
+.exports-last-icon{--icon-tile:2.4rem}
 .exports-last-card h2{margin:0;font-size:var(--fs-lg)}
 .exports-last-empty{padding-top:var(--sp-4)}
 .exports-last-empty p{margin:var(--sp-1) 0 0;color:var(--muted);font-size:var(--fs-sm)}
@@ -163,7 +159,7 @@
 .exports-empty{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;
   gap:var(--sp-4);margin-top:var(--sp-5);padding:var(--sp-5);
   border:1px dashed var(--line-strong);border-radius:var(--radius-lg);background:var(--surface-subtle)}
-.exports-empty-icon{width:2.6rem;height:2.6rem}
+.exports-empty-icon{--icon-tile:2.6rem}
 .exports-empty p{margin:var(--sp-1) 0 0;color:var(--muted);font-size:var(--fs-sm)}
 @media(max-width:1080px){
   .exports-hero,.exports-workspace{grid-template-columns:1fr}
