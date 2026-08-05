@@ -8,9 +8,16 @@ sites at once (`63dc24b` in the engine, `76a4b14` in the panel eleven commits
 later). Both times the version string said 0.1.0, which it had said for 130
 commits, and so said nothing at all.
 
-So: one number with three copies that cannot drift, a ledger that cannot hold a
-capability without a version, and a baseline that cannot let the capability set
-move while the number stands still.
+So: a ledger that cannot hold a capability without a version, and a baseline
+that cannot let the capability set move while the number stands still.
+
+TWO NUMBERS SINCE 2026-08-05, not one. The engine's version lives here and is
+mirrored into `pyproject.toml`, which cannot import Python; the extension's
+lives in `extension/manifest.json`, which is the only thing Chrome reads. They
+are allowed to differ, and they will: the two ship down separate release paths,
+one reviewed by Google and pushed automatically, one published to GitHub and
+installed on acceptance. What refuses an incompatible pair is the protocol and
+the capability ledger — never a comparison of the two stamps.
 """
 from __future__ import annotations
 
@@ -69,20 +76,36 @@ def test_the_installer_carries_the_same_number():
         "bump both or neither")
 
 
-def test_the_extension_manifest_carries_the_same_number():
-    """THE mirror that matters, and the one nothing else could have caught.
+def test_the_extension_carries_its_own_number_and_may_differ():
+    """THE ASSUMPTION THAT EXPIRED, and the reason this test now asserts the
+    opposite of what it used to.
 
-    Chrome reads this file and nothing else to decide what version is loaded, so
-    it is what `chrome.runtime.getManifest()` reports back to the panel. A
-    manifest left behind at 0.1.0 while the engine moved would make the panel
-    announce itself as outdated forever — or, worse the other way, announce
-    itself as current while missing everything the release added.
+    It read: "the extension and the engine ship from one checkout and carry one
+    number", and enforced `manifest["version"] == VERSION`. That was true while
+    both shipped together. It stopped being true on 2026-08-05, when the owner
+    settled two release paths (PLATFORM-PLAN Decision 21): the extension is
+    tagged, uploaded to the Chrome Web Store, REVIEWED by Google, and then
+    pushed to every user automatically — while the engine is tagged separately,
+    published to GitHub Releases, reviewed by nobody, and installed only when
+    the owner accepts.
+
+    Chrome can therefore update the extension tonight while a user's engine is
+    last month's. Enforcing one number does not prevent that; it only prevents
+    the repository from DESCRIBING it, and a version that cannot describe what
+    is running is the exact failure this whole file was written about.
+
+    What replaces the equality is not nothing. Both must still be real versions,
+    the manifest is still the only thing Chrome reads, and the refusal rules
+    (`capability_problem` and its JS twin) already take the two numbers
+    separately and name both in every sentence they produce. The gate was never
+    the equality — it is the protocol and the ledger (Decision, 2026-08-05).
     """
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert manifest["version"] == VERSION, (
-        f"extension/manifest.json says {manifest['version']} and scrapex/version.py "
-        f"says {VERSION}; the extension and the engine ship from one checkout and "
-        "carry one number")
+
+    parse_version(manifest["version"])          # raises if it is not MAJOR.MINOR.PATCH
+    parse_version(VERSION)
+
+    assert manifest["version"] != "" and VERSION != ""
 
 
 # ---- the two numbers, and which one is derived -------------------------------
