@@ -824,7 +824,7 @@ sources:
       parsing MUST assert len(labels)==len(values) (Q4). History accumulates
       from OUR weekly observations, never from their paid feed.
 
-  # ---- probed: Sika Egypt corporate (AEM) — enrichment only, no prices ----
+  # ---- probed live 2026-07-23: official monthly prices as heading + pairs ----
   - source_key: ARAMCO_FUEL_SA
     source_name_ar: أرامكو السعودية
     source_name: Saudi Aramco
