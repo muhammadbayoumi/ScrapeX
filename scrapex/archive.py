@@ -18,6 +18,14 @@ def backup_database(db_path: Path | str, tag: str = "rebuild") -> Path:
     """Consistent point-in-time copy of harvest.db, using SQLite's online backup
     (never a raw file copy — WAL means a copy mid-write can be torn)."""
     src = Path(db_path)
+    # A BACKUP OF NOTHING IS NOT A BACKUP. sqlite3.connect CREATES the file it
+    # is handed, so backing up a path that does not exist produced an empty
+    # database and reported success. Every caller here uses the result to decide
+    # it is safe to proceed — the engine's own upgrade will not migrate without
+    # one — and a guard that cannot fail is not a guard. Found by a test that
+    # expected the missing-file case to refuse and watched it migrate.
+    if not src.is_file():
+        raise FileNotFoundError(f"there is no database at {src} to back up")
     stamp = utc_now_iso().replace(":", "").replace("-", "")
     dst = src.with_name(f"{src.stem}.{tag}-{stamp}.backup{src.suffix or '.db'}")
     source = sqlite3.connect(str(src))

@@ -678,6 +678,72 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return _publish_with(args, LocalSink(), "exported")
 
 
+# The one status that means "behind, and nothing else is wrong". Matched
+# exactly, so "Needs a newer ScrapeX" (a DOWNgrade, never) and "Integrity check
+# failed" (damage, never) both fall through to the refusal below.
+BEHIND = "Needs upgrade"
+
+
+def _upgrade_what_is_only_behind(registry, report: dict) -> dict:
+    """Back up and migrate a warehouse whose only fault is that it is behind.
+
+    THIS REVERSES A DECISION THIS PROJECT HAD WRITTEN DOWN, at the owner's
+    instruction on 2026-08-05, and the reversal is recorded rather than
+    smuggled. registry.ensure_ready still says — truthfully — that IT never
+    migrates an existing database, "advancing the schema of a file that already
+    holds the owner's data is their decision (spec 40)". Its contract ends with
+    "the caller decides what to do with a report that is not ok", and this is
+    the caller deciding.
+
+    WHY IT CHANGED. Migration 0061 merged and was never applied here, so the
+    next time the engine started it refused — correctly, and with the exact
+    command to run — and the owner saw only a dead engine. The rule protected
+    the data and cost him the product, because the one person the refusal
+    speaks to is the one who does not read a log. He asked for the upgrade to
+    become part of the procedure instead.
+
+    WHAT THE OLD RULE WAS PROTECTING IS KEPT, all of it:
+
+      - A BACKUP FIRST, ALWAYS. If the copy cannot be made, nothing is
+        migrated and the engine refuses exactly as before. There is no path
+        through here that advances a schema without a restorable copy beside
+        it, and the retention policy keeps those copies from piling up.
+      - ONLY FORWARD, and only from "behind". A database written by a NEWER
+        build reports a different status and is never touched — downgrading is
+        how a warehouse dies.
+      - ONLY WHEN NOTHING ELSE IS WRONG. A damaged file reports "Integrity
+        check failed", and migrating damage is how a small corruption becomes
+        an unrecoverable one.
+      - IT SAYS SO, on stdout and in the log, naming the backup by path. Silent
+        would have been the real breach.
+
+    Returns the report after the attempt — the caller re-reads `ok` and does
+    not have to know whether anything happened.
+    """
+    from .archive import backup_database
+
+    behind = [state for state in report["databases"].values()
+              if not state["ok"] and state["status"] == BEHIND]
+    if not behind or len(behind) != sum(1 for s in report["databases"].values() if not s["ok"]):
+        return report                      # something else is wrong; do not touch it
+
+    for state in behind:
+        path = Path(state["path"])
+        try:
+            made = backup_database(path, tag="pre-upgrade")
+        except Exception as exc:           # noqa: BLE001 — no backup, no migration
+            print(f"error: the {state['kind']} database is behind but could not be "
+                  f"backed up, so it was not upgraded ({exc})", file=sys.stderr)
+            return report
+        print(f"backed up the {state['kind']} database to {made} before upgrading")
+
+    applied = registry.initialize()
+    for kind, versions in applied.items():
+        if versions:
+            print(f"upgraded the {kind} database: applied {versions}")
+    return registry.ensure_ready()
+
+
 def _cmd_ui(args: argparse.Namespace) -> int:
     # THE ENGINE FIRST OF ALL. Launched from the Startup folder it runs
     # under pythonw, which hands the process no stdout and no stderr at
@@ -702,6 +768,10 @@ def _cmd_ui(args: argparse.Namespace) -> int:
         report = registry.ensure_ready()
         for kind in report["created"]:
             print(f"created the {kind} database")
+        if not report["ok"]:
+            # Starting the engine IS the setup, and a schema that is merely
+            # behind is setup rather than a fault the owner must go and fix.
+            report = _upgrade_what_is_only_behind(registry, report)
         if not report["ok"]:
             for state in report["databases"].values():
                 if not state["ok"]:
