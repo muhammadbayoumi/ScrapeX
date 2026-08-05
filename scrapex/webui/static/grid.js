@@ -2509,6 +2509,12 @@
     const media = el("div", "selected-product-media");
     const imageStage = el("div", "selected-product-image-stage");
     media.appendChild(imageStage);
+    // ORDER IS THE SHOP'S, and this filter must never add a sort of its own.
+    // The rank each connector recorded is decoded by the query that produced
+    // these rows (reports.py stated_order), so images[0] below is the picture
+    // the SOURCE leads with. Sorting here — by filename, by size, by anything
+    // that looks like a main image — would overrule the shop about its own
+    // product, and would fix only this card while the export still disagreed.
     const images = details
       .filter((item) => (item.group || "") === "Media" && safeUrl(item.url))
       .map((item) => ({url: safeUrl(item.url), alt: text(item.value || "")}));
