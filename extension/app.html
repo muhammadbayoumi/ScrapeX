@@ -182,7 +182,7 @@
     </section>
 
     <!-- =========================== SOURCE =========================== -->
-    <section id="view-source" role="tabpanel" aria-labelledby="tab-source" tabindex="0">
+    <section id="view-source" class="hidden" role="tabpanel" aria-labelledby="tab-source" tabindex="0">
       <header class="view-heading">
         <h1>Choose a Data Source</h1>
         <p>Check a page or address, then add supported product sites to ScrapeX.</p>
@@ -1030,6 +1030,103 @@
     </section>
 
     <!-- ========================== SETTINGS ========================== -->
+    <section id="view-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0">
+      <!-- The first thing a new install shows, and deliberately the emptiest
+           page in the panel: one line and one button. There is nothing true to
+           display before we know who is asking — an account, a backup, a lease
+           all need a signed-in owner — so the page waits rather than printing a
+           column of em dashes. What appears after sign-in is decided once
+           sign-in exists. -->
+      <div class="view-scroll welcome">
+        <h1>Welcome to ScrapeX</h1>
+        <button class="ghost welcome-signin" type="button" disabled>
+          <svg class="sx-icon" aria-hidden="true">
+            <use href="icons/material-icons.svg#account-circle"></use>
+          </svg>
+          Continue with Google
+        </button>
+        <p class="planned-note" data-planned="M1">Not built yet — the shape only.</p>
+      </div>
+    </section>
+
+    <section id="view-engines" class="hidden" role="tabpanel" aria-labelledby="tab-engines" tabindex="0">
+      <header class="view-heading">
+        <h1>Engines</h1>
+        <p>What is installed on this device, and what is available to install.</p>
+      </header>
+
+      <div class="view-scroll">
+        <p class="planned-note" data-planned="M1">
+          Not built yet. The catalogue below is a shape, not a list — nothing here
+          installs, checks or reports anything.
+        </p>
+
+        <section class="card" aria-labelledby="engines-installed-title">
+          <h2 id="engines-installed-title">ScrapeX-Engine</h2>
+          <div class="kv"><span>Status</span><span>Not installed</span></div>
+          <div class="kv"><span>Installed version</span><span class="tech">—</span></div>
+          <div class="kv"><span>Latest on GitHub</span><span class="tech">—</span></div>
+          <div class="kv"><span>Protocol</span><span class="tech">—</span></div>
+          <button class="icon-button ghost compact" type="button" disabled
+                  aria-label="Install ScrapeX-Engine" title="Install ScrapeX-Engine">
+            <svg class="sx-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#file-download"></use>
+            </svg>
+          </button>
+        </section>
+
+        <section class="card" aria-labelledby="engines-others-title">
+          <h2 id="engines-others-title">Other engines</h2>
+          <p>
+            Open-source crawlers, installed only when a site needs something
+            ScrapeX-Engine cannot do. Each keeps its own store and hands its
+            output to ScrapeX-Engine.
+          </p>
+          <div class="kv"><span>Available</span><span>None yet</span></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="view-console" class="hidden" role="tabpanel" aria-labelledby="tab-console" tabindex="0">
+      <header class="view-heading">
+        <h1>Console</h1>
+        <p>Turn a collected dataset into a table the Excel add-in can show.</p>
+      </header>
+
+      <div class="view-scroll">
+        <p class="planned-note" data-planned="M7">
+          Not built yet, and not part of the published build — this page exists in
+          the owner build only.
+        </p>
+
+        <section class="card" aria-labelledby="console-datasets-title">
+          <h2 id="console-datasets-title">Datasets</h2>
+          <p>Everything collected, and whether Excel already knows about it.</p>
+          <div class="kv"><span>Registered</span><span class="tech">—</span></div>
+          <div class="kv"><span>Not registered</span><span class="tech">—</span></div>
+        </section>
+
+        <section class="card" aria-labelledby="console-rows-title">
+          <h2 id="console-rows-title">What registering writes</h2>
+          <p>Six rows, one in each configuration sheet. Generated, then reviewed here.</p>
+          <div class="kv"><span>Table definition</span><span>—</span></div>
+          <div class="kv"><span>Field rules</span><span>—</span></div>
+          <div class="kv"><span>Data source</span><span>—</span></div>
+          <div class="kv"><span>Column mapping</span><span>—</span></div>
+          <div class="kv"><span>Export view</span><span>—</span></div>
+          <div class="kv"><span>Ribbon button</span><span>—</span></div>
+        </section>
+
+        <section class="card" aria-labelledby="console-manual-title">
+          <h2 id="console-manual-title">What only you can say</h2>
+          <p>
+            Tooltips, the icon, the licence tier, and where the button sits in the
+            ribbon. Asked once and remembered.
+          </p>
+        </section>
+      </div>
+    </section>
+
     <section id="view-settings" class="hidden" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
       <header class="view-heading">
         <h1>Settings</h1>
@@ -1386,9 +1483,34 @@
 
   <nav class="tabs side-rail" aria-label="ScrapeX navigation">
     <span id="rail-indicator" class="rail-indicator" aria-hidden="true"></span>
+    <!-- OWNERSHIP IS THE GROUPING. Profile and Engines answer "who am I" and
+         "what is installed"; they work on a device with no engine on it at all.
+         Everything in the second group — Source, Run, Data, Google Finance — is
+         a page the engine serves, and every one of them is dead until an engine
+         is installed. The panel says which is which by its shape. -->
     <div class="rail-tablist" role="tablist" aria-label="Extension pages">
+      <button class="rail-item" id="tab-profile" role="tab" data-view="profile"
+              aria-controls="view-profile" aria-selected="true" aria-current="page"
+              aria-label="Profile" title="Profile">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#security"></use>
+        </svg>
+        <span class="visually-hidden">Profile</span>
+      </button>
+      <button class="rail-item" id="tab-engines" role="tab" data-view="engines"
+              aria-controls="view-engines" aria-selected="false" tabindex="-1"
+              aria-label="Engines" title="Engines">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#dns"></use>
+        </svg>
+        <span class="visually-hidden">Engines</span>
+      </button>
+    </div>
+
+    <div id="engine-tablist" class="rail-tablist" role="tablist"
+         aria-label="Engine pages">
       <button class="rail-item" id="tab-source" role="tab" data-view="source"
-              aria-controls="view-source" aria-selected="true" aria-current="page"
+              aria-controls="view-source" aria-selected="false" tabindex="-1"
               aria-label="Source" title="Source">
         <svg class="sx-icon" aria-hidden="true">
           <use href="icons/material-icons.svg#link"></use>
@@ -1411,11 +1533,6 @@
         </svg>
         <span class="visually-hidden">Data</span>
       </button>
-    </div>
-
-    <span class="rail-divider" aria-hidden="true"></span>
-    <div id="finance-tablist" class="rail-tablist" role="tablist"
-         aria-label="Exchange rates">
       <button class="rail-item" id="tab-finance" role="tab" data-view="finance"
               aria-controls="view-finance" aria-selected="false" tabindex="-1"
               aria-label="Google Finance" title="Google Finance">
@@ -1425,6 +1542,7 @@
         <span class="visually-hidden">Google Finance</span>
       </button>
     </div>
+
     <button class="rail-item" id="workspace-toggle" type="button"
             aria-controls="workspace-menu" aria-expanded="false"
             aria-label="Workspace pages" title="Workspace pages">
@@ -1452,6 +1570,14 @@
           <use href="icons/material-icons.svg#add"></use>
         </svg>
         <span class="visually-hidden">Add or edit sources</span>
+      </button>
+      <button class="rail-item" id="tab-console" role="tab" data-view="console"
+              aria-controls="view-console" aria-selected="false" tabindex="-1"
+              aria-label="Console" title="Console">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="icons/material-icons.svg#dashboard"></use>
+        </svg>
+        <span class="visually-hidden">Console</span>
       </button>
       <button class="rail-item" id="tab-settings" role="tab" data-view="settings"
               aria-controls="view-settings" aria-selected="false" tabindex="-1"
