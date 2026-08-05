@@ -2766,3 +2766,29 @@ def test_the_engine_is_named_and_offers_one_square_install(open_panel):
         f"the install control is {box['width']}x{box['height']}, not a square")
     assert abs(box["width"] - small) < 1.5, (
         f"the install square is {box['width']}px, not the compact {small}px")
+
+
+def test_no_two_rail_buttons_wear_the_same_icon(open_panel):
+    """Found by looking at a screenshot, which is the only thing that could
+    have found it: Console shipped with `dashboard`, the icon the Workspace
+    toggle four buttons above it already wore.
+
+    The rail is icons only — every label is a tooltip or screen-reader text —
+    so a repeated symbol is not a blemish, it is two destinations that cannot
+    be told apart at the one moment the owner is choosing between them.
+    """
+    page = open_panel()
+    icons = page.eval_on_selector_all(
+        "nav.side-rail button",
+        """els => els.map(e => [e.id, (e.querySelector('use')
+             ?.getAttribute('href') || '').split('#').pop()])""")
+
+    assert icons, "the rail has no buttons"
+    seen: dict[str, str] = {}
+    clashes = []
+    for button, icon in icons:
+        assert icon, f"{button} has no icon"
+        if icon in seen:
+            clashes.append(f"{seen[icon]} and {button} both use #{icon}")
+        seen[icon] = button
+    assert not clashes, "; ".join(clashes)

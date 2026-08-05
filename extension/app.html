@@ -1574,8 +1574,11 @@
       <button class="rail-item" id="tab-console" role="tab" data-view="console"
               aria-controls="view-console" aria-selected="false" tabindex="-1"
               aria-label="Console" title="Console">
+        <!-- Not `dashboard`: the Workspace toggle four buttons up already wears
+             it, and two identical icons in one rail is a rail that cannot be
+             read. Console publishes datasets outward into the six sheets. -->
         <svg class="sx-icon" aria-hidden="true">
-          <use href="icons/material-icons.svg#dashboard"></use>
+          <use href="icons/material-icons.svg#file-upload"></use>
         </svg>
         <span class="visually-hidden">Console</span>
       </button>
