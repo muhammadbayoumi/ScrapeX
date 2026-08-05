@@ -22,7 +22,7 @@ Everything else — open-source crawlers, the Console — hangs off those two.
 | 3 | **One device at a time, with restore.** | Drive is enough. No server, no shared SQLite file. A lease stops two devices at once. |
 | 4 | **Releasing is manual; updating is not.** We cut a release on GitHub; the tool reads it, tells the owner, and installs it itself — like any desktop application. | **Overrides `CLAUDE.md`'s "silent OTA" requirement**: the install is not silent, it is announced and accepted. It is also not a manual download — the earlier wording said "explicit user install" and that was wrong. The pattern is already proven in `mbiXaddin/Infrastructure/Update/UpdateService.cs`: `CheckForUpdatesAsync` → `ShowUpdatePromptIfNeeded` → `ExecuteFullInstallAsync`, with a 10-second check timeout held separately from the client timeout so a stalled GitHub fetch cannot hang startup. Copy it. |
 | 5 | The existing Excel add-in **reads from a Google Sheet**. | The Console's job is to write that Sheet. Sheets is a publishing target, never the configuration store. |
-| 6 | First publish: **owner plus a few testers, unlisted**. | A privacy policy and a support contact are required; the repository has neither. OAuth stays in testing mode (100 users), so the `spreadsheets` scope needs no verification yet. |
+| 6 | First publish: **owner plus a few testers, unlisted**. | A privacy policy and a support contact are required; the repository has neither. The shipped build needs only `drive.file`, which is not sensitive — see Decision 20 — so verification is not a gate here or later. |
 | 7 | **Engine gets ONE database** covering every crawl type it performs. | `general.db` retires. One migration stream. A question can cross types: *which contractor also sells?* |
 | 8 | On a new device with no engine, the owner **sees his data and exports it**. | The backup bundle must carry a plain export beside the `.db`. See §5. |
 | 9 | Databases are **managed only through ScrapeX** — location, backup, restore, migration. | The controls live in the extension; Engine executes them. A browser extension cannot create a SQLite file. |
@@ -34,6 +34,7 @@ Everything else — open-source crawlers, the Console — hangs off those two.
 | 16 | **An audited source and a user-added one are visibly different.** | `sources.yaml` carries 12 audited sources today with no field telling them apart. A user who adds a site and gets poor data must see *why* — `audited` beside `you added this` — or they will read it as the product being broken. |
 | 17 | **Crawl scope is a per-source setting**, not a project-wide rule. | listing only · listing + details for a named slice · full once then listing. See M6. |
 | 18 | **For external tools, build the seam and not the tools.** | The install/health/import contract is laid so it can be used when a need appears; if Engine does the job, the matter is dropped. See M8. |
+| 20 | **The Console is the owner's alone and is never published.** | It therefore carries the only Google scope that is sensitive, and the shipped build asks for `drive.file` only — see below. Excluding it is a security decision, not just a commercial one. |
 | 19 | **The data path is a published Google Sheet.** Engine writes the table there; the Console puts its TSV link in `SOURCE_URI`. | The only path that works today with no change to XaddIn and from any machine. A local file passes the validator and is refused by the ingester at `DataIngestionService.cs:734` — see §5b. The table is readable by anyone holding the URL; acceptable for the owner's own data, a separate decision at commercialisation. |
 | 15 | **The Python package stays `scrapex/`.** `Engine` is the product name, not the directory. | The user never sees a directory. Renaming costs 748 import lines in tests alone, 188 `python -m scrapex` call sites in CI, docs and JS, a reinstall of the editable package, and five hard-coded paths — for nothing anyone can see. A capitalised `Engine/` would also work on Windows and fail on Linux, where CI runs. |
 
@@ -364,10 +365,29 @@ Judgements, not facts. The Console asks once and remembers.
 `ValidationOrchestrator` is the second line, not the first — relying on it would
 mean discovering mistakes in Excel instead of in ScrapeX.
 
-**A ceiling to know now, not at M4.** Reading a Sheet the app did not create needs
-the `spreadsheets` scope, which Google classes as sensitive. In testing mode (100
-users) it needs no verification and Decision 6 is safe. Going public later does,
-and a crawling tool asking for a user's spreadsheets is not a formality.
+**THE SCOPE CEILING IS GONE, AND THIS MILESTONE IS WHY.**
+
+Reading a Sheet the app did not create needs `https://www.googleapis.com/auth/spreadsheets`,
+which Google classes as sensitive: verification to go public, and a 100-user cap
+until then. Earlier drafts of this plan treated that as a standing cost of the
+product.
+
+It is not. **Only the Console needs it** — it is the only thing that touches the
+six sheets the owner wrote by hand. Everything else writes to spreadsheets
+ScrapeX created itself (`gdrive.ensure_spreadsheet` creates them inside the
+app's own folder), and `drive.file` covers app-created files completely.
+
+So, given Decision 20:
+
+```text
+shipped build     drive.file only        non-sensitive · no verification · no cap
+owner build       + spreadsheets         the Console, never published
+```
+
+The scope must be declared in the owner build alone, not in the published
+`manifest.json`. That makes excluding the Console a **security** decision as well
+as a commercial one, and it removes what was the single largest obstacle between
+this product and a public listing.
 
 ### M8 — the browser tier, and only then a tool
 
