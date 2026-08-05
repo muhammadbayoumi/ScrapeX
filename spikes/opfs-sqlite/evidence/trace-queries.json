@@ -1,0 +1,214 @@
+{
+ "repeats": 7,
+ "traces": {
+  "GPP_ENERGY": [
+   {
+    "sql": "SELECT COUNT(*) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 26.1428
+   },
+   {
+    "sql": "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price,        po.price_before, po.price_sale, po.currency, po.availability,        po.business_date, sp.product_link, sp.curation, so.country_code_alpha2,        ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id,        po.official_source_name, po.official_source_link, sp.brand,        (SELECT COUNT(*) FROM price_observation ph         WHERE ph.offer_id = so.offer_id         AND ph.currency = po.currency) AS observations,        (SELECT MIN(ph2.price) FROM price_observation ph2         WHERE ph2.offer_id = so.offer_id         AND ph2.currency = po.currency) AS price_min,        (SELECT MAX(ph3.price) FROM price_observation ph3         WHERE ph3.offer_id = so.offer_id         AND ph3.currency = po.currency) AS price_max,        (SELECT ph4.price FROM price_observation ph4         WHERE ph4.offer_id = so.offer_id         AND ph4.currency = po.currency         AND ph4.price != po.price         ORDER BY ph4.business_date DESC, ph4.price_observation_id DESC         LIMIT 1) AS price_previous,        (SELECT cr.per_usd FROM currency_rate cr         WHERE cr.currency = po.currency        ORDER BY (cr.source_kind = 'provider') DESC, cr.as_of DESC LIMIT 1) AS per_usd,        (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa         WHERE spa.source_product_id = sp.source_product_id         AND spa.attribute_code IN ('category','category_ar')) AS category,        EXISTS(SELECT 1 FROM source_product_attribute spa2         WHERE spa2.source_product_id = sp.source_product_id) AS has_details,        sp.category_path_ar, sp.product_name, sp.category_path,        po.tax_included, sv.variant, sv.variant_url,        COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar),        sp.source_product_id,        sp.brand_ar, po.price_trade,        (SELECT cr.as_of FROM currency_rate cr         WHERE cr.currency = po.currency        ORDER BY (cr.source_kind = 'provider') DESC, cr.as_of DESC LIMIT 1) AS usd_rate_as_of,        (SELECT cr.source_key FROM currency_rate cr         WHERE cr.currency = po.currency        ORDER BY (cr.source_kind = 'provider') DESC, cr.as_of DESC LIMIT 1) AS usd_rate_source FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1)) ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
+    "params": [
+     "GPP_ENERGY",
+     20000
+    ],
+    "python_ms": 89.1115
+   },
+   {
+    "sql": "SELECT region, tax_mode, tax_rate_pct, tax_evidence,        COALESCE(tax_statement_text,''), COALESCE(tax_statement,''),        COALESCE(material_key,'*') FROM tax_rule WHERE source_key = ? AND valid_to IS NULL",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 0.105
+   },
+   {
+    "sql": "SELECT COUNT(NULLIF(TRIM(COALESCE(sv.variant_ar,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sv.external_sku,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(so.country_code_alpha2,'')),'')),        COUNT(so.selling_unit_id),        COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')),        COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sp.brand,'')),'')),        SUM(CASE WHEN po.price_before > po.price THEN 1 ELSE 0 END),        COUNT(DISTINCT po.currency),        COUNT(NULLIF(TRIM(COALESCE(sp.product_name,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sv.variant,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sp.product_name_ar,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sp.brand_ar,'')),'')) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 37.5346
+   },
+   {
+    "sql": "SELECT COUNT(*) FROM currency_rate WHERE currency IN (  SELECT DISTINCT po.currency FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1)))",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 36.7138
+   },
+   {
+    "sql": "SELECT COUNT(NULLIF(TRIM(COALESCE(sp.product_link,'')),'')) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 22.0097
+   },
+   {
+    "sql": "SELECT COUNT(*), SUM(CASE WHEN spa.attribute_code IN ('category','category_ar')          THEN 1 ELSE 0 END) FROM source_product_attribute spa JOIN source_product sp ON sp.source_product_id = spa.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ?",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 0.2133
+   },
+   {
+    "sql": "SELECT MAX(LENGTH(category_path_ar) - LENGTH(REPLACE(category_path_ar, '>', '')) + 1) FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND TRIM(COALESCE(category_path_ar,'')) <> ''",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 0.048
+   },
+   {
+    "sql": "SELECT MAX(LENGTH(category_path) - LENGTH(REPLACE(category_path, '>', '')) + 1) FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND TRIM(COALESCE(category_path,'')) <> ''",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 0.0274
+   },
+   {
+    "sql": "SELECT MAX(n), MAX(distinct_prices) FROM (  SELECT COUNT(*) AS n, COUNT(DISTINCT po.price) AS distinct_prices   FROM price_observation po   JOIN source_offer so ON so.offer_id = po.offer_id   JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id   JOIN source_product sp ON sp.source_product_id = sv.source_product_id   JOIN source_site ss ON ss.source_id = sp.source_id   WHERE ss.source_key = ? GROUP BY po.offer_id)",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 33.9741
+   },
+   {
+    "sql": "SELECT COUNT(po.price_trade) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 36.7025
+   },
+   {
+    "sql": "SELECT COUNT(*) FROM currency_rate",
+    "params": [],
+    "python_ms": 0.0902
+   },
+   {
+    "sql": "SELECT field_key FROM dataset_field WHERE source_key = ? AND is_hidden = 1",
+    "params": [
+     "GPP_ENERGY"
+    ],
+    "python_ms": 0.0548
+   },
+   {
+    "sql": "SELECT spa.source_product_id,        COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code), spa.raw_value FROM source_product_attribute spa JOIN source_product sp ON sp.source_product_id = spa.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN      (SELECT attribute_code FROM source_attribute_promotion        WHERE source_key = ?)) ORDER BY spa.source_product_id",
+    "params": [
+     "GPP_ENERGY",
+     "GPP_ENERGY"
+    ],
+    "python_ms": 0.1084
+   },
+   {
+    "sql": "SELECT DISTINCT        COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code),        COALESCE(spa.attribute_group, '') FROM source_product_attribute spa JOIN source_product sp ON sp.source_product_id = spa.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN      (SELECT attribute_code FROM source_attribute_promotion        WHERE source_key = ?))",
+    "params": [
+     "GPP_ENERGY",
+     "GPP_ENERGY"
+    ],
+    "python_ms": 0.0558
+   }
+  ],
+  "MADAR": [
+   {
+    "sql": "SELECT COUNT(*) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 26.0361
+   },
+   {
+    "sql": "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price,        po.price_before, po.price_sale, po.currency, po.availability,        po.business_date, sp.product_link, sp.curation, so.country_code_alpha2,        ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id,        po.official_source_name, po.official_source_link, sp.brand,        (SELECT COUNT(*) FROM price_observation ph         WHERE ph.offer_id = so.offer_id         AND ph.currency = po.currency) AS observations,        (SELECT MIN(ph2.price) FROM price_observation ph2         WHERE ph2.offer_id = so.offer_id         AND ph2.currency = po.currency) AS price_min,        (SELECT MAX(ph3.price) FROM price_observation ph3         WHERE ph3.offer_id = so.offer_id         AND ph3.currency = po.currency) AS price_max,        (SELECT ph4.price FROM price_observation ph4         WHERE ph4.offer_id = so.offer_id         AND ph4.currency = po.currency         AND ph4.price != po.price         ORDER BY ph4.business_date DESC, ph4.price_observation_id DESC         LIMIT 1) AS price_previous,        (SELECT cr.per_usd FROM currency_rate cr         WHERE cr.currency = po.currency        ORDER BY (cr.source_kind = 'provider') DESC, cr.as_of DESC LIMIT 1) AS per_usd,        (SELECT GROUP_CONCAT(spa.raw_value, ', ') FROM source_product_attribute spa         WHERE spa.source_product_id = sp.source_product_id         AND spa.attribute_code IN ('category','category_ar')) AS category,        EXISTS(SELECT 1 FROM source_product_attribute spa2         WHERE spa2.source_product_id = sp.source_product_id) AS has_details,        sp.category_path_ar, sp.product_name, sp.category_path,        po.tax_included, sv.variant, sv.variant_url,        COALESCE(NULLIF(sp.product_name,''), sp.product_name_ar),        sp.source_product_id,        sp.brand_ar, po.price_trade,        (SELECT cr.as_of FROM currency_rate cr         WHERE cr.currency = po.currency        ORDER BY (cr.source_kind = 'provider') DESC, cr.as_of DESC LIMIT 1) AS usd_rate_as_of,        (SELECT cr.source_key FROM currency_rate cr         WHERE cr.currency = po.currency        ORDER BY (cr.source_kind = 'provider') DESC, cr.as_of DESC LIMIT 1) AS usd_rate_source FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1)) ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
+    "params": [
+     "MADAR",
+     20000
+    ],
+    "python_ms": 130.2936
+   },
+   {
+    "sql": "SELECT region, tax_mode, tax_rate_pct, tax_evidence,        COALESCE(tax_statement_text,''), COALESCE(tax_statement,''),        COALESCE(material_key,'*') FROM tax_rule WHERE source_key = ? AND valid_to IS NULL",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 0.1226
+   },
+   {
+    "sql": "SELECT COUNT(NULLIF(TRIM(COALESCE(sv.variant_ar,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sv.external_sku,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(so.country_code_alpha2,'')),'')),        COUNT(so.selling_unit_id),        COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')),        COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sp.brand,'')),'')),        SUM(CASE WHEN po.price_before > po.price THEN 1 ELSE 0 END),        COUNT(DISTINCT po.currency),        COUNT(NULLIF(TRIM(COALESCE(sp.product_name,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sv.variant,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sp.product_name_ar,'')),'')),        COUNT(NULLIF(TRIM(COALESCE(sp.brand_ar,'')),'')) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 44.122
+   },
+   {
+    "sql": "SELECT COUNT(NULLIF(TRIM(COALESCE(sp.product_link,'')),'')) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 25.3346
+   },
+   {
+    "sql": "SELECT COUNT(*), SUM(CASE WHEN spa.attribute_code IN ('category','category_ar')          THEN 1 ELSE 0 END) FROM source_product_attribute spa JOIN source_product sp ON sp.source_product_id = spa.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ?",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 9.8617
+   },
+   {
+    "sql": "SELECT MAX(LENGTH(category_path_ar) - LENGTH(REPLACE(category_path_ar, '>', '')) + 1) FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND TRIM(COALESCE(category_path_ar,'')) <> ''",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 0.8015
+   },
+   {
+    "sql": "SELECT MAX(LENGTH(category_path) - LENGTH(REPLACE(category_path, '>', '')) + 1) FROM source_product sp JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND TRIM(COALESCE(category_path,'')) <> ''",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 0.5189
+   },
+   {
+    "sql": "SELECT MAX(n), MAX(distinct_prices) FROM (  SELECT COUNT(*) AS n, COUNT(DISTINCT po.price) AS distinct_prices   FROM price_observation po   JOIN source_offer so ON so.offer_id = po.offer_id   JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id   JOIN source_product sp ON sp.source_product_id = sv.source_product_id   JOIN source_site ss ON ss.source_id = sp.source_id   WHERE ss.source_key = ? GROUP BY po.offer_id)",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 14.7003
+   },
+   {
+    "sql": "SELECT COUNT(po.price_trade) FROM price_observation po JOIN source_offer so ON so.offer_id = po.offer_id JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id JOIN source_product sp ON sp.source_product_id = sv.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id LEFT JOIN offer_state ost ON ost.offer_id = po.offer_id LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id WHERE ss.source_key = ? AND sv.status = 'active' AND po.price_observation_id = COALESCE(  (SELECT p2.price_observation_id FROM price_observation p2    WHERE p2.offer_id = po.offer_id AND p2.provenance = 'observed'    ORDER BY p2.business_date DESC, p2.price_observation_id DESC LIMIT 1),   (SELECT p3.price_observation_id FROM price_observation p3    WHERE p3.offer_id = po.offer_id AND p3.provenance = 'reported'    ORDER BY p3.business_date DESC, p3.price_observation_id DESC LIMIT 1))",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 41.5023
+   },
+   {
+    "sql": "SELECT COUNT(*) FROM currency_rate",
+    "params": [],
+    "python_ms": 0.107
+   },
+   {
+    "sql": "SELECT field_key FROM dataset_field WHERE source_key = ? AND is_hidden = 1",
+    "params": [
+     "MADAR"
+    ],
+    "python_ms": 0.0882
+   },
+   {
+    "sql": "SELECT spa.source_product_id,        COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code), spa.raw_value FROM source_product_attribute spa JOIN source_product sp ON sp.source_product_id = spa.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN      (SELECT attribute_code FROM source_attribute_promotion        WHERE source_key = ?)) ORDER BY spa.source_product_id",
+    "params": [
+     "MADAR",
+     "MADAR"
+    ],
+    "python_ms": 6.7183
+   },
+   {
+    "sql": "SELECT DISTINCT        COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code),        COALESCE(spa.attribute_group, '') FROM source_product_attribute spa JOIN source_product sp ON sp.source_product_id = spa.source_product_id JOIN source_site ss ON ss.source_id = sp.source_id WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN      (SELECT attribute_code FROM source_attribute_promotion        WHERE source_key = ?))",
+    "params": [
+     "MADAR",
+     "MADAR"
+    ],
+    "python_ms": 0.2303
+   }
+  ]
+ }
+}

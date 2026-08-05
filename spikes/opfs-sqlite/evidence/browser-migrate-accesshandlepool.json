@@ -1,0 +1,157 @@
+{
+  "started": "2026-07-30T13:31:28",
+  "snapshot_bytes": 78450688,
+  "unlimited_storage": true,
+  "phases": {
+    "env": {
+      "hardware": {
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel"
+      },
+      "dedicated_worker": {
+        "scope": "DedicatedWorker",
+        "canSpawnWorker": true
+      },
+      "service_worker": {
+        "scope": "ServiceWorkerGlobalScope",
+        "canSpawnWorker": false,
+        "hasOpfs": true,
+        "hasWasm": true,
+        "hasSharedArrayBuffer": true,
+        "boot": 1785407489806,
+        "alive_ms": 116,
+        "lives": 1
+      },
+      "storage_estimate_before": {
+        "quota": 13256661574,
+        "usage": 715334,
+        "usageDetails": {
+          "serviceWorkerRegistrations": 715334
+        },
+        "persisted": false
+      },
+      "persist_from_worker": {
+        "available_in_worker": false,
+        "note": "navigator.storage.persist is not a function in a DedicatedWorker",
+        "persisted": false
+      },
+      "persist_from_page": {
+        "before": false,
+        "granted": false,
+        "after": false
+      }
+    },
+    "import": {
+      "download_wal": {
+        "path": "marketlens-wal.db",
+        "bytes": 78450688,
+        "ms": 285,
+        "mode": "sync-access-handle"
+      },
+      "download_nowal": {
+        "path": "marketlens.db",
+        "bytes": 78450688,
+        "ms": 209,
+        "mode": "sync-access-handle"
+      },
+      "tree_after": {
+        "files": [
+          {
+            "path": "/marketlens.db",
+            "bytes": 78450688
+          },
+          {
+            "path": "/marketlens-wal.db",
+            "bytes": 78450688
+          }
+        ],
+        "total_bytes": 156901376
+      },
+      "estimate_after": {
+        "quota": 13247335334,
+        "usage": 157617062,
+        "usageDetails": {
+          "fileSystem": 156901728,
+          "serviceWorkerRegistrations": 715334
+        },
+        "persisted": false
+      }
+    },
+    "describe": {
+      "wa-sqlite-wal": {
+        "failed": "Error: Page.evaluate: Error: unable to open database file\n    at check (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/vendor/wa-sqlite/src/sqlite-api.js:921:11)\n    at Object.prepare_v2 (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/vendor/wa-sqlite/src/sqlite-api.js:580:7)\n    at async chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/vendor/wa-sqlite/src/sqlite-api.js:727:27\n    at async Object.exec (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/engine.mjs:132:24)\n    at async one (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/engine.mjs:302:31)\n    at async describe (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/engine.mjs:307:17)\n    at async open (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/worker.mjs:89:19)\n    at async self.onmessage (chrome-extension://cdammhkgfdofnkmcaefakbemephmgdjl/worker.mjs:281:46)",
+        "worker_console": {
+          "logs": []
+        }
+      },
+      "wa-sqlite-nowal": {
+        "engine": "wa-sqlite",
+        "sqlite": "3.44.0",
+        "page_size": 4096,
+        "page_count": 19153,
+        "user_version": 54,
+        "journal_mode": "delete",
+        "tables": 40,
+        "triggers": 2,
+        "views": 2,
+        "indexes": 59,
+        "price_observation": 73278,
+        "fetch_ms": 0,
+        "open_ms": 10,
+        "describe_ms": 683,
+        "import_state": null,
+        "pool_files_before": null,
+        "migration": null
+      },
+      "sahpool-from-wal": {
+        "engine": "sqlite-wasm-sahpool",
+        "sqlite": "3.53.0",
+        "page_size": 4096,
+        "page_count": 19153,
+        "user_version": 54,
+        "journal_mode": "delete",
+        "tables": 40,
+        "triggers": 2,
+        "views": 2,
+        "indexes": 59,
+        "price_observation": 73278,
+        "fetch_ms": 181,
+        "open_ms": 227,
+        "describe_ms": 19,
+        "import_state": "imported",
+        "pool_files_before": [],
+        "migration": null
+      }
+    },
+    "migrate": {
+      "engine": "wa-sqlite-accesshandlepool",
+      "sqlite": "3.44.0",
+      "page_size": 4096,
+      "page_count": 17784,
+      "user_version": 0,
+      "journal_mode": "delete",
+      "tables": 40,
+      "triggers": 2,
+      "views": 2,
+      "indexes": 59,
+      "price_observation": 73278,
+      "fetch_ms": 0,
+      "open_ms": 15277,
+      "describe_ms": 3,
+      "import_state": null,
+      "pool_files_before": null,
+      "migration": {
+        "source": "marketlens.db",
+        "tables": 40,
+        "other_objects": 49,
+        "rows_copied": 196871,
+        "ddl_ms": 65,
+        "rows_ms": 14332,
+        "index_ms": 753,
+        "total_ms": 15150
+      }
+    }
+  },
+  "chromium": "C:\\Users\\User01\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe",
+  "extension_id": "cdammhkgfdofnkmcaefakbemephmgdjl"
+}

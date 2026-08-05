@@ -2,7 +2,9 @@
 
 This plan reconciles five dimension designs and one adversarial critique into a single buildable path. It is opinionated on purpose: the critic is right that the fatal problem is an **unmade topology decision**, and nothing below can be trusted until that is settled. So it is settled first, explicitly, and everything else follows from it.
 
-Ground truth used throughout (verified, not the inflated design numbers): **~133–144 tests green, exactly one real connector (Shopify), state currently lives in the repo, UI is Arabic.** The plan is honest about this everywhere it matters.
+Ground truth used throughout (verified, not the inflated design numbers): **~133–144 tests green, exactly one real connector (Shopify), state currently lives in the repo, UI is Arabic.**
+
+> **Ground truth re-measured 2026-08-05.** Eleven connector modules and twelve manifest sources, seven of them active. The "exactly one real connector" figure above is from 2026-07-18 and is left standing because the sentence it sits in is about being honest, and quietly editing it would hide how far the tool moved while the plan did not. The plan is honest about this everywhere it matters.
 
 ---
 
@@ -15,16 +17,38 @@ engine running until the new engine is finished."* This is the wisest way to bui
 before it takes over. The Python engine is NOT touched until the TS engine is done.
 
 **Spike 1 (fingerprint parity — the #1 landmine): PASSED — feasibility proven.**
-`spikes/fingerprint-parity/` shows JS reproduces Python's `foldDigits` (8/8) and
+`contract/parity/` shows JS reproduces Python's `foldDigits` (8/8) and
 `optionFingerprint` (5/5) **byte-identically** for adversarial Arabic input; the ONLY gap is
 float serialization (`15.0` vs `15`), closed by a known rule: the fingerprint hashes canonical
 shared-`normalize` strings, never a language-native float. The scary Arabic-parity risk is
 retired; the landmine is now a closed constraint.
 
 **Revised roadmap under A (supersedes §7's B-roadmap):**
-- **Phase 0 — de-risk:** ✅ Spike 1 fingerprint parity DONE. ⏳ Spike 2 = `wa-sqlite`+OPFS
-  running `db/schema.sql` verbatim (triggers + view) inside MV3, surviving restart. If it holds,
-  A is fully de-risked.
+- **Phase 0 — de-risk:** ✅ Spike 1 fingerprint parity DONE (artefact: `contract/parity/`,
+  not the `spikes/fingerprint-parity/` this plan named for two weeks — that directory has never
+  existed; `git log --all -- spikes` returns 0 commits).
+  ✅ **Spike 2 RAN, 2026-07-30 — and its answer is not the one this line expected.**
+  Full reasoning and every number: [`spikes/opfs-sqlite/FINDINGS.md`](../spikes/opfs-sqlite/FINDINGS.md).
+
+  The schema **does** run verbatim inside MV3 and **does** survive restart, so the clause above
+  holds. The conclusion drawn from it does not: **A is not "fully de-risked" by that.** Four
+  constraints this plan does not account for were measured —
+
+    1. the warehouse **loses WAL** in OPFS;
+    2. an OPFS sync access handle is **exclusive**, so only one context may hold the warehouse
+       at a time, immediately and without a queue;
+    3. the engine **cannot live in the MV3 service worker** — it can read the warehouse but can
+       never write it (the worker's *lifetime*, which this plan never worried about, is fine);
+    4. the browser **refuses to mark the storage non-evictable**.
+
+  And `wa-sqlite` — the library named at line 60 and in Phase 1 below — is **the wrong choice**:
+  its importable OPFS VFS measured 70–208× slower than Python on the Data page's own query, and
+  its fast VFS cannot be handed an existing database at all (rebuilding into it takes 15.2 s and
+  loses `user_version`).
+
+  None of this reverses the owner's Topology A decision, and none of it is edited above. It is
+  recorded here because a finding that lives only in a `spikes/` directory is a finding nobody
+  reads — this plan is where the next person looks.
 - **Phase 1 — TS engine core:** port connectors(Shopify)+normalize+rowspec+ingest to TS; the
   Python fixtures/vectors become the **shared conformance suite** (CI runs both, byte-parity).
   Warehouse = wa-sqlite over the SAME `schema.sql`.
