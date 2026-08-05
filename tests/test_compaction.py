@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 from scrapex import compaction, db as dbmod, retention, settings, storage
+from scrapex.databases import registry as registry_mod
+from scrapex.databases.domain import MarketLensDatabase
 from scrapex.ingest import ingest_payloads
 from tests.test_ingest import make_entry, make_payload, one_row
 from tests.test_retention import HISTORY, TODAY
@@ -21,6 +23,12 @@ SOURCE = "ELSEWEDYSHOP"
 @pytest.fixture(autouse=True)
 def isolated_pointer(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "POINTER_FILE", tmp_path / "location.json")
+    # The registry is the OTHER record commit_live_database writes, and this file
+    # promotes real databases. `_point_registry_at` only follows a registry that
+    # already names the file being superseded, so the owner's is safe by
+    # construction — but a test that compacts a temporary database should not be
+    # relying on that guard to keep its hands off ~/.scrapex/databases.json.
+    monkeypatch.setattr(registry_mod, "REGISTRY_FILE", tmp_path / "databases.json")
 
 
 @pytest.fixture()
@@ -332,3 +340,210 @@ def test_the_reclaimed_space_figure_is_named_for_what_it_really_is(conn, db_path
 def test_compaction_issues_no_delete_against_observations():
     source = Path(compaction.__file__).read_text(encoding="utf-8")
     assert "DELETE FROM price_observation" not in source
+
+
+# ---- the successor must be the same KIND as the warehouse (issue #53) --------
+#
+# Every test above builds BOTH sides with `dbmod.migrate`, so source and
+# successor agree by construction and no test in this file could see them
+# diverge. The owner's warehouse is not built that way. It is a
+# MarketLensDatabase, and the two streams produce genuinely different databases:
+#
+#     MarketLensDatabase.initialize()   40 tables  v59  app id 1398295884  ledger 59
+#     dbmod.migrate()                   50 tables  v61  app id 0           no ledger
+# Re-measured 2026-08-05. The versions move with every migration; the SHAPE of
+# the defect is what this file pins — ten extra tables, no app id, no ledger.
+#
+# so compaction was handing the product a file the product refuses to open.
+
+def _marketlens_warehouse(tmp_path: Path) -> Path:
+    """A real typed warehouse, built the way the owner's actually is.
+
+    Deliberately NOT `dbmod.migrate`: that is the fixture habit that hid #53.
+    """
+    path = tmp_path / "typed" / "marketlens.db"
+    MarketLensDatabase(path).initialize()
+    conn = dbmod.connect(path)
+    try:
+        entry = make_entry()
+        for date, price in HISTORY:
+            ingest_payloads(conn, entry, [make_payload(
+                [one_row(price=price)], scraped_at=f"{date}T10:00:00Z")])
+        conn.commit()
+    finally:
+        conn.close()
+    return path
+
+
+def _prepare_the_way_53_shipped(source: Path, target: Path) -> None:
+    """`build_successor`'s preparation exactly as the defect shipped it.
+
+    The untyped legacy stream, whatever kind the source is. Used to re-create the
+    bad successor from the OUTSIDE, so the gate below is tested on its own rather
+    than through the builder that is now correct.
+    """
+    conn = dbmod.connect(target)
+    try:
+        dbmod.migrate(conn)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_a_compacted_marketlens_warehouse_still_opens_through_the_products_door(tmp_path):
+    """The whole sequence: build, verify, promote — then open what was promoted.
+
+    Opened through `MarketLensDatabase.connect()`, which is the call the engine
+    makes at startup. That door is the point of the test: a bare `sqlite3.connect`
+    opens the #53 successor happily, and so does the legacy `dbmod.connect` facade
+    every other test in this file uses, so either one would pass while the owner's
+    warehouse sat in a file the product would not load.
+    """
+    path = _marketlens_warehouse(tmp_path)
+    conn = dbmod.connect(path)
+    try:
+        digest = set_aggressive(conn)
+        before = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
+        result = compaction.compact_warehouse(conn, path, today=TODAY,
+                                              expected_digest=digest)
+    finally:
+        conn.close()
+
+    live = Path(result.built_path)
+    assert storage.read_pointer() == live, "the promoted file is the live warehouse"
+
+    opened = MarketLensDatabase(live).connect()          # ---- the real door ----
+    try:
+        assert opened.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] \
+            == result.observations_after
+    finally:
+        opened.close()
+    assert 0 < result.observations_after < before
+
+    # The archive has to open through the same door too, or the undo path — the
+    # owner's only way back to the observations left behind — leads nowhere. It
+    # is asserted on its CONTENTS, not merely that it opens: on Windows the
+    # predecessor usually keeps its own name (an open handle blocks the rename),
+    # so "it opens" alone would be re-asserting that the untouched source is
+    # still a MarketLens database, which was never in doubt.
+    archive = MarketLensDatabase(Path(result.sealed_path)).connect()
+    try:
+        assert archive.execute(
+            "SELECT COUNT(*) FROM price_observation").fetchone()[0] == before, (
+            "every observation must still be reachable from the sealed archive")
+    finally:
+        archive.close()
+
+
+def test_a_typed_warehouse_previews_as_a_measurement_not_as_a_bad_policy(tmp_path):
+    """The owner's first step, and the one #53 made unpassable.
+
+    The UI will not authorise a compaction without a preview, and a preview of a
+    typed warehouse reported "This policy would not produce an acceptable
+    database" — which reads as *your retention policy is wrong*, sends the owner
+    to change a setting that was never the problem, and is the only sentence he
+    would ever have seen about any of this.
+    """
+    path = _marketlens_warehouse(tmp_path)
+    conn = dbmod.connect(path)
+    try:
+        set_aggressive(conn)
+        result = compaction.preview(conn, path, today=TODAY)
+    finally:
+        conn.close()
+    assert result.ok and not result.problems, result.problems
+    assert result.observations_left_behind > 0
+    assert "would stay in the sealed archive" in result.detail
+    assert not list(path.parent.glob("*.preview*")), "the trial file was left behind"
+
+
+def test_a_successor_the_product_cannot_open_is_refused_before_anything_moves(
+        tmp_path, monkeypatch):
+    """The gate, tested on its own against the artefact #53 actually produced.
+
+    Verification runs while the successor is still a temporary file under a name
+    no pointer resolves to, so refusing costs one build and nothing else: the
+    warehouse is not renamed, not sealed, and never stops being the live one.
+    """
+    path = _marketlens_warehouse(tmp_path)
+    monkeypatch.setattr(compaction, "_prepare_successor", _prepare_the_way_53_shipped)
+    conn = dbmod.connect(path)
+    try:
+        digest = set_aggressive(conn)
+        before = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
+        with pytest.raises(compaction.CompactionAborted) as refusal:
+            compaction.compact_warehouse(conn, path, today=TODAY,
+                                         expected_digest=digest)
+        assert "this product can open" in str(refusal.value), (
+            "the refusal must say the successor could not be OPENED. The old gate "
+            "happened to stop this same build — on its schema version and a table "
+            "it was missing — and named neither the cause nor the consequence")
+        assert conn.execute(
+            "SELECT COUNT(*) FROM price_observation").fetchone()[0] == before
+    finally:
+        conn.close()
+
+    assert storage.read_pointer() is None, "nothing may be promoted after a refusal"
+    assert not list(path.parent.glob("*.compact-*")), "a rejected build was kept"
+    assert not list(path.parent.glob("*.building-*")), "a rejected build was kept"
+    assert not storage.sealed_at(path), "the warehouse was sealed despite the refusal"
+    MarketLensDatabase(path).connect().close()   # exactly where the owner was
+
+
+def test_a_source_whose_kind_cannot_be_read_is_refused_rather_than_guessed(
+        conn, db_path, monkeypatch):
+    """Silence is not an answer, and must not be heard as "legacy".
+
+    `_typed_class_for` decides BOTH how the successor is built and whether the
+    identity gate runs at all, so if an unreadable header were treated as a
+    legacy warehouse it would build the old way AND switch off the check that
+    catches the old way — #53's exact shape, one layer down. This uses the
+    legacy fixture deliberately: there, guessing "legacy" would be RIGHT, the
+    compaction would succeed, and nothing else in the suite would notice.
+    """
+    digest = set_aggressive(conn)
+    before = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
+    monkeypatch.setattr(compaction, "_application_id", lambda path: None)
+
+    with pytest.raises(compaction.CompactionAborted, match="could not read what kind"):
+        compaction.compact_warehouse(conn, db_path, today=TODAY, expected_digest=digest)
+
+    assert storage.read_pointer() is None, "nothing may be promoted after a refusal"
+    assert not list(db_path.parent.glob("*.compact-*"))
+    assert not list(db_path.parent.glob("*.building-*"))
+    assert not storage.sealed_at(db_path)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM price_observation").fetchone()[0] == before
+
+def test_a_source_that_is_behind_is_named_as_the_one_that_is_behind(tmp_path):
+    """TWO DIFFERENT FAULTS WORE ONE SENTENCE.
+
+    The successor is always built at the ENGINE's schema version. A mismatch
+    therefore means one of two completely different things: the successor was
+    built the wrong way — defect #53, which this change fixes — or the SOURCE is
+    simply behind. Both used to report "the successor is on a different schema
+    version", which sends the owner to inspect a successor that is perfectly
+    correct.
+
+    Since the engine upgrades a behind warehouse on the way up (#98), the second
+    case now reaches compaction only through a restored old backup — which is
+    exactly when a precise sentence is worth the most."""
+    import sqlite3
+    from scrapex.compaction import _prepare_successor, verify_successor
+    from scrapex.databases.domain import MarketLensDatabase
+
+    source = tmp_path / "behind.db"
+    MarketLensDatabase(source).initialize()
+    conn = sqlite3.connect(source)
+    conn.execute("PRAGMA user_version = 58")
+    conn.commit()
+    conn.close()
+
+    successor = tmp_path / "successor.db"
+    _prepare_successor(source, successor)
+
+    problems = verify_successor(source, successor)
+
+    behind = [p for p in problems if "the source warehouse is at schema v58" in p]
+    assert behind, f"the source being behind was not named; got {problems}"
+    assert "upgrade it first" in behind[0], "it named the fault and not the way out"
