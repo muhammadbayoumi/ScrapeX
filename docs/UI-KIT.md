@@ -31,7 +31,7 @@ Counted on 2026-08-05, before any of the work below:
 | Shared across both surfaces (`design/components.css`) | **98** |
 | Statically resolvable class uses in markup | **647** |
 | **Used in markup, defined in no stylesheet** | **17** |
-| Defined but referenced by no markup found | ~167 *(advisory — the detector is naive about JS)* |
+| Defined and mentioned nowhere outside a stylesheet | **28** — and only **8** of those were dead; see UI-3 |
 
 Of the 17, **sixteen were dead attributes** carrying meaning that no rule ever
 gave them:
@@ -169,22 +169,59 @@ flagged a sprite reference. Every other page reaches the sprite through a path,
 which is why it had never been seen. The guard now ignores fragment references
 and still bites on a real literal.
 
-### UI-2 · Promote what repeats, delete the copies
+### UI-2 · Promote what repeats, delete the copies — *first slice done*
 
-Fourteen page-specific stylesheets re-implement the same patterns. Measure the
-duplication concretely — same declarations under different names — promote what
-is genuinely shared into `design/components.css`, delete the copies. **After
-UI-1**, because promoting a component into a catalogue nobody can see just moves
-the problem.
+**Measured**: 67 declaration blocks are written identically in more than one
+sheet. The largest single component was an icon in a tinted square, written
+**three times** across Exports, Sync and Overview — fourteen elements, six
+identical declarations each, only the size differing. It is now `.icon-tile`,
+with the size a custom property the caller sets. Page stylesheets lost 38 net
+lines.
 
-### UI-3 · Retire dead CSS with proof
+**The proof matters more than the change.** `tools/style_snapshot.py` records
+the computed style of every element on all 24 pages — panel and workspace,
+24,972 elements — and diffs two snapshots. After the promotion: no computed
+style changed anywhere.
 
-~167 candidates. The detector is naive about JS template literals, so every
-candidate is verified against markup, JS and templates before deletion — a class
-deleted while a code path still builds it is an invisible regression, which is
-the same failure as an undefined class in the other direction. **Last**, because
-UI-2 will delete a large share of them as a side effect, and measuring twice is
-cheaper than deleting twice.
+*Screenshots could not have proved it.* Eight of the workspace's 28 pictures
+differ between two consecutive runs with no code change, because four pages
+print times and the text moves. A pixel diff there reports a difference that is
+not one, which teaches the reader to ignore the tool.
+
+It caught two mistakes of mine that every other gate passed: an edit anchored
+on a selector in the MIDDLE of a four-name list, which silently orphaned
+`.overview-snapshot-icon` and stripped four tiles on the Overview page; and a
+class left in markup after its only rule was deleted. **Anchor a CSS edit on
+the whole rule, never on a name inside it.**
+
+Still open (UI-2b): the tone and text duplication — `color:var(--muted);
+font-size:var(--fs-xs)` in 14 places across 5 files, the amber tone in 8, and
+page rules that re-implement `.row`/`.cluster` instead of using them. Those need
+a naming decision, not a mechanical move.
+
+### UI-3 · Retire dead CSS with proof — *done*
+
+An earlier count of "~167 dead rules" in this document was **wrong**, and wrong
+in the dangerous direction. It came from a detector that only looked at markup
+and a few JavaScript shapes. `tools/dead_css.py` applies a deliberately crude
+and deliberately conservative rule instead — *a class is a candidate only if its
+name appears nowhere in the repository outside a stylesheet* — and found **28**.
+
+Twenty of those twenty-eight were alive: eighteen `tabulator-*` names the grid
+library writes at runtime, and two `schedule-state-*` names a template builds by
+concatenation. Deleting any of them would have broken a page that every test
+still passes on. They are now named in the tool with the reason, so the report
+is signal rather than a list of traps.
+
+**Eight were genuinely dead**, each removed from the markup in a past redesign
+with its rule left behind — `runline`, `picklist`, `step-n`, `step-body`,
+`ms-2`, `action-subtle`, `record-selection-kicker`, `sync-run-form`. The commit
+that orphaned each is named beside it in the deletion. `picklist` went while its
+`pickrow` children stayed, which is why only the one name was removed.
+
+Zero candidates remain, and the style snapshot confirms no computed style
+changed. The tool stays a **report, not a gate**: it cannot see a class built by
+string concatenation, so deleting what it names still needs a human to look.
 
 ### Where this sits against the product plan
 

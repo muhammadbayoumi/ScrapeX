@@ -410,7 +410,6 @@ pre.script {
   font-size: var(--fs-sm);
 }
 
-.sync-run-form,
 .sync-source-form {
   min-width: 0;
 }
