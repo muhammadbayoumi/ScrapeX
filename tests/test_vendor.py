@@ -154,6 +154,12 @@ def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
         r"(?<![&A-Za-z0-9_-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|"
         r"[0-9a-fA-F]{3})(?![A-Za-z0-9_-])|rgba?\(",
     )
+    # `href="#add"` is a fragment reference to a sprite symbol, and `add` is
+    # three hex digits. Every page that reaches the sprite through a path has a
+    # letter before the `#`, which the lookbehind already covers; a page with an
+    # INLINE sprite writes `#add` after a quote and it reads as a colour. A
+    # colour is never written in an href, so the reference goes before the scan.
+    fragment = re.compile(r'href="#')
     offenders = []
     for folder in (ROOT / "design", ROOT / "extension", ROOT / "scrapex" / "webui"):
         for path in folder.rglob("*"):
@@ -162,7 +168,7 @@ def test_ui_colour_literals_live_only_in_the_canonical_colour_system():
             if "vendor" in path.parts:
                 continue
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if colour.search(line):
+                if colour.search(fragment.sub('href="', line)):
                     offenders.append(f"{path.relative_to(ROOT)}:{number}")
     assert offenders == [], f"colour literals outside the shared system: {offenders}"
 
