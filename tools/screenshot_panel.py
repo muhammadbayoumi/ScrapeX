@@ -85,6 +85,9 @@ def main() -> int:
     TAB_DATA = 'nav.side-rail button[data-view="data"]'
     TAB_SETTINGS = 'nav.side-rail button[data-view="settings"]'
     TAB_SOURCE = 'nav.side-rail button[data-view="source"]'
+    TAB_PROFILE = 'nav.side-rail button[data-view="profile"]'
+    TAB_ENGINES = 'nav.side-rail button[data-view="engines"]'
+    TAB_CONSOLE = 'nav.side-rail button[data-view="console"]'
     SOURCE_URLS = 'label[for="source-urls"]'
     SOURCE_FILE = 'label[for="source-file"]'
     SOURCE_ADDSITE = 'label[for="source-addsite"]'
@@ -133,6 +136,12 @@ def main() -> int:
         "12-source-file-image": (_stub(args.backend), [TAB_SOURCE, SOURCE_FILE]),
         # The fourth choice: price tracking, with its settings inside it.
         "12b-source-addsite": (_stub(args.backend), [TAB_SOURCE, SOURCE_ADDSITE]),
+        # The three pages that exist so their shape can be agreed before they
+        # are written. Every control on them is disabled; capturing them is the
+        # only way the owner can see the shape without building it first.
+        "14-profile-welcome": (_stub(args.backend), TAB_PROFILE),
+        "15-engines": (_stub(args.backend), TAB_ENGINES),
+        "16-console": (_stub(args.backend), TAB_CONSOLE),
         "13-selected-cards": (_stub(args.backend),
                               [TAB_RUN, 'input[data-key="LONG_AR"]', 'input[data-key="SHORT"]']),
     }
