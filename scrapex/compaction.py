@@ -116,10 +116,17 @@ def _application_id(path: Path) -> int | None:
     except sqlite3.DatabaseError:
         return None
     try:
-        # The busy_timeout every other connection in this product sets. Without
-        # it a probe takes SQLITE_BUSY for an answer: a warehouse that is merely
-        # locked for a moment reports no kind at all, and one transient lock
-        # would decide how the successor gets built.
+        # LOAD-BEARING, AND DELIBERATELY NOT UNIT-TESTED. The busy_timeout every
+        # other connection in this product sets. Without it a probe takes
+        # SQLITE_BUSY for an answer: a warehouse that is merely locked for a
+        # moment reports no kind at all, `_typed_class_for` then REFUSES, and one
+        # transient lock decides whether compaction runs at all.
+        #
+        # Removing this line leaves the whole suite green, so it is marked rather
+        # than pinned: the only test that could catch it would hold a lock and
+        # race the timeout, and a test that races is a test that goes red on a
+        # slow machine for a reason that is not the code. Marked so the next
+        # reader does not tidy it away.
         conn.execute("PRAGMA busy_timeout = 5000")
         return int(conn.execute("PRAGMA application_id").fetchone()[0])
     except sqlite3.DatabaseError:
@@ -139,10 +146,19 @@ def _typed_class_for(path: Path):
     itself and the check is worthless. The application id is the one answer it
     cannot forge, and it is exactly the one `MarketLensDatabase._verify` reads.
 
-    Only MarketLens is recognised because only MarketLens has price observations;
-    a General database has no `price_observation` to compact, and `dbmod.connect`
-    refuses it outright before ever reaching here. Anything else is a legacy
-    unmarked warehouse, which has no typed door and keeps the legacy build.
+    Only MarketLens is recognised because only MarketLens has price observations.
+    Anything else is a legacy unmarked warehouse, which has no typed door and
+    keeps the legacy build.
+
+    AN EARLIER DRAFT OF THIS PARAGRAPH SAID a General database is refused by
+    `dbmod.connect` "before ever reaching here". That is not true and it was not
+    true when it was written: this change moved `_prepare_successor` ABOVE
+    `dbmod.connect(source_path)` (see `build_successor`), so this function is now
+    the FIRST thing any source reaches. A General database therefore arrives
+    here, is not recognised, and — until something upstream refuses it — has a
+    full legacy-stream successor built for it on disk before anyone objects.
+    Recorded rather than quietly deleted, because the sentence was load-bearing:
+    it is why nobody thought to add a General case.
 
     A FILE THAT WILL NOT SAY IS REFUSED, not treated as legacy. Those are two
     different facts and collapsing them is the same defect as #53 itself: this
@@ -170,13 +186,19 @@ def _prepare_successor(source: Path, target: Path) -> None:
 
     This is the defect in #53. Compaction used to build every successor with
     `dbmod.migrate` — the legacy, untyped stream — whatever the source was. That
-    stream is not the MarketLens one: it replays all 57 legacy files, including
+    stream is not the MarketLens one: it replays every legacy file, including
     the three (0013, 0014, 0017) that belong to General alone, and it never
     applies MarketLens's own identity migration. Measured against the owner's
     warehouse the two disagree on everything that identifies a database:
 
-        source (MarketLensDatabase)   40 tables  v55  app id 1398295884  ledger 55
-        successor (dbmod.migrate)     50 tables  v57  app id 0           no ledger
+        source (MarketLensDatabase)   40 tables  v59  app id 1398295884  ledger 59
+        successor (dbmod.migrate)     50 tables  v61  app id 0           no ledger
+
+    Re-measured 2026-08-05, after 0060 and 0061 landed. The version numbers move
+    with every migration and the shape of the defect does not — ten tables that
+    do not belong, no application id, no ledger — so read the shape, not the
+    numbers. `db/migrations/` holds 60 files today across TWO independent
+    streams; the count is deliberately not repeated in prose again.
 
     So the product could not open its own output. Building it through the same
     typed boundary the source came from is the fix, and it is a fix rather than a
@@ -222,6 +244,18 @@ def build_successor(db_path: Path | str, out_path: Path | str, *,
     # Siblings too, not just the file: a `-wal` left by an earlier database of
     # this name describes different content, and the schema about to be created
     # here would inherit it. Same reason `_discard` exists.
+    #
+    # LOAD-BEARING, AND I COULD NOT PIN IT — recorded so the next person does not
+    # spend the same hour. Removing this call leaves all 25 tests green, so I
+    # tried twice to build a case that tells the two apart: a hand-written `-wal`
+    # beside the target (SQLite discards it either way — the header does not
+    # match), and a real un-checkpointed `-wal` from an earlier database of the
+    # same name (identical outcome, and the only version that differed at all
+    # needed an open handle, which is a contrived state, not a crawl's).
+    #
+    # It stays because the cost of being wrong is a successor silently carrying
+    # another database's uncommitted pages, and the cost of keeping it is one
+    # unlink. A test that cannot fail would be worse than this comment.
     _discard(target_path)
 
     def step(name: str, done: int = 0, total: int = 0) -> None:
@@ -364,8 +398,22 @@ def verify_successor(src_path: Path | str, dst_path: Path | str) -> list[str]:
             if findings:
                 problems.append(f"the successor fails PRAGMA {check}")
 
-        if dbmod.schema_version(dst) != dbmod.schema_version(src):
-            problems.append("the successor is on a different schema version")
+        source_version, successor_version = dbmod.schema_version(src), dbmod.schema_version(dst)
+        if successor_version != source_version:
+            # TWO DIFFERENT FAULTS WORE ONE SENTENCE. The successor is always
+            # built at the ENGINE's schema version, so a mismatch means either
+            # the successor was built the wrong way (#53, what this change fixes)
+            # or the SOURCE is simply behind — and blaming the successor for the
+            # second sends the owner looking in the wrong place entirely. Since
+            # the engine upgrades a behind warehouse on the way up, the second
+            # case now only reaches here through a restored old backup, which is
+            # exactly when a precise sentence is worth most.
+            problems.append(
+                f"the source warehouse is at schema v{source_version} and this "
+                f"build is at v{successor_version} — upgrade it first, then "
+                "compact" if successor_version > source_version else
+                f"the successor is on a different schema version "
+                f"(v{successor_version}) from the source (v{source_version})")
 
         triggers = {r[0] for r in dst.execute(
             "SELECT name FROM sqlite_master WHERE type = 'trigger'")}

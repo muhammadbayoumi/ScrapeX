@@ -349,8 +349,10 @@ def test_compaction_issues_no_delete_against_observations():
 # diverge. The owner's warehouse is not built that way. It is a
 # MarketLensDatabase, and the two streams produce genuinely different databases:
 #
-#     MarketLensDatabase.initialize()   40 tables  v55  app id 1398295884  ledger 55
-#     dbmod.migrate()                   50 tables  v57  app id 0           no ledger
+#     MarketLensDatabase.initialize()   40 tables  v59  app id 1398295884  ledger 59
+#     dbmod.migrate()                   50 tables  v61  app id 0           no ledger
+# Re-measured 2026-08-05. The versions move with every migration; the SHAPE of
+# the defect is what this file pins — ten extra tables, no app id, no ledger.
 #
 # so compaction was handing the product a file the product refuses to open.
 
@@ -512,3 +514,36 @@ def test_a_source_whose_kind_cannot_be_read_is_refused_rather_than_guessed(
     assert not storage.sealed_at(db_path)
     assert conn.execute(
         "SELECT COUNT(*) FROM price_observation").fetchone()[0] == before
+
+def test_a_source_that_is_behind_is_named_as_the_one_that_is_behind(tmp_path):
+    """TWO DIFFERENT FAULTS WORE ONE SENTENCE.
+
+    The successor is always built at the ENGINE's schema version. A mismatch
+    therefore means one of two completely different things: the successor was
+    built the wrong way — defect #53, which this change fixes — or the SOURCE is
+    simply behind. Both used to report "the successor is on a different schema
+    version", which sends the owner to inspect a successor that is perfectly
+    correct.
+
+    Since the engine upgrades a behind warehouse on the way up (#98), the second
+    case now reaches compaction only through a restored old backup — which is
+    exactly when a precise sentence is worth the most."""
+    import sqlite3
+    from scrapex.compaction import _prepare_successor, verify_successor
+    from scrapex.databases.domain import MarketLensDatabase
+
+    source = tmp_path / "behind.db"
+    MarketLensDatabase(source).initialize()
+    conn = sqlite3.connect(source)
+    conn.execute("PRAGMA user_version = 58")
+    conn.commit()
+    conn.close()
+
+    successor = tmp_path / "successor.db"
+    _prepare_successor(source, successor)
+
+    problems = verify_successor(source, successor)
+
+    behind = [p for p in problems if "the source warehouse is at schema v58" in p]
+    assert behind, f"the source being behind was not named; got {problems}"
+    assert "upgrade it first" in behind[0], "it named the fault and not the way out"
