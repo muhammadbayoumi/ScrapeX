@@ -46,7 +46,10 @@ def open_panel(browser, tmp_path):
     """Open the panel with a given stub and return the live page."""
     pages = []
 
-    def opener(**stub_kwargs):
+    def opener(*, view=None, **stub_kwargs):
+        """`view` navigates after load. The panel opens on Welcome, and a test
+        about Source has to get to Source the way an owner would — by pressing
+        its rail button — rather than by asserting on a page it never entered."""
         page_file = harness.build_page(tmp_path, harness.stub(**stub_kwargs),
                                        name=f"panel{len(pages)}.html")
         page = browser.new_page(viewport={"width": 360, "height": 800})
@@ -54,6 +57,9 @@ def open_panel(browser, tmp_path):
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(page_file.as_uri())
         page.wait_for_timeout(500)
+        if view is not None:
+            page.click(f'nav.tabs button[data-view="{view}"]')
+            page.wait_for_timeout(400)
         page.js_errors = errors
         pages.append(page)
         return page
@@ -71,10 +77,16 @@ def text_of(page, selector: str) -> str:
 
 # ---- the opening screen ------------------------------------------------------
 
-def test_the_panel_opens_on_source_with_the_active_tab_already_read(open_panel):
-    """The blocker screenshots could not see: the opening view never ran its
-    loader, so it sat at "Reading the active tab…" until you navigated away."""
-    page = open_panel()
+def test_source_reads_the_active_tab_the_moment_it_is_opened(open_panel):
+    """The blocker screenshots could not see: a view entered without going
+    through showView never ran its loader, so it sat at "Reading the active
+    tab…" until you navigated away and back.
+
+    The panel used to open on Source, which is why this was named for the
+    opening screen. It now opens on Welcome — a page with nothing to load — so
+    the regression can only be guarded where it can still happen, which is the
+    first time Source is entered."""
+    page = open_panel(view="source")
     assert page.is_visible("#view-source")
     assert text_of(page, "#cur-title") == harness.ACTIVE_TAB["title"]
     assert harness.ACTIVE_TAB["url"] in text_of(page, "#cur-url")
@@ -146,8 +158,14 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["y"] == pytest.approx(0, abs=1)
     assert bounds["height"] == pytest.approx(800, abs=1)
 
-    assert page.locator("nav.side-rail button[data-view]").count() == 7
-    assert page.locator("nav.side-rail button.rail-item").count() == 8
+    # Rolled 7 -> 10 and 8 -> 11 on 2026-08-05, when the agreed shape gained
+    # Profile, Engines and Console (docs/PLATFORM-PLAN.md). The RULE this
+    # asserts is unchanged and is not the number: the rail holds the pages the
+    # panel itself owns, and everything deeper stays behind one grouped menu.
+    # The count is here so a page cannot be added to the rail without someone
+    # deciding it belongs there.
+    assert page.locator("nav.side-rail button[data-view]").count() == 10
+    assert page.locator("nav.side-rail button.rail-item").count() == 11
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
     # Rolled 10 -> 11 when Data Model joined System: the panel mirrors the
@@ -423,7 +441,7 @@ def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel)
 
 
 def test_a_tab_that_is_not_a_website_is_refused_with_a_reason(open_panel):
-    page = open_panel(tab={"url": "chrome://extensions", "title": "Extensions"})
+    page = open_panel(view="source", tab={"url": "chrome://extensions", "title": "Extensions"})
     assert page.is_disabled("#cur-use"), "a chrome:// page cannot be crawled"
     assert "not a website" in text_of(page, "#cur-title")
     assert "Open a site in this tab" in text_of(page, "#cur-out")
@@ -431,7 +449,7 @@ def test_a_tab_that_is_not_a_website_is_refused_with_a_reason(open_panel):
 
 def test_an_engine_failure_is_not_reported_as_a_browser_failure(open_panel):
     """Blaming the tab for an engine error sends the owner to the wrong place."""
-    page = open_panel(fail_routes=["/api/resolve"])
+    page = open_panel(view="source", fail_routes=["/api/resolve"])
     page.wait_for_timeout(400)
     assert text_of(page, "#cur-title") == harness.ACTIVE_TAB["title"], \
         "the tab WAS readable; only the engine failed"
@@ -439,7 +457,7 @@ def test_an_engine_failure_is_not_reported_as_a_browser_failure(open_panel):
 
 
 def test_an_already_registered_page_says_so_and_offers_no_duplicate_add(open_panel):
-    page = open_panel(resolve={"matched": True, "source_name": "Example Store",
+    page = open_panel(view="source", resolve={"matched": True, "source_name": "Example Store",
                                "source_key": "SHOP_EXAMPLE", "implemented": True})
     page.wait_for_timeout(300)
     assert "Already registered" in text_of(page, "#cur-out")
@@ -452,7 +470,7 @@ def test_an_already_registered_page_says_so_and_offers_no_duplicate_add(open_pan
 def test_current_page_re_reads_the_tab_rather_than_trusting_a_stale_read(open_panel):
     """The panel stays open while the owner browses. Acting on the address read
     minutes ago would register whichever site they have since left."""
-    page = open_panel()
+    page = open_panel(view="source")
     page.evaluate("""() => {
         window.chrome.tabs.query = async () => [
             {url: "https://a-different-store.example/x", title: "A Different Store"}];
@@ -466,7 +484,7 @@ def test_current_page_re_reads_the_tab_rather_than_trusting_a_stale_read(open_pa
 # ---- the URL batch -----------------------------------------------------------
 
 def test_pasted_addresses_are_each_reported_with_what_was_detected(open_panel):
-    page = open_panel()
+    page = open_panel(view="source")
     page.click('label[for="source-urls"]')
     page.fill("#urls-box", "https://shop.example.com\nhttps://second.example.com")
     page.click("#urls-check")
@@ -479,7 +497,7 @@ def test_pasted_addresses_are_each_reported_with_what_was_detected(open_panel):
 def test_every_review_button_works_the_moment_it_is_visible(open_panel):
     """A row rendered clickable but bound only after the LAST address finished
     means an early click silently does nothing."""
-    page = open_panel()
+    page = open_panel(view="source")
     page.click('label[for="source-urls"]')
     page.fill("#urls-box", "https://shop.example.com\nhttps://second.example.com")
     page.click("#urls-check")
@@ -491,7 +509,7 @@ def test_every_review_button_works_the_moment_it_is_visible(open_panel):
 
 
 def test_an_unreachable_address_is_not_dressed_up_as_a_detected_platform(open_panel):
-    page = open_panel(fail_routes=["/api/probe"])
+    page = open_panel(view="source", fail_routes=["/api/probe"])
     page.click('label[for="source-urls"]')
     page.fill("#urls-box", "https://nothing-here.example")
     page.click("#urls-check")
@@ -503,7 +521,7 @@ def test_an_unreachable_address_is_not_dressed_up_as_a_detected_platform(open_pa
 
 
 def test_a_malformed_address_is_refused_before_any_request(open_panel):
-    page = open_panel()
+    page = open_panel(view="source")
     page.click('label[for="source-urls"]')
     page.fill("#urls-box", "not-a-url")
     page.click("#urls-check")
@@ -516,7 +534,7 @@ def test_a_malformed_address_is_refused_before_any_request(open_panel):
 # ---- Add Site ----------------------------------------------------------------
 
 def test_using_the_current_page_opens_the_add_site_choice_with_it_filled_in(open_panel):
-    page = open_panel()
+    page = open_panel(view="source")
     page.click("#cur-use")
     page.wait_for_timeout(800)
     assert page.is_checked("#source-addsite"), \
@@ -526,7 +544,7 @@ def test_using_the_current_page_opens_the_add_site_choice_with_it_filled_in(open
 
 
 def test_a_probe_fills_the_form_from_what_was_detected(open_panel):
-    page = open_panel()
+    page = open_panel(view="source")
     page.click("#cur-use")
     page.wait_for_timeout(900)
     assert page.input_value("#f-key") == "SHOP_EXAMPLE"
@@ -536,7 +554,7 @@ def test_a_probe_fills_the_form_from_what_was_detected(open_panel):
 
 
 def test_the_unbuilt_file_source_cannot_be_actioned(open_panel):
-    page = open_panel()
+    page = open_panel(view="source")
     page.click('label[for="source-file"]')
     page.wait_for_timeout(300)
     assert page.is_disabled('[data-integration="file-upload"]')
@@ -664,12 +682,16 @@ def test_finance_tab_sits_immediately_above_workspace(open_panel):
         document.querySelector('[data-view="sources"]').offsetTop,
     ]""")
     assert data_y < finance_y < workspace_y < sources_y
+    # Finance used to be a group of its own, separated by a hairline, because
+    # the only thing being said was "this is not one of the crawl pages". What
+    # it IS was left unsaid: Google Finance is served by the engine exactly as
+    # Source, Run and Data are, and is just as dead without one. It now closes
+    # the engine's group instead of standing beside it, and it still sits
+    # immediately above Workspace, which is what this test was protecting.
     assert page.evaluate("""() => {
-        const divider = document.querySelector('.rail-tablist').nextElementSibling;
-        return divider.classList.contains('rail-divider') &&
-          divider.nextElementSibling.id === 'finance-tablist' &&
-          divider.nextElementSibling.querySelector('#tab-finance') &&
-          divider.nextElementSibling.nextElementSibling.id === 'workspace-toggle';
+        const engine = document.querySelector('#engine-tablist');
+        return engine.lastElementChild.id === 'tab-finance' &&
+          engine.nextElementSibling.id === 'workspace-toggle';
     }""")
 
     page.click(SOURCES_TAB)
@@ -1221,7 +1243,7 @@ def test_a_scraped_name_containing_markup_cannot_inject_into_the_panel(open_pane
 def test_the_action_label_does_not_survive_onto_a_tab_it_cannot_apply_to(open_panel):
     """A stale "Open its dataset" on a chrome:// page promises something that
     page cannot do, even with the button disabled."""
-    page = open_panel(resolve={"matched": True, "source_name": "Example Store",
+    page = open_panel(view="source", resolve={"matched": True, "source_name": "Example Store",
                                "source_key": "SHOP_EXAMPLE", "implemented": True})
     page.wait_for_timeout(300)
     assert "Open its dataset" in page.text_content("#cur-use")
@@ -1280,7 +1302,7 @@ def test_nothing_that_looks_like_a_link_is_an_unfocusable_span(open_panel):
 
 
 def test_duplicate_pasted_addresses_do_not_stall_the_counter(open_panel):
-    page = open_panel()
+    page = open_panel(view="source")
     page.click('label[for="source-urls"]')
     page.fill("#urls-box", "https://shop.example.com\nhttps://shop.example.com")
     page.click("#urls-check")
@@ -2165,7 +2187,7 @@ def test_an_extension_older_than_its_engine_is_told_all_five_facts(open_panel):
     five is asserted here — a notification missing the number, the requirement
     or the remedy sends its reader somewhere else to find the rest.
     """
-    page = open_panel(extension_version="0.1.0", engine_version="0.2.0")
+    page = open_panel(view="source", extension_version="0.1.0", engine_version="0.2.0")
 
     notice = page.locator("#version-notice")
     assert notice.is_visible(), "a stale extension was told nothing"
@@ -2609,3 +2631,138 @@ def test_a_business_date_is_never_shifted_by_the_display_zone(open_panel):
     assert verdicts["empty"] == ""
     assert verdicts["instant"] is True
     assert not page.js_errors
+
+
+def test_a_page_that_is_only_a_shape_says_so_on_itself(open_panel):
+    """Profile, Engines and Console exist so their shape can be agreed before
+    they are written. Every one of them is empty behind the glass.
+
+    A page that looks finished and does nothing is worse than no page: the owner
+    presses Install, nothing happens, and the product looks broken rather than
+    unbuilt. So each carries a note naming the milestone it is waiting for, and
+    every control on it is disabled.
+
+    The project's own rule, from the brief: "Clearly identify mock and production
+    integrations." This is the mechanical form of it."""
+    page = open_panel()
+
+    for view, milestone in (("profile", "M1"), ("engines", "M1"), ("console", "M7")):
+        page.click(f"#tab-{view}")
+        panel = page.locator(f"#view-{view}")
+        assert panel.is_visible(), f"the {view} page does not open"
+
+        note = panel.locator(".planned-note")
+        assert note.count() == 1, f"the {view} page does not say it is unbuilt"
+        assert note.get_attribute("data-planned") == milestone, (
+            f"the {view} page does not name the milestone it waits for")
+        assert "Not built yet" in note.inner_text()
+
+        buttons = panel.locator("button")
+        for i in range(buttons.count()):
+            assert buttons.nth(i).is_disabled(), (
+                f"a control on the {view} page is pressable while the page does "
+                "nothing — that reads as broken, not as unbuilt")
+
+
+def test_the_shape_opens_on_who_you_are_and_what_is_installed(open_panel):
+    """The agreed order, asserted because it is a decision and not an accident:
+    Profile is page one and Engines page two, before anything can be run."""
+    page = open_panel()
+    views = page.eval_on_selector_all(
+        "nav.side-rail button[data-view]", "els => els.map(e => e.dataset.view)")
+
+    assert views[0] == "profile"
+    assert views[1] == "engines"
+
+
+
+def test_the_rail_groups_say_which_pages_need_an_engine(open_panel):
+    """THE GROUPING CARRIES MEANING, so it is a guard and not a preference.
+
+    Profile and Engines are answerable on a device with no engine on it at all
+    — who am I, and what is installed. Every page in the second group is served
+    by the engine and does nothing without one. A new install spends its whole
+    first minute in exactly that state, so the boundary has to be visible
+    before anything explains it.
+
+    A page joining the wrong group is not a cosmetic mistake: it promises the
+    owner something the panel cannot do yet.
+    """
+    page = open_panel()
+    groups = page.eval_on_selector_all(
+        "nav.side-rail .rail-tablist",
+        """els => els.map(e => [...e.querySelectorAll('button[data-view]')]
+                                 .map(b => b.dataset.view))""")
+
+    assert groups[0] == ["profile", "engines"], "the extension's own pages"
+    assert groups[1] == ["source", "run", "data", "finance"], "the engine's pages"
+    assert groups[2] == ["appearance", "sources", "console", "settings"]
+
+    # A group has to READ as one. The hairline it replaced said "something
+    # changed here" without saying what, and one icon of four moving across it
+    # would have looked like nothing at all.
+    assert page.eval_on_selector_all(
+        "nav.side-rail .rail-tablist",
+        """els => els.every(e => {
+            const s = getComputedStyle(e);
+            return s.borderTopWidth !== '0px' && s.borderRadius !== '0px';
+        })"""), "the groups are not drawn as containers"
+    assert page.locator(".rail-divider").count() == 0
+
+
+def test_the_panel_opens_on_one_question(open_panel):
+    """The first screen a new install shows.
+
+    Everything a profile page would normally print — the account, the last
+    backup, which device holds the lease — is unknowable before sign-in, and a
+    column of em dashes is not information. So the page asks the one question
+    it can and shows nothing else, and it is what opens.
+    """
+    page = open_panel()
+    panel = page.locator("#view-profile")
+
+    assert panel.is_visible(), "the panel did not open on Welcome"
+    assert page.get_attribute("#tab-profile", "aria-current") == "page"
+    assert not page.is_visible("#view-source")
+
+    assert panel.locator("h1").inner_text() == "Welcome to ScrapeX"
+    assert panel.locator(".card").count() == 0, "the empty page grew cards again"
+    assert panel.locator(".kv").count() == 0, "it is printing values it cannot know"
+    buttons = panel.locator("button")
+    assert buttons.count() == 1
+    assert "Continue with Google" in buttons.first.inner_text()
+
+
+def test_the_engine_is_named_and_offers_one_square_install(open_panel):
+    """The engine is a product with a name — ScrapeX-Engine — not "the engine",
+    because the page is a catalogue that will hold more than one of them."""
+    page = open_panel()
+    page.click("#tab-engines")
+    card = page.locator("#view-engines .card").first
+
+    assert (card.locator("h2").text_content() or "").strip() == "ScrapeX-Engine"
+    install = card.locator("button")
+    assert install.count() == 1
+    assert install.get_attribute("aria-label") == "Install ScrapeX-Engine"
+    assert install.locator("use").get_attribute("href").endswith("#file-download")
+
+    # A SMALL square, and both halves have to be asserted. `icon-button` alone
+    # is already square at the full touch-target height, so a squareness check
+    # on its own passes whether or not the control is compact and proves
+    # nothing about the size that was asked for.
+    box = install.bounding_box()
+    # Measured rather than parsed, so the assertion holds whatever unit the
+    # token is written in.
+    small = page.evaluate("""() => {
+        const probe = document.createElement('div');
+        probe.style.cssText =
+          'position:absolute;visibility:hidden;height:var(--control-height-sm)';
+        document.body.appendChild(probe);
+        const h = probe.getBoundingClientRect().height;
+        probe.remove();
+        return h;
+    }""")
+    assert box and abs(box["width"] - box["height"]) < 1.5, (
+        f"the install control is {box['width']}x{box['height']}, not a square")
+    assert abs(box["width"] - small) < 1.5, (
+        f"the install square is {box['width']}px, not the compact {small}px")

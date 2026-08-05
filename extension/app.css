@@ -981,6 +981,12 @@
     scrollbar-width: none;
   }
   nav.side-rail::-webkit-scrollbar { display: none; }
+  /* Each rail group is a container rather than a run of icons separated by a
+     hairline, because the grouping now carries meaning: the first holds the
+     pages the extension serves by itself, the second holds the pages the
+     engine serves. A button in the second group cannot work on a device with
+     no engine installed, and the owner should be able to see that boundary
+     without reading anything. */
   .rail-tablist {
     display: flex;
     flex: none;
@@ -988,6 +994,10 @@
     align-items: center;
     gap: var(--sp-1);
     width: 100%;
+    padding-block: var(--sp-1);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
   }
   .rail-indicator {
     position: absolute;
@@ -1036,14 +1046,32 @@
   }
   .side-rail .rail-item:active:not(:disabled) { transform: scale(.94); }
   .side-rail .rail-item .sx-icon { width: 1.5rem; height: 1.5rem; }
-  .rail-divider {
-    flex: none;
-    width: 1.75rem;
-    height: 1px;
-    margin-block: var(--sp-1);
-    background: var(--line);
-  }
   .rail-spacer { flex: 1 0 var(--sp-3); }
+
+  /* A page that exists so its shape can be agreed says so on itself. Nothing
+     on such a page is wired to anything, and every control on it is disabled;
+     the note is what stops a reader mistaking a shape for a feature. */
+  .planned-note {
+    margin: 0;
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px dashed var(--line-strong, var(--line));
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+    color: var(--muted);
+    font-size: var(--fs-sm);
+  }
+
+  /* The first page, and deliberately the emptiest: one line and one button,
+     centred, with nothing else competing for the eye. */
+  .welcome {
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-5);
+    padding: var(--sp-6) var(--sp-4);
+    text-align: center;
+  }
+  .welcome h1 { margin: 0; }
+  .welcome .planned-note { border: 0; background: none; padding: 0; }
   .rail-tablist-bottom { margin-top: auto; }
 
   /* Appearance is a complete Android-style destination. It uses the same

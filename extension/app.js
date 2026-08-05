@@ -55,7 +55,12 @@ const state = {
 
 // ---- views ----------------------------------------------------------------
 const VIEWS = [
-  "source", "run", "data", "sources", "source-edit", "appearance", "finance", "settings",
+  // profile and engines lead: the agreed shape opens on "who am I" and "what is
+  // installed" before anything can be run. console is the owner build's page and
+  // is removed from the published one — see docs/PLATFORM-PLAN.md Decision 20.
+  "profile", "engines",
+  "source", "run", "data", "sources", "source-edit", "appearance", "finance",
+  "console", "settings",
 ];
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
@@ -3385,7 +3390,10 @@ async function init() {
   // the default screen sat at "Reading the active tab…" until the owner
   // navigated away and back — and the screenshot harness hid it by clicking a
   // nav button before capturing.
-  showView("source", false);
+  // The panel opens on Welcome. Before we know who is asking there is nothing
+  // true to put on a page — no account, no backup, no lease — so the first
+  // screen asks that one question and shows nothing else.
+  showView("profile", false);
   await render();
 }
 
