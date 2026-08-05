@@ -34,6 +34,7 @@ Everything else — open-source crawlers, the Console — hangs off those two.
 | 16 | **An audited source and a user-added one are visibly different.** | `sources.yaml` carries 12 audited sources today with no field telling them apart. A user who adds a site and gets poor data must see *why* — `audited` beside `you added this` — or they will read it as the product being broken. |
 | 17 | **Crawl scope is a per-source setting**, not a project-wide rule. | listing only · listing + details for a named slice · full once then listing. See M6. |
 | 18 | **For external tools, build the seam and not the tools.** | The install/health/import contract is laid so it can be used when a need appears; if Engine does the job, the matter is dropped. See M8. |
+| 23 | **A newly added source has no default crawl scope — ScrapeX asks, and no crawl starts until the owner answers.** | An extra step per source, deliberately. A default that guesses wrong is a 34-hour crawl nobody asked for; a question is five seconds. |
 | 21 | **Two release paths, and a manual tag starts each.** `scrapex-vX` builds the extension and pushes it to the Chrome Web Store; `engine-vY` builds and publishes a GitHub Release. | The owner decides when each ships. Neither triggers the other, which is what makes them genuinely separate. |
 | 22 | **The engine binary is unsigned for now.** | The owner and a few testers accept one SmartScreen warning. A certificate costs money and identity verification yearly and buys nothing before commercialisation; the release path is built so signing is one step added later. |
 | 20 | **The Console is the owner's alone and is never published.** | It therefore carries the only Google scope that is sensitive, and the shipped build asks for `drive.file` only — see below. Excluding it is a security decision, not just a commercial one. |
@@ -508,6 +509,6 @@ Everything else stands, including the sections the previous plan omitted: biling
 2. **Which Google Cloud project owns the OAuth client?** The consent screen, test-user list and scopes live there.
 3. **What does the Excel add-in expect the Sheet to look like** — tab names, header
    row, a view or the whole dataset? M7's shape depends on it.
-4. **How much of the register a user wants**, per source, is the scope setting in M6
-   — but the DEFAULT for a newly added source is not decided. `listing only` is the
-   safe one: it can never cost 34 hours by accident.
+4. **The Chrome Web Store account and the Google Cloud project** are to be created
+   with the owner, step by step, when M4 begins. Nothing before then depends on
+   them.
