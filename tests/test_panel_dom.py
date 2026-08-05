@@ -1346,6 +1346,14 @@ def test_run_mode_uses_the_themed_listbox_instead_of_the_native_blue_popup(open_
     assert themed, "the selected row escaped the active theme"
 
     page.keyboard.press("Escape")
+    # WAITED FOR, not asserted on the next line. Escape hides the list through
+    # a style change the browser applies on its own schedule, and reading
+    # is_visible() in the same breath asks whether it has happened YET. It had
+    # on every local run and on one of CI's two jobs; the other went red on
+    # 2026-08-05 with the list still up, which is a race in the test and not a
+    # defect in the panel. The assertion stays underneath so the intent is
+    # still legible — the wait is what makes it mean something.
+    page.wait_for_selector("#run-mode-list", state="hidden")
     assert not page.locator("#run-mode-list").is_visible()
 
 
