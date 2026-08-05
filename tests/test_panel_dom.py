@@ -1346,15 +1346,46 @@ def test_run_mode_uses_the_themed_listbox_instead_of_the_native_blue_popup(open_
     assert themed, "the selected row escaped the active theme"
 
     page.keyboard.press("Escape")
-    # WAITED FOR, not asserted on the next line. Escape hides the list through
-    # a style change the browser applies on its own schedule, and reading
-    # is_visible() in the same breath asks whether it has happened YET. It had
-    # on every local run and on one of CI's two jobs; the other went red on
-    # 2026-08-05 with the list still up, which is a race in the test and not a
-    # defect in the panel. The assertion stays underneath so the intent is
-    # still legible — the wait is what makes it mean something.
+    # WAITED FOR, not asserted on the next line.
     page.wait_for_selector("#run-mode-list", state="hidden")
     assert not page.locator("#run-mode-list").is_visible()
+
+
+def test_escape_closes_the_list_while_focus_is_still_on_the_trigger(open_panel):
+    """The defect the wait uncovered, and the reason it is a panel defect and
+    not a test one.
+
+    open() moves focus INTO the list inside a requestAnimationFrame, and the
+    only Escape listener was on the list. Between the click that opens it and
+    the frame that lands, focus is still on the trigger — and Escape reached
+    nothing. The list stayed open with no keyboard way out of it, which is also
+    true for anyone who shift-tabs back to the trigger afterwards.
+
+    It showed up as an intermittently red CI job. I first recorded it as a race
+    in the test and "not a defect in the panel"; that was wrong. Waiting
+    properly did not make it pass — it made it fail for thirty seconds with the
+    list resolved visible sixty-three times, which is what a real user gets.
+
+    This test presses Escape with focus DELIBERATELY on the trigger, so it does
+    not depend on losing a race to catch the bug."""
+    page = open_panel()
+    page.click(RUN_TAB)
+    page.wait_for_timeout(200)
+
+    page.click("#run-mode-trigger")
+    page.wait_for_selector("#run-mode-list", state="visible")
+    # Put focus back where a fast user's still is, and where a shift-tab leaves it.
+    page.locator("#run-mode-trigger").focus()
+    page.keyboard.press("Escape")
+
+    # wait_for_selector IS the assertion — it raises if the list never hides,
+    # which is exactly the 30-second failure CI produced. Nothing is asserted
+    # about focus here: this test puts focus on the trigger itself, so finding
+    # it there afterwards would be true whether or not close() restored it.
+    # Proved by mutation — dropping restoreFocus left that assertion green, so
+    # it was decoration and it is gone. The focus behaviour is the list
+    # handler's, and belongs in a test that presses Escape from inside the list.
+    page.wait_for_selector("#run-mode-list", state="hidden")
 
 
 def test_update_is_not_on_offer_for_a_site_with_no_data(open_panel):
