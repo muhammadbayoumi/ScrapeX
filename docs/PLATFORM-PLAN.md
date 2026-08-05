@@ -34,6 +34,8 @@ Everything else — open-source crawlers, the Console — hangs off those two.
 | 16 | **An audited source and a user-added one are visibly different.** | `sources.yaml` carries 12 audited sources today with no field telling them apart. A user who adds a site and gets poor data must see *why* — `audited` beside `you added this` — or they will read it as the product being broken. |
 | 17 | **Crawl scope is a per-source setting**, not a project-wide rule. | listing only · listing + details for a named slice · full once then listing. See M6. |
 | 18 | **For external tools, build the seam and not the tools.** | The install/health/import contract is laid so it can be used when a need appears; if Engine does the job, the matter is dropped. See M8. |
+| 21 | **Two release paths, and a manual tag starts each.** `scrapex-vX` builds the extension and pushes it to the Chrome Web Store; `engine-vY` builds and publishes a GitHub Release. | The owner decides when each ships. Neither triggers the other, which is what makes them genuinely separate. |
+| 22 | **The engine binary is unsigned for now.** | The owner and a few testers accept one SmartScreen warning. A certificate costs money and identity verification yearly and buys nothing before commercialisation; the release path is built so signing is one step added later. |
 | 20 | **The Console is the owner's alone and is never published.** | It therefore carries the only Google scope that is sensitive, and the shipped build asks for `drive.file` only — see below. Excluding it is a security decision, not just a commercial one. |
 | 19 | **The data path is a published Google Sheet.** Engine writes the table there; the Console puts its TSV link in `SOURCE_URI`. | The only path that works today with no change to XaddIn and from any machine. A local file passes the validator and is refused by the ingester at `DataIngestionService.cs:734` — see §5b. The table is readable by anyone holding the URL; acceptable for the owner's own data, a separate decision at commercialisation. |
 | 15 | **The Python package stays `scrapex/`.** `Engine` is the product name, not the directory. | The user never sees a directory. Renaming costs 748 import lines in tests alone, 188 `python -m scrapex` call sites in CI, docs and JS, a reinstall of the editable package, and five hard-coded paths — for nothing anyone can see. A capitalised `Engine/` would also work on Windows and fail on Linux, where CI runs. |
@@ -226,6 +228,58 @@ Copying a proven shape is not coupling. Sharing a library would be.
 
 ---
 
+## 5c. The two release paths
+
+They are not variations of one mechanism. They differ in who reviews, who
+decides, and when the user gets it — and that difference is the reason the
+compatibility check exists.
+
+```text
+EXTENSION                             ENGINE
+tag scrapex-vX                        tag engine-vY
+CI builds the zip                     CI builds on windows-latest (PyInstaller
+CI uploads via the Web Store API      cannot cross-compile), attaches to a
+Google REVIEWS it — a day or three    GitHub Release
+Chrome pushes it to every user,       nothing reviews it
+automatically, without asking         the EXTENSION notices, tells the owner,
+                                      and installs on acceptance
+```
+
+**Google's store does not read GitHub.** It has no idea the repository exists.
+Automation means our workflow pushes *to* the store through its API — the arrow
+points the other way from how it is usually described, and the difference decides
+what secrets are needed.
+
+### What this asymmetry costs, and why M1 exists
+
+Chrome can update the extension **tonight**, silently, while a user's Engine is
+last month's. Nothing prevents that; it is how extension distribution works.
+
+So the extension must state compatibility before any job starts, and refuse with
+a named action rather than failing somewhere further in. That is not defensive
+programming — it is the only thing standing between two independent release
+cadences and a dead panel. The owner has already seen this failure once, on
+2026-08-05, from a migration rather than a version.
+
+### What must exist before the first upload
+
+**Extension:** a Chrome Web Store developer account; a Google Cloud project
+owning an upload client; three GitHub secrets (`client_id`, `client_secret`,
+`refresh_token`); and a privacy policy and support contact — the repository has
+neither today.
+
+**Engine:** `runs-on: windows-latest`, because `packaging/build_engine.py` uses
+PyInstaller and PyInstaller does not cross-compile. It already produces
+`dist/scrapex-engine.exe` as one file; nothing publishes it yet.
+
+### What exists today
+
+Nothing. `.github/workflows/` holds `ci.yml` (one job: tests, parity, extension
+tests, manifest) and `scrapex.yml` (a scheduled crawl). There is no release
+automation of any kind, for either product.
+
+---
+
 ## 6. Milestones
 
 Each leaves the product runnable and ends in something the owner can open.
@@ -280,8 +334,18 @@ history with no engine installed, and exports to XLSX/CSV.
 ### M4 — publish, unlisted
 
 Privacy policy, data-handling and deletion statement, support contact — **none
-exist today**. Chrome Web Store developer account, unlisted listing, OAuth consent
-screen in testing mode.
+exist today**.
+
+Both release paths are built here, and §5c is the specification:
+
+- `engine-vY` → build on `windows-latest`, attach `scrapex-engine.exe` to a
+  GitHub Release. Unsigned (Decision 22).
+- `scrapex-vX` → build the extension zip, upload through the Chrome Web Store
+  API, unlisted listing.
+- Neither tag triggers the other (Decision 21).
+
+Google reviews the extension and does not review the engine, so the two arrive
+on different days by design. M1's compatibility check is what makes that safe.
 
 **Done when:** a tester installs from a link, signs in, and restores the owner's
 data. *At this point the product is real: published, backed up, portable.*
