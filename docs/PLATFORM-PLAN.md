@@ -126,41 +126,51 @@ The `.db` stays the restorable artefact for a machine that installs Engine. The 
 
 ---
 
-## 5b. The ecosystem: ScrapeX, Engine, and XaddIn
+## 5b. The XaddIn boundary
 
-The Console exists for one reason, and it is narrower and more concrete than
-"edit some sheets".
+**XaddIn is a separate product in a separate repository, and this plan does not
+touch it.** ScrapeX serves it. That is the whole relationship, and the section is
+organised around the boundary rather than around either side.
 
-### What XaddIn already is
-
-`mbiXaddin` is a VSTO Excel add-in of **49,600 lines across 144 files** — a mature
-product, not a sketch. It already owns:
+### Two products, one contract
 
 ```text
-DataIngestionService     1,591 lines   pulls sources, maps, upserts
-LocalDbManager             844 lines   builds and maintains its OWN SQLite
-SyncManager                679 lines   scheduling and reconciliation
-ValidationOrchestrator   1,012 lines   refuses a bad configuration
-RibbonControlService       980 lines   renders the Excel menus
-LicenseService             752 lines   tiers, device fingerprint, activation
-UpdateService              610 lines   its own update channel
+        THIS PLAN                    │            NOT THIS PLAN
+                                     │
+  ScrapeX (extension)                │   mbiXaddin (VSTO, C#, 49,600 lines)
+  Engine  (python)                   │     ingestion · its own SQLite · sync
+  Console (module in ScrapeX)        │     validation · licensing · updates
+                                     │     ribbon rendering · icons
+        produces ──────────────────► │ ◄────────────────── consumes
+                                     │
+            one TSV per dataset      │
+            six configuration rows   │
 ```
 
-**ScrapeX must not rebuild any of it.** Ingestion, the local database, sync,
-validation, licensing and updates are XaddIn's, and duplicating them is the
-single easiest way to waste months.
+Everything on the right already exists and works. **ScrapeX rebuilds none of it**
+— duplicating ingestion, a local database, sync, validation, licensing or an
+update channel is the easiest way to lose months to work already done.
 
-### How XaddIn is driven
+Everything crossing the line is data and configuration. No code, no library, no
+shared runtime, no build dependency. The two repositories never import each
+other.
 
-Six configuration sheets, published on Google Sheets and pulled as TSV, define
-everything: `TableDefinition` (the entity), `SchemaRule` (its fields),
-`DataSource` (where the data comes from), `DataMap` (column mapping),
-`ExportViews` (named views), `RibbonControls` (the Excel buttons).
+### What ScrapeX must produce — the entire obligation
 
-The owner fills all six **by hand** today.
+1. **A TSV per dataset**, reachable at an `http(s)` URL. Decision 19: a published
+   Google Sheet.
+2. **Six rows describing it**, written into the six configuration sheets XaddIn
+   already reads: one `TableDefinition`, its `SchemaRule` fields, one
+   `DataSource`, its `DataMap`, one `ExportViews`, one `RibbonControls` button.
 
-Their vocabularies are closed enums in the C# — the Console must emit these
-exact strings or XaddIn rejects the row:
+That is all. If both are right, the button appears in Excel. If either is wrong,
+XaddIn's own validator refuses the row and the button does not appear — which is
+the failure mode we want, because it cannot corrupt anything.
+
+### The vocabularies ScrapeX must emit exactly
+
+The configuration columns are closed enums declared in XaddIn's C#. ScrapeX must
+write these strings verbatim, and refuse to write anything else:
 
 ```text
 EntityType        COST PERF REF COMP CONVERSION COST_ENG AUDIT ASSEMBLY LIBRARY SYSTEM
@@ -173,105 +183,45 @@ MapMatchMode      Exact Contains StartsWith Regex Fuzzy
 SyncFrequency     Manual Hourly Daily Weekly Monthly
 ```
 
-### The two systems already share their central idea
+These are the contract. They change only when XaddIn changes them, and then
+ScrapeX follows — never the other way round.
 
-`SchemaRuleEntity.cs` says, in its own comment, that the menu builder binds **by
-role, not by physical column name, so a rename is safe**. That is exactly
-ScrapeX's `dataset_field`: `field_key` is stable and internal, `display_name` is
-a presentation choice, `display_order` and `is_hidden` are the owner's. The two
-products invented the same rule independently.
+### What is deliberately NOT ScrapeX's problem
 
-And `SemanticRole` names `PRICE`, `QTY`, `UNIT` — three things ScrapeX already
-knows about every row it stores, down to **which field of the site stated the
-unit and who witnessed it**.
+- **How XaddIn stores what it pulls.** It has `LocalDbManager` and builds its own
+  SQLite. Engine's database and XaddIn's database are unrelated files that never
+  meet.
+- **How the ribbon renders.** `RibbonControlService` owns that.
+- **Licensing.** `LicenseService`, device fingerprinting and tiers are XaddIn's.
+  ScrapeX writes a `LICENSE_TIER` string into a row and knows nothing else about
+  it.
+- **Sync scheduling on the Excel side.** ScrapeX writes `SyncFrequency`; XaddIn
+  decides when to act on it.
 
-### The data path is a published Google Sheet, and the code decides that
+### What would require changing XaddIn — a different project's backlog
 
-**Decision 19 (owner, 2026-08-05): Engine writes the table to a Google Sheet, and
-the Console puts that sheet's published TSV link into `DataSource.SOURCE_URI`.**
+Recorded so it is never smuggled into a ScrapeX milestone:
 
-The alternatives were investigated and one of them is a trap worth recording,
-because it passes every check a reader would think to make.
+- **Reading a local file.** `DataIngestionService.cs:734` refuses any URI not
+  starting with `http`, although the validator accepts local paths and
+  `SourceType` declares `LocalCsv`, `LocalSqlite` and `RestApi`. Those three have
+  no implementation. Teaching it local files is a few lines *there*, and it is
+  what would let the data path stop being public — see Decision 19.
+- **Authenticated fetching.** `HttpClientService` sends a request id and a user
+  agent and nothing else; `DataSourceEntity.cs:667` says so: *"Currently all
+  sources are public (Google Sheets published URLs — no auth needed)."*
 
-`SourceUriValidator.cs` accepts **any** `http(s)` URL *or a local path* (`C:\...`,
-`/path/to/file`), and `SourceType` declares `LocalCsv`, `LocalSqlite` and
-`RestApi`. A local file therefore looks supported from every angle a
-configuration author can see.
+Neither is required for anything in this plan. Both are the reason the data path
+is a published sheet today.
 
-**It is not.** `DataIngestionService.cs:734`:
+### One thing worth copying, not importing
 
-```csharp
-if (!source.SOURCE_URI.StartsWith("http"))
-{
-    _log.LogError($"[CONFIG ERROR] Source '{source.SOURCE_KEY}' has an INVALID URL...");
-    prep.EarlyResult = IngestionResult.Fail(...);
-}
-```
+The two products independently arrived at the same rule. `SchemaRuleEntity` binds
+**by role, not by physical column name, so a rename is safe** — which is exactly
+`dataset_field`'s stable `field_key` against its editable `display_name`. And
+XaddIn's `UpdateService` is the pattern Decision 4 adopts.
 
-The validator accepts it; the ingester refuses it. The only file the service ever
-opens with `File.OpenRead` is the staging file **it downloaded over HTTP itself**.
-`LocalSqlite` and `RestApi` appear in the entity and in one task-pane info builder
-and nowhere else — enum values with no implementation behind them.
-
-Recorded because the failure is silent and misattributed: a configuration written
-that way validates, then fails at the first pull with `[CONFIG ERROR] INVALID
-URL`, and the obvious suspect is the Console having written a bad link.
-
-So every path must be HTTP, which leaves three:
-
-```text
-published Google Sheet   works today, no change to XaddIn, any machine
-                         — and the table is readable by anyone with the URL
-a Drive share link       still needs "anyone with the link", so same exposure,
-                         because XaddIn sends no credentials at all
-127.0.0.1 endpoint       the only genuinely private one — same machine, Engine running
-```
-
-**A published sheet is public to whoever holds the URL.** Signing in with Google
-grants the *write*; the link XaddIn reads is a Publish-to-web link, and
-`DataSourceEntity.cs:667` says so in its own words: *"Currently all sources are
-public (Google Sheets published URLs — no auth needed)."* `HttpClientService`
-sends a request id and a user agent, and nothing else.
-
-For the owner's own data that is acceptable. **At commercialisation it is a
-different decision**, and the way out is then open: teaching XaddIn to read a
-local file is a few lines at that same line 734.
-
-The six **configuration** sheets stay on Google regardless — that is where XaddIn
-reads its own settings from.
-
-### What this does not change
-
-`SourceUriValidator.cs` accepts **any** `http://` or `https://` URL, or a local
-path (`C:\...` or `/path/to/file`). Google Sheets appears only in its help text.
-The one HTTP rule is that the domain must contain a dot — which
-`http://127.0.0.1:8000/...` satisfies.
-
-`SourceType` also declares `LocalSqlite` and `RestApi`, **but only TSV is built**
-(owner, 2026-08-05): those two enum values appear in the entity and in a task-pane
-info builder, and nowhere else. So the integration is TSV, and TSV can come from:
-
-```text
-a local file        Engine writes  …\scrapex\exports\T_MATERIALS.tsv
-a local endpoint    Engine serves  http://127.0.0.1:8000/export/T_MATERIALS.tsv
-```
-
-Either removes Google from the **data** path entirely — no upload, no API quota,
-no lag, and no sensitive scope standing between the product and a public listing.
-The six **configuration** sheets stay where they are, because that is where
-XaddIn reads its own settings from.
-
-Google keeps what Decision 3 gave it: backup, restore, and working from another
-machine.
-
-### What the Console therefore is
-
-> **The Console turns one crawled dataset into one working Excel ribbon button,
-> by generating the six rows that describe it — and keeps them true when the
-> schema changes.**
-
-Not a sheet editor. A generator with a validator, whose output is judged by one
-question: does the button appear in Excel and fetch the right table?
+Copying a proven shape is not coupling. Sharing a library would be.
 
 ---
 
@@ -376,55 +326,48 @@ decision the schema should assume.
 
 ### M7 — the Console
 
-See §5b for what XaddIn is and why the seam is narrow. The Console is an
-owner-only module inside ScrapeX, authorised at the write layer and excluded from
-the commercial build by build configuration.
+**Scope: ScrapeX only.** Nothing in this milestone changes XaddIn, and nothing in
+it may depend on XaddIn changing. See §5b for the boundary.
+
+An owner-only module inside ScrapeX, authorised at the write layer and excluded
+from the commercial build by build configuration.
 
 **M7a — one dataset becomes one button.** The smallest thing that is real:
 
-1. Engine writes a TSV for one dataset — a local file, or served at
-   `127.0.0.1`, per the setting.
-2. The Console generates the rows that describe it: one `TableDefinition`, its
-   `SchemaRule` fields, one `DataSource` pointing at that TSV, its `DataMap`, one
-   `ExportViews` entry, one `RibbonControls` button.
-3. It writes them into the six Google Sheets XaddIn already reads.
-4. XaddIn pulls, builds its own local database, and the button appears.
+1. Engine publishes one dataset's table to a Google Sheet and holds its TSV link.
+2. The Console generates the six rows that describe it.
+3. It writes them into the six configuration sheets.
+4. XaddIn — untouched — pulls, and the button appears.
 
 **Done when:** the owner crawls a source, presses one thing in ScrapeX, opens
-Excel, and the table is there — having typed nothing into a sheet.
+Excel, and the table is there, having typed nothing into a sheet.
 
 **M7b — keep them true.** A schema that changes must not leave a stale
-`SchemaRule` behind: a new column appears, a hidden one stops being exported, a
+`SchemaRule` behind: a column appears, a hidden one stops being exported, a
 display name changes. The Console re-generates and reports what moved.
 
-**What ScrapeX can fill on its own** — `ENTITY_KEY`, `DISPLAY_NAME`,
-`ATTRIBUTE_KEY`, `DISPLAY_HEADER`, `ORDINAL_POS`, `IS_VISIBLE`, `SOURCE_URI`,
-`VERSION_TAG`, and the `DataMap` rows: all of it is already in `dataset_field`,
-`sources.yaml` and the export header.
+**What ScrapeX can fill from what it already stores** — `ENTITY_KEY`,
+`DISPLAY_NAME`, `ATTRIBUTE_KEY`, `DISPLAY_HEADER`, `ORDINAL_POS`, `IS_VISIBLE`,
+`SOURCE_URI`, `VERSION_TAG`, and the `DataMap` rows. All of it is in
+`dataset_field`, `sources.yaml` and the export header today.
 
 **What it can derive** — `DATA_TYPE` from the stored values, and `SEMANTIC_ROLE`
-for `PRICE`, `QTY` and `UNIT`, which Engine knows per row and can name the
-witness for.
+for `PRICE`, `QTY` and `UNIT`, which Engine knows per row and can name the witness
+for.
 
-**What will always be typed** — `SCREEN_TIP`, `SUPER_TIP`, `ICON`, `LICENSE_TIER`,
-`BUSINESS_DOMAIN`, and where a button sits in the ribbon tree. These are
-judgements, not facts, and the Console's job is to ask for them once and remember.
+**What the owner will always type** — `SCREEN_TIP`, `SUPER_TIP`, `ICON`,
+`LICENSE_TIER`, `BUSINESS_DOMAIN`, and where a button sits in the ribbon tree.
+Judgements, not facts. The Console asks once and remembers.
+
+**The guard.** Every enum value written must come from the closed vocabularies in
+§5b, and the Console refuses to write a row carrying anything else. XaddIn's own
+`ValidationOrchestrator` is the second line, not the first — relying on it would
+mean discovering mistakes in Excel instead of in ScrapeX.
 
 **A ceiling to know now, not at M4.** Reading a Sheet the app did not create needs
 the `spreadsheets` scope, which Google classes as sensitive. In testing mode (100
-users) that needs no verification and Decision 6 is safe. **Going public later
-does** — and a crawling tool asking for a user's spreadsheets is not a formality.
-It is also an argument for keeping the DATA path local: only the six configuration
-sheets need Google at all.
-
-**What breaks if the Console writes a row wrongly.** XaddIn's
-`ValidationOrchestrator` (1,012 lines) refuses a bad configuration — so the
-failure mode is a button that does not appear, not corrupted data. The guard is to
-generate against the same closed vocabularies the C# declares (§5b) and to refuse
-to write a row whose enum value is not one of them.
-
-**Never rebuilt here:** ingestion, the local database, sync, validation, licensing
-and updates are XaddIn's, and it already has all six.
+users) it needs no verification and Decision 6 is safe. Going public later does,
+and a crawling tool asking for a user's spreadsheets is not a formality.
 
 ### M8 — the browser tier, and only then a tool
 
