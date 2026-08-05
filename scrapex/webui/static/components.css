@@ -81,6 +81,15 @@ svg {
   font-size: var(--fs-xs);
 }
 
+/* The scale had a token for this size and no class, so seven rules across four
+   stylesheets wrote `font-size: var(--fs-2xs)` out by hand beside a `--muted`
+   they also wrote by hand. Completing the scale does not remove those seven —
+   they are element selectors, not classes on an element — but it stops the
+   eighth from having to invent a name. */
+.text-2xs {
+  font-size: var(--fs-2xs);
+}
+
 .text-sm {
   font-size: var(--fs-sm);
 }

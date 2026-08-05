@@ -194,10 +194,29 @@ on a selector in the MIDDLE of a four-name list, which silently orphaned
 class left in markup after its only rule was deleted. **Anchor a CSS edit on
 the whole rule, never on a name inside it.**
 
-Still open (UI-2b): the tone and text duplication — `color:var(--muted);
-font-size:var(--fs-xs)` in 14 places across 5 files, the amber tone in 8, and
-page rules that re-implement `.row`/`.cluster` instead of using them. Those need
-a naming decision, not a mechanical move.
+**What is left, and why most of it should stay.** 63 declaration blocks are
+still written identically in more than one sheet. I measured them and then did
+*not* refactor them, which needs saying plainly:
+
+- `background:var(--accent-weak); color:var(--accent-ink)` — 15 places, 10
+  sheets, and its amber twin in 9 places across 7. These are **not one component
+  written fifteen times**. They are one *tone* applied to fifteen different
+  things: a chip, a badge, a dot, a key badge, a hover state, a status
+  indicator. Two token references is already the shortest way to say "this is in
+  the positive tone", and a `.tone-accent` class cannot be added to a `:hover`
+  rule at all. Extracting it would buy indirection and nothing else.
+- `color:var(--muted); font-size:var(--fs-xs)` — 14 places, 5 sheets. Almost all
+  of them are **element** selectors (`.card small`, `dt`, `p`), not classes on
+  an element, so "use the shared class" would mean adding a class to a hundred
+  tags. What was genuinely missing was a name for the smallest size:
+  `--fs-2xs` had a token and no class, so seven rules wrote it by hand.
+  `.text-2xs` now completes the scale — it does not remove those seven, and it
+  stops the eighth from inventing a name.
+
+The rule that came out of this: **duplication is worth removing when the same
+COMPONENT is written twice, and not when the same two declarations happen to
+describe two different things.** `.icon-tile` was the first kind. The tone pairs
+are the second.
 
 ### UI-3 · Retire dead CSS with proof — *done*
 
