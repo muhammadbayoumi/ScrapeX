@@ -10,6 +10,7 @@
 import { checkEngine, getBackend, setBackend } from "./engine.js";
 import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDatabase } from "./transport.js";
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
+import { PROTOCOL_VERSION } from "./transport.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
@@ -51,6 +52,10 @@ const state = {
   // engine that has not been asked yet — every reader of it checks
   // state.engineVersion too, so silence is never read as a refusal.
   installedVersion: "", engineVersion: "", versionReport: null,
+  // null means the engine never said, which is a THIRD state and not a
+  // mismatch: an engine built before the handshake moved here answers
+  // nothing, and refusing it as incompatible would be a guess.
+  engineProtocol: null, protocolMismatch: false,
 };
 
 // ---- views ----------------------------------------------------------------
@@ -377,6 +382,17 @@ function renderSchemaLag(lag) {
 function setStatus(engine) {
   state.engineUp = engine.running;
   state.engineVersion = engine.version || "";
+  // engine.js has computed `protocolMismatch` from /api/health since the
+  // handshake moved onto the transport that carries the traffic. It reached
+  // exactly one place: the Diagnostics output, which only appears when someone
+  // presses it. So the one fact that can refuse an impossible pair was
+  // available, correct, and shown to nobody — and a run started regardless.
+  //
+  // The VERDICT stays in engine.js so there is one rule; the numbers are kept
+  // here because a refusal has to print them.
+  state.engineProtocol = typeof engine.engineProtocol === "number"
+    ? engine.engineProtocol : null;
+  state.protocolMismatch = Boolean(engine.protocolMismatch);
   $("dot").className = "dot " + (engine.running ? "on" : "off");
   // The word carries the state; the dot only reinforces it. "v0.2.0" here is
   // the ENGINE's — said in full in About, where the extension's own version now
@@ -1860,19 +1876,129 @@ function syncModeChoices() {
   renderModeTexts(note);
 }
 
+// ---- the refusal --------------------------------------------------------
+// M1's whole "done when": an incompatible engine is REFUSED WITH A NAMED
+// ACTION, instead of a dead panel.
+//
+// Until now nothing checked. `startRun` posted the job and let whatever
+// happened happen — and the failure that cost the owner his engine was exactly
+// this shape: migration 0061 merged, never applied, the engine refused to start
+// and said so correctly on a stderr nobody reads. What he saw was a dead panel.
+//
+// Every branch returns the SAME five facts, because a refusal that names four
+// of them sends someone to check the fifth by hand. Returning null is the only
+// way to run.
+function engineRefusal() {
+  const facts = () => ({
+    "Extension": state.installedVersion || "unknown",
+    "Engine": state.engineVersion || "unknown",
+    "Minimum extension the engine will talk to":
+      state.versionReport ? state.versionReport.minimum_extension_version : "unknown",
+    "Protocol - extension": String(PROTOCOL_VERSION),
+    "Protocol - engine":
+      state.engineProtocol === null ? "not stated" : String(state.engineProtocol),
+  });
+
+  if (!state.engineUp) {
+    return { title: "The engine is not running", facts: facts(),
+             action: "Start it from Settings, then try again." };
+  }
+
+  // THE PROTOCOL FIRST, because it is the only one of these that makes every
+  // other answer meaningless: two products that cannot agree how to speak
+  // cannot be compared on features at all.
+  if (state.protocolMismatch) {
+    const engineIsOlder = state.engineProtocol < PROTOCOL_VERSION;
+    return {
+      title: "The extension and the engine speak different protocol versions",
+      facts: facts(),
+      action: engineIsOlder
+        ? "Install the newer engine from its GitHub release, then reopen this panel."
+        : "This extension is behind the engine. Chrome updates it from the Web " +
+          "Store on its own schedule; reopen the panel once it has.",
+    };
+  }
+
+  // An engine that answers /api/health and says nothing about its features is
+  // ONE fact with three causes, and none of them is "everything is fine".
+  if (!state.versionReport) {
+    return {
+      title: "The engine did not say what it supports",
+      facts: facts(),
+      action: "It is older than feature reporting, or the request failed. " +
+        "Restart the engine from Settings; if it persists, install the " +
+        "current engine from its GitHub release.",
+    };
+  }
+
+  if (!state.installedVersion) {
+    // Refusing here rather than guessing: claiming support that cannot be
+    // proved is the silent failure this gate removes, and the comparison
+    // below would throw on "unknown" and lose the click entirely.
+    return {
+      title: "This extension cannot read its own version",
+      facts: facts(),
+      action: "Close and reopen the side panel. If it persists, reload ScrapeX " +
+        "and open it again.",
+    };
+  }
+
+  if (isOlder(state.installedVersion, state.versionReport.minimum_extension_version)) {
+    const missing = (state.versionReport.missing || [])
+      .map((m) => m.summary + " (needs " + m.since + ")");
+    return {
+      title: "This extension is older than the engine will talk to",
+      facts: facts(),
+      missing,
+      action: state.versionReport.update_instructions ||
+        "Update the extension, then reopen this panel.",
+    };
+  }
+
+  return null;
+}
+
+function renderRefusal(where, refusal) {
+  const box = $(where);
+  if (!box) return;
+  if (!refusal) { box.innerHTML = ""; box.classList.add("hidden"); return; }
+  box.innerHTML =
+    '<div class="setup-title">' + esc(refusal.title) + '</div>' +
+    Object.entries(refusal.facts).map(([k, v]) =>
+      '<div class="kv"><span>' + esc(k) + '</span>' +
+      '<span class="tech">' + esc(v) + '</span></div>'
+    ).join("") +
+    ((refusal.missing || []).length
+      ? '<div class="muted text-sm">Not available in this extension:</div>' +
+        '<ul class="muted text-sm">' +
+        refusal.missing.map((m) => '<li>' + esc(m) + '</li>').join("") + '</ul>'
+      : "") +
+    '<div class="muted text-sm">' + esc(refusal.action) + '</div>';
+  box.classList.remove("hidden");
+}
+
 function refreshRunButton() {
   syncModeChoices();
   const n = state.selected.size;
   $("sel-count").textContent = `${n} selected`;
+  const refusal = engineRefusal();
   let blocked = "";
-  if (!state.engineUp) blocked = "The engine is not running — start it to run a crawl.";
-  else if (!n) blocked = "Select at least one site above.";
-  else if (state.job) blocked = "A job is already running. It will queue behind it.";
-  $("run").disabled = !state.engineUp || !n;
+  if (!refusal) {
+    if (!n) blocked = "Select at least one site above.";
+    else if (state.job) blocked = "A job is already running. It will queue behind it.";
+  }
+  // The refusal disables the button as well as explaining it. A pressable
+  // button that always fails is the dead panel with an extra click in it.
+  $("run").disabled = Boolean(refusal) || !n;
   $("run-blocked").textContent = blocked;
+  renderRefusal("run-refusal", refusal);
 }
 
 async function startRun() {
+  // Checked again here and not only in refreshRunButton: the engine can stop,
+  // or be replaced by an older one, between the render and the click.
+  const refusal = engineRefusal();
+  if (refusal) { renderRefusal("run-refusal", refusal); return; }
   const keys = [...state.selected];
   if (!keys.length) return;
   const mode = $("run-mode").value;
