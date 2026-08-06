@@ -90,10 +90,18 @@ jobs:
         # the pull requests it was written for, and nothing goes red.
         # tests/test_the_extension_gate_is_complete.py catches the missing mark;
         # this catches the set being emptied some other way.
+        #
+        # The per-file lines are summed rather than read off pytest's
+        # `N/M tests collected` summary: `addopts` carries `-q`, and under `-q`
+        # that summary is not printed at all — the tail of the output is the
+        # warnings block. The first version of this step grepped for the
+        # summary, matched nothing, and failed the build with `count` empty,
+        # which is at least the safe direction to be wrong in.
         run: |
-          count=$(python -m pytest -m extension --collect-only -q | tr -d '\r' | grep -oE '^[0-9]+/[0-9]+ tests collected' | grep -oE '^[0-9]+')
-          echo "extension gate collected: ${count:-0}"
-          test "${count:-0}" -ge 300
+          python -m pytest -m extension --collect-only -q | tr -d '\r' | tee /tmp/gate.txt | tail -20
+          count=$(grep -oE ': [0-9]+$' /tmp/gate.txt | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          echo "extension gate collected: ${count}"
+          test "${count}" -ge 300
 
       - name: Extension gate only (this change touched nothing else)
         if: steps.scope.outputs.scope == 'extension'
