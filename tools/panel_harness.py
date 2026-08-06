@@ -71,7 +71,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          records=None, changes=None, slow=False, tab=None, resolve=None, probe=None,
          fail_routes=(), storage=None, logs=None, extension_version=None,
          engine_version=None, version_reporting=True, omit_capabilities=(),
-         timezone=None, schedules=None, rates_status=None) -> str:
+         timezone=None, schedules=None, rates_status=None,
+         protocol_version=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -88,7 +89,14 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     /api/version is answered by the REAL scrapex.version.version_report, never
     by a hand-written fixture: a stub ledger would let the panel be tested
     against a compatibility rule the engine does not have.
+
+    `protocol_version` is the fourth knob and it defaults to the REAL
+    scrapex.native.PROTOCOL_VERSION for the same reason. /api/health has carried
+    it since the handshake moved onto the transport that carries the traffic,
+    and this stub did not — so the panel was being tested against an engine that
+    stays silent about the one thing that can refuse an impossible pair.
     """
+    from scrapex.native import PROTOCOL_VERSION
     from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION, version_report
 
     manifest_version = json.loads(
@@ -99,6 +107,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         "/api/health": {"ok": True, "app": "scrapex", "version": engine_version,
                         "latest_extension_version": VERSION,
                         "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
+                        "protocol_version": PROTOCOL_VERSION if protocol_version is None
+                                            else protocol_version,
                         "sources_with_data": 2},
         "/api/sources": {"sources": STRESS_SOURCES if sources is None else sources},
         "/api/jobs": {"jobs": jobs or []},
