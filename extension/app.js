@@ -11,6 +11,7 @@ import { checkEngine, getBackend, setBackend } from "./engine.js";
 import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDatabase } from "./transport.js";
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
+import { latestEngineRelease } from "./releases.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
@@ -239,6 +240,7 @@ function showView(name, animate = true) {
   if (name === "finance") loadGoogleFinance();
   if (name === "settings") { loadSchedules(); loadStorage(); }
   if (name === "source") loadCurrentPage();
+  if (name === "engines") renderEngines();
 }
 
 // ---- runtime status --------------------------------------------------------
@@ -1874,6 +1876,40 @@ function syncModeChoices() {
   }
   runModeSelectUi?.sync();
   renderModeTexts(note);
+}
+
+// ---- what is installed, and what is available -----------------------------
+// The Engines page is the one page that has to work with NO ENGINE INSTALLED —
+// that is its whole purpose, and it is the state every machine is in for its
+// first minute. So the feed is read by the extension, and the page is filled
+// whether or not anything is running.
+//
+// Asked once per panel open and remembered. GitHub rate-limits by IP, and a
+// row that re-asks on every render would spend the allowance on a number that
+// changes a few times a year.
+let latestRelease = null;
+
+async function renderEngines() {
+  $("engine-installed-version").textContent = state.engineVersion || "not installed";
+  $("engine-status").textContent = state.engineUp
+    ? "Running"
+    : (state.engineVersion ? "Installed, not running" : "Not installed");
+  $("engine-protocol-row").textContent = state.engineProtocol === null
+    ? `${PROTOCOL_VERSION} (the engine has not stated its own)`
+    : `${state.engineProtocol}` +
+      (state.protocolMismatch ? ` — this extension speaks ${PROTOCOL_VERSION}` : "");
+
+  if (!latestRelease) latestRelease = await latestEngineRelease();
+  const latest = latestRelease;
+  $("engine-latest-version").textContent =
+    latest.state === "ok" ? latest.version : "unknown";
+  // The detail line carries WHY it is unknown, which is the whole difference
+  // between a row worth reading and a row nobody reads twice.
+  $("engine-latest-detail").textContent = latest.state === "ok"
+    ? (latest.installer
+        ? ""
+        : "This release has no installer attached, so there is nothing to install yet.")
+    : (latest.detail || "");
 }
 
 // ---- the refusal --------------------------------------------------------

@@ -86,6 +86,9 @@ SOURCES_TAB = 'nav.side-rail button[data-view="sources"]'
 FINANCE_TAB = 'nav.side-rail button[data-view="finance"]'
 SETTINGS_TAB = 'nav.side-rail button[data-view="settings"]'
 
+# The engine's half of the handshake, read from the engine rather than typed.
+from scrapex.native import PROTOCOL_VERSION as PROTOCOL  # noqa: E402
+
 
 @pytest.fixture(scope="module")
 def browser():
@@ -2702,7 +2705,12 @@ def test_a_page_that_is_only_a_shape_says_so_on_itself(open_panel):
     integrations." This is the mechanical form of it."""
     page = open_panel()
 
-    for view, milestone in (("profile", "M1"), ("engines", "M1"), ("console", "M7")):
+    # `engines` LEFT THIS LIST when its rows became real (M1b). It still has a
+    # note and a disabled Install button, so it would have passed here — which
+    # is exactly why it had to be taken out by hand: a page that reports true
+    # facts and says "Not built yet" above them is lying in the safe direction,
+    # and the next reader trusts neither line.
+    for view, milestone in (("profile", "M1"), ("console", "M7")):
         page.click(f"#tab-{view}")
         panel = page.locator(f"#view-{view}")
         assert panel.is_visible(), f"the {view} page does not open"
@@ -2999,3 +3007,80 @@ def test_an_exception_to_the_naming_rule_carries_its_reason():
     for name, reason in PLURAL_PAGE_NAMES_ALLOWED.items():
         assert len(reason.split()) >= 8, (
             f"{name!r} is allowed in the plural and the reason is {reason!r}")
+
+
+def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_panel):
+    """M1b. The page stopped being a shape, and this is what it became.
+
+    THE ONE PAGE THAT MUST WORK WITH NO ENGINE INSTALLED — that is its whole
+    purpose, and it is the state every machine is in for its first minute. So
+    the extension reads the release feed itself; an engine that fetched it could
+    only answer once it was already there.
+    """
+    page = open_panel()
+    page.click("#tab-engines")
+    # Waited for, not slept through. The feed carries its own four-second
+    # timeout, so a fixed pause here would either be a flake or be longer than
+    # the check it is waiting on.
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-status") == "Running"
+    assert text_of(page, "#engine-installed-version") not in ("", "—", "not installed")
+    assert str(PROTOCOL) in text_of(page, "#engine-protocol-row")
+
+    # THE DEFAULT IS TODAY'S TRUTH: this repository has cut no engine release,
+    # so GitHub answers 404 on releases/latest and the page says so in words.
+    # A bare em dash here would read as "we could not check", which is a
+    # different fact with a different remedy.
+    assert text_of(page, "#engine-latest-version") == "unknown"
+    assert "No engine has been released yet" in text_of(page, "#engine-latest-detail")
+
+
+def test_a_published_engine_release_is_shown_by_its_version(open_panel):
+    """The state this page exists for: something newer is available.
+
+    The tag matters as much as the number. Decision 21 gives the two products
+    separate tags on one repository, so `scrapex-v…` on this feed is the
+    EXTENSION's release and says nothing about the engine — a case the pure
+    reader covers, and this proves the page is wired to that reader."""
+    page = open_panel(github_release={
+        "tag_name": "engine-v0.9.0",
+        "published_at": "2026-08-06T09:00:00Z",
+        "assets": [{"name": "scrapex-engine.exe",
+                    "browser_download_url": "https://x/e.exe", "size": 24000000}],
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent !== '—'",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-latest-version") == "0.9.0"
+    assert text_of(page, "#engine-latest-detail") == "", (
+        "a release with an installer needs no explanation under it")
+
+
+def test_a_release_with_no_installer_says_so_before_the_press(open_panel):
+    """Discovering it at the moment of pressing Install is the failure."""
+    page = open_panel(github_release={"tag_name": "engine-v0.9.0", "assets": []})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-latest-version") == "0.9.0"
+    assert "no installer attached" in text_of(page, "#engine-latest-detail")
+
+
+def test_the_engine_page_says_not_installed_when_it_is_not(open_panel):
+    """The first minute on a new machine, which is the state the page exists for."""
+    page = open_panel(engine_up=False)
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking…'",
+        timeout=10_000)
+
+    assert "Not installed" in text_of(page, "#engine-status")
+    assert text_of(page, "#engine-installed-version") == "not installed"
+    assert "has not stated its own" in text_of(page, "#engine-protocol-row")
