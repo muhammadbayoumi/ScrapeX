@@ -211,7 +211,7 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     assert bounds["height"] == pytest.approx(800, abs=1)
 
     # Rolled 7 -> 10 and 8 -> 11 on 2026-08-05, when the agreed shape gained
-    # Profile, Engines and Console (docs/PLATFORM-PLAN.md). The RULE this
+    # Profile, Engine and Console (docs/PLATFORM-PLAN.md). The RULE this
     # asserts is unchanged and is not the number: the rail holds the pages the
     # panel itself owns, and everything deeper stays behind one grouped menu.
     # The count is here so a page cannot be added to the rail without someone
@@ -2686,7 +2686,7 @@ def test_a_business_date_is_never_shifted_by_the_display_zone(open_panel):
 
 
 def test_a_page_that_is_only_a_shape_says_so_on_itself(open_panel):
-    """Profile, Engines and Console exist so their shape can be agreed before
+    """Profile, Engine and Console exist so their shape can be agreed before
     they are written. Every one of them is empty behind the glass.
 
     A page that looks finished and does nothing is worse than no page: the owner
@@ -2718,7 +2718,7 @@ def test_a_page_that_is_only_a_shape_says_so_on_itself(open_panel):
 
 def test_the_shape_opens_on_who_you_are_and_what_is_installed(open_panel):
     """The agreed order, asserted because it is a decision and not an accident:
-    Profile is page one and Engines page two, before anything can be run."""
+    Profile is page one and Engine page two, before anything can be run."""
     page = open_panel()
     views = page.eval_on_selector_all(
         "nav.side-rail button[data-view]", "els => els.map(e => e.dataset.view)")
@@ -2731,7 +2731,7 @@ def test_the_shape_opens_on_who_you_are_and_what_is_installed(open_panel):
 def test_the_rail_groups_say_which_pages_need_an_engine(open_panel):
     """THE GROUPING CARRIES MEANING, so it is a guard and not a preference.
 
-    Profile and Engines are answerable on a device with no engine on it at all
+    Profile and Engine are answerable on a device with no engine on it at all
     — who am I, and what is installed. Every page in the second group is served
     by the engine and does nothing without one. A new install spends its whole
     first minute in exactly that state, so the boundary has to be visible
@@ -2789,6 +2789,14 @@ def test_the_engine_is_named_and_offers_one_square_install(open_panel):
     """The engine is a product with a name — ScrapeX-Engine — not "the engine",
     because the page is a catalogue that will hold more than one of them."""
     page = open_panel()
+
+    # The owner chose this glyph by name. It is the one icon in the rail that
+    # comes from Material SYMBOLS rather than the classic filled set, because
+    # the classic set has no folder-of-code at all — so a well-meaning tidy-up
+    # towards "one icon set" would silently take it away.
+    assert page.locator("#tab-engines use").get_attribute("href").endswith(
+        "#folder-code")
+
     page.click("#tab-engines")
     card = page.locator("#view-engines .card").first
 
@@ -2910,3 +2918,80 @@ def test_the_photo_is_drawn_at_the_size_of_the_mark_it_replaces(open_panel):
     assert abs(photo["height"] - icon["height"]) < 0.5
     assert page.locator("#profile-avatar").evaluate(
         "el => getComputedStyle(el).borderRadius") == "50%", "a square face"
+
+
+#: Page names are singular. `Settings` is the one declared exception and it
+#: carries its reason, because an exception without one is how a rule becomes a
+#: preference. Nothing else may be added here without the same.
+PLURAL_PAGE_NAMES_ALLOWED = {
+    "Settings": "the singular `Setting` means one setting, or a scene, and is "
+                "broken English for a page that holds dozens; every product "
+                "that has this page writes it plural",
+}
+
+
+def test_every_page_is_named_in_the_singular(open_panel):
+    """The owner's rule: «اسماء الصفح دائما مفرد».
+
+    A rail is read at a glance and the names sit under one another. One plural
+    among singulars reads as a different KIND of destination — a list rather
+    than a place — and the panel has both, so the difference has to mean
+    something.
+
+    Two names moved when this was written: `Engines` became `Engine`, and the
+    source manager stopped being a sentence (`Add or edit sources`) and became
+    `Library` — a name, singular, that does not collide with the `Source` page
+    beside it, which does something else entirely.
+    """
+    page = open_panel()
+    names = page.eval_on_selector_all(
+        "nav.side-rail button[data-view]",
+        "els => els.map(e => e.getAttribute('aria-label'))")
+
+    assert names, "the rail has no destinations"
+    plural = [n for n in names
+              if n and n.endswith("s") and not n.endswith("ss")
+              and n not in PLURAL_PAGE_NAMES_ALLOWED]
+    assert not plural, f"page names in the plural: {plural}"
+
+    # A name is a name, not a sentence. `Add or edit sources` was the one that
+    # broke this and it is why the rule needed writing down.
+    long_names = [n for n in names if n and len(n.split()) > 2]
+    assert not long_names, f"these are sentences, not page names: {long_names}"
+
+
+def test_the_rail_name_and_the_page_heading_are_the_same_word(open_panel):
+    """A button labelled one thing opening a page headed another is a panel that
+    cannot be talked about. `Add or edit sources` opened `Add or edit source`;
+    now `Library` opens `Library`.
+
+    THE RULE IS ABOUT TITLED PAGES, and one page is deliberately not one.
+    Welcome carries no `.view-heading` at all — it is a line and a button, by
+    the owner's instruction, and "Welcome to ScrapeX" is a greeting rather than
+    a title. Keying the rule on the heading block instead of on a list of
+    exceptions means a page that GAINS a title is checked from that moment,
+    with nobody having to remember to take it off a list.
+    """
+    page = open_panel()
+    checked = 0
+    for view in ("profile", "engines", "sources", "console", "settings", "run"):
+        name = page.locator(
+            f'nav.side-rail button[data-view="{view}"]').get_attribute("aria-label")
+        page.click(f'nav.side-rail button[data-view="{view}"]')
+        heading = page.locator(f"#view-{view} > .view-heading h1").first
+        if heading.count() == 0:
+            continue
+        checked += 1
+        text = (heading.text_content() or "").strip()
+        assert text == name or name in text, (
+            f"the {view} button says {name!r} and its page is headed {text!r}")
+    assert checked >= 4, (
+        f"only {checked} titled pages were checked; the heading block moved and "
+        "this now passes by finding nothing")
+
+
+def test_an_exception_to_the_naming_rule_carries_its_reason():
+    """An exception with a bare name is a place to put anything."""
+    for name, reason in PLURAL_PAGE_NAMES_ALLOWED.items():
+        assert len(reason.split()) >= 8, (
+            f"{name!r} is allowed in the plural and the reason is {reason!r}")

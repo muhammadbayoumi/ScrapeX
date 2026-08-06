@@ -530,8 +530,8 @@
              aria-labelledby="tab-sources" tabindex="0">
       <header class="view-heading source-manager-heading">
         <div>
-          <h1>Add or edit source</h1>
-          <p>Add a new source or update an existing source.</p>
+          <h1>Library</h1>
+          <p>Every source ScrapeX knows: the audited ones and the ones you added.</p>
         </div>
         <button id="source-manager-add" type="button">
           <svg class="sx-icon sm" aria-hidden="true">
@@ -1051,7 +1051,7 @@
 
     <section id="view-engines" class="hidden" role="tabpanel" aria-labelledby="tab-engines" tabindex="0">
       <header class="view-heading">
-        <h1>Engines</h1>
+        <h1>Engine</h1>
         <p>What is installed on this device, and what is available to install.</p>
       </header>
 
@@ -1483,7 +1483,7 @@
 
   <nav class="side-rail" aria-label="ScrapeX navigation">
     <span id="rail-indicator" class="rail-indicator" aria-hidden="true"></span>
-    <!-- OWNERSHIP IS THE GROUPING. Profile and Engines answer "who am I" and
+    <!-- OWNERSHIP IS THE GROUPING. Profile and Engine answer "who am I" and
          "what is installed"; they work on a device with no engine on it at all.
          Everything in the second group — Source, Run, Data, Google Finance — is
          a page the engine serves, and every one of them is dead until an engine
@@ -1505,11 +1505,11 @@
       </button>
       <button class="rail-item" id="tab-engines" role="tab" data-view="engines"
               aria-controls="view-engines" aria-selected="false" tabindex="-1"
-              aria-label="Engines" title="Engines">
+              aria-label="Engine" title="Engine">
         <svg class="sx-icon" aria-hidden="true">
-          <use href="icons/material-icons.svg#dns"></use>
+          <use href="icons/material-icons.svg#folder-code"></use>
         </svg>
-        <span class="visually-hidden">Engines</span>
+        <span class="visually-hidden">Engine</span>
       </button>
     </div>
 
@@ -1571,11 +1571,11 @@
       </button>
       <button class="rail-item" id="tab-sources" role="tab" data-view="sources"
               aria-controls="view-sources" aria-selected="false" tabindex="-1"
-              aria-label="Add or edit sources" title="Add or edit sources">
+              aria-label="Library" title="Library">
         <svg class="sx-icon" aria-hidden="true">
           <use href="icons/material-icons.svg#add"></use>
         </svg>
-        <span class="visually-hidden">Add or edit sources</span>
+        <span class="visually-hidden">Library</span>
       </button>
       <button class="rail-item" id="tab-console" role="tab" data-view="console"
               aria-controls="view-console" aria-selected="false" tabindex="-1"

@@ -127,6 +127,34 @@ every one.
 **Source identity** `source-identity` and its parts — the bilingual name block
 used wherever a source is named.
 
+## 5b. Naming a page
+
+> **A page name is singular, and it is a name — not a sentence.**
+
+The rail is read at a glance with the names under one another. One plural among
+singulars reads as a different *kind* of destination — a list rather than a
+place — and the panel has both, so the difference has to mean something.
+
+Two names moved when the owner stated the rule on 2026-08-05:
+
+| was | is | why |
+|---|---|---|
+| `Engines` | **`Engine`** | plural |
+| `Add or edit sources` | **`Library`** | a sentence, not a name. `Source` next to it does something else — it checks a page and adds it — so the manager needed its own word rather than a plural of that one. |
+
+**One declared exception: `Settings`.** The singular `Setting` means one setting,
+or a scene, and is broken English for a page holding dozens; every product that
+has this page writes it plural. The exception lives in
+`tests/test_panel_dom.py::PLURAL_PAGE_NAMES_ALLOWED` and carries that reason —
+a second test fails if any entry there is a bare name.
+
+`tests/test_panel_dom.py::test_every_page_is_named_in_the_singular` enforces the
+rule, and a companion asserts the rail button and its page heading are the same
+word. That companion keys on the `.view-heading` block rather than a list of
+exemptions, so Welcome — deliberately a greeting and a button, with no title at
+all — is out of scope, and any page that later GAINS a title is checked from
+that moment with nobody having to remember to remove it from a list.
+
 ## 6. The plan, and why in this order
 
 The owner asked for the order I actually recommend rather than the one he
