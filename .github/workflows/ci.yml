@@ -51,6 +51,25 @@ jobs:
             base="${{ github.event.before }}"
           fi
 
+          # A BRANCH'S FIRST PUSH HAS NO PREVIOUS TIP. `github.event.before` is
+          # forty zeros, so the block above leaves `base` empty and everything
+          # falls through to the full suite — measured: an extension-only change
+          # ran 9m59s on its push and 3m28s on its pull request, paying for the
+          # engine suite once anyway. Compare against main instead, which is
+          # what the change will actually be merged into.
+          #
+          # On main itself this deliberately finds nothing: `origin/main` IS the
+          # commit, the diff is empty, and an empty diff already means "run
+          # everything". The branch that everything merges into is the last
+          # place to run a subset.
+          if [ -z "$base" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            git fetch --quiet origin main 2>/dev/null || true
+            if git rev-parse --verify --quiet origin/main >/dev/null; then
+              base=$(git merge-base origin/main "${{ github.sha }}" 2>/dev/null || true)
+              echo "no previous tip; comparing against main at ${base:-<none>}"
+            fi
+          fi
+
           scope=full
           if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
             changed=$(git diff --name-only "$base" "${{ github.sha }}")
