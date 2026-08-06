@@ -32,6 +32,10 @@ from scrapex.ingest import ingest_payloads  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
 from tests.test_ingest import make_entry, make_payload, one_row  # noqa: E402
 
+# Guards the extension: this file reads extension/ sources, so a change to a
+# button must run it. See tests/test_the_extension_gate_is_complete.py.
+pytestmark = pytest.mark.extension
+
 ROOT = Path(__file__).resolve().parent.parent
 EXT = ROOT / "extension"
 STATIC = ROOT / "scrapex" / "webui" / "static"

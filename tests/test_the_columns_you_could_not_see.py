@@ -26,6 +26,10 @@ import pytest
 
 from scrapex import reports
 
+# Guards the extension: this file reads extension/ sources, so a change to a
+# button must run it. See tests/test_the_extension_gate_is_complete.py.
+pytestmark = pytest.mark.extension
+
 
 def test_the_four_are_declared_as_columns_with_a_meaning():
     """A column with no note renders a blank meaning cell on /schema — the

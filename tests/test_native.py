@@ -16,6 +16,10 @@ from scrapex import db as dbmod
 from scrapex.native import PROTOCOL_VERSION, handle, read_message, write_message
 from scrapex.nativehost import HOST_NAME, build_manifest, install, manifest_path
 
+# Guards the extension: this file reads extension/ sources, so a change to a
+# button must run it. See tests/test_the_extension_gate_is_complete.py.
+pytestmark = pytest.mark.extension
+
 ROOT = Path(__file__).resolve().parent.parent
 
 # The data commands this host used to answer, each of them a second definition

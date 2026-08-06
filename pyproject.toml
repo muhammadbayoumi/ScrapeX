@@ -60,4 +60,12 @@ include = ["scrapex*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --strict-markers"
+markers = [
+    # A test file that reads extension/ sources is guarding the EXTENSION, and
+    # a change to a button must run it. `--strict-markers` above makes a typo
+    # in the name an error instead of a test that silently stops being in the
+    # set. tests/test_the_extension_gate_is_complete.py is what keeps the set
+    # honest: a new file that reads extension/ and forgets the mark fails.
+    "extension: guards the Chrome extension; runs on an extension-only change",
+]

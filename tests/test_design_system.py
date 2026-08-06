@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import pytest
+
+# Guards the extension: this file reads extension/ sources, so a change to a
+# button must run it. See tests/test_the_extension_gate_is_complete.py.
+pytestmark = pytest.mark.extension
 
 
 ROOT = Path(__file__).resolve().parent.parent
