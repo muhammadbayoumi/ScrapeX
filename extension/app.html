@@ -1060,16 +1060,24 @@
 
       <div class="view-scroll">
         <p class="planned-note" data-planned="M1">
-          Not built yet. The catalogue below is a shape, not a list — nothing here
-          installs, checks or reports anything.
+          The rows below are real: what is installed, and what the GitHub release
+          feed says is available. Installing is not built yet, which is why the
+          button is disabled.
         </p>
 
         <section class="card" aria-labelledby="engines-installed-title">
           <h2 id="engines-installed-title">ScrapeX-Engine</h2>
-          <div class="kv"><span>Status</span><span>Not installed</span></div>
-          <div class="kv"><span>Installed version</span><span class="tech">—</span></div>
-          <div class="kv"><span>Latest on GitHub</span><span class="tech">—</span></div>
-          <div class="kv"><span>Protocol</span><span class="tech">—</span></div>
+          <div class="kv"><span>Status</span><span id="engine-status">Checking…</span></div>
+          <div class="kv"><span>Installed version</span>
+            <span class="tech" id="engine-installed-version">—</span></div>
+          <div class="kv"><span>Latest on GitHub</span>
+            <span class="tech" id="engine-latest-version">—</span></div>
+          <div class="kv"><span>Protocol</span>
+            <span class="tech" id="engine-protocol-row">—</span></div>
+          <!-- One line under the rows for whatever the feed actually said. The
+               four states it can be in are four different sentences, and one
+               "unavailable" for all of them is how a row stops being read. -->
+          <p class="muted text-sm" id="engine-latest-detail"></p>
           <button class="icon-button ghost compact" type="button" disabled
                   aria-label="Install ScrapeX-Engine" title="Install ScrapeX-Engine">
             <svg class="sx-icon" aria-hidden="true">

@@ -72,7 +72,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          fail_routes=(), storage=None, logs=None, extension_version=None,
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
-         protocol_version=None) -> str:
+         protocol_version=None, github_release=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -89,6 +89,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     /api/version is answered by the REAL scrapex.version.version_report, never
     by a hand-written fixture: a stub ledger would let the panel be tested
     against a compatibility rule the engine does not have.
+
+    `github_release` is the fifth: the body GitHub's releases/latest endpoint
+    answers with, or None for the 404 a repository with no releases gives —
+    which is what this repository gives TODAY, so the default is the truth.
 
     `protocol_version` is the fourth knob and it defaults to the REAL
     scrapex.native.PROTOCOL_VERSION for the same reason. /api/health has carried
@@ -200,6 +204,11 @@ const LOG_PAYLOAD = {json.dumps(log_payload)};
 const ENGINE_UP = {str(engine_up).lower()};
 const SLOW = {str(slow).lower()};
 const FAIL = {json.dumps(list(fail_routes))};
+// The release feed is not the engine, and must be answered BEFORE the
+// engine-down branch below. Letting a stopped engine make GitHub unreachable
+// would have tested the Engines page — the one page whose whole purpose is to
+// work with no engine installed — against a state that cannot happen.
+const GITHUB_RELEASE = {json.dumps(github_release)};
 window.__calls = [];
 // The BODY of every write, which __calls (a path list) cannot carry — and the
 // body is where "resume" lives, so a test that only saw the path could not
@@ -213,6 +222,16 @@ window.fetch = async (url, options) => {{
     let body = null;
     try {{ body = JSON.parse((options && options.body) || "null"); }} catch (_) {{}}
     window.__writes.push({{path, method, body}});
+  }}
+  if (String(url).includes("api.github.com")) {{
+    if (!GITHUB_RELEASE) {{
+      // A repository with no releases answers 404 on /releases/latest. That is
+      // this repository today, so it is the default.
+      return {{ ok: false, status: 404, headers: {{ get: () => null }},
+                json: async () => ({{message: "Not Found"}}) }};
+    }}
+    return {{ ok: true, status: 200, headers: {{ get: () => null }},
+              json: async () => GITHUB_RELEASE }};
   }}
   if (!ENGINE_UP) throw new Error("engine down");
   if (SLOW) await new Promise(r => setTimeout(r, 60000));   // freeze on loading state
@@ -287,6 +306,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
     transport_js = (EXT / "transport.js").read_text(encoding="utf-8")
     version_js = (EXT / "version.js").read_text(encoding="utf-8")
+    releases_js = (EXT / "releases.js").read_text(encoding="utf-8")
 
     # Flatten the ES-module graph. engine.js imports the protocol version from
     # transport.js, while app.js imports both modules; leaving even that
@@ -297,9 +317,11 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     engine_js = re.sub(r"^import .*?;$", "", engine_js, flags=re.M)
     transport_js = re.sub(r"^import .*?;$", "", transport_js, flags=re.M)
     version_js = re.sub(r"^import .*?;$", "", version_js, flags=re.M)
+    releases_js = re.sub(r"^import .*?;$", "", releases_js, flags=re.M)
     engine_js = re.sub(r"\bexport\s+", "", engine_js)
     transport_js = re.sub(r"\bexport\s+", "", transport_js)
     version_js = re.sub(r"\bexport\s+", "", version_js)
+    releases_js = re.sub(r"\bexport\s+", "", releases_js)
 
     tmp.mkdir(parents=True, exist_ok=True)
     page = tmp / name
@@ -328,6 +350,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # BEFORE the browser fires the real event, so dispatching one as well
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
-        f"<script>{transport_js}\n{version_js}\n{engine_js}\n{app_js}</script>",
+        f"<script>{transport_js}\n{version_js}\n{releases_js}\n"
+        f"{engine_js}\n{app_js}</script>",
         encoding="utf-8")
     return page
