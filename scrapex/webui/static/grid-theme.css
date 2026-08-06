@@ -991,15 +991,6 @@
   border-radius: var(--radius-lg);
 }
 
-.record-selection-kicker {
-  display: block;
-  margin-bottom: var(--sp-1);
-  color: var(--accent-ink);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-heavy);
-  letter-spacing: .09em;
-  text-transform: uppercase;
-}
 .selected-product-actions {
   display: flex;
   align-items: center;

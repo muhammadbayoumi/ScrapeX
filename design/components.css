@@ -81,6 +81,15 @@ svg {
   font-size: var(--fs-xs);
 }
 
+/* The scale had a token for this size and no class, so seven rules across four
+   stylesheets wrote `font-size: var(--fs-2xs)` out by hand beside a `--muted`
+   they also wrote by hand. Completing the scale does not remove those seven —
+   they are element selectors, not classes on an element — but it stops the
+   eighth from having to invent a name. */
+.text-2xs {
+  font-size: var(--fs-2xs);
+}
+
 .text-sm {
   font-size: var(--fs-sm);
 }
@@ -186,6 +195,43 @@ svg {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(17.5rem, 100%), 1fr));
   gap: var(--sp-4);
+}
+
+/* An icon in a tinted square: the mark at the head of a summary row, a route,
+   an account, a group, an empty state. It was written THREE times — ten
+   selectors across exports.css, sync.css and overview.css — with the same six
+   declarations each time and only the size differing. The size is now a custom
+   property the caller sets, so a page keeps what makes it different and stops
+   restating what does not.
+
+   MEASURED before this rule existed: `background: var(--accent-weak);
+   color: var(--accent-ink)` appeared in 15 places across 10 stylesheets, and
+   its amber twin in 8 places across 7. */
+.icon-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--icon-tile, 2.25rem);
+  height: var(--icon-tile, 2.25rem);
+  border-radius: var(--radius);
+  background: var(--accent-weak);
+  color: var(--accent-ink);
+}
+
+.icon-tile > svg {
+  width: var(--icon-tile-glyph, 1.15rem);
+  height: var(--icon-tile-glyph, 1.15rem);
+  fill: currentColor;
+}
+
+.icon-tile.amber {
+  background: var(--amber-weak);
+  color: var(--amber);
+}
+
+.icon-tile.danger {
+  background: var(--red-weak);
+  color: var(--red);
 }
 
 .card {

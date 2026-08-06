@@ -72,27 +72,8 @@
   transform: translateY(-1px);
 }
 
-.sync-overview-icon,
-.sync-route-icon,
-.sync-account-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  border-radius: var(--radius);
-  background: var(--accent-weak);
-  color: var(--accent-ink);
-}
-
-.sync-overview-icon {
-  width: 2.25rem;
-  height: 2.25rem;
-}
-
-.sync-overview-icon svg {
-  width: 1.15rem;
-  height: 1.15rem;
-  fill: currentColor;
-}
+/* .icon-tile carries the square, at its default size and glyph; only the
+   route and account tiles differ, and they say so below. */
 
 .sync-overview-copy {
   display: block;
@@ -180,8 +161,7 @@
 }
 
 .sync-route-icon {
-  width: 3rem;
-  height: 3rem;
+  --icon-tile: 3rem;
   border-radius: var(--radius-lg);
 }
 
@@ -430,7 +410,6 @@ pre.script {
   font-size: var(--fs-sm);
 }
 
-.sync-run-form,
 .sync-source-form {
   min-width: 0;
 }
@@ -586,8 +565,7 @@ pre.script {
 }
 
 .sync-account-icon {
-  width: 2.6rem;
-  height: 2.6rem;
+  --icon-tile: 2.6rem;
   margin-bottom: var(--sp-4);
 }
 

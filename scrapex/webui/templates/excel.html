@@ -28,7 +28,7 @@
 
     <div class="exports-hero-summary" aria-label="Excel export status">
       <div class="exports-summary-card">
-        <span class="exports-summary-icon {{ 'is-ready' if status.ready else 'is-warning' }}">
+        <span class="exports-summary-icon {{ 'is-ready' if status.ready else 'is-warning' }} icon-tile">
           {{ icon("check" if status.ready else "info") }}
         </span>
         <span>
@@ -40,14 +40,14 @@
         </span>
       </div>
       <div class="exports-summary-card">
-        <span class="exports-summary-icon">{{ icon("view-stream") }}</span>
+        <span class="exports-summary-icon icon-tile">{{ icon("view-stream") }}</span>
         <span>
           <small>Workbook structure</small>
           <strong>{{ "One workbook" if status.structure_key == "combined" else "One per source" }}</strong>
         </span>
       </div>
       <div class="exports-summary-card">
-        <span class="exports-summary-icon">{{ icon("history") }}</span>
+        <span class="exports-summary-icon icon-tile">{{ icon("history") }}</span>
         <span>
           <small>Next export</small>
           <strong>{{ "Replace current tabs" if status.update_key == "replace" else "Keep dated snapshots" }}</strong>
@@ -85,7 +85,7 @@
 
         {% if not sources %}
           <div class="exports-empty">
-            <span class="exports-empty-icon">{{ icon("storage") }}</span>
+            <span class="exports-empty-icon icon-tile">{{ icon("storage") }}</span>
             <div>
               <strong>No collected sources yet</strong>
               <p>Crawl a source first. It will appear here as soon as data is saved.</p>
@@ -142,7 +142,7 @@
         <form id="loc" class="exports-settings-form" onsubmit="return false">
           <fieldset class="exports-settings-group">
             <legend>
-              <span class="exports-group-icon">{{ icon("insert-drive-file") }}</span>
+              <span class="exports-group-icon icon-tile">{{ icon("insert-drive-file") }}</span>
               <span><strong>File destination</strong><small>Where the workbook is written.</small></span>
             </legend>
             <div class="exports-field-grid">
@@ -166,7 +166,7 @@
 
           <fieldset class="exports-settings-group">
             <legend>
-              <span class="exports-group-icon">{{ icon("view-column") }}</span>
+              <span class="exports-group-icon icon-tile">{{ icon("view-column") }}</span>
               <span><strong>Data and tabs</strong><small>How the workbook is organised.</small></span>
             </legend>
             <div class="exports-field-grid">
@@ -285,7 +285,7 @@
 
       <section class="exports-last-card" aria-labelledby="exports-last-title">
         <header>
-          <span class="exports-last-icon">{{ icon("history") }}</span>
+          <span class="exports-last-icon icon-tile">{{ icon("history") }}</span>
           <div>
             <span class="page-eyebrow">Activity</span>
             <h2 id="exports-last-title">Last export</h2>

@@ -30,7 +30,7 @@
 
     <div class="sync-overview" aria-label="Connection overview">
       <a class="sync-overview-card" href="#apps-script">
-        <span class="sync-overview-icon">{{ icon("sync") }}</span>
+        <span class="icon-tile">{{ icon("sync") }}</span>
         <span class="sync-overview-copy">
           <small>Apps Script</small>
           <strong>{{ "Ready to send" if funnel.ready else "Setup required" }}</strong>
@@ -40,7 +40,7 @@
         </span>
       </a>
       <a class="sync-overview-card" href="#google-drive">
-        <span class="sync-overview-icon">{{ icon("insert-drive-file") }}</span>
+        <span class="icon-tile">{{ icon("insert-drive-file") }}</span>
         <span class="sync-overview-copy">
           <small>Google Drive</small>
           <strong>{{ "Connected" if google.connected else "Not connected" }}</strong>
@@ -50,7 +50,7 @@
         </span>
       </a>
       <a class="sync-overview-card" href="#automation">
-        <span class="sync-overview-icon">{{ icon("schedule") }}</span>
+        <span class="icon-tile">{{ icon("schedule") }}</span>
         <span class="sync-overview-copy">
           <small>Automation</small>
           <strong id="automation-overview-value">Loading schedules</strong>
@@ -70,7 +70,7 @@
   <!-- ==================== Apps Script funnel (spec 22) ==================== -->
   <section class="sync-route" id="apps-script" aria-labelledby="apps-script-title">
     <header class="sync-route-header">
-      <span class="sync-route-icon">{{ icon("sync") }}</span>
+      <span class="sync-route-icon icon-tile">{{ icon("sync") }}</span>
       <div class="sync-route-heading">
         <span class="page-eyebrow">Method 1 · Web app endpoint</span>
         <h2 id="apps-script-title">Apps Script synchronization</h2>
@@ -279,7 +279,7 @@
 
   <section class="sync-route" id="automation" aria-labelledby="automation-title">
     <header class="sync-route-header">
-      <span class="sync-route-icon">{{ icon("schedule") }}</span>
+      <span class="sync-route-icon icon-tile">{{ icon("schedule") }}</span>
       <div class="sync-route-heading">
         <span class="page-eyebrow">Automation · Source collection</span>
         <h2 id="automation-title">Keep synchronized sources up to date</h2>
@@ -338,7 +338,7 @@
   <!-- ==================== Google Drive and Sheets (spec 23) ==================== -->
   <section class="sync-route" id="google-drive" aria-labelledby="google-drive-title">
     <header class="sync-route-header">
-      <span class="sync-route-icon">{{ icon("insert-drive-file") }}</span>
+      <span class="sync-route-icon icon-tile">{{ icon("insert-drive-file") }}</span>
       <div class="sync-route-heading">
         <span class="page-eyebrow">Method 2 · Direct connection</span>
         <h2 id="google-drive-title">Google Drive synchronization</h2>
@@ -362,7 +362,7 @@
 
     <div class="sync-google-layout">
       <aside class="sync-account-card" aria-labelledby="google-account-title">
-        <span class="sync-account-icon">{{ icon("security") }}</span>
+        <span class="sync-account-icon icon-tile">{{ icon("security") }}</span>
         <span class="page-eyebrow">Google account</span>
         <h3 id="google-account-title">
           {{ google.account if google.account else ("Connected securely" if google.connected else "Not connected") }}
