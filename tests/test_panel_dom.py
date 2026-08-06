@@ -7,6 +7,58 @@ capturing, so the broken opening screen was never photographed.
 
 These tests drive the panel's own HTML, CSS and JS through the same harness the
 screenshots use, and assert what a person would see and do.
+
+WHY MOST `.is_visible()` ASSERTIONS HERE CARRY NO WAIT, DELIBERATELY.
+
+Nine of them read `.is_visible()` on the line after a click, a key press or a
+fill. That is measured, not assumed — and the rule is narrower than it looks.
+
+The load-bearing property is NOT "the handler did it". It is that the change
+lands inside the action's own INPUT TASK, and the driver does not acknowledge the
+action until that whole task is done. Three of the nine are applied by no
+listener at all: both `<details>` sites and the Enter-on-an-option site flip in
+the ACTIVATION BEHAVIOUR, which Blink runs after the event has finished
+propagating. Measured — at the last window bubble listener the closing disclosure
+still reads visible, and Enter changes nothing in any keydown listener; Blink
+synthesises a click as the keydown's default action, and that second event's
+listener is what closes the list. Both are still correct on the very next line,
+because the action does not return until the task ends. Do not restate this as
+"synchronous inside the handler": that is false for a third of the sites it
+covers, and someone applying it to a new site would get the wrong answer.
+
+The remaining six are CSS with nothing to defer: `.hidden {display: none
+!important}` and `[data-save-state="saved"] {display: none}`, neither of them a
+transitionable property.
+
+A wait at any of the nine would wait for something already done, and the day the
+panel stops showing or hiding the element it would convert a one-line assertion
+failure into a timeout. Add one only where a state change is genuinely deferred,
+and name the deferral when you do.
+
+WHAT PROTECTS THE *SHOW* ASSERTIONS IS THINNER THAN IT LOOKS. Playwright's
+predicate is `checkVisibility()` AND `visibility != hidden` AND a non-empty rect;
+opacity is not in it. So `#view-appearance` is read while its entry animation is
+still running and computes to `opacity: 0`, and passes anyway. The listboxes are
+read at `select-menu-in` currentTime 0, where the box is non-empty only because
+the 0% keyframe is `scale(.98)`: change it to an ordinary `scaleY(0)` and the
+identical assertion reads not-visible on a 226x0 box — measured. If you touch
+`@keyframes select-menu-in` (extension/app.css) or the keyframes in `showView`,
+re-measure these. What protects them is the animated property, not the structure
+of the code.
+
+Measure before adding one, by performing the action inside the page and reading
+the visibility in the same JavaScript task. Read it with `checkVisibility()`:
+`getBoundingClientRect()` on a descendant of a CLOSED `<details>` still reports
+the last laid-out size, because Chromium skips that subtree rather than resizing
+it, so a rect-based check calls a shut disclosure visible and invents a race that
+is not there.
+
+Do NOT reach for a slow machine or CPU throttling to settle it. Throttling hides
+a deferred change instead of exposing it: it stretches the round trip between the
+action and the read far more than the work in between, so the deferred thing has
+landed by the time you look. Measured — a build broken on purpose to defer one of
+these failed 15/15 unthrottled and passed 15/15 at 20x. A green run under load is
+not evidence of synchrony; the same-task read is.
 """
 from __future__ import annotations
 
