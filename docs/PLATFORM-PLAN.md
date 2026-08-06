@@ -298,7 +298,7 @@ product. There are 88,286 price observations from 12 audited sources running dai
 today; that is the thing to protect, not to rebuild around a capability that does
 not exist yet.
 
-### M0 — separate the three products *(nothing else works without this)*
+### M0 — separate the three products — **DONE 2026-08-06**
 
 Decision 4 asks the extension to detect an incompatible engine. **That is impossible while one version number covers both** — there is no "incompatible" when they always move together.
 
@@ -310,7 +310,17 @@ Decision 4 asks the extension to detect an incompatible engine. **That is imposs
 - **A browser runner on the JS side is DEFERRED, and the blocker is named.** This plan said moving the panel tests was "the only real work in M0" and gave the engine coupling as the reason. That reason is gone: the panel suite's one engine import is `scrapex.version`, and the freeze pattern this repo already runs three times removes it. **The real blocker is `tools/screenshot_panel.py`**, which imports `STRESS_SOURCES`, `build_page` and `stub` from the same harness by explicit design — *"two very different callers need exactly the same page… A second copy of the stub would drift, and the two would stop describing the same product."* A migration that moves the tests and leaves the screenshot tools on the Python harness manufactures exactly that drift. Decide the screenshot path first. The count was also never 134: it is 109 collected in one file, and ~154 across eleven.
 - **The "second source of truth" objection does not apply, and this plan should stop implying it.** `extension/version.js` already ships a full JavaScript `capabilityProblem`, `isOlder` and `parseVersion`. Its own header says the rule *"exists twice, once in each language"*, and `contracts/version-vectors.json` exists to **license** that duplication and fail when the copies diverge — not to forbid a JS implementation.
 
-**Done when:** a change to `extension/app.js` runs the extension gate and the node suites and nothing else — not the 2009-test engine suite — and the extension can be tagged for the Chrome Web Store, or the engine tagged for GitHub Releases, with the other number untouched and CI green. *(The second half is done; the first is the remaining work.)*
+**Done when:** a change to `extension/app.js` runs the extension gate and the node suites and nothing else — not the engine suite — and the extension can be tagged for the Chrome Web Store, or the engine tagged for GitHub Releases, with the other number untouched and CI green.
+
+**Verified against real CI, not against reasoning** (PRs #115, #117):
+
+| what changed | event | scope | duration |
+|---|---|---|---|
+| one line in `extension/app.js` | `push` (fresh branch) | **extension** | **3m24s** |
+| one line in `extension/app.js` | `pull_request` | **extension** | **3m28s** |
+| anything else | either | full | ~10m |
+
+The extension gate is **328 of 2022 tests** across eleven files. The first attempt worked on pull requests and not on pushes — `github.event.before` is forty zeros on a branch's first push — so an extension-only change still paid for the whole engine suite once. It now falls back to the merge base with `main`, and on `main` itself finds nothing, which correctly means "run everything".
 
 ### M1 — sign in, and state the version truth
 
