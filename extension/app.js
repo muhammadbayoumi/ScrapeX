@@ -54,6 +54,7 @@ const state = {
 };
 
 // ---- views ----------------------------------------------------------------
+// (a one-line change used to prove the CI split chooses the extension gate)
 const VIEWS = [
   // profile and engines lead: the agreed shape opens on "who am I" and "what is
   // installed" before anything can be run. console is the owner build's page and
