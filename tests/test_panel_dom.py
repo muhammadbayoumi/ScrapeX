@@ -2844,3 +2844,69 @@ def test_no_two_rail_buttons_wear_the_same_icon(open_panel):
             clashes.append(f"{seen[icon]} and {button} both use #{icon}")
         seen[icon] = button
     assert not clashes, "; ".join(clashes)
+
+
+def test_the_profile_button_wears_the_account_and_not_a_shield(open_panel):
+    """It carried `security` — a shield, which says "protection" and not "you".
+
+    Before sign-in there is no photo to show, so the button falls back to the
+    generic account mark. The photo slot is already in the markup beside it,
+    hidden, so M1 swaps a class rather than rebuilding the button.
+    """
+    page = open_panel()
+
+    assert page.locator("#tab-profile use").get_attribute("href").endswith(
+        "#account-circle")
+    assert page.is_visible("#profile-avatar-fallback")
+    assert not page.is_visible("#profile-avatar"), (
+        "an empty photo slot is drawn where the account mark should be")
+
+
+def test_the_photo_replaces_the_mark_and_a_broken_one_gives_it_back(open_panel):
+    """M1 will call setProfileAvatar with the account's `picture`. Everything
+    it needs already works, which is why this is testable before sign-in exists.
+
+    THE FALLBACK ON ERROR IS THE POINT. Google's avatar URLs expire and the
+    panel is often opened offline; a photo that fails to load must not leave a
+    blank hole where a rail button was. That is why the swap happens on `load`
+    and is undone on `error`, rather than being set once and trusted.
+    """
+    page = open_panel()
+    tiny_png = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf"
+                "FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+    page.evaluate(f"() => setProfileAvatar({tiny_png!r})")
+    page.wait_for_selector("#profile-avatar:visible")
+    assert not page.is_visible("#profile-avatar-fallback"), (
+        "the generic mark is still drawn on top of the account's own photo")
+
+    # The URL expires, or the machine is offline. The button must not go blank.
+    page.evaluate("() => setProfileAvatar('data:image/png;base64,not-an-image')")
+    page.wait_for_selector("#profile-avatar-fallback:visible")
+    assert not page.is_visible("#profile-avatar")
+
+    # Signing out puts the mark back with no round trip at all.
+    page.evaluate(f"() => setProfileAvatar({tiny_png!r})")
+    page.wait_for_selector("#profile-avatar:visible")
+    page.evaluate("() => setProfileAvatar(null)")
+    assert page.is_visible("#profile-avatar-fallback")
+    assert not page.is_visible("#profile-avatar")
+
+
+def test_the_photo_is_drawn_at_the_size_of_the_mark_it_replaces(open_panel):
+    """A photo one pixel larger than the icon would shift every button under it
+    the moment someone signs in."""
+    page = open_panel()
+    icon = page.locator("#profile-avatar-fallback").bounding_box()
+
+    page.evaluate("() => { const p = document.getElementById('profile-avatar');"
+                  " p.classList.remove('hidden');"
+                  " document.getElementById('profile-avatar-fallback')"
+                  "   .classList.add('hidden'); }")
+    photo = page.locator("#profile-avatar").bounding_box()
+
+    assert icon and photo
+    assert abs(photo["width"] - icon["width"]) < 0.5
+    assert abs(photo["height"] - icon["height"]) < 0.5
+    assert page.locator("#profile-avatar").evaluate(
+        "el => getComputedStyle(el).borderRadius") == "50%", "a square face"

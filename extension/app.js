@@ -174,6 +174,31 @@ function closeWorkspaceMenu(returnFocus = false) {
   if (returnFocus && wasOpen) $("workspace-toggle").focus();
 }
 
+// The rail's Profile button wears whoever is signed in. M1 owns the sign-in and
+// will call this with the account's `picture`; everything below it is already
+// real, so M1 adds a caller and not a feature.
+//
+// A photo that fails to load must not leave a blank hole where a button was —
+// Google's avatar URLs expire, and the panel is often opened offline — so the
+// fallback comes back on `error` rather than being trusted to have worked.
+function setProfileAvatar(url) {
+  const photo = $("profile-avatar");
+  const fallback = $("profile-avatar-fallback");
+  if (!photo || !fallback) return;
+  const wear = (showPhoto) => {
+    photo.classList.toggle("hidden", !showPhoto);
+    fallback.classList.toggle("hidden", showPhoto);
+  };
+  if (!url) {
+    photo.removeAttribute("src");
+    wear(false);
+    return;
+  }
+  photo.onerror = () => { photo.removeAttribute("src"); wear(false); };
+  photo.onload = () => wear(true);
+  photo.src = url;
+}
+
 function showView(name, animate = true) {
   const current = VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden"));
   const navigationName = name === "source-edit" ? "sources" : name;
