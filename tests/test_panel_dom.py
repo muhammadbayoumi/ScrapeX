@@ -2705,12 +2705,19 @@ def test_a_page_that_is_only_a_shape_says_so_on_itself(open_panel):
     integrations." This is the mechanical form of it."""
     page = open_panel()
 
-    # `engines` LEFT THIS LIST when its rows became real (M1b). It still has a
-    # note and a disabled Install button, so it would have passed here — which
-    # is exactly why it had to be taken out by hand: a page that reports true
-    # facts and says "Not built yet" above them is lying in the safe direction,
-    # and the next reader trusts neither line.
-    for view, milestone in (("profile", "M1"), ("console", "M7")):
+    # PAGES LEAVE THIS LIST AS THEY ARE BUILT, and each has to be taken out by
+    # hand. `engines` went when its rows became real (M1b); `profile` went when
+    # its button started signing people in (M1c). Both would have passed here
+    # afterwards — a note and a disabled control are easy to keep — which is
+    # exactly why the removal is deliberate: a page reporting true facts under
+    # "Not built yet" is lying in the safe direction, and the next reader
+    # trusts neither line.
+    shapes = (("console", "M7"),)
+    assert shapes, (
+        "every page is built, so this test now passes by checking nothing — "
+        "delete it rather than leaving it green over an empty list")
+
+    for view, milestone in shapes:
         page.click(f"#tab-{view}")
         panel = page.locator(f"#view-{view}")
         assert panel.is_visible(), f"the {view} page does not open"
@@ -2789,10 +2796,16 @@ def test_the_panel_opens_on_one_question(open_panel):
     assert page.get_attribute("#tab-profile", "aria-current") == "page"
     assert not page.is_visible("#view-source")
 
-    assert panel.locator("h1").inner_text() == "Welcome to ScrapeX"
-    assert panel.locator(".card").count() == 0, "the empty page grew cards again"
-    assert panel.locator(".kv").count() == 0, "it is printing values it cannot know"
-    buttons = panel.locator("button")
+    # SCOPED TO THE SIGNED-OUT HALF. The page has two states since M1c, and the
+    # signed-in one is in the markup with `hidden` on it — asserting across
+    # both would count a heading and a button nobody can see.
+    out = panel.locator("#welcome-signed-out")
+    assert out.is_visible()
+    assert not page.is_visible("#welcome-signed-in")
+    assert out.locator("h1").inner_text() == "Welcome to ScrapeX"
+    assert out.locator(".card").count() == 0, "the empty page grew cards again"
+    assert out.locator(".kv").count() == 0, "it is printing values it cannot know"
+    buttons = out.locator("button")
     assert buttons.count() == 1
     assert "Continue with Google" in buttons.first.inner_text()
 

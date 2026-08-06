@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ScrapeX",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArfnVDeMHNrrQdewml95GDw+k4BByx8zaG/VBDX14KWXZ3ZxGFm4e8afdj9qFa3+7B0i/xm8aYOhBZK1QQnXEApVB5rmw0R9uFJXxx3oKcMka5tAmvaRmPH4wug4cRoS2r+zH6Px0rHr7Q7UnhyUv9Qk6ZlxvCwcWpNTlkxKRSyqoXArZtIsV3Ig/hFH/LTdpZj2HG3dUA/2IdC765gXNw+eIZYCA1AJvu9S+jOWycBEoZj6IjVm3vFIwiuDM8WUBYEDJ2IUGgQod8XGmsZ2xxsp4DVhSvjOHbLB7golTG2YiTV6kYY+xHrKcyvuMluPoImHEQNm9GICcx/XGqPelHQIDAQAB",
   "version": "0.2.0",
   "description": "A local scraping tool: capture prices from the sites you browse into a warehouse on your own machine.",
   "icons": {
@@ -24,14 +25,25 @@
   },
   "permissions": [
     "activeTab",
-    "tabs",
-    "storage",
+    "identity",
+    "nativeMessaging",
     "sidePanel",
-    "nativeMessaging"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
-    "https://api.github.com/*"
-  ]
+    "https://api.github.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "7582564922-mjl31b9ntob0n95lbkvt3t526933bikc.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/drive.file",
+      "https://www.googleapis.com/auth/spreadsheets"
+    ]
+  }
 }

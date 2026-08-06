@@ -303,6 +303,33 @@
   </div>
 
   <div class="g-item">
+    <h3>Sign in with Google</h3>
+    <p class="g-why">
+      <strong>Not ours to design.</strong>
+      <a href="https://developers.google.com/identity/branding-guidelines">Google's
+      branding guidelines</a> fix the background, the stroke, the text colour, the
+      type and the padding, and forbid altering the mark at all — no monochrome
+      version, no substitute icon, and never the icon on its own without the
+      button boundary and text. The three sanctioned strings are
+      <em>Sign in with Google</em>, <em>Sign up with Google</em> and
+      <em>Continue with Google</em>; localisation is allowed, invention is not.
+      The colours are tokens so the button follows the panel between light and
+      dark, which the guidelines permit. Nothing else about it follows anything.
+    </p>
+    <div class="g-demo cluster">
+      <button type="button" class="google-signin">
+        <img class="google-signin-mark" src="google-g.png" alt="" aria-hidden="true"
+             width="200" height="204">
+        Continue with Google
+      </button>
+    </div>
+    <pre>&lt;button class="google-signin"&gt;
+  &lt;img class="google-signin-mark" src="icons/google-g.png" alt="" width="20" height="20"&gt;
+  Continue with Google
+&lt;/button&gt;</pre>
+  </div>
+
+  <div class="g-item">
     <h3>Disclosure button — <code class="code">sect</code></h3>
     <p class="g-why">
       A full-width row that opens something. Other controls borrow the look via

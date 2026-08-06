@@ -127,6 +127,20 @@
   --switch-track-off: var(--surface-container);
   --switch-thumb: var(--on-primary);
   --switch-thumb-off: var(--on-surface-variant);
+
+  /* ---- Sign in with Google -------------------------------------------
+   * THIRD-PARTY BRAND VALUES, and the only colours in this file that are not
+   * ours to choose. developers.google.com/identity/branding-guidelines fixes
+   * them exactly, and forbids putting the coloured "G" on any background but
+   * these three. They sit here because this is the file allowed to name a
+   * colour, and NOT in the palette: no appearance choice may re-tone them.
+   *
+   * Light: #FFFFFF background, #747775 1px inside stroke, #1F1F1F text.
+   */
+  --google-btn-bg: #FFFFFF;
+  --google-btn-stroke: #747775;
+  --google-btn-text: #1F1F1F;
+
 }
 
 /* Device colours use the colour preference exposed by the browser/operating
@@ -146,6 +160,12 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+
+  /* Dark: #131314 background, #8E918F 1px inside stroke, #E3E3E3 text. The
+     button follows the panel's theme; the "G" itself never changes. */
+  --google-btn-bg: #131314;
+  --google-btn-stroke: #8E918F;
+  --google-btn-text: #E3E3E3;
 
   --bg: #0f1216;
   --surface: #171b21;
@@ -177,6 +197,12 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
+
+    /* Dark: #131314 background, #8E918F 1px inside stroke, #E3E3E3 text. The
+       button follows the panel's theme; the "G" itself never changes. */
+    --google-btn-bg: #131314;
+    --google-btn-stroke: #8E918F;
+    --google-btn-text: #E3E3E3;
 
     --bg: #0f1216;
     --surface: #171b21;

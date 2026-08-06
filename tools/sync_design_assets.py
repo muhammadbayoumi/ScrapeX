@@ -44,6 +44,13 @@ ASSETS = {
         ROOT / "extension" / "icons" / "material-icons.LICENSE.txt",
         ROOT / "scrapex" / "webui" / "static" / "material-icons" / "material-icons.LICENSE.txt",
     ),
+    # Google's own "G", byte-for-byte as they publish it. Not redrawn: an
+    # invented path is a wrong logo that looks deliberate, and
+    # developers.google.com/identity/branding-guidelines forbids altering it.
+    ROOT / "design" / "google-g.png": (
+        ROOT / "extension" / "icons" / "google-g.png",
+        ROOT / "scrapex" / "webui" / "static" / "google-g.png",
+    ),
     ROOT / "design" / "x-mark.svg": (
         ROOT / "extension" / "icons" / "x-mark.svg",
         ROOT / "scrapex" / "webui" / "static" / "x-mark.svg",

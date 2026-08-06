@@ -72,7 +72,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          fail_routes=(), storage=None, logs=None, extension_version=None,
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
-         protocol_version=None, github_release=None) -> str:
+         protocol_version=None, github_release=None,
+         signed_in=None, signin_error=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -89,6 +90,12 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     /api/version is answered by the REAL scrapex.version.version_report, never
     by a hand-written fixture: a stub ledger would let the panel be tested
     against a compatibility rule the engine does not have.
+
+    `signed_in` is the account chrome.identity hands back — None for the
+    machine nobody has signed in on, which is every machine before M1c and the
+    default here. `signin_error` is what Chrome puts in runtime.lastError
+    instead of a token, and it is a separate knob because a closed consent
+    window and a mismatched OAuth client are different sentences.
 
     `github_release` is the fifth: the body GitHub's releases/latest endpoint
     answers with, or None for the 404 a repository with no releases gives —
@@ -197,7 +204,25 @@ window.chrome = {{
   tabs: {{ query: async () => [{json.dumps(tab if tab is not None else ACTIVE_TAB)}],
            create: () => {{}} }},
   storage: {{ local: {{ get: async () => ({{backend: {backend!r}}}), set: async () => {{}} }} }},
+  // chrome.identity reports failure by leaving the token undefined and setting
+  // runtime.lastError, so the shim must be able to do BOTH — a stub that only
+  // ever returned a token could not test a single refusal branch.
+  identity: {{
+    getAuthToken: (opts, cb) => {{
+      if (SIGNIN_ERROR) {{ chrome.runtime.lastError = {{message: SIGNIN_ERROR}};
+                           cb(undefined);
+                           chrome.runtime.lastError = null; return; }}
+      if (!SIGNED_IN) {{ chrome.runtime.lastError =
+                           {{message: "The user did not approve access."}};
+                         cb(undefined);
+                         chrome.runtime.lastError = null; return; }}
+      cb("stub-token");
+    }},
+    removeCachedAuthToken: (opts, cb) => {{ SIGNED_IN = null; cb && cb(); }},
+  }},
 }};
+let SIGNED_IN = {json.dumps(signed_in)};
+const SIGNIN_ERROR = {json.dumps(signin_error)};
 const ROUTES = {json.dumps(routes)};
 const WRITE_ROUTES = {json.dumps(write_routes)};
 const LOG_PAYLOAD = {json.dumps(log_payload)};
@@ -222,6 +247,10 @@ window.fetch = async (url, options) => {{
     let body = null;
     try {{ body = JSON.parse((options && options.body) || "null"); }} catch (_) {{}}
     window.__writes.push({{path, method, body}});
+  }}
+  if (String(url).includes("oauth2/v3/userinfo")) {{
+    if (!SIGNED_IN) return {{ ok: false, status: 401, json: async () => ({{}}) }};
+    return {{ ok: true, status: 200, json: async () => SIGNED_IN }};
   }}
   if (String(url).includes("api.github.com")) {{
     if (!GITHUB_RELEASE) {{
@@ -290,6 +319,15 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     sprite = (EXT / "icons" / "material-icons.svg").read_text(encoding="utf-8")
     sprite_body = re.sub(r"^<svg[^>]*>|</svg>\s*$", "", sprite, flags=re.S)
     body = re.sub(r'href=(["\'])icons/material-icons\.svg#', r'href=\1#', body)
+    # An <img src> is a real subresource, and this page lives in a temporary
+    # directory with no icons/ beside it — so Google's mark rendered as a BROKEN
+    # IMAGE in every screenshot while every assertion about it passed, because
+    # they read the markup and the file rather than the page. Inlined, like the
+    # sprite above and for the same reason.
+    for asset in ("google-g.png",):
+        data = base64.b64encode((EXT / "icons" / asset).read_bytes()).decode("ascii")
+        body = body.replace(f'src="icons/{asset}"',
+                            f'src="data:image/png;base64,{data}"')
     body = (
         "<svg aria-hidden='true' width='0' height='0' "
         "style='position:absolute;overflow:hidden'>"
@@ -307,6 +345,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     transport_js = (EXT / "transport.js").read_text(encoding="utf-8")
     version_js = (EXT / "version.js").read_text(encoding="utf-8")
     releases_js = (EXT / "releases.js").read_text(encoding="utf-8")
+    identity_js = (EXT / "identity.js").read_text(encoding="utf-8")
 
     # Flatten the ES-module graph. engine.js imports the protocol version from
     # transport.js, while app.js imports both modules; leaving even that
@@ -318,10 +357,12 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     transport_js = re.sub(r"^import .*?;$", "", transport_js, flags=re.M)
     version_js = re.sub(r"^import .*?;$", "", version_js, flags=re.M)
     releases_js = re.sub(r"^import .*?;$", "", releases_js, flags=re.M)
+    identity_js = re.sub(r"^import .*?;$", "", identity_js, flags=re.M)
     engine_js = re.sub(r"\bexport\s+", "", engine_js)
     transport_js = re.sub(r"\bexport\s+", "", transport_js)
     version_js = re.sub(r"\bexport\s+", "", version_js)
     releases_js = re.sub(r"\bexport\s+", "", releases_js)
+    identity_js = re.sub(r"\bexport\s+", "", identity_js)
 
     tmp.mkdir(parents=True, exist_ok=True)
     page = tmp / name
@@ -350,7 +391,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # BEFORE the browser fires the real event, so dispatching one as well
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
-        f"<script>{transport_js}\n{version_js}\n{releases_js}\n"
+        f"<script>{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
         f"{engine_js}\n{app_js}</script>",
         encoding="utf-8")
     return page
