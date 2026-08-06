@@ -1492,8 +1492,14 @@
       <button class="rail-item" id="tab-profile" role="tab" data-view="profile"
               aria-controls="view-profile" aria-selected="true" aria-current="page"
               aria-label="Profile" title="Profile">
-        <svg class="sx-icon" aria-hidden="true">
-          <use href="icons/material-icons.svg#security"></use>
+        <!-- The button wears the account's own face once there is one. Until
+             sign-in exists there is no photo to show, so it falls back to the
+             generic account mark rather than to a shield, which said "security"
+             and not "you". Both live here so the swap is a class toggle and
+             never a rebuild of the button. -->
+        <img class="rail-avatar hidden" id="profile-avatar" alt="" aria-hidden="true">
+        <svg class="sx-icon" id="profile-avatar-fallback" aria-hidden="true">
+          <use href="icons/material-icons.svg#account-circle"></use>
         </svg>
         <span class="visually-hidden">Profile</span>
       </button>

@@ -1046,6 +1046,16 @@
   }
   .side-rail .rail-item:active:not(:disabled) { transform: scale(.94); }
   .side-rail .rail-item .sx-icon { width: 1.5rem; height: 1.5rem; }
+
+  /* The signed-in account's photo, drawn at the same size as the icon it
+     replaces so the rail does not shift when it arrives. Google serves these
+     square; `cover` keeps a non-square one from stretching a face. */
+  .rail-avatar {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    object-fit: cover;
+  }
   .rail-spacer { flex: 1 0 var(--sp-3); }
 
   /* A page that exists so its shape can be agreed says so on itself. Nothing
