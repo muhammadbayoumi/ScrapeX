@@ -113,7 +113,7 @@ class Capability:
 CAPABILITIES: tuple[Capability, ...] = (
     Capability(
         key="crawl_pace",
-        since=VERSION,
+        since="0.2.0",
         summary="Choose whether each site's requested crawl delay is honoured, and "
                 "set the minimum seconds between requests and the request timeout.",
         surfaces=(Surface.PANEL, Surface.ENGINE),
@@ -126,7 +126,7 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     Capability(
         key="crawl_parallel_sources",
-        since=VERSION,
+        since="0.2.0",
         summary="Crawl several different sites at the same time. Two sources on the "
                 "SAME site still take turns, so no site is asked for more than before.",
         surfaces=(Surface.PANEL, Surface.ENGINE),
@@ -139,7 +139,7 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     Capability(
         key="crawl_resume",
-        since=VERSION,
+        since="0.2.0",
         summary="Continue an interrupted crawl from the pages it already kept, "
                 "without fetching any of them again.",
         surfaces=(Surface.PANEL, Surface.ENGINE),
@@ -149,7 +149,7 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     Capability(
         key="source_admin",
-        since=VERSION,
+        since="0.2.0",
         summary="Edit, rename, stop tracking or erase a source from the panel, with a "
                 "rename moving the rows in all nine tables in one transaction.",
         surfaces=(Surface.PANEL, Surface.ENGINE),
@@ -159,27 +159,27 @@ CAPABILITIES: tuple[Capability, ...] = (
     ),
     Capability(
         key="version_visibility",
-        since=VERSION,
+        since="0.2.0",
         summary="See which version of the extension and which version of the engine "
                 "are actually running, each named for the side it belongs to.",
         surfaces=(Surface.PANEL, Surface.ENGINE),
         panel_control="about-extension-version",
         settings=(),
-        commit="",  # landing in this release
+        commit="7ca7a75",  # landing in this release
     ),
     Capability(
         key="compatibility_notice",
-        since=VERSION,
+        since="0.2.0",
         summary="Be told, rather than left to find out, when the installed extension "
                 "is older than the features the engine deploys.",
         surfaces=(Surface.PANEL,),
         panel_control="version-notice",
         settings=(),
-        commit="",  # landing in this release
+        commit="7ca7a75",  # landing in this release
     ),
     Capability(
         key="display_method_and_unit",
-        since=VERSION,
+        since="0.2.0",
         summary="Record how a site displays a product and what one unit of its price "
                 "buys, so a per-metre price is never read as a per-piece one.",
         # ENGINE alone on purpose, and it is the case that proves the split is
@@ -232,6 +232,24 @@ def _newest(versions: tuple[str, ...]) -> str:
 # the number already installed is not a remedy, it is a loop.
 CAPABILITY_REPORTING_SINCE = "0.2.0"
 
+# THE FLOOR IS THE NEWEST PANEL CAPABILITY, AND A CAPABILITY'S `since` IS A
+# FROZEN LITERAL — never `VERSION`.
+#
+# Every one of the seven capabilities used to record `since=VERSION`, which made
+# this line always equal VERSION however it was written. MEASURED: bump the
+# engine alone to 0.4.0 and the floor became 0.4.0, so the engine declared the
+# extension in the Chrome Web Store — 0.2.0, reviewed by Google, installed on
+# every machine — too old to talk to. Every engine release did that, to an
+# extension that had not changed.
+#
+# That is the exact opposite of PLATFORM-PLAN Decision 21 ("neither triggers the
+# other"), and no test could see it, because with `since=VERSION` the floor and
+# the head move together and every comparison stays true.
+#
+# The literal is the version the capability WAS INTRODUCED IN, and it never
+# moves again. A new capability is written with the number it ships in; the old
+# ones keep theirs. Then the floor rises only when the panel genuinely needs a
+# newer extension, which is the only thing it was ever meant to say.
 MINIMUM_EXTENSION_VERSION = _newest(tuple(
     capability.since for capability in CAPABILITIES
     if Surface.PANEL in capability.surfaces

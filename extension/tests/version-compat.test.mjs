@@ -33,12 +33,39 @@ test("every frozen case produces the same sentence in both languages", () => {
   }
 });
 
-test("the extension's own manifest is the version the file describes", () => {
-  // The panel reads chrome.runtime.getManifest() and nothing else. If that file
-  // fell behind, every verdict computed above would be computed about a version
-  // nobody is running.
+test("the extension's manifest is its OWN number, and new enough to be run", () => {
+  // THE ASSERTION THAT EXPIRED, and the reason this now asserts the opposite of
+  // what it used to.
+  //
+  // It read `assert.equal(manifest.version, VECTORS.version)`, and
+  // VECTORS.version is the ENGINE's number (scrapex/version.py: export_vectors
+  // returns {"version": VERSION, ...}). That was right while both shipped from
+  // one checkout. It stopped being right when the owner settled two release
+  // paths — PLATFORM-PLAN Decision 21: the extension is tagged and uploaded to
+  // the Chrome Web Store, the engine is tagged and published to GitHub
+  // Releases, and NEITHER TRIGGERS THE OTHER.
+  //
+  // MEASURED, in both directions: bump only extension/manifest.json to 0.3.0,
+  // which is exactly what a store release is, and this file failed with
+  // `actual: '0.3.0', expected: '0.2.0'`. Bump only the engine and it failed
+  // the other way. CI refused the release path the plan is built on, and the
+  // Python side had already dropped this equality on 2026-08-05
+  // (tests/test_version.py: test_the_extension_carries_its_own_number_and_may_differ).
+  // The JavaScript copy never followed.
+  //
+  // What is still true, and is what this asserts instead: the manifest must
+  // carry a real MAJOR.MINOR.PATCH — Chrome refuses anything else — and it must
+  // not be older than the minimum the engine will talk to, because a build the
+  // engine would refuse must never be the one uploaded to the store.
   const manifest = JSON.parse(readFileSync(join(HERE, "..", "manifest.json"), "utf8"));
-  assert.equal(manifest.version, VECTORS.version);
+
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/,
+    "Chrome requires a numeric MAJOR.MINOR.PATCH in the manifest");
+  assert.deepEqual(parseVersion(manifest.version).length, 3);
+  assert.ok(!isOlder(manifest.version, VECTORS.minimum_extension_version),
+    `the manifest says ${manifest.version}, older than the ` +
+    `${VECTORS.minimum_extension_version} the engine will talk to — this build ` +
+    `would be refused by the engine it ships beside`);
 });
 
 test("versions order numerically, not as text", () => {

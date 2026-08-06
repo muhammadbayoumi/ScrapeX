@@ -430,3 +430,90 @@ def test_the_changelog_carries_the_evidence_for_the_two_incidents():
     assert "c63ec21" in committed, "the crawl pace lost the commit that built it"
     assert "63dc24b" in committed, "crawling several sites at once lost its commit"
     assert f"## {VERSION}" in committed
+
+
+# ---- the two release paths, and the line that quietly welded them together ----
+
+def test_no_capability_dates_itself_by_the_version_it_is_read_in():
+    """THE DEFECT NO TEST COULD SEE, because it made every comparison true.
+
+    All seven capabilities recorded `since=VERSION`. MINIMUM_EXTENSION_VERSION is
+    the newest `since` among the panel's capabilities, so the floor was VERSION —
+    always, however it was written. MEASURED: move the engine alone to 0.4.0 and
+    the floor became 0.4.0, so the engine declared the extension sitting in the
+    Chrome Web Store — 0.2.0, reviewed by Google, installed on every machine —
+    too old to talk to. Every engine release did that, to an extension that had
+    not changed, which is the exact opposite of PLATFORM-PLAN Decision 21.
+
+    Nothing caught it because with `since=VERSION` the floor and the head move
+    together and every assertion about them stays true. The defect is in the
+    SOURCE, so this is the one guard that has to read the source.
+
+    A capability's `since` is the version it was INTRODUCED in. It is written as
+    a literal, once, and never moves again.
+    """
+    # Comments stripped first: the rule is explained at length beside the
+    # constant it protects, and the explanation necessarily quotes the mistake.
+    # A guard that reads its own documentation as a violation is a guard that
+    # forces the documentation out.
+    source = "\n".join(
+        line for line in (ROOT / "scrapex" / "version.py").read_text(
+            encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#"))
+
+    assert "since=VERSION" not in source, (
+        "a capability dates itself by whatever VERSION happens to be, so the "
+        "minimum extension version follows the engine's head and every engine "
+        "release orphans the published extension")
+
+
+def test_an_engine_release_does_not_raise_the_floor_under_the_published_extension():
+    """The same claim, computed rather than read.
+
+    The floor is derived from the ledger, so a hypothetical newer engine is
+    simulated by asking what the floor WOULD be — no monkeypatching of a module
+    whose import runs a validator.
+    """
+    from scrapex.version import CAPABILITIES, MINIMUM_EXTENSION_VERSION, Surface, _newest
+
+    panel_sinces = tuple(c.since for c in CAPABILITIES if Surface.PANEL in c.surfaces)
+    assert panel_sinces, "the panel executes no capability at all"
+    assert _newest(panel_sinces) == MINIMUM_EXTENSION_VERSION
+
+    # Every `since` is a literal, so the floor is a fact about what the panel
+    # NEEDS and not about which engine is reading it. Tagging engine-v0.4.0
+    # changes VERSION and nothing here.
+    assert all(s != "" for s in panel_sinces)
+    assert MINIMUM_EXTENSION_VERSION == "0.2.0", (
+        "the floor moved without a capability being added; if that was "
+        "deliberate, the published extension must be republished first")
+
+
+def test_the_extension_may_be_tagged_for_the_store_on_its_own():
+    """PLATFORM-PLAN Decision 21: two release paths, neither triggering the other.
+
+    The JavaScript suite asserted `manifest.version === VECTORS.version`, and
+    VECTORS.version is the ENGINE's number. Bumping only extension/manifest.json
+    — which is exactly what a Chrome Web Store release is — failed with
+    `actual: '0.3.0', expected: '0.2.0'`. Python had already dropped that
+    equality (see test_the_extension_carries_its_own_number_and_may_differ); the
+    JavaScript copy never followed, so CI refused the release path the plan is
+    built on.
+
+    This asserts the JS side no longer welds them, from the Python side, because
+    the Python suite is the one that runs on every change.
+    """
+    # Comments stripped, for the same reason: the replacement records the
+    # equality it replaced, verbatim, so the next reader knows what expired.
+    js = "\n".join(
+        line for line in (ROOT / "extension" / "tests" /
+                          "version-compat.test.mjs").read_text(
+            encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("//"))
+
+    assert "assert.equal(manifest.version, VECTORS.version)" not in js, (
+        "the extension's manifest is pinned to the engine's version again; a "
+        "store release with the engine untouched will fail CI")
+    assert "minimum_extension_version" in js, (
+        "the manifest is no longer checked against the floor the engine will "
+        "talk to, so a build the engine would refuse could be uploaded")
