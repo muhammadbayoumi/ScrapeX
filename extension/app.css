@@ -1081,6 +1081,14 @@
     text-align: center;
   }
   .welcome h1 { margin: 0; }
+  /* The account's own photo, large enough to be a greeting rather than a
+     status dot. Round for the same reason the rail's is. */
+  .welcome-face {
+    width: 4rem;
+    height: 4rem;
+    border-radius: 50%;
+    object-fit: cover;
+  }
   .welcome .planned-note { border: 0; background: none; padding: 0; }
   .rail-tablist-bottom { margin-top: auto; }
 

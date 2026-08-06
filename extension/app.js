@@ -12,6 +12,7 @@ import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDataba
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { latestEngineRelease } from "./releases.js";
+import { getToken, accountFor, forgetToken } from "./identity.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
@@ -52,6 +53,9 @@ const state = {
   // null for an engine too old to publish one, which is NOT the same as an
   // engine that has not been asked yet — every reader of it checks
   // state.engineVersion too, so silence is never read as a refusal.
+  // Chrome holds the token; this is the copy the panel lends onward, and
+  // it is never written to storage.
+  token: "", account: null,
   installedVersion: "", engineVersion: "", versionReport: null,
   // null means the engine never said, which is a THIRD state and not a
   // mismatch: an engine built before the handshake moved here answers
@@ -1878,6 +1882,57 @@ function syncModeChoices() {
   renderModeTexts(note);
 }
 
+// ---- who is signed in -----------------------------------------------------
+// The extension owns the token and lends it to the engine (the owner's ruling
+// of 2026-08-05). Chrome holds it; nothing is stored here.
+//
+// The panel asks NON-INTERACTIVELY on open, so a returning owner is simply
+// signed in and never sees the button again. Only the button itself is allowed
+// to open a consent window — a panel that popped one on every open would be
+// indistinguishable from a broken extension.
+async function loadAccount({ interactive = false } = {}) {
+  const result = await getToken({ interactive });
+  if (result.state !== "ok") {
+    state.account = null;
+    state.token = "";
+    renderAccount(interactive ? result : null);
+    return result;
+  }
+  state.token = result.token;
+  state.account = await accountFor(result.token);
+  renderAccount(null);
+  return result;
+}
+
+function renderAccount(problem) {
+  const signedIn = Boolean(state.token);
+  $("welcome-signed-out").classList.toggle("hidden", signedIn);
+  $("welcome-signed-in").classList.toggle("hidden", !signedIn);
+  // A silent check that found nobody is not a problem to report: it is the
+  // ordinary state of a machine nobody has signed in on yet.
+  $("signin-problem").textContent = problem ? problem.detail : "";
+
+  if (!signedIn) {
+    setProfileAvatar(null);
+    return;
+  }
+  const account = state.account;
+  // Signed in with no network: the token is real and the profile is not
+  // readable. Saying "Signed in" is true; inventing a name would not be.
+  $("welcome-name").textContent = (account && account.name) || "Signed in";
+  $("welcome-email").textContent = (account && account.email) || "";
+  const photo = $("welcome-photo");
+  if (account && account.picture) {
+    photo.onerror = () => photo.classList.add("hidden");
+    photo.onload = () => photo.classList.remove("hidden");
+    photo.src = account.picture;
+  } else {
+    photo.removeAttribute("src");
+    photo.classList.add("hidden");
+  }
+  setProfileAvatar(account ? account.picture : "");
+}
+
 // ---- what is installed, and what is available -----------------------------
 // The Engines page is the one page that has to work with NO ENGINE INSTALLED —
 // that is its whole purpose, and it is the state every machine is in for its
@@ -3346,6 +3401,18 @@ async function init() {
   renderAutostart();
   adoptUiContract();
 
+  $("signin").addEventListener("click", async () => {
+    $("signin").disabled = true;
+    try { await loadAccount({ interactive: true }); }
+    finally { $("signin").disabled = false; }
+  });
+  $("signout").addEventListener("click", async () => {
+    await forgetToken(state.token);
+    state.token = "";
+    state.account = null;
+    renderAccount(null);
+  });
+
   const tabs = [...document.querySelectorAll("nav.side-rail button[data-view]")];
   tabs.forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
   $("workspace-toggle").addEventListener("click", () => {
@@ -3584,6 +3651,7 @@ async function init() {
   // true to put on a page — no account, no backup, no lease — so the first
   // screen asks that one question and shows nothing else.
   showView("profile", false);
+  await loadAccount();
   await render();
 }
 

@@ -1040,15 +1040,35 @@
            all need a signed-in owner — so the page waits rather than printing a
            column of em dashes. What appears after sign-in is decided once
            sign-in exists. -->
-      <div class="view-scroll welcome">
+      <div class="view-scroll welcome" id="welcome-signed-out">
         <h1>Welcome to ScrapeX</h1>
-        <button class="ghost" type="button" disabled>
-          <svg class="sx-icon" aria-hidden="true">
-            <use href="icons/material-icons.svg#account-circle"></use>
-          </svg>
+        <!-- Google's button, to Google's rules: the coloured "G" only, one of
+             the three sanctioned strings, and the mark never recoloured. See
+             developers.google.com/identity/branding-guidelines. -->
+        <button class="google-signin" id="signin" type="button">
+          <!-- The published asset is 200x204, not square. Those numbers are
+               here as the intrinsic size so the box is reserved before it
+               loads; the DISPLAY size is set in CSS by height alone, because
+               "you must preserve the aspect ratio so that the Google logo is
+               not stretched" and a 20x20 box stretches this one. -->
+          <img class="google-signin-mark" src="icons/google-g.png" alt=""
+               aria-hidden="true" width="200" height="204">
           Continue with Google
         </button>
-        <p class="planned-note" data-planned="M1">Not built yet — the shape only.</p>
+        <!-- Why it did not work, when it did not. Chrome reports a closed
+             consent window and a mismatched client the same way — an empty
+             token and a message — and one "sign-in failed" for both teaches
+             the owner to press again and learn nothing. -->
+        <p class="muted text-sm" id="signin-problem"></p>
+      </div>
+
+      <!-- After sign-in. Kept to what is TRUE and nothing more, because the
+           owner asked to decide what belongs here once he could see it. -->
+      <div class="view-scroll welcome hidden" id="welcome-signed-in">
+        <img class="welcome-face hidden" id="welcome-photo" alt="" aria-hidden="true">
+        <h1 id="welcome-name">Signed in</h1>
+        <p class="muted" id="welcome-email"></p>
+        <button class="ghost compact" id="signout" type="button">Sign out</button>
       </div>
     </section>
 

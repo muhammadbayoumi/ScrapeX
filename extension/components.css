@@ -234,6 +234,64 @@ svg {
   color: var(--red);
 }
 
+/* ---- Sign in with Google ---------------------------------------------------
+ * Built to developers.google.com/identity/branding-guidelines rather than to
+ * taste, because this button is Google's and the rules are theirs:
+ *
+ *   - the coloured "G" only, never a monochrome or substitute mark, and never
+ *     the icon on its own without the button boundary and text;
+ *   - one of "Sign in with Google", "Sign up with Google", "Continue with
+ *     Google" — localisation allowed, invention not;
+ *   - Google Sans Medium 14/20, with the panel's stack as the fallback since
+ *     Google Sans is not a free webfont;
+ *   - 12px before the logo, 10px after it, 12px after the text;
+ *   - the logo's aspect ratio preserved and its size and colour untouched.
+ *
+ * The colours are tokens rather than literals so the button follows the panel
+ * between light and dark, which the guidelines allow. Nothing else about it
+ * follows anything.
+ */
+.google-signin {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px 0 12px;
+  gap: 10px;
+  border: 1px solid var(--google-btn-stroke);
+  border-radius: var(--radius);
+  background: var(--google-btn-bg);
+  color: var(--google-btn-text);
+  font-family: "Google Sans", var(--font);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.google-signin:hover:not(:disabled),
+.google-signin:active:not(:disabled) {
+  /* The guidelines fix the three backgrounds and say nothing about hover, so
+     the state is shown WITHOUT touching the colour they fixed. */
+  border-color: var(--google-btn-stroke);
+  background: var(--google-btn-bg);
+  color: var(--google-btn-text);
+  box-shadow: var(--shadow-sm);
+}
+
+/* The mark is Google's own asset, unmodified. It is an <img> and not an
+   `.sx-icon` on purpose: every icon in this project inherits `currentColor`,
+   and recolouring the "G" is the first thing the guidelines forbid. */
+.google-signin-mark {
+  /* HEIGHT ONLY. The published mark is 200x204, and pinning both axes to 20px
+     stretches it by 2% — which "you must preserve the aspect ratio so that the
+     Google logo is not stretched" forbids. Caught by rendering the page and
+     measuring the box, not by reading the markup: every assertion about this
+     button passed while it was drawn stretched. */
+  height: 20px;
+  width: auto;
+  flex: none;
+}
+
 .card {
   display: block;
   background: var(--surface);
