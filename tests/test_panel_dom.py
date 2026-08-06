@@ -75,6 +75,10 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 import panel_harness as harness  # noqa: E402
 
+# Guards the extension: this file reads extension/ sources, so a change to a
+# button must run it. See tests/test_the_extension_gate_is_complete.py.
+pytestmark = pytest.mark.extension
+
 SOURCE_TAB = 'nav.side-rail button[data-view="source"]'
 RUN_TAB = 'nav.side-rail button[data-view="run"]'
 DATA_TAB = 'nav.side-rail button[data-view="data"]'

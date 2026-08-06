@@ -19,6 +19,10 @@ from pathlib import Path
 
 import pytest
 
+# Guards the extension: this file reads extension/ sources, so a change to a
+# button must run it. See tests/test_the_extension_gate_is_complete.py.
+pytestmark = pytest.mark.extension
+
 EXT = Path(__file__).resolve().parent.parent / "extension"
 HTML = (EXT / "app.html").read_text(encoding="utf-8")
 JS = (EXT / "app.js").read_text(encoding="utf-8")

@@ -13,6 +13,11 @@ from scrapex.ui_manifest import (
     RUN_MODE_OPTIONS, WORKSPACE_DESTINATIONS, ui_manifest,
     workspace_navigation_groups,
 )
+import pytest
+
+# Guards the extension: this file reads extension/ sources, so a change to a
+# button must run it. See tests/test_the_extension_gate_is_complete.py.
+pytestmark = pytest.mark.extension
 
 
 def test_every_destination_names_a_route_the_app_actually_serves():

@@ -9,6 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The scope step below diffs against the base branch, which needs
+          # more than the single commit a shallow checkout fetches.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -21,8 +25,49 @@ jobs:
         run: |
           pip install -e .[dev,browser]
           python -m playwright install --with-deps chromium
+
+      - name: What did this change touch?
+        id: scope
+        # THIS DECIDES WHICH SUITE RUNS, AND IT IS A STEP RATHER THAN A JOB
+        # FILTER ON PURPOSE. A workflow- or job-level `paths:` filter makes the
+        # job not exist, and a required check that does not exist stays pending
+        # forever — the pull request can never merge. A step that always runs and
+        # sets an output leaves the job reporting on every change, which is what
+        # branch protection needs.
+        #
+        # The rule is deliberately one-sided. `extension-only` means every
+        # changed file is inside extension/ or docs/; anything else — one line
+        # in scrapex/, one line in tests/, a workflow edit — runs the whole
+        # suite exactly as before. An unknown event, an empty diff, or a failure
+        # to compute the base all fall through to "run everything", because the
+        # expensive mistake here is skipping a suite, never running one twice.
+        run: |
+          set -euo pipefail
+          base=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && \
+               [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base="${{ github.event.before }}"
+          fi
+
+          scope=full
+          if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$base" "${{ github.sha }}")
+            if [ -n "$changed" ] && ! echo "$changed" | grep -qvE '^(extension/|docs/)'; then
+              scope=extension
+            fi
+            echo "changed files:"
+            echo "$changed" | sed 's/^/  /'
+          else
+            echo "no usable base commit; running everything"
+          fi
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          echo "SCOPE: $scope"
+
       - name: Validate the manifest (S5 gate — a broken contract can't merge)
         run: python -m scrapex.cli validate-manifest
+
       - name: The panel suite must RUN, not skip
         # tests/test_panel_dom.py opens with pytest.importorskip("playwright"),
         # so before this job installed the browser it skipped in CI on every
@@ -37,7 +82,28 @@ jobs:
           count=$(python -m pytest tests/test_panel_dom.py --collect-only -q | tr -d '\r' | grep -oE ': [0-9]+$' | grep -oE '[0-9]+' | tail -1)
           echo "panel tests collected: ${count:-0}"
           test "${count:-0}" -ge 40
+
+      - name: The extension gate must not have emptied
+        # The same reasoning as the line above, for the set the split depends
+        # on. 325 of 2020 tests carried the mark when the split was made; a file
+        # that reads extension/ and forgets the mark stops running on exactly
+        # the pull requests it was written for, and nothing goes red.
+        # tests/test_the_extension_gate_is_complete.py catches the missing mark;
+        # this catches the set being emptied some other way.
+        run: |
+          count=$(python -m pytest -m extension --collect-only -q | tr -d '\r' | grep -oE '^[0-9]+/[0-9]+ tests collected' | grep -oE '^[0-9]+')
+          echo "extension gate collected: ${count:-0}"
+          test "${count:-0}" -ge 300
+
+      - name: Extension gate only (this change touched nothing else)
+        if: steps.scope.outputs.scope == 'extension'
+        # THE POINT OF THE SPLIT. A button change runs the 325 tests that guard
+        # the extension and stops there. The engine suite is not skipped by
+        # being unreachable — it is skipped because nothing it tests changed.
+        run: python -m pytest -m extension
+
       - name: Tests (Python engine + Python-vs-frozen contract)
+        if: steps.scope.outputs.scope != 'extension'
         # tests/conftest.py restores a prebuilt schema template instead of
         # replaying 57 migrations per test, which is what turns a ~30-minute
         # local suite into ~6 minutes. It is a developer-loop convenience, and
@@ -52,6 +118,10 @@ jobs:
   contract-parity:
     # The two-engine guardrail: the JS engine must reproduce the FROZEN contract
     # vectors byte-for-byte, or two engines could fork one warehouse's history.
+    #
+    # Always runs, on every change, and is never scoped: it is seconds long, it
+    # needs no Python, and it is the one gate that would go unwatched if either
+    # side of the split forgot it.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
