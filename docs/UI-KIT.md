@@ -87,8 +87,13 @@ python tools/sync_design_assets.py
 
 ## 5. The vocabulary that already exists
 
-Before writing a new class, this is the list. All of it lives in
-`design/components.css` and works on both surfaces.
+**Open `design/gallery.html` in a browser.** No server, no build, no engine —
+double-click it. Every component below is on that page as a live example with
+its markup beside it, in both themes, and
+`tests/test_ui_kit.py::test_every_shared_component_is_in_the_catalogue` fails
+the moment a component exists in the sheet and nowhere on that page.
+
+The list below is the index. The page is the truth.
 
 **Buttons** — the bare `<button>` element is already the filled primary style.
 Compose, do not invent.
@@ -134,13 +139,35 @@ The rule, the guard, and the 17 fixed. First because it costs one test file and
 converts an invisible problem into a loud one. Everything after it is safe to do
 in any order without silently regressing.
 
-### UI-1 · The catalogue that cannot go stale
+### UI-1 · The catalogue that cannot go stale — *done*
 
-Nobody reuses what nobody can see. §5 above is a start, but a **hand-written
-list goes stale the first week**. Build a gallery page that renders every shared
-component with its markup, and a guard that fails when a component exists in
-`design/components.css` and not in the gallery. Then §5 becomes generated, and
-"look before inventing" becomes a link rather than a hope.
+`design/gallery.html`, opened by double-clicking it. Every shared component as a
+live example with its markup, both themes, and a guard that fails when a
+component is in the sheet and not on the page.
+
+**Building it found four things reading the CSS never would have.** Each is now
+written on the page beside the component it belongs to:
+
+- `split-button-menu` is a `<details>`, not a `<div>` with a button beside it.
+  Written the other way — which is how I wrote it first — it renders a collapsed
+  box with no chevron and options overlapping the page, because every rule is
+  written against `summary` and `[open]`.
+- `brand-logo` is an **empty `<span>`** with a CSS mask, not an `<svg>`.
+- `components.css` uses `--brand-mark` and does not define it. Each surface
+  points the token at its own copy of the asset, so a new surface that loads
+  the shared sheet and forgets the token gets a **solid black square** — and one
+  that sets it to an unreachable file gets an invisible element. Neither looks
+  like a missing token; both look like a broken component.
+- A `file:` page is its own opaque origin and can load **neither** an external
+  `<use href="sprite.svg#id">` nor a CSS mask image. Both are embedded into the
+  catalogue by `tools/sync_design_assets.py` and stale-checked like every other
+  distributed copy.
+
+A fifth came from the guard rather than the page: `href="#add"` reads as a
+three-digit hex colour, so the colour-literal guard in `tests/test_vendor.py`
+flagged a sprite reference. Every other page reaches the sprite through a path,
+which is why it had never been seen. The guard now ignores fragment references
+and still bites on a real literal.
 
 ### UI-2 · Promote what repeats, delete the copies
 

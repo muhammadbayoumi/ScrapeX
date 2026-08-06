@@ -61,8 +61,17 @@ ALLOWED_WITHOUT_A_RULE: dict[str, str] = {}
 
 
 def _classes_defined_in(css: str) -> set[str]:
-    return set(re.findall(r"\.([a-zA-Z][\w-]*)",
-                          re.sub(r"/\*.*?\*/", "", css, flags=re.S)))
+    """Class names a stylesheet defines rules for.
+
+    Comments and `url("…")` values are stripped first. Without that,
+    `url("x-mark.svg")` reads as a rule for a class named `svg` — which does
+    not break the "used but undefined" direction (it only adds a name nobody
+    writes) but does break the catalogue's own check, where a stray name looks
+    like a component defined on the wrong page.
+    """
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    body = re.sub(r"url\([^)]*\)", "", body)
+    return set(re.findall(r"\.([a-zA-Z][\w-]*)", body))
 
 
 def _webui_sheets() -> list[pathlib.Path]:
@@ -128,6 +137,57 @@ def test_the_shared_vocabulary_is_reachable_from_both_surfaces(defined):
 
     base = (ROOT / "scrapex" / "webui" / "templates" / "base.html").read_text(encoding="utf-8")
     assert "components.css" in base, "the web UI no longer loads the shared sheet"
+
+
+def test_every_shared_component_is_in_the_catalogue(defined):
+    """UI-1. Nobody reuses what nobody can see.
+
+    `design/components.css` holds the vocabulary both surfaces share, and until
+    2026-08-05 there was no page that showed it. A hand-written list in a
+    document goes stale in a week; this fails the moment a component exists in
+    the sheet and nowhere on the catalogue page.
+
+    The rule is presence, not a section per class — a modifier like `hi` or
+    `compact` appears on the base component it modifies, which is exactly where
+    a reader needs to see it. The commonest reason a modifier "does not work"
+    is that its rule is `.card.hi` and it was written on a `<div>`.
+    """
+    css = (ROOT / "design" / "components.css").read_text(encoding="utf-8")
+    shared = _classes_defined_in(css)
+
+    gallery = (ROOT / "design" / "gallery.html")
+    assert gallery.exists(), "the catalogue is gone; UI-KIT.md §6 says why it exists"
+    shown: set[str] = set()
+    for attribute in re.findall(r'class="([^"]*)"', gallery.read_text(encoding="utf-8")):
+        shown |= set(attribute.split())
+
+    missing = sorted(shared - shown)
+    assert not missing, (
+        "shared components with no live example in design/gallery.html:\n  "
+        + "\n  ".join(missing))
+
+
+def test_the_catalogue_uses_only_the_canonical_sheets(defined):
+    """The catalogue has to be the real thing or it teaches a fiction.
+
+    It loads `tokens.css` and `components.css` from beside it — the canonical
+    files, not the distributed copies — so a change to the canon shows up here
+    the moment it is made, with no sync step in between.
+    """
+    gallery = (ROOT / "design" / "gallery.html").read_text(encoding="utf-8")
+    for sheet in ('href="tokens.css"', 'href="components.css"'):
+        assert sheet in gallery, f"the catalogue no longer loads {sheet}"
+
+    # Its own chrome is allowed one <style> block, and every rule in it is
+    # prefixed `g-`. A component styled here rather than in components.css
+    # would look right on this page and be missing everywhere else.
+    chrome = re.search(r"<style>(.*?)</style>", gallery, re.S)
+    assert chrome, "the catalogue lost its own chrome styles"
+    own = {name for name in _classes_defined_in(chrome.group(1))
+           if not name.startswith("g-")}
+    assert not own, (
+        f"the catalogue styles {sorted(own)} itself; a component belongs in "
+        f"design/components.css, or it exists only on this page")
 
 
 def test_the_allow_list_cannot_grow_without_a_reason():
