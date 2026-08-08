@@ -18,9 +18,38 @@ KNOWN_COMMANDS = frozenset({
 })
 
 
+#: Asked BEFORE anything else, because the rule below deliberately sends every
+#: dash-argument to the native host and would swallow these too.
+VERSION_FLAGS = frozenset({"--version", "-V"})
+
+
 def main() -> int:
     from scrapex.cli import main as cli_main
     from scrapex.native import serve
+    from scrapex.version import VERSION
+
+    # WHAT IS THIS BINARY? — answered first, and on stdout.
+    #
+    # It is the only question that can be asked of an engine you have just
+    # downloaded and do not yet trust, and until this existed there was NO WAY
+    # TO ASK IT. `--version` starts with a dash, the filter below dropped it,
+    # `argv` came out empty, and the executable quietly became a native
+    # messaging host waiting on stdin for framed JSON. It printed nothing and
+    # looked like a hang.
+    #
+    # The release workflow's "the thing that was built must actually run" step
+    # is what found this, on its first real run, by getting an empty string back
+    # from a flag it had assumed existed.
+    #
+    # Chrome never passes these: its launch arguments are the host manifest
+    # path, the calling origin, and on Windows `--parent-window=<handle>`. An
+    # exact match on two spellings cannot collide with any of them, which is why
+    # this is a membership test and not a prefix test.
+    if VERSION_FLAGS & set(sys.argv[1:]):
+        from scrapex.native import PROTOCOL_VERSION
+
+        print(f"ScrapeX-Engine {VERSION} (protocol {PROTOCOL_VERSION})")
+        return 0
 
     # Chrome passes the host manifest path and an origin argument whose shape
     # varies by Chrome build. Testing for "looks like a manifest" was fragile —
