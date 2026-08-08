@@ -1,21 +1,27 @@
 // "We don't know the latest engine" has several causes and only one is a fault.
 //
 // A single "unavailable" for all of them is how an owner learns to ignore the
-// row: he cannot tell a rate limit that clears itself in an hour from a broken
-// build, so he checks neither. Each branch here is a different sentence, and
-// each is asserted separately.
+// row: he cannot tell a check that will work tomorrow from a broken build, so
+// he checks neither. Each branch here is a different sentence, and each is
+// asserted separately.
 //
-// THE FEED IS A LIST, NOT `/releases/latest`, and one case here is the whole
-// reason. The public site carries SEVERAL products — ScrapeX and the Excel
-// add-in, with more to come — so `/releases/latest` answers with whatever was
-// published last by anyone. An add-in release cut after an engine release would
-// have made the panel say "no engine has been released yet" with complete
-// confidence and no truth in it.
+// A MANIFEST FILE, NOT THE RELEASES API. This is the one thing taken wholesale
+// from the Excel add-in's release path, which has polled its own version.json
+// across seventy-six releases. Two reasons, and the second is the one that
+// forced it:
 //
-// Everything is pure: a status, a body and headers in, a verdict out. That is
-// what makes the offline and rate-limited branches testable at all — a test
-// that had to reach GitHub to prove what happens when GitHub cannot be reached
-// would be the least reliable test in the repository.
+//   * api.github.com allows SIXTY unauthenticated requests an hour PER IP.
+//     One owner never notices. An office or a VPN behind a shared address
+//     starts getting refusals that this code would report honestly and
+//     uselessly, because nothing the owner can do fixes it.
+//   * The hub carries SEVERAL products. Reading a list and filtering by tag
+//     worked, but the manifest simply says which product it is about, and a
+//     check is better than a convention.
+//
+// Everything is pure: a status and a body in, a verdict out. That is what makes
+// the offline branch testable at all — a test that had to reach the network to
+// prove what happens when the network is unreachable would be the least
+// reliable test in the repository.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -24,121 +30,110 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { readLatestRelease, latestEngineRelease, RELEASES_API, PUBLIC_REPO,
-         PUBLIC_HOME, CHECK_TIMEOUT_MS } from "../releases.js";
+import { readVersionManifest, latestEngineRelease, VERSION_MANIFEST,
+         PUBLIC_REPO, PUBLIC_HOME, PRODUCT,
+         CHECK_TIMEOUT_MS } from "../releases.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const headers = (pairs = {}) => ({ get: (k) => pairs[k.toLowerCase()] ?? null });
-
-const engine = (version, extra = {}) => ({
-  tag_name: `engine-v${version}`,
+const manifest = (version, extra = {}) => ({
+  product: PRODUCT,
+  version,
+  tag: `engine-v${version}`,
   published_at: "2026-08-06T09:00:00Z",
-  html_url: `https://github.com/${PUBLIC_REPO}/releases/tag/engine-v${version}`,
-  assets: [{ name: "scrapex-engine.exe", browser_download_url: "https://x/e.exe",
-             size: 24_000_000 }],
+  release_url: `https://github.com/${PUBLIC_REPO}/releases/tag/engine-v${version}`,
+  minimum_extension_version: "0.2.0",
+  protocol_version: 1,
+  installer: {
+    name: "scrapex-engine.exe",
+    url: `https://github.com/${PUBLIC_REPO}/releases/download/engine-v${version}/scrapex-engine.exe`,
+    bytes: 24_000_000,
+    sha256: "a".repeat(64),
+  },
   ...extra,
 });
 
 test("a published engine release is read with its version and installer", () => {
-  const r = readLatestRelease(200, [engine("0.4.0")], headers());
+  const r = readVersionManifest(200, manifest("0.4.0"));
 
   assert.equal(r.state, "ok");
   assert.equal(r.version, "0.4.0");
   assert.equal(r.installer.name, "scrapex-engine.exe");
   assert.equal(r.installer.bytes, 24_000_000);
+  assert.equal(r.installer.sha256.length, 64);
 });
 
-test("another product's release does not hide the engine's", () => {
-  // THE CASE THE SHARED SITE CREATED. GitHub returns the list newest first, so
-  // an add-in release cut this morning sits above an engine release cut last
-  // week. Reading only the first entry would report "no engine yet".
-  const r = readLatestRelease(200, [
-    { tag_name: "addinx-v2.1.0", assets: [] },
-    { tag_name: "scrapex-v0.9.0", assets: [] },
-    engine("0.4.0"),
-  ], headers());
+test("the compatibility floor travels with the release, before anything is installed", () => {
+  // THE REASON THE MANIFEST CARRIES MORE THAN A VERSION. Without these two
+  // numbers the panel can only discover that a release refuses to talk to it
+  // AFTER downloading and installing it. With them it can say so in the row.
+  const r = readVersionManifest(200, manifest("0.4.0"));
 
-  assert.equal(r.state, "ok");
-  assert.equal(r.version, "0.4.0");
+  assert.equal(r.minimumExtension, "0.2.0");
+  assert.equal(r.protocol, 1);
 });
 
-test("the NEWEST engine release wins when there are several", () => {
-  const r = readLatestRelease(200, [engine("0.5.0"), engine("0.4.0")], headers());
+test("the add-in's manifest is not read as the engine's", () => {
+  // THE CASE THE SHARED HUB CREATES. `Xadd-in/json/version.json` sits one
+  // folder away and has the same shape. A path typo would otherwise produce a
+  // confident, wrong version — the worst of the possible failures, because it
+  // looks exactly like success.
+  const r = readVersionManifest(200, {
+    product: "mbix-addin", version: "1.0.1.76",
+  });
 
-  assert.equal(r.version, "0.5.0");
+  assert.equal(r.state, "unreadable");
+  assert.match(r.detail, /mbix-addin/);
+  assert.match(r.detail, /not the ScrapeX engine/);
+  assert.equal(r.version, undefined);
 });
 
-test("a draft or a pre-release is not offered to anyone", () => {
-  // A draft is not published and a pre-release is not for the owner. Offering
-  // either as "the latest" sends him to install something nobody released.
-  const r = readLatestRelease(200, [
-    engine("0.9.0", { draft: true }),
-    engine("0.8.0", { prerelease: true }),
-    engine("0.4.0"),
-  ], headers());
-
-  assert.equal(r.version, "0.4.0");
+test("a manifest that names no usable version is refused rather than shown", () => {
+  // An empty string rendered into the row reads as "the latest engine is ",
+  // and a four-part add-in version rendered there reads as an upgrade that
+  // does not exist.
+  for (const bad of ["", "1.0.1.76", "v0.4.0", "latest", null]) {
+    const r = readVersionManifest(200, manifest("0.4.0", { version: bad }));
+    assert.equal(r.state, "unreadable", `${bad} was accepted as a version`);
+  }
 });
 
 test("a release with no installer attached says so instead of promising one", () => {
   // Discovering this at the moment of pressing Install is the failure.
-  const r = readLatestRelease(200, [engine("0.4.0", { assets: [] })], headers());
+  const r = readVersionManifest(200, manifest("0.4.0", { installer: null }));
 
   assert.equal(r.state, "ok");
   assert.equal(r.version, "0.4.0");
   assert.equal(r.installer, null);
 });
 
-test("a site with no releases at all is not an error", () => {
-  const r = readLatestRelease(200, [], headers());
+test("no manifest at all means nothing has been released, and is not an error", () => {
+  // THE STATE EVERY MACHINE IS IN BEFORE THE FIRST RELEASE, and the one the
+  // old feed could not express: the list endpoint answered 200 with [], so a
+  // 404 there meant the repository was unreachable. Here the file is simply
+  // not written until the first release writes it, and its absence is the
+  // true and complete answer.
+  const r = readVersionManifest(404, null);
 
   assert.equal(r.state, "none");
   assert.match(r.detail, /No engine has been released yet/);
 });
 
-test("a site with releases but none of them the engine's says which", () => {
-  // Not "no engine yet" and not an error: the feed answered, and what it said
-  // was about a different product. Naming it is what stops the owner hunting
-  // for a fault that is not there.
-  const r = readLatestRelease(200, [
-    { tag_name: "addinx-v2.1.0", assets: [] },
-  ], headers());
-
-  assert.equal(r.state, "none");
-  assert.match(r.detail, /addinx-v2\.1\.0/);
-  assert.match(r.detail, /different product/);
-  assert.equal(r.version, undefined);
-});
-
-test("a 404 means the site cannot be seen, not that nothing is released", () => {
-  // The LIST endpoint answers 200 with [] when there are no releases, so a 404
-  // is the repository itself being unreachable — renamed, or private. The
-  // distinction matters: one sends the owner to wait and the other to look.
-  const r = readLatestRelease(404, null, headers());
-
-  assert.equal(r.state, "unreadable");
-  assert.match(r.detail, /renamed, or is not public/);
-});
-
-test("a rate limit is told apart from a failure, because it clears itself", () => {
-  const r = readLatestRelease(403, {}, headers({ "x-ratelimit-remaining": "0" }));
-
-  assert.equal(r.state, "rate-limited");
-  assert.match(r.detail, /nothing is wrong with the engine/);
-});
-
-test("a 403 that is not a rate limit is not called one", () => {
-  const r = readLatestRelease(403, {}, headers({ "x-ratelimit-remaining": "57" }));
-
-  assert.equal(r.state, "unreadable");
-});
-
 test("anything else is unreadable and names the number", () => {
-  const r = readLatestRelease(500, null, headers());
+  const r = readVersionManifest(500, null);
 
   assert.equal(r.state, "unreadable");
   assert.match(r.detail, /500/);
+});
+
+test("a 200 carrying something that is not a manifest is unreadable", () => {
+  // What a proxy, a captive portal or a CDN error page actually returns: 200,
+  // with HTML. `json()` fails, the reader is handed null, and the row must not
+  // claim an engine.
+  for (const body of [null, "<html>", 42, []]) {
+    const r = readVersionManifest(200, body);
+    assert.equal(r.state, "unreadable", `${JSON.stringify(body)} was accepted`);
+  }
 });
 
 test("nobody answering is offline, and says the engine you have keeps working", async () => {
@@ -148,27 +143,34 @@ test("nobody answering is offline, and says the engine you have keeps working", 
   assert.match(r.detail, /keeps working/);
 });
 
-test("the check carries its own timeout, and asks the right site", async () => {
+test("the check carries its own timeout, asks the right file, and refuses a cache", async () => {
   // THE POINT OF THE SEPARATE TIMEOUT: a stalled third party must never be
   // able to delay the panel the owner opened. Asserted on the call rather than
   // by waiting four seconds for it.
+  //
+  // AND THE POINT OF `no-cache`: this file is REWRITTEN IN PLACE on every
+  // release. A CDN copy of yesterday's would hide a release that exists, which
+  // is the one failure the whole check exists to prevent.
   let seen = null;
   await latestEngineRelease(async (url, options) => {
     seen = { url, options };
-    return { status: 200, headers: headers(),
-             json: async () => [{ tag_name: "engine-v1.0.0", assets: [] }] };
+    return { status: 200, json: async () => manifest("1.0.0") };
   });
 
-  assert.equal(seen.url, RELEASES_API);
+  assert.equal(seen.url, VERSION_MANIFEST);
+  assert.ok(seen.url.startsWith("https://raw.githubusercontent.com/"),
+    "the check reads api.github.com, which allows sixty unauthenticated " +
+    "requests an hour per IP — a shared address starts being refused");
   assert.ok(seen.url.includes(PUBLIC_REPO));
   assert.ok(seen.options.signal, "no abort signal, so a stalled fetch hangs the check");
+  assert.equal(seen.options.cache, "no-cache");
   assert.equal(CHECK_TIMEOUT_MS, 4000);
 });
 
 test("the public home is named once and every url is built from it", () => {
   // Three hard-coded copies of a repository name is three chances to move two
   // of them.
-  assert.ok(RELEASES_API.includes(PUBLIC_REPO));
+  assert.ok(VERSION_MANIFEST.includes(PUBLIC_REPO));
   assert.equal(PUBLIC_HOME, `https://github.com/${PUBLIC_REPO}`);
   assert.ok(!PUBLIC_REPO.endsWith("/ScrapeX"),
     "the feed points at the source repository, which goes private before the " +
@@ -178,17 +180,17 @@ test("the public home is named once and every url is built from it", () => {
 test("the manifest lets the extension reach the feed at all", () => {
   // WITHOUT THIS THERE IS NO SYMPTOM TO SEE. Chrome refuses the request, the
   // reader's own catch-all turns the refusal into "offline", and the Engines
-  // page says GitHub could not be reached — on a machine whose network is
-  // perfectly fine. Every panel test still passes, because the harness stubs
+  // page says the endpoint could not be reached — on a machine whose network
+  // is perfectly fine. Every panel test still passes, because the harness stubs
   // fetch and never asks Chrome for permission.
   //
   // Caught by mutation: removing the host permission was SILENT across the
   // whole suite until this assertion existed.
-  const manifest = JSON.parse(
+  const shipped = JSON.parse(
     readFileSync(join(HERE, "..", "manifest.json"), "utf8"));
-  const host = new URL(RELEASES_API).origin + "/*";
+  const host = new URL(VERSION_MANIFEST).origin + "/*";
 
-  assert.ok((manifest.host_permissions || []).includes(host),
+  assert.ok((shipped.host_permissions || []).includes(host),
     `manifest.host_permissions does not include ${host}, so Chrome refuses the ` +
     `release check and the page reports a network that is not broken`);
 });

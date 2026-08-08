@@ -11,8 +11,30 @@ name: Release the engine
 # before the first release, and GitHub answers 404 on a private repository's
 # releases endpoint to anyone not signed in — which is every user. The panel
 # reads a 404 as "nothing has been released yet", so every installation in the
-# world would be told the engine had never shipped. Releases therefore go to the
-# public site, which carries several products and identifies each by its tag.
+# world would be told the engine had never shipped. Releases therefore go to
+# mbiX-hub, which describes itself as the ecosystem's public delivery endpoint,
+# already carries seventy-six of the Excel add-in's releases, and already has a
+# `ScrapeX/` folder waiting beside `Xadd-in/`.
+#
+# WHAT WAS COPIED FROM THE ADD-IN'S RELEASE PATH, and it is worth naming
+# because it was learned there the expensive way:
+#
+#   * A VERSION MANIFEST the clients poll, instead of the releases API. Its
+#     UpdateService reads `Xadd-in/json/version.json` from raw.githubusercontent
+#     .com; this writes `ScrapeX/json/version.json` beside it. The reason is a
+#     hard number: api.github.com allows SIXTY unauthenticated requests an hour
+#     PER IP, so one office or VPN behind a shared address starts being told
+#     "rate limited" by a check nobody can fix.
+#   * REFUSING A RELEASE THAT IS NOT NEWER THAN WHAT IS PUBLISHED. Its comment
+#     says why in one line: clients would never update, or would be told to
+#     downgrade.
+#   * `concurrency`, because two releases at once race on that one manifest and
+#     the loser silently wins.
+#
+# WHAT WAS NOT COPIED. The add-in builds on a self-hosted runner and imports a
+# signing certificate, because it needs Office installed and a signed ClickOnce
+# manifest. PyInstaller needs neither; `windows-latest` is correct here, and
+# Decision 22 already accepts an unsigned binary.
 
 on:
   push:
@@ -27,6 +49,24 @@ on:
 
 permissions:
   contents: read
+
+# One release at a time. Two runs finishing minutes apart would both rewrite
+# ScrapeX/json/version.json, and the one that finished LAST would win — which
+# is not the same as the one with the higher version. Every check below would
+# have passed, and the published manifest would still be wrong.
+concurrency:
+  group: release-engine
+  cancel-in-progress: false
+
+env:
+  # THE PUBLIC DELIVERY ENDPOINT, named once for both jobs. extension/
+  # releases.js holds the same string, and tests/test_the_two_release_paths.py
+  # reads it from there and asserts this matches — publishing to a repository
+  # the panel does not read is a release nobody ever sees.
+  PUBLIC_REPO: muhammadbayoumi/mbiX-hub
+  # Where the panel looks. `ScrapeX/` already exists in the hub, beside the
+  # add-in's `Xadd-in/`.
+  MANIFEST_PATH: ScrapeX/json/version.json
 
 jobs:
   build:
@@ -58,6 +98,59 @@ jobs:
           echo "version says $version"
           test "$tag" = "$version"
           echo "ENGINE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: This release must be newer than the one already published
+        # TAKEN FROM THE ADD-IN, WHICH LEARNED IT THE EXPENSIVE WAY. Every
+        # other check in this file asks whether the release is CONSISTENT WITH
+        # ITSELF. This is the only one that asks whether it makes sense next to
+        # what users already have, and the two ways it can fail are both silent:
+        #
+        #   same version   the panel compares, sees no change, and offers
+        #                  nothing — the release is published and invisible
+        #   lower version  every installation is told the engine it is running
+        #                  is ahead of the newest one, or is offered a
+        #                  downgrade, depending on which it does with the answer
+        #
+        # It runs BEFORE the build because the manifest is public and needs no
+        # token, so this costs seconds and saves ten minutes of PyInstaller.
+        #
+        # A dispatch run REPORTS but does not fail: once 0.3.0 is released the
+        # source still says 0.3.0, and a build check that refused from then
+        # until the next version bump would simply stop being used.
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://raw.githubusercontent.com/${PUBLIC_REPO}/main/${MANIFEST_PATH}"
+          published=$(curl -fsS "$url" 2>/dev/null \
+            | python -c "import json,sys;print(json.load(sys.stdin).get('version',''))" \
+            2>/dev/null || true)
+
+          if [ -z "$published" ]; then
+            echo "nothing is published yet; $ENGINE_VERSION will be the first"
+            exit 0
+          fi
+          echo "published says $published"
+          echo "this run says  $ENGINE_VERSION"
+
+          newer=$(python -c "
+          import sys
+          def parts(s): return tuple(int(n) for n in s.split('.'))
+          print('yes' if parts('$ENGINE_VERSION') > parts('$published') else 'no')")
+
+          if [ "$newer" = "yes" ]; then
+            echo "this release is newer"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::warning::$ENGINE_VERSION is not newer than the published \
+          $published. A tag would be refused here; this dispatch continues so \
+          the build can still be checked."
+            exit 0
+          fi
+          echo "::error::$ENGINE_VERSION is not newer than the published $published."
+          echo "Clients would never update, or would be told to downgrade."
+          echo "Raise VERSION in scrapex/version.py and tag that instead."
+          exit 1
 
       - name: Install
         run: |
@@ -94,12 +187,59 @@ jobs:
           sha256sum scrapex-engine.exe > scrapex-engine.exe.sha256
           cat scrapex-engine.exe.sha256
 
+      - name: Write the manifest the panel will read
+        # WRITTEN HERE, not in the publishing job, because this is the only
+        # place the source exists. `minimum_extension_version` and
+        # `protocol_version` are read OUT OF THE ENGINE BEING SHIPPED rather
+        # than typed, so the manifest cannot advertise a floor the binary does
+        # not enforce — the exact shape of mistake the tag/version check above
+        # exists to stop, one layer further out.
+        #
+        # Publishing the floor at all is what lets the panel say "this needs a
+        # newer extension" BEFORE anything is downloaded, instead of after an
+        # install that then refuses to talk.
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PUBLISHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python - <<'PY' > dist/version.json
+          import hashlib, json, os, pathlib
+          from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION
+          from scrapex.native import PROTOCOL_VERSION
+
+          exe = pathlib.Path("dist/scrapex-engine.exe")
+          repo = os.environ["PUBLIC_REPO"]
+          tag = f"engine-v{VERSION}"
+          base = f"https://github.com/{repo}/releases/download/{tag}"
+
+          print(json.dumps({
+              # The hub serves several products from one tree. Naming the
+              # product is what stops the panel reading the add-in's manifest
+              # and reporting a confident, wrong version.
+              "product": "scrapex-engine",
+              "version": VERSION,
+              "tag": tag,
+              "published_at": os.environ["PUBLISHED_AT"],
+              "release_url": f"https://github.com/{repo}/releases/tag/{tag}",
+              "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
+              "protocol_version": PROTOCOL_VERSION,
+              "installer": {
+                  "name": exe.name,
+                  "url": f"{base}/{exe.name}",
+                  "bytes": exe.stat().st_size,
+                  "sha256": hashlib.sha256(exe.read_bytes()).hexdigest(),
+              },
+          }, indent=2))
+          PY
+          cat dist/version.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: scrapex-engine
           path: |
             dist/scrapex-engine.exe
             dist/scrapex-engine.exe.sha256
+            dist/version.json
 
   publish:
     needs: build
@@ -122,7 +262,6 @@ jobs:
         # about GitHub permissions, and the real answer is one secret.
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
-          PUBLIC_REPO: muhammadbayoumi/mbiXsite
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
@@ -149,3 +288,37 @@ jobs:
           the download arrived whole." \
             dist/scrapex-engine.exe \
             dist/scrapex-engine.exe.sha256
+
+      - name: Point the manifest at it
+        # LAST, AND SEPARATELY, because this is the moment the release becomes
+        # VISIBLE. Until this file changes, every panel in the world still reads
+        # the previous version and offers the previous installer — the release
+        # exists, and nothing has been told about it.
+        #
+        # That ordering is deliberate: a manifest written before the assets
+        # were attached would point every installation at a download that
+        # 404s. This way the worst case is a published release nobody is
+        # offered yet, which is recoverable by re-running one step.
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The Contents API needs the blob's current sha to replace it, and
+          # there isn't one the first time. An empty sha is how you say "create".
+          sha=$(gh api "repos/${PUBLIC_REPO}/contents/${MANIFEST_PATH}" \
+                  --jq .sha 2>/dev/null || true)
+          args=(-X PUT
+                -f "message=ScrapeX-Engine ${GITHUB_REF_NAME#engine-v}"
+                -f "content=$(base64 -w0 dist/version.json)"
+                -f "path=${MANIFEST_PATH}")
+          if [ -n "$sha" ]; then
+            args+=(-f "sha=$sha")
+            echo "replacing the published manifest ($sha)"
+          else
+            echo "no manifest is published yet; creating ${MANIFEST_PATH}"
+          fi
+          gh api "repos/${PUBLIC_REPO}/contents/${MANIFEST_PATH}" "${args[@]}" --jq .content.path
+
+          echo ""
+          echo "Published. Every panel that opens from now on reads:"
+          echo "  https://raw.githubusercontent.com/${PUBLIC_REPO}/main/${MANIFEST_PATH}"

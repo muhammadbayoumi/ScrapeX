@@ -9,7 +9,7 @@ ScrapeX is maintained by **Muhammad Bayoumi**.
 ## Getting help
 
 **Open an issue:**
-[github.com/muhammadbayoumi/mbiXsite/issues](https://github.com/muhammadbayoumi/mbiXsite/issues)
+[github.com/muhammadbayoumi/mbiX-hub/issues](https://github.com/muhammadbayoumi/mbiX-hub/issues)
 
 That is the fastest route and the one worth using first: an issue is public, so
 the answer helps whoever hits the same thing next, and it cannot be lost in a

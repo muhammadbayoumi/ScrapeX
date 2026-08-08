@@ -74,7 +74,7 @@ these two:
 
 | Host | What for |
 |---|---|
-| `api.github.com` | Asking whether a newer engine has been published. The request carries no information about you at all. |
+| `raw.githubusercontent.com` | Reading one small file that says which engine version is the newest. It is fetched exactly as any browser fetches a public page, and the request carries no information about you at all. |
 | `www.googleapis.com` | Google's own endpoints — the name and picture of the signed-in account, and Drive when you back up. Nothing is sent here unless you have signed in, and nothing beyond what the permissions above describe. |
 
 The engine itself talks to the sites you added, and to `127.0.0.1` — which is
@@ -124,7 +124,7 @@ not directed at children and collects nothing about anyone who uses it.
 
 If this policy changes, the new version replaces this page and the date at the
 top changes with it. Every version is public at
-[github.com/muhammadbayoumi/mbiXsite](https://github.com/muhammadbayoumi/mbiXsite),
+[github.com/muhammadbayoumi/mbiX-hub](https://github.com/muhammadbayoumi/mbiX-hub),
 including its full history.
 
 ---

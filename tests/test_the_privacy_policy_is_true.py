@@ -130,12 +130,12 @@ def test_the_two_documents_point_at_each_other():
 def test_nothing_public_points_at_the_private_source_repository():
     """THE FAILURE THIS PREVENTS IS SILENT AND TOTAL.
 
-    ScrapeX's source is private. GitHub answers 404 on a private repository's
-    releases endpoint to anyone not signed in — which is every user — and
-    `readLatestRelease` reads a 404 as "nothing has been released yet". Every
-    panel in the world would say the engine had never shipped, in a sentence
-    that is honest about a fact that is wrong. The support link would 404 in a
-    browser for the same reason.
+    ScrapeX's source is private. GitHub answers 404 on a private repository to
+    anyone not signed in — which is every user — and `readVersionManifest`
+    reads a 404 as "nothing has been released yet". Every panel in the world
+    would say the engine had never shipped, in a sentence that is honest about
+    a fact that is wrong. The support link would 404 in a browser for the same
+    reason.
 
     So no URL a user can reach may name the private repository, and there is
     nothing else in this codebase that would notice if one did.
@@ -164,9 +164,10 @@ def test_the_public_home_is_named_once_and_derived_everywhere_else():
     releases = (ROOT / "extension" / "releases.js").read_text(encoding="utf-8")
 
     assert releases.count('PUBLIC_REPO = "') == 1
-    assert "${PUBLIC_REPO}/releases?per_page=" in releases, (
-        "the feed reads /releases/latest again, which on a site carrying "
-        "several products answers with whichever was published last by anyone")
+    assert "raw.githubusercontent.com/${PUBLIC_REPO}/main/" in releases, (
+        "the feed reads api.github.com again, which allows sixty "
+        "unauthenticated requests an hour PER IP — every user behind a shared "
+        "address starts being refused a check none of them can fix")
     assert "https://github.com/${PUBLIC_REPO}" in releases
 
 

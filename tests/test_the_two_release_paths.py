@@ -18,7 +18,12 @@ only be caught by reading it, which is what this does.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+import shutil
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
@@ -127,6 +132,149 @@ def test_the_release_goes_to_the_public_site_and_not_this_repository(engine):
     assert f"PUBLIC_REPO: {public}" in engine, (
         "the workflow publishes somewhere other than where the panel looks")
     assert "--repo" in engine
+
+
+# ---- what was learned on the add-in's release path ---------------------------
+# mbiXaddin has cut seventy-six releases through a workflow of the same shape.
+# Three of its guards exist because something went wrong without them, and all
+# three apply here unchanged. The rest of that workflow — a self-hosted runner,
+# an imported signing certificate — exists because the add-in needs Office and a
+# signed ClickOnce manifest, and is deliberately NOT copied.
+
+def test_a_release_must_be_newer_than_the_one_already_published(engine):
+    """THE GUARD THIS PATH DID NOT HAVE, and the only one that looks OUTWARD.
+
+    Every other check asks whether the release is consistent with itself. This
+    asks whether it makes sense next to what users already have, and both ways
+    it can fail are silent: an equal version is published and never offered,
+    and a lower one tells every installation it is ahead of the newest engine.
+
+    Its wording is taken from the add-in's own comment, because that is where
+    the failure was paid for.
+    """
+    assert "Clients would never update, or would be told to downgrade" in engine
+
+    # It must run BEFORE the build. The manifest is public and needs no token,
+    # so the check costs seconds — and after the build it costs ten minutes of
+    # PyInstaller to learn something that was knowable at the start.
+    guard = engine.index("This release must be newer")
+    build = engine.index("python packaging/build_engine.py")
+    assert guard < build, (
+        "the published version is checked after the build, which wastes it")
+
+
+def test_two_releases_at_once_cannot_race_on_the_published_manifest(engine):
+    """One file decides what every panel is offered. Two runs finishing minutes
+    apart would both rewrite it, and the one that finished LAST would win —
+    which is not the same as the one with the higher version. Every check in
+    this file would have passed."""
+    # PARSED, NOT SEARCHED. `"concurrency:" in engine` passed against a file
+    # where the key had been renamed to `x-concurrency:` — the substring was
+    # still there, and GitHub would have ignored the block entirely. Caught by
+    # mutation; the lesson is that a workflow key is a key, not a word.
+    yaml = pytest.importorskip("yaml")
+    parsed = yaml.safe_load(engine)
+
+    assert parsed.get("concurrency"), "no concurrency group: two releases can race"
+    assert parsed["concurrency"].get("group")
+    assert "cancel-in-progress: false" in engine, (
+        "a cancelled release can be cancelled between publishing the release "
+        "and pointing the manifest at it")
+
+
+def test_the_manifest_is_written_from_the_engine_and_not_typed(engine):
+    """`minimum_extension_version` and `protocol_version` are published so the
+    panel can say "this needs a newer extension" BEFORE anything is downloaded.
+    Typing them would let the manifest advertise a floor the binary does not
+    enforce — the same shape of lie as a tag that disagrees with its version,
+    one layer further out."""
+    assert "from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION" in engine
+    assert "from scrapex.native import PROTOCOL_VERSION" in engine
+    assert '"product": "scrapex-engine"' in engine, (
+        "the manifest does not name its product, so the panel cannot tell it "
+        "from the add-in's manifest one folder away")
+
+
+def test_the_manifest_is_pointed_at_the_release_only_after_it_exists(engine):
+    """A manifest written before the assets were attached points every
+    installation at a download that 404s. This order makes the worst case a
+    published release nobody is offered yet, which one re-run fixes."""
+    publish = engine.index("Publish to the public site")
+    point = engine.index("Point the manifest at it")
+    assert publish < point
+
+
+def test_what_the_workflow_writes_is_what_the_panel_can_read(engine, tmp_path):
+    """THE ONLY TEST HERE THAT RUNS ANYTHING, and the only one that can catch a
+    disagreement between the two halves.
+
+    Every other assertion in this file reads the workflow. But the workflow
+    WRITES a manifest and the panel READS one, and they are a hundred lines and
+    two languages apart. A renamed field — `installer.size` for
+    `installer.bytes`, `min_extension` for `minimum_extension_version` — would
+    leave both sides individually correct, both suites green, and the Engines
+    page saying "the release manifest could not be read" on the first real
+    release, at the one moment nothing can be un-published.
+
+    So the workflow's own Python is lifted OUT OF THE YAML and run, and its
+    output is handed to the real reader.
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not on PATH")
+
+    # Lifted rather than copied. A copy would be a second thing to update, and
+    # it would pass while the workflow rotted.
+    body = engine.split("python - <<'PY' > dist/version.json\n", 1)[1]
+    body = body.split("\n          PY\n", 1)[0]
+    body = textwrap.dedent(body)
+
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "scrapex-engine.exe").write_bytes(b"not really an engine")
+
+    written = subprocess.run(
+        [sys.executable, "-c", body], cwd=tmp_path, capture_output=True, text=True,
+        env={**os.environ,
+             "PUBLIC_REPO": "muhammadbayoumi/mbiX-hub",
+             "PUBLISHED_AT": "2026-08-08T00:00:00Z",
+             "PYTHONPATH": str(ROOT)})
+    assert written.returncode == 0, written.stderr
+    manifest = json.loads(written.stdout)
+
+    check = tmp_path / "check.mjs"
+    check.write_text(
+        # A file:// URL, not a path: node's ESM loader refuses a Windows
+        # absolute path outright ("Received protocol 'c:'").
+        "import { readVersionManifest } from "
+        f"{json.dumps((ROOT / 'extension' / 'releases.js').as_uri())};\n"
+        f"const r = readVersionManifest(200, {json.dumps(manifest)});\n"
+        "if (r.state !== 'ok') { console.error(r.detail); process.exit(1); }\n"
+        "console.log(JSON.stringify(r));\n", encoding="utf-8")
+
+    read = subprocess.run([node, str(check)], capture_output=True, text=True)
+    assert read.returncode == 0, (
+        f"the panel cannot read what the release workflow writes: {read.stderr}")
+
+    got = json.loads(read.stdout)
+    # Not just "readable" — the fields the page actually shows must arrive.
+    assert got["version"] == manifest["version"]
+    assert got["installer"]["bytes"] == manifest["installer"]["bytes"]
+    assert got["minimumExtension"] == manifest["minimum_extension_version"]
+    assert got["protocol"] == manifest["protocol_version"]
+
+
+def test_the_panel_and_the_workflow_name_the_same_file(engine):
+    """Two constants describing one path is one chance to move a single one of
+    them, and the symptom would be a panel reading a file nothing writes —
+    which reports "no engine has been released yet" forever."""
+    import re
+
+    read = re.search(
+        r'`https://raw\.githubusercontent\.com/\$\{PUBLIC_REPO\}/main/([^`]+)`',
+        (ROOT / "extension" / "releases.js").read_text(encoding="utf-8")).group(1)
+
+    assert f"MANIFEST_PATH: {read}" in engine, (
+        f"the panel reads {read} and the workflow writes somewhere else")
 
 
 def test_a_missing_token_is_named_rather_than_crashed_on(engine):
