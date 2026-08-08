@@ -1,3 +1,15 @@
+> **SUPERSEDED — 2026-08-08, by M5.** ScrapeX no longer has two databases. M5 collapsed
+> General and MarketLens into one file, `~/.scrapex/engine/scrapex-engine.db`,
+> and deleted both migration streams, both classes and the `split-databases` and
+> `rollback-databases` commands this page describes.
+>
+> **It is kept, unedited, on purpose.** It records a decision that was taken and
+> shipped, and rewriting it to match today would describe a history that did not
+> happen — which is the same kind of lie as leaving it looking current. Read it
+> as what ScrapeX was between 2026-07-20 and 2026-08-08, not as instructions.
+> What replaced it: `db/engine/derived-from.json` records exactly what the two
+> databases held at the moment they were merged.
+
 You are a senior product designer, UX architect, browser-extension engineer, local-runtime engineer, and data-platform architect.
 
 Your mission is to design and implement a production-quality browser Side Panel Extension for resilient website crawling, scraping, structured local storage, dataset management, historical change tracking, price monitoring, Excel export, Google Sheets synchronization, and background job scheduling.

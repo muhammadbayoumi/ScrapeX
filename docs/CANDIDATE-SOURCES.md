@@ -13,7 +13,7 @@ manifest, so a site sits here until somebody deliberately moves it — and movin
 work this file exists to defer, not to hide.
 
 **Where a site goes when it leaves:** `docs/SOURCES-REGISTER.md` is the developer's
-scoreboard for sources that already exist, split by system (MarketLens = the product and
+scoreboard for sources that already exist, split by system (price capture = the product and
 price warehouse; General = the generic dataset catalogue, which has no sources yet and
 whose extraction features are off). Every row here is also summarised there under
 *§3 Not yet assigned*.
@@ -229,7 +229,7 @@ nor a probe: it is a slice of the product nobody has built.
 would come back with `default_region: *`. A two-entry dictionary fix when someone gets
 there; recorded so the `*` is not mistaken for a fact about the sites.
 
-**Q-B · A "market" site with no prices is not a MarketLens price source** — folded into Q-F
+**Q-B · A "market" site with no prices is not a price source** — folded into Q-F
 above.
 
 **What probing the whole queue would cost.** `probe()` makes at most four requests per site
