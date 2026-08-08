@@ -85,7 +85,8 @@ def test_the_generic_storage_and_its_immutable_evidence_are_present(conn):
     which migration happened to introduce them — history, not a guarantee. What
     has to stay true is that they are here.
     """
-    assert dbmod.schema_version(conn) == 1
+    from scrapex.databases.domain import EngineDatabase
+    assert dbmod.schema_version(conn) == EngineDatabase(":memory:").latest_schema_version
     objects = {
         row["name"]: row["type"]
         for row in conn.execute(

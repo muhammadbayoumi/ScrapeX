@@ -75,7 +75,7 @@ class SiteCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=200)
     base_url: AnyHttpUrl
     lifecycle: SiteLifecycle = SiteLifecycle.DRAFT
-    marketlens_source_key: str | None = Field(
+    price_source_key: str | None = Field(
         default=None, pattern=r"^[A-Z][A-Z0-9_]{2,63}$"
     )
     # Accepted only while a legacy unified catalogue is being migrated. New
@@ -138,7 +138,7 @@ class SiteView(BaseModel):
     site_key: str
     display_name: str
     base_url: AnyHttpUrl
-    marketlens_source_key: str | None = None
+    price_source_key: str | None = None
     price_source_id: int | None
     lifecycle: SiteLifecycle
     created_at: str

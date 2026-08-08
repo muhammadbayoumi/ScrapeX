@@ -43,7 +43,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 CONTRACTS_DIR = ROOT_DIR / "contracts"
 
 
-def _marketlens_path(args: argparse.Namespace) -> Path:
+def _engine_path(args: argparse.Namespace) -> Path:
     explicit = getattr(args, "db", None)
     if explicit:
         return Path(explicit)
@@ -467,7 +467,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     if not payloads:
         print(f"no payloads in local inbox for {entry.source_key} — run: scrapex crawl {entry.source_key}")
         return 1
-    db_path = _marketlens_path(args)
+    db_path = _engine_path(args)
     with dbmod.write_lock(db_path):
         conn = dbmod.connect(db_path)
         try:
@@ -505,7 +505,7 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_peek(args: argparse.Namespace) -> int:
-    db_path = _marketlens_path(args)
+    db_path = _engine_path(args)
     if not Path(db_path).exists():
         print("harvest.db not initialized — run: scrapex init-db")
         return 1
@@ -569,7 +569,7 @@ def _cmd_native_host(args: argparse.Namespace) -> int:
     """Chrome launches this; it speaks framed JSON on stdio, not to a human."""
     from .native import serve
 
-    db_path = _marketlens_path(args)
+    db_path = _engine_path(args)
     # Migrate only an EXPLICIT legacy --db warehouse. The registry's MarketLens
     # database has its own migration stream and is already at head; the unified
     # stream over it dies on "table tax_rule already exists" — which killed the
@@ -600,7 +600,7 @@ def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
     arrangement, different sink."""
     from .publish import publish_source
 
-    db_path = _marketlens_path(args)
+    db_path = _engine_path(args)
     if not Path(db_path).exists():
         print("harvest.db not initialized — crawl + ingest first", file=sys.stderr)
         return 1
@@ -772,7 +772,7 @@ def _cmd_ui(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     # S8 watchdog: fleshed out when ingest lands (Phase 1); the surface exists
     # now so the owner's habit starts on day one.
-    db_path = _marketlens_path(args)
+    db_path = _engine_path(args)
     if not Path(db_path).exists():
         print("harvest.db not initialized — run: scrapex init-db")
         return 1
@@ -897,7 +897,7 @@ def _cmd_run_due(args) -> int:
               "schedules on its own; nothing to do")
         return 0
 
-    db_path = _marketlens_path(args)
+    db_path = _engine_path(args)
     if not Path(db_path).exists():
         print(f"no database at {db_path} — nothing to fire", file=sys.stderr)
         return 1
