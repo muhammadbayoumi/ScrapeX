@@ -279,6 +279,41 @@ def test_what_the_workflow_writes_is_what_the_panel_can_read(engine, tmp_path):
     assert got["protocol"] == manifest["protocol_version"]
 
 
+def test_a_workflow_that_runs_pytest_installs_the_extra_that_provides_it(
+        engine, extension):
+    """THE DEFECT THIS EXISTS FOR ACTUALLY HAPPENED, on the first real dispatch.
+
+    The engine path installed `.[ui,local,commodity]`, spent five minutes doing
+    it, and then died on `No module named pytest` — because pytest lives in the
+    `dev` extra and nothing named it. Every assertion in this file passed: the
+    step was there, it was ordered correctly, it named the right environment
+    variable. It simply could not run.
+
+    So the extra is not typed here. It is READ OUT OF pyproject.toml — whichever
+    extra declares pytest is the one a workflow that runs pytest must install —
+    and moving pytest to a different extra tomorrow moves this guard with it.
+    """
+    tomllib = pytest.importorskip("tomllib")
+    extras = tomllib.loads(
+        (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["optional-dependencies"]
+
+    providing = sorted(name for name, deps in extras.items()
+                       if any(d.split(">=")[0].split("[")[0].strip() == "pytest"
+                              for d in deps))
+    assert providing, "no extra declares pytest, so nothing here can be checked"
+
+    for label, text in (("engine", engine), ("extension", extension)):
+        if "python -m pytest" not in text:
+            continue
+        install = next((line for line in text.splitlines()
+                        if "pip install -e" in line), "")
+        assert any(f"{name}" in install for name in providing), (
+            f"the {label} path runs pytest but installs {install.strip()!r}, "
+            f"which brings in none of {providing} — the step will die on "
+            f"'No module named pytest' AFTER the install has spent its minutes")
+
+
 def test_the_documents_the_store_requires_are_published_with_the_release(engine):
     """THE STORE WILL NOT ACCEPT A LISTING WITHOUT A PUBLIC PRIVACY POLICY URL,
     and the website renders these two rather than keeping its own copy.
@@ -458,8 +493,21 @@ def test_neither_path_can_publish_from_a_manual_run_by_accident(engine, extensio
 def test_the_engine_runs_the_suite_that_covers_it(engine):
     """`-m "not extension"` is deliberately NOT used: two of the marked files
     guard the engine as well, and a release is the last moment to start
-    skipping tests."""
-    assert 'pytest -q -m "not extension"' in engine
+    skipping tests.
+
+    THIS DOCSTRING WAS TRUE AND THE ASSERTION UNDER IT WAS NOT. It required the
+    filter it says must not be there, and the workflow carried a comment arguing
+    against the very flag it passed — three statements of intent, two of them
+    contradicting the code. Nothing caught it because everything agreed with the
+    thing that was wrong.
+
+    tests/test_version.py holds the capability ledger the compatibility floor is
+    derived from and tests/test_native.py holds PROTOCOL_VERSION. Both are
+    marked `extension`, and both decide whether this binary can be spoken to.
+    """
+    assert 'run: python -m pytest -q\n' in engine, (
+        "the release filters its own suite; the two extension-marked files that "
+        "guard the ENGINE would be skipped at the moment of shipping")
     assert "SCRAPEX_FULL_MIGRATIONS" in engine, (
         "the release does not replay the real migration stream, so it ships "
         "against the test-only schema template")

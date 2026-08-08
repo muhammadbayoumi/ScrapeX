@@ -153,17 +153,41 @@ jobs:
           exit 1
 
       - name: Install
+        # `dev` IS THE EXTRA THAT CARRIES PYTEST, and leaving it out is how the
+        # first real dispatch of this workflow died: `No module named pytest`,
+        # after five minutes of installing everything else. Nothing that reads
+        # this file could have caught it — the step named a suite it had no way
+        # to run — so a guard that reads pyproject for whichever extra provides
+        # pytest now sits in tests/test_the_two_release_paths.py.
+        #
+        # `browser` and the Chromium download are here because the step below
+        # runs the WHOLE suite, and the panel tests in it drive a real browser.
         run: |
-          pip install -e ".[ui,local,commodity]"
+          pip install -e ".[dev,browser,ui,local,commodity]"
+          python -m playwright install chromium
           pip install pyinstaller
 
       - name: The engine must pass its own tests before it is shipped
-        # `-m "not extension"` is wrong here on purpose: two of the extension
-        # files guard the ENGINE as well, and a release is the last moment to
-        # start skipping tests. See tests/test_the_extension_gate_is_complete.py.
+        # THE WHOLE SUITE, with no marker filter, and that is a correction.
+        #
+        # This used to run `-m "not extension"` while its own comment argued
+        # that doing so was wrong — and the test guarding it asserted the
+        # filter was present under a docstring saying it was "deliberately NOT
+        # used". Three statements of intent, two of them contradicting the code.
+        #
+        # The intent was the right one. `-m "not extension"` skips eleven files,
+        # and TWO OF THEM GUARD THE ENGINE: tests/test_version.py holds the
+        # capability ledger the compatibility floor is derived from, and
+        # tests/test_native.py holds PROTOCOL_VERSION, which decides whether the
+        # extension can speak to this binary at all. Skipping those at the
+        # moment of shipping is skipping the two things a release can most
+        # expensively get wrong.
+        #
+        # It costs the panel suite's minutes on a workflow that runs monthly.
+        # See tests/test_the_extension_gate_is_complete.py.
         env:
           SCRAPEX_FULL_MIGRATIONS: "1"
-        run: python -m pytest -q -m "not extension"
+        run: python -m pytest -q
 
       - name: Build
         run: python packaging/build_engine.py
