@@ -25,6 +25,13 @@ SUPPORT = ROOT / "docs" / "support.md"
 MANIFEST = json.loads(
     (ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
 
+#: Read from the extension rather than typed here. It is the one place the
+#: public home is named, and a test that spelled it out again would be a second
+#: place for it to be wrong.
+PUBLIC_REPO = re.search(
+    r'PUBLIC_REPO = "([^"]+)"',
+    (ROOT / "extension" / "releases.js").read_text(encoding="utf-8")).group(1)
+
 
 def test_both_documents_the_store_requires_exist():
     """Neither did before M4. The store refuses a listing without them."""
@@ -105,7 +112,7 @@ def test_the_support_page_names_a_reachable_route_and_what_to_send():
     side by side for exactly this purpose."""
     support = SUPPORT.read_text(encoding="utf-8")
 
-    assert "github.com/muhammadbayoumi/ScrapeX/issues" in support
+    assert f"github.com/{PUBLIC_REPO}/issues" in support
     assert "Installed version" in support and "About" in support
     assert "Do not send your database" in support, (
         "nothing warns the reader off attaching everything he has collected")
@@ -116,3 +123,56 @@ def test_the_two_documents_point_at_each_other():
     able to reach the other."""
     assert "support.md" in POLICY.read_text(encoding="utf-8")
     assert "privacy-policy.md" in SUPPORT.read_text(encoding="utf-8")
+
+
+# ---- everything a user can reach must be reachable ---------------------------
+
+def test_nothing_public_points_at_the_private_source_repository():
+    """THE FAILURE THIS PREVENTS IS SILENT AND TOTAL.
+
+    ScrapeX's source is private. GitHub answers 404 on a private repository's
+    releases endpoint to anyone not signed in — which is every user — and
+    `readLatestRelease` reads a 404 as "nothing has been released yet". Every
+    panel in the world would say the engine had never shipped, in a sentence
+    that is honest about a fact that is wrong. The support link would 404 in a
+    browser for the same reason.
+
+    So no URL a user can reach may name the private repository, and there is
+    nothing else in this codebase that would notice if one did.
+    """
+    private = "muhammadbayoumi/ScrapeX"
+    assert PUBLIC_REPO != private, "the release feed points at the private source"
+
+    facing = [
+        ROOT / "extension" / "releases.js",
+        ROOT / "docs" / "support.md",
+        ROOT / "docs" / "privacy-policy.md",
+    ]
+    for path in facing:
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if line.lstrip().startswith(("//", "#", "*")):
+                continue        # comments explain the rule and may quote it
+            assert private not in line, (
+                f"{path.name} sends a user to {private}, which is private: {line.strip()}")
+
+
+def test_the_public_home_is_named_once_and_derived_everywhere_else():
+    """Three hard-coded copies of a repository name is three chances to move
+    two of them. The feed URL and the human URL are both built from the one
+    constant."""
+    releases = (ROOT / "extension" / "releases.js").read_text(encoding="utf-8")
+
+    assert releases.count('PUBLIC_REPO = "') == 1
+    assert "${PUBLIC_REPO}/releases?per_page=" in releases, (
+        "the feed reads /releases/latest again, which on a site carrying "
+        "several products answers with whichever was published last by anyone")
+    assert "https://github.com/${PUBLIC_REPO}" in releases
+
+
+def test_the_support_and_policy_name_the_same_public_home():
+    """A support page pointing one way and a policy the other is a reader who
+    cannot tell which is the real project."""
+    for path in (ROOT / "docs" / "support.md", ROOT / "docs" / "privacy-policy.md"):
+        assert PUBLIC_REPO in path.read_text(encoding="utf-8"), (
+            f"{path.name} does not name the public home")

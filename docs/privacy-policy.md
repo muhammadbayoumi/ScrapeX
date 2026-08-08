@@ -122,9 +122,10 @@ not directed at children and collects nothing about anyone who uses it.
 
 ## Changes to this policy
 
-If this policy changes, the new version replaces this file in the ScrapeX
-repository and the date at the top changes with it. The history of every change
-is public in the repository's own commit log.
+If this policy changes, the new version replaces this page and the date at the
+top changes with it. Every version is public at
+[github.com/muhammadbayoumi/mbiXsite](https://github.com/muhammadbayoumi/mbiXsite),
+including its full history.
 
 ---
 

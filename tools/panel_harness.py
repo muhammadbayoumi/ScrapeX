@@ -97,9 +97,11 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     instead of a token, and it is a separate knob because a closed consent
     window and a mismatched OAuth client are different sentences.
 
-    `github_release` is the fifth: the body GitHub's releases/latest endpoint
-    answers with, or None for the 404 a repository with no releases gives —
-    which is what this repository gives TODAY, so the default is the truth.
+    `github_release` is the fifth: the LIST GitHub's releases endpoint answers
+    with, newest first. None means the empty list a site with no releases gives
+    — which is what the public site gives TODAY, so the default is the truth.
+    A single release may be passed on its own and is wrapped, because most
+    tests care about one.
 
     `protocol_version` is the fourth knob and it defaults to the REAL
     scrapex.native.PROTOCOL_VERSION for the same reason. /api/health has carried
@@ -253,14 +255,15 @@ window.fetch = async (url, options) => {{
     return {{ ok: true, status: 200, json: async () => SIGNED_IN }};
   }}
   if (String(url).includes("api.github.com")) {{
-    if (!GITHUB_RELEASE) {{
-      // A repository with no releases answers 404 on /releases/latest. That is
-      // this repository today, so it is the default.
-      return {{ ok: false, status: 404, headers: {{ get: () => null }},
-                json: async () => ({{message: "Not Found"}}) }};
-    }}
+    // The LIST endpoint, because the public site carries several products and
+    // /releases/latest would answer with whichever was published last by
+    // anyone. An empty list is what a site with no releases returns — a 200,
+    // not a 404.
+    const list = GITHUB_RELEASE
+      ? (Array.isArray(GITHUB_RELEASE) ? GITHUB_RELEASE : [GITHUB_RELEASE])
+      : [];
     return {{ ok: true, status: 200, headers: {{ get: () => null }},
-              json: async () => GITHUB_RELEASE }};
+              json: async () => list }};
   }}
   if (!ENGINE_UP) throw new Error("engine down");
   if (SLOW) await new Promise(r => setTimeout(r, 60000));   // freeze on loading state

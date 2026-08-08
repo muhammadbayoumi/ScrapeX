@@ -16,14 +16,44 @@
 // API's normal answer by a wide margin and shorter than anyone waits for a
 // panel to paint.
 
+// THE PUBLIC HOME, and it is deliberately not this code's own repository.
+//
+// ScrapeX's source goes private before the first release. GitHub answers 404 on
+// a private repository's releases endpoint to anyone not signed in — which is
+// every user of this extension — and a 404 reads here as "nothing has been
+// released yet". Every panel in the world would say the engine had never
+// shipped, in a sentence that is honest about a fact that is wrong.
+//
+// So releases are published from the PUBLIC site, which is also where the
+// install page, the privacy policy and the support page live. Named once here,
+// so it cannot become three different answers.
+export const PUBLIC_REPO = "muhammadbayoumi/mbiXsite";
+
+// THE LIST, NOT `/releases/latest`, and this is the whole reason:
+//
+// That site carries SEVERAL products — ScrapeX and the Excel add-in, and more
+// to come — so `/releases/latest` returns whatever was published last by
+// ANYONE. Publish an add-in release after an engine release and the endpoint
+// answers with the add-in; the tag would not match, and the panel would say
+// "no engine has been released yet" with complete confidence and no truth in
+// it at all.
+//
+// Listing and picking the newest engine tag is one extra field in the request
+// and removes the failure entirely.
 export const RELEASES_API =
-  "https://api.github.com/repos/muhammadbayoumi/ScrapeX/releases/latest";
+  `https://api.github.com/repos/${PUBLIC_REPO}/releases?per_page=30`;
+
+/** Where a human goes: issues, the install page, the policy. */
+export const PUBLIC_HOME = `https://github.com/${PUBLIC_REPO}`;
 
 export const CHECK_TIMEOUT_MS = 4000;
 
 // The tag a release carries. `engine-v0.4.0` is the engine's — PLATFORM-PLAN
 // Decision 21 gives the two products separate tags, so a `scrapex-v…` tag on
 // this feed is the EXTENSION's release and says nothing about the engine.
+// The tag an ENGINE release carries, and nothing else does. Decision 21 gives
+// the extension its own `scrapex-v…` tag, and the other products on this site
+// carry their own — so the tag is what says which product a release is for.
 const ENGINE_TAG = /^engine-v(\d+\.\d+\.\d+)$/;
 
 /**
@@ -51,37 +81,51 @@ export function readLatestRelease(status, body, headers) {
                      "within the hour; nothing is wrong with the engine." };
   }
   if (status === 404) {
-    // A repository with no releases answers 404 on /releases/latest. That is
-    // not an error and must never be shown as one: it is the true and complete
-    // answer "nothing has been released yet".
-    return { state: "none",
-             detail: "No engine has been released yet." };
+    // The LIST endpoint answers 200 with `[]` when a repository has no
+    // releases, so a 404 here means the repository itself cannot be seen —
+    // renamed, or private. Distinguishing it matters: "nothing released yet"
+    // sends the owner to wait, and this sends him to look.
+    return { state: "unreadable",
+             detail: "The release feed could not be found. The repository was " +
+                     "renamed, or is not public." };
   }
   if (status !== 200) {
     return { state: "unreadable",
              detail: `GitHub answered ${status}.` };
   }
 
-  const tag = body && typeof body.tag_name === "string" ? body.tag_name : "";
-  const match = ENGINE_TAG.exec(tag);
-  if (!match) {
-    // A release exists and it is not an engine release — the extension's own
-    // tag, or a hand-made one. Saying "unknown" here would be wrong twice: the
-    // feed answered, and what it said was simply about something else.
+  // A LIST, because this site publishes several products. GitHub returns it
+  // newest first, so the first entry carrying an engine tag is the newest
+  // engine release however many add-in releases were cut after it.
+  const releases = Array.isArray(body) ? body : [];
+  let release = null;
+  let match = null;
+  for (const candidate of releases) {
+    if (!candidate || candidate.draft || candidate.prerelease) continue;
+    const found = ENGINE_TAG.exec(
+      typeof candidate.tag_name === "string" ? candidate.tag_name : "");
+    if (found) { release = candidate; match = found; break; }
+  }
+
+  if (!release) {
+    // The feed answered and had nothing for THIS product. Saying "unknown"
+    // would be wrong twice: it answered, and what it said was about something
+    // else.
     return { state: "none",
-             detail: tag
-               ? `The newest release is ${tag}, which is not an engine release.`
+             detail: releases.length
+               ? `Nothing on the release feed is an engine release yet — the ` +
+                 `newest is ${releases[0].tag_name}, which is a different product.`
                : "No engine has been released yet." };
   }
 
-  const asset = (body.assets || []).find(
+  const asset = (release.assets || []).find(
     (a) => a && typeof a.name === "string" && a.name.endsWith(".exe"));
   return {
     state: "ok",
     version: match[1],
-    tag,
-    publishedAt: typeof body.published_at === "string" ? body.published_at : "",
-    url: typeof body.html_url === "string" ? body.html_url : "",
+    tag: release.tag_name,
+    publishedAt: typeof release.published_at === "string" ? release.published_at : "",
+    url: typeof release.html_url === "string" ? release.html_url : "",
     // Named even when absent: a release with no installer attached is a
     // release nobody can install, and that is worth seeing rather than
     // discovering at the moment of pressing Install.
