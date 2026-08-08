@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { readVersionManifest, latestEngineRelease, VERSION_MANIFEST,
-         PUBLIC_REPO, PUBLIC_HOME, PRODUCT,
+         manifestUrl, PUBLIC_REPO, PUBLIC_HOME, PRODUCT,
          CHECK_TIMEOUT_MS } from "../releases.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -143,27 +143,40 @@ test("nobody answering is offline, and says the engine you have keeps working", 
   assert.match(r.detail, /keeps working/);
 });
 
-test("the check carries its own timeout, asks the right file, and refuses a cache", async () => {
+test("a release cannot stay invisible behind the CDN's five-minute cache", () => {
+  // `cache: "no-store"` governs the BROWSER's cache and does not reach the CDN
+  // in front of raw.githubusercontent.com, which holds this file for about
+  // five minutes. Since the manifest is rewritten in place on every release, a
+  // release could exist and be unofferable for those five minutes.
+  //
+  // A MINUTE BUCKET, NOT A UNIQUE TIMESTAMP, and that is mbiXsite's finding on
+  // this same endpoint: everyone within one minute shares a cache entry, so
+  // the CDN still absorbs nearly every request, where a per-request stamp
+  // pushed every caller to origin and made the timeout likelier to fire.
+  const at = (ms) => new URL(manifestUrl(ms)).searchParams.get("t");
+
+  assert.equal(at(0), "0");
+  assert.equal(at(59_999), at(30_000), "the key changes inside one minute");
+  assert.notEqual(at(60_000), at(59_999), "the key never changes");
+});
+
+test("the check carries its own timeout and asks the right file", async () => {
   // THE POINT OF THE SEPARATE TIMEOUT: a stalled third party must never be
   // able to delay the panel the owner opened. Asserted on the call rather than
   // by waiting four seconds for it.
-  //
-  // AND THE POINT OF `no-cache`: this file is REWRITTEN IN PLACE on every
-  // release. A CDN copy of yesterday's would hide a release that exists, which
-  // is the one failure the whole check exists to prevent.
   let seen = null;
   await latestEngineRelease(async (url, options) => {
     seen = { url, options };
     return { status: 200, json: async () => manifest("1.0.0") };
   });
 
-  assert.equal(seen.url, VERSION_MANIFEST);
+  assert.ok(seen.url.startsWith(VERSION_MANIFEST));
   assert.ok(seen.url.startsWith("https://raw.githubusercontent.com/"),
     "the check reads api.github.com, which allows sixty unauthenticated " +
     "requests an hour per IP — a shared address starts being refused");
   assert.ok(seen.url.includes(PUBLIC_REPO));
   assert.ok(seen.options.signal, "no abort signal, so a stalled fetch hangs the check");
-  assert.equal(seen.options.cache, "no-cache");
+  assert.equal(seen.options.cache, "no-store");
   assert.equal(CHECK_TIMEOUT_MS, 4000);
 });
 

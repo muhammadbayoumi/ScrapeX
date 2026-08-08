@@ -112,15 +112,32 @@ export function readVersionManifest(status, body) {
   };
 }
 
+/**
+ * The URL actually fetched, carrying a cache key that changes once a minute.
+ *
+ * NOT AN OPTIMISATION AND NOT SUPERSTITION. raw.githubusercontent.com serves
+ * this file through a CDN that caches it for about five minutes, and
+ * `cache: "no-store"` does not reach that — it governs the BROWSER's cache
+ * only. The manifest is rewritten in place on every release, so without this a
+ * release can exist and be invisible for five minutes after it is published.
+ *
+ * The minute bucket rather than a unique timestamp is mbiXsite's own solution
+ * to the same problem on the same endpoint, and its reasoning is worth keeping:
+ * everyone loading within the same minute shares one cache entry, so the CDN
+ * still absorbs almost every request. A per-request timestamp pushes every
+ * caller through to origin, which measurably slowed the fetch and made the
+ * timeout below far likelier to fire.
+ */
+export function manifestUrl(now = Date.now()) {
+  return `${VERSION_MANIFEST}?t=${Math.floor(now / 60000)}`;
+}
+
 /** Ask the endpoint, and never let the asking delay anything. */
 export async function latestEngineRelease(fetchImpl = fetch) {
   let response;
   try {
-    response = await fetchImpl(VERSION_MANIFEST, {
-      // The manifest is rewritten in place on every release, and a CDN copy of
-      // yesterday's is worse than no answer: it would offer an upgrade that
-      // has already been superseded, or hide one that exists.
-      cache: "no-cache",
+    response = await fetchImpl(manifestUrl(), {
+      cache: "no-store",
       signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
     });
   } catch (_) {
