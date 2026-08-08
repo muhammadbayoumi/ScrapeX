@@ -7,6 +7,13 @@
 --
 -- 51 tables, 59 indexes, 20 triggers, 2 views.
 
+-- WHAT A FILE IS, before anything reads a table out of it. The
+-- application id lives in the SQLite header, so a backup restored into
+-- the wrong place is refused rather than half-used. Written from
+-- scrapex/database_ids.py, so the two cannot drift apart.
+PRAGMA foreign_keys = ON;
+PRAGMA application_id = 1398293838;  -- 0x5358454E
+
 -- ---- tables -------------------------------------------------------------
 
 CREATE TABLE absence_period (
@@ -1133,3 +1140,14 @@ WHEN (SELECT dataset_definition_id FROM field_definition
 BEGIN
     SELECT RAISE(ABORT, 'schema fields must belong to the schema dataset');
 END;
+
+-- ---- identity --------------------------------------------------------------
+
+INSERT INTO scrapex_meta (key, value) VALUES
+    ('database_kind', 'engine'),
+    ('migration_stream', 'engine');
+
+-- The stream restarts at 1. Safe only while nothing is published and no
+-- database in the world is stamped `engine`; from the first release on,
+-- this number is as immovable as the price stream's is now.
+PRAGMA user_version = 1;

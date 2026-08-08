@@ -74,6 +74,8 @@ def derive() -> str:
             "these objects are defined differently in the two streams and "
             f"cannot be merged automatically: {clashes}")
 
+    from scrapex.database_ids import ENGINE_APPLICATION_ID, ENGINE_DATABASE_KIND
+
     merged = {**price, **generic}
     lines = [
         "-- ScrapeX-Engine, one database, one schema.",
@@ -89,6 +91,14 @@ def derive() -> str:
         f"{len([k for k in merged if k[0] == 'trigger'])} triggers, "
         f"{len([k for k in merged if k[0] == 'view'])} views.",
         "",
+        "-- WHAT A FILE IS, before anything reads a table out of it. The",
+        "-- application id lives in the SQLite header, so a backup restored into",
+        "-- the wrong place is refused rather than half-used. Written from",
+        "-- scrapex/database_ids.py, so the two cannot drift apart.",
+        "PRAGMA foreign_keys = ON;",
+        f"PRAGMA application_id = {ENGINE_APPLICATION_ID};"
+        f"  -- 0x{ENGINE_APPLICATION_ID:X}",
+        "",
     ]
     for kind in ORDER:
         names = sorted(name for typ, name in merged if typ == kind)
@@ -99,6 +109,19 @@ def derive() -> str:
         for name in names:
             lines.append(merged[(kind, name)].strip().rstrip(";") + ";")
             lines.append("")
+
+    lines += [
+        "-- ---- identity " + "-" * 62,
+        "",
+        "INSERT INTO scrapex_meta (key, value) VALUES",
+        f"    ('database_kind', '{ENGINE_DATABASE_KIND}'),",
+        f"    ('migration_stream', '{ENGINE_DATABASE_KIND}');",
+        "",
+        "-- The stream restarts at 1. Safe only while nothing is published and no",
+        "-- database in the world is stamped `engine`; from the first release on,",
+        "-- this number is as immovable as the price stream's is now.",
+        "PRAGMA user_version = 1;",
+    ]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
