@@ -1,0 +1,90 @@
+name: Publish the documents the store links to
+
+# THE ORDERING PROBLEM THIS SOLVES, found the moment the website went up.
+#
+# mbiXsite's ScrapeX pages render `privacy-policy.md` and `support.md` straight
+# from mbiX-hub rather than keeping their own copy — which is right, and was
+# asked for in docs/SITE-BRIEF.md, because a retyped policy stops matching the
+# extension the tests check it against.
+#
+# But those two files were published ONLY by release-engine.yml's publish job,
+# which is gated on an `engine-v*` tag. So all three pages went live and
+# rendered nothing, and the chain behind that is worse than an empty page:
+#
+#   the Chrome Web Store will not accept a listing without a WORKING privacy
+#   policy URL  ->  the URL is the website page  ->  the page needs the markdown
+#   in the hub  ->  the markdown needed a release  ->  the release is part of
+#   the milestone the listing belongs to.
+#
+# The documents are not release artifacts. They describe what the extension asks
+# for and how to get help, and both are true before anything is tagged. So they
+# can be published on their own, whenever, by hand.
+#
+# THEY STILL GO OUT WITH EVERY RELEASE TOO, and that is not a duplicate. The
+# policy's promises are asserted against the SHIPPED manifest by
+# tests/test_the_privacy_policy_is_true.py — it must name every OAuth scope the
+# extension asks for and every host it can reach — so each release republishing
+# them is what keeps the published text describing the build that is out.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "docs/privacy-policy.md"
+      - "docs/support.md"
+
+permissions:
+  contents: read
+
+# The same group as the release path: both write into mbiX-hub through the
+# Contents API, and two writers on one file is a lost update.
+concurrency:
+  group: release-engine
+  cancel-in-progress: false
+
+env:
+  PUBLIC_REPO: muhammadbayoumi/mbiX-hub
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The promises must still be true of what ships
+        # PUBLISHING IS NOT COPYING. This is the file that says which scopes the
+        # extension asks for and which hosts it can reach, and it is checked
+        # against the real manifest rather than trusted. Publishing it without
+        # that check would put a policy on the web that describes an extension
+        # nobody built.
+        run: |
+          pip install -e .[dev]
+          python -m pytest -q tests/test_the_privacy_policy_is_true.py
+
+      - name: Publish to the public delivery endpoint
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::PUBLIC_SITE_TOKEN is not set."
+            echo "The documents were checked and nothing was published."
+            echo "Create a fine-grained personal access token with Contents:"
+            echo "write on $PUBLIC_REPO and add it as the repository secret"
+            echo "PUBLIC_SITE_TOKEN, then re-run this workflow."
+            exit 1
+          fi
+          . .github/workflows/put-to-hub.sh
+          for doc in privacy-policy support; do
+            put_to_hub "ScrapeX/docs/$doc.md" "docs/$doc.md" \
+              "ScrapeX docs, published from ${GITHUB_SHA:0:7}"
+          done
+
+          echo ""
+          echo "The website's ScrapeX pages read these directly:"
+          echo "  https://muhammadbayoumi.github.io/mbiXsite/scrapex-privacy.html"
+          echo "  https://muhammadbayoumi.github.io/mbiXsite/scrapex-support.html"

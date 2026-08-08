@@ -511,3 +511,69 @@ def test_the_engine_runs_the_suite_that_covers_it(engine):
     assert "SCRAPEX_FULL_MIGRATIONS" in engine, (
         "the release does not replay the real migration stream, so it ships "
         "against the test-only schema template")
+
+
+# ---- the documents are not release artifacts ---------------------------------
+
+DOCS = WORKFLOWS / "publish-docs.yml"
+
+
+def test_the_store_documents_can_be_published_without_cutting_a_release(engine):
+    """THE ORDERING PROBLEM, FOUND WHEN THE WEBSITE WENT UP.
+
+    mbiXsite's ScrapeX pages render privacy-policy.md and support.md straight
+    from the hub instead of keeping a copy — which is right, and is what
+    docs/SITE-BRIEF.md asked for, because a retyped policy stops matching the
+    extension the tests check it against.
+
+    But the only thing publishing them was the release path's tag-gated job. So
+    three pages went live rendering nothing, and behind that sat a circle: the
+    store needs a WORKING privacy policy URL, the URL is the page, the page
+    needs the markdown, the markdown needed a release, and the release is part
+    of the same milestone as the listing.
+
+    They are not release artifacts. They describe what the extension asks for
+    and how to get help, and both are true before anything is tagged.
+    """
+    yaml = pytest.importorskip("yaml")
+    assert DOCS.is_file(), "nothing can publish the documents on their own"
+
+    parsed = yaml.safe_load(DOCS.read_text(encoding="utf-8"))
+    triggers = parsed.get(True) or parsed.get("on")
+    assert "workflow_dispatch" in triggers, (
+        "the documents still cannot be published by hand")
+
+    # AND STILL WITH EVERY RELEASE, which is not a duplicate: the policy is
+    # asserted against the SHIPPED manifest, so republishing on each release is
+    # what keeps the published text describing the build that is out.
+    assert 'put_to_hub "ScrapeX/docs/$doc.md"' in engine, (
+        "a release no longer republishes the documents, so the published policy "
+        "can describe a build that is no longer the one shipping")
+
+
+def test_publishing_a_document_checks_it_before_putting_it_on_the_web(engine):
+    """Publishing is not copying. This file says which OAuth scopes the
+    extension asks for and which hosts it can reach, and it is checked against
+    the real manifest rather than trusted — so the check has to run on the way
+    out, or the web gets a policy describing an extension nobody built."""
+    text = DOCS.read_text(encoding="utf-8")
+    assert "tests/test_the_privacy_policy_is_true.py" in text
+
+    yaml = pytest.importorskip("yaml")
+    steps = [s.get("name", "") for s in
+             yaml.safe_load(text)["jobs"]["publish"]["steps"] if "name" in s]
+    assert steps.index("The promises must still be true of what ships") < \
+        steps.index("Publish to the public delivery endpoint")
+
+
+def test_the_two_writers_into_the_hub_cannot_race(engine):
+    """Both this and the release path write into mbiX-hub through the Contents
+    API. Two writers on one file is a lost update, and the one that finishes
+    last wins rather than the one that is right."""
+    yaml = pytest.importorskip("yaml")
+    docs = yaml.safe_load(DOCS.read_text(encoding="utf-8"))
+    release = yaml.safe_load(engine)
+
+    assert docs["concurrency"]["group"] == release["concurrency"]["group"], (
+        "the two workflows that write into the hub are in different "
+        "concurrency groups, so they can run at the same time")
