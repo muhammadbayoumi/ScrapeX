@@ -1,9 +1,8 @@
 """Typed access to ScrapeX's operational database.
 
-One file since M5. GeneralDatabase and MarketLensDatabase are still exported
-because db/engine/schema.sql is DERIVED from their two streams and
-tests/test_one_schema_carries_both_streams.py re-derives on every run. They
-retire together with those streams once nothing is left on them.
+One file since M5, and one name for it: the engine's own. What the two
+databases before it carried, it carries — see db/engine/derived-from.json, which
+records what they had at the moment they were collapsed.
 """
 
 from .domain import (
@@ -12,8 +11,6 @@ from .domain import (
     DatabaseMigrationError,
     DatabaseUnavailableError,
     EngineDatabase,
-    GeneralDatabase,
-    MarketLensDatabase,
 )
 from .registry import DatabasePointerError, DatabaseRegistry
 
@@ -25,6 +22,4 @@ __all__ = [
     "DatabaseRegistry",
     "DatabaseUnavailableError",
     "EngineDatabase",
-    "GeneralDatabase",
-    "MarketLensDatabase",
 ]
