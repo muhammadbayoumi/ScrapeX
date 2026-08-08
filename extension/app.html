@@ -330,19 +330,21 @@
             <div class="source-choice-panel-inner">
       <div id="source-detail">
 
-      <!-- WHICH SYSTEM. They are genuinely two: a store goes to MarketLens,
-           which understands prices, offers and history; General is the generic
-           extractor with its own catalogue of sites, datasets and fields, and
-           its own database. Asked FIRST because the answer decides which form
-           the owner fills and which database the site is written to — there is
-           no converting one into the other afterwards. -->
+      <!-- WHICH KIND OF CAPTURE. They are genuinely two, and it is no longer
+           two databases: price capture understands prices, offers and history;
+           generic extraction has its own catalogue of sites, datasets and
+           fields. M5 put both in one file and changed nothing about the shapes,
+           so the question stays and the reason for it narrows — sharing a file
+           is not sharing a shape. Asked FIRST because the answer decides which
+           form the owner fills, and there is no converting one into the other
+           afterwards. -->
       <fieldset class="fieldset" id="add-system">
         <legend>What kind of site is this?</legend>
         <label class="check">
           <input type="radio" name="add-system" value="store" checked>
           <span><strong>Store — track prices</strong>
             <span class="hint muted">Products, prices and the history of every
-              change. This is MarketLens, the system you are working in.</span></span>
+              change.</span></span>
         </label>
         <label class="check">
           <input type="radio" name="add-system" value="general">

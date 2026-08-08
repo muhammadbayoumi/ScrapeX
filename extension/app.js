@@ -2894,7 +2894,7 @@ async function probe() {
     $("f-cadence").value = s.cadence || "daily";
     $("f-kind").value = s.kind || "product_prices";
     $("f-scope").value = s.scope || "census";
-    // The probe suggests a MarketLens key. Re-spell it for the chosen system:
+    // The probe suggests a price-capture key. Re-spell it for the chosen kind:
     // a lower_snake catalogue would otherwise be handed an UPPER_SNAKE key and
     // reject it at save time, after the form looked filled in correctly.
     applyAddSystem();
@@ -2910,18 +2910,22 @@ async function probe() {
   } finally { btn.disabled = false; btn.textContent = "Test site"; }
 }
 
-// ---- which system a new site belongs to -------------------------------------
-// MarketLens and General are two systems with two databases, not two modes of
-// one. MarketLens understands products, offers, prices and the history of every
-// change; General is the generic extractor with its own catalogue of sites,
-// datasets and fields. A site is registered in one of them, and nothing here
-// converts one into the other afterwards — so the choice is asked before the
-// form is filled, and the form follows the answer.
+// ---- which kind of capture a new site belongs to ----------------------------
+// TWO CAPTURE MODELS, ONE DATABASE. They used to be two databases as well, and
+// this comment said so; M5 collapsed the storage and left the models untouched,
+// so the sentence had to change and the choice did not.
 //
-// They do not even spell a key the same way: MarketLens keys are UPPER_SNAKE
-// (manifest.SourceEntry), General keys are lower_snake (catalog_models
+// Price capture understands products, offers, prices and the history of every
+// change. Generic extraction has its own catalogue of sites, datasets and
+// fields. A site is registered under one of them, and nothing here converts one
+// into the other afterwards — so the choice is asked before the form is filled,
+// and the form follows the answer. That is unchanged: sharing a file is not
+// sharing a shape.
+//
+// They do not even spell a key the same way: price keys are UPPER_SNAKE
+// (manifest.SourceEntry), generic keys are lower_snake (catalog_models
 // .KEY_PATTERN). Validating one against the other would reject a correct key
-// with a message about the wrong system.
+// with a message about the wrong kind.
 const SYSTEMS = {
   store: {
     label: "Add site",
@@ -2929,8 +2933,7 @@ const SYSTEMS = {
     keyHint: "UPPER_SNAKE_CASE, 3–64 characters.",
     keyError: "Use UPPER_SNAKE_CASE, 3–64 characters, starting with a letter.",
     normalizeKey: (v) => v.trim().toUpperCase(),
-    note: "Prices, offers and the full history of every change. Written to the " +
-          "MarketLens database.",
+    note: "Prices, offers and the full history of every change.",
   },
   general: {
     label: "Add to General",
