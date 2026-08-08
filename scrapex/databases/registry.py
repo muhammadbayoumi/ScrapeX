@@ -1,4 +1,16 @@
-"""Persistent registry for the two operational database capabilities."""
+"""Where the engine's one database is, and whether it is fit to open.
+
+M5 collapsed two databases into one. What is left of this module is small on
+purpose: a registry whose job was coordinating a PAIR — two files that had to be
+initialised together, backed up together, and never half-promoted — has almost
+nothing left to coordinate.
+
+IT IS NOT DELETED, and that is deliberate rather than lazy. The pointer file is
+still the answer to "which file is the live one", which matters the moment a
+database lives anywhere but the default path: a second disk, a restored copy, a
+machine where `SCRAPEX_DATA_ROOT` was set once and forgotten. Removing it would
+replace one readable file with a rule spread across every caller.
+"""
 from __future__ import annotations
 
 import json
@@ -6,7 +18,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from .domain import GeneralDatabase, MarketLensDatabase
+from .domain import EngineDatabase
 
 DATABASE_ROOT = Path(
     os.environ.get("SCRAPEX_DATA_ROOT", str(Path.home() / ".scrapex"))
@@ -14,49 +26,37 @@ DATABASE_ROOT = Path(
 REGISTRY_FILE = Path(
     os.environ.get("SCRAPEX_DATABASE_REGISTRY", str(DATABASE_ROOT / "databases.json"))
 )
-DEFAULT_GENERAL_PATH = DATABASE_ROOT / "general" / "general.db"
-DEFAULT_MARKETLENS_PATH = DATABASE_ROOT / "marketlens" / "marketlens.db"
-DEFAULT_LEGACY_PATH = DATABASE_ROOT / "harvest.db"
+
+#: One file, named after the engine that owns it. `scrapex-engine.exe` beside
+#: `scrapex-engine.db` — the owner's instruction, and it means a support
+#: conversation never has to establish which file is meant.
+DEFAULT_ENGINE_PATH = DATABASE_ROOT / "engine" / "scrapex-engine.db"
+
+#: What this version writes. A pointer from before the collapse says "split" and
+#: names two files that no longer make a pair.
+POINTER_FORMAT = 2
 
 
-class LegacyDatabaseRequiresSplit(RuntimeError):
-    """A unified warehouse exists and must be explicitly split by the owner."""
+class DatabasePointerError(RuntimeError):
+    """The pointer file does not describe a database this version can open."""
 
 
 @dataclass(frozen=True)
 class DatabaseRegistry:
-    general: GeneralDatabase
-    marketlens: MarketLensDatabase
-    legacy_path: Path | None = None
+    engine: EngineDatabase
     pointer_file: Path = REGISTRY_FILE
 
     def __post_init__(self) -> None:
-        paths = {
-            self.general.path.resolve(),
-            self.marketlens.path.resolve(),
-            self.pointer_file.resolve(),
-        }
-        if len(paths) != 3:
+        if self.engine.path.resolve() == self.pointer_file.resolve():
             raise ValueError(
-                "General, MarketLens, and the registry must use three different paths"
-            )
+                "the database and the registry cannot be the same file")
 
     @classmethod
     def defaults(cls, *, pointer_file: Path | str = REGISTRY_FILE) -> "DatabaseRegistry":
         pointer = Path(pointer_file)
         if pointer.is_file():
             return cls.read(pointer)
-        if DEFAULT_LEGACY_PATH.is_file():
-            raise LegacyDatabaseRequiresSplit(
-                f"the unified database still exists at {DEFAULT_LEGACY_PATH}; run "
-                "'scrapex split-databases' and retry, or use --db for a temporary "
-                "legacy session"
-            )
-        return cls(
-            GeneralDatabase(DEFAULT_GENERAL_PATH),
-            MarketLensDatabase(DEFAULT_MARKETLENS_PATH),
-            pointer_file=pointer,
-        )
+        return cls(EngineDatabase(DEFAULT_ENGINE_PATH), pointer_file=pointer)
 
     @classmethod
     def read(cls, pointer_file: Path | str = REGISTRY_FILE) -> "DatabaseRegistry":
@@ -64,54 +64,48 @@ class DatabaseRegistry:
         try:
             data = json.loads(pointer.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise LegacyDatabaseRequiresSplit(
-                f"database registry {pointer} is unreadable; restore it from backup "
-                "or run database recovery and retry"
+            raise DatabasePointerError(
+                f"the database pointer {pointer} could not be read; delete it and "
+                "run 'scrapex init-db', or restore it from a backup"
             ) from exc
+
         mode = data.get("mode")
-        if mode == "legacy":
-            legacy = Path(str(data.get("legacy_path") or ""))
-            raise LegacyDatabaseRequiresSplit(
-                f"rollback mode is active at {legacy}; use --db {legacy} for the "
-                "legacy session, then run 'scrapex split-databases' to switch forward"
-            )
-        if mode != "split":
-            raise LegacyDatabaseRequiresSplit(
-                f"database registry {pointer} has an unknown mode; restore it from "
-                "backup and retry"
-            )
-        general_raw = str(data.get("general_path") or "").strip()
-        marketlens_raw = str(data.get("marketlens_path") or "").strip()
-        if not general_raw or not marketlens_raw:
-            raise LegacyDatabaseRequiresSplit(
-                f"database registry {pointer} is incomplete; restore it and retry"
-            )
-        general_path = Path(general_raw)
-        marketlens_path = Path(marketlens_raw)
-        legacy_raw = str(data.get("legacy_path") or "").strip()
-        return cls(
-            GeneralDatabase(general_path),
-            MarketLensDatabase(marketlens_path),
-            Path(legacy_raw) if legacy_raw else None,
-            pointer,
-        )
+        if mode in ("split", "legacy"):
+            # A POINTER FROM BEFORE THE COLLAPSE, and the message has to say so
+            # in those words. Everything about it looks valid — it parses, it
+            # names real files, those files exist — so the failure without this
+            # branch is a KeyError on `engine_path`, which sends someone
+            # debugging this module instead of running one command.
+            raise DatabasePointerError(
+                f"{pointer} points at the two-database layout that ScrapeX used "
+                "before it kept everything in one file. Nothing has been changed "
+                "and nothing has been lost: the old files are still where they "
+                "were. Run 'scrapex init-db' to create the single database, then "
+                "'scrapex database-status'.")
+        if mode != "single":
+            raise DatabasePointerError(
+                f"{pointer} does not say which database is live (mode={mode!r}); "
+                "delete it and run 'scrapex init-db'")
+
+        raw = str(data.get("engine_path") or "").strip()
+        if not raw:
+            raise DatabasePointerError(
+                f"{pointer} names no database; delete it and run 'scrapex init-db'")
+        return cls(EngineDatabase(Path(raw)), pointer)
 
     def initialize(self) -> dict[str, list[int]]:
-        result = {
-            "general": self.general.initialize(),
-            "marketlens": self.marketlens.initialize(),
-        }
+        result = {self.engine.kind: self.engine.initialize()}
         self.write()
         return result
 
     def ensure_ready(self) -> dict:
-        """Create whichever database is not there yet, then report both.
+        """Create the database if it is not there, then report it.
 
         This exists so that starting the engine is the only thing the owner has
         to do. A database that does not exist holds nothing to lose, so creating
         it needs no permission and no warning.
 
-        An EXISTING database is never migrated here. Advancing the schema of a
+        AN EXISTING DATABASE IS NEVER MIGRATED HERE. Advancing the schema of a
         file that already holds the owner's data is their decision (spec 40), so
         a database that is behind is reported with the command that upgrades it
         rather than upgraded behind their back. The caller decides what to do
@@ -131,54 +125,43 @@ class DatabaseRegistry:
         codebase may migrate an existing file.
         """
         created: list[str] = []
-        for database in (self.general, self.marketlens):
-            if not database.path.is_file():
-                database.initialize()
-                created.append(database.kind)
+        if not self.engine.path.is_file():
+            self.engine.initialize()
+            created.append(self.engine.kind)
         states = self.health()
         ok = all(item["ok"] for item in states.values())
-        # The pointer names the pair that is actually usable. Writing it while a
-        # database is unusable would record a broken pair as the live one.
+        # The pointer names the database that is actually usable. Writing it
+        # while the database is unusable would record a broken file as the live
+        # one, and the next run would trust it.
         if created and ok:
             self.write()
         return {"ok": ok, "created": created, "databases": states}
 
     def verify(self) -> None:
-        for database in (self.general, self.marketlens):
-            health = database.health()
-            if not health.ok:
-                raise RuntimeError(
-                    f"{health.kind} database is {health.status.lower()}: "
-                    f"{health.action}"
-                )
+        health = self.engine.health()
+        if not health.ok:
+            raise RuntimeError(
+                f"{health.kind} database is {health.status.lower()}: {health.action}")
 
     def write(self) -> None:
         self.verify()
         self.pointer_file.parent.mkdir(parents=True, exist_ok=True)
         incoming = self.pointer_file.with_suffix(self.pointer_file.suffix + ".incoming")
         payload = {
-            "format_version": 1,
-            "mode": "split",
-            "general_path": str(self.general.path),
-            "marketlens_path": str(self.marketlens.path),
-            "legacy_path": str(self.legacy_path) if self.legacy_path else None,
+            "format_version": POINTER_FORMAT,
+            "mode": "single",
+            "engine_path": str(self.engine.path),
         }
         incoming.write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
+        # Written whole and then moved into place: a pointer half-written by a
+        # process that died is a pointer nothing can read, and it names the only
+        # file that holds anything.
         os.replace(incoming, self.pointer_file)
 
     def backup_bundle(self, folder: Path | str) -> dict[str, str]:
-        destination = Path(folder)
-        general_backup = self.general.backup(destination / "general")
-        marketlens_backup = self.marketlens.backup(destination / "marketlens")
-        return {
-            "general": str(general_backup),
-            "marketlens": str(marketlens_backup),
-        }
+        return {self.engine.kind: str(self.engine.backup(Path(folder) / self.engine.kind))}
 
     def health(self) -> dict[str, dict]:
-        return {
-            "general": self.general.health().public(),
-            "marketlens": self.marketlens.health().public(),
-        }
+        return {self.engine.kind: self.engine.health().public()}

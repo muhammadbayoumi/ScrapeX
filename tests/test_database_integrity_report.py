@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from scrapex.databases.domain import DatabaseMigrationError, MarketLensDatabase
+from scrapex.databases.domain import DatabaseMigrationError, EngineDatabase
 
 
 def _db_at_head(tmp_path):
-    db = MarketLensDatabase(tmp_path / "marketlens.db")
+    db = EngineDatabase(tmp_path / "scrapex-engine.db")
     db.initialize()
     return db
 

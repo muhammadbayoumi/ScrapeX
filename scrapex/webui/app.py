@@ -37,7 +37,7 @@ from ..connectors.base import CrawlBlocked, HttpFetcher
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
     DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
-    DatabaseUnavailableError, GeneralDatabase, MarketLensDatabase,
+    DatabaseUnavailableError, EngineDatabase, GeneralDatabase,
 )
 from ..jobs import (JobRunner, create_job, get_job, job_log_count, job_logs,
                     list_jobs, set_control, worker_health)
@@ -351,8 +351,8 @@ def create_app(
         databases.verify()
     if databases is not None:
         databases.verify()
-        price_path = databases.marketlens.path
-        general_database = databases.general
+        price_path = databases.engine.path
+        general_database = databases.engine
     else:
         price_path = Path(db_path)  # explicit legacy-compatible test/session path
         general_database = GeneralDatabase(general_db_path) if general_db_path else None
@@ -429,7 +429,7 @@ def create_app(
 
     def read_conn():
         if app.state.databases is not None:
-            return app.state.databases.marketlens.connect()
+            return app.state.databases.engine.connect()
         return dbmod.connect(app.state.db_path)
 
     def ensure_schema(conn) -> None:
@@ -2294,7 +2294,7 @@ def create_app(
             try:
                 result = start_fresh(
                     app.state.db_path,
-                    lambda path: MarketLensDatabase(path).initialize())
+                    lambda path: EngineDatabase(path).initialize())
             except StorageRefused as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
         return result.as_state()
@@ -2376,9 +2376,7 @@ def create_app(
         if app_.state.databases is None:
             return
         app_.state.databases = DatabaseRegistry(
-            app_.state.databases.general,
-            MarketLensDatabase(app_.state.db_path),
-            app_.state.databases.legacy_path,
+            EngineDatabase(app_.state.db_path),
             app_.state.databases.pointer_file,
         )
         # Written here as well as at the commit point, and not instead of it:

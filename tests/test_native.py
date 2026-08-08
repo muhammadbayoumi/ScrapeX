@@ -330,11 +330,11 @@ def test_the_host_never_runs_the_unified_migrations_over_a_marketlens_database(t
 
     Same policy as the web layer's ensure_schema: only a LEGACY --db warehouse
     is migrated here."""
-    from scrapex.databases.domain import MarketLensDatabase
+    from scrapex.databases.domain import EngineDatabase
     from scrapex.native import serve
 
-    db = tmp_path / "marketlens.db"
-    MarketLensDatabase(db).initialize()          # split stream, already at head
+    db = tmp_path / "scrapex-engine.db"
+    EngineDatabase(db).initialize()          # split stream, already at head
 
     request = io.BytesIO()
     payload = json.dumps({"command": "PING", "request_id": "b1"}).encode()
@@ -383,7 +383,7 @@ def test_an_unreadable_warehouse_does_not_take_start_engine_down(tmp_path, monke
     """
     from scrapex import native
 
-    broken = tmp_path / "marketlens.db"
+    broken = tmp_path / "scrapex-engine.db"
     broken.write_bytes(b"this file is not a database at all")
     monkeypatch.setattr(native, "_engine_listening", lambda port: True)
 
@@ -411,9 +411,9 @@ def test_an_invalid_manifest_does_not_take_the_host_down(tmp_path, monkeypatch):
     startup, for every command."""
     from scrapex import config, native
 
-    db = tmp_path / "marketlens.db"
-    from scrapex.databases.domain import MarketLensDatabase
-    MarketLensDatabase(db).initialize()
+    db = tmp_path / "scrapex-engine.db"
+    from scrapex.databases.domain import EngineDatabase
+    EngineDatabase(db).initialize()
 
     def _refuse(*a, **kw):
         raise ValueError("sources.yaml: unknown family 'magento-graphq'")
@@ -438,10 +438,10 @@ def test_the_warehouse_is_opened_once_and_only_when_a_command_needs_it(tmp_path,
     """Lazy, not per-command: reopening on every frame would trade one fault
     for a slower one."""
     from scrapex import native
-    from scrapex.databases.domain import MarketLensDatabase
+    from scrapex.databases.domain import EngineDatabase
 
-    db = tmp_path / "marketlens.db"
-    MarketLensDatabase(db).initialize()
+    db = tmp_path / "scrapex-engine.db"
+    EngineDatabase(db).initialize()
     opened: list[str] = []
     real_connect = dbmod.connect
     monkeypatch.setattr(native.dbmod, "connect",

@@ -11,8 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from scrapex.databases import (  # noqa: E402
     DatabaseRegistry,
-    GeneralDatabase,
-    MarketLensDatabase,
+    EngineDatabase,
 )
 from scrapex.webui.app import create_app  # noqa: E402
 
@@ -30,8 +29,7 @@ HTML = """
 @pytest.fixture()
 def workspace(tmp_path: Path):
     registry = DatabaseRegistry(
-        GeneralDatabase(tmp_path / "general.db"),
-        MarketLensDatabase(tmp_path / "marketlens.db"),
+        EngineDatabase(tmp_path / "scrapex-engine.db"),
         pointer_file=tmp_path / "databases.json",
     )
     registry.initialize()
@@ -124,14 +122,18 @@ def test_non_product_table_is_approved_ingested_and_browsed_end_to_end(workspace
         "office_code": "RUH", "office_name": "الرياض", "employees": 120,
     }
     assert payload["next_after_id"] is not None
-    with closing(registry.general.connect()) as general:
-        assert general.execute(
-            "SELECT COUNT(*) FROM generic_record LIMIT 1"
-        ).fetchone()[0] == 2
-    with closing(registry.marketlens.connect()) as marketlens:
-        assert marketlens.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'generic_record' LIMIT 1"
-        ).fetchone() is None
+    # The second half of this used to open the OTHER database and prove
+    # generic_record was absent from it — the split's guarantee. There is no
+    # other database now, so what is checked instead is that the records and the
+    # price tables are in the same file and both intact, which is the guarantee
+    # that replaced it.
+    with closing(registry.engine.connect()) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM generic_record").fetchone()[0] == 2
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'price_observation'"
+        ).fetchone() is not None, (
+            "the browsed database carries no price tables, so the collapse "
+            "dropped half of what it was supposed to unify")
 
 
 def test_failure_is_actionable_and_corrected_approval_recovers(workspace):

@@ -140,7 +140,7 @@ def _point_registry_at(db_path: Path, previous: Path | None) -> None:
     rather than rebuilt from a guess — it names the General database too, and
     inventing that path is precisely how one would be lost.
     """
-    from .databases.domain import MarketLensDatabase
+    from .databases.domain import EngineDatabase
     from .databases.registry import REGISTRY_FILE, DatabaseRegistry
 
     # Passed explicitly, never left to the default: `read`'s default argument is
@@ -155,12 +155,11 @@ def _point_registry_at(db_path: Path, previous: Path | None) -> None:
         registry = DatabaseRegistry.read(REGISTRY_FILE)
     except Exception:  # noqa: BLE001 — a registry we cannot read, we do not rewrite
         return
-    if registry.marketlens.path.resolve() != previous.resolve():
+    if registry.engine.path.resolve() != previous.resolve():
         return                      # a different warehouse: not ours to move
-    if registry.marketlens.path.resolve() == db_path.resolve():
+    if registry.engine.path.resolve() == db_path.resolve():
         return
-    DatabaseRegistry(registry.general, MarketLensDatabase(db_path),
-                     registry.legacy_path, registry.pointer_file).write()
+    DatabaseRegistry(EngineDatabase(db_path), registry.pointer_file).write()
 
 
 def current_location() -> Path:

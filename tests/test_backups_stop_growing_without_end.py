@@ -9,7 +9,7 @@ He asked for a policy rather than a one-off sweep, and the distinction matters:
 a sweep leaves the next month to grow the same way.
 
 THE SAFETY RULE IS THAT THE POLICY ONLY REMOVES WHAT THIS PRODUCT NAMED.
-Three of his files — marketlens.pre0056.backup.db and two like it — were named
+Three of his files — scrapex-engine.pre0056.backup.db and two like it — were named
 by hand before a migration. They carry no stamp, so backup_tag returns "" and
 they are never grouped and never pruned.
 """
@@ -25,7 +25,7 @@ from scrapex import db as dbmod, storage
 
 @pytest.fixture()
 def warehouse(tmp_path):
-    db = tmp_path / "marketlens.db"
+    db = tmp_path / "scrapex-engine.db"
     conn = dbmod.connect(db)
     dbmod.migrate(conn)
     conn.commit()
@@ -46,10 +46,10 @@ def test_a_backup_this_product_named_knows_its_lineage(warehouse):
     same fact in a different order."""
     _conn, db = warehouse
 
-    assert storage.backup_tag(db.with_name("marketlens.rebuild-20260804T120539Z.backup.db"), db) == "rebuild"
-    assert storage.backup_tag(db.with_name("marketlens.reset-backup-20260722T050619Z.db"), db) == "reset"
+    assert storage.backup_tag(db.with_name("scrapex-engine.rebuild-20260804T120539Z.backup.db"), db) == "rebuild"
+    assert storage.backup_tag(db.with_name("scrapex-engine.reset-backup-20260722T050619Z.db"), db) == "reset"
     assert storage.backup_tag(
-        db.with_name("marketlens.pre-wipe-GPP_ENERGY-20260722T115752Z.backup.db"), db
+        db.with_name("scrapex-engine.pre-wipe-GPP_ENERGY-20260722T115752Z.backup.db"), db
     ) == "pre-wipe-GPP_ENERGY"
 
 
@@ -59,9 +59,9 @@ def test_a_file_a_person_named_has_no_lineage_and_is_never_pruned(warehouse):
     copy of a warehouse state nobody can reproduce."""
     _conn, db = warehouse
     for i in range(4):
-        _make(db, f"marketlens.pre005{i}.backup.db", i + 1)
+        _make(db, f"scrapex-engine.pre005{i}.backup.db", i + 1)
 
-    assert storage.backup_tag(db.with_name("marketlens.pre0056.backup.db"), db) == ""
+    assert storage.backup_tag(db.with_name("scrapex-engine.pre0056.backup.db"), db) == ""
     assert storage.prunable_backups(db) == []
 
 
@@ -69,13 +69,13 @@ def test_only_the_newest_of_each_lineage_survives(warehouse):
     """Five rebuilds, keep two."""
     _conn, db = warehouse
     for i in range(1, 6):
-        _make(db, f"marketlens.rebuild-2026080{i}T120000Z.backup.db", i)
+        _make(db, f"scrapex-engine.rebuild-2026080{i}T120000Z.backup.db", i)
 
     doomed = {b["name"] for b in storage.prunable_backups(db, keep=2)}
 
-    assert doomed == {"marketlens.rebuild-20260801T120000Z.backup.db",
-                      "marketlens.rebuild-20260802T120000Z.backup.db",
-                      "marketlens.rebuild-20260803T120000Z.backup.db"}
+    assert doomed == {"scrapex-engine.rebuild-20260801T120000Z.backup.db",
+                      "scrapex-engine.rebuild-20260802T120000Z.backup.db",
+                      "scrapex-engine.rebuild-20260803T120000Z.backup.db"}
 
 
 def test_a_run_of_one_kind_never_evicts_the_only_copy_of_another(warehouse):
@@ -85,8 +85,8 @@ def test_a_run_of_one_kind_never_evicts_the_only_copy_of_another(warehouse):
     have deleted it to make room for a rebuild taken this morning."""
     _conn, db = warehouse
     for i in range(1, 8):
-        _make(db, f"marketlens.rebuild-2026080{i}T120000Z.backup.db", 10 + i)
-    _make(db, "marketlens.pre-wipe-SIKAEGSHOP-20260725T070151Z.backup.db", 1)
+        _make(db, f"scrapex-engine.rebuild-2026080{i}T120000Z.backup.db", 10 + i)
+    _make(db, "scrapex-engine.pre-wipe-SIKAEGSHOP-20260725T070151Z.backup.db", 1)
 
     doomed = {b["name"] for b in storage.prunable_backups(db, keep=3)}
 
@@ -99,20 +99,20 @@ def test_the_live_database_and_its_sidecars_are_not_backups(warehouse):
     glob was matching them: the Restore list offered a write-ahead log as
     something you could make live again. 71 entries where there were 25."""
     _conn, db = warehouse
-    _make(db, "marketlens.rebuild-20260804T120000Z.backup.db", 3)
-    _make(db, "marketlens.rebuild-20260804T120000Z.backup.db-wal", 1)
-    _make(db, "marketlens.rebuild-20260804T120000Z.backup.db-shm", 1)
+    _make(db, "scrapex-engine.rebuild-20260804T120000Z.backup.db", 3)
+    _make(db, "scrapex-engine.rebuild-20260804T120000Z.backup.db-wal", 1)
+    _make(db, "scrapex-engine.rebuild-20260804T120000Z.backup.db-shm", 1)
 
     listed = {b["name"] for b in storage.list_backups(db)}
 
-    assert listed == {"marketlens.rebuild-20260804T120000Z.backup.db"}
+    assert listed == {"scrapex-engine.rebuild-20260804T120000Z.backup.db"}
 
 
 def test_pruning_removes_them_and_says_what_it_freed(warehouse):
     """Reversible it is not, so it reports rather than working in silence."""
     conn, db = warehouse
     for i in range(1, 6):
-        _make(db, f"marketlens.rebuild-2026080{i}T120000Z.backup.db", i)
+        _make(db, f"scrapex-engine.rebuild-2026080{i}T120000Z.backup.db", i)
 
     result = storage.prune_backups(conn, db, keep=2)
 
@@ -126,7 +126,7 @@ def test_a_new_backup_prunes_after_itself_never_before(warehouse):
     then failed, have deleted the old copies for nothing."""
     conn, db = warehouse
     for i in range(1, 5):
-        _make(db, f"marketlens.manual-2026080{i}T120000Z.backup.db", i)
+        _make(db, f"scrapex-engine.manual-2026080{i}T120000Z.backup.db", i)
 
     storage.backup_now(conn, db, tag="manual")
 
@@ -142,7 +142,7 @@ def test_the_warehouse_says_what_the_policy_would_free(warehouse):
     the Storage page already reads on every visit."""
     conn, db = warehouse
     for i in range(1, 6):
-        _make(db, f"marketlens.rebuild-2026080{i}T120000Z.backup.db", i)
+        _make(db, f"scrapex-engine.rebuild-2026080{i}T120000Z.backup.db", i)
 
     verdict = storage.health(db)
 

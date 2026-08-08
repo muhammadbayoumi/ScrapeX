@@ -24,10 +24,7 @@ from . import localinbox
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
 from .databases import DatabaseRegistry
-from .databases.registry import (
-    DEFAULT_GENERAL_PATH, DEFAULT_MARKETLENS_PATH, REGISTRY_FILE,
-)
-from .databases.split import rollback_to_legacy, split_legacy_database
+from .databases.registry import REGISTRY_FILE
 from .funnel import FunnelClient
 from .ingest import ingest_payloads
 from .reports import recent_observations, source_summary
@@ -52,18 +49,15 @@ def _marketlens_path(args: argparse.Namespace) -> Path:
         return Path(explicit)
     registry = DatabaseRegistry.defaults()
     registry.verify()
-    return registry.marketlens.path
+    return registry.engine.path
 
 
 def _cmd_init_db(args: argparse.Namespace) -> int:
     if not args.db:
         registry = DatabaseRegistry.defaults()
         applied = registry.initialize()
-        print(f"General database at {registry.general.path}: applied {applied['general'] or 'none'}")
-        print(
-            f"MarketLens database at {registry.marketlens.path}: "
-            f"applied {applied['marketlens'] or 'none'}"
-        )
+        print(f"Engine database at {registry.engine.path}: "
+              f"applied {applied[registry.engine.kind] or 'none'}")
         return 0
     db_path = Path(args.db)
     with dbmod.write_lock(db_path):
@@ -76,32 +70,6 @@ def _cmd_init_db(args: argparse.Namespace) -> int:
         print(f"harvest.db at {db_path}: applied migrations {applied}")
     else:
         print(f"harvest.db at {db_path}: already at version — nothing to apply")
-    return 0
-
-
-def _cmd_split_databases(args: argparse.Namespace) -> int:
-    from .storage import resolve_db_path
-
-    legacy_path = Path(args.legacy_db) if args.legacy_db else resolve_db_path()
-    result = split_legacy_database(
-        legacy_path,
-        general_path=Path(args.general_db) if args.general_db else DEFAULT_GENERAL_PATH,
-        marketlens_path=(
-            Path(args.marketlens_db) if args.marketlens_db else DEFAULT_MARKETLENS_PATH
-        ),
-        pointer_file=Path(args.registry) if args.registry else REGISTRY_FILE,
-    )
-    print(json.dumps(result.public(), indent=2, ensure_ascii=False))
-    return 0
-
-
-def _cmd_rollback_databases(args: argparse.Namespace) -> int:
-    legacy = rollback_to_legacy(Path(args.registry) if args.registry else REGISTRY_FILE)
-    print(
-        f"Rolled back to the sealed legacy database at {legacy}. The split databases "
-        "remain unchanged. Start a legacy session with --db, then retry the split "
-        "when ready."
-    )
     return 0
 
 
@@ -121,11 +89,10 @@ def _cmd_backup_databases(args: argparse.Namespace) -> int:
 
 def _cmd_restore_database(args: argparse.Namespace) -> int:
     registry = DatabaseRegistry.read(Path(args.registry) if args.registry else REGISTRY_FILE)
-    database = registry.general if args.kind == "general" else registry.marketlens
-    displaced = database.restore(Path(args.backup))
+    displaced = registry.engine.restore(Path(args.backup))
     print(
-        f"Restored {args.kind} from {args.backup}. The replaced database remains at "
-        f"{displaced}. Restart ScrapeX, then run database-status."
+        f"Restored the engine database from {args.backup}. The replaced database "
+        f"remains at {displaced}. Restart ScrapeX, then run database-status."
     )
     return 0
 
@@ -145,12 +112,11 @@ def _cmd_wipe_source(args: argparse.Namespace) -> int:
     if args.db:
         db_path = Path(args.db)
     else:
-        # Price rows live in the MarketLens database of the two-database
-        # registry; the legacy single-file path would "succeed" against an
-        # empty warehouse and wipe nothing.
+        # The pointer names the live warehouse. The legacy single-file default
+        # would "succeed" against an empty database and wipe nothing.
         registry = DatabaseRegistry.defaults()
         registry.verify()
-        db_path = registry.marketlens.path
+        db_path = registry.engine.path
     conn = dbmod.connect(db_path)
     try:
         result = wipe_source(conn, db_path, args.source)
@@ -779,7 +745,7 @@ def _cmd_ui(args: argparse.Namespace) -> int:
                           f"{state['status'].lower()} — {state['action']}",
                           file=sys.stderr)
             return 1
-        db_path = registry.marketlens.path
+        db_path = registry.engine.path
     else:
         db_path = Path(args.db)
         if not db_path.exists():
@@ -1002,33 +968,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.set_defaults(func=_cmd_init_db)
 
-    p = sub.add_parser(
-        "split-databases",
-        help="copy a unified warehouse into isolated General and MarketLens databases",
-    )
-    p.add_argument("--legacy-db", help="unified harvest.db path")
-    p.add_argument("--general-db", help="General target path")
-    p.add_argument("--marketlens-db", help="MarketLens target path")
-    p.add_argument("--registry", help="database registry path")
-    p.set_defaults(func=_cmd_split_databases)
-
-    p = sub.add_parser(
-        "rollback-databases", help="switch the runtime pointer back to the legacy database"
-    )
-    p.add_argument("--registry", help="database registry path")
-    p.set_defaults(func=_cmd_rollback_databases)
-
-    p = sub.add_parser("database-status", help="show independent database health")
+    p = sub.add_parser("database-status", help="show the database's health")
     p.add_argument("--registry", help="database registry path")
     p.set_defaults(func=_cmd_database_status)
 
-    p = sub.add_parser("backup-databases", help="back up General and MarketLens independently")
-    p.add_argument("--folder", required=True, help="folder that will receive both backups")
+    p = sub.add_parser("backup-databases", help="back up the engine database")
+    p.add_argument("--folder", required=True, help="folder that will receive the backup")
     p.add_argument("--registry", help="database registry path")
     p.set_defaults(func=_cmd_backup_databases)
 
-    p = sub.add_parser("restore-database", help="restore one isolated database from backup")
-    p.add_argument("kind", choices=("general", "marketlens"))
+    p = sub.add_parser("restore-database", help="restore the engine database from a backup")
     p.add_argument("backup", help="verified backup path")
     p.add_argument("--registry", help="database registry path")
     p.set_defaults(func=_cmd_restore_database)
