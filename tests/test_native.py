@@ -139,6 +139,91 @@ def test_frozen_entry_defaults_to_the_native_host():
     assert "chrome-extension://abcdef/" not in module.KNOWN_COMMANDS
 
 
+def test_the_frozen_entry_answers_what_version_it_is_without_starting_the_host():
+    """THE DEFECT THIS PINS WAS SHIPPED AND UNASKABLE.
+
+    `--version` starts with a dash, so the filter that protects Chrome dropped
+    it, `argv` came out empty, and the executable quietly became a native
+    messaging host waiting on stdin for framed JSON. It printed nothing and
+    looked like a hang — and there was no other way to ask a downloaded binary
+    what it was.
+
+    Found by the release workflow's "the thing that was built must actually run"
+    step on its first real run, which got an empty string back from a flag it
+    had assumed existed. Nothing else in the suite touched it.
+    """
+    import importlib.util, io, contextlib
+
+    entry = Path(__file__).resolve().parent.parent / "packaging" / "engine_entry.py"
+    spec = importlib.util.spec_from_file_location("scrapex_engine_entry_v", entry)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    from scrapex.native import PROTOCOL_VERSION
+    from scrapex.version import VERSION
+
+    called = []
+    for flag in ("--version", "-V"):
+        with monkeypatched_argv(module, ["scrapex-engine.exe", flag]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = module.main()
+        said = out.getvalue().strip()
+        called.append(said)
+
+        assert code == 0, f"{flag} exited {code}"
+        # ON STDOUT, not stderr: the release greps the captured output, and a
+        # version written to stderr reads as an empty answer.
+        assert VERSION in said, (
+            f"{flag} printed {said!r}, which does not contain the version — "
+            "this is the empty string the release workflow got")
+        assert str(PROTOCOL_VERSION) in said, (
+            "the protocol is not stated, so a binary cannot be told apart from "
+            "one that cannot speak to this extension")
+
+    assert called[0] == called[1], "the two spellings disagree"
+
+
+class monkeypatched_argv:
+    """`sys.argv` for the duration of a block, restored however it exits."""
+
+    def __init__(self, module, argv):
+        self._argv = argv
+        self._sys = module.sys
+
+    def __enter__(self):
+        self._saved = self._sys.argv
+        self._sys.argv = self._argv
+
+    def __exit__(self, *exc):
+        self._sys.argv = self._saved
+        return False
+
+
+def test_the_release_greps_for_a_flag_the_engine_actually_implements():
+    """The workflow asked for `--version` and nothing implemented it. Both sides
+    read from here on, so inventing a flag in the YAML fails at once instead of
+    ten minutes into a release."""
+    import re
+
+    workflow = (Path(__file__).resolve().parent.parent /
+                ".github" / "workflows" / "release-engine.yml").read_text(encoding="utf-8")
+    asked = set(re.findall(r"scrapex-engine\.exe (--?[\w-]+)", workflow))
+    assert asked, "the release no longer asks the built engine anything"
+
+    import importlib.util
+    entry = Path(__file__).resolve().parent.parent / "packaging" / "engine_entry.py"
+    spec = importlib.util.spec_from_file_location("scrapex_engine_entry_f", entry)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    unhandled = asked - set(module.VERSION_FLAGS)
+    assert not unhandled, (
+        f"the release runs the built engine with {sorted(unhandled)}, which the "
+        f"entry point does not handle — every dash-argument it does not know "
+        f"becomes a native host that prints nothing")
+
+
 def test_manifest_path_is_per_platform(monkeypatch, tmp_path):
     assert manifest_path("linux").name == f"{HOST_NAME}.json"
     assert manifest_path("win32") != manifest_path("darwin")

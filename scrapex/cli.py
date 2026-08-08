@@ -958,7 +958,17 @@ def _cmd_run_due(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from .native import PROTOCOL_VERSION      # local, as everywhere else here
+
     parser = argparse.ArgumentParser(prog="scrapex", description=__doc__)
+    # Answered without a subcommand, and it has to be: `--version` is what you
+    # ask a tool you are not yet sure of, and a required subcommand would turn
+    # the question into a usage error. argparse's `version` action exits before
+    # that check runs. The frozen executable answers the same question in
+    # packaging/engine_entry.py, which cannot reach this parser at all.
+    parser.add_argument(
+        "--version", "-V", action="version",
+        version=f"ScrapeX-Engine {version.VERSION} (protocol {PROTOCOL_VERSION})")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser(
