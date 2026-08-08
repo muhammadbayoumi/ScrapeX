@@ -36,16 +36,41 @@ import sqlite3
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+#: DELIBERATE CHANGES SINCE THE COLLAPSE, named one at a time.
+#:
+#: The frozen record says what the two streams HAD, and it is never rewritten —
+#: it is a record of history, and a history edited to agree with the present
+#: proves nothing. So when a column is legitimately renamed afterwards, it is
+#: written down HERE instead, and the checks follow it.
+#:
+#: That keeps the guard sharp in the only way that matters: anything that
+#: disappears WITHOUT a line in this map is still reported as lost. Regenerating
+#: the record instead would have made the guard pass by moving it.
+RENAMED = {
+    # M5 left nothing called MarketLens, so a column named after it was telling
+    # readers to go looking for a database that had been deleted.
+    ("site_profile", "marketlens_source_key"): "price_source_key",
+}
 SCHEMA = ROOT / "db" / "engine" / "schema.sql"
 FROZEN = ROOT / "db" / "engine" / "derived-from.json"
 
 
 @pytest.fixture(scope="module")
 def engine_schema(tmp_path_factory):
-    """A database built from the committed file, which is the thing under test."""
-    con = sqlite3.connect(tmp_path_factory.mktemp("engine") / "engine.db")
-    con.executescript(SCHEMA.read_text(encoding="utf-8"))
-    return con
+    """The database as the PRODUCT builds it: schema.sql and every migration
+    after it, through EngineDatabase.
+
+    It used to be `executescript(schema.sql)`, which was enough while there were
+    no migrations and quietly wrong the moment there was one — it would have
+    compared the frozen record against v1 forever and never seen anything that
+    changed afterwards.
+    """
+    from scrapex.databases.domain import EngineDatabase
+
+    db = EngineDatabase(tmp_path_factory.mktemp("engine") / "scrapex-engine.db")
+    db.initialize()
+    return sqlite3.connect(f"file:{db.path}?mode=ro", uri=True)
 
 
 @pytest.fixture(scope="module")
@@ -93,13 +118,14 @@ def test_every_column_of_every_table_survives(engine_schema, inventory):
                 continue
             was, now = entry["columns"], _columns(engine_schema, name)
 
-            missing = sorted(set(was) - set(now))
+            here = {c: RENAMED.get((name, c), c) for c in was}
+            missing = sorted(c for c, now_name in here.items() if now_name not in now)
             assert not missing, f"{stream}.{name} lost columns {missing}"
 
-            changed = sorted(c for c in was if was[c] != now[c])
+            changed = sorted(c for c in was if was[c] != now[here[c]])
             assert not changed, (
                 f"{stream}.{name} columns {changed} changed shape: "
-                + ", ".join(f"{c}: {was[c]} -> {now[c]}" for c in changed))
+                + ", ".join(f"{c}: {was[c]} -> {now[here[c]]}" for c in changed))
 
 
 def test_the_record_of_what_was_collapsed_is_not_empty(inventory):

@@ -39,7 +39,11 @@ def test_it_creates_one_file_that_says_what_it_is(engine):
     con = sqlite3.connect(f"file:{engine.path}?mode=ro", uri=True)
     try:
         assert con.execute("PRAGMA application_id").fetchone()[0] == ENGINE_APPLICATION_ID
-        assert con.execute("PRAGMA user_version").fetchone()[0] == 1
+        # THE HEAD, not the literal 1: adding migration 0002 broke this, and a
+        # test that has to be edited every time the stream grows is a test that
+        # will one day be edited without being read.
+        assert (con.execute("PRAGMA user_version").fetchone()[0]
+                == engine.latest_schema_version)
         meta = dict(con.execute("SELECT key, value FROM scrapex_meta"))
     finally:
         con.close()
@@ -129,6 +133,6 @@ def test_initialising_twice_applies_nothing_the_second_time(tmp_path):
     """`init-db` is part of the merge procedure and gets run by hand, often
     twice. The second run must be a no-op, not a re-application."""
     db = EngineDatabase(tmp_path / "scrapex-engine.db")
-    assert db.initialize() == [1]
-    assert db.initialize() == []
+    assert db.initialize() == list(range(1, db.latest_schema_version + 1))
+    assert db.initialize() == [], "the second run re-applied migrations"
     assert db.health().ok
