@@ -11,6 +11,13 @@ Rather than commit a binary that goes stale, the "previous release" is synthesis
 from the stream itself: stop at version N, put rows in, then apply the rest. That
 is exactly the shape an existing owner upgrades through, and the shape a fresh
 install never takes.
+
+NOTE (M5): this deliberately stays on the PRICE stream, which still has
+fifty-nine migrations. It tests a property of the MIGRATION FRAMEWORK — that a
+database upgraded step by step ends up identical to one built fresh — and that
+needs a long stream to stop partway through. The engine stream is one migration
+today, so pointing this at it would assert nothing. It moves across the day
+engine migrations 0002+ exist.
 """
 from __future__ import annotations
 

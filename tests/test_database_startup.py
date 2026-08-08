@@ -19,28 +19,30 @@ import sqlite3
 import pytest
 
 from scrapex.databases import DatabaseRegistry
-from scrapex.databases.domain import GeneralDatabase, MarketLensDatabase
+from scrapex.databases.domain import EngineDatabase
 
 
 @pytest.fixture()
 def registry(tmp_path) -> DatabaseRegistry:
     return DatabaseRegistry(
-        EngineDatabase(tmp_path / "marketlens" / "marketlens.db"),
+        EngineDatabase(tmp_path / "marketlens" / "scrapex-engine.db"),
         pointer_file=tmp_path / "databases.json",
     )
 
 
 # ---- creating what is not there ---------------------------------------------
 
-def test_a_first_run_creates_both_databases_without_being_asked(registry):
+def test_a_first_run_creates_the_database_without_being_asked(registry):
+    """Starting the engine is the only thing the owner has to do. A database
+    that does not exist holds nothing to lose, so creating it needs no
+    permission and no warning."""
     report = registry.ensure_ready()
     assert report["ok"], report
-    assert sorted(report["created"]) == ["general", "marketlens"]
-    assert registry.engine.path.is_file()
+    assert report["created"] == ["engine"]
     assert registry.engine.path.is_file()
 
 
-def test_the_pointer_records_the_pair_that_was_created(registry):
+def test_the_pointer_records_the_database_that_was_created(registry):
     registry.ensure_ready()
     assert registry.pointer_file.is_file(), \
         "without the pointer the next start would not find these databases"
@@ -53,11 +55,16 @@ def test_starting_again_creates_nothing_and_stays_ok(registry):
     assert again["ok"]
 
 
-def test_only_the_missing_half_is_created(registry):
+def test_an_existing_database_is_not_created_over(registry):
+    """REPLACES test_only_the_missing_half_is_created. There is no other half to
+    be missing, but the guarantee underneath it survives and matters more now
+    that one file holds everything: `ensure_ready` must never re-initialise a
+    database that is already there."""
     registry.engine.initialize()
     report = registry.ensure_ready()
-    assert report["created"] == ["marketlens"], \
-        "an existing database must not be touched to create its neighbour"
+    assert report["created"] == [], (
+        "an existing database was created over, which would erase it")
+    assert report["ok"]
 
 
 # ---- refusing to migrate the owner's data behind their back ------------------
@@ -135,5 +142,5 @@ def test_a_healthy_database_still_reports_a_status(registry):
     """Status only shown on failure is status the owner cannot trust."""
     registry.ensure_ready()
     states = registry.health()
-    assert set(states) == {"general", "marketlens"}
+    assert set(states) == {"engine"}
     assert all(item["ok"] and item["status"] == "Healthy" for item in states.values())

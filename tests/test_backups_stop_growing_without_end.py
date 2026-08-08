@@ -25,7 +25,7 @@ from scrapex import db as dbmod, storage
 
 @pytest.fixture()
 def warehouse(tmp_path):
-    db = tmp_path / "marketlens.db"
+    db = tmp_path / "scrapex-engine.db"
     conn = dbmod.connect(db)
     dbmod.migrate(conn)
     conn.commit()

@@ -455,8 +455,8 @@ def test_the_warning_reaches_the_status_the_page_renders(conn, db_path, monkeypa
 # ---- start fresh: the owner's reset, which must never actually delete --------
 
 def _fresh_marketlens(path):
-    from scrapex.databases.domain import MarketLensDatabase
-    MarketLensDatabase(path).initialize()
+    from scrapex.databases.domain import EngineDatabase
+    EngineDatabase(path).initialize()
 
 
 def test_start_fresh_seals_the_full_database_aside_and_installs_an_empty_one(db_path):

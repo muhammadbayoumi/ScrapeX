@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from scrapex.databases import DatabaseRegistry
-from scrapex.databases.domain import GeneralDatabase, MarketLensDatabase
+from scrapex.databases.domain import EngineDatabase
 
 pytest.importorskip("fastapi", reason="needs the ui extra")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -28,7 +28,7 @@ from scrapex.webui.app import create_app  # noqa: E402
 @pytest.fixture()
 def split_client(tmp_path: Path) -> TestClient:
     registry = DatabaseRegistry(
-        EngineDatabase(tmp_path / "marketlens" / "marketlens.db"),
+        EngineDatabase(tmp_path / "marketlens" / "scrapex-engine.db"),
         pointer_file=tmp_path / "databases.json",
     )
     registry.initialize()

@@ -12,7 +12,7 @@ import pytest
 
 from scrapex import compaction, db as dbmod, retention, settings, storage
 from scrapex.databases import registry as registry_mod
-from scrapex.databases.domain import MarketLensDatabase
+from scrapex.databases.domain import EngineDatabase
 from scrapex.ingest import ingest_payloads
 from tests.test_ingest import make_entry, make_payload, one_row
 from tests.test_retention import HISTORY, TODAY
@@ -347,9 +347,9 @@ def test_compaction_issues_no_delete_against_observations():
 # Every test above builds BOTH sides with `dbmod.migrate`, so source and
 # successor agree by construction and no test in this file could see them
 # diverge. The owner's warehouse is not built that way. It is a
-# MarketLensDatabase, and the two streams produce genuinely different databases:
+# EngineDatabase, and the two streams produce genuinely different databases:
 #
-#     MarketLensDatabase.initialize()   40 tables  v59  app id 1398295884  ledger 59
+#     EngineDatabase.initialize()   40 tables  v59  app id 1398295884  ledger 59
 #     dbmod.migrate()                   50 tables  v61  app id 0           no ledger
 # Re-measured 2026-08-05. The versions move with every migration; the SHAPE of
 # the defect is what this file pins — ten extra tables, no app id, no ledger.
@@ -361,8 +361,8 @@ def _marketlens_warehouse(tmp_path: Path) -> Path:
 
     Deliberately NOT `dbmod.migrate`: that is the fixture habit that hid #53.
     """
-    path = tmp_path / "typed" / "marketlens.db"
-    MarketLensDatabase(path).initialize()
+    path = tmp_path / "typed" / "scrapex-engine.db"
+    EngineDatabase(path).initialize()
     conn = dbmod.connect(path)
     try:
         entry = make_entry()
@@ -393,7 +393,7 @@ def _prepare_the_way_53_shipped(source: Path, target: Path) -> None:
 def test_a_compacted_marketlens_warehouse_still_opens_through_the_products_door(tmp_path):
     """The whole sequence: build, verify, promote — then open what was promoted.
 
-    Opened through `MarketLensDatabase.connect()`, which is the call the engine
+    Opened through `EngineDatabase.connect()`, which is the call the engine
     makes at startup. That door is the point of the test: a bare `sqlite3.connect`
     opens the #53 successor happily, and so does the legacy `dbmod.connect` facade
     every other test in this file uses, so either one would pass while the owner's
@@ -412,7 +412,7 @@ def test_a_compacted_marketlens_warehouse_still_opens_through_the_products_door(
     live = Path(result.built_path)
     assert storage.read_pointer() == live, "the promoted file is the live warehouse"
 
-    opened = MarketLensDatabase(live).connect()          # ---- the real door ----
+    opened = EngineDatabase(live).connect()          # ---- the real door ----
     try:
         assert opened.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] \
             == result.observations_after
@@ -426,7 +426,7 @@ def test_a_compacted_marketlens_warehouse_still_opens_through_the_products_door(
     # predecessor usually keeps its own name (an open handle blocks the rename),
     # so "it opens" alone would be re-asserting that the untouched source is
     # still a MarketLens database, which was never in doubt.
-    archive = MarketLensDatabase(Path(result.sealed_path)).connect()
+    archive = EngineDatabase(Path(result.sealed_path)).connect()
     try:
         assert archive.execute(
             "SELECT COUNT(*) FROM price_observation").fetchone()[0] == before, (
@@ -487,7 +487,7 @@ def test_a_successor_the_product_cannot_open_is_refused_before_anything_moves(
     assert not list(path.parent.glob("*.compact-*")), "a rejected build was kept"
     assert not list(path.parent.glob("*.building-*")), "a rejected build was kept"
     assert not storage.sealed_at(path), "the warehouse was sealed despite the refusal"
-    MarketLensDatabase(path).connect().close()   # exactly where the owner was
+    EngineDatabase(path).connect().close()   # exactly where the owner was
 
 
 def test_a_source_whose_kind_cannot_be_read_is_refused_rather_than_guessed(
@@ -530,10 +530,10 @@ def test_a_source_that_is_behind_is_named_as_the_one_that_is_behind(tmp_path):
     exactly when a precise sentence is worth the most."""
     import sqlite3
     from scrapex.compaction import _prepare_successor, verify_successor
-    from scrapex.databases.domain import MarketLensDatabase
+    from scrapex.databases.domain import EngineDatabase
 
     source = tmp_path / "behind.db"
-    MarketLensDatabase(source).initialize()
+    EngineDatabase(source).initialize()
     conn = sqlite3.connect(source)
     conn.execute("PRAGMA user_version = 58")
     conn.commit()

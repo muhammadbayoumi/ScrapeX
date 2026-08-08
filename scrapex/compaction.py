@@ -28,7 +28,7 @@ from pathlib import Path
 
 from . import db as dbmod
 from . import retention, settings, storage
-from .database_ids import MARKETLENS_APPLICATION_ID
+from .database_ids import ENGINE_APPLICATION_ID
 
 # Tables NOT copied verbatim. Everything else is discovered from the schema
 # rather than listed here: a hand-written copy list silently drops whatever a
@@ -144,9 +144,10 @@ def _typed_class_for(path: Path):
     the successor verbatim: a successor built the wrong way still says
     'marketlens' about itself. Asked that way, a wrong successor vouches for
     itself and the check is worthless. The application id is the one answer it
-    cannot forge, and it is exactly the one `MarketLensDatabase._verify` reads.
+    cannot forge, and it is exactly the one `EngineDatabase._verify` reads.
 
-    Only MarketLens is recognised because only MarketLens has price observations.
+    Only the engine database is recognised: it is the only kind there is, and
+    the only one with price observations to compact.
     Anything else is a legacy unmarked warehouse, which has no typed door and
     keeps the legacy build.
 
@@ -168,7 +169,7 @@ def _typed_class_for(path: Path):
     quietly build the legacy way AND switch off the check that would have caught
     it. An id of 0 is an answer and means legacy. Silence is not an answer.
     """
-    from .databases.domain import MarketLensDatabase   # local: databases/ imports down to here
+    from .databases.domain import EngineDatabase   # local: databases/ imports down to here
 
     app_id = _application_id(path)
     if app_id is None:
@@ -178,7 +179,7 @@ def _typed_class_for(path: Path):
             "be verified against the door the product opens it with. Check that "
             "the file is present, readable, and not held open exclusively by "
             "another program.")
-    return MarketLensDatabase if app_id == MARKETLENS_APPLICATION_ID else None
+    return EngineDatabase if app_id == ENGINE_APPLICATION_ID else None
 
 
 def _prepare_successor(source: Path, target: Path) -> None:
@@ -186,12 +187,12 @@ def _prepare_successor(source: Path, target: Path) -> None:
 
     This is the defect in #53. Compaction used to build every successor with
     `dbmod.migrate` — the legacy, untyped stream — whatever the source was. That
-    stream is not the MarketLens one: it replays every legacy file, including
-    the three (0013, 0014, 0017) that belong to General alone, and it never
-    applies MarketLens's own identity migration. Measured against the owner's
+    stream is not the engine's one: it replays every legacy file, including
+    the three (0013, 0014, 0017) that belonged to the generic database alone,
+    and it never applies the engine's own identity migration. Measured against the owner's
     warehouse the two disagree on everything that identifies a database:
 
-        source (MarketLensDatabase)   40 tables  v59  app id 1398295884  ledger 59
+        source (EngineDatabase)   40 tables  v59  app id 1398295884  ledger 59
         successor (dbmod.migrate)     50 tables  v61  app id 0           no ledger
 
     Re-measured 2026-08-05, after 0060 and 0061 landed. The version numbers move
@@ -331,7 +332,7 @@ def _copy_observations(src: sqlite3.Connection, dst: sqlite3.Connection,
 def _refused_by_the_product(source: Path, successor: Path) -> list[str]:
     """The successor must open through the door the application itself uses.
 
-    Asked by OPENING it — `MarketLensDatabase(successor).connect()`, the same
+    Asked by OPENING it — `EngineDatabase(successor).connect()`, the same
     call the engine makes at startup — and not by re-listing what that call
     checks. A re-listed check is a second implementation of the gate, and it
     drifts from the first one silently: #53 walked past a verifier that compares

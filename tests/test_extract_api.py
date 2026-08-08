@@ -11,8 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from scrapex.databases import (  # noqa: E402
     DatabaseRegistry,
-    GeneralDatabase,
-    MarketLensDatabase,
+    EngineDatabase,
 )
 from scrapex.webui.app import create_app  # noqa: E402
 
@@ -30,7 +29,7 @@ HTML = """
 @pytest.fixture()
 def workspace(tmp_path: Path):
     registry = DatabaseRegistry(
-        EngineDatabase(tmp_path / "marketlens.db"),
+        EngineDatabase(tmp_path / "scrapex-engine.db"),
         pointer_file=tmp_path / "databases.json",
     )
     registry.initialize()

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from scrapex.databases import DatabaseRegistry
-from scrapex.databases.domain import GeneralDatabase, MarketLensDatabase
+from scrapex.databases.domain import EngineDatabase
 
 pytest.importorskip("fastapi", reason="needs the ui extra")
 from fastapi.testclient import TestClient  # noqa: E402
@@ -24,7 +24,7 @@ from scrapex.webui.app import create_app  # noqa: E402
 
 def make_registry(tmp_path: Path) -> DatabaseRegistry:
     registry = DatabaseRegistry(
-        EngineDatabase(tmp_path / "marketlens" / "marketlens.db"),
+        EngineDatabase(tmp_path / "marketlens" / "scrapex-engine.db"),
         pointer_file=tmp_path / "databases.json",
     )
     registry.initialize()
@@ -92,7 +92,7 @@ def test_one_app_never_reports_another_apps_databases(tmp_path):
     good = TestClient(create_app(databases=make_registry(tmp_path / "good")))
     broken_registry = make_registry(tmp_path / "broken")
     broken = TestClient(create_app(databases=broken_registry))
-    rewind(broken_registry.marketlens, 1)
+    rewind(broken_registry.engine, 1)
 
     assert "need attention" in broken.get("/").text
     assert "Databases healthy" in good.get("/").text, \
@@ -117,7 +117,7 @@ def test_a_reachable_engine_on_an_unusable_database_does_not_report_ok(tmp_path)
     body = client.get("/api/health").json()
 
     assert body["databases"]["ok"] is False
-    assert "marketlens" in body["databases"]["detail"]
+    assert "engine" in body["databases"]["detail"]
     assert "needs upgrade" in body["databases"]["detail"]
 
 

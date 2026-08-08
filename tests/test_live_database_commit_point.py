@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from scrapex import storage
-from scrapex.databases.domain import GeneralDatabase, MarketLensDatabase
+from scrapex.databases.domain import EngineDatabase
 from scrapex.databases.registry import DatabaseRegistry
 
 
@@ -24,25 +24,24 @@ def registry(tmp_path, monkeypatch) -> DatabaseRegistry:
     monkeypatch.setattr(storage, "POINTER_FILE", tmp_path / "location.json")
     pointer = tmp_path / "databases.json"
     monkeypatch.setattr("scrapex.databases.registry.REGISTRY_FILE", pointer)
-    live = DatabaseRegistry(EngineDatabase(tmp_path / "marketlens.db"),
-                            None, pointer)
+    live = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"), pointer)
     live.initialize()
     return live
 
 
-def _recorded_marketlens(pointer: Path) -> Path:
-    return Path(json.loads(pointer.read_text(encoding="utf-8"))["marketlens_path"])
+def _recorded_engine(pointer: Path) -> Path:
+    return Path(json.loads(pointer.read_text(encoding="utf-8"))["engine_path"])
 
 
 def test_committing_a_new_location_moves_both_records_together(registry, tmp_path):
-    moved = tmp_path / "elsewhere" / "marketlens.db"
+    moved = tmp_path / "elsewhere" / "scrapex-engine.db"
     moved.parent.mkdir()
-    MarketLensDatabase(moved).initialize()
+    EngineDatabase(moved).initialize()
 
     storage.commit_live_database(moved, previous=registry.engine.path)
 
     assert storage.read_pointer() == moved, "the pointer did not move"
-    assert _recorded_marketlens(registry.pointer_file) == moved, \
+    assert _recorded_engine(registry.pointer_file) == moved, \
         "the engine will still open the old file on its next start"
 
 
@@ -54,13 +53,13 @@ def test_the_registry_is_not_dragged_along_by_an_unrelated_database(registry, tm
     file it happened to be handling.
     """
     unrelated = tmp_path / "some-other.db"
-    MarketLensDatabase(unrelated).initialize()
+    EngineDatabase(unrelated).initialize()
     somewhere = tmp_path / "third.db"
 
     storage.commit_live_database(somewhere, previous=unrelated)
 
     assert storage.read_pointer() == somewhere      # the pointer is ours to move
-    assert _recorded_marketlens(registry.pointer_file) == registry.engine.path, \
+    assert _recorded_engine(registry.pointer_file) == registry.engine.path, \
         "the registry followed a database it was never pointing at"
 
 
