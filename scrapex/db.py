@@ -18,7 +18,6 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .database_ids import GENERAL_APPLICATION_ID
 
 # db/ lives next to the package; schema.sql is the single DDL truth (Q1).
 DB_DIR = Path(__file__).resolve().parent.parent / "db"
@@ -56,32 +55,30 @@ class DbLockedError(RuntimeError):
     """Another scrapex command holds the write lock (A10)."""
 
 
-class WrongDatabaseKindError(RuntimeError):
-    """The legacy MarketLens facade was pointed at the General database."""
-
-
 def connect(db_path: Path | str | None = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    """Open the legacy/MarketLens price database with the mandated pragmas.
+    """Open the engine database with the mandated pragmas.
 
-    This compatibility facade remains for price-domain modules while they move
-    behind repositories. It explicitly refuses the General database.
+    A compatibility facade for price-domain modules while they move behind
+    repositories.
+
+    IT USED TO REFUSE THE GENERIC DATABASE by application id, because opening
+    one as the other wrote price rows into a file with no price tables. M5 left
+    one database, so there is nothing to be confused with and the check is gone
+    with the file it was protecting against. What replaced it is stricter and
+    sits one layer up: EngineDatabase.connect() verifies the identity, the
+    migration ledger and the payload contract before handing back a connection.
     """
     if db_path is None:
         raise NoDatabasePathError(
             "db.connect() needs a database path: pass one, or set SCRAPEX_DB_PATH. "
             "There is no default, because the old default (~/.scrapex/harvest.db) "
-            "was not the warehouse (~/.scrapex/marketlens/marketlens.db) and a "
+            "was not the warehouse (~/.scrapex/engine/scrapex-engine.db) and a "
             "forgotten path silently opened the wrong, empty file.")
     path = Path(db_path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
-    if int(conn.execute("PRAGMA application_id").fetchone()[0]) == GENERAL_APPLICATION_ID:
-        conn.close()
-        raise WrongDatabaseKindError(
-            f"{path} is the General database; choose the MarketLens database and retry"
-        )
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")

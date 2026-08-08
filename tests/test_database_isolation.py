@@ -41,9 +41,8 @@ from scrapex.databases import (
     DatabaseKindError,
     DatabaseRegistry,
     EngineDatabase,
-    GeneralDatabase,
-    MarketLensDatabase,
 )
+from tests.databaserigs import foreign_database, rig
 from scrapex.webui.app import create_app
 
 pytest.importorskip("fastapi")
@@ -59,13 +58,12 @@ def test_restore_refuses_the_wrong_kind_without_displacing_live_data(tmp_path: P
     database he had.
     """
     engine = EngineDatabase(tmp_path / "scrapex-engine.db")
-    other = MarketLensDatabase(tmp_path / "marketlens.db")
     engine.initialize()
-    other.initialize()
+    other = foreign_database(tmp_path / "someone-elses.db")
     original = engine.path.read_bytes()
 
     with pytest.raises(DatabaseKindError, match="expected a engine database"):
-        engine.restore(other.path)
+        engine.restore(other)
 
     assert engine.path.read_bytes() == original, "the live database was overwritten"
     assert not list(tmp_path.glob("scrapex-engine.replaced-*.db")), (
@@ -127,42 +125,18 @@ def test_moving_the_workspace_moves_the_database_the_pointer_names(
     assert followed.health()["engine"]["status"] == "Healthy"
 
 
-def test_migration_18_survives_a_database_with_job_history(tmp_path):
-    """The draft's blind spot, hit live on the owner's warehouse: every test
-    database was FRESH, so the crawl_job rebuild always dropped a parent with
-    no children. A real database has job_log_entry rows pointing at it — and
-    PRAGMA foreign_keys is a silent no-op inside the runner's transaction, so
-    the script's own OFF did nothing and init-db rolled back with
-    'FOREIGN KEY constraint failed'. The runner now suspends enforcement
-    around the script and foreign_key_check guards the commit."""
-    from scrapex.databases.domain import MarketLensDatabase
-
-    path = tmp_path / "marketlens.db"
-    db = MarketLensDatabase(path)
-    db.initialize()
-
-    conn = db.connect()
-    try:
-        conn.execute(
-            "INSERT INTO crawl_job (job_ref, run_mode, status, source_keys) "
-            "VALUES ('job_x', 'update', 'completed', '[\"GPP_ENERGY\"]')")
-        job_id = conn.execute("SELECT job_id FROM crawl_job").fetchone()[0]
-        conn.execute(
-            "INSERT INTO job_log_entry (job_id, level, message) "
-            "VALUES (?, 'info', 'a line that must survive the rebuild')", (job_id,))
-        conn.commit()
-        # The new status is writable — the whole point of migration 18 — and
-        # the child row still points at its job after the table rebuild.
-        conn.execute("UPDATE crawl_job SET status='completed_with_errors' "
-                     "WHERE job_id=?", (job_id,))
-        conn.commit()
-        kept = conn.execute(
-            "SELECT COUNT(*) FROM job_log_entry l JOIN crawl_job j "
-            "ON j.job_id = l.job_id").fetchone()[0]
-        assert kept == 1
-    finally:
-        conn.close()
-
+# REMOVED: test_migration_18_survives_a_database_with_job_history
+#
+# It replayed legacy migration 0018 over a database carrying job_log_entry rows,
+# after that script rolled back live on the owner's warehouse with "FOREIGN KEY
+# constraint failed" — every test database had been FRESH, so the crawl_job
+# rebuild always dropped a parent with no children.
+#
+# M5 deleted the stream that ran it. Migration 0018 does not exist any more; its
+# OUTCOME is baked into db/engine/schema.sql, and re-running a script that is
+# gone is not possible. The GUARANTEE it won is not lost — that enforcement is
+# suspended around a migration script and foreign_key_check guards the commit is
+# exactly what the test below proves, against a rig, at any stream length.
 
 def test_a_migration_that_orphans_rows_is_rolled_back_not_committed(tmp_path):
     """Enforcement is suspended around migration scripts, so the compensator
@@ -170,9 +144,7 @@ def test_a_migration_that_orphans_rows_is_rolled_back_not_committed(tmp_path):
     not commit, and the database must come back exactly as it was."""
     import pytest as _pytest
 
-    from scrapex.databases.domain import (
-        DatabaseMigrationError, GeneralDatabase, Migration,
-    )
+    from scrapex.databases.domain import DatabaseMigrationError, Migration
 
     good = tmp_path / "0001_base.sql"
     good.write_text(
@@ -191,15 +163,11 @@ def test_a_migration_that_orphans_rows_is_rolled_back_not_committed(tmp_path):
     bad = tmp_path / "0002_orphan.sql"
     bad.write_text("DROP TABLE parent;\nPRAGMA user_version = 2;\n", encoding="utf-8")
 
-    class _Base(GeneralDatabase):
-        def __init__(self, path):
-            super().__init__(path)
-            self._migrations = (Migration(1, good),)
+    def _Base(path):
+        return rig(path, Migration(1, good))
 
-    class _Rig(GeneralDatabase):
-        def __init__(self, path):
-            super().__init__(path)
-            self._migrations = (Migration(1, good), Migration(2, bad))
+    def _Rig(path):
+        return rig(path, Migration(1, good), Migration(2, bad))
 
     # The database must EXIST first: a brand-new file that fails mid-creation
     # is deliberately removed whole, which is a different (also correct)
@@ -217,21 +185,17 @@ def test_a_migration_that_orphans_rows_is_rolled_back_not_committed(tmp_path):
     conn.close()
 
 
-def test_a_missing_price_migration_is_named_not_a_nameerror():
-    """Both guards in _marketlens_plan raised an exception class that did not
-    exist, so a renamed price migration reported `NameError` and named nothing.
-    The stop was never in doubt; the diagnosis was.
-    """
-    import pytest
-    from scrapex.databases import domain
+# REMOVED: test_a_missing_price_migration_is_named_not_a_nameerror
+#
+# It pinned the two guards inside `_marketlens_plan` — that a price migration
+# renamed or removed from db/migrations raised a NAMED MigrationStreamError
+# rather than a bare NameError, and that adding one below the identity boundary
+# was refused because it would renumber a shipped database.
+#
+# Both guards existed because that plan ASSEMBLED its stream by picking numbered
+# files out of another stream's folder, which is fragile by construction. M5
+# deleted the plan and the folder: the engine's stream is `schema.sql` plus the
+# files beside it, in order, with nothing to pick and nothing to renumber.
+#
+# The guarantee did not move — the failure mode it named cannot occur any more.
 
-    original = domain._MARKETLENS_LEGACY_NUMBERS
-    domain._MARKETLENS_LEGACY_NUMBERS = original + (9999,)
-    try:
-        with pytest.raises(domain.MigrationStreamError) as caught:
-            domain._marketlens_plan()
-    finally:
-        domain._MARKETLENS_LEGACY_NUMBERS = original
-
-    assert "9999" in str(caught.value)          # says WHICH migration is gone
-    assert issubclass(domain.MigrationStreamError, RuntimeError)

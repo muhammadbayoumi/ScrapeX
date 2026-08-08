@@ -37,7 +37,7 @@ from ..connectors.base import CrawlBlocked, HttpFetcher
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
     DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
-    DatabaseUnavailableError, EngineDatabase, GeneralDatabase,
+    DatabaseUnavailableError, EngineDatabase,
 )
 from ..jobs import (JobRunner, create_job, get_job, job_log_count, job_logs,
                     list_jobs, set_control, worker_health)
@@ -355,7 +355,10 @@ def create_app(
         general_database = databases.engine
     else:
         price_path = Path(db_path)  # explicit legacy-compatible test/session path
-        general_database = GeneralDatabase(general_db_path) if general_db_path else None
+        # One database now, so the generic half is the same file as the price
+        # half. `general_db_path` survives only as a legacy test/session knob
+        # and names an engine database like any other.
+        general_database = EngineDatabase(general_db_path) if general_db_path else None
         if general_database is not None:
             general_database.initialize()
     app = FastAPI(title="ScrapeX", docs_url=None, redoc_url=None)

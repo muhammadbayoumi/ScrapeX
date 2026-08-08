@@ -1,0 +1,2927 @@
+{
+  "note": "frozen at the M5 collapse",
+  "streams": {
+    "generic": {
+      "database_migration": {
+        "columns": {
+          "applied_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "migration_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "migration_number": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "sha256": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "dataset_definition": {
+        "columns": {
+          "dataset_definition_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "dataset_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "dataset_kind": {
+            "default": "'unknown'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "discovery_method": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "display_name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "last_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "locator_json": {
+            "default": "'{}'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "original_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "site_profile_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "dataset_relationship": {
+        "columns": {
+          "cardinality": {
+            "default": "'unknown'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "child_dataset_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "confidence": {
+            "default": "0.0",
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "dataset_relationship_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "evidence_json": {
+            "default": "'{}'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "parent_dataset_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "relationship_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "review_status": {
+            "default": "'suggested'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "site_profile_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "updated_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "dataset_schema_version": {
+        "columns": {
+          "approved_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "dataset_definition_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "schema_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "schema_version_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "status": {
+            "default": "'approved'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "version_number": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "field_definition": {
+        "columns": {
+          "data_type": {
+            "default": "'unknown'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "dataset_definition_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "display_name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "display_order": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "field_definition_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "field_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "identity_role": {
+            "default": "'none'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "is_nullable": {
+            "default": "1",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "last_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "original_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "generic_ingestion": {
+        "columns": {
+          "dataset_definition_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "generic_ingestion_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "ingested_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "record_count": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "schema_version_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "source_locator": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_snapshot_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "status": {
+            "default": "'success'",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "generic_page_snapshot": {
+        "columns": {
+          "captured_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "content_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "content_type": {
+            "default": "'text/html'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "html_content": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "page_snapshot_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_url": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "generic_record": {
+        "columns": {
+          "content_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "data_json": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "dataset_definition_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "generic_record_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "last_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "record_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "schema_version_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "source_locator": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_snapshot_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "status": {
+            "default": "'active'",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "generic_record_revision": {
+        "columns": {
+          "content_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "data_json": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "generic_record_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "observed_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "record_revision_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "schema_version_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "source_snapshot_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "ix_dataset_definition_site": {
+        "type": "index"
+      },
+      "ix_dataset_relationship_site": {
+        "type": "index"
+      },
+      "ix_field_definition_dataset": {
+        "type": "index"
+      },
+      "ix_field_definition_paging": {
+        "type": "index"
+      },
+      "ix_generic_ingestion_dataset": {
+        "type": "index"
+      },
+      "ix_generic_page_snapshot_hash": {
+        "type": "index"
+      },
+      "ix_generic_page_snapshot_page": {
+        "type": "index"
+      },
+      "ix_generic_record_page": {
+        "type": "index"
+      },
+      "ix_generic_record_revision_record": {
+        "type": "index"
+      },
+      "ix_generic_record_snapshot": {
+        "type": "index"
+      },
+      "ix_relationship_field_pair_relationship": {
+        "type": "index"
+      },
+      "ix_schema_version_field_order": {
+        "type": "index"
+      },
+      "ix_site_profile_page": {
+        "type": "index"
+      },
+      "relationship_field_pair": {
+        "columns": {
+          "child_field_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "dataset_relationship_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "pair_order": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "parent_field_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "relationship_field_pair_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "schema_version_field": {
+        "columns": {
+          "field_definition_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "field_order": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "schema_version_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "scrapex_meta": {
+        "columns": {
+          "key": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "value": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "site_profile": {
+        "columns": {
+          "base_url": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "display_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "lifecycle": {
+            "default": "'draft'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "marketlens_source_key": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "site_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "site_profile_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "updated_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "trg_dataset_relationship_same_site_insert": {
+        "type": "trigger"
+      },
+      "trg_dataset_relationship_same_site_update": {
+        "type": "trigger"
+      },
+      "trg_generic_ingestion_append_only_delete": {
+        "type": "trigger"
+      },
+      "trg_generic_ingestion_append_only_update": {
+        "type": "trigger"
+      },
+      "trg_generic_ingestion_matches_insert": {
+        "type": "trigger"
+      },
+      "trg_generic_page_snapshot_immutable_delete": {
+        "type": "trigger"
+      },
+      "trg_generic_page_snapshot_immutable_update": {
+        "type": "trigger"
+      },
+      "trg_generic_record_revision_append_only_delete": {
+        "type": "trigger"
+      },
+      "trg_generic_record_revision_append_only_update": {
+        "type": "trigger"
+      },
+      "trg_generic_record_revision_matches_insert": {
+        "type": "trigger"
+      },
+      "trg_generic_record_schema_matches_insert": {
+        "type": "trigger"
+      },
+      "trg_generic_record_schema_matches_update": {
+        "type": "trigger"
+      },
+      "trg_relationship_field_pair_matches_insert": {
+        "type": "trigger"
+      },
+      "trg_relationship_field_pair_matches_update": {
+        "type": "trigger"
+      },
+      "trg_schema_version_field_matches_insert": {
+        "type": "trigger"
+      },
+      "trg_schema_version_field_matches_update": {
+        "type": "trigger"
+      },
+      "ux_dataset_schema_version_active": {
+        "type": "index"
+      }
+    },
+    "price": {
+      "absence_period": {
+        "columns": {
+          "absence_period_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "detected_by_run_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "missing_since": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "offer_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "returned_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "attribute_definition": {
+        "columns": {
+          "attribute_code": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "attribute_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "canonical_unit_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "data_type": {
+            "default": "'text'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "is_matching_key": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "is_variant_defining": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "name_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "brand": {
+        "columns": {
+          "brand_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "brand_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "brand_name_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "change_event": {
+        "columns": {
+          "change_event_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "change_type": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "detected_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "field_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "job_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "new_value": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "offer_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "previous_value": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "run_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_product_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_variant_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "classification_mapping": {
+        "columns": {
+          "classification_mapping_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "confidence": {
+            "default": "1.0",
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "mapping_method": {
+            "default": "'manual'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "review_status": {
+            "default": "'pending'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_node_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "target_node_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "valid_from": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "classification_node": {
+        "columns": {
+          "category_url": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "external_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "level": {
+            "default": "1",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "node_code": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "node_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "node_name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "node_name_ar": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "parent_node_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "scheme_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "classification_scheme": {
+        "columns": {
+          "scheme_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "scheme_name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "scheme_name_ar": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "scheme_type": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "crawl_job": {
+        "columns": {
+          "checkpoint_json": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "control": {
+            "default": "'none'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "counters_json": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "current_source_key": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "error_summary": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "finished_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "job_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "job_ref": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "last_heartbeat_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "output_status": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "progress_done": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "progress_total": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "retry_count": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "run_mode": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_keys": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "stage": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "started_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "status": {
+            "default": "'queued'",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "crawl_run": {
+        "columns": {
+          "durations_json": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "errors_count": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "extractor_version": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "finished_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "first_warning": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "job_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "products_discovered": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "requests_count": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "rows_seen": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "run_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "started_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "status": {
+            "default": "'running'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "variants_discovered": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "warning_count": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "currency_rate": {
+        "columns": {
+          "as_of": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "currency": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "currency_rate_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "per_usd": {
+            "default": null,
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "recorded_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_kind": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "database_migration": {
+        "columns": {
+          "applied_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "migration_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "migration_number": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "sha256": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "dataset_field": {
+        "columns": {
+          "arranged_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "data_type": {
+            "default": "'text'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "dataset_field_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "display_name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "display_order": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "field_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "is_hidden": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "original_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "feed_assignment": {
+        "columns": {
+          "feed_assignment_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "freshness_days": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "material_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "notes": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "priority": {
+            "default": "1",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "region": {
+            "default": "'*'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "review_status": {
+            "default": "'approved'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "valid_from": {
+            "default": "date('now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "variant_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "identity_alias": {
+        "columns": {
+          "alias_type": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "alias_value": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "identity_alias_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "retired_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "source_product_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "ix_absence_period_offer": {
+        "type": "index"
+      },
+      "ix_change_event_product": {
+        "type": "index"
+      },
+      "ix_change_event_run": {
+        "type": "index"
+      },
+      "ix_change_event_time": {
+        "type": "index"
+      },
+      "ix_classification_node_parent": {
+        "type": "index"
+      },
+      "ix_crawl_job_status": {
+        "type": "index"
+      },
+      "ix_crawl_run_source_time": {
+        "type": "index"
+      },
+      "ix_currency_rate_kind": {
+        "type": "index"
+      },
+      "ix_currency_rate_latest": {
+        "type": "index"
+      },
+      "ix_dataset_field_order": {
+        "type": "index"
+      },
+      "ix_feed_assignment_lookup": {
+        "type": "index"
+      },
+      "ix_identity_alias_value": {
+        "type": "index"
+      },
+      "ix_job_log_job_time": {
+        "type": "index"
+      },
+      "ix_material_attr_current": {
+        "type": "index"
+      },
+      "ix_material_classification_current": {
+        "type": "index"
+      },
+      "ix_material_gtin": {
+        "type": "index"
+      },
+      "ix_material_variant_material": {
+        "type": "index"
+      },
+      "ix_price_obs_offer_pricehash": {
+        "type": "index"
+      },
+      "ix_price_obs_offer_time": {
+        "type": "index"
+      },
+      "ix_price_obs_provenance": {
+        "type": "index"
+      },
+      "ix_price_period_offer": {
+        "type": "index"
+      },
+      "ix_raw_snapshot_hash": {
+        "type": "index"
+      },
+      "ix_retention_pin_offer": {
+        "type": "index"
+      },
+      "ix_schedule_due": {
+        "type": "index"
+      },
+      "ix_source_product_attribute_site_filter": {
+        "type": "index"
+      },
+      "ix_source_product_curation": {
+        "type": "index"
+      },
+      "ix_spa_product": {
+        "type": "index"
+      },
+      "ix_tax_rule_lookup": {
+        "type": "index"
+      },
+      "ix_variant_attr_current": {
+        "type": "index"
+      },
+      "job_log_entry": {
+        "columns": {
+          "job_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "job_log_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "level": {
+            "default": "'info'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "logged_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "message": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "material": {
+        "columns": {
+          "brand_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "gtin": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "manufacturer_part_number": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "material_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "material_name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "material_name_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "material_type": {
+            "default": "'raw_material'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "status": {
+            "default": "'active'",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "material_attribute_value": {
+        "columns": {
+          "attribute_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "material_attribute_value_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "material_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "normalized_unit_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "numeric_value": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "raw_value": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "source_snapshot_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "valid_from": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "material_classification": {
+        "columns": {
+          "assigned_by": {
+            "default": "'manual'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "confidence": {
+            "default": "1.0",
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "is_primary": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "material_classification_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "material_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "node_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "valid_from": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "material_variant": {
+        "columns": {
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "material_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "pack_quantity": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "selling_unit_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "spec_fingerprint": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "status": {
+            "default": "'active'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "variant_code": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "variant_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "variant_label": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "offer_state": {
+        "columns": {
+          "availability": {
+            "default": "'unknown'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "currency": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "last_confirmed_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "last_seen_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "offer_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "price": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "price_fields": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "price_hash": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "stock_quantity": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "updated_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "price_observation": {
+        "columns": {
+          "availability": {
+            "default": "'unknown'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "business_date": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "currency": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "observed_at": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "offer_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "official_source_link": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "official_source_name": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "price": {
+            "default": null,
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "price_before": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "price_fields": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "price_hash": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "price_observation_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "price_sale": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "price_trade": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "provenance": {
+            "default": "'observed'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "record_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "run_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "snapshot_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "stock_quantity": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "tax_included": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "price_period": {
+        "columns": {
+          "closed_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "currency": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "first_detected_at": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "last_confirmed_at": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "offer_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "opened_because": {
+            "default": "'price_change'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "price": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "price_before": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "price_fields": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "price_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "price_period_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "price_sale": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "tax_included": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "raw_snapshot": {
+        "columns": {
+          "captured_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "content_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "content_type": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "http_status": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "run_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "snapshot_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_url": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "storage_path": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "retention_pin": {
+        "columns": {
+          "business_date": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "note": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "offer_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "pinned_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "record_hash": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "retention_pin_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "retention_policy": {
+        "columns": {
+          "detail_days": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "excluded": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "older_than_action": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "retention_policy_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "updated_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "retention_run": {
+        "columns": {
+          "bytes_after": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "bytes_before": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "detail": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "finished_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "mode": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "observations_after": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "observations_before": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "protected_count": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "retention_run_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "sealed_path": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "status": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "saved_view": {
+        "columns": {
+          "config_json": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "saved_view_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "view_name": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "schedule": {
+        "columns": {
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "enabled": {
+            "default": "1",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "frequency": {
+            "default": "'manual'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "last_run_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "missed_run_policy": {
+            "default": "'run_when_available'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "next_run_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "overlap_policy": {
+            "default": "'queue'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "run_at": {
+            "default": "'09:00'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "run_mode": {
+            "default": "'update'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "schedule_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "timezone": {
+            "default": "'UTC'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "weekday": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "scrapex_meta": {
+        "columns": {
+          "key": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "value": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "selling_unit": {
+        "columns": {
+          "name": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "name_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "selling_unit_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "unit_code": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_attribute_promotion": {
+        "columns": {
+          "attribute_code": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "promoted_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_offer": {
+        "columns": {
+          "basis_quantity": {
+            "default": "1",
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "branch_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "content_quantity": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "content_unit_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "country_code_alpha2": {
+            "default": "'*'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "currency": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "customer_segment": {
+            "default": "'retail'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "minimum_quantity": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "offer_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "quantity_increment": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "quantity_is_decimal": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "selling_unit_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "selling_unit_raw": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "selling_unit_raw_lang": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "source_variant_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "status": {
+            "default": "'active'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "tax_included": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "unit_basis_provenance": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "unit_basis_witness": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "weight": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "weight_unit": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_product": {
+        "columns": {
+          "brand": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "brand_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "category_external_id": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "category_path": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "category_path_ar": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "curation": {
+            "default": "'inventoried'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "display_method": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "external_product_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "external_sku": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "has_variants": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "last_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "parent_sku": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "product_link": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "product_name": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "product_name_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "product_name_lang": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "raw_specs_json": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "source_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "source_product_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "status": {
+            "default": "'active'",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_product_attribute": {
+        "columns": {
+          "attribute_code": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "attribute_group": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "attribute_label": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "is_site_filter": {
+            "default": "0",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "lang": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "last_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "numeric_value": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "raw_value": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_product_attribute_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_product_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "unit_raw": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "value_url": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_product_match": {
+        "columns": {
+          "confidence": {
+            "default": "0",
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "evidence_json": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "match_method": {
+            "default": "'manual'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "material_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "review_status": {
+            "default": "'pending'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_product_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "source_product_match_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "valid_from": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_site": {
+        "columns": {
+          "active": {
+            "default": "1",
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "authority": {
+            "default": "'shop'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "base_url": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "currency": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "default_tax_mode": {
+            "default": "'incl'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "platform": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "source_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_name": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_name_ar": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "timezone": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_variant": {
+        "columns": {
+          "external_sku": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "external_variant_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "first_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "last_seen_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "option_fingerprint": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "source_product_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "source_variant_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "status": {
+            "default": "'active'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "variant": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "variant_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "variant_axes": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "variant_axes_ar": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "variant_url": {
+            "default": "''",
+            "notnull": 1,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "source_variant_match": {
+        "columns": {
+          "confidence": {
+            "default": "0",
+            "notnull": 1,
+            "type": "REAL"
+          },
+          "evidence_json": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "match_method": {
+            "default": "'manual'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "review_status": {
+            "default": "'pending'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_variant_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "source_variant_match_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "valid_from": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "variant_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      },
+      "tax_rule": {
+        "columns": {
+          "created_at": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "material_key": {
+            "default": "'*'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "region": {
+            "default": "'*'",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "source_key": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "tax_evidence": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "tax_mode": {
+            "default": null,
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "tax_rate_pct": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "tax_rule_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "tax_statement": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "tax_statement_lang": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "tax_statement_text": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "valid_from": {
+            "default": "strftime('%Y-%m-%d','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "verified_at": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          }
+        },
+        "type": "table"
+      },
+      "trg_offer_unit_needs_a_witness_insert": {
+        "type": "trigger"
+      },
+      "trg_offer_unit_needs_a_witness_update": {
+        "type": "trigger"
+      },
+      "trg_price_obs_no_delete": {
+        "type": "trigger"
+      },
+      "trg_price_obs_no_update": {
+        "type": "trigger"
+      },
+      "ux_absence_period_open": {
+        "type": "index"
+      },
+      "ux_classification_mapping_active": {
+        "type": "index"
+      },
+      "ux_classification_node_external": {
+        "type": "index"
+      },
+      "ux_dataset_field": {
+        "type": "index"
+      },
+      "ux_feed_assignment_active": {
+        "type": "index"
+      },
+      "ux_identity_alias": {
+        "type": "index"
+      },
+      "ux_material_variant_fingerprint": {
+        "type": "index"
+      },
+      "ux_price_obs_dedupe": {
+        "type": "index"
+      },
+      "ux_price_period_open": {
+        "type": "index"
+      },
+      "ux_saved_view_name": {
+        "type": "index"
+      },
+      "ux_source_offer_identity": {
+        "type": "index"
+      },
+      "ux_source_product_match_active": {
+        "type": "index"
+      },
+      "ux_source_variant_external": {
+        "type": "index"
+      },
+      "ux_source_variant_fingerprint": {
+        "type": "index"
+      },
+      "ux_source_variant_match_active": {
+        "type": "index"
+      },
+      "ux_tax_rule_current": {
+        "type": "index"
+      },
+      "v_material_price_tracking": {
+        "type": "view"
+      },
+      "v_retention_protected": {
+        "type": "view"
+      },
+      "variant_attribute_value": {
+        "columns": {
+          "attribute_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          },
+          "normalized_unit_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "numeric_value": {
+            "default": null,
+            "notnull": 0,
+            "type": "REAL"
+          },
+          "raw_value": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "source_snapshot_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "valid_from": {
+            "default": "strftime('%Y-%m-%dT%H:%M:%SZ','now')",
+            "notnull": 1,
+            "type": "TEXT"
+          },
+          "valid_to": {
+            "default": null,
+            "notnull": 0,
+            "type": "TEXT"
+          },
+          "variant_attribute_value_id": {
+            "default": null,
+            "notnull": 0,
+            "type": "INTEGER"
+          },
+          "variant_id": {
+            "default": null,
+            "notnull": 1,
+            "type": "INTEGER"
+          }
+        },
+        "type": "table"
+      }
+    }
+  }
+}

@@ -337,7 +337,7 @@ def test_a_brand_the_promotion_fills_is_not_reported_as_lost(monkeypatch):
 
 def test_connect_with_no_path_refuses_instead_of_opening_the_wrong_file(monkeypatch):
     """The old default was ~/.scrapex/harvest.db — NOT the warehouse, which is
-    ~/.scrapex/marketlens/marketlens.db. So a caller that forgot its path got a
+    ~/.scrapex/scrapex-engine/scrapex-engine.db. So a caller that forgot its path got a
     blank database, and a WRITE would have gone into a file nothing else in the
     product reads. It happened: one settings write landed there before it was
     caught. A guess that is wrong in silence is worse than a refusal."""
@@ -350,7 +350,7 @@ def test_connect_with_no_path_refuses_instead_of_opening_the_wrong_file(monkeypa
             fresh.connect()
         # The message must name both files, or the reader repeats the mistake.
         assert "harvest.db" in str(caught.value)
-        assert "marketlens.db" in str(caught.value)
+        assert "scrapex-engine.db" in str(caught.value)
     finally:
         importlib.reload(dbmod)
 
