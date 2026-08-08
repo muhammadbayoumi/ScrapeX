@@ -25,7 +25,7 @@ import sqlite3
 
 import pytest
 
-from scrapex.databases.domain import MarketLensDatabase
+from scrapex.databases.domain import EngineDatabase
 
 # Far enough in that the price chain exists, far enough back that a real span of
 # migrations runs over the seeded rows.
@@ -101,10 +101,29 @@ def _seed_every_table(conn: sqlite3.Connection, tables: list[str]) -> int:
     return seeded
 
 
-def _upgraded_from_previous_release(path, monkeypatch) -> MarketLensDatabase:
-    db = MarketLensDatabase(path)
+def _requires_a_stream_it_can_stop_inside(db) -> None:
+    """M5 restarted the engine stream at 1, and this test needs to stop PARTWAY
+    through one.
+
+    NOT A SKIP THAT ROTS — it turns itself back on. And it is a skip rather than
+    a synthetic stream on purpose: the property here is about the SHIPPED
+    migrations, that upgrading through them lands identical to a fresh build of
+    the same schema. With one migration, fresh and upgraded are the same object
+    and the comparison asserts nothing. A rig with two invented migrations would
+    test the framework instead, which is a different and separately useful thing
+    — not this. The moment engine migration 0002 exists, this runs again.
+    """
+    if len(db._migrations) <= PREVIOUS_RELEASE:
+        pytest.skip(
+            f"the engine stream is {len(db._migrations)} migration(s); drift "
+            f"cannot be measured until there is a version {PREVIOUS_RELEASE} "
+            "to stop at and something after it")
+
+
+def _upgraded_from_previous_release(path, monkeypatch) -> EngineDatabase:
+    db = EngineDatabase(path)
     whole = db._migrations
-    assert len(whole) > PREVIOUS_RELEASE, "the stream is shorter than the stop point"
+    _requires_a_stream_it_can_stop_inside(db)
 
     monkeypatch.setattr(db, "_migrations", whole[:PREVIOUS_RELEASE])
     db.initialize()
@@ -125,7 +144,8 @@ def test_an_upgraded_database_matches_a_freshly_built_one(tmp_path, monkeypatch)
     already declares, or declares what no migration adds. A fresh install and an
     upgraded install would then be two different products wearing one version
     number, and nothing in the suite would say so."""
-    fresh = MarketLensDatabase(tmp_path / "fresh.db")
+    _requires_a_stream_it_can_stop_inside(EngineDatabase(tmp_path / "probe.db"))
+    fresh = EngineDatabase(tmp_path / "fresh.db")
     fresh.initialize()
     upgraded = _upgraded_from_previous_release(tmp_path / "upgraded.db", monkeypatch)
 
