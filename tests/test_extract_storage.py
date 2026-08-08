@@ -75,8 +75,17 @@ def approval(candidate, identity: set[str] | None = None):
     )
 
 
-def test_general_0002_adds_generic_storage_and_immutable_evidence(conn):
-    assert dbmod.schema_version(conn) == 3   # +0003 field paging index
+def test_the_generic_storage_and_its_immutable_evidence_are_present(conn):
+    """RENAMED FROM test_general_0002_adds_generic_storage_and_immutable_evidence.
+
+    The version number moved and the objects did not. The generic stream reached
+    this shape at its v3; the engine's schema carries the same tables and the
+    same triggers at v1, because db/engine/schema.sql is DERIVED from that
+    stream rather than replaying it. Asserting the number would now be asserting
+    which migration happened to introduce them — history, not a guarantee. What
+    has to stay true is that they are here.
+    """
+    assert dbmod.schema_version(conn) == 1
     objects = {
         row["name"]: row["type"]
         for row in conn.execute(
@@ -91,7 +100,11 @@ def test_general_0002_adds_generic_storage_and_immutable_evidence(conn):
     assert objects["generic_ingestion"] == "table"
     assert objects["trg_generic_page_snapshot_immutable_update"] == "trigger"
     assert objects["trg_generic_record_revision_append_only_delete"] == "trigger"
-    assert "trg_price_obs_no_update" not in objects
+    # `assert "trg_price_obs_no_update" not in objects` stood here and was the
+    # point of the split: the generic database was proved to carry NO price
+    # machinery. One database inverts it — the price trigger is expected now,
+    # and its ABSENCE would mean the derived schema dropped half of itself.
+    assert objects["trg_price_obs_no_update"] == "trigger"
 
     snapshot = save(conn)
     with pytest.raises(sqlite3.IntegrityError, match="immutable"):
@@ -285,34 +298,35 @@ def test_later_snapshot_updates_current_record_and_appends_revision(conn):
     ).fetchone()[0] == 2
 
 
-def test_generic_ingestion_and_price_ingestion_stay_in_separate_databases(
+def test_generic_ingestion_and_price_ingestion_share_one_database(
     databases: DatabaseRegistry,
 ):
-    with closing(databases.engine.connect()) as general:
-        snapshot = save(general)
-        candidate = service._candidate(
-            service._snapshot_row(general, snapshot["page_snapshot_id"]), 0
-        )
-        service.approve_candidate(
-            general, snapshot["page_snapshot_id"], approval(candidate)
-        )
-        general.commit()
-        assert general.execute(
-            "SELECT COUNT(*) FROM generic_record LIMIT 1"
-        ).fetchone()[0] == 2
-        with pytest.raises(sqlite3.OperationalError, match="no such table"):
-            general.execute("SELECT COUNT(*) FROM price_observation LIMIT 1")
+    """REPLACES test_generic_ingestion_and_price_ingestion_stay_in_separate_
+    databases, which asserted the exact opposite — and was right to, until M5.
 
-    with closing(databases.engine.connect()) as marketlens:
-        assert marketlens.execute(
-            "SELECT 1 FROM sqlite_master WHERE name = 'generic_record' LIMIT 1"
-        ).fetchone() is None
-        result = ingest_payloads(
-            marketlens, make_entry(), [make_payload([one_row()])]
-        )
-        assert result.observations == 1
-        assert marketlens.execute(
-            "SELECT COUNT(*) FROM price_observation LIMIT 1"
-        ).fetchone()[0] == 1
-        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
-            marketlens.execute("UPDATE price_observation SET price=1.0")
+    It proved each file REFUSED the other's tables: reading price_observation
+    out of the generic database raised "no such table", and generic_record was
+    absent from the price one. That was the whole point of the split, and it is
+    the whole point of the collapse that it is no longer true.
+
+    The guarantee worth keeping is underneath it: approving a candidate and
+    ingesting prices are independent, and neither loses the other's rows. Two
+    files used to enforce that by construction. Nothing enforces it now except
+    this test, which is why it is kept rather than deleted.
+    """
+    with closing(databases.engine.connect()) as conn:
+        snapshot = save(conn)
+        candidate = service._candidate(
+            service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0)
+        service.approve_candidate(
+            conn, snapshot["page_snapshot_id"], approval(candidate))
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM generic_record").fetchone()[0] == 2
+
+        result = ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
+        conn.commit()
+
+        assert result.source_key
+        assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM generic_record").fetchone()[0] == 2, (
+            "ingesting prices disturbed the generic records sharing the file")

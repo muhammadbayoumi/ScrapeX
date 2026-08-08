@@ -532,10 +532,20 @@ def test_a_source_that_is_behind_is_named_as_the_one_that_is_behind(tmp_path):
     from scrapex.compaction import _prepare_successor, verify_successor
     from scrapex.databases.domain import EngineDatabase
 
+    head = EngineDatabase(tmp_path / "probe.db").latest_schema_version
+    if head < 2:
+        # NOT A SKIP THAT ROTS: it turns itself back on. "Behind" means a
+        # version BELOW the engine's head, and M5 restarted the engine stream at
+        # 1, so there is no such version to sit at — v0 is an uninitialised
+        # file, which is a different fault with a different message. The moment
+        # engine migration 0002 exists this runs again, unchanged.
+        pytest.skip(f"the engine stream is {head} migration(s); a source cannot "
+                    "be behind head until there is a version below it")
+
     source = tmp_path / "behind.db"
     EngineDatabase(source).initialize()
     conn = sqlite3.connect(source)
-    conn.execute("PRAGMA user_version = 58")
+    conn.execute(f"PRAGMA user_version = {head - 1}")
     conn.commit()
     conn.close()
 
@@ -544,6 +554,7 @@ def test_a_source_that_is_behind_is_named_as_the_one_that_is_behind(tmp_path):
 
     problems = verify_successor(source, successor)
 
-    behind = [p for p in problems if "the source warehouse is at schema v58" in p]
+    behind = [p for p in problems
+              if f"the source warehouse is at schema v{head - 1}" in p]
     assert behind, f"the source being behind was not named; got {problems}"
     assert "upgrade it first" in behind[0], "it named the fault and not the way out"
