@@ -102,6 +102,26 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # files. Kept PER KIND rather than in total, so a run of rebuilds can
     # never evict the only pre-wipe copy of a source erased months ago.
     Setting("backups_kept_per_tag", "3", label="Backups kept of each kind"),
+    # --- Backup to Drive: the owner's, entirely ---
+    # He asked for full control rather than a rule the product picks:
+    # «اعمل اعدادات بحيث يمكن للمتسخدم التحكم الكامل فى ذلك الامر».
+    #
+    # The numbers these choices are about, measured on his own warehouse: the
+    # bundle is 209 MB and 33 MB compressed, in one second. Small enough that
+    # "after every change" is affordable, large enough that "every hour
+    # regardless" is not. Both are offered; neither is imposed.
+    #
+    # after_change | daily | manual | off — each a whole answer to "when",
+    # never a modifier on another one.
+    Setting("backup_when", "after_change", label="Back up to Drive"),
+    Setting("backup_every_hours", "24", label="Hours between backups"),
+    # Zero means no ceiling. Twenty small crawls in a day is twenty uploads of
+    # thirty-three megabytes, and this is his number rather than the product's.
+    Setting("backup_min_gap_minutes", "0", label="Shortest gap between backups"),
+    Setting("backup_keep_versions", "3", label="Backups kept in Drive"),
+    # Written only after an upload SUCCEEDS. Stamping the attempt would let a
+    # failed upload postpone the next one, which is the opposite of a backup.
+    Setting("backup_last_uploaded_at", "", label="Last backup uploaded"),
     # --- Logs and diagnostics (spec 33) ---
     Setting("log_retention_days", "30", label="Keep job logs for"),
 ]}
