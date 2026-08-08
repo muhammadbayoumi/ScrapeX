@@ -30,8 +30,7 @@ HTML = """
 @pytest.fixture()
 def workspace(tmp_path: Path):
     registry = DatabaseRegistry(
-        GeneralDatabase(tmp_path / "general.db"),
-        MarketLensDatabase(tmp_path / "marketlens.db"),
+        EngineDatabase(tmp_path / "marketlens.db"),
         pointer_file=tmp_path / "databases.json",
     )
     registry.initialize()
@@ -124,11 +123,11 @@ def test_non_product_table_is_approved_ingested_and_browsed_end_to_end(workspace
         "office_code": "RUH", "office_name": "الرياض", "employees": 120,
     }
     assert payload["next_after_id"] is not None
-    with closing(registry.general.connect()) as general:
+    with closing(registry.engine.connect()) as general:
         assert general.execute(
             "SELECT COUNT(*) FROM generic_record LIMIT 1"
         ).fetchone()[0] == 2
-    with closing(registry.marketlens.connect()) as marketlens:
+    with closing(registry.engine.connect()) as marketlens:
         assert marketlens.execute(
             "SELECT 1 FROM sqlite_master WHERE name = 'generic_record' LIMIT 1"
         ).fetchone() is None

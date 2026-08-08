@@ -28,8 +28,7 @@ from scrapex.webui.app import create_app  # noqa: E402
 @pytest.fixture()
 def split_client(tmp_path: Path) -> TestClient:
     registry = DatabaseRegistry(
-        GeneralDatabase(tmp_path / "general" / "general.db"),
-        MarketLensDatabase(tmp_path / "marketlens" / "marketlens.db"),
+        EngineDatabase(tmp_path / "marketlens" / "marketlens.db"),
         pointer_file=tmp_path / "databases.json",
     )
     registry.initialize()
@@ -75,12 +74,12 @@ def test_no_write_route_re_migrates_a_domain_database(split_client):
 def test_the_schema_of_a_domain_database_is_left_alone(split_client, tmp_path):
     """Not just "it did not crash": the version must be untouched afterwards."""
     registry = DatabaseRegistry.read(tmp_path / "databases.json")
-    before = registry.marketlens.health().schema_version
+    before = registry.engine.health().schema_version
 
     split_client.post("/api/jobs", json={"source_keys": ["GPP_ENERGY"]})
 
-    after = registry.marketlens.health().schema_version
-    assert after == before == registry.marketlens.latest_schema_version
+    after = registry.engine.health().schema_version
+    assert after == before == registry.engine.latest_schema_version
 
 
 # ---- a configured source that has never run must still be visible -----------
@@ -126,7 +125,7 @@ def test_a_row_carries_its_own_identity(split_client, tmp_path):
     from scrapex.databases import DatabaseRegistry
 
     registry = DatabaseRegistry.read(tmp_path / "databases.json")
-    conn = registry.marketlens.connect()
+    conn = registry.engine.connect()
     try:
         page = browse_observations(conn, "GPP_ENERGY")
     finally:
@@ -140,7 +139,7 @@ def test_history_counts_is_one_query_for_the_page_not_one_per_row(split_client, 
     from scrapex.databases import DatabaseRegistry
 
     registry = DatabaseRegistry.read(tmp_path / "databases.json")
-    conn = registry.marketlens.connect()
+    conn = registry.engine.connect()
     try:
         assert history_counts(conn, []) == {}, "no offers must cost no query"
         assert isinstance(history_counts(conn, [1, 2, 3]), dict)
@@ -277,11 +276,10 @@ def test_a_state_that_was_never_derived_is_not_counted_as_confirmed(tmp_path):
     from scrapex.reports import watch
 
     registry = DatabaseRegistry(
-        GeneralDatabase(tmp_path / "g" / "g.db"),
-        MarketLensDatabase(tmp_path / "m" / "m.db"),
+        EngineDatabase(tmp_path / "m" / "m.db"),
         pointer_file=tmp_path / "databases.json")
     registry.initialize()
-    conn = registry.marketlens.connect()
+    conn = registry.engine.connect()
     try:
         counts = watch(conn, "GPP_ENERGY")
     finally:
@@ -299,11 +297,10 @@ def test_an_unbuilt_history_is_reported_as_unbuilt_not_as_zero(tmp_path):
     from scrapex.reports import watch
 
     registry = DatabaseRegistry(
-        GeneralDatabase(tmp_path / "g2" / "g.db"),
-        MarketLensDatabase(tmp_path / "m2" / "m.db"),
+        EngineDatabase(tmp_path / "m2" / "m.db"),
         pointer_file=tmp_path / "databases2.json")
     registry.initialize()
-    conn = registry.marketlens.connect()
+    conn = registry.engine.connect()
     try:
         counts = watch(conn, "GPP_ENERGY")
     finally:

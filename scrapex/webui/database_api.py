@@ -70,12 +70,13 @@ def create_domain_health_router(
     def current() -> DatabaseRegistry:
         return databases() if callable(databases) else databases
 
-    @router.get("/api/general/health")
-    def general_health() -> dict:
-        return current().general.health().public()
-
-    @router.get("/api/marketlens/health")
-    def marketlens_health() -> dict:
-        return current().marketlens.health().public()
+    # ONE DATABASE, ONE ROUTE. There were two — /api/general/health and
+    # /api/marketlens/health — because there were two files that could be
+    # healthy or broken independently. M5 removed that possibility, and a
+    # second route answering about the same file would only invite the panel to
+    # show one of them.
+    @router.get("/api/engine/health")
+    def engine_health() -> dict:
+        return current().engine.health().public()
 
     return router

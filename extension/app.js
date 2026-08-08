@@ -3354,7 +3354,7 @@ function wireRuntimeRepair() {
     const timer = setInterval(async () => {
       attempts += 1;
       try {
-        const probe = await fetch((await getBackend()) + "/api/marketlens/health",
+        const probe = await fetch((await getBackend()) + "/api/engine/health",
                                   {cache: "no-store"});
         if (probe.ok) {
           clearInterval(timer);

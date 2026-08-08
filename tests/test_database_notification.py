@@ -24,8 +24,7 @@ from scrapex.webui.app import create_app  # noqa: E402
 
 def make_registry(tmp_path: Path) -> DatabaseRegistry:
     registry = DatabaseRegistry(
-        GeneralDatabase(tmp_path / "general" / "general.db"),
-        MarketLensDatabase(tmp_path / "marketlens" / "marketlens.db"),
+        EngineDatabase(tmp_path / "marketlens" / "marketlens.db"),
         pointer_file=tmp_path / "databases.json",
     )
     registry.initialize()
@@ -59,7 +58,7 @@ def test_a_database_that_degrades_while_running_is_announced_with_its_fix(tmp_pa
     client = TestClient(create_app(databases=registry))
     assert "Databases healthy" in client.get("/").text
 
-    rewind(registry.marketlens, registry.marketlens.latest_schema_version - 1)
+    rewind(registry.engine, registry.engine.latest_schema_version - 1)
 
     body = client.get("/").text
     assert "Databases need attention" in body, "the status went stale"
@@ -75,7 +74,7 @@ def test_the_status_is_words_not_only_a_colour(tmp_path):
     client = TestClient(create_app(databases=registry))
     healthy = client.get("/").text
 
-    rewind(registry.general, registry.general.latest_schema_version - 1)
+    rewind(registry.engine, registry.engine.latest_schema_version - 1)
     unhealthy = client.get("/").text
 
     assert "Databases healthy" in healthy and "Databases healthy" not in unhealthy
@@ -113,7 +112,7 @@ def test_a_reachable_engine_on_an_unusable_database_does_not_report_ok(tmp_path)
     goes green, while nothing it does can actually work."""
     registry = make_registry(tmp_path)
     client = TestClient(create_app(databases=registry))
-    rewind(registry.marketlens, registry.marketlens.latest_schema_version - 1)
+    rewind(registry.engine, registry.engine.latest_schema_version - 1)
 
     body = client.get("/api/health").json()
 
@@ -144,7 +143,7 @@ def test_the_engine_refuses_to_start_with_the_action_not_a_traceback(tmp_path, c
     from scrapex.cli import main
 
     registry = make_registry(tmp_path)
-    rewind(registry.marketlens, registry.marketlens.latest_schema_version + 1)
+    rewind(registry.engine, registry.engine.latest_schema_version + 1)
     pointer = registry.pointer_file
 
     import scrapex.cli as cli

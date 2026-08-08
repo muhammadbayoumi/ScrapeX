@@ -24,8 +24,7 @@ def registry(tmp_path, monkeypatch) -> DatabaseRegistry:
     monkeypatch.setattr(storage, "POINTER_FILE", tmp_path / "location.json")
     pointer = tmp_path / "databases.json"
     monkeypatch.setattr("scrapex.databases.registry.REGISTRY_FILE", pointer)
-    live = DatabaseRegistry(GeneralDatabase(tmp_path / "general.db"),
-                            MarketLensDatabase(tmp_path / "marketlens.db"),
+    live = DatabaseRegistry(EngineDatabase(tmp_path / "marketlens.db"),
                             None, pointer)
     live.initialize()
     return live
@@ -40,7 +39,7 @@ def test_committing_a_new_location_moves_both_records_together(registry, tmp_pat
     moved.parent.mkdir()
     MarketLensDatabase(moved).initialize()
 
-    storage.commit_live_database(moved, previous=registry.marketlens.path)
+    storage.commit_live_database(moved, previous=registry.engine.path)
 
     assert storage.read_pointer() == moved, "the pointer did not move"
     assert _recorded_marketlens(registry.pointer_file) == moved, \
@@ -61,7 +60,7 @@ def test_the_registry_is_not_dragged_along_by_an_unrelated_database(registry, tm
     storage.commit_live_database(somewhere, previous=unrelated)
 
     assert storage.read_pointer() == somewhere      # the pointer is ours to move
-    assert _recorded_marketlens(registry.pointer_file) == registry.marketlens.path, \
+    assert _recorded_marketlens(registry.pointer_file) == registry.engine.path, \
         "the registry followed a database it was never pointing at"
 
 
@@ -81,7 +80,7 @@ def test_an_unreadable_registry_is_left_alone_not_rebuilt(registry, tmp_path):
     registry.pointer_file.write_text("{ not json", encoding="utf-8")
     moved = tmp_path / "moved.db"
 
-    storage.commit_live_database(moved, previous=registry.marketlens.path)
+    storage.commit_live_database(moved, previous=registry.engine.path)
 
     assert storage.read_pointer() == moved
     assert registry.pointer_file.read_text(encoding="utf-8") == "{ not json"
