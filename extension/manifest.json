@@ -34,7 +34,7 @@
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
-    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
     "https://www.googleapis.com/*"
   ],
   "oauth2": {

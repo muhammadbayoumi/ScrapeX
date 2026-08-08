@@ -1939,9 +1939,9 @@ function renderAccount(problem) {
 // first minute. So the feed is read by the extension, and the page is filled
 // whether or not anything is running.
 //
-// Asked once per panel open and remembered. GitHub rate-limits by IP, and a
-// row that re-asks on every render would spend the allowance on a number that
-// changes a few times a year.
+// Asked once per panel open and remembered. The number changes a few times a
+// year; re-asking on every render would be a request per keystroke for an
+// answer that has not moved since the panel opened.
 let latestRelease = null;
 
 async function renderEngines() {

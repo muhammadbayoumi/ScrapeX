@@ -3043,10 +3043,10 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
     assert text_of(page, "#engine-installed-version") not in ("", "—", "not installed")
     assert str(PROTOCOL) in text_of(page, "#engine-protocol-row")
 
-    # THE DEFAULT IS TODAY'S TRUTH: this repository has cut no engine release,
-    # so GitHub answers 404 on releases/latest and the page says so in words.
-    # A bare em dash here would read as "we could not check", which is a
-    # different fact with a different remedy.
+    # THE DEFAULT IS TODAY'S TRUTH: no engine release has been cut, so the
+    # version manifest is not on the delivery endpoint yet and the request 404s.
+    # The page says that in words. A bare em dash here would read as "we could
+    # not check", which is a different fact with a different remedy.
     assert text_of(page, "#engine-latest-version") == "unknown"
     assert "No engine has been released yet" in text_of(page, "#engine-latest-detail")
 
@@ -3054,15 +3054,17 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
 def test_a_published_engine_release_is_shown_by_its_version(open_panel):
     """The state this page exists for: something newer is available.
 
-    The tag matters as much as the number. Decision 21 gives the two products
-    separate tags on one repository, so `scrapex-v…` on this feed is the
-    EXTENSION's release and says nothing about the engine — a case the pure
-    reader covers, and this proves the page is wired to that reader."""
-    page = open_panel(github_release={
-        "tag_name": "engine-v0.9.0",
+    The product name matters as much as the number. The delivery endpoint
+    carries several products' manifests side by side, so one that does not say
+    `scrapex-engine` says nothing about the engine — a case the pure reader
+    covers, and this proves the page is wired to that reader."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine",
+        "version": "0.9.0",
+        "tag": "engine-v0.9.0",
         "published_at": "2026-08-06T09:00:00Z",
-        "assets": [{"name": "scrapex-engine.exe",
-                    "browser_download_url": "https://x/e.exe", "size": 24000000}],
+        "installer": {"name": "scrapex-engine.exe", "url": "https://x/e.exe",
+                      "bytes": 24000000, "sha256": "a" * 64},
     })
     page.click("#tab-engines")
     page.wait_for_function(
@@ -3076,7 +3078,8 @@ def test_a_published_engine_release_is_shown_by_its_version(open_panel):
 
 def test_a_release_with_no_installer_says_so_before_the_press(open_panel):
     """Discovering it at the moment of pressing Install is the failure."""
-    page = open_panel(github_release={"tag_name": "engine-v0.9.0", "assets": []})
+    page = open_panel(engine_manifest={"product": "scrapex-engine",
+                                       "version": "0.9.0", "installer": None})
     page.click("#tab-engines")
     page.wait_for_function(
         "() => document.getElementById('engine-latest-detail').textContent !== ''",

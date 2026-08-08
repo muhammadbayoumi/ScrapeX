@@ -1,0 +1,227 @@
+name: Release the extension
+
+# PATH A of PLATFORM-PLAN §5c, and it points the opposite way from Path B.
+#
+#     git tag scrapex-v0.3.0 && git push origin scrapex-v0.3.0
+#
+# GOOGLE'S STORE DOES NOT READ GITHUB. It has no idea this repository exists.
+# Automation here means this workflow pushes TO the store through its API — the
+# arrow goes the other way from how release automation is usually described, and
+# that is what decides which secrets are needed.
+#
+# After the upload Google REVIEWS it, for a day or three, and then Chrome pushes
+# it to every user automatically without asking. Nothing in this file controls
+# that, and nothing can. It is the whole reason the compatibility refusal in the
+# panel exists: Chrome can update the extension tonight while a user's engine is
+# last month's.
+
+on:
+  push:
+    tags:
+      - "scrapex-v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to the Chrome Web Store (off = build and check only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: The tag and the manifest must be the same number
+        # Chrome reads `manifest.json` and nothing else. A tag that disagrees
+        # with it publishes a version nobody can name: the store shows one
+        # number, the panel's About page shows another, and every support
+        # conversation starts by working out which is real.
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=$(python -c "import json;print(json.load(open('extension/manifest.json'))['version'])")
+          tag="${GITHUB_REF_NAME#scrapex-v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="$manifest"
+            echo "dispatch run: taking the version from the manifest ($tag)"
+          fi
+          echo "tag says      $tag"
+          echo "manifest says $manifest"
+          test "$tag" = "$manifest"
+          echo "EXT_VERSION=$manifest" >> "$GITHUB_ENV"
+
+      - name: Install
+        run: pip install -e .[dev,browser] && python -m playwright install --with-deps chromium
+
+      - name: The extension must pass its own gate before it is shipped
+        run: python -m pytest -q -m extension
+
+      - name: And its own JavaScript
+        run: |
+          node contract/parity/parity.test.mjs
+          node --test extension/tests/*.test.mjs
+
+      - name: Package, and leave out what must never ship
+        # `tests/` and the README are ours, not the user's, and every byte in a
+        # store upload is a byte Google reviews. `key.pem` is not in this
+        # repository and never will be — the manifest carries only the PUBLIC
+        # half, which is what pins the extension's ID — but it is named here
+        # anyway, because the cost of the check is nothing and the cost of the
+        # mistake is a published signing key.
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build && mkdir -p build
+          cp -r extension build/scrapex
+          rm -rf build/scrapex/tests build/scrapex/README.md
+          find build/scrapex -name "*.pem" -delete
+          find build/scrapex -name ".DS_Store" -delete
+
+          if [ -f build/scrapex/key.pem ]; then
+            echo "::error::a private key is in the package"; exit 1
+          fi
+          if [ -d build/scrapex/tests ]; then
+            echo "::error::tests are in the package"; exit 1
+          fi
+
+          cd build/scrapex && zip -r -q "../scrapex-${EXT_VERSION}.zip" .
+          cd .. && unzip -l "scrapex-${EXT_VERSION}.zip" | tail -5
+
+      - name: The package must still be a loadable extension
+        # A zip that Chrome refuses is discovered three days later, at the end
+        # of a review. The manifest is re-read FROM THE ZIP, so a packaging
+        # step that dropped or corrupted it fails here instead.
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+          unzip -o -q "scrapex-${EXT_VERSION}.zip" -d check
+          version=$(python -c "import json;print(json.load(open('check/manifest.json'))['version'])")
+          test "$version" = "$EXT_VERSION"
+          python - <<'PY'
+          import json, pathlib
+          m = json.loads(pathlib.Path("check/manifest.json").read_text(encoding="utf-8"))
+          missing = [f for f in (m.get("background", {}).get("service_worker"),
+                                 m.get("side_panel", {}).get("default_path"),
+                                 m.get("action", {}).get("default_popup"))
+                     if f and not pathlib.Path("check", f).is_file()]
+          assert not missing, f"the manifest names files the package does not carry: {missing}"
+          print("every file the manifest names is present")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scrapex-extension
+          path: build/scrapex-*.zip
+
+  upload:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/scrapex-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: scrapex-extension
+          path: build
+
+      - name: Upload to the Chrome Web Store
+        # FOUR SECRETS, AND THE STORE GIVES NONE OF THEM AUTOMATICALLY:
+        #
+        #   CWS_EXTENSION_ID     the item id, from the store's own dashboard
+        #   CWS_CLIENT_ID        a Google Cloud OAuth client for the upload API
+        #   CWS_CLIENT_SECRET    its secret
+        #   CWS_REFRESH_TOKEN    obtained once, by hand, and long-lived
+        #
+        # They are checked together and named individually, because "upload
+        # failed" over a missing secret is a morning spent reading Google's
+        # documentation for a one-line answer.
+        env:
+          EXT_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in EXT_ID CLIENT_ID CLIENT_SECRET REFRESH_TOKEN; do
+            [ -n "${!name:-}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::these repository secrets are not set:$missing"
+            echo ""
+            echo "The package was built and checked and is attached to this run;"
+            echo "nothing was uploaded. Getting them is a one-time setup:"
+            echo "  1. A Chrome Web Store developer account, and the item created"
+            echo "     once by hand — the first upload cannot be automated."
+            echo "  2. A Google Cloud project with the Chrome Web Store API"
+            echo "     enabled and an OAuth client of type Desktop."
+            echo "  3. A refresh token obtained once with that client."
+            echo "Then add the four secrets and re-run this workflow."
+            exit 1
+          fi
+
+          zip=$(ls build/scrapex-*.zip)
+          echo "uploading $zip"
+
+          token=$(curl -sS -X POST -d "client_id=$CLIENT_ID" \
+            -d "client_secret=$CLIENT_SECRET" \
+            -d "refresh_token=$REFRESH_TOKEN" \
+            -d "grant_type=refresh_token" \
+            https://oauth2.googleapis.com/token | python -c "import json,sys;print(json.load(sys.stdin)['access_token'])")
+
+          result=$(curl -sS -X PUT \
+            -H "Authorization: Bearer $token" \
+            -H "x-goog-api-version: 2" \
+            -T "$zip" \
+            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$EXT_ID")
+          echo "$result"
+          # The API answers 200 with a FAILURE inside the body. Reading only the
+          # HTTP status would report a rejected upload as a successful release.
+          echo "$result" | python -c "
+          import json,sys
+          body = json.load(sys.stdin)
+          state = body.get('uploadState')
+          if state != 'SUCCESS':
+              print('::error::the store rejected the upload:', json.dumps(body))
+              sys.exit(1)
+          print('uploaded; it is now a draft in the store')"
+
+      - name: Submit for review
+        # SEPARATE FROM THE UPLOAD ON PURPOSE. Uploading leaves a draft; this
+        # is what starts Google's review, and it is the last reversible moment.
+        # `trustedTesters` is the publish target because Decision 6 is "owner
+        # plus a few testers, unlisted" — publishing to `default` would put it
+        # in front of the world, which is a different decision and not this
+        # workflow's to make.
+        env:
+          EXT_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          token=$(curl -sS -X POST -d "client_id=$CLIENT_ID" \
+            -d "client_secret=$CLIENT_SECRET" \
+            -d "refresh_token=$REFRESH_TOKEN" \
+            -d "grant_type=refresh_token" \
+            https://oauth2.googleapis.com/token | python -c "import json,sys;print(json.load(sys.stdin)['access_token'])")
+
+          curl -sS -X POST \
+            -H "Authorization: Bearer $token" \
+            -H "x-goog-api-version: 2" \
+            -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/$EXT_ID/publish?publishTarget=trustedTesters"
+          echo ""
+          echo "Submitted to trusted testers. Google reviews it; nothing here can hurry that."

@@ -1,110 +1,153 @@
 // What the newest ScrapeX-Engine is, read from where releases are actually cut.
 //
 // PLATFORM-PLAN Decision 4: releasing is manual, updating is not. A release is
-// tagged on GitHub; the tool reads it, says so, and installs it — the owner is
-// never sent to a browser to fetch an installer.
+// tagged; the tool reads it, says so, and installs it — the owner is never sent
+// to a browser to fetch an installer.
 //
-// THE EXTENSION ASKS, NOT THE ENGINE. The Engines page has to answer "what is
-// available to install" on a machine with no engine on it at all, which is
-// every machine for its first minute. An engine that fetched this could only
-// ever answer once it was already there.
+// THE PUBLIC DELIVERY ENDPOINT, and it is deliberately not this code's own
+// repository. ScrapeX's source goes private before the first release, and GitHub
+// answers 404 on a private repository to anyone not signed in — which is every
+// user. So releases go to `mbiX-hub`, which describes itself as the "public
+// delivery endpoint" for the ecosystem and already carries a `ScrapeX/` folder
+// beside `Xadd-in/`.
+//
+// A MANIFEST FILE, NOT THE RELEASES API, and this is the one thing copied
+// wholesale from the Excel add-in's own release path. `api.github.com` allows
+// SIXTY unauthenticated requests an hour PER IP ADDRESS. One owner never
+// notices; an office, a VPN or a shared connection starts getting 403s that
+// this code would report as a rate limit — correctly, and uselessly, because
+// nothing the owner can do fixes it. `raw.githubusercontent.com` has no such
+// limit, and the add-in has polled it across seventy-six releases.
 //
 // ITS OWN TIMEOUT, held separately from every other request the panel makes.
 // mbiXaddin's UpdateService keeps a short check timeout apart from its client
 // timeout for exactly this reason: a stalled fetch to a third party must never
-// be able to delay the thing the owner opened. Four seconds is longer than the
-// API's normal answer by a wide margin and shorter than anyone waits for a
-// panel to paint.
+// delay the thing the owner opened.
 
-export const RELEASES_API =
-  "https://api.github.com/repos/muhammadbayoumi/ScrapeX/releases/latest";
+/** The public delivery endpoint. Named once; every URL below is built from it. */
+export const PUBLIC_REPO = "muhammadbayoumi/mbiX-hub";
+
+/** Where this product's own manifest lives, beside the add-in's. */
+export const VERSION_MANIFEST =
+  `https://raw.githubusercontent.com/${PUBLIC_REPO}/main/ScrapeX/json/version.json`;
+
+/** Where a human goes: issues, releases, the install page. */
+export const PUBLIC_HOME = `https://github.com/${PUBLIC_REPO}`;
 
 export const CHECK_TIMEOUT_MS = 4000;
 
-// The tag a release carries. `engine-v0.4.0` is the engine's — PLATFORM-PLAN
-// Decision 21 gives the two products separate tags, so a `scrapex-v…` tag on
-// this feed is the EXTENSION's release and says nothing about the engine.
-const ENGINE_TAG = /^engine-v(\d+\.\d+\.\d+)$/;
+/** The product this manifest must be about. The hub serves several. */
+export const PRODUCT = "scrapex-engine";
+
+const VERSION = /^\d+\.\d+\.\d+$/;
 
 /**
- * Turn a GitHub response into one of the states a reader can act on.
+ * Turn the manifest into one of the states a reader can act on.
  *
  * Every branch is a DIFFERENT sentence, because "we don't know the latest
- * engine" has four causes and only one of them is anybody's fault:
+ * engine" has several causes and only one of them is anybody's fault:
  *
  *   ok            a published engine release, with its version
- *   none          the feed answered, and nothing has been released yet
- *   rate-limited  GitHub is refusing to answer for a while
+ *   none          nothing has been released for this product yet
  *   offline       the request never arrived
- *   unreadable    it answered with something this cannot parse
+ *   unreadable    it answered with something this cannot use
  *
- * `status` and `body` are passed in rather than fetched so this is testable
- * without a network, which is the only way a test of the offline branch can be
- * honest.
+ * `status` and `body` are passed in rather than fetched, so the offline branch
+ * can be tested honestly — a test that had to reach the network to prove what
+ * happens when the network is unreachable would prove nothing.
  */
-export function readLatestRelease(status, body, headers) {
-  const remaining = headers && headers.get
-    ? headers.get("x-ratelimit-remaining") : null;
-  if (status === 403 && remaining === "0") {
-    return { state: "rate-limited",
-             detail: "GitHub is rate-limiting this network. It answers again " +
-                     "within the hour; nothing is wrong with the engine." };
-  }
+export function readVersionManifest(status, body) {
   if (status === 404) {
-    // A repository with no releases answers 404 on /releases/latest. That is
-    // not an error and must never be shown as one: it is the true and complete
-    // answer "nothing has been released yet".
-    return { state: "none",
-             detail: "No engine has been released yet." };
+    // The file is not there. On this endpoint that means exactly one thing:
+    // no engine release has been published yet. It is the true and complete
+    // answer and must never be shown as an error.
+    return { state: "none", detail: "No engine has been released yet." };
   }
   if (status !== 200) {
+    return { state: "unreadable", detail: `The release manifest answered ${status}.` };
+  }
+  if (!body || typeof body !== "object") {
     return { state: "unreadable",
-             detail: `GitHub answered ${status}.` };
+             detail: "The release manifest could not be read." };
   }
 
-  const tag = body && typeof body.tag_name === "string" ? body.tag_name : "";
-  const match = ENGINE_TAG.exec(tag);
-  if (!match) {
-    // A release exists and it is not an engine release — the extension's own
-    // tag, or a hand-made one. Saying "unknown" here would be wrong twice: the
-    // feed answered, and what it said was simply about something else.
-    return { state: "none",
-             detail: tag
-               ? `The newest release is ${tag}, which is not an engine release.`
-               : "No engine has been released yet." };
+  // The hub serves the add-in's manifest from a sibling folder. Reading one as
+  // the other would report a confident, wrong version — so the file must say
+  // which product it is about, and this must agree.
+  if (body.product !== PRODUCT) {
+    return { state: "unreadable",
+             detail: `That manifest is for ${body.product || "another product"}, ` +
+                     `not the ScrapeX engine.` };
   }
 
-  const asset = (body.assets || []).find(
-    (a) => a && typeof a.name === "string" && a.name.endsWith(".exe"));
+  const version = typeof body.version === "string" ? body.version : "";
+  if (!VERSION.test(version)) {
+    return { state: "unreadable",
+             detail: `The release manifest names no usable version (${version || "empty"}).` };
+  }
+
+  const installer = body.installer && typeof body.installer.url === "string"
+    ? { name: body.installer.name || "scrapex-engine.exe",
+        url: body.installer.url,
+        bytes: Number(body.installer.bytes) || 0,
+        sha256: typeof body.installer.sha256 === "string" ? body.installer.sha256 : "" }
+    : null;
+
   return {
     state: "ok",
-    version: match[1],
-    tag,
+    version,
+    tag: typeof body.tag === "string" ? body.tag : `engine-v${version}`,
     publishedAt: typeof body.published_at === "string" ? body.published_at : "",
-    url: typeof body.html_url === "string" ? body.html_url : "",
+    url: typeof body.release_url === "string" ? body.release_url : PUBLIC_HOME,
+    // What this release will REFUSE to talk to, published beside it so the
+    // panel can say "this needs a newer extension" BEFORE anything is
+    // installed rather than after.
+    minimumExtension: typeof body.minimum_extension_version === "string"
+      ? body.minimum_extension_version : "",
+    protocol: typeof body.protocol_version === "number" ? body.protocol_version : null,
     // Named even when absent: a release with no installer attached is a
     // release nobody can install, and that is worth seeing rather than
     // discovering at the moment of pressing Install.
-    installer: asset ? { name: asset.name, url: asset.browser_download_url,
-                         bytes: asset.size || 0 } : null,
+    installer,
   };
 }
 
-/** Ask GitHub, and never let the asking delay anything. */
+/**
+ * The URL actually fetched, carrying a cache key that changes once a minute.
+ *
+ * NOT AN OPTIMISATION AND NOT SUPERSTITION. raw.githubusercontent.com serves
+ * this file through a CDN that caches it for about five minutes, and
+ * `cache: "no-store"` does not reach that — it governs the BROWSER's cache
+ * only. The manifest is rewritten in place on every release, so without this a
+ * release can exist and be invisible for five minutes after it is published.
+ *
+ * The minute bucket rather than a unique timestamp is mbiXsite's own solution
+ * to the same problem on the same endpoint, and its reasoning is worth keeping:
+ * everyone loading within the same minute shares one cache entry, so the CDN
+ * still absorbs almost every request. A per-request timestamp pushes every
+ * caller through to origin, which measurably slowed the fetch and made the
+ * timeout below far likelier to fire.
+ */
+export function manifestUrl(now = Date.now()) {
+  return `${VERSION_MANIFEST}?t=${Math.floor(now / 60000)}`;
+}
+
+/** Ask the endpoint, and never let the asking delay anything. */
 export async function latestEngineRelease(fetchImpl = fetch) {
   let response;
   try {
-    response = await fetchImpl(RELEASES_API, {
-      headers: { "Accept": "application/vnd.github+json" },
+    response = await fetchImpl(manifestUrl(), {
+      cache: "no-store",
       signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
     });
   } catch (_) {
     // A refusal, a DNS failure and the timeout above all land here, and from
     // the panel they are one fact: nobody answered.
     return { state: "offline",
-             detail: "Could not reach GitHub. The engine you have keeps working." };
+             detail: "Could not reach the release endpoint. The engine you have " +
+                     "keeps working." };
   }
   let body = null;
   try { body = await response.json(); } catch (_) { body = null; }
-  return readLatestRelease(response.status, body, response.headers);
+  return readVersionManifest(response.status, body);
 }

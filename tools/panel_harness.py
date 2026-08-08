@@ -72,7 +72,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          fail_routes=(), storage=None, logs=None, extension_version=None,
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
-         protocol_version=None, github_release=None,
+         protocol_version=None, engine_manifest=None,
          signed_in=None, signin_error=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
@@ -97,9 +97,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     instead of a token, and it is a separate knob because a closed consent
     window and a mismatched OAuth client are different sentences.
 
-    `github_release` is the fifth: the body GitHub's releases/latest endpoint
-    answers with, or None for the 404 a repository with no releases gives —
-    which is what this repository gives TODAY, so the default is the truth.
+    `engine_manifest` is the fifth: the body of `ScrapeX/json/version.json` on
+    the public delivery endpoint. None means the file is not there, answered as
+    a 404 — which is what the hub gives TODAY, no engine having been released,
+    so the default is the truth rather than a convenience.
 
     `protocol_version` is the fourth knob and it defaults to the REAL
     scrapex.native.PROTOCOL_VERSION for the same reason. /api/health has carried
@@ -230,10 +231,11 @@ const ENGINE_UP = {str(engine_up).lower()};
 const SLOW = {str(slow).lower()};
 const FAIL = {json.dumps(list(fail_routes))};
 // The release feed is not the engine, and must be answered BEFORE the
-// engine-down branch below. Letting a stopped engine make GitHub unreachable
-// would have tested the Engines page — the one page whose whole purpose is to
-// work with no engine installed — against a state that cannot happen.
-const GITHUB_RELEASE = {json.dumps(github_release)};
+// engine-down branch below. Letting a stopped engine make the endpoint
+// unreachable would have tested the Engines page — the one page whose whole
+// purpose is to work with no engine installed — against a state that cannot
+// happen.
+const ENGINE_MANIFEST = {json.dumps(engine_manifest)};
 window.__calls = [];
 // The BODY of every write, which __calls (a path list) cannot carry — and the
 // body is where "resume" lives, so a test that only saw the path could not
@@ -252,15 +254,15 @@ window.fetch = async (url, options) => {{
     if (!SIGNED_IN) return {{ ok: false, status: 401, json: async () => ({{}}) }};
     return {{ ok: true, status: 200, json: async () => SIGNED_IN }};
   }}
-  if (String(url).includes("api.github.com")) {{
-    if (!GITHUB_RELEASE) {{
-      // A repository with no releases answers 404 on /releases/latest. That is
-      // this repository today, so it is the default.
-      return {{ ok: false, status: 404, headers: {{ get: () => null }},
-                json: async () => ({{message: "Not Found"}}) }};
+  if (String(url).includes("raw.githubusercontent.com")) {{
+    // A STATIC FILE, so its absence is a 404 and that is not an error: the
+    // manifest is not written until the first release writes it. Answering an
+    // empty 200 here instead would test the panel against a state the endpoint
+    // cannot produce.
+    if (!ENGINE_MANIFEST) {{
+      return {{ ok: false, status: 404, json: async () => null }};
     }}
-    return {{ ok: true, status: 200, headers: {{ get: () => null }},
-              json: async () => GITHUB_RELEASE }};
+    return {{ ok: true, status: 200, json: async () => ENGINE_MANIFEST }};
   }}
   if (!ENGINE_UP) throw new Error("engine down");
   if (SLOW) await new Promise(r => setTimeout(r, 60000));   // freeze on loading state
