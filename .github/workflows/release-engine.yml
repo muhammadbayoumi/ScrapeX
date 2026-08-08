@@ -1,0 +1,151 @@
+name: Release the engine
+
+# PATH B of PLATFORM-PLAN §5c. A tag starts it; nothing else does.
+#
+#     git tag engine-v0.3.0 && git push origin engine-v0.3.0
+#
+# Decision 4: releasing is manual, updating is not. This is the manual half —
+# the owner decides when. The extension notices the result on its own.
+#
+# WHY THE RELEASE IS PUBLISHED SOMEWHERE ELSE. ScrapeX's source goes private
+# before the first release, and GitHub answers 404 on a private repository's
+# releases endpoint to anyone not signed in — which is every user. The panel
+# reads a 404 as "nothing has been released yet", so every installation in the
+# world would be told the engine had never shipped. Releases therefore go to the
+# public site, which carries several products and identifies each by its tag.
+
+on:
+  push:
+    tags:
+      - "engine-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and check, but publish nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # PyInstaller does not cross-compile. A Windows .exe is built on Windows or
+    # it is not built at all; this is not a preference about CI runners.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The tag and the version must be the same number
+        # THE CHECK THAT MATTERS MOST HERE, and it runs before anything is
+        # built. A tag that says 0.3.0 over an engine that reports 0.2.0
+        # produces a release the panel cannot reason about: it would offer an
+        # upgrade the owner already has, or hide one he needs. Neither failure
+        # announces itself, and both are permanent once the release is public.
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#engine-v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag=$(python -c "from scrapex.version import VERSION; print(VERSION)")
+            echo "dispatch run: taking the version from the source ($tag)"
+          fi
+          version=$(python -c "from scrapex.version import VERSION; print(VERSION)")
+          echo "tag says     $tag"
+          echo "version says $version"
+          test "$tag" = "$version"
+          echo "ENGINE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install
+        run: |
+          pip install -e ".[ui,local,commodity]"
+          pip install pyinstaller
+
+      - name: The engine must pass its own tests before it is shipped
+        # `-m "not extension"` is wrong here on purpose: two of the extension
+        # files guard the ENGINE as well, and a release is the last moment to
+        # start skipping tests. See tests/test_the_extension_gate_is_complete.py.
+        env:
+          SCRAPEX_FULL_MIGRATIONS: "1"
+        run: python -m pytest -q -m "not extension"
+
+      - name: Build
+        run: python packaging/build_engine.py
+
+      - name: The thing that was built must actually run
+        # An .exe that does not start is a release that turns every install
+        # into a support conversation. It is asked for its own version, and the
+        # answer must be the number on the tag — which also proves the binary
+        # carries the source that was checked above, and not a stale build.
+        shell: bash
+        run: |
+          set -euo pipefail
+          built=$(./dist/scrapex-engine.exe --version)
+          echo "the built engine says: $built"
+          echo "$built" | grep -q "$ENGINE_VERSION"
+
+      - name: Checksum, so a download can be proved whole
+        shell: bash
+        run: |
+          cd dist
+          sha256sum scrapex-engine.exe > scrapex-engine.exe.sha256
+          cat scrapex-engine.exe.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scrapex-engine
+          path: |
+            dist/scrapex-engine.exe
+            dist/scrapex-engine.exe.sha256
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/engine-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: scrapex-engine
+          path: dist
+
+      - name: Publish to the public site
+        # THE TOKEN IS THE ONLY THING THIS NEEDS AND CANNOT PROVIDE ITSELF.
+        # GITHUB_TOKEN can only write to the repository it runs in, and this
+        # release belongs somewhere else, so a fine-grained PAT with Contents:
+        # write on the public site is stored as PUBLIC_SITE_TOKEN.
+        #
+        # Its absence is stated rather than crashed on: a release that fails
+        # with "resource not accessible by integration" sends the owner reading
+        # about GitHub permissions, and the real answer is one secret.
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
+          PUBLIC_REPO: muhammadbayoumi/mbiXsite
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::PUBLIC_SITE_TOKEN is not set."
+            echo "The release was built and checked, and nothing was published."
+            echo "Create a fine-grained personal access token with Contents:"
+            echo "write on $PUBLIC_REPO and add it as the repository secret"
+            echo "PUBLIC_SITE_TOKEN, then re-run this workflow."
+            exit 1
+          fi
+          version="${GITHUB_REF_NAME#engine-v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$PUBLIC_REPO" \
+            --title "ScrapeX-Engine $version" \
+            --notes "The ScrapeX engine, $version.
+
+          Download \`scrapex-engine.exe\` and let ScrapeX install it from the
+          Engine page — the extension checks this feed on its own and offers the
+          upgrade. Installing by hand works too: put it anywhere and run it.
+
+          It installs for one user and needs no administrator rights.
+
+          \`scrapex-engine.exe.sha256\` is the checksum, if you want to prove
+          the download arrived whole." \
+            dist/scrapex-engine.exe \
+            dist/scrapex-engine.exe.sha256
