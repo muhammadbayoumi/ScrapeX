@@ -18,7 +18,7 @@ Everything else — open-source crawlers, the Console — hangs off those two.
 | # | Decision | Consequence |
 |---|---|---|
 | 1 | An engine is a **separate installed program**. | ScrapeX needs an install / launch / monitor / version contract, not a plugin loader. |
-| 2 | **Engine crawls everything, not only prices.** Prices are one domain beside contractors, tenders, equipment, jobs. | The name `MarketLens` retires. The schema stops being price-shaped. |
+| 2 | **Engine crawls everything, not only prices.** Prices are one domain beside contractors, tenders, equipment, jobs. | The name `price capture` retires. The schema stops being price-shaped. |
 | 3 | **One device at a time, with restore.** | Drive is enough. No server, no shared SQLite file. A lease stops two devices at once. |
 | 4 | **Releasing is manual; updating is not.** We cut a release on GitHub; the tool reads it, tells the owner, and installs it itself — like any desktop application. | **Overrides `CLAUDE.md`'s "silent OTA" requirement**: the install is not silent, it is announced and accepted. It is also not a manual download — the earlier wording said "explicit user install" and that was wrong. The pattern is already proven in `mbiXaddin/Infrastructure/Update/UpdateService.cs`: `CheckForUpdatesAsync` → `ShowUpdatePromptIfNeeded` → `ExecuteFullInstallAsync`, with a 10-second check timeout held separately from the client timeout so a stalled GitHub fetch cannot hang startup. Copy it. |
 | 5 | The existing Excel add-in **reads from a Google Sheet**. | The Console's job is to write that Sheet. Sheets is a publishing target, never the configuration store. |
@@ -60,9 +60,9 @@ Measured against the repository and the live warehouse on 2026-08-05.
 
 | The plan said | Measured |
 |---|---|
-| `apps/extension`, `apps/marketlens`, `apps/engine-host` | The tree is `scrapex/ extension/ contract/ contracts/ db/ tests/ packaging/ apps_script/ docs/ spikes/ design/ tools/`. Relocating touches **620 tracked files and 1,044 import lines**, and breaks five hard-coded root paths including the migration directory and `sources.yaml`. Deleted — see §7. |
-| scrapeX 0.6.0 · MarketLens 0.9.2 · protocol 2 | **0.2.0 · 0.2.0 · protocol 1** — and one gate enforces the same number across three files, which is why the compatibility check in Decision 4 is impossible today. |
-| MarketLens is a stores-and-products engine | **GPP_ENERGY alone is 67,677 of 88,286 price observations — 76.7%** — fuel prices from a static HTML table. Decision 2 settles it. |
+| `apps/extension`, `apps/price capture`, `apps/engine-host` | The tree is `scrapex/ extension/ contract/ contracts/ db/ tests/ packaging/ apps_script/ docs/ spikes/ design/ tools/`. Relocating touches **620 tracked files and 1,044 import lines**, and breaks five hard-coded root paths including the migration directory and `sources.yaml`. Deleted — see §7. |
+| scrapeX 0.6.0 · price capture 0.9.2 · protocol 2 | **0.2.0 · 0.2.0 · protocol 1** — and one gate enforces the same number across three files, which is why the compatibility check in Decision 4 is impossible today. |
+| price capture is a stores-and-products engine | **GPP_ENERGY alone is 67,677 of 88,286 price observations — 76.7%** — fuel prices from a static HTML table. Decision 2 settles it. |
 | Five connector families | **Eleven connector modules**: aramco, custom_json, gpp, heidelberg, hybris, jsonld, magento, salla, shopify, woocommerce, zid. |
 | Domain Engines: Price, Listing, **Table** | "Table" is an *extraction method*, not a domain — the exact collapse `CLAUDE.md` §40 forbids. §4 separates the two axes. |
 | §4.3 SQLite is the writer · §13 Drive is where the data lives | Twenty lines apart and incompatible. Decision 3 settles it: **Drive is backup and restore; the local database is the writer.** |
@@ -380,7 +380,7 @@ data. *At this point the product is real: published, backed up, portable.*
 
 - Collapse `general.db` into Engine's single database, and the two migration streams into one. `general.db` holds six rows, five of them bookkeeping — there is no data to migrate, only a schema to unify.
 - Bring the eleven generic tables in beside the priced offers.
-- Rename `MarketLens` → `Engine` throughout: kind marker, `~/.scrapex/` path, package name, docs.
+- Rename `price capture` → `Engine` throughout: kind marker, `~/.scrapex/` path, package name, docs.
 
 **Done when:** one file, one migration stream, and every existing price test still passes.
 

@@ -18,7 +18,7 @@ warehouse, or the owner's own words. Anything I inferred rather than verified is
 | checked-out branch | `feat/crawl-several-sites-at-once` @ `1deff23`, **1 commit ahead of main, no PR** |
 | working tree | `M sources.yaml` (uncommitted — see **OP-2**) |
 | suite, as last reported by a commit | 1494 passed · 1 xfailed · contract parity 3/3 (`1deff23`) |
-| live warehouse | `~/.scrapex/marketlens/marketlens.db`, 75.4 MB · 73,162 price observations · 7,332 offers · 3,799 products · 9 sources · 53 migrations applied |
+| live warehouse | `~/.scrapex/engine/scrapex-engine.db`, 75.4 MB · 73,162 price observations · 7,332 offers · 3,799 products · 9 sources · 53 migrations applied |
 
 **How to read an entry.** Every entry has a stable ID (`SR-`, `OP-`, `DEC-`, `BV-`,
 `DEBT-`, `Q-`). IDs are never reused; when something is finished, move it to §7 and keep
@@ -478,7 +478,7 @@ owner to-do — **inferred**; the check is which run wrote them.)*
 |---|---|
 | `BACKLOG.md` (this file) | **live** — the tracking document |
 | `CANDIDATE-SOURCES.md` (07-31) | **live** — the queue of sites the owner has sent and nobody has probed yet. Deliberately outside `sources.yaml` (SR-13). A row leaves it when the site becomes a manifest entry |
-| `SOURCES-REGISTER.md` (07-31) | **live, derived** — the developer's per-source scoreboard, split MarketLens / General. Reads out of the manifest, the connector directory and this file; when it disagrees with `sources.yaml`, the manifest wins. Delete a reference in it when the matching `OP-`/`DEC-`/`BV-` closes |
+| `SOURCES-REGISTER.md` (07-31) | **live, derived** — the developer's per-source scoreboard, split price capture / generic extraction. Reads out of the manifest, the connector directory and this file; when it disagrees with `sources.yaml`, the manifest wins. Delete a reference in it when the matching `OP-`/`DEC-`/`BV-` closes |
 | `plan-closing-the-gaps.md` (07-25) | **superseded by this file.** Phases 0–2 delivered; its still-live items are DEC-4, DEC-5, DEC-6, DEBT-2, Q-10. Keep for its measured 07-25 snapshot |
 | `MASTER-PLAN.md` (07-18/23) | **stale and misleading** — see DEC-1. Its §8 asks the owner to confirm a topology its own header says he already rejected, and it cites a `spikes/` directory that has never existed in this repo. Keep as a design study; correct the header once Q-6 is answered |
 | `REVIEW-2026-07-28.md` | **live as evidence, superseded as a queue.** Its open items are OP-4, OP-5, OP-6, OP-7, OP-12, OP-13, OP-14 |
@@ -487,7 +487,7 @@ owner to-do — **inferred**; the check is which run wrote them.)*
 | `data-page-schema.md` | **live** — the Data page ruling |
 | `DESIGN-SYSTEM.md` | **live** |
 | `recon/heidelberg-materials-eg.md` | **live** — Q-1…Q-5 |
-| `COMPATIBILITY.md`, `GENERIC_CATALOG.md`, `db1-domain-database-isolation.md` | **live** — the General/MarketLens split (G0/G1/DB1). Not touched since 07-20; nothing in the last 130 commits builds on them, so their roadmap half is dormant **(inferred)** |
+| `COMPATIBILITY.md`, `GENERIC_CATALOG.md`, `archive/db1-domain-database-isolation.SUPERSEDED.md` | **live** — the generic/price split (G0/G1/DB1). Not touched since 07-20; nothing in the last 130 commits builds on them, so their roadmap half is dormant **(inferred)** |
 | `CLAUDE-after-database-separation-20260720.md`, `CLAUDE-after-price-history-20260720.md` | **historical.** These are two saved copies of the original product brief, not plans. Keep; do not read them as current requirements |
 
 ## Appendix C — memory files that are NOT about ScrapeX

@@ -1,9 +1,9 @@
 # Source register — every source, and what is actually finished
 
 For the **developer**. Opened **2026-07-31** on the owner's instruction: «اعمل ملف يضم كل
-المصادر (للمطور) بحيث يقدر يتابع ما تم انجازه … قسم الملف مصادر تبع نظام marketlens واخرى
+المصادر (للمطور) بحيث يقدر يتابع ما تم انجازه … قسم الملف مصادر تبع نظام price capture واخرى
 general» — *make a file holding every source, for the developer, so he can follow what has
-been accomplished … split the file into sources belonging to the marketlens system and
+been accomplished … split the file into sources belonging to the price capture system and
 others to general.*
 
 **Where this sits among the four files, so none of them is read as the wrong thing:**
@@ -21,7 +21,7 @@ disagrees with `sources.yaml`, the manifest is right and this file is stale.
 
 ---
 
-## What "MarketLens" and "General" actually divide
+## What "price capture" and "generic extraction" actually divide
 
 They are two **isolated SQLite databases**, not two labels. Different `application_id`,
 required `database_kind` markers, independent migration ledgers, checksums, locks, backup
@@ -29,15 +29,15 @@ and restore. No `ATTACH`, no cross-database foreign key, no distributed transact
 refuses a file belonging to the other (`docs/db1-domain-database-isolation.md:1-15`,
 `scrapex/databases/domain.py`).
 
-| | **MarketLens** | **General** |
+| | **price capture** | **General** |
 |---|---|---|
-| file | `~/.scrapex/marketlens/marketlens.db` | `~/.scrapex/general/general.db` |
+| file | `~/.scrapex/engine/scrapex-engine.db` | `~/.scrapex/engine/scrapex-engine.db` |
 | owns | the product and price path — products, offers, price observations, commodity prices | generic **site and dataset definitions**: `site_profile`, `dataset_definition`, `field_definition`, `dataset_relationship` |
 | a source there means | a shop or publisher whose **prices** we record | an arbitrary site whose **structures** are described — tables, lists, detail records, trees |
 | shipped? | yes — `price_tracking` enabled, stage `partial` (`features.py:44-51`) | **definitions and API only.** `generic_dataset_catalog` **disabled**, stage `foundation` (`features.py:52-57`) |
 
 **So the split has a lopsided answer today, and that is the finding, not a gap in this
-file: all 11 declared sources are MarketLens sources. General has none.** It cannot
+file: all 11 declared sources are price capture sources. General has none.** It cannot
 usefully have one yet — `generic_extraction` is `not_started` and enabled "only after an
 approved non-product extraction reaches generic storage" (`features.py:58-63`), and
 `generic_dataset_catalog` may be switched on only after generic **row** storage and the
@@ -46,7 +46,7 @@ now would hold a description of itself and not one row of data.
 
 ---
 
-## 1. MarketLens sources — the eleven
+## 1. price capture sources — the eleven
 
 ### 1.1 Scoreboard
 
@@ -192,7 +192,7 @@ Three flags gate it, all off (`scrapex/features.py:52-75`):
 `generic_dataset_catalog` *foundation* · `generic_extraction` *not_started* ·
 `crawl_frontier` *not_started* · `site_data_model` *not_started*.
 
-A site belongs here — not in MarketLens — when what we want from it is **not a product
+A site belongs here — not in price capture — when what we want from it is **not a product
 price**: a statistics table, a specification list, a registry, a document index. When such
 a site arrives, it waits in `CANDIDATE-SOURCES.md` and its row says General; it cannot be
 made to produce data by declaring it.
@@ -202,7 +202,7 @@ retired with `valid_to`, never deleted or reused for a different meaning. Discov
 only create relationships with `review_status = suggested`; there is intentionally no
 auto-confirm endpoint. `site_profile` may optionally link to an existing price
 `source_site`, which is how one site can be described in General while its prices live in
-MarketLens.
+price capture.
 
 ---
 
@@ -270,7 +270,7 @@ mistake for a fact about those sites.
 
 ### Queue A, by the system the owner designated
 
-**Designated MarketLens — 10.** `bulk.khamato.com` · `bnaia.com` · `sphinx-store.com` ·
+**Designated price capture — 10.** `bulk.khamato.com` · `bnaia.com` · `sphinx-store.com` ·
 `cmbegypt.com` · `ahrambc.com` · `ahmedelsallab.com` · `sebakashop.com` · `mashreqy.com` ·
 `polygroup-eg.com` · `cementegypt.com`
 → *Cheapest outcome:* a probe lands on `salla-html`, `zid-html`, `shopify-json` or
@@ -296,7 +296,7 @@ all: records and listings, no product price anywhere.
 
 **System not stated — 2.** `khamato.com` (sent alone, unannotated) ·
 `nile-cement.com/en/products/` (`trusted`, maybe no prices, no system — **Q-C**).
-→ Left blank on purpose. `khamato.com`'s sibling being a price source suggests MarketLens
+→ Left blank on purpose. `khamato.com`'s sibling being a price source suggests price capture
 but does not establish it (**Q-D**: the two Khamato hosts may be one source or two, and it
 turns on whether they price the same product differently).
 
