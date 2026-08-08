@@ -36,6 +36,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 ENGINE = WORKFLOWS / "release-engine.yml"
 EXTENSION = WORKFLOWS / "release-extension.yml"
+HELPER = WORKFLOWS / "put-to-hub.sh"
+
+
+def step_order(text: str, job: str) -> list[str]:
+    """The job's step NAMES, in order, parsed rather than searched.
+
+    Ordering asserted with `text.index("Some step")` is weaker than it looks: a
+    step renamed to `zzz Some step` still contains the substring, so the
+    assertion passes while the order it describes has changed. Caught by
+    mutation, twice — once here and once on `"concurrency:" in engine`.
+    """
+    yaml = pytest.importorskip("yaml")
+    return [s["name"] for s in yaml.safe_load(text)["jobs"][job]["steps"]
+            if "name" in s]
 
 
 @pytest.fixture(scope="module")
@@ -91,9 +105,10 @@ def test_the_engine_tag_must_match_the_version_before_anything_is_built(engine):
     """
     assert 'test "$tag" = "$version"' in engine
 
-    check = engine.index("The tag and the version must be the same number")
-    build = engine.index("python packaging/build_engine.py")
-    assert check < build, "the version is checked after the build, which wastes it"
+    steps = step_order(engine, "build")
+    assert (steps.index("The tag and the version must be the same number")
+            < steps.index("Build")), (
+        "the version is checked after the build, which wastes it")
 
 
 def test_the_extension_tag_must_match_the_manifest(extension):
@@ -157,8 +172,9 @@ def test_a_release_must_be_newer_than_the_one_already_published(engine):
     # It must run BEFORE the build. The manifest is public and needs no token,
     # so the check costs seconds — and after the build it costs ten minutes of
     # PyInstaller to learn something that was knowable at the start.
-    guard = engine.index("This release must be newer")
-    build = engine.index("python packaging/build_engine.py")
+    steps = step_order(engine, "build")
+    guard = steps.index("This release must be newer than the one already published")
+    build = steps.index("Build")
     assert guard < build, (
         "the published version is checked after the build, which wastes it")
 
@@ -199,9 +215,9 @@ def test_the_manifest_is_pointed_at_the_release_only_after_it_exists(engine):
     """A manifest written before the assets were attached points every
     installation at a download that 404s. This order makes the worst case a
     published release nobody is offered yet, which one re-run fixes."""
-    publish = engine.index("Publish to the public site")
-    point = engine.index("Point the manifest at it")
-    assert publish < point
+    steps = step_order(engine, "publish")
+    assert (steps.index("Publish to the public site")
+            < steps.index("Point the manifest at it"))
 
 
 def test_what_the_workflow_writes_is_what_the_panel_can_read(engine, tmp_path):
@@ -261,6 +277,88 @@ def test_what_the_workflow_writes_is_what_the_panel_can_read(engine, tmp_path):
     assert got["installer"]["bytes"] == manifest["installer"]["bytes"]
     assert got["minimumExtension"] == manifest["minimum_extension_version"]
     assert got["protocol"] == manifest["protocol_version"]
+
+
+def test_the_documents_the_store_requires_are_published_with_the_release(engine):
+    """THE STORE WILL NOT ACCEPT A LISTING WITHOUT A PUBLIC PRIVACY POLICY URL,
+    and the website renders these two rather than keeping its own copy.
+
+    They go out WITH THE RELEASE, and that is what keeps them honest: the
+    policy's promises are asserted against the shipped manifest by
+    tests/test_the_privacy_policy_is_true.py. A copy published on some other
+    schedule would describe a different build, which is the drift those tests
+    exist to stop.
+    """
+    for doc in ("privacy-policy", "support"):
+        assert (ROOT / "docs" / f"{doc}.md").is_file()
+    assert "for doc in privacy-policy support" in engine
+    assert 'put_to_hub "ScrapeX/docs/$doc.md" "docs/$doc.md"' in engine
+
+    # Before the manifest, which is the switch that makes the release visible.
+    steps = step_order(engine, "publish")
+    assert (steps.index("Publish the documents the store listing links to")
+            < steps.index("Point the manifest at it"))
+
+
+def test_putting_a_file_into_the_hub_is_written_once(engine):
+    """Three files go into the hub through the same awkward two-step — read the
+    blob's sha, then send the content with it, or without one if the file is
+    not there yet. Three copies of that is three places for the create-versus-
+    replace branch to be got wrong, and the one that is wrong is the one that
+    runs a month from now on a file that happens to exist."""
+    assert HELPER.is_file()
+    assert engine.count(". .github/workflows/put-to-hub.sh") == 2, (
+        "the helper is sourced somewhere other than the two publishing steps")
+    assert "gh api" not in engine.split("Publish the documents")[1], (
+        "a publishing step calls the API directly instead of the helper")
+
+
+def test_the_helper_creates_and_replaces_and_survives_the_missing_file(tmp_path):
+    """RUN, NOT READ. The create branch depends on `gh` exiting non-zero for a
+    file that is not there, under `set -euo pipefail` — which kills a script
+    on exactly that. Getting it wrong fails the FIRST release only, when
+    nothing has been published yet and there is no sha to find."""
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash is not on PATH")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$3" = "--jq" ] && [ "$4" = ".sha" ]; then\n'
+        '  if [ -n "${SHA_EXISTS:-}" ]; then echo abc123; exit 0; fi\n'
+        '  echo \'{"message":"Not Found"}\' >&2; exit 1\n'
+        "fi\n"
+        'echo "PUT $*" >&2\n'
+        "echo ok\n", encoding="utf-8", newline="\n")
+    (bin_dir / "gh").chmod(0o755)
+    (tmp_path / "payload.json").write_text('{"hello":1}', encoding="utf-8")
+
+    def run(sha_exists: bool):
+        return subprocess.run(
+            [bash, "-c",
+             "set -euo pipefail\n"
+             f". {HELPER.as_posix()}\n"
+             'put_to_hub "ScrapeX/json/version.json" payload.json "a message"'],
+            cwd=tmp_path, capture_output=True, text=True,
+            env={**os.environ,
+                 "PATH": f"{bin_dir.as_posix()}{os.pathsep}{os.environ['PATH']}",
+                 "PUBLIC_REPO": "muhammadbayoumi/mbiX-hub",
+                 **({"SHA_EXISTS": "1"} if sha_exists else {})})
+
+    first = run(sha_exists=False)
+    assert first.returncode == 0, (
+        f"the FIRST release cannot publish anything: {first.stderr}")
+    assert "creating" in first.stdout
+    assert "-f sha=" not in first.stderr, (
+        "a sha is sent when creating, which the API rejects")
+
+    again = run(sha_exists=True)
+    assert again.returncode == 0, again.stderr
+    assert "replacing" in again.stdout
+    assert "-f sha=abc123" in again.stderr, (
+        "no sha is sent when replacing, which the API rejects as a conflict")
 
 
 def test_the_panel_and_the_workflow_name_the_same_file(engine):
@@ -333,8 +431,9 @@ def test_publishing_goes_to_trusted_testers_and_not_to_the_world(extension):
 def test_uploading_and_submitting_are_separate_steps(extension):
     """Uploading leaves a draft; submitting starts Google's review and is the
     last reversible moment. One step doing both removes the pause."""
-    assert extension.index("Upload to the Chrome Web Store") < \
-        extension.index("Submit for review")
+    steps = step_order(extension, "upload")
+    assert steps.index("Upload to the Chrome Web Store") < \
+        steps.index("Submit for review")
 
 
 def test_every_secret_is_named_individually_when_it_is_missing(extension):

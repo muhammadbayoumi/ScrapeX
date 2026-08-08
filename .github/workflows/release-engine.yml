@@ -246,6 +246,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/engine-v')
     runs-on: ubuntu-latest
     steps:
+      # The source, for the two documents below. The engine itself comes from
+      # the artifact — it was built on Windows and cannot be rebuilt here.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: scrapex-engine
@@ -289,6 +292,28 @@ jobs:
             dist/scrapex-engine.exe \
             dist/scrapex-engine.exe.sha256
 
+      - name: Publish the documents the store listing links to
+        # THE PRIVACY POLICY AND THE SUPPORT PAGE, WHICH ARE TESTED HERE AND
+        # READ THERE. The Chrome Web Store will not accept a listing without a
+        # public privacy policy URL, and the website renders these two files
+        # rather than carrying its own copy — see docs/SITE-BRIEF.md.
+        #
+        # Sending them WITH THE RELEASE is what keeps that honest. The policy's
+        # promises are asserted against the shipped manifest by
+        # tests/test_the_privacy_policy_is_true.py — it must name every OAuth
+        # scope the extension asks for and every host it can reach. A copy
+        # published on some other schedule would be a copy that describes a
+        # different build, which is the exact drift those tests exist to stop.
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          . .github/workflows/put-to-hub.sh
+          for doc in privacy-policy support; do
+            put_to_hub "ScrapeX/docs/$doc.md" "docs/$doc.md" \
+              "ScrapeX docs, ${GITHUB_REF_NAME#engine-v}"
+          done
+
       - name: Point the manifest at it
         # LAST, AND SEPARATELY, because this is the moment the release becomes
         # VISIBLE. Until this file changes, every panel in the world still reads
@@ -303,21 +328,9 @@ jobs:
           GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
         run: |
           set -euo pipefail
-          # The Contents API needs the blob's current sha to replace it, and
-          # there isn't one the first time. An empty sha is how you say "create".
-          sha=$(gh api "repos/${PUBLIC_REPO}/contents/${MANIFEST_PATH}" \
-                  --jq .sha 2>/dev/null || true)
-          args=(-X PUT
-                -f "message=ScrapeX-Engine ${GITHUB_REF_NAME#engine-v}"
-                -f "content=$(base64 -w0 dist/version.json)"
-                -f "path=${MANIFEST_PATH}")
-          if [ -n "$sha" ]; then
-            args+=(-f "sha=$sha")
-            echo "replacing the published manifest ($sha)"
-          else
-            echo "no manifest is published yet; creating ${MANIFEST_PATH}"
-          fi
-          gh api "repos/${PUBLIC_REPO}/contents/${MANIFEST_PATH}" "${args[@]}" --jq .content.path
+          . .github/workflows/put-to-hub.sh
+          put_to_hub "${MANIFEST_PATH}" dist/version.json \
+            "ScrapeX-Engine ${GITHUB_REF_NAME#engine-v}"
 
           echo ""
           echo "Published. Every panel that opens from now on reads:"
