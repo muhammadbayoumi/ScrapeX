@@ -22,9 +22,8 @@ from scrapex.databases.domain import (
     DatabaseKindError,
     DatabaseMigrationError,
     EngineDatabase,
-    GeneralDatabase,
-    MarketLensDatabase,
 )
+from tests.databaserigs import foreign_database
 
 
 @pytest.fixture
@@ -95,10 +94,9 @@ def test_it_refuses_a_file_belonging_to_either_database_it_replaces(tmp_path):
     databases, both open cleanly, and both have a `scrapex_meta`. Only the
     identity tells them apart — and using one as the other would write price
     rows into a file that has no price tables, or the reverse."""
-    for cls, name in ((GeneralDatabase, "general"), (MarketLensDatabase, "marketlens")):
-        path = tmp_path / f"{name}.db"
-        cls(path).initialize()
-
+    path = foreign_database(tmp_path / "someone-elses.db")
+    name = "retired price"
+    if True:
         # DatabaseKindError SPECIFICALLY, and not merely "some exception".
         # Accepting DatabaseMigrationError too made this pass for the wrong
         # reason — caught by mutation: giving EngineDatabase the price
