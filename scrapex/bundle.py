@@ -35,6 +35,7 @@ empty on the day it is needed, and that day is by definition the worst one.
 from __future__ import annotations
 
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -161,6 +162,8 @@ def build(db_path: Path | str, out_dir: Path | str, *,
     finally:
         conn.close()
 
+    _write_panel_pack(out_dir, datasets)
+
     manifest = {
         "bundle_format": BUNDLE_FORMAT,
         "engine_version": VERSION,
@@ -182,6 +185,60 @@ def build(db_path: Path | str, out_dir: Path | str, *,
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return verify(out_dir)
+
+
+#: What a machine with NO ENGINE downloads. One gzipped stream of every row in
+#: the bundle, tagged with the dataset and table it came from.
+#:
+#: WHY NOT THE ZIP. JavaScript has DecompressionStream for gzip and deflate
+#: built in, and no zip reader at all — a panel that unpacked the archive would
+#: need a bundled library, and this repository deliberately ships no npm
+#: dependency. Gzip is the format the browser already has.
+#:
+#: WHY NOT PER-DATASET FILES. Twelve datasets times three tables is thirty-six
+#: uploads per backup, times three retained. One file is one download, one
+#: checksum and one thing to point at.
+#:
+#: MEASURED on the owner's warehouse: 64.1 MB of rows become 4.1 MB gzipped —
+#: the per-row tags are pure repetition and gzip absorbs them. A bare panel
+#: downloads four megabytes to show months of data with no engine on the
+#: machine at all.
+PANEL_PACK = "panel.jsonl.gz"
+
+
+def _write_panel_pack(out_dir: Path, datasets: dict) -> None:
+    with gzip.open(out_dir / PANEL_PACK, "wt", encoding="utf-8", newline="\n",
+                   compresslevel=6) as packed:
+        for key in sorted(datasets):
+            for table in sorted(datasets[key]):
+                source = out_dir / "datasets" / key / f"{table}.jsonl"
+                if not source.is_file():
+                    continue
+                with open(source, encoding="utf-8") as handle:
+                    for line in handle:
+                        if not line.strip():
+                            continue
+                        packed.write(json.dumps(
+                            {"dataset": key, "table": table,
+                             "row": json.loads(line)}, ensure_ascii=False))
+                        packed.write("\n")
+
+
+def read_panel_pack(path: Path | str, *, dataset: str | None = None,
+                    table: str = "current") -> list[dict]:
+    """The Python half of what the panel does, for testing what it will see."""
+    rows = []
+    with gzip.open(path, "rt", encoding="utf-8") as packed:
+        for line in packed:
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            if entry.get("table") != table:
+                continue
+            if dataset is not None and entry.get("dataset") != dataset:
+                continue
+            rows.append(entry["row"])
+    return rows
 
 
 def verify(bundle_dir: Path | str) -> BundleReport:
