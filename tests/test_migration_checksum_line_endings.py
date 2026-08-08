@@ -24,7 +24,7 @@ import sqlite3
 import pytest
 
 from scrapex.databases.domain import (
-    DatabaseMigrationError, GeneralDatabase, Migration,
+    DatabaseMigrationError, Migration,
 )
 
 _SQL_LF = (
@@ -41,11 +41,8 @@ _SQL_LF = (
 
 
 def _rig(path, migration_path):
-    class _Rig(GeneralDatabase):
-        def __init__(self, p):
-            super().__init__(p)
-            self._migrations = (Migration(1, migration_path),)
-    return _Rig(path)
+    from tests.databaserigs import rig
+    return rig(path, Migration(1, migration_path))
 
 
 def _stored(db_path) -> str:
@@ -163,7 +160,9 @@ def test_every_shipped_migration_hashes_the_same_on_either_platform(tmp_path):
     """
     from scrapex.databases import domain
 
-    plans = (domain._general_plan(), domain._marketlens_plan())  # noqa: SLF001
+    # ONE STREAM SINCE M5. It was two, and iterating both was how every shipped
+    # migration got covered; the engine's plan is now the whole of what ships.
+    plans = (domain._engine_plan(),)  # noqa: SLF001
     seen = 0
     for plan in plans:
         for migration in plan:
@@ -176,4 +175,10 @@ def test_every_shipped_migration_hashes_the_same_on_either_platform(tmp_path):
             # And the shipped file agrees with its own normalised form.
             assert migration.sha256 == Migration(1, as_lf).sha256, migration.name
             seen += 1
-    assert seen >= 50, f"expected the full stream, walked only {seen}"
+    # A COUNT, NOT A MINIMUM. `seen >= 50` guarded against the loop silently
+    # walking nothing back when there were two streams of sixty-odd files. M5
+    # left one stream of one, so a floor of fifty would fail forever while a
+    # floor of one would stop noticing an empty plan. Comparing against the plan
+    # itself keeps the guard exact at any length.
+    assert seen == sum(len(plan) for plan in plans) > 0, (
+        f"walked {seen} of {sum(len(p) for p in plans)} shipped migrations")
