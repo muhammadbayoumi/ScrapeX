@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minimum_extension_version": "0.2.0",
   "capabilities": {
     "crawl_pace": "0.2.0",

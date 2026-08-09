@@ -10,6 +10,13 @@ work predates this file, the commit that built it — evidence read out of
 record of what was done; this file answers a narrower question: which version
 has it.
 
+## 0.2.1
+
+Minimum supported extension: `0.2.0`.
+
+No new capabilities. Fixes and internal change only — an extension and an engine that spoke to each other before this version still do.
+
+
 ## 0.2.0
 
 Minimum supported extension: `0.2.0`.

@@ -2205,14 +2205,22 @@ def _about_panel(page):
 
 
 def test_about_names_the_side_every_version_belongs_to(open_panel):
-    """A version shown without saying whose version it is, is the bug."""
-    page = open_panel(extension_version="0.2.0", engine_version="0.2.0")
+    """A version shown without saying whose version it is, is the bug.
+
+    THE NUMBERS COME FROM THE SOURCE, not from literals. Pinned as "0.2.0" this
+    passed until the day 0.2.1 was cut, then failed for a reason that had
+    nothing to do with what it tests — and a test that has to be edited on every
+    bump is a test that will one day be edited without being read.
+    """
+    from scrapex.version import MINIMUM_EXTENSION_VERSION, VERSION
+
+    page = open_panel(extension_version=VERSION, engine_version=VERSION)
     _about_panel(page)
 
-    assert text_of(page, "#about-extension-version") == "0.2.0"
-    assert text_of(page, "#about-version") == "0.2.0"
-    assert text_of(page, "#about-latest-version") == "0.2.0"
-    assert text_of(page, "#about-minimum-version") == "0.2.0"
+    assert text_of(page, "#about-extension-version") == VERSION
+    assert text_of(page, "#about-version") == VERSION
+    assert text_of(page, "#about-latest-version") == VERSION
+    assert text_of(page, "#about-minimum-version") == MINIMUM_EXTENSION_VERSION
     about = page.inner_text("#s-about")
     assert "This extension" in about and "Engine" in about
     # "Latest" must say where latest came from: there is no update server.
@@ -2273,7 +2281,12 @@ def test_an_extension_older_than_its_engine_is_told_all_five_facts(open_panel):
 def test_an_extension_in_step_with_its_engine_is_not_nagged(open_panel):
     """A warning that fires when nothing is wrong is a warning people click
     past — the same reasoning that keeps engine-only changes out of the gate."""
-    page = open_panel(extension_version="0.2.0", engine_version="0.2.0")
+    # In step means AT THE CURRENT VERSION, whatever it is. As a literal this
+    # said "in step" until 0.2.1 was cut, after which it meant "one behind" —
+    # and the notice it asserts is absent was correctly being shown.
+    from scrapex.version import VERSION
+
+    page = open_panel(extension_version=VERSION, engine_version=VERSION)
     assert not page.locator("#version-notice").is_visible()
     assert not page.js_errors
 
