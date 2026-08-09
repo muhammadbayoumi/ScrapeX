@@ -3058,10 +3058,37 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
 
     # THE DEFAULT IS TODAY'S TRUTH: no engine release has been cut, so the
     # version manifest is not on the delivery endpoint yet and the request 404s.
-    # The page says that in words. A bare em dash here would read as "we could
-    # not check", which is a different fact with a different remedy.
-    assert text_of(page, "#engine-latest-version") == "unknown"
+    #
+    # THIS ASSERTION USED TO SAY "unknown" AND WAS PINNING A DEFECT. "unknown"
+    # means we could not find out; here we asked, the endpoint answered, and the
+    # answer was that nothing is released. The row therefore contradicted the
+    # sentence directly beneath it, which said we had checked. Found by looking
+    # at the panel — four guards covered the reader and none covered the row.
+    assert text_of(page, "#engine-latest-version") == "none yet"
     assert "No engine has been released yet" in text_of(page, "#engine-latest-detail")
+
+
+def test_the_latest_row_never_contradicts_the_sentence_under_it(open_panel):
+    """THE GENERAL FORM OF THE DEFECT ABOVE, so it cannot come back in another
+    state. The reader distinguishes four outcomes; the row is allowed to
+    summarise them, but never to say the opposite of the line beneath it.
+
+    "unknown" is a claim about OUR knowledge, and it may only appear when we
+    genuinely could not find out.
+    """
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    value = text_of(page, "#engine-latest-version")
+    detail = text_of(page, "#engine-latest-detail")
+
+    if "has been released yet" in detail:
+        assert value != "unknown", (
+            f"the row says {value!r} — we could not find out — while the "
+            f"sentence under it says we did: {detail!r}")
 
 
 def test_a_published_engine_release_is_shown_by_its_version(open_panel):

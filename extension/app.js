@@ -1956,10 +1956,18 @@ async function renderEngines() {
 
   if (!latestRelease) latestRelease = await latestEngineRelease();
   const latest = latestRelease;
+  // "unknown" MEANS WE COULD NOT FIND OUT, and for `none` that is false: we
+  // asked, the endpoint answered, and the answer was that nothing has been
+  // released. Collapsing the two threw away a distinction the reader is built
+  // to make — and the row then contradicted the sentence directly beneath it,
+  // which said we had checked. Found by looking at the panel, not by a test:
+  // four guards cover the reader and none covered the row that displays it.
   $("engine-latest-version").textContent =
-    latest.state === "ok" ? latest.version : "unknown";
-  // The detail line carries WHY it is unknown, which is the whole difference
-  // between a row worth reading and a row nobody reads twice.
+    latest.state === "ok" ? latest.version
+    : latest.state === "none" ? "none yet"
+    : "unknown";
+  // The detail line carries WHY, which is the whole difference between a row
+  // worth reading and a row nobody reads twice.
   $("engine-latest-detail").textContent = latest.state === "ok"
     ? (latest.installer
         ? ""
