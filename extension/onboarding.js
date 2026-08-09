@@ -28,16 +28,19 @@ async function poll() {
 }
 
 async function init() {
-  $("backend-url").textContent = await getBackend();
-  // The register-the-launcher command must name THIS extension's id — Chrome
-  // only lets a native host talk to the ids its manifest lists, and an id
-  // the user has to go hunting for is an id that gets typed wrong.
-  $("cmd-host").textContent =
-    `python -m scrapex.cli install-native-host --extension-id ${chrome.runtime.id}`;
-  await poll();
-  // Auto-detect the moment the user starts the engine — no manual refresh.
-  timer = setInterval(poll, 3000);
-
+  // WIRING FIRST, DECORATION SECOND — and the order is a bug fix, not a style.
+  //
+  // This function used to open by writing a command line into `#cmd-host`. When
+  // the steps were rewritten for the downloaded engine that span was deleted
+  // from the page and this file was not, so `getElementById` returned null.
+  // Inside an async function called from a DOMContentLoaded listener that
+  // TypeError surfaces as a silent unhandled rejection: no console error the
+  // user would ever see, no visible change, and every statement after it
+  // skipped. The page rendered perfectly and Start engine, Check again and Open
+  // ScrapeX were all dead — a page one missing element had quietly disarmed.
+  //
+  // Attaching the listeners before touching any optional element means the
+  // worst a missing span can now do is leave a label blank.
   $("check").addEventListener("click", poll);
   $("start-engine").addEventListener("click", async () => {
     const button = $("start-engine");
@@ -50,8 +53,13 @@ async function init() {
       // answers; this note only covers the gap until it does.
       note.textContent = "Engine starting — this page will notice it by itself.";
     } catch (err) {
-      note.textContent = "The launcher is not registered yet — run step 3 first, " +
-        "or start the engine from a terminal (step 4).";
+      // NO STEP NUMBERS AND NO TERMINAL. This used to read "run step 3 first, or
+      // start the engine from a terminal (step 4)" — step 3 is now "Come back
+      // here", there is no step 4, and the terminal command it pointed at was
+      // deleted. Naming a step that does not exist is worse than naming none.
+      note.textContent = "Chrome cannot start the engine on its own yet. " +
+        "Run scrapex-engine.exe yourself — step 2 above — and leave its " +
+        "window open; this page will notice it.";
     } finally {
       button.disabled = false;
     }
@@ -64,13 +72,11 @@ async function init() {
       chrome.tabs.create({ url: chrome.runtime.getURL("app.html") });
     }
   });
-  document.querySelectorAll("[data-copy]").forEach((btn) =>
-    btn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText($(btn.dataset.copy).textContent.trim());
-      btn.textContent = "Copied";
-      setTimeout(() => (btn.textContent = "Copy"), 1200);
-    })
-  );
+
+  $("backend-url").textContent = await getBackend();
+  await poll();
+  // Auto-detect the moment the user starts the engine — no manual refresh.
+  timer = setInterval(poll, 3000);
 }
 
 document.addEventListener("DOMContentLoaded", init);

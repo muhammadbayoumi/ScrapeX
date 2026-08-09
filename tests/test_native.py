@@ -124,9 +124,14 @@ def test_build_manifest_refuses_an_empty_executable():
         build_manifest(["abcdef"], "")
 
 
-def test_frozen_entry_defaults_to_the_native_host():
+def test_an_unknown_argument_is_chrome_rather_than_cli_usage():
     """Chrome's launch arguments vary by build; anything not a known subcommand
-    must be treated as "Chrome started us", never as CLI usage on the pipe."""
+    must be treated as "Chrome started us", never as CLI usage on the pipe.
+
+    Renamed from `test_frozen_entry_defaults_to_the_native_host`, which stopped
+    being true: the default for NO arguments is now the first-run setup, and only
+    an unrecognised argument means the host. The test below pins that split.
+    """
     # Loaded by path: the repo's `packaging/` dir is shadowed by the PyPI one.
     import importlib.util
 
@@ -222,6 +227,65 @@ def test_the_release_greps_for_a_flag_the_engine_actually_implements():
         f"the release runs the built engine with {sorted(unhandled)}, which the "
         f"entry point does not handle — every dash-argument it does not know "
         f"becomes a native host that prints nothing")
+
+
+def test_the_entry_point_tells_its_three_callers_apart(monkeypatch):
+    """THE BLACK WINDOW, PINNED.
+
+    One binary serves three callers and the argument list is the whole of the
+    evidence. Getting it wrong is not a cosmetic fault: bare invocation used to
+    mean the native messaging host, so a person who double-clicked the file they
+    had just downloaded got a console that waited on stdin for framed JSON that
+    would never arrive — an empty black rectangle, measured on the real 0.2.1
+    release, with no way to tell it from a crash.
+
+    Nothing exercised this path. `--version` had exactly the same root cause and
+    was found by a release workflow rather than by the suite, which is the second
+    time this one decision has shipped wrong.
+
+    `_first_run` is stubbed because the real one starts a server and does not
+    return — which is itself the point of it, and is asserted where it belongs.
+    """
+    import importlib.util
+
+    from scrapex import cli as scrapex_cli
+    from scrapex import native as scrapex_native
+
+    entry = Path(__file__).resolve().parent.parent / "packaging" / "engine_entry.py"
+    spec = importlib.util.spec_from_file_location("scrapex_engine_entry_c", entry)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    seen: list[str] = []
+    monkeypatch.setattr(scrapex_cli, "main", lambda: seen.append("cli") or 0)
+    monkeypatch.setattr(scrapex_native, "serve", lambda: seen.append("host") or 0)
+    monkeypatch.setattr(module, "_first_run", lambda: seen.append("first-run") or 0)
+
+    cases = [
+        # A person in Explorer passes nothing at all. Chrome never does.
+        ("first-run", ["scrapex-engine.exe"]),
+        ("cli", ["scrapex-engine.exe", "ui", "--no-open"]),
+        ("cli", ["scrapex-engine.exe", "install-native-host",
+                 "--extension-id", "abcdefghijklmnopabcdefghijklmnop"]),
+        # What Chrome actually sends: the host manifest path, the calling
+        # origin, and on Windows the parent window handle.
+        ("host", ["scrapex-engine.exe",
+                  r"C:\Users\x\AppData\Local\ScrapeX\com.scrapex.engine.json",
+                  "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
+                  "--parent-window=1180634"]),
+        # The same launch without the Windows-only flag, which is every other
+        # platform and some Chrome builds.
+        ("host", ["scrapex-engine.exe",
+                  "/home/x/.config/google-chrome/NativeMessagingHosts/com.scrapex.engine.json",
+                  "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"]),
+    ]
+    for expected, argv in cases:
+        seen.clear()
+        with monkeypatched_argv(module, argv):
+            code = module.main()
+        assert code == 0, f"{argv} exited {code}"
+        assert seen == [expected], (
+            f"{argv} was answered by {seen or ['nothing']}, not {expected!r}")
 
 
 def test_manifest_path_is_per_platform(monkeypatch, tmp_path):

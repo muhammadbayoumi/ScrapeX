@@ -24,31 +24,31 @@
   <div class="setup">
     <div class="card">
       <div class="step"><div class="n">1</div><div class="body">
-        <h3>Install Python 3.12+</h3>
-        <p>Get it from <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org/downloads</a>
-           (on Windows, tick “Add Python to PATH”).</p>
+        <h3>Download ScrapeX-Engine</h3>
+        <p>Open the <b>Engine</b> page in the ScrapeX panel and press the
+           download button. It hands you a single file,
+           <span class="cmd">scrapex-engine.exe</span> — there is nothing to
+           install first, and no terminal is involved.</p>
       </div></div>
       <div class="step"><div class="n">2</div><div class="body">
-        <h3>Install the ScrapeX engine</h3>
-        <div class="cmd-row"><span class="cmd" id="cmd-install">pip install scrapex</span>
-          <button class="ghost" data-copy="cmd-install">Copy</button></div>
-        <p>A one-click installer is coming; for now this pip command installs the engine.</p>
+        <h3>Run it once</h3>
+        <p>Double-click the file. It installs for you alone and asks for no
+           administrator rights.</p>
+        <p>Windows will warn once that the publisher is unknown, because the
+           file is not code-signed. Choose <b>More info</b>, then
+           <b>Run anyway</b>. The Engine page shows a checksum if you want to
+           prove the download arrived whole.</p>
       </div></div>
       <div class="step"><div class="n">3</div><div class="body">
-        <h3>Register the launcher <span class="note">once, ever</span></h3>
-        <div class="cmd-row"><span class="cmd" id="cmd-host">python -m scrapex.cli install-native-host --extension-id …</span>
-          <button class="ghost" data-copy="cmd-host">Copy</button></div>
-        <p>This teaches Chrome to start the engine itself. The command is already
-           filled in with this extension's id — copy it exactly as shown. After
-           this step, a terminal is never needed again.</p>
-      </div></div>
-      <div class="step"><div class="n">4</div><div class="body">
-        <h3>Start the engine</h3>
+        <h3>Come back here</h3>
+        <p>Leave the engine's window open — that window <b>is</b> the engine.
+           This page notices it by itself within a few seconds; there is
+           nothing to press.</p>
         <p class="step-action"><button id="start-engine">Start engine</button>
           <span class="note" id="start-note" role="status" aria-live="polite"></span></p>
-        <p>Or from a terminal, if the launcher is not registered yet:
-          <span class="cmd" id="cmd-run">python -m scrapex.cli ui</span>
-          <button class="ghost" data-copy="cmd-run">Copy</button></p>
+        <p>That button asks Chrome to start the engine for you, so the window
+           stops being needed. If Chrome says it cannot find it, the one-time
+           link-up is in the panel's Setup section.</p>
       </div></div>
     </div>
     <div class="actions">
@@ -70,6 +70,10 @@
 
   <p class="note">ScrapeX is decentralized: your links and data stay on your machine. Nothing is sent to any server.</p>
 </div>
+<!-- appearance.js FIRST and as a classic script, because it is what puts
+     `data-theme` on <html>. This page loaded only onboarding.js, so it
+     ignored the owner's chosen palette entirely. -->
+<script src="appearance.js"></script>
 <script type="module" src="onboarding.js"></script>
 </body>
 </html>

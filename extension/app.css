@@ -2005,3 +2005,21 @@
     .finance-m3-switch-handle-container,
     .finance-m3-switch-handle { transition: none; }
   }
+
+/* The install steps, folded. `summary` is a control, so it says so on hover and
+   keeps the keyboard focus ring the rest of the panel uses. */
+.install-steps > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  padding: var(--sp-2) 0;
+}
+.install-steps ol { margin: 0; padding-inline-start: var(--sp-5); }
+.install-steps li + li { margin-top: var(--sp-2); }
+/* The checksum is for the one reader who came looking for it, and invisible to
+   everyone else until they open the fold. It never wraps mid-word into the
+   layout. */
+#engine-download-checksum {
+  overflow-wrap: anywhere;
+  margin: var(--sp-3) 0 0;
+}

@@ -1081,12 +1081,6 @@
       </header>
 
       <div class="view-scroll">
-        <p class="planned-note" data-planned="M1">
-          The rows below are real: what is installed, and what the GitHub release
-          feed says is available. Installing is not built yet, which is why the
-          button is disabled.
-        </p>
-
         <section class="card" aria-labelledby="engines-installed-title">
           <h2 id="engines-installed-title">ScrapeX-Engine</h2>
           <div class="kv"><span>Status</span><span id="engine-status">Checking…</span></div>
@@ -1100,12 +1094,56 @@
                four states it can be in are four different sentences, and one
                "unavailable" for all of them is how a row stops being read. -->
           <p class="muted text-sm" id="engine-latest-detail"></p>
+
+          <!-- DOWNLOAD, NOT INSTALL, and the difference is not modesty. Chrome
+               does not let an extension write outside its own storage or run a
+               program — that is a browser security boundary, not a gap. So the
+               honest button hands the owner the file and tells them the three
+               things to do with it. -->
+          <!-- ONE PER ENGINE, not one for the page. This card is a catalogue
+               entry and the page will hold more of them; a single refresh at
+               the top would re-ask about every engine to answer about one. -->
+          <button class="icon-button ghost compact" type="button"
+                  id="engine-recheck"
+                  aria-label="Check ScrapeX-Engine again"
+                  title="Check ScrapeX-Engine again">
+            <svg class="sx-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#sync"></use>
+            </svg>
+          </button>
           <button class="icon-button ghost compact" type="button" disabled
-                  aria-label="Install ScrapeX-Engine" title="Install ScrapeX-Engine">
+                  id="engine-download"
+                  aria-label="Download ScrapeX-Engine"
+                  title="Download ScrapeX-Engine">
             <svg class="sx-icon" aria-hidden="true">
               <use href="icons/material-icons.svg#file-download"></use>
             </svg>
           </button>
+          <!-- FOLDED SHUT. Opened by default this was a wall of warning
+               before the owner had even pressed anything — and the checksum,
+               sixty-four characters of hex, is meaningless to everyone except
+               the one person who came looking for it. `details` needs no
+               script and remembers nothing: it is shut again next time, which
+               is right, because after the first install nobody needs it. -->
+          <details class="install-steps hidden" id="engine-install-steps">
+            <summary>After it downloads</summary>
+            <ol class="text-sm">
+              <li>Run <span class="tech">scrapex-engine.exe</span>. It installs
+                for you alone — no administrator rights.</li>
+              <li>Windows shows a blue notice the first time, because the file
+                is new rather than because anything is wrong with it. Choose
+                <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+              <!-- NAMED THE WAY THE CONTROL IS NAMED. This said "the refresh
+                   button above"; the control is icon-only and its whole
+                   accessible name is "Check ScrapeX-Engine again", so nothing
+                   on the card was called "refresh" and the instruction pointed
+                   at a button that does not exist by that name. -->
+              <li>Leave its window open — that window <strong>is</strong> the
+                engine — then press <strong>Check ScrapeX-Engine again</strong>
+                above.</li>
+            </ol>
+            <p class="muted text-sm" id="engine-download-checksum"></p>
+          </details>
         </section>
 
         <section class="card" aria-labelledby="engines-others-title">
