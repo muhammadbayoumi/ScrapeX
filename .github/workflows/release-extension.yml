@@ -87,6 +87,17 @@ jobs:
           find build/scrapex -name "*.pem" -delete
           find build/scrapex -name ".DS_Store" -delete
 
+          # THE STORE REFUSES A MANIFEST CARRYING `key`, in those words: "key
+          # field is not allowed in manifest". It is there for LOCAL loading,
+          # where it pins the extension's id so the OAuth client -- which is
+          # bound to an id -- survives a reload. The store assigns its own id,
+          # so the field is not merely unnecessary there but rejected.
+          #
+          # Stripped from the PACKAGE, left in the repository: both facts are
+          # true at once, and doing this by hand before each upload is how a
+          # manual step becomes a manual mistake.
+          python -c "import json,pathlib; p=pathlib.Path('build/scrapex/manifest.json'); m=json.loads(p.read_text(encoding='utf-8')); k=m.pop('key',None); p.write_text(json.dumps(m,indent=2,ensure_ascii=False)+chr(10),encoding='utf-8'); print('removed the key field the store refuses' if k else 'no key field to remove')"
+
           if [ -f build/scrapex/key.pem ]; then
             echo "::error::a private key is in the package"; exit 1
           fi
@@ -108,6 +119,9 @@ jobs:
           unzip -o -q "scrapex-${EXT_VERSION}.zip" -d check
           version=$(python -c "import json;print(json.load(open('check/manifest.json'))['version'])")
           test "$version" = "$EXT_VERSION"
+          # Read back FROM THE ZIP: a key that survived packaging is an upload
+          # the store rejects, found by the owner instead of by this step.
+          python -c "import json,sys; m=json.load(open('check/manifest.json')); sys.exit('the package still carries the key field the store refuses') if 'key' in m else print('no key field in the package')"
           python - <<'PY'
           import json, pathlib
           m = json.loads(pathlib.Path("check/manifest.json").read_text(encoding="utf-8"))
@@ -118,6 +132,26 @@ jobs:
           assert not missing, f"the manifest names files the package does not carry: {missing}"
           print("every file the manifest names is present")
           PY
+
+      - name: Say where the package is, and what it is wrapped in
+        # THE TRAP THIS EXISTS FOR COST A REAL UPLOAD ATTEMPT. GitHub wraps
+        # every artifact in a zip of its own, so downloading this from the web
+        # gives `scrapex-extension.zip` CONTAINING `scrapex-0.2.1.zip`. Uploading
+        # the outer one to the Chrome Web Store fails with "No manifest found in
+        # package" — a message that describes the symptom perfectly and points
+        # at the wrong file entirely.
+        shell: bash
+        run: |
+          echo "The package is build/$(ls build | grep '^scrapex-.*\.zip$')"
+          echo ""
+          echo "DOWNLOADING IT: the artifact below is a zip INSIDE a zip, because"
+          echo "GitHub wraps every artifact. Unzip it once before uploading to"
+          echo "the Chrome Web Store, or the store reports 'No manifest found in"
+          echo "package' — which is true of the wrapper and not of the package."
+          echo ""
+          echo "  gh run download $GITHUB_RUN_ID --dir ./store"
+          echo ""
+          echo "unwraps it for you and leaves the uploadable zip directly."
 
       - uses: actions/upload-artifact@v4
         with:
