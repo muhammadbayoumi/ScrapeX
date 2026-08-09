@@ -64,16 +64,19 @@ is a waste of a session.
 
 Ordered by consequence.
 
-### OP-1 · The engine on the owner's machine ran unmerged, half-written code, and the fix is still unmerged
-**Status: open — one action away from closed.**
+### OP-1 · The engine on the owner's machine ran unmerged, half-written code
+**Status: CLOSED, re-measured 2026-08-09.** `_host_lanes` is on `origin/main` in
+`scrapex/jobs.py`; the PR was opened and merged. The account below is kept because
+it is the only end-to-end description of the fault, and because it is the class of
+failure **OP-13** exists to catch and still does not.
 Three crawl jobs failed on 2026-07-29 between 15:23 and 15:25 with
 `worker error: name '_host_lanes' is not defined` (`crawl_job` rows `job_aebc47261d01`,
 `job_50a7783ad32a`, `job_b094a0510dce` — measured). The engine restarted while `jobs.py`
 had the call and not yet the helpers; the commit `1deff23` says so itself. The file is
 whole now, but `1deff23` is **not on `main`** and no PR exists for it (`gh pr list` tops
 out at #15).
-**Next action:** open the PR for `feat/crawl-several-sites-at-once`, merge it, and confirm
-`/api/health` after restarting.
+**Next action:** none. What remains is **BV-1** — it has still never been run at
+width > 1 on the owner's machine.
 
 ### OP-2 · Three different answers to "which sources are active"
 **Status: open.** Measured 2026-07-29:
@@ -95,6 +98,13 @@ The manifest edit is uncommitted, so it exists on exactly one machine and dies w
 next `git checkout`. And the warehouse says every source is active, which contradicts both
 files — either `source_site.active` is never re-synced from the manifest, or it means
 something else entirely.
+**RE-MEASURED 2026-08-09 — the uncommitted edit is gone, exactly as the paragraph
+above predicted it would be.** `sources.yaml` in the working tree is now
+byte-identical to `main`: six sources active of twelve. Nobody decided that; a
+`git checkout` did, and no one noticed for eleven days. So there are **two**
+answers now rather than three, and the warehouse is still the one that disagrees —
+which makes the second half of this entry the whole of it.
+
 **Next action:** decide the intended set with the owner (**Q-11**), commit it, and settle
 what `source_site.active` is *for* — right now it is a column nobody reads and nobody
 maintains. *(That last clause is **inferred** from the mismatch, not from reading the write
@@ -115,13 +125,17 @@ currencies, so those countries' converted column is blank.
 the fetch list with the reason recorded; if the pair is there, the parser is what broke.
 
 ### OP-4 · `webui/app.py` grew 660 lines in one day and is now 2,480 lines / 89 routes
-**Status: open, worsening.** `REVIEW-2026-07-28` §3 #10 measured 1,820 lines and 82
-routes. Measured today: `wc -l` = **2,480**, `@app.` decorators = **89**. The router-factory
+**Status: open, and it has grown at every measurement.** `REVIEW-2026-07-28` §3 #10
+measured 1,820 lines and 82 routes. Measured 2026-07-29: **2,480** lines, **89**
+routes. **Re-measured 2026-08-09: 2,955 lines, 95 routes** — another 475 lines in
+eleven days, while `catalog_api.py` (122 lines) and `database_api.py` (82) were
+extracted out of it and did not slow it down. The router-factory
 pattern that fixes it is already applied inside the same file to four fragments, and a test
 has to scrape the file with a regex to learn its own routes.
 **Next action:** either continue the extraction the file already started, or state plainly
 that the file is allowed to be this size and delete the half-done pattern so it stops
-implying a plan.
+implying a plan. *"Keep extracting when there is time" is not a third option — that is
+what has been happening.*
 
 ### OP-5 · `reports.py` computes the six history statistics twice, and the price has already been paid once
 **Status: open.** `export_source_table` (`scrapex/reports.py:982`) and `table_payload`
@@ -282,8 +296,31 @@ per-branch availability. All three need an extension session capture, not a conn
 change. `sources.yaml:131`, `:112`, memory `sika-trade-tier-price.md`.
 
 ### DEC-7 · Branch cleanup, which the owner asked to be reminded of
-memory `branch-cleanup-pending.md` (2026-07-28) listed three stale branches. Measured today
-it is worse — 12 local branches. `codex/selected-card-layout`,
+**RE-MEASURED 2026-08-09: 117 local branches, 106 remote, 21 worktrees.**
+
+And the measurement below was made the wrong way, which matters more than the count.
+`git branch --merged` reports 11, and it is **meaningless here**: this repository
+squash-merges, so a squash-merged branch reads as unmerged for ever. `git diff
+origin/main...branch` is no better — for a diff, three dots means *merge-base to
+branch*, which answers "what did this branch add when it forked", not "is it in main
+now". It reported 105 branches holding work. That number is wrong.
+
+**The test that actually settles it is `git merge-tree --write-tree origin/main
+<branch>`: if the tree it writes equals main's tree, merging that branch changes
+nothing.** Run over all 117:
+
+| | |
+|---|---|
+| fully contained in main — merging changes **nothing** | **47** |
+| merging would **conflict** | 68 |
+| merges cleanly and **adds** something | **1** *(and it is the branch open in PR #141)* |
+
+Of the 68 conflicting, **31 carry a subject line that is already on `main`**, so they
+are squash-merged and their conflict is just main having moved on. The remaining 37
+are the only ones that need a human to look, and several of those are review scaffolding
+(`review-6x`, `refute-6x`, `t64`, `t65`, `merge43`, `ranktest`) rather than work.
+
+The 2026-07-28 note listed three stale branches. It read: `codex/selected-card-layout`,
 `codex/source-card-display-review` and `codex/unified-record-inspector-scroll` each carry the
 same four unmerged commits (`dd786b9`, `9e4c1c4`, `d25b166`, `465bfd2`) whose *titles* are
 already on `main` under different hashes — so they are almost certainly superseded rather
@@ -299,7 +336,8 @@ than missing **(inferred from the titles; the check is a diff, not a title match
 ### BV-1 · Crawling several sites at once
 `1deff23`. 1494 tests green including a three-way barrier proving three sources are inside
 `capture` simultaneously. But it is **off by default** (`crawl_parallel_sources = 1`), it
-has never been run at width > 1 on the owner's machine, and it is unmerged (**OP-1**).
+has never been run at width > 1 on the owner's machine. It is **merged** now — that half
+of this entry closed with **OP-1** — so the only thing left here is the run.
 **The check that would settle it:** merge, set the width to 3, run three sources on three
 hosts, and confirm from `crawl_job` that they overlap and that a pause still stops all of
 them.
