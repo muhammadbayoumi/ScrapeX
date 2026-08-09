@@ -53,9 +53,13 @@ Max 132 characters. Counted, not estimated: this one is **105**.
 > **How it is built**
 >
 > ScrapeX is two halves. This extension is the panel you work in. The second
-> half is **ScrapeX-Engine**, a small program that runs on your own computer and
-> does the collecting — it is what holds your database. The panel offers to
-> install it, and tells you plainly when the two are out of step instead of
+> half is **ScrapeX-Engine**, a separate program that runs on your own computer
+> and does the collecting — it is what holds your database.
+>
+> **You download and run ScrapeX-Engine yourself.** The panel links to it and
+> shows you the steps; it cannot and does not install anything, run anything, or
+> update anything on your machine. It only talks to the program once you have
+> installed it, and tells you plainly when the two are out of step instead of
 > failing quietly.
 >
 > Windows only, for now. The engine needs no administrator rights.
@@ -85,13 +89,18 @@ without it**. "It is needed" is what gets a listing sent back.
 outside the browser. Be specific and do not soften it.
 
 > ScrapeX stores data in a database on the user's own computer rather than on a
-> server. A browser extension cannot write to a local database or run a crawl
-> on a schedule, so the collecting is done by a separate program the user
-> installs — ScrapeX-Engine. Native messaging is the only way this panel can
-> start that program and exchange data with it. Nothing is sent to any remote
-> host through this channel; the other end is a program on the same machine,
-> installed by the user, which the panel refuses to talk to if its version does
-> not match.
+> server. A browser extension cannot write to a local database or run a crawl on
+> a schedule, so the collecting is done by a separate program, ScrapeX-Engine.
+>
+> **THE USER DOWNLOADS AND RUNS THAT PROGRAM THEMSELVES.** This extension does
+> not download, install, execute or update it. The Engine page links to the
+> published release and shows the steps; every action on the file is the user's.
+>
+> Native messaging is how this panel exchanges data with that program once the
+> user has installed it — the same arrangement password managers and hardware
+> wallets use. Nothing is sent to any remote host through this channel: the
+> other end is a program on the same machine, and the panel refuses to talk to
+> it at all if its version does not match this extension's.
 
 ### `storage`
 

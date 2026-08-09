@@ -2839,9 +2839,16 @@ def test_the_engine_is_named_and_offers_one_square_install(open_panel):
     card = page.locator("#view-engines .card").first
 
     assert (card.locator("h2").text_content() or "").strip() == "ScrapeX-Engine"
-    install = card.locator("button")
-    assert install.count() == 1
-    assert install.get_attribute("aria-label") == "Install ScrapeX-Engine"
+    # TWO buttons now: check-again and download, in that order. The count is
+    # asserted rather than "at least one", because a third arriving unnoticed is
+    # how a card becomes a toolbar.
+    assert card.locator("button").count() == 2
+    install = card.locator("#engine-download")
+    # DOWNLOAD, not Install: Chrome does not let an extension write outside its
+    # own storage or start a program, so the button hands over the file and the
+    # owner decides. A label promising more than the button can do is the kind
+    # of claim a store reviewer reads as a deceptive install.
+    assert install.get_attribute("aria-label") == "Download ScrapeX-Engine"
     assert install.locator("use").get_attribute("href").endswith("#file-download")
 
     # A SMALL square, and both halves have to be asserted. `icon-button` alone
@@ -3114,6 +3121,144 @@ def test_a_published_engine_release_is_shown_by_its_version(open_panel):
     assert text_of(page, "#engine-latest-version") == "0.9.0"
     assert text_of(page, "#engine-latest-detail") == "", (
         "a release with an installer needs no explanation under it")
+
+
+def test_the_download_button_hands_over_the_file_and_the_steps(open_panel):
+    """DOWNLOAD, NOT INSTALL, and the button now does the thing it shows.
+
+    Chrome does not let an extension write outside its own storage or start a
+    program — a browser security boundary, not a gap in this codebase. So the
+    honest button hands the owner the file and says what to do with it, and the
+    decision after that is theirs.
+
+    It sat disabled under a note saying installing "is not built yet", which was
+    true and useless: the row knew a release existed and the owner still had no
+    way to get it.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "b" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    assert not page.locator("#engine-download").is_disabled()
+    assert page.locator("#engine-install-steps").is_visible()
+
+    # The steps are folded shut by default; open them before reading the text.
+    page.click("#engine-install-steps summary")
+    steps = page.inner_text("#engine-install-steps")
+    # The SmartScreen warning is named in the dialog's own words. A warning the
+    # owner was told to expect is a detail; the same one unannounced is where
+    # people stop installing.
+    assert "More info" in steps and "Run anyway" in steps
+    assert "no administrator rights" in steps
+    # THE STEP MUST NAME THE CONTROL THE WAY THE CONTROL NAMES ITSELF, and this
+    # assertion is read off the DOM rather than typed, so the two cannot drift.
+    # It used to be `assert "refresh button" in steps` — which passed while the
+    # step pointed at "the refresh button above" and the only button up there was
+    # icon-only, named "Check ScrapeX-Engine again" by its `aria-label` and by
+    # nothing else. Nothing on the card was called refresh. That is the same
+    # shape as the two defects this suite has already been bitten by: a test
+    # standing over wording the rest of the panel contradicts.
+    recheck_name = page.get_attribute("#engine-recheck", "aria-label")
+    assert recheck_name and recheck_name in steps, (
+        f"the steps tell the owner to press something the card does not call "
+        f"anything: the control's only name is {recheck_name!r}")
+    assert "b" * 64 in text_of(page, "#engine-download-checksum"), (
+        "the checksum is not shown, so a download cannot be proved whole")
+
+
+def test_the_download_button_actually_hands_over_the_file(open_panel):
+    """PRESS IT. Everything else about this button was asserted — that it is
+    enabled, that the steps beside it are right, that the checksum is printed —
+    and the one line that makes the feature exist was observed by nothing.
+
+    The branch this landed on is called `the-download-button-downloads`, and a
+    suite that never clicks the button cannot tell that name from a wish. Found
+    by asking of each assertion what code change would break it, and finding that
+    deleting the `onclick` broke none of them.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "b" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    # Chrome's own download is a navigation the panel does not own, so what is
+    # asserted is the handover itself: the url the panel was given, opened in a
+    # new tab rather than replacing the panel.
+    page.evaluate("""() => {
+      window.__opened = [];
+      window.open = (url, target) => { window.__opened.push([url, target]); return null; };
+    }""")
+    page.click("#engine-download")
+
+    assert page.evaluate("window.__opened") == [
+        ["https://example.test/scrapex-engine.exe", "_blank"]
+    ], "the button did not hand over the url the manifest published"
+
+
+def test_the_recheck_button_repaints_the_engine_card(open_panel):
+    """The button exists so a release cut five minutes ago becomes visible
+    without closing the panel. It called `render()`, which refreshes the panel's
+    state and does not touch this card — `renderEngines` is reached from one
+    other place, entering the view. So the cache was dropped, the feed was
+    re-fetched, and every field went on showing the answer from when the page
+    was opened: the button did nothing a person could see.
+
+    Scribbling over the card first is what makes this bite. Without it the test
+    passes against a button that does nothing, because the right answer is
+    already on screen.
+    """
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "b" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent === '0.9.0'",
+        timeout=10_000)
+
+    before = page.evaluate(
+        "window.__calls.filter(c => String(c).includes('version.json')).length")
+    page.evaluate(
+        "document.getElementById('engine-latest-version').textContent = 'STALE'")
+
+    page.click("#engine-recheck")
+
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-version').textContent === '0.9.0'",
+        timeout=10_000)
+    after = page.evaluate(
+        "window.__calls.filter(c => String(c).includes('version.json')).length")
+    assert after > before, (
+        "the card was repainted from the cache — the button drops it precisely "
+        "so the feed is asked again")
+
+
+def test_the_download_button_stays_dead_when_there_is_nothing_to_download(open_panel):
+    """The default state today: nothing released. A button that looks pressable
+    and does nothing is worse than one that is plainly not ready."""
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert page.locator("#engine-download").is_disabled()
+    assert not page.locator("#engine-install-steps").is_visible()
 
 
 def test_a_release_with_no_installer_says_so_before_the_press(open_panel):

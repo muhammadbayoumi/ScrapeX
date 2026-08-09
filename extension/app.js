@@ -1954,6 +1954,9 @@ async function renderEngines() {
     : `${state.engineProtocol}` +
       (state.protocolMismatch ? ` — this extension speaks ${PROTOCOL_VERSION}` : "");
 
+  // Asked once per panel open and remembered; the button beside the row is what
+  // asks again. Without it the only way to see a release cut five minutes ago
+  // was to close the panel and reopen it — which is a thing nobody discovers.
   if (!latestRelease) latestRelease = await latestEngineRelease();
   const latest = latestRelease;
   // "unknown" MEANS WE COULD NOT FIND OUT, and for `none` that is false: we
@@ -1973,6 +1976,54 @@ async function renderEngines() {
         ? ""
         : "This release has no installer attached, so there is nothing to install yet.")
     : (latest.detail || "");
+
+  // THE BUTTON HANDS OVER THE FILE AND STOPS THERE. Chrome does not let an
+  // extension write outside its own storage or start a program, so "install"
+  // was never available to it — and a button that pretended otherwise would
+  // fail in a way the owner could not act on. Opening the url is the browser's
+  // ordinary download, and what happens next is the owner's decision.
+  const recheck = $("engine-recheck");
+  recheck.onclick = async () => {
+    recheck.disabled = true;
+    try {
+      // TWO CALLS, AND THE SECOND IS THE ONE THAT SHOWS ANYTHING.
+      //
+      // `render()` refreshes `state` — what is installed, what is running — but
+      // it does not touch this card: `renderEngines` has exactly one other call
+      // site, `showView`, so nothing here is repainted by entering render().
+      // With only the first call the button dropped the cache, re-fetched, and
+      // left every field showing the answer from when the page was opened; the
+      // one way to see a release cut five minutes ago was still to navigate away
+      // and back, which is what this button exists to replace.
+      latestRelease = null;
+      await render();
+      await renderEngines();
+    } finally {
+      recheck.disabled = false;
+    }
+  };
+
+  const download = $("engine-download");
+  const steps = $("engine-install-steps");
+  const installer = latest.state === "ok" ? latest.installer : null;
+
+  download.disabled = !installer;
+  steps.classList.toggle("hidden", !installer);
+
+  if (installer) {
+    download.title = `Download ${installer.name}`;
+    download.setAttribute("aria-label", download.title);
+    // The checksum is shown rather than checked, because the check belongs to
+    // whoever holds the file. Publishing it is what makes the check possible.
+    // Prefixed with what it is FOR, not just what it is. "SHA-256:" followed
+    // by hex tells a reader nothing about whether they need to care.
+    $("engine-download-checksum").textContent = installer.sha256
+      ? `If you want to verify the download — SHA-256: ${installer.sha256}`
+      : "";
+    download.onclick = () => { window.open(installer.url, "_blank"); };
+  } else {
+    download.onclick = null;
+  }
 }
 
 // ---- the refusal --------------------------------------------------------
