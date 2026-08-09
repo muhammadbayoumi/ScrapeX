@@ -1071,16 +1071,16 @@
     font-size: var(--fs-sm);
   }
 
-  /* The first page, and deliberately the emptiest: one line and one button,
-     centred, with nothing else competing for the eye. */
-  .welcome {
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-5);
-    padding: var(--sp-6) var(--sp-4);
-    text-align: center;
+  /* The product's own mark, the same one Chrome shows in the toolbar. */
+  .welcome-mark {
+    width: 4rem;
+    height: 4rem;
+    flex: none;
+    -webkit-mask: var(--brand-mark) no-repeat center / contain;
+    mask: var(--brand-mark) no-repeat center / contain;
+    background: currentColor;
+    color: inherit;
   }
-  .welcome h1 { margin: 0; }
   /* The account's own photo, large enough to be a greeting rather than a
      status dot. Round for the same reason the rail's is. */
   .welcome-face {
@@ -1089,8 +1089,147 @@
     border-radius: 50%;
     object-fit: cover;
   }
-  .welcome .planned-note { border: 0; background: none; padding: 0; }
   .rail-tablist-bottom { margin-top: auto; }
+
+  /* Profile page — Extension only. One centered state card on a distinct page
+     background; all account states live inside the same card shell. */
+  #view-profile {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    margin: calc(-1 * var(--sp-4));
+    padding: var(--sp-4);
+    background: var(--bg);
+  }
+  .profile-stage {
+    display: flex;
+    justify-content: center;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .profile-card {
+    box-sizing: border-box;
+    width: min(100%, 25rem);
+    min-height: clamp(16rem, 60vh, 34rem);
+    max-height: 100%;
+    margin-block: auto;
+    padding: var(--sp-6);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-5);
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+    overflow-y: auto;
+  }
+  @media (max-height: 500px) {
+    .profile-card { min-height: auto; }
+  }
+  .profile-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-5);
+    width: 100%;
+  }
+  .profile-status {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--fs-sm);
+  }
+  .profile-card .notice {
+    max-width: 22rem;
+    margin: 0;
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md, 8px);
+    background: var(--surface-container-low);
+    color: var(--text);
+    font-size: var(--fs-sm);
+    text-align: start;
+  }
+
+  /* Profile page — Extension only. The Google sign-in button uses Google's own
+     pre-approved PNG assets; this project does not colour, crop, or redraw it. */
+  .welcome-purpose {
+    max-width: 22rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--fs-sm);
+  }
+  .profile-signin {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 180px;
+    min-height: 48px;
+    padding: 4px 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .profile-signin:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .profile-signin-img {
+    display: block;
+    width: 180px;
+    height: auto;
+    pointer-events: none;
+  }
+  /* The Google button is a transparent wrapper around an official PNG asset.
+     Extension-wide `button:hover/active/disabled` rules must not paint the
+     wrapper, transform it, or dim the image. Each state is declared separately
+     so tests and future readers see exactly what is cancelled. */
+  .profile-signin:hover:not(:disabled) {
+    border-color: transparent;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+    transform: none;
+    opacity: 1;
+  }
+  .profile-signin:active:not(:disabled) {
+    border-color: transparent;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+    transform: none;
+    opacity: 1;
+  }
+  .profile-signin:disabled {
+    border-color: transparent;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+    transform: none;
+    opacity: 1;
+    cursor: default;
+  }
+  .signin-status {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--fs-sm);
+  }
+  .profile-summary {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+    outline: none;
+  }
+  .profile-summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
 
   /* Appearance is a complete Android-style destination. It uses the same
      persistent page model as Source, Data and Settings; it is not a modal

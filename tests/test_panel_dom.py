@@ -2820,7 +2820,43 @@ def test_the_panel_opens_on_one_question(open_panel):
     assert out.locator(".kv").count() == 0, "it is printing values it cannot know"
     buttons = out.locator("button")
     assert buttons.count() == 1
-    assert "Continue with Google" in buttons.first.inner_text()
+    assert buttons.first.get_attribute("aria-label") == "Sign in with Google"
+
+
+def test_the_profile_states_live_in_one_persistent_centered_card(open_panel):
+    """The Profile page is one card shell that hosts every account state.
+    Nothing about it is a dialog or modal, and the shell itself never hides."""
+    page = open_panel()
+    card = page.locator("#profile-card")
+    assert card.is_visible()
+    assert card.locator("#welcome-checking").count() == 1
+    assert card.locator("#welcome-signed-out").count() == 1
+    assert card.locator("#welcome-signed-in").count() == 1
+    assert page.locator("#view-profile [role='dialog']").count() == 0
+    assert card.get_attribute("role") is None
+    assert card.get_attribute("aria-modal") is None
+
+
+def test_the_profile_card_shows_checking_while_chrome_answers(open_panel):
+    """While the token is in flight the card announces busy, keeps the product
+    greeting as the stable heading, and shows the status as a separate line."""
+    page = open_panel(signed_in=ACCOUNT, signin_delay_ms=1000)
+    stage = page.locator("#profile-stage")
+    assert stage.get_attribute("aria-busy") == "true"
+    assert page.is_visible("#welcome-checking")
+    assert not page.is_visible("#welcome-signed-in")
+    assert page.locator("#profile-card").is_visible()
+    assert text_of(page, "#welcome-checking h1") == "Welcome to ScrapeX"
+    assert "Checking your account" in text_of(page, "#welcome-checking .profile-status")
+    page.wait_for_selector("#welcome-signed-in:visible")
+    assert stage.get_attribute("aria-busy") == "false"
+
+
+# ACCOUNT is not defined in this file; the harness uses the same signed_in shape.
+# Provide a minimal account object so the delay test can resolve to signed-in.
+ACCOUNT = {"name": "Test Owner", "email": "owner@example.com",
+           "picture": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf"
+                      "FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}
 
 
 def test_the_engine_is_named_and_offers_one_square_install(open_panel):
@@ -2993,8 +3029,11 @@ def test_every_page_is_named_in_the_singular(open_panel):
     assert not plural, f"page names in the plural: {plural}"
 
     # A name is a name, not a sentence. `Add or edit sources` was the one that
-    # broke this and it is why the rule needed writing down.
-    long_names = [n for n in names if n and len(n.split()) > 2]
+    # broke this and it is why the rule needed writing down. The Profile rail
+    # label adds a comma-separated state ("Profile, signed out"), which is still
+    # a page name plus a status and must not read as a sentence.
+    page_names = [n.split(",")[0] for n in names if n]
+    long_names = [n for n in page_names if len(n.split()) > 2]
     assert not long_names, f"these are sentences, not page names: {long_names}"
 
 

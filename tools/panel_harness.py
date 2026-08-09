@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import re
 from pathlib import Path
 
@@ -73,7 +74,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
          protocol_version=None, engine_manifest=None,
-         signed_in=None, signin_error=None) -> str:
+         signed_in=None, signin_error=None, signin_delay_ms=0) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -197,6 +198,13 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     entries = logs if logs is not None else []
     log_payload = {"entries": entries, "total": len(entries), "truncated": False}
     return f"""
+if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {{
+  AbortSignal.timeout = (ms) => {{
+    const c = new AbortController();
+    setTimeout(() => c.abort(), ms);
+    return c.signal;
+  }};
+}}
 window.chrome = {{
   // getManifest is the extension's only honest answer to "which version of ME
   // is running", so the panel reads it and the harness has to provide it.
@@ -217,6 +225,10 @@ window.chrome = {{
                            {{message: "The user did not approve access."}};
                          cb(undefined);
                          chrome.runtime.lastError = null; return; }}
+      if (SIGNIN_DELAY_MS) {{
+        setTimeout(() => cb("stub-token"), SIGNIN_DELAY_MS);
+        return;
+      }}
       cb("stub-token");
     }},
     removeCachedAuthToken: (opts, cb) => {{ SIGNED_IN = null; cb && cb(); }},
@@ -224,6 +236,7 @@ window.chrome = {{
 }};
 let SIGNED_IN = {json.dumps(signed_in)};
 const SIGNIN_ERROR = {json.dumps(signin_error)};
+const SIGNIN_DELAY_MS = {json.dumps(signin_delay_ms)};
 const ROUTES = {json.dumps(routes)};
 const WRITE_ROUTES = {json.dumps(write_routes)};
 const LOG_PAYLOAD = {json.dumps(log_payload)};
@@ -285,7 +298,7 @@ window.fetch = async (url, options) => {{
 """
 
 
-_ICON_URL = re.compile(r'url\(["\']?(?:[^"\')]*/)?icons/([\w.-]+)["\']?\)')
+_ICON_URL = re.compile(r'url\(["\']?(?:[^"\')]*/)?icons/([^"\')]+)["\']?\)')
 
 
 def _embed_icons(css: str) -> str:
@@ -299,8 +312,9 @@ def _embed_icons(css: str) -> str:
         icon = EXT / "icons" / match.group(1)
         if not icon.exists():
             return match.group(0)
+        mime = mimetypes.guess_type(str(icon))[0] or "image/png"
         data = base64.b64encode(icon.read_bytes()).decode("ascii")
-        return f'url("data:image/png;base64,{data}")'
+        return f'url("data:{mime};base64,{data}")'
 
     return _ICON_URL.sub(sub, css)
 
@@ -326,8 +340,13 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # IMAGE in every screenshot while every assertion about it passed, because
     # they read the markup and the file rather than the page. Inlined, like the
     # sprite above and for the same reason.
-    for asset in ("google-g.png",):
-        data = base64.b64encode((EXT / "icons" / asset).read_bytes()).decode("ascii")
+    for asset in ("google-g.png",
+                  "google-signin/light-rectangular@4x.png",
+                  "google-signin/dark-rectangular@4x.png"):
+        path = EXT / "icons" / asset
+        if not path.exists():
+            continue
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
         body = body.replace(f'src="icons/{asset}"',
                             f'src="data:image/png;base64,{data}"')
     body = (
