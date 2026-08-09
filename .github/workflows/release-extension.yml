@@ -119,6 +119,26 @@ jobs:
           print("every file the manifest names is present")
           PY
 
+      - name: Say where the package is, and what it is wrapped in
+        # THE TRAP THIS EXISTS FOR COST A REAL UPLOAD ATTEMPT. GitHub wraps
+        # every artifact in a zip of its own, so downloading this from the web
+        # gives `scrapex-extension.zip` CONTAINING `scrapex-0.2.1.zip`. Uploading
+        # the outer one to the Chrome Web Store fails with "No manifest found in
+        # package" — a message that describes the symptom perfectly and points
+        # at the wrong file entirely.
+        shell: bash
+        run: |
+          echo "The package is build/$(ls build | grep '^scrapex-.*\.zip$')"
+          echo ""
+          echo "DOWNLOADING IT: the artifact below is a zip INSIDE a zip, because"
+          echo "GitHub wraps every artifact. Unzip it once before uploading to"
+          echo "the Chrome Web Store, or the store reports 'No manifest found in"
+          echo "package' — which is true of the wrapper and not of the package."
+          echo ""
+          echo "  gh run download $GITHUB_RUN_ID --dir ./store"
+          echo ""
+          echo "unwraps it for you and leaves the uploadable zip directly."
+
       - uses: actions/upload-artifact@v4
         with:
           name: scrapex-extension
