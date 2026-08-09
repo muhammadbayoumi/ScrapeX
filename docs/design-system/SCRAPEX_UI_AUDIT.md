@@ -4,6 +4,19 @@
 **Scope:** Chrome extension (`extension/`) and local Web UI (`scrapex/webui/`).  
 **Rule:** This document is read-only evidence. No production code was modified.
 
+**Owner corrections recorded in this pass:**
+- `brand` is the default palette.
+- `alternatives` is an extensible collection of optional palettes; `blue` is the first registered entry.
+- Additional alternative palettes may be registered later.
+- Every registered palette provides `light` and `dark` schemes.
+- Device/System selects the effective scheme; it is not a palette.
+- Components consume semantic roles and must not depend directly on palette identifiers (`brand`, `blue`, or future entries).
+- Future canonical registry/file concept: `color-palettes`.
+- Production identifiers `whatsapp` and `github` remain untouched legacy compatibility aliases.
+- Teal is **deprecated legacy color residue**, not ScrapeX brand, not global brand, not a future palette.
+- Copied CSS/JS files and ScrapeX API endpoints are **SCRAPEX INTERNAL SHARED LAYER**, not automatically global MbiX contracts.
+- **LOCAL-WEB PROFILE** is explicit for the FastAPI/Jinja workspace.
+
 ---
 
 ## 1. Technology Stack
@@ -24,7 +37,7 @@
 | **Browser APIs** | `chrome.sidePanel`, `chrome.runtime` (native messaging, onInstalled), `chrome.tabs`, `chrome.windows`, `chrome.identity.getAuthToken`, `chrome.storage`, `fetch`, `navigator.clipboard` | `extension/background.js:3-12`, `extension/identity.js:71-77`, `extension/transport.js:68-78` |
 | **Engine integration** | HTTP health poll to `127.0.0.1:8000` + Chrome Native Messaging for start/repair/upgrade | `extension/engine.js:20-47`, `extension/transport.js:20-150` |
 
-**Classification:** Manifest V3, side-panel entrypoint, service worker, identity, and native messaging are **CHROME-NATIVE**. Vanilla JS + direct DOM updates are **EXTENSION PROFILE**. The token-driven CSS and shared JS modules are **SHARED COMPONENT CONTRACT / GLOBAL SEMANTIC CANDIDATES**.
+**Classification:** Manifest V3, side-panel entrypoint, service worker, identity, and native messaging are **CHROME-NATIVE**. Vanilla JS + direct DOM updates are **EXTENSION PROFILE** / **LOCAL-WEB PROFILE**. The token-driven CSS and shared JS modules are **SCRAPEX INTERNAL SHARED LAYER**; the generic concepts inside them are **SHARED CONTRACT CANDIDATES**.
 
 ---
 
@@ -87,13 +100,13 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 
 | Component | Class(es) | States / Variants | Classification |
 |---|---|---|---|
-| Primary button | `button`, `.button` | default, hover, active, disabled / `aria-disabled="true"` | SHARED CONTRACT |
-| Ghost / secondary | `.ghost` | hover, active, disabled | SHARED CONTRACT |
-| Danger | `.danger` | hover, active | SHARED CONTRACT |
-| Link button | `.link` | hover | SHARED CONTRACT |
-| Icon button | `.icon-button` | `.compact` | SHARED CONTRACT |
-| Section toggle | `.sect` | full-width disclosure row | SHARED CONTRACT |
-| Split button | `.split-button` + `.split-button-primary` / `.split-button-trigger` | open/closed menu, primary + menu items | SHARED CONTRACT |
+| Primary button | `button`, `.button` | default, hover, active, disabled / `aria-disabled="true"` | SHARED CONTRACT CANDIDATE |
+| Ghost / secondary | `.ghost` | hover, active, disabled | SHARED CONTRACT CANDIDATE |
+| Danger | `.danger` | hover, active | SHARED CONTRACT CANDIDATE |
+| Link button | `.link` | hover | SHARED CONTRACT CANDIDATE |
+| Icon button | `.icon-button` | `.compact` | SHARED CONTRACT CANDIDATE |
+| Section toggle | `.sect` | full-width disclosure row | SHARED CONTRACT CANDIDATE |
+| Split button | `.split-button` + `.split-button-primary` / `.split-button-trigger` | open/closed menu, primary + menu items | SHARED CONTRACT CANDIDATE |
 
 ### Forms
 
@@ -102,7 +115,7 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 | Text / URL / number / search / time / textarea | `input`, `select`, `textarea` | Full-width; token borders; `aria-invalid` styling. |
 | Checkbox / radio | Native inside `.check` wrapper | Native controls, custom wrappers for selectable rows. |
 | Custom single-select | `.sx-select` + `.sx-select-trigger` + `.sx-select-list` | Hidden native `<select>`; custom listbox with keyboard support. |
-| Switch / toggle | `.appearance-switch` (compact WhatsApp-style) | Native checkbox hidden, visual thumb/track. |
+| Switch / toggle | `.appearance-switch` (compact rounded switch) | Native checkbox hidden, visual thumb/track. |
 | Segmented control | `.appearance-scheme-picker` | Light / Dark / Device with sliding indicator. |
 
 ### Containers
@@ -164,7 +177,7 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 - **Active state:** `aria-current="page"` on active link (`templates/base.html:33`).
 - **Footer status:** Engine / database health links.
 
-**Classification:** Right-side icon rail, narrow panel constraints, and workspace launcher are **EXTENSION PROFILE**. Left sidebar / mobile drawer pattern is a generic **GLOBAL SEMANTIC / SHARED CONTRACT** candidate, though its specific width and grouping are **SCRAPEX-SPECIFIC**.
+**Classification:** Right-side icon rail, narrow panel constraints, and workspace launcher are **EXTENSION PROFILE**. Left sidebar / mobile drawer pattern is **LOCAL-WEB PROFILE**; its generic pattern is a **SHARED CONTRACT CANDIDATE**, though its specific width and grouping are product-level.
 
 ---
 
@@ -201,7 +214,7 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 - `.appearance-scheme-picker`: Light / Dark / Device in a pill-shaped container with a sliding `::before` indicator.
 - Buttons use `aria-pressed`; `:has()` selector drives indicator position.
 
-**Classification:** Form primitives are strong **SHARED COMPONENT CONTRACT** candidates. The custom select overlay behavior and switch sizing are **EXTENSION PROFILE** influenced by the compact panel.
+**Classification:** Form primitives are strong **SHARED CONTRACT CANDIDATES**. The custom select overlay behavior and switch sizing are **EXTENSION PROFILE** influenced by the compact panel.
 
 ---
 
@@ -233,7 +246,7 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 - `.empty`: centered muted block with large vertical padding.
 - `.skeleton`: generic loading block (color/shape defined by consumers).
 
-**Classification:** Card, banner, list row, empty state are **SHARED COMPONENT CONTRACT** candidates. Source identity is **SCRAPEX-SPECIFIC**.
+**Classification:** Card, banner, list row, empty state are **SHARED CONTRACT CANDIDATES**. Source identity is **PRODUCT-SPECIFIC**.
 
 ---
 
@@ -267,7 +280,7 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 | Action unavailable | `disabled` |
 | Job executing | `running` |
 
-**Classification:** The underlying semantics (`ready`, `warning`, `error`, `pending`, `disabled`, `running`) are **GLOBAL SEMANTIC CANDIDATES**. ScrapeX-specific copy ("Setup required", "Schema lag", protocol-version facts) is **SCRAPEX-SPECIFIC**.
+**Classification:** The underlying semantics (`ready`, `warning`, `error`, `pending`, `disabled`, `running`) are **GLOBAL SEMANTIC CANDIDATES**. ScrapeX-specific copy ("Setup required", "Schema lag", protocol-version facts) and the exact presentation are **PRODUCT-SPECIFIC** / **EXTENSION PROFILE** / **LOCAL-WEB PROFILE**.
 
 ---
 
@@ -295,23 +308,55 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 
 - Google Finance view in side panel (`view-finance`) with rate table, refresh settings, save state.
 
-**Classification:** Source identity and selection flows are **SCRAPEX-SPECIFIC**. The underlying list/checkbox/select patterns are **SHARED CONTRACT** candidates.
+**Classification:** Source identity and selection flows are **PRODUCT-SPECIFIC**. The underlying list/checkbox/select patterns are **SHARED CONTRACT CANDIDATES**.
 
 ---
 
 ## 9. Theme Architecture
 
+### Future palette registry (owner decision)
+
+The future canonical palette architecture is an extensible registry under a neutral concept such as `color-palettes`:
+
+```
+color-palettes
+├── brand                 (default palette)
+│   ├── light
+│   └── dark
+└── alternatives          (extensible collection)
+    ├── blue              (first registered alternative)
+    │   ├── light
+    │   └── dark
+    └── future entries…
+```
+
+- **`brand`** is the default palette.
+- **`alternatives`** is an extensible collection of optional palettes.
+- **`blue`** is currently the first registered entry inside `alternatives`.
+- Additional alternative palettes may be registered later.
+- **Every registered palette provides `light` and `dark` schemes.**
+- **Device/System selects the effective `light`/`dark` scheme; it is not a palette.**
+- **Components consume semantic roles** (`accent`, `on-accent`, `surface`, `on-surface`, etc.) and must not depend directly on `brand`, `blue`, or future palette identifiers.
+- Future canonical files and APIs must use color-agnostic names under the `color-palettes` concept. Names such as `green-theme`, `whatsapp-theme`, `github-theme`, or `teal-theme` must not be used.
+
+### Production identifiers
+
+- The production code currently uses the legacy identifiers `whatsapp` (maps to `brand`) and `github` (maps to `blue`).
+- These identifiers are **not renamed now**; they are classified as **legacy compatibility/migration aliases**.
+- Server validates allowlist: `palette in {"whatsapp", "github"}` (`scrapex/webui/app.py:115-116`) — this boundary uses legacy identifiers until a migration is planned.
+
 ### Theme selection
 
-- Three scheme modes: **Light**, **Dark**, **Device**.
-- Default: `mode: "device"`, `scheme: "light"`, `palette: "github"`, `deviceColors: true` (`extension/appearance.js:100-106`).
+- Three scheme-mode UI choices: **Light**, **Dark**, **Device**.
+- Default state in `appearance.js`: `mode: "device"`, `scheme: "light"`, `palette: "github"` (legacy `blue`), `deviceColors: true` (`extension/appearance.js:100-106`).
 - Manual mode sets `data-theme="light"` / `"dark"`; Device mode removes `data-theme` and relies on `prefers-color-scheme` (`extension/tokens.css:197-232`).
 
 ### Color styles (palettes)
 
-- Two hard-coded palettes: **WhatsApp** (green) and **GitHub** (blue/neutral).
+- Palette values are hard-coded in `appearance.js` lines 8–99.
+- The `brand` palette (currently aliased by `whatsapp`) supplies green-family values.
+- The `blue` palette (currently aliased by `github`) supplies blue-family values and is the first entry in the future `alternatives` registry.
 - Selecting a palette writes ~30 CSS properties inline on `<html>` via `appearance.js` (`extension/appearance.js:188-208`).
-- Server validates allowlist: `palette in {"whatsapp", "github"}` (`scrapex/webui/app.py:115-116`).
 
 ### Device colors
 
@@ -329,25 +374,24 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 - Files synchronized: `tokens.css`, `components.css`, `appearance.js`, `split-button.js`, `material-icons.svg`, `google-g.png`, `x-mark.svg`.
 
 **Classification:**
-- Light/Dark/Device switching logic and palette concept are **SHARED COMPONENT CONTRACT** candidates.
-- WhatsApp/GitHub palettes are user-chosen **SCRAPEX PRODUCT** profiles, not global brand.
-- Device-color use of system accent is a **CHROME-NATIVE / GLOBAL SEMANTIC** pattern.
+- The copied files and the `/api/appearance` / `/api/timezone` endpoints are **SCRAPEX INTERNAL SHARED LAYER**.
+- The generic Light/Dark/Device scheme-switching concept and palette concept are **SHARED CONTRACT CANDIDATES**.
+- The `brand` default palette and the `alternatives` collection (with `blue` as its first entry) are **PRODUCT-SPECIFIC** profiles.
+- `whatsapp` / `github` identifiers are **LEGACY** aliases.
+- Device-color use of system accent is a **SHARED CONTRACT CANDIDATE** / platform capability.
 - The `scrapex-appearance-v1` fallback is **LEGACY**.
 
 ---
 
 ## 10. Visual Foundation
 
-### Brand colors
+### Brand / accent color status
 
-| Token | Value | Role |
-|---|---|---|
-| `--accent` | `light-dark(#00adb5, #35c8ce)` | Primary brand / action color (ScrapeX teal) |
-| `--accent-hover` | `light-dark(#009ba3, #51d3d8)` | Hover |
-| `--accent-active` | `light-dark(#008990, #21b9c0)` | Active |
-| `--accent-ink` | `light-dark(#006b70, #69e1e5)` | Text on subtle surface |
-| `--accent-contrast` | `light-dark(#062b2d, #071f20)` | Text on accent |
-| `--accent-weak` | `light-dark(#d8f4f5, #073a3d)` | Subtle background |
+- **Teal (`#00adb5` / `#35c8ce`) is deprecated.** It appears in `design/tokens.css:24` as the current `--accent` value but is **legacy color residue / future migration debt**.
+- **Teal must not be classified as:** ScrapeX brand, MbiX global brand, a future palette, or global token evidence.
+- The owner-preferred brand direction is **green**, implemented by the `brand` default palette (currently aliased by `whatsapp` in `appearance.js`).
+- The optional alternatives collection currently has one entry: `blue` (currently aliased by `github`). Additional alternatives may be registered later.
+- No global brand color candidates are identified from ScrapeX evidence.
 
 ### Semantic colors
 
@@ -358,6 +402,8 @@ All primitives live in the canonical `design/components.css`, copied to `extensi
 | `--danger-contrast` | `#ffffff` | Text on danger |
 | `--focus` | `light-dark(#007b83, #69e1e5)` | Focus ring base |
 | `--selection` | `color-mix(in srgb, var(--accent) 20%, transparent)` | Text selection |
+
+> **Note:** `--accent` currently resolves to teal as legacy residue; the semantic role of `accent` is a **GLOBAL SEMANTIC CANDIDATE**, but the current teal value is **LEGACY**.
 
 ### Neutrals / surfaces
 
@@ -427,8 +473,9 @@ Tokens map global primitives to M3 roles: `--primary`, `--on-primary`, `--primar
 - Web UI page sheets: arbitrary `border-radius: 10px/12px`, `.84rem`/`.78rem` font sizes (`scrapex/webui/static/webui.css`, `pages/*.css`).
 - Undefined `--font-sans` referenced in `extension/app.css` (token is `--font`).
 - `extension/onboarding.css` uses invalid `::root` selector (should be `:root`).
+- Teal `--accent` value in `design/tokens.css:24` is deprecated legacy residue.
 
-**Classification:** Color semantics, spacing, typography, radii, shadows, and M3 aliases are **GLOBAL SEMANTIC / REFERENCE CANDIDATES**. ScrapeX teal is a **GLOBAL BRAND CANDIDATE** *for the ScrapeX product family*. Hard-coded values are **LEGACY / DUPLICATE** or **NEEDS REVIEW**.
+**Classification:** Color semantics, spacing, typography, radii, shadows, and M3 aliases are **GLOBAL SEMANTIC / SHARED CONTRACT CANDIDATES**. The current teal value is **LEGACY**. Hard-coded values are **LEGACY / DUPLICATE** or **NEEDS REVIEW**.
 
 ---
 
@@ -453,7 +500,7 @@ ScrapeX is **compact to dense**, especially the extension side panel, which beha
 
 The known mbiXsite profile is **comfortable/editorial**: larger spacing, cream/mint surfaces, pill CTAs, technical grid. ScrapeX is materially denser, especially in the extension, because it must fit actionable controls into a narrow Chrome side panel and satisfy 48 px touch targets.
 
-**Classification:** Density is **EXTENSION PROFILE** / **SCRAPEX-SPECIFIC**. It should not be forced onto the website profile, nor should website density be assumed for ScrapeX.
+**Classification:** Extension density is **EXTENSION PROFILE**. Local-web density is **LOCAL-WEB PROFILE**. Density should not be forced onto the website profile, nor should website density be assumed for ScrapeX.
 
 ---
 
@@ -482,7 +529,7 @@ The known mbiXsite profile is **comfortable/editorial**: larger spacing, cream/m
 
 - Global `prefers-reduced-motion: reduce` disables animations and transitions (`design/components.css:925-934`; `extension/app.css:1996-2007`).
 
-**Classification:** Motion tokens are **GLOBAL REFERENCE CANDIDATES**. Specific panel animations are **EXTENSION PROFILE**.
+**Classification:** Motion tokens are **GLOBAL REFERENCE / SHARED CONTRACT CANDIDATES**. Specific panel animations are **EXTENSION PROFILE**; drawer animation is **LOCAL-WEB PROFILE**.
 
 ---
 
@@ -507,7 +554,7 @@ The known mbiXsite profile is **comfortable/editorial**: larger spacing, cream/m
 - **`innerHTML` templating:** `app.js` builds many UI strings with `innerHTML` after escaping via `esc()`, but `innerHTML` remains a sink. Any future omission is a potential XSS risk.
 - **No observed CSP** in Web UI templates; local-only binding reduces risk but no policy was found.
 
-**Classification:** Accessibility primitives (focus-visible, reduced motion, visually-hidden, semantic roles) are **GLOBAL SEMANTIC CANDIDATES**. Chrome-specific focus management of the rail/launcher is **EXTENSION PROFILE**. The gaps are **NEEDS REVIEW**.
+**Classification:** Accessibility primitives (focus-visible, reduced motion, visually-hidden, semantic roles) are **GLOBAL SEMANTIC / SHARED CONTRACT CANDIDATES**. Chrome-specific focus management of the rail/launcher is **EXTENSION PROFILE**. The gaps are **NEEDS REVIEW**.
 
 ---
 
@@ -531,10 +578,7 @@ The known mbiXsite profile is **comfortable/editorial**: larger spacing, cream/m
 
 ### Global Brand Candidates
 
-| Finding | Rationale |
-|---|---|
-| ScrapeX teal accent (`#00adb5` / `#35c8ce`) | Strong product-family identifier within ScrapeX; may become a **product brand** token, not necessarily the umbrella MbiX brand. |
-| Custom `x-mark.svg` brand mark | Used as CSS mask for logo across surfaces. |
+No global brand candidates are identified from ScrapeX evidence. The ScrapeX `x-mark.svg` brand mark and `brand` palette are **PRODUCT-SPECIFIC**. Teal is **LEGACY**.
 
 ### Global Semantic Candidates
 
@@ -546,7 +590,7 @@ The known mbiXsite profile is **comfortable/editorial**: larger spacing, cream/m
 | `disabled`, `focus`, `border`, `line`, `muted` | Already tokenized. |
 | Status semantics: `ready`, `warning`, `error`, `pending`, `loading`, `disabled`, `running` | Engine/runtime state mapping. |
 
-### Shared Component Contract Candidates
+### Shared Contract Candidates
 
 | Component | Evidence |
 |---|---|
@@ -566,83 +610,136 @@ The known mbiXsite profile is **comfortable/editorial**: larger spacing, cream/m
 
 ---
 
-## 16. Extension Profile Characteristics
+## 16. ScrapeX Internal Shared Layer
+
+These files, modules, and endpoints are physically shared between the ScrapeX extension and local Web UI. They keep ScrapeX surfaces consistent but are **not automatically MbiX global contracts**.
+
+- `design/tokens.css` → `extension/tokens.css` + `scrapex/webui/static/tokens.css`
+- `design/components.css` → `extension/components.css` + `scrapex/webui/static/components.css`
+- `design/appearance.js` → both surfaces
+- `design/split-button.js` → both surfaces
+- Material Symbols SVG sprite + `x-mark.svg` + `google-g.png` copies
+- `scrapex/ui_manifest.py` navigation + run modes
+- `/api/ui` endpoint
+- `/api/appearance` + `/api/timezone` endpoints
+- `timezone.js` + `_time.html`
+- `ScrapeXUI.icon` helper
+
+---
+
+## 17. ScrapeX Product Integration Contracts
+
+Cross-surface contracts specifically about integrating the ScrapeX extension with the ScrapeX engine/local Web UI.
+
+- `PROTOCOL_VERSION` handshake (`extension/transport.js`, `scrapex/native.py`)
+- `/api/health` shape
+- `/api/version` + capability report
+- `contracts/version-vectors.json`
+- `contracts/capability-baseline.json`
+- Native-host manifest allowlist reuse for CORS
+- `/api/native-host/register`
+
+---
+
+## 18. Extension Profile Characteristics
 
 These are patterns that belong to the **Chrome extension as a platform client**, not to a global design system.
 
-- **Right-side icon rail** with grouped tablists and sliding indicator (`extension/app.html:1517-1632`, `extension/app.css:966-1048`).
-- **Narrow side-panel layout** (min ~320 px, `overflow: hidden`, `* { min-width: 0; }`).
-- **Workspace launcher sheet** opening full pages in new tabs.
-- **Active crawl miniplayer** fixed at the bottom of the content column (`extension/app.html:1494-1515`).
-- **Touch-target override** `--control-height: var(--touch-target)` (48 px) for panel buttons/select triggers.
-- **Icon-only rail items** with visually-hidden labels.
-- **Profile/Engine/Source/Run/Data/Finance panel workflow** shaped by the side-panel real estate.
-- **Google Identity sign-in button** and profile avatar fallback.
-- **Native-messaging-driven** start / repair / upgrade actions.
+- Right-side icon rail with grouped tablists and sliding indicator.
+- Narrow side-panel layout (min ~320 px, `overflow: hidden`, `* { min-width: 0; }`).
+- Workspace launcher sheet opening full pages in new tabs.
+- Active crawl miniplayer fixed at the bottom of the content column.
+- Touch-target override `--control-height: var(--touch-target)` (48 px) for panel buttons/select triggers.
+- Icon-only rail items with visually-hidden labels.
+- Profile/Engine/Source/Run/Data/Finance panel workflow shaped by side-panel real estate.
+- Google Identity sign-in button and profile avatar fallback.
+- Native-messaging-driven start / repair / upgrade actions.
+- Version notice / refusal card at the top of the panel.
+- Onboarding page.
 
 ---
 
-## 17. ScrapeX-Specific Characteristics
+## 19. Local-Web Profile Characteristics
+
+These patterns belong to the **FastAPI/Jinja local workspace**, distinct from both the extension and a public website.
+
+- Server-rendered Jinja2 pages with page-specific CSS/JS.
+- Fixed left sidebar navigation (`--workspace-sidebar-width: 17.75rem`).
+- Sidebar grouping from `scrapex/ui_manifest.py` (Browse / Automation / Outputs / System).
+- Mobile drawer below 900 px.
+- Workspace footer with engine / database health.
+- Settings category vertical tablist.
+- Tabulator-based data grids (`grid.js`, `grid-theme.css`).
+- Data model diagram page.
+- Deep tool pages: Jobs, Schedules, Logs, Review, Schema, Exports, Excel.
+- Database unavailable fallback page.
+
+---
+
+## 20. Product-Specific Characteristics
 
 These concepts are meaningful only inside the ScrapeX product domain.
 
-- **Source / offer / dataset / observation / crawl** domain model.
-- **Source identity component** display order (domain → English → Arabic → key → metric).
-- **Run workflow:** Choose sites → Run mode → Start update / crawl / rebuild / history backfill (`scrapex/ui_manifest.py` `RUN_MODE_OPTIONS`).
-- **Activity panel / live log / job miniplayer** specific to crawl monitoring.
-- **Google Finance rate refresh UI**.
-- **Capability ledger** (`crawl_pace`, `crawl_parallel_sources`, `crawl_resume`, etc.) and version handshake (`PROTOCOL_VERSION`).
-- **Schema-lag banner** and "Database is behind the engine" messaging.
-- **Onboarding copy** (install Python, pip install, register native host, start engine).
-- **Excel / Apps Script / Google Drive destination UI**.
-- **Review queue, changes, price history, compaction, retention** workflows.
+- Source / offer / dataset / observation / crawl domain model.
+- Source identity display order (domain → English → Arabic → key → metric).
+- Run workflow: update / initial crawl / full rebuild / history backfill.
+- Activity panel / live log / job miniplayer.
+- Google Finance rate UI.
+- Capability ledger and protocol handshake.
+- Schema-lag banner and "Database is behind the engine" messaging.
+- Onboarding copy (install Python, pip install, register native host, start engine).
+- Excel / Apps Script / Google Drive destination UI.
+- Review queue, changes, price history, compaction, retention.
 
 ---
 
-## 18. Technical Debt / Duplication
+## 21. Technical Debt / Duplication
 
 | Issue | Evidence | Severity |
 |---|---|---|
 | Three physical copies of design files | `extension/`, `scrapex/webui/static/`, `design/` | Managed by sync script; intentional but still duplication risk. |
+| Teal `--accent` value in canonical tokens | `design/tokens.css:24` | **Legacy residue** — future migration to `brand` palette green. |
+| `whatsapp` / `github` palette identifiers | `extension/appearance.js:8-99` | **Legacy aliases** for `brand` / first `alternatives` entry (`blue`). |
 | Hard-coded values in page stylesheets | `pages/*.css`, `webui.css` | Moderate — drift from tokens. |
 | Undefined `--font-sans` token | `extension/app.css:1605, 1742, 1782` | Minor — falls back to browser default. |
 | `::root` typo in onboarding CSS | `extension/onboarding.css:1` | Minor — invalid selector. |
 | Google button fixed px values | `design/components.css:254-292` | Low — third-party brand requirement. |
 | Monolithic `grid.js` (~3,200 lines) | `scrapex/webui/static/grid.js` | Moderate — mixes data fetching, table workarounds, rendering, export, a11y patches. |
 | Inline `<script>` blocks in templates | `source.html`, `datasets.html`, `excel.html`, `sync.html`, `data-model.html` | Moderate — harder to lint/cache. |
-| Outdated vendor README claim | `static/vendor/README.md` says Tabulator is only on Datasets page, but `source.html` also loads it. | Low |
+| Outdated vendor README claim | `static/vendor/README.md` | Low |
 | Generic class names colliding with shared components | `.field`, `.state`, `.toolbar`, `.value`, `.ok`, `.err` in `manage.css` / `datasets.css` | Moderate — clashing risk. |
 | `innerHTML` templating in `app.js` | `extension/app.js:18-23`, `1217-1259`, `2426-2435` | Moderate — XSS risk if escaping slips. |
 
 ---
 
-## 19. Risks
+## 22. Risks
 
 1. **Premature globalization.** The side-panel density and right-rail navigation are Chrome-extension solutions. Forcing them onto a website or add-in would degrade those surfaces.
-2. **Palette confusion.** WhatsApp/GitHub are user-selectable product profiles; treating them as global MbiX brand palettes would create false identity.
-3. **Engine-state semantics are useful globally, but copy is not.** "Setup required" and "Schema lag" are ScrapeX-specific. Any global status contract should abstract to `ready`/`warning`/`error`/`pending`.
-4. **Accessibility gaps in custom controls.** If the custom select or icon-only rail patterns are promoted to shared contracts, the `aria-activedescendant` and persistent-label gaps must be fixed first.
-5. **Hard-coded values in page CSS.** As the design system matures, page-level sheets may silently diverge from tokens.
-6. **`innerHTML` + escaping pattern.** A shared component library should avoid `innerHTML` in favor of safer DOM construction.
+2. **Palette / teal confusion.** Teal is legacy residue, not brand. `brand` is the default palette; `blue` is the first entry in an extensible `alternatives` registry. Neither is a global MbiX brand palette. The `whatsapp`/`github` identifiers must not leak into future global vocabulary.
+3. **Naming with brand colors.** Future canonical files and APIs must avoid color names (`green-theme`, `teal-theme`, etc.) and use the neutral `color-palettes` concept with semantic identifiers (`brand`, `alternatives`, `accent`, `surface`).
+4. **Engine-state semantics are useful globally, but copy is not.** "Setup required" and "Schema lag" are ScrapeX-specific. Any global status contract should abstract to `ready`/`warning`/`error`/`pending`.
+5. **Accessibility gaps in custom controls.** If the custom select or icon-only rail patterns are promoted to shared contracts, the `aria-activedescendant` and persistent-label gaps must be fixed first.
+6. **Hard-coded values in page CSS.** As the design system matures, page-level sheets may silently diverge from tokens.
+7. **`innerHTML` + escaping pattern.** A shared component library should avoid `innerHTML` in favor of safer DOM construction.
 
 ---
 
-## 20. Recommended Future Mapping
+## 23. Recommended Future Mapping
 
 | ScrapeX Evidence | Future Mapping |
 |---|---|
-| `tokens.css` reference tokens (spacing, radii, typography, motion, z-index) | Adopt as **global reference tokens** after comparison with mbiXsite/mbiXaddin. |
-| `tokens.css` semantic tokens (surface, text, line, accent, success/warning/error) | Adopt as **global semantic tokens**, but expect profile-specific values. |
+| `tokens.css` reference tokens (spacing, radii, typography, motion, z-index) | Evaluate as **global reference tokens** after comparison with mbiXsite/mbiXaddin. |
+| `tokens.css` semantic tokens (surface, text, line, accent, success/warning/error) | Evaluate as **global semantic tokens**, but expect profile-specific values. |
 | M3 aliases (`primary`, `on-surface`, etc.) | Keep as a **shared semantic vocabulary**; map to global tokens. |
-| Buttons, inputs, cards, chips, badges, empty states | Promote to **shared component contracts**. |
+| Buttons, inputs, cards, chips, badges, empty states | Promote to **shared component contracts** after other product audits. |
 | Custom select, switch, segmented control | Promote behavior to **shared contract** after fixing a11y gaps. |
 | Right-side rail, workspace launcher, miniplayer | Keep as **Extension Profile**; do not globalize. |
-| Source identity, run workflow, activity log | Keep as **ScrapeX-Specific**. |
+| Source identity, run workflow, activity log, Google Finance UI | Keep as **Product-Specific**. |
 | Engine status semantics (`ready`/`warning`/`error`/`pending`/`disabled`) | Extract into a **global status-semantic contract**; presentation stays product-level. |
-| WhatsApp/GitHub palettes | Keep as **ScrapeX product profiles**; global theme system should allow profile registration. |
-| Device color mode | Keep as **Extension / Platform Profile** capability; concept is reusable. |
-| `appearance.js` sync protocol (`/api/appearance`) | Use as a **shared cross-surface theme-sync contract** where applicable. |
+| `brand` default + `alternatives` registry (`blue` as first entry) | Keep as **ScrapeX product profiles**; global theme system should support a default palette plus an extensible alternatives registry. |
+| Device color mode | Keep as a **platform capability**; concept is reusable. |
+| `appearance.js` sync protocol (`/api/appearance`) | Use as a **ScrapeX internal shared layer**; global theme sync may follow a similar shape. |
 
 ---
 
-*End of SCRAPEX_UI_AUDIT.md*
+*End of SCRAPEX_UI_AUDIT.md — corrected documentation pass.*
