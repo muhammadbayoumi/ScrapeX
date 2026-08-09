@@ -43,6 +43,49 @@ def test_every_element_the_script_reaches_for_exists():
     assert not missing, f"app.js reaches for ids that app.html does not define: {missing}"
 
 
+def _pages_and_what_their_scripts_reach_for():
+    """Every page in the extension, paired with the ids it defines and the ids
+    the scripts IT loads reach for. Ids a script renders itself count as defined,
+    the same allowance the app-only check above makes."""
+    pairs = []
+    for page in sorted(EXT.glob("*.html")):
+        html = page.read_text(encoding="utf-8")
+        defined = set(re.findall(r'\bid="([\w-]+)"', html))
+        referenced: set[str] = set()
+        for name in re.findall(r'<script[^>]*\bsrc="([\w./-]+)"', html):
+            source_file = EXT / name
+            assert source_file.exists(), f"{page.name} loads {name}, which is not there"
+            source = source_file.read_text(encoding="utf-8")
+            defined |= set(re.findall(r'\bid="([\w-]+)"', source))
+            referenced |= set(re.findall(r'\$\("([\w-]+)"\)', source))
+            referenced |= set(re.findall(r'getElementById\("([\w-]+)"\)', source))
+        pairs.append(pytest.param(page.name, defined, referenced, id=page.name))
+    return pairs
+
+
+@pytest.mark.parametrize("page,defined,referenced",
+                         _pages_and_what_their_scripts_reach_for())
+def test_no_page_reaches_for_an_element_it_does_not_have(page, defined, referenced):
+    """THE SAME CHECK AS ABOVE, FOR EVERY PAGE — because the one page it did not
+    cover is the one that broke.
+
+    `onboarding.html`'s steps were rewritten for the downloaded engine and the
+    `#cmd-host` span went with them. `onboarding.js` still wrote a command into
+    it, as the second statement of an async `init()` called from a
+    DOMContentLoaded listener — so the TypeError became a silent unhandled
+    rejection, every line after it was skipped, and Start engine, Check again and
+    Open ScrapeX were all dead on a page that rendered perfectly.
+
+    The panel had this guard from the day the Add Site form came apart the same
+    way. Onboarding did not, because the guard named two files instead of asking
+    the directory what pages exist.
+    """
+    missing = sorted(referenced - defined)
+    assert not missing, (
+        f"{page} loads a script that reaches for ids the page does not have: "
+        f"{missing} — the first one to be missing kills every binding after it")
+
+
 def test_the_add_site_form_is_reachable_from_the_script():
     """The exact regression: a complete form nothing could ever reveal."""
     assert "source-detail" in DEFINED, "the confirm-and-add form is gone"
