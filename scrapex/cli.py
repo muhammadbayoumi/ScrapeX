@@ -384,6 +384,17 @@ def _render_changelog() -> str:
         "has it.",
         "",
     ]
+    # A RELEASE THAT ADDED NO CAPABILITY STILL HAPPENED, and must still appear.
+    # This file is generated from the capability ledger, so a fixes-only version
+    # produced no section at all — and a released version missing from its own
+    # changelog is a gap a reader reads as "that version does not exist".
+    #
+    # Found by 0.2.1: the first version deliberately cut with no new capability.
+    # `since` stays a frozen literal on every existing one, which is the rule
+    # that makes the compatibility floor mean anything, so the fix belongs here
+    # and not in the ledger.
+    by_version.setdefault(version.VERSION, [])
+
     for release in sorted(by_version, key=version.parse_version, reverse=True):
         capabilities = sorted(by_version[release], key=lambda c: c.key)
         lines.append(f"## {release}")
@@ -391,6 +402,11 @@ def _render_changelog() -> str:
         minimum = version.MINIMUM_EXTENSION_VERSION
         lines.append(f"Minimum supported extension: `{minimum}`.")
         lines.append("")
+        if not capabilities:
+            lines.append("No new capabilities. Fixes and internal change only — "
+                         "an extension and an engine that spoke to each other "
+                         "before this version still do.")
+            lines.append("")
         for capability in capabilities:
             surfaces = ", ".join(s.value for s in capability.surfaces)
             evidence = f" ({capability.commit})" if capability.commit else ""
