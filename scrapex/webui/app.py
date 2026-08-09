@@ -32,7 +32,7 @@ from .. import localinbox
 from .. import nativehost
 from ..capture import capture_source, crawl_settings
 from ..changes import change_summary, changes_for_offer, recent_changes
-from ..config import MANIFEST_FILE, SourceEntry, load_manifest
+from ..config import SourceEntry, load_manifest, resolve_manifest_path
 from ..connectors.base import CrawlBlocked, HttpFetcher
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
@@ -340,7 +340,12 @@ class RefuseForeignOrigins(BaseHTTPMiddleware):
 
 def create_app(
     db_path: Path | str | None = None,
-    manifest_path: Path | str = MANIFEST_FILE,
+    # None, not MANIFEST_FILE: a default evaluated at import time cannot see
+    # `SCRAPEX_SOURCES`, so the running engine read the repository's own twelve
+    # shops whatever the environment said, and no test could drive it against a
+    # shop it controls. `load_manifest(None)` resolves the variable, then the
+    # repository file. An explicit path still wins over both.
+    manifest_path: Path | str | None = None,
     start_worker: bool = False,
     *,
     databases: DatabaseRegistry | None = None,
@@ -365,8 +370,13 @@ def create_app(
     app.state.db_path = str(price_path)
     app.state.databases = databases
     app.state.general_database = general_database
-    app.state.manifest_path = str(manifest_path)
-    app.state.manifest = load_manifest(manifest_path)
+    # RESOLVED TO A CONCRETE PATH, and not left as None: `set_active`,
+    # `add_source`, `update_source` and `remove_source` are all handed this value
+    # and all four default to MANIFEST_FILE, so a None reaching them becomes
+    # `Path(None)` — every source edit in the panel would raise. Resolving once,
+    # here, also means every later reload reads the same file this one did.
+    app.state.manifest_path = str(resolve_manifest_path(manifest_path))
+    app.state.manifest = load_manifest(app.state.manifest_path)
     # The job worker owns ALL long-running crawls (spec 4). Tests drive the
     # synchronous seam instead, so the thread is opt-in.
     # The worker follows the warehouse: a move or a compaction changes
