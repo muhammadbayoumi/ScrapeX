@@ -7,6 +7,7 @@ broken contract can neither merge nor run.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Literal
@@ -454,9 +455,33 @@ def _host_of(url: str) -> str:
     return (parsed.hostname or "").lower().removeprefix("www.")
 
 
-def load_manifest(path: Path | str = MANIFEST_FILE) -> Manifest:
-    """Parse + validate sources.yaml. Raises with a precise message on any defect."""
-    raw = yaml.load(Path(path).read_text(encoding="utf-8"), Loader=_ManifestLoader)
+def resolve_manifest_path(path: Path | str | None = None) -> Path:
+    """WHICH manifest, in one place: an explicit path, then `SCRAPEX_SOURCES`,
+    then the repository's own file.
+
+    It is a function rather than a default argument because a default is bound at
+    import time and cannot see an environment variable set afterwards — which is
+    exactly how `create_app` came to read the owner's twelve real shops whatever
+    the environment said.
+    """
+    if path is not None:
+        return Path(path)
+    return Path(os.environ.get("SCRAPEX_SOURCES") or MANIFEST_FILE)
+
+
+def load_manifest(path: Path | str | None = None) -> Manifest:
+    """Parse + validate sources.yaml. Raises with a precise message on any defect.
+
+    `SCRAPEX_SOURCES` names a different manifest, and is what makes the CLI
+    testable end to end: `crawl`, `ingest`, `export` and `peek` all reach for the
+    repository's own `sources.yaml` with no argument, so before this there was no
+    way to drive the whole chain against a source that is not one of the owner's
+    twelve real shops. An explicit `path` still wins over the variable, and the
+    variable over the repository's file — the same order `SCRAPEX_FUNNEL_URL`
+    already follows in the CLI.
+    """
+    path = resolve_manifest_path(path)
+    raw = yaml.load(path.read_text(encoding="utf-8"), Loader=_ManifestLoader)
     if raw is None:
         raise ValueError(f"{path}: manifest is empty")
     return Manifest.model_validate(raw)
