@@ -277,7 +277,7 @@
   }
   .view-heading { display: flex; flex-direction: column; gap: 2px; }
   :is(#view-run, #view-source, #view-data, #view-sources,
-      #view-appearance, #view-finance, #view-settings) > .view-heading,
+      #view-appearance, #view-finance, #view-settings, #view-engines) > .view-heading,
   #view-source-edit > .source-edit-heading {
     position: sticky;
     z-index: 2;
@@ -2186,3 +2186,43 @@
   overflow-wrap: anywhere;
   margin: var(--sp-3) 0 0;
 }
+
+  /* Engine page — semantic status, metadata, actions. */
+  .engine-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: var(--control-height-sm);
+  }
+  .engine-status-detail {
+    color: var(--muted);
+    font-size: var(--fs-sm);
+  }
+  .engine-meta { margin-top: var(--sp-3); }
+  .engine-verdict {
+    margin: var(--sp-2) 0 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+  }
+  .engine-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-3);
+    margin-top: var(--sp-3);
+  }
+  .engine-actions button {
+    min-width: min(100%, 10rem);
+  }
+  .engine-action-primary {
+    /* Inherits default button appearance; keeps the official action visible. */
+  }
+  .engine-action-secondary {
+    /* Ghost button for the refresh action. */
+  }
+  #engine-compatibility-warning {
+    margin: var(--sp-3) 0 0;
+    text-align: start;
+  }
+  .dot.warn { background: var(--amber); }
+  .install-steps { margin-top: var(--sp-3); }

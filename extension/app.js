@@ -2204,89 +2204,149 @@ function renderAccount({ tokenProblem = null } = {}) {
 // year; re-asking on every render would be a request per keystroke for an
 // answer that has not moved since the panel opened.
 let latestRelease = null;
+let engineChecking = false;
 
-async function renderEngines() {
-  $("engine-installed-version").textContent = state.engineVersion || "not installed";
-  $("engine-status").textContent = state.engineUp
-    ? "Running"
-    : (state.engineVersion ? "Installed, not running" : "Not installed");
-  $("engine-protocol-row").textContent = state.engineProtocol === null
-    ? `${PROTOCOL_VERSION} (the engine has not stated its own)`
-    : `${state.engineProtocol}` +
-      (state.protocolMismatch ? ` — this extension speaks ${PROTOCOL_VERSION}` : "");
+function setEngineBusy(busy) {
+  engineChecking = busy;
+  const region = $("engine-status-region");
+  if (region) region.setAttribute("aria-busy", String(busy));
+}
 
-  // Asked once per panel open and remembered; the button beside the row is what
-  // asks again. Without it the only way to see a release cut five minutes ago
-  // was to close the panel and reopen it — which is a thing nobody discovers.
-  if (!latestRelease) latestRelease = await latestEngineRelease();
-  const latest = latestRelease;
-  // "unknown" MEANS WE COULD NOT FIND OUT, and for `none` that is false: we
-  // asked, the endpoint answered, and the answer was that nothing has been
-  // released. Collapsing the two threw away a distinction the reader is built
-  // to make — and the row then contradicted the sentence directly beneath it,
-  // which said we had checked. Found by looking at the panel, not by a test:
-  // four guards cover the reader and none covered the row that displays it.
-  $("engine-latest-version").textContent =
-    latest.state === "ok" ? latest.version
-    : latest.state === "none" ? "none yet"
-    : "unknown";
-  // The detail line carries WHY, which is the whole difference between a row
-  // worth reading and a row nobody reads twice.
-  $("engine-latest-detail").textContent = latest.state === "ok"
-    ? (latest.installer
-        ? ""
-        : "This release has no installer attached, so there is nothing to install yet.")
-    : (latest.detail || "");
+function engineStatusFromState() {
+  if (state.protocolMismatch) {
+    return {
+      text: "Incompatible",
+      tone: "danger",
+      detail: `Engine protocol ${state.engineProtocol} · Extension protocol ${PROTOCOL_VERSION}`,
+    };
+  }
+  if (state.engineUp) {
+    return { text: "Running", tone: "ok", detail: "" };
+  }
+  if (state.engineVersion) {
+    return { text: "Installed, not running", tone: "warn", detail: "" };
+  }
+  return { text: "Not installed", tone: "neutral", detail: "" };
+}
 
-  // THE BUTTON HANDS OVER THE FILE AND STOPS THERE. Chrome does not let an
-  // extension write outside its own storage or start a program, so "install"
-  // was never available to it — and a button that pretended otherwise would
-  // fail in a way the owner could not act on. Opening the url is the browser's
-  // ordinary download, and what happens next is the owner's decision.
-  const recheck = $("engine-recheck");
-  recheck.onclick = async () => {
-    recheck.disabled = true;
-    try {
-      // TWO CALLS, AND THE SECOND IS THE ONE THAT SHOWS ANYTHING.
-      //
-      // `render()` refreshes `state` — what is installed, what is running — but
-      // it does not touch this card: `renderEngines` has exactly one other call
-      // site, `showView`, so nothing here is repainted by entering render().
-      // With only the first call the button dropped the cache, re-fetched, and
-      // left every field showing the answer from when the page was opened; the
-      // one way to see a release cut five minutes ago was still to navigate away
-      // and back, which is what this button exists to replace.
-      latestRelease = null;
-      await render();
-      await renderEngines();
-    } finally {
-      recheck.disabled = false;
-    }
-  };
+function updateEngineStatus() {
+  const summary = engineStatusFromState();
+  const badge = $("engine-status-badge");
+  const dot = $("engine-status-dot");
+  badge.className = "badge";
+  dot.className = "dot";
+  if (summary.tone === "ok") {
+    badge.classList.add("ok");
+    dot.classList.add("on");
+  } else if (summary.tone === "warn") {
+    badge.classList.add("off");
+    dot.classList.add("warn");
+  } else if (summary.tone === "danger") {
+    badge.classList.add("danger");
+    dot.classList.add("off");
+  }
+  $("engine-status").textContent = summary.text;
+  const detail = $("engine-status-detail");
+  detail.textContent = summary.detail;
+  detail.classList.toggle("hidden", !summary.detail);
+}
 
-  const download = $("engine-download");
-  const steps = $("engine-install-steps");
-  const installer = latest.state === "ok" ? latest.installer : null;
+function engineProtocolText() {
+  const installed = state.engineVersion;
+  if (!installed) return "Not available";
+  if (state.engineProtocol === null) return `Not reported · Extension expects ${PROTOCOL_VERSION}`;
+  if (state.protocolMismatch) return `Engine ${state.engineProtocol} · Extension ${PROTOCOL_VERSION}`;
+  return String(state.engineProtocol);
+}
 
-  download.disabled = !installer;
-  steps.classList.toggle("hidden", !installer);
-
-  if (installer) {
-    download.title = `Download ${installer.name}`;
-    download.setAttribute("aria-label", download.title);
-    // The checksum is shown rather than checked, because the check belongs to
-    // whoever holds the file. Publishing it is what makes the check possible.
-    // Prefixed with what it is FOR, not just what it is. "SHA-256:" followed
-    // by hex tells a reader nothing about whether they need to care.
-    $("engine-download-checksum").textContent = installer.sha256
-      ? `If you want to verify the download — SHA-256: ${installer.sha256}`
-      : "";
-    download.onclick = () => { window.open(installer.url, "_blank"); };
-  } else {
-    download.onclick = null;
+function engineReleaseVerdict(installed, latest) {
+  if (latest.state === "offline" || latest.state === "unreadable") return "Update status unavailable";
+  if (latest.state === "none") return "No release available yet";
+  if (latest.state !== "ok" || !latest.installer) return "";
+  if (!installed) return "Available to install";
+  try {
+    if (isOlder(installed, latest.version)) return "Update available";
+    return "Up to date";
+  } catch {
+    return "";
   }
 }
 
+async function renderEngines() {
+  setEngineBusy(true);
+  // Transient checking text; the final state is applied before busy is cleared.
+  $("engine-status").textContent = "Checking engine…";
+  $("engine-status-badge").className = "badge";
+  $("engine-status-dot").className = "dot";
+  $("engine-status-detail").classList.add("hidden");
+  try {
+    const installed = state.engineVersion || "";
+    $("engine-installed-version").textContent = installed || "Not installed";
+    $("engine-protocol-row").textContent = engineProtocolText();
+
+    const warning = $("engine-compatibility-warning");
+    if (state.protocolMismatch) {
+      warning.textContent =
+        `The installed engine uses protocol ${state.engineProtocol}; this extension uses ${PROTOCOL_VERSION}. They cannot communicate.`;
+      warning.classList.remove("hidden");
+    } else {
+      warning.classList.add("hidden");
+      warning.textContent = "";
+    }
+
+    if (!latestRelease) latestRelease = await latestEngineRelease();
+    const latest = latestRelease;
+
+    $("engine-latest-version").textContent =
+      latest.state === "ok" ? latest.version
+      : latest.state === "none" ? "No release yet"
+      : "Unavailable";
+
+    $("engine-latest-detail").textContent = latest.state === "ok"
+      ? (latest.installer
+          ? ""
+          : "This release has no installer attached, so there is nothing to install yet.")
+      : (latest.detail || "");
+
+    $("engine-release-verdict").textContent = engineReleaseVerdict(installed, latest);
+
+    const recheck = $("engine-recheck");
+    recheck.onclick = async () => {
+      recheck.disabled = true;
+      setEngineBusy(true);
+      $("engine-status").textContent = "Checking engine…";
+      try {
+        latestRelease = null;
+        await render();
+        await renderEngines();
+      } finally {
+        recheck.disabled = false;
+      }
+    };
+
+    const download = $("engine-download");
+    const steps = $("engine-install-steps");
+    const installer = latest.state === "ok" ? latest.installer : null;
+
+    download.disabled = !installer;
+    steps.classList.toggle("hidden", !installer);
+
+    if (installer) {
+      $("engine-download-checksum").textContent = installer.sha256
+        ? `If you want to verify the download — SHA-256: ${installer.sha256}`
+        : "";
+      download.onclick = () => {
+        window.open(installer.url, "_blank");
+        steps.open = true;
+      };
+    } else {
+      download.onclick = null;
+    }
+  } finally {
+    updateEngineStatus();
+    setEngineBusy(false);
+  }
+}
 // ---- the refusal --------------------------------------------------------
 // M1's whole "done when": an incompatible engine is REFUSED WITH A NAMED
 // ACTION, instead of a dead panel.

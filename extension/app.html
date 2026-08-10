@@ -1152,13 +1152,35 @@
       <div class="view-scroll">
         <section class="card" aria-labelledby="engines-installed-title">
           <h2 id="engines-installed-title">ScrapeX-Engine</h2>
-          <div class="kv"><span>Status</span><span id="engine-status">Checking…</span></div>
-          <div class="kv"><span>Installed version</span>
-            <span class="tech" id="engine-installed-version">—</span></div>
-          <div class="kv"><span>Latest released</span>
-            <span class="tech" id="engine-latest-version">—</span></div>
-          <div class="kv"><span>Protocol</span>
-            <span class="tech" id="engine-protocol-row">—</span></div>
+
+          <!-- The single semantic status. `aria-busy` is true while the panel
+               is checking; the live region announces the result once only. -->
+          <div class="engine-status" id="engine-status-region"
+               role="status" aria-live="polite" aria-busy="true">
+            <span class="badge" id="engine-status-badge">
+              <span class="dot" id="engine-status-dot" aria-hidden="true"></span>
+              <span id="engine-status">Checking engine…</span>
+            </span>
+            <span class="engine-status-detail hidden" id="engine-status-detail"></span>
+          </div>
+
+          <!-- Compact compatibility warning. The global version notice outside
+               all views remains the authoritative refusal; this is just the
+               local summary on the page that manages the engine. -->
+          <p class="notice hidden" role="alert" id="engine-compatibility-warning"></p>
+
+          <div class="engine-meta">
+            <div class="kv"><span>Installed version</span>
+              <span class="tech" id="engine-installed-version">—</span></div>
+            <div class="kv"><span>Latest version</span>
+              <span class="tech" id="engine-latest-version">—</span></div>
+            <div class="kv"><span>Protocol</span>
+              <span class="tech" id="engine-protocol-row">—</span></div>
+          </div>
+
+          <!-- One concise verdict derived from installed vs. released version. -->
+          <p class="engine-verdict" id="engine-release-verdict"></p>
+
           <!-- One line under the rows for whatever the feed actually said. The
                four states it can be in are four different sentences, and one
                "unavailable" for all of them is how a row stops being read. -->
@@ -1172,28 +1194,27 @@
           <!-- ONE PER ENGINE, not one for the page. This card is a catalogue
                entry and the page will hold more of them; a single refresh at
                the top would re-ask about every engine to answer about one. -->
-          <button class="icon-button ghost compact" type="button"
-                  id="engine-recheck"
-                  aria-label="Check ScrapeX-Engine again"
-                  title="Check ScrapeX-Engine again">
-            <svg class="sx-icon" aria-hidden="true">
-              <use href="icons/material-icons.svg#sync"></use>
-            </svg>
-          </button>
-          <button class="icon-button ghost compact" type="button" disabled
-                  id="engine-download"
-                  aria-label="Download ScrapeX-Engine"
-                  title="Download ScrapeX-Engine">
-            <svg class="sx-icon" aria-hidden="true">
-              <use href="icons/material-icons.svg#file-download"></use>
-            </svg>
-          </button>
+          <div class="engine-actions">
+            <button class="engine-action-primary" id="engine-download" type="button" disabled>
+              <svg class="sx-icon sm" aria-hidden="true">
+                <use href="icons/material-icons.svg#file-download"></use>
+              </svg>
+              Download engine
+            </button>
+            <button class="ghost engine-action-secondary" id="engine-recheck" type="button">
+              <svg class="sx-icon sm" aria-hidden="true">
+                <use href="icons/material-icons.svg#sync"></use>
+              </svg>
+              Check again
+            </button>
+          </div>
+
           <!-- FOLDED SHUT. Opened by default this was a wall of warning
                before the owner had even pressed anything — and the checksum,
                sixty-four characters of hex, is meaningless to everyone except
                the one person who came looking for it. `details` needs no
-               script and remembers nothing: it is shut again next time, which
-               is right, because after the first install nobody needs it. -->
+               script and remembers nothing; it opens automatically after the
+               user asks for the download so the next steps are discoverable. -->
           <details class="install-steps hidden" id="engine-install-steps">
             <summary>After it downloads</summary>
             <ol class="text-sm">
@@ -1202,14 +1223,10 @@
               <li>Windows shows a blue notice the first time, because the file
                 is new rather than because anything is wrong with it. Choose
                 <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
-              <!-- NAMED THE WAY THE CONTROL IS NAMED. This said "the refresh
-                   button above"; the control is icon-only and its whole
-                   accessible name is "Check ScrapeX-Engine again", so nothing
-                   on the card was called "refresh" and the instruction pointed
-                   at a button that does not exist by that name. -->
+              <!-- NAMED THE WAY THE CONTROL IS NAMED. The recheck control is
+                   labelled "Check again", so the step names it exactly. -->
               <li>Leave its window open — that window <strong>is</strong> the
-                engine — then press <strong>Check ScrapeX-Engine again</strong>
-                above.</li>
+                engine — then press <strong>Check again</strong>.</li>
             </ol>
             <p class="muted text-sm" id="engine-download-checksum"></p>
           </details>
@@ -1222,11 +1239,10 @@
             ScrapeX-Engine cannot do. Each keeps its own store and hands its
             output to ScrapeX-Engine.
           </p>
-          <div class="kv"><span>Available</span><span>None yet</span></div>
+          <p class="muted text-sm">No additional engines are available yet.</p>
         </section>
       </div>
     </section>
-
     <section id="view-console" class="hidden" role="tabpanel" aria-labelledby="tab-console" tabindex="0">
       <header class="view-heading">
         <h1>Console</h1>
