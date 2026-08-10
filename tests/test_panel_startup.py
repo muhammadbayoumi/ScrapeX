@@ -1,6 +1,7 @@
 """Side-panel startup stays usable while independent work resolves behind it."""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -59,13 +60,15 @@ def open_starting_panel(browser, tmp_path):
         yield opener
     finally:
         for page in pages:
-            page.close()
+            if not page.is_closed():
+                page.close()
 
 
 def _wait_for_mark(page, name: str, timeout=5_000):
     page.wait_for_function(
         "name => performance.getEntriesByName('scrapex:' + name).length === 1",
         arg=name,
+        polling=25,
         timeout=timeout,
     )
 
@@ -79,6 +82,21 @@ def _marks(page):
 
 def _calls(page):
     return page.evaluate("() => window.__calls.slice()")
+
+
+def _mark_detail(page, name: str):
+    return page.evaluate(
+        "name => performance.getEntriesByName('scrapex:' + name)[0]?.detail",
+        name,
+    )
+
+
+def test_profile_shell_is_visible_without_javascript_revealing_it():
+    html = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
+    profile_tag = html.rsplit('<section id="view-profile"', 1)[1].split(">", 1)[0]
+
+    assert "hidden" not in profile_tag
+    assert '<nav class="side-rail"' in html
 
 
 def test_the_shell_is_interactive_before_account_or_engine_settles(open_starting_panel):
@@ -123,6 +141,83 @@ def test_account_and_engine_checks_start_independently(open_starting_panel):
     assert abs(marks["account-check-start"] - marks["engine-check-start"]) < 100
     assert page.locator("#welcome-signed-in").is_visible()
     assert page.locator("#estat-text").inner_text().startswith("Ready")
+    assert not page.js_errors
+
+
+def test_initially_unfocused_panel_finishes_without_a_frame_or_interaction(
+        open_starting_panel):
+    withhold_frames = """
+      (() => {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true, get: () => "hidden",
+        });
+        Object.defineProperty(document, "hasFocus", {
+          configurable: true, value: () => false,
+        });
+        window.__blockedAnimationFrames = [];
+        window.__cancelledAnimationFrames = [];
+        let frameId = 0;
+        window.requestAnimationFrame = (callback) => {
+          const id = ++frameId;
+          window.__blockedAnimationFrames.push({id, callback});
+          return id;
+        };
+        // Keep the callback so the test can deliver the cancelled frame late
+        // and prove that the settled startup path does not run twice.
+        window.cancelAnimationFrame = (id) => {
+          window.__cancelledAnimationFrames.push(id);
+        };
+      })();
+    """
+    page = open_starting_panel(
+        init_script=withhold_frames,
+        signin_never_returns=True,
+        blackhole_routes=("/api/health",),
+    )
+
+    # No click, hover, focus, blur, or synthetic visibility transition occurs.
+    assert page.locator("#view-profile").is_visible()
+    assert page.locator("nav.side-rail").is_visible()
+    assert page.locator("#welcome-checking").is_visible()
+    assert page.locator(PROFILE_TAB).is_enabled()
+    _wait_for_mark(page, "shell-visible", timeout=1_000)
+    _wait_for_mark(page, "account-check-start", timeout=1_000)
+    _wait_for_mark(page, "engine-check-start", timeout=1_000)
+
+    marks = _marks(page)
+    assert marks["shell-interactive"] <= marks["paint-opportunity-resolved"]
+    assert marks["paint-opportunity-resolved"] <= marks["shell-visible"]
+    assert marks["shell-visible"] <= marks["account-check-start"]
+    assert marks["shell-visible"] <= marks["engine-check-start"]
+    assert marks["shell-visible"] - marks["document-start"] < 1_000
+    assert _mark_detail(page, "document-start") == {
+        "visibilityState": "hidden", "hasFocus": False,
+    }
+    assert _mark_detail(page, "paint-opportunity-resolved") == {
+        "source": "timer", "visibilityState": "hidden",
+    }
+    assert _mark_detail(page, "shell-visible") == {
+        "source": "timer", "visibilityState": "hidden",
+    }
+
+    _wait_for_mark(page, "fully-settled", timeout=4_000)
+    assert page.locator("#welcome-signed-out").is_visible()
+    assert page.locator("#estat-text").inner_text() == "Check timed out"
+    assert _calls(page).count("/api/health") == 1
+
+    page.evaluate("""() => {
+      const frames = window.__blockedAnimationFrames.splice(0);
+      frames.forEach(({callback}) => callback(performance.now()));
+    }""")
+    page.wait_for_timeout(50)
+    counts = page.evaluate("""() => Object.fromEntries([
+      "paint-opportunity-resolved", "shell-visible", "account-check-start",
+      "account-check-finish", "engine-check-start", "engine-check-finish",
+      "fully-settled",
+    ].map(name => [name,
+      performance.getEntriesByName("scrapex:" + name).length]))""")
+    assert set(counts.values()) == {1}
+    assert _calls(page).count("/api/health") == 1
     assert not page.js_errors
 
 
@@ -327,28 +422,81 @@ def test_startup_shell_fits_supported_panel_widths(open_starting_panel, width):
     assert not page.js_errors
 
 
-@pytest.mark.parametrize("palette", ["whatsapp", "github"])
+@pytest.mark.parametrize(
+    "palette",
+    [
+        pytest.param("whatsapp", id="default-brand"),
+        pytest.param("github", id="alternative-blue"),
+    ],
+)
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_cached_theme_is_applied_before_the_first_frame(
         open_starting_panel, palette, scheme):
+    # Production still accepts these two legacy compatibility identifiers; the
+    # conceptual palettes under test are the default brand and alternative blue.
+    saved = json.dumps({
+        "mode": "manual", "scheme": scheme, "palette": palette,
+        "deviceColors": False, "updatedAt": 100,
+    })
     init_script = f"""
+      window.__appearanceProof = {{mutations: [], paints: []}};
       localStorage.setItem("scrapex-appearance-v2", JSON.stringify({{
-        mode: "manual", scheme: {scheme!r}, palette: {palette!r},
-        deviceColors: false, updatedAt: 100,
+        ...{saved}
       }}));
-      requestAnimationFrame(() => {{
-        window.__firstFrameAppearance = {{
-          theme: document.documentElement.dataset.theme,
-          palette: document.documentElement.dataset.palette,
-        }};
+      new MutationObserver(records => {{
+        const at = performance.now();
+        records.forEach(record => window.__appearanceProof.mutations.push({{
+          attribute: record.attributeName,
+          oldValue: record.oldValue,
+          value: record.target.getAttribute(record.attributeName),
+          at,
+        }}));
+      }}).observe(document, {{
+        subtree: true,
+        attributes: true,
+        attributeOldValue: true,
+        attributeFilter: ["data-theme", "data-palette"],
       }});
+      new PerformanceObserver(list => {{
+        list.getEntries().forEach(entry => {{
+          if (entry.name !== "first-contentful-paint") return;
+          window.__appearanceProof.paints.push({{
+            name: entry.name,
+            startTime: entry.startTime,
+            theme: document.documentElement.dataset.theme,
+            palette: document.documentElement.dataset.palette,
+          }});
+        }});
+      }}).observe({{type: "paint", buffered: true}});
     """
-    page = open_starting_panel(init_script=init_script)
-    page.wait_for_function("() => Boolean(window.__firstFrameAppearance)")
+    for _ in range(10):
+        page = open_starting_panel(init_script=init_script)
+        page.wait_for_function(
+            "() => window.__appearanceProof.paints.length === 1",
+        )
+        proof = page.evaluate("""() => ({
+          current: {
+            theme: document.documentElement.dataset.theme,
+            palette: document.documentElement.dataset.palette,
+          },
+          ...window.__appearanceProof,
+        })""")
+        expected = {"theme": scheme, "palette": palette}
+        fcp = proof["paints"][0]
+        first_values = {
+            name: next(change for change in proof["mutations"]
+                       if change["attribute"] == name)
+            for name in ("data-theme", "data-palette")
+        }
 
-    first = page.evaluate("() => window.__firstFrameAppearance")
-    assert first == {"theme": scheme, "palette": palette}
-    assert not page.js_errors
+        assert proof["current"] == expected
+        assert {"theme": fcp["theme"], "palette": fcp["palette"]} == expected
+        assert first_values["data-theme"]["value"] == scheme
+        assert first_values["data-palette"]["value"] == palette
+        assert first_values["data-theme"]["at"] <= fcp["startTime"]
+        assert first_values["data-palette"]["at"] <= fcp["startTime"]
+        assert not page.js_errors
+        page.close()
 
 
 def test_startup_instrumentation_spans_shell_checks_and_first_destination(
@@ -357,11 +505,17 @@ def test_startup_instrumentation_spans_shell_checks_and_first_destination(
     _wait_for_mark(page, "fully-settled")
     before = _marks(page)
     required = {
-        "document-start", "dom-content-loaded", "shell-visible", "shell-interactive",
+        "document-start", "dom-content-loaded", "pageshow",
+        "animation-frame-requested", "animation-frame-resolved",
+        "paint-opportunity-resolved", "shell-visible", "shell-interactive",
         "account-check-start", "account-check-finish", "engine-check-start",
         "engine-check-finish", "fully-settled",
     }
     assert required <= before.keys()
+    assert before["shell-interactive"] <= before["paint-opportunity-resolved"]
+    assert before["paint-opportunity-resolved"] <= before["shell-visible"]
+    assert before["shell-visible"] <= before["account-check-start"]
+    assert before["shell-visible"] <= before["engine-check-start"]
     assert "first-destination-data-request" not in before
 
     page.click(RUN_TAB)

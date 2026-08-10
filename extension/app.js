@@ -4373,7 +4373,6 @@ function wireStartupShell() {
   // true to put on a page — no account, no backup, no lease — so the first
   // screen asks that one question and shows nothing else.
   showView("profile", false);
-  markStartup("shell-visible");
   document.documentElement.dataset.shellInteractive = "true";
   markStartup("shell-interactive");
 }
@@ -4606,7 +4605,14 @@ function scheduleNonCriticalStartup(backendPromise) {
 
 async function init() {
   wireStartupShell();
-  await afterNextPaint();
+  const paintOpportunity = await afterNextPaint({signal: panelController.signal});
+  if (paintOpportunity.source === "cancelled" || panelController.signal.aborted) return;
+  // FCP remains the authoritative browser paint measurement. This mark records
+  // that startup yielded a bounded renderer opportunity before remote work.
+  markStartup("shell-visible", {
+    source: paintOpportunity.source,
+    visibilityState: document.visibilityState,
+  });
 
   // These start in the same turn and settle independently. The Engine only
   // waits for its backend address; it never waits for Chrome/Google account work.

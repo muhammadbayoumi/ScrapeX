@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  afterNextPaint,
   STARTUP_DEADLINES,
+  STARTUP_PAINT_FALLBACK_MS,
   deadlineForLocalRequest,
   fetchWithDeadline,
 } from "../startup.js";
@@ -53,4 +55,61 @@ test("every startup deadline is finite and positive", () => {
   for (const [name, value] of Object.entries(STARTUP_DEADLINES)) {
     assert.ok(Number.isFinite(value) && value > 0, `${name} has no finite deadline`);
   }
+});
+
+test("startup takes the bounded fallback when an animation frame never runs", async () => {
+  let blockedFrame;
+  let cancelledHandle;
+  const started = globalThis.performance.now();
+  const result = await afterNextPaint({
+    timeoutMs: 20,
+    requestFrame: (callback) => {
+      blockedFrame = callback;
+      return 17;
+    },
+    cancelFrame: (handle) => { cancelledHandle = handle; },
+  });
+  const elapsed = globalThis.performance.now() - started;
+
+  assert.equal(result.source, "timer");
+  assert.equal(cancelledHandle, 17);
+  assert.equal(typeof blockedFrame, "function");
+  assert.ok(elapsed >= 10, `fallback fired implausibly early (${elapsed}ms)`);
+  assert.ok(elapsed < 250, `blocked frame held startup (${elapsed}ms)`);
+  assert.equal(STARTUP_PAINT_FALLBACK_MS, 100);
+});
+
+test("startup uses a frame when available and still resolves only once", async () => {
+  let frameCallback;
+  let cancellationCount = 0;
+  const resultPromise = afterNextPaint({
+    timeoutMs: 100,
+    requestFrame: (callback) => {
+      frameCallback = callback;
+      return 23;
+    },
+    cancelFrame: () => { cancellationCount += 1; },
+  });
+
+  frameCallback(12.5);
+  const result = await resultPromise;
+  frameCallback(18.5);
+
+  assert.deepEqual(result, {source: "frame"});
+  assert.equal(cancellationCount, 0);
+});
+
+test("closing the panel cancels a pending paint opportunity", async () => {
+  const owner = new AbortController();
+  let cancelledHandle;
+  const resultPromise = afterNextPaint({
+    signal: owner.signal,
+    timeoutMs: 1000,
+    requestFrame: () => 31,
+    cancelFrame: (handle) => { cancelledHandle = handle; },
+  });
+  owner.abort();
+
+  assert.deepEqual(await resultPromise, {source: "cancelled"});
+  assert.equal(cancelledHandle, 31);
 });

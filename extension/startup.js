@@ -15,6 +15,11 @@ export const STARTUP_DEADLINES = Object.freeze({
   localGeneric: 5000,
 });
 
+// A new Side Panel document can exist before Chrome considers it active enough
+// to service animation frames. Startup may offer the renderer a frame, but the
+// Account and Engine checks must never wait indefinitely for one.
+export const STARTUP_PAINT_FALLBACK_MS = 100;
+
 const LOCAL_POLICIES = [
   [/^\/api\/(?:engine\/)?health(?:[/?]|$)/, STARTUP_DEADLINES.engineHealth],
   [/^\/api\/version(?:[/?]|$)/, STARTUP_DEADLINES.engineVersion],
@@ -93,16 +98,64 @@ export function markStartup(name, detail) {
   } catch (_) {}
 }
 
-export function afterNextPaint() {
+export function afterNextPaint({
+  signal,
+  timeoutMs = STARTUP_PAINT_FALLBACK_MS,
+  requestFrame = globalThis.requestAnimationFrame?.bind(globalThis),
+  cancelFrame = globalThis.cancelAnimationFrame?.bind(globalThis),
+  setTimer = globalThis.setTimeout.bind(globalThis),
+  clearTimer = globalThis.clearTimeout.bind(globalThis),
+} = {}) {
   return new Promise((resolve) => {
-    if (typeof requestAnimationFrame !== "function") {
-      setTimeout(resolve, 0);
+    let fallbackTimer;
+    let frameTask;
+    let frameHandle;
+    let settled = false;
+    const visibilityState = () => typeof document === "undefined"
+      ? "unavailable"
+      : document.visibilityState;
+    const finish = (source) => {
+      if (settled) return;
+      settled = true;
+      if (fallbackTimer !== undefined) clearTimer(fallbackTimer);
+      if (frameTask !== undefined) clearTimer(frameTask);
+      if (source !== "frame" && frameHandle !== undefined
+          && typeof cancelFrame === "function") {
+        cancelFrame(frameHandle);
+      }
+      signal?.removeEventListener("abort", abort);
+      markStartup("paint-opportunity-resolved", {
+        source, visibilityState: visibilityState(),
+      });
+      resolve({source});
+    };
+    const abort = () => finish("cancelled");
+
+    if (signal?.aborted) {
+      abort();
       return;
     }
+    signal?.addEventListener("abort", abort, {once: true});
+    fallbackTimer = setTimer(() => finish("timer"), timeoutMs);
+
+    if (typeof requestFrame !== "function") return;
+    markStartup("animation-frame-requested", {
+      visibilityState: visibilityState(),
+    });
     // A promise resolved inside rAF continues in a microtask before that frame
     // paints. Hop to the next task so the static shell actually reaches pixels
-    // before account/Engine work begins.
-    requestAnimationFrame(() => setTimeout(resolve, 0));
+    // before account/Engine work begins. The fallback remains armed across both
+    // hops, so neither a deferred frame nor its follow-up task can gate startup.
+    try {
+      frameHandle = requestFrame((timestamp) => {
+        markStartup("animation-frame-resolved", {
+          timestamp, visibilityState: visibilityState(),
+        });
+        frameTask = setTimer(() => finish("frame"), 0);
+      });
+    } catch (_) {
+      // The timer owns the bounded fallback if a renderer rejects the request.
+    }
   });
 }
 
