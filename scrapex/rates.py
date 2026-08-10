@@ -368,6 +368,29 @@ def last_checked(conn: sqlite3.Connection) -> str:
     return (row[0] if row and row[0] else "") or ""
 
 
+#: Codes that appear in the warehouse and can never be quoted, with the reason.
+#: Measured against the owner's database on 2026-08-10: of 123 currencies with
+#: observations, 119 had a rate and four did not -- and three of those four were
+#: not gaps at all.
+#:
+#: Without this, every refresh cycle asks Google Finance for USD-UNKNOWN,
+#: USD-SLL and USD-ZWD, fails on all three, and writes three warnings nobody can
+#: act on. For ever. A permanent warning is a warning that gets ignored, and the
+#: one real one after it goes with it.
+UNQUOTABLE = {
+    # Not a currency. `ingest` and three connectors write it when a source
+    # declares none -- all 3,149 of these observations belong to SPARK_ESHOP,
+    # which was deleted from the manifest. `storage.undeclared_sources` is where
+    # that belongs; asking a rate service about it can only ever fail.
+    "UNKNOWN": "a placeholder written when a source declares no currency",
+    # Redenominated to SLE in 2022 at 1000:1. No service quotes the old code.
+    "SLL": "retired in 2022 — Sierra Leone redenominated to SLE",
+    # Abandoned in 2009 after hyperinflation; Zimbabwe has used other
+    # currencies since.
+    "ZWD": "retired in 2009 — Zimbabwe abandoned the dollar",
+}
+
+
 def currencies_in_use(conn: sqlite3.Connection) -> list[str]:
     """Every currency the warehouse actually prices in.
 
@@ -376,10 +399,14 @@ def currencies_in_use(conn: sqlite3.Connection) -> list[str]:
     fetching a page for a currency no row uses — or, worse, leave a currency
     that IS in use without a rate because its manifest entry says otherwise.
     """
-    return [r[0] for r in conn.execute(
+    codes = [r[0] for r in conn.execute(
         "SELECT DISTINCT currency FROM price_observation "
         "WHERE TRIM(COALESCE(currency,'')) <> '' AND currency <> 'USD' "
         "ORDER BY currency")]
+    # USD is excluded in the SQL because it is the BASE -- `per_usd` -- so it
+    # cannot be missing a rate. The rest are excluded here, by name and with a
+    # reason, because they are codes no service will ever quote.
+    return [code for code in codes if code not in UNQUOTABLE]
 
 
 def refresh_is_due(conn: sqlite3.Connection, *, now: str | None = None) -> bool:
