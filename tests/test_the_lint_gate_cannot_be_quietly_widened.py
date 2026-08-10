@@ -78,6 +78,29 @@ def test_the_javascript_half_of_the_gate_runs_too():
 # rest are about pyproject.toml and the workflow, and marking them too would put
 # ruff's configuration inside a gate named for the panel.
 @pytest.mark.extension
+def test_the_javascript_gate_still_has_a_config_to_run_against():
+    """eslint.config.mjs is TRACKED, and deleting it turns the gate into a
+    crash rather than a pass — which sounds safe and is not.
+
+    It happened. Testing the gate locally means copying the config into a
+    worktree; cleaning up afterwards with `rm` deletes the tracked file, and
+    `git add -A` commits the deletion. CI then fails with "ESLint couldn't find
+    an eslint.config file" — an error about tooling, in a job whose failures are
+    supposed to be about code, and the sort of red people learn to wave through.
+
+    The other tests here read the workflow. This one reads the disk.
+    """
+    config = ROOT / "eslint.config.mjs"
+    assert config.is_file(), (
+        "eslint.config.mjs is gone, so the JavaScript half of the gate cannot "
+        "run at all — it will fail as a tooling error rather than catch anything")
+    text = config.read_text(encoding="utf-8")
+    assert "no-undef" in text, (
+        "the config no longer enables no-undef, which is the rule that found "
+        "the undefined `el` in the panel")
+    assert "export default" in text, "eslint.config.mjs exports no configuration"
+
+
 def test_the_panel_defines_every_helper_it_calls():
     """The regression test for the defect that paid for the whole JavaScript gate.
 
