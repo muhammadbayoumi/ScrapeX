@@ -1,5 +1,8 @@
-// Side-panel startup primitives. They are deliberately local: marks never
-// leave the document and deadlines/cancellation carry no user data.
+// Side-panel startup primitives. Marks stay in the document for DevTools and
+// are also copied to the service worker's short-lived session trace so host
+// opening and document startup share one clock. No account data is included.
+
+const STARTUP_EVENT = "scrapex-side-panel-startup-event";
 
 export const STARTUP_DEADLINES = Object.freeze({
   silentToken: 2500,
@@ -92,9 +95,24 @@ export async function fetchWithDeadline(
 }
 
 export function markStartup(name, detail) {
+  const startTime = globalThis.performance.now();
   try {
-    if (detail === undefined) globalThis.performance.mark(`scrapex:${name}`);
-    else globalThis.performance.mark(`scrapex:${name}`, {detail});
+    if (detail === undefined) {
+      globalThis.performance.mark(`scrapex:${name}`, {startTime});
+    } else {
+      globalThis.performance.mark(`scrapex:${name}`, {startTime, detail});
+    }
+  } catch (_) {}
+  try {
+    const delivery = globalThis.chrome?.runtime?.sendMessage({
+      type: STARTUP_EVENT,
+      event: {
+        name,
+        at: globalThis.performance.timeOrigin + startTime,
+        detail,
+      },
+    });
+    delivery?.catch?.(() => {});
   } catch (_) {}
 }
 

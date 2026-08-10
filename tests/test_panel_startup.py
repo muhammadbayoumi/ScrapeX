@@ -99,6 +99,17 @@ def test_profile_shell_is_visible_without_javascript_revealing_it():
     assert '<nav class="side-rail"' in html
 
 
+def test_only_fcp_claims_that_the_shell_was_visually_painted():
+    app = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    bootstrap = (ROOT / "extension" / "startup-bootstrap.js").read_text(
+        encoding="utf-8")
+
+    assert "shell-visible" not in app
+    assert 'markStartup("shell-post-opportunity"' in app
+    assert 'entry.name === "first-contentful-paint"' in bootstrap
+    assert 'event: {name: "first-contentful-paint"' in bootstrap
+
+
 def test_the_shell_is_interactive_before_account_or_engine_settles(open_starting_panel):
     page = open_starting_panel(
         signin_never_returns=True,
@@ -180,23 +191,23 @@ def test_initially_unfocused_panel_finishes_without_a_frame_or_interaction(
     assert page.locator("nav.side-rail").is_visible()
     assert page.locator("#welcome-checking").is_visible()
     assert page.locator(PROFILE_TAB).is_enabled()
-    _wait_for_mark(page, "shell-visible", timeout=1_000)
+    _wait_for_mark(page, "shell-post-opportunity", timeout=1_000)
     _wait_for_mark(page, "account-check-start", timeout=1_000)
     _wait_for_mark(page, "engine-check-start", timeout=1_000)
 
     marks = _marks(page)
     assert marks["shell-interactive"] <= marks["paint-opportunity-resolved"]
-    assert marks["paint-opportunity-resolved"] <= marks["shell-visible"]
-    assert marks["shell-visible"] <= marks["account-check-start"]
-    assert marks["shell-visible"] <= marks["engine-check-start"]
-    assert marks["shell-visible"] - marks["document-start"] < 1_000
+    assert marks["paint-opportunity-resolved"] <= marks["shell-post-opportunity"]
+    assert marks["shell-post-opportunity"] <= marks["account-check-start"]
+    assert marks["shell-post-opportunity"] <= marks["engine-check-start"]
+    assert marks["shell-post-opportunity"] - marks["document-start"] < 1_000
     assert _mark_detail(page, "document-start") == {
         "visibilityState": "hidden", "hasFocus": False,
     }
     assert _mark_detail(page, "paint-opportunity-resolved") == {
         "source": "timer", "visibilityState": "hidden",
     }
-    assert _mark_detail(page, "shell-visible") == {
+    assert _mark_detail(page, "shell-post-opportunity") == {
         "source": "timer", "visibilityState": "hidden",
     }
 
@@ -211,7 +222,7 @@ def test_initially_unfocused_panel_finishes_without_a_frame_or_interaction(
     }""")
     page.wait_for_timeout(50)
     counts = page.evaluate("""() => Object.fromEntries([
-      "paint-opportunity-resolved", "shell-visible", "account-check-start",
+      "paint-opportunity-resolved", "shell-post-opportunity", "account-check-start",
       "account-check-finish", "engine-check-start", "engine-check-finish",
       "fully-settled",
     ].map(name => [name,
@@ -507,15 +518,15 @@ def test_startup_instrumentation_spans_shell_checks_and_first_destination(
     required = {
         "document-start", "dom-content-loaded", "pageshow",
         "animation-frame-requested", "animation-frame-resolved",
-        "paint-opportunity-resolved", "shell-visible", "shell-interactive",
+        "paint-opportunity-resolved", "shell-post-opportunity", "shell-interactive",
         "account-check-start", "account-check-finish", "engine-check-start",
         "engine-check-finish", "fully-settled",
     }
     assert required <= before.keys()
     assert before["shell-interactive"] <= before["paint-opportunity-resolved"]
-    assert before["paint-opportunity-resolved"] <= before["shell-visible"]
-    assert before["shell-visible"] <= before["account-check-start"]
-    assert before["shell-visible"] <= before["engine-check-start"]
+    assert before["paint-opportunity-resolved"] <= before["shell-post-opportunity"]
+    assert before["shell-post-opportunity"] <= before["account-check-start"]
+    assert before["shell-post-opportunity"] <= before["engine-check-start"]
     assert "first-destination-data-request" not in before
 
     page.click(RUN_TAB)
