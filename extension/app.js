@@ -398,6 +398,7 @@ function renderSchemaLag(lag) {
 
 function setStatus(engine) {
   state.engineUp = engine.running;
+  state.engineReachable = engine.reachable;
   state.engineVersion = engine.version || "";
   // engine.js has computed `protocolMismatch` from /api/health since the
   // handshake moved onto the transport that carries the traffic. It reached
@@ -550,6 +551,15 @@ function renderVersionNotice(engine) {
   }
   notice.innerHTML = "";
   notice.classList.add("hidden");
+}
+
+// Engine-only state refresh. Used by the Engine page recheck action so it does
+// not pull in sources, outputs, jobs, or other destination data.
+async function updateEngineState() {
+  const engine = await checkEngine();
+  setStatus(engine);
+  await loadVersions(engine);
+  return engine;
 }
 
 // The gate (§1.6). Called BEFORE a capability is used, never after the request
@@ -2225,7 +2235,16 @@ function engineStatusFromState() {
   if (state.engineVersion) {
     return { text: "Installed, not running", tone: "warn", detail: "" };
   }
-  return { text: "Not installed", tone: "neutral", detail: "" };
+  if (state.engineReachable) {
+    // The endpoint answered but the worker is not alive. We cannot prove the
+    // executable is absent, only that it is not running right now.
+    return { text: "Not running", tone: "warn", detail: "" };
+  }
+  return {
+    text: "Not detected",
+    tone: "neutral",
+    detail: "The panel could not reach the Engine.",
+  };
 }
 
 function updateEngineStatus() {
@@ -2272,7 +2291,7 @@ function updateEngineWarning() {
 
 function renderEngineStatusUI() {
   const installed = state.engineVersion || "";
-  $("engine-installed-version").textContent = installed || "Not installed";
+  $("engine-installed-version").textContent = installed || "Not detected";
   $("engine-protocol-row").textContent = engineProtocolText();
   updateEngineWarning();
   updateEngineStatus();
@@ -2350,14 +2369,16 @@ async function refreshEngines() {
   $("engine-status-dot").className = "dot";
   $("engine-status-detail").classList.add("hidden");
   try {
-    await render();
+    // Only refresh Engine health and version compatibility. Do not pull in
+    // sources, outputs, jobs, or other destination data.
+    await updateEngineState();
     renderEngineStatusUI();
-    setEngineBusy(false);
 
     latestRelease = null;
     const latest = await latestEngineRelease();
     updateEngineReleaseUI(latest);
   } finally {
+    setEngineBusy(false);
     recheck.disabled = false;
   }
 }
@@ -3611,11 +3632,9 @@ async function renderAutostart() {
 
 // ---- shell ------------------------------------------------------------------
 async function render() {
-  const engine = await checkEngine();
-  setStatus(engine);
+  const engine = await updateEngineState();
   // Before anything is loaded or offered: a panel that cannot work half of what
   // it is showing should say so at the top of the screen, not after the click.
-  await loadVersions(engine);
   $("setup").classList.toggle("hidden", engine.running);
   if (engine.running) {
     await Promise.all([loadCurrentSite(), loadSources(), loadOutputs(), pollJob()]);

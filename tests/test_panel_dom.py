@@ -3294,7 +3294,7 @@ def test_a_release_with_no_installer_says_so_before_the_press(open_panel):
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
 
 
-def test_the_engine_page_says_not_installed_when_it_is_not(open_panel):
+def test_the_engine_page_says_not_detected_when_unreachable(open_panel):
     """The first minute on a new machine, which is the state the page exists for."""
     page = open_panel(engine_up=False)
     page.click("#tab-engines")
@@ -3302,8 +3302,8 @@ def test_the_engine_page_says_not_installed_when_it_is_not(open_panel):
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
         timeout=10_000)
 
-    assert "Not installed" in text_of(page, "#engine-status")
-    assert text_of(page, "#engine-installed-version") == "Not installed"
+    assert "Not detected" in text_of(page, "#engine-status")
+    assert text_of(page, "#engine-installed-version") == "Not detected"
     assert text_of(page, "#engine-protocol-row") == "Not available"
 
 
@@ -3320,7 +3320,7 @@ def test_the_engine_status_uses_a_single_live_region(open_panel):
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
         timeout=10_000)
     status = text_of(page, "#engine-status")
-    assert status in ("Running", "Not installed", "Installed, not running", "Incompatible")
+    assert status in ("Running", "Not detected", "Not running", "Installed, not running", "Incompatible")
 
 
 def test_the_engine_status_maps_protocol_mismatch_to_a_warning(open_panel):
@@ -3637,3 +3637,151 @@ def test_the_engine_verdict_does_not_say_available_with_no_engine_and_no_install
 
     assert "Available to install" not in text_of(page, "#engine-release-verdict")
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
+
+
+
+def test_the_engine_recheck_does_not_fetch_unrelated_routes(open_panel):
+    """The Engine recheck must only refresh Engine health, version
+    compatibility, and the release manifest. It must not pull in data for
+    other destinations."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "r" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    page.evaluate(r"""() => {
+      window.__engineRoutes = [];
+      const orig = window.fetch;
+      window.fetch = async (url, options) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+        window.__engineRoutes.push(path);
+        return orig(url, options);
+      };
+    }""")
+
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+
+    routes = page.evaluate("window.__engineRoutes")
+    unrelated = [r for r in routes if any(
+        r.startswith(p) for p in ("/api/sources","/api/outputs","/api/records","/api/jobs","/api/current-site","/api/changes"))]
+    assert not unrelated, f"recheck fetched unrelated routes: {unrelated}"
+
+
+def test_the_engine_recheck_ignores_slow_unrelated_endpoints(open_panel):
+    """A stalled source/output/job endpoint must not keep the Engine card on
+    'Checking engine…'."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "s" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    page.evaluate(r"""() => {
+      const orig = window.fetch;
+      window.fetch = async (url, options) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+        if (["/api/sources","/api/outputs","/api/jobs"].includes(path)) {
+          await new Promise(r => setTimeout(r, 30000));
+        }
+        return orig(url, options);
+      };
+    }""")
+
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    status = text_of(page, "#engine-status")
+    assert status in ("Running", "Not detected", "Not running", "Installed, not running", "Incompatible")
+    assert status != "Checking engine…"
+
+
+def test_the_engine_power_switch_is_a_disabled_placeholder(open_panel):
+    """The Engine power switch is visible, disabled, and correctly labelled,
+    and its pending disclosure is connected to it."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "t" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    switch = page.locator("#engine-power-switch")
+    assert switch.is_visible()
+    assert switch.is_disabled()
+    assert switch.get_attribute("type") == "checkbox"
+    assert switch.get_attribute("role") == "switch"
+    assert switch.get_attribute("aria-label") == "Engine power"
+    described = switch.get_attribute("aria-describedby")
+    assert described == "engine-power-disclosure"
+    disclosure = page.locator(f"#{described}")
+    assert disclosure.is_visible()
+    assert "not connected yet" in text_of(page, f"#{described}")
+
+
+def test_the_engine_power_switch_cannot_be_activated(open_panel):
+    """Mouse, Space, and Enter must not change the disabled placeholder."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "u" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    switch = page.locator("#engine-power-switch")
+    before = switch.is_checked()
+    page.evaluate("""() => {
+      const el = document.getElementById('engine-power-switch');
+      el.click();
+      ['keydown', 'keyup'].forEach(type => {
+        el.dispatchEvent(new KeyboardEvent(type, {key: ' ', bubbles: true}));
+        el.dispatchEvent(new KeyboardEvent(type, {key: 'Enter', bubbles: true}));
+      });
+    }""")
+    assert switch.is_checked() == before, "the disabled switch changed state"
+
+
+def test_the_engine_power_switch_is_readable_at_320px(open_panel):
+    """The placeholder switch and its disclosure must not overflow the narrowest
+    panel and must remain visible."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "v" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    switch = page.locator("#engine-power-switch")
+    assert switch.is_visible()
+    box = page.locator(".engine-power").bounding_box()
+    assert box and box["width"] <= 320
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    assert not overflow, "the Engine page overflows at 320px after adding the power switch"

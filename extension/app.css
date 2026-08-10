@@ -1576,6 +1576,101 @@
   }
   .finance-m3-switch input:disabled { cursor: default; }
   .finance-m3-switch input:disabled + .finance-m3-switch-track { opacity: .38; }
+  .engine-power-switch {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2.875rem;
+    height: 2.5rem;
+  }
+  .engine-power-switch input {
+    position: absolute;
+    z-index: 2;
+    width: 2.875rem;
+    min-width: 2.875rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    appearance: none;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .engine-power-switch input:focus-visible { outline: 0; }
+  .engine-power-switch-track {
+    position: relative;
+    display: block;
+    width: 2.875rem;
+    height: 1.75rem;
+    box-sizing: border-box;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: var(--switch-track-off);
+    box-shadow: inset 0 0 0 2px var(--outline);
+    transition:
+      background-color 67ms linear,
+      box-shadow 67ms linear;
+  }
+  .engine-power-switch-handle-container {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    transition: inset-inline-start 300ms cubic-bezier(.175, .885, .32, 1.275);
+  }
+  .engine-power-switch-handle {
+    display: block;
+    width: .875rem;
+    height: .875rem;
+    border-radius: 50%;
+    background: var(--switch-thumb-off);
+    transition:
+      width 250ms cubic-bezier(.2, 0, 0, 1),
+      height 250ms cubic-bezier(.2, 0, 0, 1),
+      background-color 67ms linear;
+  }
+  .engine-power-switch input:checked + .engine-power-switch-track {
+    background: var(--switch-track);
+    box-shadow: inset 0 0 0 2px var(--switch-track);
+  }
+  .engine-power-switch input:checked + .engine-power-switch-track
+    .engine-power-switch-handle-container {
+    inset-inline-start: 1.125rem;
+  }
+  .engine-power-switch input:checked + .engine-power-switch-track
+    .engine-power-switch-handle {
+    width: 1.25rem;
+    height: 1.25rem;
+    background: var(--switch-thumb);
+  }
+  .engine-power-switch input:hover + .engine-power-switch-track {
+    background: var(--control-hover);
+    box-shadow: inset 0 0 0 2px var(--on-surface-variant);
+  }
+  .engine-power-switch input:hover:checked + .engine-power-switch-track {
+    background: var(--switch-track-hover);
+    box-shadow: inset 0 0 0 2px var(--switch-track-hover);
+  }
+  .engine-power-switch input:active + .engine-power-switch-track
+    .engine-power-switch-handle {
+    width: 1.5rem;
+    height: 1.5rem;
+    transition-duration: 100ms;
+  }
+  .engine-power-switch input:focus-visible + .engine-power-switch-track {
+    outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
+    outline-offset: 2px;
+  }
+  .engine-power-switch input:disabled { cursor: default; }
+  .engine-power-switch input:disabled + .engine-power-switch-track { opacity: .38; }
   .finance-number-field { position: relative; flex: none; width: 10rem; }
   .finance-number-field input {
     width: 100%;
@@ -2208,6 +2303,7 @@
   .engine-actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--sp-3);
     margin-top: var(--sp-3);
   }
@@ -2223,6 +2319,23 @@
   }
   .engine-action-secondary {
     /* Ghost button for the refresh action. */
+  }
+  .engine-power {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+    min-height: var(--touch-target);
+    margin-inline-start: auto;
+  }
+  .engine-power-label {
+    font-size: var(--fs-sm);
+    color: var(--text);
+  }
+  .engine-power-disclosure {
+    margin: var(--sp-2) 0 0;
+    text-align: end;
   }
   #engine-compatibility-warning {
     margin: var(--sp-3) 0 0;
