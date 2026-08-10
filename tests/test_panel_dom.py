@@ -1792,6 +1792,12 @@ def test_the_active_crawl_minimizes_to_a_statusbar_and_opens_again(open_panel):
     page = open_panel(jobs=[job])
     bar = page.locator("#miniplayer")
 
+    # Job state is destination-specific startup work: Profile opens without it,
+    # and entering Run performs the first active-job read.
+    assert not bar.is_visible()
+    page.click(RUN_TAB)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
     assert bar.is_visible()
     assert bar.evaluate("el => el.tagName") == "DETAILS"
     assert not bar.evaluate("el => el.open"), "a running crawl should rest minimized"
