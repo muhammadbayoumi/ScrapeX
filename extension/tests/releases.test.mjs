@@ -201,9 +201,30 @@ test("the manifest lets the extension reach the feed at all", () => {
   // whole suite until this assertion existed.
   const shipped = JSON.parse(
     readFileSync(join(HERE, "..", "manifest.json"), "utf8"));
-  const host = new URL(VERSION_MANIFEST).origin + "/*";
+  // THE QUESTION IS WHETHER CHROME WOULD ALLOW THE REQUEST, not whether one
+  // particular string appears. Asserting `origin + "/*"` literally meant a
+  // NARROWER permission -- one that still permits this exact url and nothing
+  // else on the host -- failed a test whose own comment says it exists to catch
+  // the request being refused. Narrowing a permission is the safe direction; a
+  // test that forbids it teaches the opposite lesson.
+  //
+  // This matches the way Chrome actually reads a match pattern: scheme, host
+  // (with an optional leading *.), and a path glob.
+  const allows = (pattern, url) => {
+    const match = /^(\*|https?):\/\/(\*\.)?([^/]+)(\/.*)$/.exec(pattern);
+    if (!match) return false;
+    const [, scheme, anySub, host, path] = match;
+    const target = new URL(url);
+    if (scheme !== "*" && scheme + ":" !== target.protocol) return false;
+    if (anySub ? !(target.host === host || target.host.endsWith("." + host))
+               : target.host !== host) return false;
+    const glob = new RegExp("^" + path.split("*").map(
+      (part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$");
+    return glob.test(target.pathname + target.search);
+  };
 
-  assert.ok((shipped.host_permissions || []).includes(host),
-    `manifest.host_permissions does not include ${host}, so Chrome refuses the ` +
-    `release check and the page reports a network that is not broken`);
+  assert.ok((shipped.host_permissions || []).some((p) => allows(p, VERSION_MANIFEST)),
+    `no host_permission in the manifest matches ${VERSION_MANIFEST}, so Chrome ` +
+    `refuses the release check and the page reports a network that is not broken. ` +
+    `Have: ${JSON.stringify(shipped.host_permissions)}`);
 });

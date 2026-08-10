@@ -143,13 +143,13 @@ outside the browser. Be specific and do not soften it.
 > loopback. This is how the panel reads the database. It never leaves the
 > computer.
 
-### `https://raw.githubusercontent.com/*`
+### `https://raw.githubusercontent.com/muhammadbayoumi/mbiX-hub/*`
 
 > Reads one small file that says which version of ScrapeX-Engine is the newest,
 > so the panel can tell the user an update exists. It is a plain public file
 > fetch and carries no information about the user.
 
-### `https://www.googleapis.com/*`
+### `https://www.googleapis.com/oauth2/v3/*`
 
 > Google's own endpoints, used only after the user signs in: the name and
 > picture of the signed-in account, Google Drive for backups the user asks for,
@@ -211,5 +211,5 @@ manifest on every build.
       supplier names, the shape of your own price data.
 - [ ] Category and language for the listing.
 - [ ] The store item ID, once created — **compare it against the pinned key's
-      id `hlamngednfddacoabhoapfkpaedgbapp` before anything else.** If they
+      id `ekcgggphcfdbjgfkcmjagehfjhijeang` before anything else.** If they
       differ, Google sign-in will break in the published build only.
