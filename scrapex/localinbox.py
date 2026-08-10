@@ -14,13 +14,13 @@ never touch those.
 """
 from __future__ import annotations
 
-import os
 import hashlib
 import json
+import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -128,7 +128,7 @@ def journal_state(base: Path | str, source_key: str) -> dict:
         newest[token] = max(newest.get(token, 0.0), mtime)
     if not newest:
         return {"pages": 0, "stopped_at": None}
-    stopped = datetime.fromtimestamp(max(newest.values()), timezone.utc)
+    stopped = datetime.fromtimestamp(max(newest.values()), UTC)
     return {"pages": len(newest),
             "stopped_at": stopped.strftime("%Y-%m-%dT%H:%M:%SZ")}
 

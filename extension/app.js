@@ -15,6 +15,17 @@ import { latestEngineRelease } from "./releases.js";
 import { getToken, accountFor, forgetToken } from "./identity.js";
 
 const $ = (id) => document.getElementById(id);
+// Called by renderSchemaLag since c4ea06b and DEFINED NOWHERE until now, so the
+// banner that tells the owner his database is behind the engine threw
+// ReferenceError instead of rendering -- and only ever in the one situation it
+// exists for. Nothing caught it: the early return above it means the normal
+// case never reaches these lines, and no test supplied a pending migration.
+const el = (tag, className = "", text = "") => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+};
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ICON_SPRITE = "icons/material-icons.svg";
@@ -570,6 +581,12 @@ function capabilityRefusal(key) {
 // panel, where the work actually happens, they did not exist: the owner asked
 // for a feature that had been shipped weeks earlier. Settings belong here.
 
+// FOUND BY THE LINTER: nothing reads this. loadCrawlSettings/saveCrawlSettings
+// name their keys inline instead, so this list can drift from the real ones and
+// nothing would say so. Left in place rather than deleted because "which keys
+// are the crawl settings" is worth having in one place -- WIRING it is the fix,
+// and that is a change to behaviour, not a lint tidy.
+// eslint-disable-next-line no-unused-vars
 const CRAWL_KEYS = ["crawl_honour_delay", "crawl_min_interval_s",
                     "crawl_parallel_sources", "crawl_timeout_s",
                     "crawl_user_agent"];
@@ -747,6 +764,12 @@ function financeRefreshIsOverdue(status) {
 }
 
 let financeCurrencySelectUi = null;
+// FOUND BY THE LINTER: assigned at setup and never read again, while its twin
+// `financeCurrencySelectUi` is re-synced every time the rates change. It may be
+// harmless -- the target list is not repopulated the way the source list is --
+// or it may be the sync nobody wrote. Answering that means knowing what the
+// target select is meant to show, which is the owner's call, not a linter's.
+// eslint-disable-next-line no-unused-vars
 let financeTargetSelectUi = null;
 
 function setupFinanceConverterSelect({selectId, triggerId, listId, labelPrefix}) {

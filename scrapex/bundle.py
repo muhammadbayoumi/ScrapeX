@@ -37,7 +37,6 @@ from __future__ import annotations
 import csv
 import gzip
 import hashlib
-import io
 import json
 import shutil
 import sqlite3
@@ -46,9 +45,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .archive import backup_database
-from .reports import (export_details_table, export_history_table,
-                      export_source_table, list_sources)
 from .payload import utc_now_iso
+from .reports import export_details_table, export_history_table, export_source_table, list_sources
 from .version import VERSION
 
 #: The bundle's own shape, separate from the engine's version and from the
@@ -106,7 +104,7 @@ def _write_table(directory: Path, name: str, header: list[str],
     jsonl = directory / f"{name}.jsonl"
     with open(jsonl, "w", encoding="utf-8", newline="\n") as handle:
         for row in rows:
-            handle.write(json.dumps(dict(zip(header, row)), ensure_ascii=False))
+            handle.write(json.dumps(dict(zip(header, row, strict=True)), ensure_ascii=False))
             handle.write("\n")
 
     comma = directory / f"{name}.csv"

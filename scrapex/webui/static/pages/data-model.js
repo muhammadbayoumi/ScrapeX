@@ -16,7 +16,6 @@
   const emptyState = document.getElementById("model-empty");
   const cards = [...stage.querySelectorAll(".model-table")];
 
-  const CARD_WIDTH = 304;
   const CARD_HEIGHT = 228;
   const LANE_WIDTH = 344;
   const LANE_HEAD = 54;

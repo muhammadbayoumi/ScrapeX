@@ -24,7 +24,7 @@ import json
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 PREFIX = "setting:"
 
@@ -153,7 +153,7 @@ class RunResult:
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def file_stamp() -> str:
@@ -163,7 +163,7 @@ def file_stamp() -> str:
     a form storage.base_stem could not match — so after a seal or a restore the
     owner's backups silently vanished from the Storage page.
     """
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 class UnknownSettingError(KeyError):

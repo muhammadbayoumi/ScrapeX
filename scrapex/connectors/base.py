@@ -10,8 +10,9 @@ import random
 import ssl
 import threading
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import httpx
 
@@ -192,7 +193,7 @@ def declare_frontier(fetcher, pages: int) -> None:
         return
     try:
         declare(pages)
-    except Exception:  # noqa: BLE001 — a progress figure may never break a crawl
+    except Exception:
         pass
 
 
@@ -302,7 +303,7 @@ class HttpFetcher:
 
     # ---- what this crawl expects to cost ------------------------------------
 
-    def expect_requests(self, pages: int) -> None:      # noqa: D401 — see declare_frontier
+    def expect_requests(self, pages: int) -> None:
         """A connector declaring "I now know I will fetch `pages` more pages".
 
         Counted FROM THE REQUESTS ALREADY MADE, because that is the only way the
@@ -338,12 +339,12 @@ class HttpFetcher:
                 # pages, which is the exact complaint being fixed.
                 try:
                     self.on_expectation(declared)
-                except Exception:  # noqa: BLE001 — progress display only
+                except Exception:
                     pass
 
     # ---- validators, so a repeat crawl can be answered with 304 -------------
 
-    def fresh_session(self) -> "HttpFetcher":
+    def fresh_session(self) -> HttpFetcher:
         """A SECOND fetcher with this one's settings and none of its state.
 
         For the rare case where a site's answer depends on the session itself
@@ -418,7 +419,7 @@ class HttpFetcher:
             if answer.status_code == 200:
                 parser = RobotFileParser()
                 parser.parse(answer.text.splitlines())
-        except Exception:  # noqa: BLE001 — no robots file is a normal state
+        except Exception:
             parser = None
         self._robots[host] = parser
         if parser is not None:
@@ -484,7 +485,7 @@ class HttpFetcher:
                     # (CrawlInterrupted). Swallowing THAT with the display
                     # errors would make the brakes decorative.
                     raise
-                except Exception:  # noqa: BLE001 — progress display only
+                except Exception:
                     pass
 
             if response.status_code == 304:
@@ -612,7 +613,7 @@ class BrowserFetcher:
                         return page.content()
                     finally:
                         browser.close()
-            except Exception as exc:  # noqa: BLE001 — recorded, retried, re-raised (Q3)
+            except Exception as exc:
                 last_error = exc
                 time.sleep(2**attempt)
         raise RuntimeError(f"browser fetch failed after {retries + 1} attempts: {url}") from last_error

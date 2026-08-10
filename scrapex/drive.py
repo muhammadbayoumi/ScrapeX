@@ -165,8 +165,7 @@ def download(token: str, file_id: str, path: Path | str,
                 response.read()
                 _check(response, f"downloading {file_id}")
             with open(path, "wb") as handle:
-                for chunk in response.iter_bytes():
-                    handle.write(chunk)
+                handle.writelines(response.iter_bytes())
         return path
     finally:
         if client is None:

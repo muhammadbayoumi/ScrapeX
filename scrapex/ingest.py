@@ -9,21 +9,26 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Sequence
-from functools import partial
 from dataclasses import dataclass, field
 from decimal import Decimal
+from functools import partial
 
+from . import db as _dbmod
+from . import pricekey, tax
 from .changes import (
-    ALIAS_FIELDS, TRACKED_PRODUCT_FIELDS, classify_availability, classify_price,
-    product_field_diffs, record_alias, record_change,
+    ALIAS_FIELDS,
+    TRACKED_PRODUCT_FIELDS,
+    classify_availability,
+    classify_price,
+    product_field_diffs,
+    record_alias,
+    record_change,
 )
 from .config import SourceEntry
-from . import db as _dbmod, pricekey, tax
 from .normalize import brand_pair, joined_brand, parse_money, record_hash
-from .payload import FunnelPayload, utc_now_iso
+from .payload import FunnelPayload
 from .rowspec import PRODUCT_PRICES, RowView, spec_for
-from .vocab import (Availability, ChangeType, CurationStatus, DetailGroup,
-                    ExtractKind, RunStatus)
+from .vocab import Availability, ChangeType, CurationStatus, DetailGroup, ExtractKind, RunStatus
 
 
 @dataclass
@@ -429,7 +434,7 @@ def _get_variant(conn, product_id: int, r: dict, run_id: int | None = None,
     }), True
 
 
-def _retire_product_level_stand_ins(conn, result: "IngestResult",
+def _retire_product_level_stand_ins(conn, result: IngestResult,
                                     run_id: int | None,
                                     job_id: int | None) -> None:
     """A product now publishing REAL variants retires its old stand-in.
@@ -1005,7 +1010,7 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
             try:
                 row_fn(conn, entry, source_id, run_id,
                        view.as_dict(raw), payload.scraped_at, result, job_id)
-            except Exception as exc:  # noqa: BLE001 — isolate one bad row (Q3)
+            except Exception as exc:
                 result.errors.append(f"row {i}: {exc}")
 
     # A detail whose VALUE changed arrived beside its old copy rather than
@@ -1035,7 +1040,7 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     return result
 
 
-def _retire_superseded_attributes(conn, stated: dict, result: "IngestResult") -> None:
+def _retire_superseded_attributes(conn, stated: dict, result: IngestResult) -> None:
     """Drop the values a product no longer states, for the exact facts this run
     restated.
 
@@ -1156,7 +1161,7 @@ def _ingest_commodity_row(conn, entry, source_id, run_id, c, observed_at,
                  result, job_id)
 
 
-def _record_implied_rate(conn, entry, c: dict, result: "IngestResult") -> None:
+def _record_implied_rate(conn, entry, c: dict, result: IngestResult) -> None:
     """The exchange rate the PUBLISHER used, read off the row's own pair.
 
     A row carrying the local price and the site's printed USD conversion
@@ -1232,7 +1237,7 @@ def _commodity_to_product_row(c: dict) -> dict:
     Built from the spec's own column list, so a widened contract cannot leave
     the adapter silently behind it.
     """
-    row = {col: "" for col in PRODUCT_PRICES.columns}
+    row = dict.fromkeys(PRODUCT_PRICES.columns, "")
     row.update({
         "external_product_id": c["material_key"],
         # The site's own word for the material when it published one; the key

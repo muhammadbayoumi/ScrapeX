@@ -336,6 +336,14 @@
     return nested ? out : [];      // nothing to nest is not a tree
   }
 
+  // FOUND BY THE LINTER, LEFT IN ON PURPOSE. Nothing calls hide(), and once it
+  // is removed nothing calls remember() either -- the whole "hide a column on
+  // the server" chain is unreachable, while line 2922 still describes
+  // "Choose Columns -> hide" as a thing the owner can do. Deleting two working
+  // functions that implement a documented behaviour is a decision about the
+  // PRODUCT, not a lint fix, so the gate is told to allow it and the question
+  // is written down here where whoever answers it will be standing.
+  // eslint-disable-next-line no-unused-vars
   function hide(field) {
     // Server only. A local column.hide() would persist in the browser and then
     // outvote the server for ever.

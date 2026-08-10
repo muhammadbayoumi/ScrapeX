@@ -16,80 +16,147 @@ import re
 import sqlite3
 import threading
 import time
-from urllib.parse import urlencode, urlsplit
+from datetime import UTC
 from pathlib import Path
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .. import compaction, localinbox, nativehost, pricehistory, rates, retention
 from .. import db as dbmod
-from .. import localinbox
-from .. import nativehost
 from ..capture import capture_source, crawl_settings
 from ..changes import change_summary, changes_for_offer, recent_changes
 from ..config import SourceEntry, load_manifest, resolve_manifest_path
 from ..connectors.base import CrawlBlocked, HttpFetcher
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
-    DatabaseKindError, DatabaseMigrationError, DatabaseRegistry,
-    DatabaseUnavailableError, EngineDatabase,
+    DatabaseKindError,
+    DatabaseMigrationError,
+    DatabaseRegistry,
+    DatabaseUnavailableError,
+    EngineDatabase,
 )
-from ..jobs import (JobRunner, create_job, get_job, job_log_count, job_logs,
-                    list_jobs, set_control, worker_health)
-from ..fields import (
-    arranged, delete_view, ensure_fields, list_fields, list_views, promotable_attributes,
-    reorder, reset_view, save_view, set_display_name, set_promotion,
-    set_visibility, visible_columns,
-)
-from ..features import manifest as feature_manifest
 from ..extract.api import create_extraction_router
-from ..manifest_io import (DuplicateSourceError, add_source, remove_source,
-                           set_active, update_source)
-from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
-from ..matching import (
-    ConflictError, Decision, decide, pending_reviews, suggest_for_source, undo_decision,
+from ..features import manifest as feature_manifest
+from ..fields import (
+    arranged,
+    delete_view,
+    ensure_fields,
+    list_fields,
+    list_views,
+    promotable_attributes,
+    reorder,
+    reset_view,
+    save_view,
+    set_display_name,
+    set_promotion,
+    set_visibility,
+    visible_columns,
 )
-from ..outputs import (
-    NotConfiguredError, all_destinations, apps_script_script_text, apps_script_send,
-    apps_script_status, apps_script_test, excel_export, excel_status, google_connect,
-    google_disconnect, google_push, google_status, rotate_funnel_token,
+from ..jobs import (
+    JobRunner,
+    create_job,
+    get_job,
+    job_log_count,
+    job_logs,
+    list_jobs,
+    set_control,
+    worker_health,
 )
 from ..localsheets import workbook_bytes
+from ..manifest_io import DuplicateSourceError, add_source, remove_source, set_active, update_source
+from ..matching import (
+    ConflictError,
+    Decision,
+    decide,
+    pending_reviews,
+    suggest_for_source,
+    undo_decision,
+)
+from ..outputs import (
+    NotConfiguredError,
+    all_destinations,
+    apps_script_script_text,
+    apps_script_send,
+    apps_script_status,
+    apps_script_test,
+    excel_export,
+    excel_status,
+    google_connect,
+    google_disconnect,
+    google_push,
+    google_status,
+    rotate_funnel_token,
+)
 from ..payload import utc_now_iso
+from ..probe import probe as probe_url
 from ..publish import workbook_tables
+from ..reports import (
+    BROWSE_COLUMNS,
+    FILTERABLE,
+    SORTABLE,
+    browse_columns,
+    browse_google_finance_rates,
+    browse_observations,
+    column_presence,
+    crawl_history,
+    data_model_report,
+    facet_options,
+    google_finance_status,
+    history_counts,
+    list_sources,
+    offer_identity,
+    offer_observations,
+    parse_filters,
+    price_extremes,
+    product_attributes,
+    schema_report,
+    table_payload,
+    watch,
+)
+from ..scheduler import list_schedules, upsert_schedule, zone_exists
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
-from .. import compaction, pricehistory, rates, retention
+from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
-    StorageRefused, backup_folder, backup_now, check_move, export_database,
-    wipe_source,
-    migrate_location, open_folder, repair, resolve_db_path, restore, start_fresh,
+    StorageRefused,
+    backup_folder,
+    backup_now,
+    check_move,
+    export_database,
+    migrate_location,
+    open_folder,
+    repair,
+    resolve_db_path,
+    restore,
+    start_fresh,
     storage_status,
+    wipe_source,
 )
 from ..storage import compact as storage_compact
-from ..probe import probe as probe_url
 from ..ui_manifest import ui_manifest, workspace_navigation_groups
-from ..reports import (
-    BROWSE_COLUMNS, FILTERABLE, SORTABLE, browse_columns, browse_google_finance_rates,
-    browse_observations, column_presence,
-    crawl_history, facet_options, parse_filters, watch,
-    data_model_report, export_source_table, google_finance_status, history_counts,
-    list_sources, offer_identity,
-    schema_report,
-    offer_observations, price_extremes, product_attributes,
-    table_payload,
-)
-from ..scheduler import list_schedules, upsert_schedule, zone_exists
 from ..vocab import (
-    TERMINAL_JOB_STATUSES, Authority, Cadence, ConnectorFamily, ExtractKind,
-    ExtractScope, Fetcher, JobControl, JobStatus, MissedRunPolicy, OverlapPolicy,
-    RunMode, ScheduleFrequency, VatMode,
+    TERMINAL_JOB_STATUSES,
+    Authority,
+    Cadence,
+    ConnectorFamily,
+    ExtractKind,
+    ExtractScope,
+    Fetcher,
+    JobControl,
+    JobStatus,
+    MissedRunPolicy,
+    OverlapPolicy,
+    RunMode,
+    ScheduleFrequency,
+    VatMode,
 )
 from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
@@ -133,7 +200,7 @@ def _google_finance_setting_values(body: dict) -> dict:
     if "google_finance_auto_refresh" in values:
         raw = values["google_finance_auto_refresh"]
         accepted = isinstance(raw, (bool, int, str)) and raw in {
-            True, False, 0, 1, "0", "1", "true", "false",
+            True, False, "0", "1", "true", "false",
         }
         if not accepted:
             raise HTTPException(
@@ -141,7 +208,7 @@ def _google_finance_setting_values(body: dict) -> dict:
                 detail="google_finance_auto_refresh must be true or false",
             )
         values["google_finance_auto_refresh"] = (
-            "1" if raw in {True, 1, "1", "true"} else "0"
+            "1" if raw in {True, "1", "true"} else "0"
         )
     if "google_finance_refresh_hours" in values:
         try:
@@ -202,7 +269,7 @@ def database_state(request: Request) -> dict:
     runner = getattr(request.app.state, "runner", None)
     try:
         engine_connected = bool(runner and runner.is_alive)
-    except Exception:  # noqa: BLE001 - runtime status must never break a page
+    except Exception:
         engine_connected = False
     runtime = {"engine_state": {"connected": engine_connected}}
 
@@ -211,7 +278,7 @@ def database_state(request: Request) -> dict:
         return {**runtime, "db_state": None}
     try:
         states = registry.health()
-    except Exception:  # noqa: BLE001 - a status widget must never break a page
+    except Exception:
         return {**runtime, "db_state": None}
     failed = {kind: item for kind, item in states.items() if not item["ok"]}
     return {
@@ -649,7 +716,7 @@ def create_app(
         """
         merged = dict(current)
         merged.update(overrides)
-        if any(k not in ("page",) for k in overrides):
+        if any(k != "page" for k in overrides):
             merged.pop("page", None)
         pairs = [(k, v) for k, v in merged.items() if v not in (None, "", [])]
         return "?" + urlencode(pairs, doseq=True) if pairs else ""
@@ -837,7 +904,7 @@ def create_app(
         port = int(request.url.port or 8000)
         try:
             helper = relaunch_module.spawn_helper(port)
-        except Exception as exc:  # noqa: BLE001 — never leave the owner without a route
+        except Exception as exc:
             raise HTTPException(
                 status_code=500,
                 detail=(f"could not start the helper that brings the engine back ({exc}). "
@@ -881,7 +948,7 @@ def create_app(
         before = allowed_extension_ids()
         try:
             written = install([extension_id])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         after = allowed_extension_ids()
         print(f"[native-host] {extension_id} asked to be recognised; "
@@ -1199,12 +1266,12 @@ def create_app(
                         for item in states.values() if not item["ok"]
                     ),
                 }
-            except Exception:  # noqa: BLE001 - health must not take health down
+            except Exception:
                 databases = {"ok": False, "detail": "status unavailable"}
         runner = getattr(app.state, "runner", None)
         try:
             thread_alive = bool(runner and runner.is_alive)
-        except Exception:  # noqa: BLE001 - health must survive worker state reads
+        except Exception:
             thread_alive = False
         # The THREAD being alive is not the same question as the worker
         # doing its work, and neither is the port answering. The heartbeat
@@ -1218,7 +1285,7 @@ def create_app(
                 worker = worker_health(conn)
             finally:
                 conn.close()
-        except Exception as exc:  # noqa: BLE001 - health must not take health down
+        except Exception as exc:
             # NOT `pass` onto a fallback seeded with thread_alive. That published
             # the thread flag AS the worker's liveness - the one conflation the
             # comment above forbids - and it did it on exactly the failure the
@@ -2174,9 +2241,7 @@ def create_app(
         from ..connectors.base import DEFAULT_USER_AGENT
         from ..contract import CONTRACT_VERSION
         from ..jobs import worker_is_alive
-
-        from ..version import (LATEST_SOURCE, MINIMUM_EXTENSION_VERSION,
-                               UPDATE_INSTRUCTIONS, VERSION)
+        from ..version import LATEST_SOURCE, MINIMUM_EXTENSION_VERSION, UPDATE_INSTRUCTIONS, VERSION
 
         worker = worker_health(conn)
         return {
@@ -2885,9 +2950,9 @@ def _today() -> str:
     A single function so a test can freeze it, rather than each caller reaching
     for the clock and drifting apart across a midnight boundary.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(UTC).date().isoformat()
 
 
 def _source_keys(body: dict) -> list[str]:

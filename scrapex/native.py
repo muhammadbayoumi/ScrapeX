@@ -32,7 +32,8 @@ import sys
 from pathlib import Path
 from typing import BinaryIO
 
-from . import __version__, db as dbmod
+from . import __version__
+from . import db as dbmod
 
 # Bumped only on a BREAKING change to the contract between the extension and
 # this machine — BOTH paths, not just this one. /api/health publishes this same
@@ -197,7 +198,7 @@ def _database_report() -> tuple[dict[str, dict] | None, str | None]:
 
         registry = DatabaseRegistry.defaults()
         states = registry.health()
-    except Exception as exc:  # noqa: BLE001 - the UI needs the actual reason
+    except Exception as exc:
         return None, str(exc)
     return states, None
 
@@ -252,7 +253,7 @@ def upgrade_database() -> dict:
         )
         return {"ok": True, "applied": applied, "databases": states or {},
                 "message": message}
-    except Exception as exc:  # noqa: BLE001 - preserve the actionable database error
+    except Exception as exc:
         return _error("database_upgrade_failed", str(exc), action="check_storage")
 
 
@@ -364,7 +365,7 @@ def serve(db_path=None, stdin: BinaryIO | None = None, stdout: BinaryIO | None =
                             dbmod.migrate(conn)
                     if manifest is None:
                         manifest = load_manifest()
-            except Exception as exc:  # noqa: BLE001 — the warehouse is the fault, not us
+            except Exception as exc:
                 # Deliberately leaves conn/manifest None, so the NEXT command
                 # tries again: the owner repairs the database from the engine
                 # this host can still start, and the repair takes effect without
@@ -380,7 +381,7 @@ def serve(db_path=None, stdin: BinaryIO | None = None, stdout: BinaryIO | None =
                 response = handle(conn, message, manifest)
                 if conn is not None:
                     conn.commit()
-            except Exception as exc:  # noqa: BLE001 — one bad command never kills the host
+            except Exception as exc:
                 if conn is not None:
                     conn.rollback()
                 response = _error("internal", str(exc))

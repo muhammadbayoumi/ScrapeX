@@ -92,13 +92,13 @@ enrichment declaration to be complete.
 """
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..config import SourceEntry
 from ..normalize import brand_pair, selling_unit_from
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..units import Charter, Resolution, charter_for
-from ..vocab import DetailGroup, group_for_code, Availability, ExtractKind
+from ..vocab import Availability, DetailGroup, ExtractKind, group_for_code
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 # A page is 12 products; 8 pages today. This cap is a runaway guard, not a
@@ -456,7 +456,7 @@ class CustomJsonConnector:
                 body = self._fetcher.get(f"{endpoint}/{pid}").json()
             except CrawlBlocked:
                 raise
-            except Exception as exc:  # noqa: BLE001 — isolate per product
+            except Exception as exc:
                 body = None
                 notes.append(_skipped(product, f"the request failed: {exc}"))
             if body is not None:

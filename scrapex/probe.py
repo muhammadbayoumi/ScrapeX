@@ -54,7 +54,7 @@ def _try_json(fetcher, url: str, **kw):
     """GET and parse JSON, returning None on any failure (probe is best-effort)."""
     try:
         resp = fetcher.get(url, **kw)
-    except Exception:  # noqa: BLE001 — a missing endpoint is a negative signal, not an error
+    except Exception:
         return None
     try:
         return resp.json()
@@ -152,5 +152,5 @@ def probe(url: str, fetcher: HttpFetcher | None = None) -> ProbeResult:
 def _get_text(fetcher, url: str) -> str | None:
     try:
         return fetcher.get(url).text
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None

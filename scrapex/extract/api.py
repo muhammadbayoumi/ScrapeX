@@ -6,7 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Path as ApiPath, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import Path as ApiPath
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -34,6 +35,7 @@ TEMPLATES = Jinja2Templates(
 # This second environment renders the SAME base.html, whose sidebar now comes
 # from the shared UI contract — a template global every environment must carry.
 from ..ui_manifest import workspace_navigation_groups  # noqa: E402
+
 TEMPLATES.env.globals["workspace_navigation_groups"] = workspace_navigation_groups
 
 

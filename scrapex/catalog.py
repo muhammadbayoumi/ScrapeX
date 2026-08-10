@@ -12,8 +12,13 @@ import sqlite3
 from typing import Any
 
 from .catalog_models import (
-    DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, CatalogConflict, CatalogNotFound,
-    DatasetCreate, FieldCreate, SiteCreate,
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    CatalogConflict,
+    CatalogNotFound,
+    DatasetCreate,
+    FieldCreate,
+    SiteCreate,
 )
 
 

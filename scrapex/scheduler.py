@@ -11,29 +11,33 @@ while we are off is therefore a normal state, handled explicitly by
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .jobs import create_job, list_jobs
 from .vocab import (
-    BLOCKING_JOB_STATUSES, MissedRunPolicy, OverlapPolicy, RunMode, ScheduleFrequency,
+    BLOCKING_JOB_STATUSES,
+    MissedRunPolicy,
+    OverlapPolicy,
+    RunMode,
+    ScheduleFrequency,
 )
 
 ISO = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def utcnow() -> datetime:
-    return datetime.now(dt_timezone.utc)
+    return datetime.now(UTC)
 
 
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None
-    return datetime.strptime(value, ISO).replace(tzinfo=dt_timezone.utc)
+    return datetime.strptime(value, ISO).replace(tzinfo=UTC)
 
 
 def _format_iso(value: datetime) -> str:
-    return value.astimezone(dt_timezone.utc).strftime(ISO)
+    return value.astimezone(UTC).strftime(ISO)
 
 
 def zone_exists(name: str) -> bool:
@@ -59,7 +63,7 @@ def _zone(name: str):
     try:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError, KeyError):
-        return dt_timezone.utc
+        return UTC
 
 
 def compute_next_run(frequency: str, run_at: str, tz_name: str, weekday: int | None,
@@ -87,7 +91,7 @@ def compute_next_run(frequency: str, run_at: str, tz_name: str, weekday: int | N
     if frequency == ScheduleFrequency.DAILY.value:
         if candidate <= local:
             candidate += timedelta(days=1)
-        return candidate.astimezone(dt_timezone.utc)
+        return candidate.astimezone(UTC)
 
     if frequency == ScheduleFrequency.WEEKLY.value:
         target = 0 if weekday is None else int(weekday) % 7
@@ -95,7 +99,7 @@ def compute_next_run(frequency: str, run_at: str, tz_name: str, weekday: int | N
         candidate += timedelta(days=days_ahead)
         if candidate <= local:
             candidate += timedelta(days=7)
-        return candidate.astimezone(dt_timezone.utc)
+        return candidate.astimezone(UTC)
 
     return None
 

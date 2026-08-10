@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -250,10 +250,10 @@ class FunnelPayload(BaseModel):
     def _scraped_at_utc_iso(cls, v: str) -> str:
         # Explicit over clever (P5): require the exact wire format we emit.
         try:
-            parsed = datetime.fromisoformat(v.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(v)
         except ValueError as exc:
             raise ValueError(f"scraped_at is not ISO8601: {v!r}") from exc
-        if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(None):
+        if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(None):
             raise ValueError(f"scraped_at must be UTC ('Z' or +00:00): {v!r}")
         return v
 
@@ -291,7 +291,7 @@ def new_payload(**fields: object) -> FunnelPayload:
 
 def utc_now_iso() -> str:
     """The one blessed wire timestamp format (Q5)."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def split_into_chunks(

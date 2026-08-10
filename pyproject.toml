@@ -69,3 +69,93 @@ markers = [
     # honest: a new file that reads extension/ and forgets the mark fails.
     "extension: guards the Chrome extension; runs on an extension-only change",
 ]
+
+[tool.ruff]
+# 100, not the default 88, because this repository already writes to it: the
+# 99th percentile line in scrapex/ is 91 characters and only 57 lines out of
+# 33,382 exceed 100. A limit the code already respects stops drift; one it does
+# not turns every future diff into a reformat argument.
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# CHOSEN, not maximal. `--select ALL` reports 960 findings here and almost none
+# of them are defects -- see the ignore list for what was refused and why. A gate
+# that cries wolf 960 times is a gate people learn to skip.
+select = [
+    "F",      # pyflakes: undefined names, unused imports, shadowed imports
+    "E4", "E7", "E9", "E501",
+    "W",      # whitespace
+    "I",      # import order
+    "B",      # bugbear: mutable defaults, loop-variable closures, zip lengths
+    "C4",     # comprehensions
+    "DTZ",    # naive datetimes -- a price warehouse crosses timezones
+    "ISC",    # implicit string concatenation, i.e. the missing comma in a list
+    "PIE", "PLE", "PLW",
+    "SIM", "UP", "FURB", "RUF",
+]
+ignore = [
+    # THE ARABIC RULES. RUF001/2/3 flag ARABIC-INDIC DIGIT ONE and the ARABIC
+    # DECIMAL SEPARATOR as "ambiguous" and suggest `l` and `,` instead. Those
+    # characters are the DOMAIN: scrapex/contract.py parses them out of Egyptian
+    # and Saudi price pages. Enforcing this rule would push the next person to
+    # "fix" the exact characters the parser exists to read.
+    "RUF001", "RUF002", "RUF003",
+    # The CLI's whole job is to print. 81 findings, no defects.
+    "T201",
+    # `raise X from exc` inside except is good practice, but 42 call sites is a
+    # change to error messages the owner reads, not a lint fix. Its own task.
+    "B904",
+    # Every hit is an internal table name interpolated into SQL that never sees
+    # user input. Enabling it would train the reader to wave through S608.
+    "S608",
+    # The rule exists to catch a forgotten comma in a list. Every one of the 38
+    # hits here is instead a deliberately wrapped sentence -- this codebase says
+    # things in whole sentences and they do not fit on one line. The comma bug it
+    # guards against is caught by the tests that read those messages back.
+    "ISC004",
+    # Style, not defect: `except X: pass` written out is clearer to most readers
+    # here than contextlib.suppress, and a lambda that forwards is often named
+    # for what it means. Neither is worth 18 edits across working code.
+    "SIM105", "PLW0108",
+    # BOTH HITS ARE WRONG HERE. The handle is supposed to outlive the function:
+    # cli.py hands it to sys.stdout for the rest of the process, relaunch.py
+    # hands it to Popen. A context manager would close it immediately and break
+    # the feature -- this rule cannot see intent, so it is refused, not silenced
+    # at the call sites where it would read as an admission.
+    "SIM115",
+    # `_run` already implements `check` itself, and raises ScheduleTaskError with
+    # the exit code, what schtasks said, and the exact command line. Passing
+    # check=True would replace that with a bare CalledProcessError.
+    "PLW1510",
+    # One module-level SSL context, built once and shared. That is the point.
+    "PLW0603",
+    # Both strptime calls parse the SAME "...Z" format and only their DIFFERENCE
+    # is used, so the naive frame cancels. Adding %z would change nothing except
+    # to make the format string wrong for the stamps actually stored.
+    "DTZ007",
+    # Collapsing `if key in body:` / `if not setter(...): raise` into one `and`
+    # is semantically identical and strictly harder to read: it buries a call
+    # that MUTATES the database inside a boolean expression.
+    "SIM102",
+    # The three hits are GraphQL query bodies, which are full of `{` and `}`.
+    # Converting %-format to .format() there means escaping every brace in a
+    # query -- a live grenade for a zero-value change.
+    "UP031",
+    # Deferred, see the note below -- these are real changes, not lint tidies.
+    "DTZ011", "UP042", "UP046", "E501",
+]
+
+# NOT ignored -- DEFERRED, each with a task, because each is a real change to
+# behaviour or to a type that the whole codebase depends on, and none of them
+# belongs in a commit whose subject is "add a linter":
+#   DTZ011  date.today() x3 -- local-vs-UTC "as of" dates need a ruling first
+#   UP042   vocab.StrEnum  -- the base class every enum in the product inherits
+#   UP046   DomainDatabase -- PEP 695 generics, touched by every database caller
+#   E501    57 lines over 100 -- p99 is already 91, so this is a tidy, not a fix
+
+[tool.ruff.lint.per-file-ignores]
+# Tests build many small dicts and shadow names on purpose; they are also the
+# files another session edits most, and a gate that fights in-flight work is a
+# gate that gets turned off.
+"tests/*" = ["F401", "F811", "E501"]

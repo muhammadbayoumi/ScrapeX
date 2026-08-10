@@ -5,6 +5,38 @@ on:
   pull_request:
 
 jobs:
+  # ITS OWN JOB, and deliberately not a step inside `test`. A style failure that
+  # aborts the suite hides every real failure behind it, and the one thing a
+  # linter must never do is cost someone the answer they actually came for.
+  # It is also seconds long, so the cheap things fail fast.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Pinned: an unpinned linter turns somebody else's release into a red
+      # build on a branch that changed nothing.
+      - name: Install ruff
+        run: pip install ruff==0.16.2
+      # scrapex/ ONLY, and the reason is written down rather than left to be
+      # guessed: tests/ and tools/ carry 376 findings today, nearly all of them
+      # import order, and they are the files a second session is editing right
+      # now. Gating them would mean a conflict per commit for no defect
+      # prevented. The gate covers everything that SHIPS; widening it to the
+      # whole tree is its own task, once that work lands.
+      - name: Lint the code that ships (ruff)
+        run: ruff check scrapex/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Pinned for the same reason ruff is, and installed for the length of one
+      # step: nothing is added to package.json because there ISN'T one, and the
+      # extension's security story is that it ships no third-party JavaScript.
+      - name: Lint the JavaScript (eslint)
+        run: npx --yes eslint@9.39.0 extension scrapex/webui/static contract apps_script --no-warn-ignored
+
   test:
     runs-on: ubuntu-latest
     steps:

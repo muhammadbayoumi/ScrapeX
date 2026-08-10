@@ -47,7 +47,7 @@ class TaxState:
     def verified(self) -> bool:
         return self.evidence != "unknown"
 
-    def for_row(self, tax_included: bool) -> "TaxState":
+    def for_row(self, tax_included: bool) -> TaxState:
         """The same evidence, read for ONE row's own figure.
 
         Two different facts had been collapsed into one. The RULE says what tax

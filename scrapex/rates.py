@@ -61,9 +61,10 @@ import math
 import re
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from . import db as dbmod, settings
+from . import db as dbmod
+from . import settings
 from .connectors.base import CrawlBlocked
 from .payload import utc_now_iso
 
@@ -160,7 +161,7 @@ def _parse_quote_page(html: str, code: str, url: str) -> tuple[float, str, list[
         per_usd = _clean_rate_number(_attr(tag, "data-last-price") or "")
         stamp = _attr(tag, "data-last-normal-market-timestamp")
         if stamp and stamp.isdigit():
-            as_of = datetime.fromtimestamp(int(stamp), tz=timezone.utc).strftime(
+            as_of = datetime.fromtimestamp(int(stamp), tz=UTC).strftime(
                 "%Y-%m-%dT%H:%M:%SZ")
         else:
             as_of = utc_now_iso()
@@ -213,7 +214,7 @@ def fetch_rates(fetcher, currencies: list[str]) -> RateBatch:
             per_usd, as_of, shape_warnings = _parse_quote_page(html, code, url)
         except CrawlBlocked:
             raise                    # the site (or the owner) said stop — stop
-        except Exception as exc:  # noqa: BLE001 — recorded per currency, never silent
+        except Exception as exc:
             batch.warnings.append(f"{code}: no rate from {url} — {exc}")
             continue
         batch.warnings.extend(shape_warnings)

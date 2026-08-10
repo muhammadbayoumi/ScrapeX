@@ -294,7 +294,7 @@ _DETAIL_GROUP_BY_PREFIX: tuple[tuple[str, DetailGroup], ...] = (
 )
 
 
-def group_for_code(code: str) -> "tuple[DetailGroup, bool]":
+def group_for_code(code: str) -> tuple[DetailGroup, bool]:
     """(group, recognised) for one attribute code.
 
     The language mark is stripped first: `coating` and `coating_ar` are ONE

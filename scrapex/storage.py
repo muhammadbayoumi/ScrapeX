@@ -32,9 +32,10 @@ import re
 import shutil
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
-from typing import Callable
 
 from . import db as dbmod
 from . import settings
@@ -153,7 +154,7 @@ def _point_registry_at(db_path: Path, previous: Path | None) -> None:
         return
     try:
         registry = DatabaseRegistry.read(REGISTRY_FILE)
-    except Exception:  # noqa: BLE001 — a registry we cannot read, we do not rewrite
+    except Exception:
         return
     if registry.engine.path.resolve() != previous.resolve():
         return                      # a different warehouse: not ours to move
@@ -469,7 +470,7 @@ def open_folder(folder: Path | str) -> RunResult:
         raise StorageRefused(f"There is no folder at {target} to open.")
     try:
         if os.name == "nt":
-            os.startfile(str(target))                     # noqa: S606 - a directory
+            os.startfile(str(target))
         elif sys.platform == "darwin":
             subprocess.run(["open", str(target)], check=True)
         else:
@@ -522,7 +523,7 @@ def undeclared_sources(conn) -> list[str]:
     from .config import MANIFEST_FILE, load_manifest
     try:
         declared = {entry.source_key for entry in load_manifest(MANIFEST_FILE).sources}
-    except Exception:  # noqa: BLE001 — a broken manifest is validate-manifest's job
+    except Exception:
         return []
     try:
         stored = {row[0] for row in conn.execute(
@@ -704,10 +705,10 @@ def prunable_backups(db_path: Path | str, folder: Path | None = None,
 
 
 def _mtime_iso(path: Path) -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
-        stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     except OSError:
         return ""
     return stamp.strftime("%Y-%m-%dT%H:%M:%SZ")

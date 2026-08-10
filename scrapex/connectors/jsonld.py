@@ -48,7 +48,7 @@ def sitemap_products(fetcher, sitemap_url: str, keep: Callable[[str], bool],
         locs = sitemap_locs(fetcher.get(sitemap_url).text)
     except CrawlBlocked:
         raise                                  # the owner's Stop, or the site's
-    except Exception as exc:  # noqa: BLE001 — reported, never turned into "empty"
+    except Exception as exc:
         raise SitemapUnreadable(
             f"the product index at {sitemap_url} could not be read ({exc}), so "
             "this run cannot tell an empty catalogue from an unreachable one"
@@ -60,7 +60,7 @@ def sitemap_products(fetcher, sitemap_url: str, keep: Callable[[str], bool],
             products += [url for url in sitemap_locs(fetcher.get(child).text) if keep(url)]
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — one child, counted and survived
+        except Exception as exc:
             if unreadable_children is not None:
                 unreadable_children.append(f"{child}: {exc}")
     return dedupe(products) if dedupe else list(dict.fromkeys(products))
@@ -179,7 +179,7 @@ def walk_product_pages(
             html = fetcher.get(url).text
         except CrawlBlocked:
             raise
-        except Exception:  # noqa: BLE001 — one dead page never kills the crawl (Q3)
+        except Exception:
             tally.unreachable += 1
             continue
         node = parse_product_jsonld(html)

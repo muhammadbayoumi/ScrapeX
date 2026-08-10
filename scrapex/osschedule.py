@@ -45,7 +45,7 @@ def _schtasks() -> str:
     Naming the System32 copy keeps the command reproducible in the error
     message we print — "run this yourself" is only useful if `this` is exact.
     """
-    system_root = os.environ.get("SystemRoot") or os.environ.get("SYSTEMROOT")
+    system_root = os.environ.get("SYSTEMROOT") or os.environ.get("SYSTEMROOT")
     if system_root:
         candidate = Path(system_root) / "System32" / "schtasks.exe"
         if candidate.exists():

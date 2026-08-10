@@ -7,7 +7,10 @@ from typing import Any
 
 from .catalog import _dataset_row, _json, _page_limit, _site_row
 from .catalog_models import (
-    DEFAULT_PAGE_SIZE, CatalogConflict, RelationshipCreate, RelationshipReviewStatus,
+    DEFAULT_PAGE_SIZE,
+    CatalogConflict,
+    RelationshipCreate,
+    RelationshipReviewStatus,
 )
 
 
