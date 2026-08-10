@@ -231,7 +231,13 @@ def decide(report: RobotsReport, choice: RobotsChoice, *,
     if choice is RobotsChoice.OBEY:
         enforce, delay = True, report.crawl_delay_s
         label = "set to obey this site's robots.txt"
-    elif choice is RobotsChoice.CUSTOM:
+    elif choice is RobotsChoice.CUSTOM and custom is not None:
+        # `and custom is not None` is redundant at runtime -- the guard at the
+        # top of this function already refused that combination. It is here
+        # because the safety was provable only by reading twenty lines up, and a
+        # branch added between the two would turn it into an AttributeError with
+        # nothing to catch it. mypy found it; the tests could not, because the
+        # impossible case is impossible until somebody makes it possible.
         enforce = custom.enforce_disallow
         delay = report.crawl_delay_s if custom.crawl_delay_s is None else custom.crawl_delay_s
         label = "a custom rule for this site"
