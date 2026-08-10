@@ -2871,7 +2871,7 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
     page.click("#tab-engines")
     card = page.locator("#view-engines .card").first
 
-    assert (card.locator("h2").text_content() or "").strip() == "ScrapeX-Engine"
+    assert (card.locator("h2").text_content() or "").strip() == "ScrapeX Engine"
     # The card now carries the primary/secondary actions plus the overflow
     # menu and its three menu items. The two labelled actions are still present.
     assert card.locator("#engine-download").count() == 1
@@ -3784,7 +3784,7 @@ def test_the_engine_power_switch_is_readable_at_320px(open_panel):
 
     switch = page.locator("#engine-power-switch")
     assert switch.is_visible()
-    box = page.locator(".engine-power").bounding_box()
+    box = page.locator(".engine-power-setting").bounding_box()
     assert box and box["width"] <= 320
     overflow = page.evaluate(
         "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
@@ -3854,7 +3854,7 @@ def test_the_engine_overflow_menu_opens_and_closes(open_panel):
     # Outside click closes.
     page.click("#engine-overflow")
     assert menu.is_visible()
-    page.click("#engine-status")
+    page.click("#engines-installed-title")
     assert not menu.is_visible()
 
 
@@ -3900,7 +3900,21 @@ def test_the_engine_version_request_times_out(open_panel):
       window.fetch = async (url, options) => {
         const path = String(url).replace(/^https?:\/\/[^/]+/, '');
         if (path.startsWith('/api/version')) {
-          await new Promise(r => setTimeout(r, 30000));
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              if (options && options.signal && options.signal.aborted) {
+                reject(options.signal.reason || new Error('aborted'));
+              } else {
+                resolve(undefined);
+              }
+            }, 30000);
+            if (options && options.signal) {
+              options.signal.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(options.signal.reason || new Error('aborted'));
+              }, {once: true});
+            }
+          });
         }
         return orig(url, options);
       };
@@ -3912,3 +3926,210 @@ def test_the_engine_version_request_times_out(open_panel):
         timeout=10_000)
     assert text_of(page, "#engine-status") != "Checking engine…"
     assert not page.locator("#engine-recheck").is_disabled()
+
+
+def test_the_engine_card_has_m3_outlined_geometry(open_panel):
+    """Engine cards follow the M3 outlined-card values exactly."""
+    page = open_panel()
+    page.click("#tab-engines")
+    card = page.locator("#view-engines .card.engine-card").first
+    style = card.evaluate("""el => ({
+      borderRadius: getComputedStyle(el).borderRadius,
+      paddingInline: getComputedStyle(el).paddingInline,
+      boxShadow: getComputedStyle(el).boxShadow,
+      textAlign: getComputedStyle(el).textAlign,
+    })""")
+    assert style["borderRadius"] == "12px"
+    assert style["paddingInline"] == "16px"
+    assert style["boxShadow"] == "none"
+    assert style["textAlign"] in ("start", "left")
+
+    view_scroll = page.locator("#view-engines .view-scroll")
+    gap = view_scroll.evaluate("el => getComputedStyle(el).gap")
+    assert gap == "8px"
+
+
+def test_the_engine_overflow_trigger_has_no_visible_resting_container(open_panel):
+    """The three-dot trigger is a 48px hit target with no resting border,
+    background, or square container."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "q" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    btn = page.locator("#engine-overflow")
+    box = btn.bounding_box()
+    assert box and box["width"] >= 48 and box["height"] >= 48
+
+    style = btn.evaluate("""el => ({
+      bg: getComputedStyle(el).backgroundColor,
+      border: getComputedStyle(el).border,
+      borderRadius: getComputedStyle(el).borderRadius,
+    })""")
+    assert "rgba(0, 0, 0, 0)" in style["bg"] or style["bg"] == "transparent", style["bg"]
+    assert style["border"].startswith("0px"), style["border"]
+    assert style["borderRadius"] == "50%", style["borderRadius"]
+
+
+def test_the_engine_overflow_menu_is_anchored_without_scrolling(open_panel):
+    """The menu opens directly below its trigger, stays in the viewport, and
+    leaves the Engine heading visible without changing .view-scroll position."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "r" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    scroll_before = page.evaluate(
+        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
+
+    btn = page.locator("#engine-overflow")
+    menu = page.locator("#engine-overflow-menu")
+    # Use a native click so the assertion measures the page, not Playwright's
+    # own scroll-into-view behaviour for the trigger.
+    page.evaluate("() => document.getElementById('engine-overflow').click()")
+    page.wait_for_timeout(150)
+    assert menu.is_visible()
+
+    btn_box = btn.bounding_box()
+    menu_box = menu.bounding_box()
+    heading_box = page.locator("#engines-installed-title").bounding_box()
+    assert btn_box and menu_box and heading_box
+
+    offset = menu_box["y"] - (btn_box["y"] + btn_box["height"])
+    assert 0 <= offset <= 6, f"menu offset from trigger is {offset}px"
+
+    viewport_w = 320
+    viewport_h = 600
+    for label, box in (("trigger", btn_box), ("menu", menu_box)):
+        assert box["x"] >= 0, f"{label} left is negative"
+        assert box["x"] + box["width"] <= viewport_w, f"{label} overflows right"
+        assert box["y"] >= 0, f"{label} top is negative"
+        assert box["y"] + box["height"] <= viewport_h, f"{label} overflows bottom"
+
+    assert heading_box["y"] >= 0
+    assert heading_box["y"] + heading_box["height"] <= viewport_h
+
+    scroll_after = page.evaluate(
+        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
+    assert scroll_after == scroll_before
+
+
+def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):
+    """The power setting label and disclosure live in one row; the switch is at
+    the inline end and remains disabled and unwired."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "s" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    row = page.locator(".engine-power-setting")
+    assert row.is_visible()
+    row_box = row.bounding_box()
+
+    label = page.locator("#engine-power-label")
+    disclosure = page.locator("#engine-power-disclosure")
+    switch = page.locator("#engine-power-switch")
+    assert label.is_visible()
+    assert disclosure.is_visible()
+    assert switch.is_visible()
+    assert switch.is_disabled()
+
+    for el, name in ((label, "label"), (disclosure, "disclosure")):
+        box = el.bounding_box()
+        assert box["y"] >= row_box["y"] - 4
+        assert box["y"] + box["height"] <= row_box["y"] + row_box["height"] + 4
+
+    switch_box = switch.bounding_box()
+    assert switch_box["x"] + switch_box["width"] <= row_box["x"] + row_box["width"] + 1
+
+    before = switch.is_checked()
+    page.evaluate("""() => {
+      const el = document.getElementById('engine-power-switch');
+      el.click();
+      ['keydown', 'keyup'].forEach(type => {
+        el.dispatchEvent(new KeyboardEvent(type, {key: ' ', bubbles: true}));
+        el.dispatchEvent(new KeyboardEvent(type, {key: 'Enter', bubbles: true}));
+      });
+    }""")
+    assert switch.is_checked() == before
+
+
+def test_the_engine_install_region_is_divided_and_sha_wraps(open_panel):
+    """The expandable installation region is separated by a divider and the
+    SHA-256 value is presented as a wrapped technical block."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "t" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-install-steps summary")
+    page.wait_for_function("() => document.getElementById('engine-install-steps').open")
+
+    details = page.locator("#engine-install-steps")
+    style = details.evaluate("""el => ({
+      borderTopWidth: getComputedStyle(el).borderTopWidth,
+      borderTopStyle: getComputedStyle(el).borderTopStyle,
+    })""")
+    assert style["borderTopWidth"] == "1px"
+    assert style["borderTopStyle"] == "solid"
+
+    summary = page.locator("#engine-install-steps summary")
+    summary_box = summary.bounding_box()
+    details_box = details.bounding_box()
+    assert summary_box and details_box
+    assert abs(summary_box["width"] - details_box["width"]) < 2
+
+    code = page.locator("#engine-download-checksum")
+    code_box = code.bounding_box()
+    html_width = page.evaluate("() => document.documentElement.clientWidth")
+    assert code_box["x"] + code_box["width"] <= html_width
+
+
+def test_the_engine_actions_stack_full_width_at_320px(open_panel):
+    """At the narrowest width the two action buttons stack cleanly to the full
+    available width instead of colliding."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "u" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    actions = page.locator(".engine-actions")
+    action_box = actions.bounding_box()
+    download = page.locator("#engine-download").bounding_box()
+    recheck = page.locator("#engine-recheck").bounding_box()
+    assert action_box and download and recheck
+    assert download["width"] >= action_box["width"] - 4
+    assert recheck["width"] >= action_box["width"] - 4
+    assert recheck["y"] > download["y"] + download["height"] - 1

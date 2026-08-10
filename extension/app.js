@@ -444,22 +444,22 @@ async function loadVersions(engine) {
     return;
   }
   const query = installed ? `?extension_version=${encodeURIComponent(installed)}` : "";
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(new Error("version timeout")), 2500);
   try {
     // Local version compatibility must not hang the whole Engine card if the
     // engine is slow or stuck. The health check already answered; this is a
-    // secondary report.
-    const deadline = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("version timeout")), 3000));
-    state.versionReport = await Promise.race([
-      api(`/api/version${query}`),
-      deadline,
-    ]);
+    // secondary report. The AbortController aborts the underlying fetch and the
+    // timer is cleared in every completion path.
+    state.versionReport = await api(`/api/version${query}`, { signal: controller.signal });
   } catch (_) {
     // A 404 here is not a broken feature: it is an engine built before version
     // reporting existed. A timeout or any other failure is also a fact, not a
     // broken build. Recorded as null and SAID as such below, never silently
     // treated as "everything is fine".
     state.versionReport = null;
+  } finally {
+    clearTimeout(timeoutId);
   }
   renderVersionNotice(engine);
 }
@@ -2443,7 +2443,7 @@ function bindEngineOverflowMenu() {
     menu.classList.remove("hidden");
     button.setAttribute("aria-expanded", "true");
     const first = items()[0];
-    if (first) first.focus();
+    if (first) first.focus({ preventScroll: true });
     document.addEventListener("click", outsideClick, true);
   }
 
@@ -2451,7 +2451,7 @@ function bindEngineOverflowMenu() {
     menu.classList.add("hidden");
     button.setAttribute("aria-expanded", "false");
     document.removeEventListener("click", outsideClick, true);
-    if (returnFocus) button.focus();
+    if (returnFocus) button.focus({ preventScroll: true });
   }
 
   function outsideClick(e) {
@@ -2481,11 +2481,11 @@ function bindEngineOverflowMenu() {
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       const next = list[(idx + 1) % list.length];
-      next.focus();
+      next.focus({ preventScroll: true });
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       const prev = list[(idx - 1 + list.length) % list.length];
-      prev.focus();
+      prev.focus({ preventScroll: true });
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       document.activeElement.click();
