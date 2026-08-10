@@ -526,11 +526,62 @@ def undeclared_sources(conn) -> list[str]:
     except Exception:
         return []
     try:
-        stored = {row[0] for row in conn.execute(
-            "SELECT source_key FROM source_site WHERE active = 1")}
+        # NO `WHERE active = 1`. That filter was here and did nothing: the column
+        # is written once on insert and never set to 0, so every row matched it
+        # and the clause only suggested a maintenance that was not happening.
+        # It is also the wrong question — a source deleted from the manifest is
+        # undeclared whatever flag its rows carry.
+        stored = {row[0] for row in conn.execute("SELECT source_key FROM source_site")}
     except sqlite3.DatabaseError:
         return []                      # not a warehouse; health says so already
     return sorted(stored - declared)
+
+
+def reconcile_active(conn) -> dict[str, bool]:
+    """Write the manifest's `active` into the warehouse that describes it.
+
+    THE WAREHOUSE WAS LYING, and measured on the owner's own database on
+    2026-08-10 it claimed all twelve sources were active while sources.yaml had
+    five of them switched off: ELBUROJ, HEIDELBERG_EG, MADAR, SIKAEGSHOP and
+    SPARK_ESHOP.
+
+    Nothing was broken by it — the scheduler reads `entry.active` from the
+    manifest, so the right sources were crawled. The damage is to anyone who
+    reads the DATABASE: the owner with a query, an export, a future page, or the
+    Console when it arrives. A column called `active` that is always 1 is worse
+    than no column, because it answers a question it does not know.
+
+    `undeclared_sources` above states the rule this enforces: "The manifest is
+    the definition; the warehouse is the consequence."
+
+    Returns only what CHANGED, so a caller can say so rather than reporting a
+    reconciliation nobody needed.
+    """
+    from .config import MANIFEST_FILE, load_manifest
+
+    try:
+        wanted = {entry.source_key: bool(entry.active)
+                  for entry in load_manifest(MANIFEST_FILE).sources}
+    except Exception:
+        return {}                                # no manifest to obey
+
+    changed: dict[str, bool] = {}
+    try:
+        stored = dict(conn.execute("SELECT source_key, active FROM source_site"))
+        for key, is_active in stored.items():
+            # A source the manifest no longer names is left ALONE, deliberately.
+            # Its rows are `undeclared_sources`' business, and silently marking
+            # them inactive would hide the very thing that function exists to
+            # surface.
+            if key in wanted and bool(is_active) != wanted[key]:
+                conn.execute("UPDATE source_site SET active = ? WHERE source_key = ?",
+                             (1 if wanted[key] else 0, key))
+                changed[key] = wanted[key]
+        if changed:
+            conn.commit()
+    except sqlite3.DatabaseError:
+        return {}
+    return changed
 
 
 def health(db_path: Path | str) -> dict:

@@ -133,6 +133,7 @@ from ..storage import (
     export_database,
     migrate_location,
     open_folder,
+    reconcile_active,
     repair,
     resolve_db_path,
     restore,
@@ -1459,7 +1460,19 @@ def create_app(
         except Exception as exc:  # pydantic refusals (e.g. a TBD-probe placeholder)
             raise HTTPException(status_code=400, detail=str(exc))
         app.state.manifest = load_manifest(app.state.manifest_path)
-        return {"source_key": source_key, "active": wanted}
+        # THE WAREHOUSE FOLLOWS THE MANIFEST, here and not on the next crawl,
+        # because an inactive source is never crawled -- which is precisely why
+        # its stored flag stayed at 1 and the database claimed all twelve
+        # sources were live while five were switched off. Nothing reads the
+        # stored flag to decide a crawl (the scheduler reads the manifest), but
+        # the owner reads his own database, and so will the Console.
+        conn = read_conn()
+        try:
+            reconciled = reconcile_active(conn)
+        finally:
+            conn.close()
+        return {"source_key": source_key, "active": wanted,
+                "warehouse_updated": sorted(reconciled)}
 
     @app.post("/api/sources")
     def api_add_source(body: dict):
