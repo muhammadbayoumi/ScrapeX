@@ -152,10 +152,18 @@ def test_the_google_button_wrapper_shows_a_neutral_hover_indicator():
     assert "border-color: transparent" in rule
     assert "transform: none" in rule
     assert "opacity: 1" in rule
-    # A visible external indicator, not the old invisible state.
-    assert "box-shadow:" in rule
-    assert "box-shadow: none" not in rule
+    # THE INDICATOR IS ON THE IMAGE, and this assertion moved with it. It used
+    # to read the wrapper's own rule, which is how a ring drawn round a 180x48
+    # box with square corners passed while the button it appears to outline is
+    # 180x40 and rounded. What the owner saw was a hard rectangle floating 4px
+    # above and below the control. The rendered geometry is pinned in
+    # tests/test_signing_in_says_what_happened.py; this only checks it exists.
+    ring = _css_rule(APP_CSS, ".profile-signin:hover:not(:disabled) .profile-signin-img")
+    assert "box-shadow:" in ring and "box-shadow: none" not in ring
     img = _css_rule(APP_CSS, ".profile-signin-img")
+    assert "border-radius" in img, (
+        "the asset is drawn with rounded corners; without a matching radius the "
+        "box-shadow ring is drawn SQUARE around it")
     assert "filter" not in img, "hover must not recolour the official image"
     assert "opacity" not in img, "hover must not dim the official image"
 
@@ -167,8 +175,8 @@ def test_the_google_button_wrapper_shows_a_neutral_active_indicator():
     assert "background: transparent" in rule
     assert "transform: none" in rule
     assert "opacity: 1" in rule
-    assert "box-shadow:" in rule
-    assert "box-shadow: none" not in rule
+    ring = _css_rule(APP_CSS, ".profile-signin:active:not(:disabled) .profile-signin-img")
+    assert "box-shadow:" in ring and "box-shadow: none" not in ring
 
 
 def test_the_google_button_wrapper_does_not_dim_when_disabled():

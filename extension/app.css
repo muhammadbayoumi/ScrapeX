@@ -1185,6 +1185,13 @@
     width: 180px;
     height: auto;
     pointer-events: none;
+    /* 2.5px is MEASURED off the official asset, not chosen: the first opaque
+       pixel along its top edge is 10px into a 720px-wide @4x file, and it is
+       drawn at 180px, so the painted corner is 10 x 180/720 = 2.5px. The hover
+       ring below is a box-shadow, and a box-shadow follows the element's own
+       radius -- without this it draws SQUARE corners around a rounded button. */
+    border-radius: 2.5px;
+    transition: box-shadow var(--dur) var(--ease);
   }
   /* The Google button is a transparent wrapper around an official PNG asset.
      Extension-wide `button:hover/active/disabled` rules must not paint the
@@ -1196,7 +1203,7 @@
     border-color: transparent;
     background: transparent;
     color: inherit;
-    box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-sm);
+    box-shadow: none;
     transform: none;
     opacity: 1;
   }
@@ -1204,9 +1211,23 @@
     border-color: transparent;
     background: transparent;
     color: inherit;
-    box-shadow: 0 0 0 1px var(--line-strong);
+    box-shadow: none;
     transform: none;
     opacity: 1;
+  }
+  /* THE RING IS ON THE IMAGE, NOT THE BUTTON, and the difference is the whole
+     defect. The button is 180x48 -- 48 to keep the 48px touch target -- while
+     the asset is 180x40, so a ring on the button floated 4px above and below
+     the visible button with square corners, which is what it looked like: a
+     hard box drawn around a rounded control. On the image it hugs exactly what
+     the eye reads as the button.
+     Still OUTSIDE the asset: a box-shadow paints beyond the border box, so
+     nothing recolours, crops, or moves Google's pixels. */
+  .profile-signin:hover:not(:disabled) .profile-signin-img {
+    box-shadow: 0 0 0 1px var(--line), var(--shadow-sm);
+  }
+  .profile-signin:active:not(:disabled) .profile-signin-img {
+    box-shadow: 0 0 0 1px var(--line-strong);
   }
   .profile-signin:disabled {
     border-color: transparent;

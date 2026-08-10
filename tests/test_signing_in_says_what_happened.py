@@ -438,6 +438,51 @@ def test_the_welcome_mark_is_visible_in_dark_scheme(open_panel):
     assert "0, 0, 0" not in box["background"], "the mark is still drawn black"
 
 
+def test_the_hover_indicator_hugs_the_google_asset_and_not_the_touch_target(open_panel):
+    """WHAT THE OWNER ACTUALLY SAW: a hard square box round a rounded button.
+
+    The hover ring is a box-shadow, and a box-shadow follows the border box and
+    the border-radius of whatever element carries it. It was on the WRAPPER --
+    180x48, because 48 is the touch target, and `border-radius: 0` -- while the
+    thing a person reads as the button is the official asset inside it, 180x40
+    with corners painted 2.5px round. So the indicator sat 4px proud of the
+    control top and bottom, with square corners. Every CSS-text assertion passed:
+    they checked a box-shadow was declared, never where it landed.
+
+    This measures the rendered result, which is the only place the defect was
+    visible.
+    """
+    page = open_panel()
+    page.wait_for_selector("#welcome-signed-out:visible")
+    page.hover("#signin")
+    page.wait_for_timeout(300)
+
+    geometry = page.evaluate("""() => {
+      const button = document.querySelector('#signin');
+      const image = button.querySelector('img[data-scheme]:not(.hidden)');
+      const shadowed = getComputedStyle(image).boxShadow;
+      const bare = getComputedStyle(button).boxShadow;
+      const b = button.getBoundingClientRect(), i = image.getBoundingClientRect();
+      return {
+        onImage: shadowed !== 'none',
+        onButton: bare !== 'none',
+        radius: parseFloat(getComputedStyle(image).borderRadius) || 0,
+        overhang: Math.max(i.top - b.top, b.bottom - i.bottom),
+      };
+    }""")
+
+    assert geometry["onImage"], (
+        "hovering paints no indicator on the Google asset, so the button gives "
+        "no feedback at all")
+    assert not geometry["onButton"], (
+        f"the indicator is on the {geometry['overhang']*2 + 40:.0f}px-tall touch "
+        "target rather than the 40px asset, so it draws a box standing proud of "
+        "the control the owner can see")
+    assert geometry["radius"] > 0, (
+        "the asset carries no border-radius, so the ring is drawn with SQUARE "
+        "corners around a button whose corners are painted round")
+
+
 def test_a_missing_email_hides_the_email_paragraph(open_panel):
     """Google may return an account without an email. The signed-in state must
     not show an empty labelled paragraph."""
