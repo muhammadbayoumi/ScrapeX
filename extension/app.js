@@ -2344,9 +2344,7 @@ function updateEngineReleaseUI(latest) {
   steps.classList.toggle("hidden", !installer);
 
   if (installer) {
-    $("engine-download-checksum").textContent = installer.sha256
-      ? `If you want to verify the download — SHA-256: ${installer.sha256}`
-      : "";
+    $("engine-download-checksum").textContent = installer.sha256 ? installer.sha256 : "";
     download.onclick = () => {
       window.open(installer.url, "_blank");
       steps.open = true;
@@ -2496,7 +2494,7 @@ function bindEngineOverflowMenu() {
 
   $("engine-diagnostics").addEventListener("click", () => {
     runEngineDiagnostics();
-    closeMenu(false);
+    closeMenu(true);
   });
   $("engine-setup-guide").addEventListener("click", () => {
     openEngineSetupGuide();
@@ -2504,7 +2502,7 @@ function bindEngineOverflowMenu() {
   });
   $("engine-copy-details").addEventListener("click", () => {
     copyEngineDetails();
-    closeMenu(false);
+    closeMenu(true);
   });
 }
 

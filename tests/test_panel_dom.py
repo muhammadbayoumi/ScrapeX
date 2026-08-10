@@ -4133,3 +4133,27 @@ def test_the_engine_actions_stack_full_width_at_320px(open_panel):
     assert download["width"] >= action_box["width"] - 4
     assert recheck["width"] >= action_box["width"] - 4
     assert recheck["y"] > download["y"] + download["height"] - 1
+
+
+def test_the_engine_overflow_menu_returns_focus_after_page_actions(open_panel):
+    """Run diagnostics and Copy details close the menu and return focus to the
+    overflow trigger instead of leaving it inside the hidden menu."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "v" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    for action in ("engine-diagnostics", "engine-copy-details"):
+        page.click("#engine-overflow")
+        page.wait_for_selector("#engine-overflow-menu", state="visible")
+        page.click(f"#{action}")
+        page.wait_for_selector("#engine-overflow-menu", state="hidden")
+        active = page.evaluate("() => document.activeElement.id")
+        assert active == "engine-overflow", (
+            f"{action} left focus on {active!r} instead of the overflow trigger")
