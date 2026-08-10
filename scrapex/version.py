@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 
 class Surface(StrEnum):
@@ -123,6 +123,25 @@ CAPABILITIES: tuple[Capability, ...] = (
         # Built and plumbed to HttpFetcher here; 2253308 moved the controls off
         # the display-only web page into the panel. This is incident one.
         commit="c63ec21",
+    ),
+    Capability(
+        key="robots_per_source",
+        # 0.2.2, not 0.2.1, and the ledger is what taught me: the baseline
+        # records what each version DEPLOYS, so adding a capability under a
+        # version that already has a baseline changes what 0.2.1 means after the
+        # fact. "A functional change gets its own version" is the rule, and it
+        # holds whether or not anything has been released yet.
+        since="0.2.2",
+        summary="Read what a site's robots.txt asks of a crawler, then decide per "
+                "source: follow the tool default, obey that site, or write a rule "
+                "for it alone.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="source-edit-robots",
+        settings=("crawl_obey_disallow",),
+        # The setting is only the DEFAULT. The per-source choice lives on the
+        # source itself (SourceEntry.robots), which is why the panel control
+        # named here is on the source editor and not the Settings page.
+        commit="",
     ),
     Capability(
         key="crawl_parallel_sources",

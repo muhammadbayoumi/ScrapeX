@@ -73,6 +73,14 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # the run records, so a fast crawl and a polite one stay distinguishable
     # afterwards.
     Setting("crawl_honour_delay", "1", label="Honour each site's crawl delay"),
+    # "0" keeps the ruling docs/robots-policy.md has carried since 2026-07-22:
+    # Disallow is disclosed and crawled anyway. It is a SETTING now rather than
+    # a policy because that ruling was made about twelve shops the owner had
+    # read, and it stops being obviously right for a site he has not. A source
+    # can override it either way (SourceEntry.robots); this is only what a
+    # source that never said anything gets.
+    Setting("crawl_obey_disallow", "0",
+            label="Obey robots.txt Disallow by default"),
     # 1 keeps the behaviour every job has had until now: one source at a time,
     # in the order the job listed them. Raising it crawls that many SITES at
     # once — never two sources of one site, whatever the number says.

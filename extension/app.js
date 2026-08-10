@@ -1457,6 +1457,8 @@ function renderSourceEditor(source) {
   $("source-edit-identity").innerHTML = sourceIdentity(
     source, false, Number(source.observations || 0).toLocaleString());
 
+  renderRobotsChoice(source);
+
   const ready = Boolean(source.implemented);
   $("source-edit-readiness").innerHTML =
     `<span class="dot ${ready ? "on" : "off"}" aria-hidden="true"></span>
@@ -1503,6 +1505,59 @@ function renderSourceEditor(source) {
   out("source-edit-result", "");
 }
 
+// robots.txt, per site. Kept together so the three steps read in the order the
+// owner takes them: what the site says, what he chose, what that will do.
+function renderRobotsChoice(source) {
+  const choice = source.robots || "default";
+  $("source-edit-robots").value = choice;
+  const custom = source.robots_custom || {};
+  $("source-edit-robots-enforce").checked = Boolean(custom.enforce_disallow);
+  $("source-edit-robots-delay").value =
+    custom.crawl_delay_s === null || custom.crawl_delay_s === undefined
+      ? "" : String(custom.crawl_delay_s);
+  $("source-edit-robots-custom").classList.toggle("hidden", choice !== "custom");
+  // The consequence, in the same breath as the choice. A dropdown that does not
+  // say what it will do is asking the owner to guess.
+  const says = {
+    default: "Whatever the Settings page says. Today that is: disallowed paths "
+           + "are crawled and the run says so.",
+    obey: "Disallowed paths are NOT fetched, and the site's own delay is used. "
+        + "On a site that disallows this source's pages, that means it collects "
+        + "nothing — check the site first.",
+    custom: "This site only. Nothing else changes.",
+  };
+  $("source-edit-robots-consequence").textContent = says[choice] || "";
+}
+
+async function lookAtRobots() {
+  const key = state.editingSourceKey;
+  if (!key) return;
+  const box = $("source-edit-robots-report");
+  const button = $("source-edit-robots-look");
+  button.disabled = true;
+  box.textContent = "Reading " + key + "'s robots.txt…";
+  try {
+    const report = await api("/api/sources/" + encodeURIComponent(key) + "/robots");
+    const lines = [report.summary];
+    if (report.names_us) {
+      lines.push("This site names " + report.names_us + " specifically.");
+    }
+    if (report.would_block_everything) {
+      // THE ONE THAT CHANGES THE ANSWER, said plainly and not as a footnote.
+      lines.push("Obeying would leave this source with nothing to collect.");
+    }
+    if (report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
+      lines.push("On a disallowed path today: " + report.on_a_disallowed_path.reason);
+    }
+    box.textContent = lines.join(" ");
+    box.classList.toggle("warn", Boolean(report.would_block_everything));
+  } catch (error) {
+    box.textContent = "Could not read it: " + (error && error.message ? error.message : error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function openSourceEditor(sourceKey) {
   const source = state.sources.find((item) => item.source_key === sourceKey);
   if (!source) return;
@@ -1535,9 +1590,27 @@ async function saveSourceEditor() {
       cadence: $("source-edit-cadence").value,
       vat_mode: $("source-edit-vat").value,
       fold_variants: $("source-edit-fold").checked,
+      robots: $("source-edit-robots").value,
     };
-    const changed = Object.entries(edits).some(
-      ([field, value]) => String(source[field] ?? "") !== String(value));
+    // The custom rule rides along only when it is the chosen one. Sending it
+    // otherwise would leave a rule stored behind a choice that ignores it,
+    // which reads as "this site is customised" on every later open.
+    if (edits.robots === "custom") {
+      const delay = $("source-edit-robots-delay").value.trim();
+      edits.robots_custom = {
+        enforce_disallow: $("source-edit-robots-enforce").checked,
+        crawl_delay_s: delay === "" ? null : Number(delay),
+      };
+    } else {
+      edits.robots_custom = null;
+    }
+    const changed = Object.entries(edits).some(([field, value]) =>
+      // robots_custom is an OBJECT. `String({}) !== String(null)` is true for
+      // every pair of objects, so comparing it the same way as the text fields
+      // would report a change on every save and POST for nothing.
+      (value !== null && typeof value === "object") || field === "robots_custom"
+        ? JSON.stringify(source[field] ?? null) !== JSON.stringify(value ?? null)
+        : String(source[field] ?? "") !== String(value));
     if (changed) {
       await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
       Object.assign(source, edits);
@@ -3798,6 +3871,15 @@ async function init() {
     requestAnimationFrame(() =>
       document.querySelector(`[data-edit-source="${CSS.escape(sourceKey || "")}"]`)
         ?.focus({preventScroll: true}));
+  });
+  $("source-edit-robots-look").addEventListener("click", lookAtRobots);
+  $("source-edit-robots").addEventListener("change", () => {
+    const choice = $("source-edit-robots").value;
+    $("source-edit-robots-custom").classList.toggle("hidden", choice !== "custom");
+    renderRobotsChoice({robots: choice, robots_custom: {
+      enforce_disallow: $("source-edit-robots-enforce").checked,
+      crawl_delay_s: $("source-edit-robots-delay").value.trim() || null,
+    }});
   });
   $("source-edit-form").addEventListener("submit", async (event) => {
     event.preventDefault();

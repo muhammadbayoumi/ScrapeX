@@ -14,7 +14,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from scrapex.connectors.base import CrawlBlocked, HttpFetcher
+from scrapex.connectors.base import CrawlBlocked, HttpFetcher, RobotsDisallowed
 
 URL = "https://example.test/diesel_prices/"
 
@@ -365,3 +365,138 @@ def test_a_huge_retry_after_is_capped_loudly_not_shrunk_silently():
         _time.sleep = original
     assert 900.0 in slept, slept
     assert any("Retry-After 3600" in w for w in fetcher.robots_warnings)
+
+
+# ---- robots is the owner's decision, per site ---------------------------------
+
+ROBOTS_REFUSING_US = "User-agent: *\nDisallow: /private/\n"
+
+
+def _fetcher_meeting_a_disallow(**kwargs):
+    """A site that publishes robots.txt and refuses /private/."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith("/robots.txt"):
+            return httpx.Response(200, text=ROBOTS_REFUSING_US)
+        seen.append(request)
+        return httpx.Response(200, text="ok")
+
+    kwargs.setdefault("min_interval_s", 0.0)
+    kwargs.setdefault("jitter", 0.0)
+    fetcher = HttpFetcher(**kwargs)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler),
+                                   follow_redirects=True)
+    return fetcher, seen
+
+
+def test_a_source_that_said_nothing_still_crawls_and_still_discloses():
+    """The ruling every source has had since 2026-07-22 is what silence buys.
+
+    Changing this would alter what twelve reviewed sources collect without the
+    owner asking, which is why the setting defaults to it rather than to the
+    politer answer.
+    """
+    fetcher, seen = _fetcher_meeting_a_disallow()
+
+    response = fetcher.get("https://shop.test/private/thing")
+
+    assert response.status_code == 200, "a source on the default was refused"
+    assert len(seen) == 1
+    assert any("disallows" in note for note in fetcher.robots_warnings), (
+        "the crawl went somewhere robots.txt asked it not to and said nothing")
+
+
+def test_a_source_set_to_obey_refuses_and_says_which_choice_did_it():
+    """RAISED, NOT SKIPPED. A skipped page becomes an empty crawl reporting
+    success — the failure mode this whole product is most exposed to."""
+    fetcher, seen = _fetcher_meeting_a_disallow(robots_choice="obey")
+
+    with pytest.raises(RobotsDisallowed) as refusal:
+        fetcher.get("https://shop.test/private/thing")
+
+    assert seen == [], "the request went out anyway"
+    assert "set to obey" in str(refusal.value), (
+        f"the refusal does not say WHY, so it reads as a site being down: "
+        f"{refusal.value}")
+
+
+def test_the_tool_default_can_be_flipped_for_every_source_at_once():
+    fetcher, seen = _fetcher_meeting_a_disallow(obey_disallow=True)
+
+    with pytest.raises(RobotsDisallowed) as refusal:
+        fetcher.get("https://shop.test/private/thing")
+
+    assert seen == []
+    assert "tool default" in str(refusal.value), (
+        "the log does not say the refusal came from the setting, so changing "
+        "the setting back looks like the source changed its mind")
+
+
+def test_a_custom_rule_overrides_the_tool_default_for_one_site_only():
+    fetcher, seen = _fetcher_meeting_a_disallow(
+        robots_choice="custom", robots_custom={"enforce_disallow": False},
+        obey_disallow=True)
+
+    response = fetcher.get("https://shop.test/private/thing")
+
+    assert response.status_code == 200, (
+        "the custom rule said crawl and the tool default overruled it")
+    assert len(seen) == 1
+    assert any("custom rule" in note for note in fetcher.robots_warnings)
+
+
+def test_an_allowed_path_is_never_refused_whatever_the_choice():
+    for choice in ("default", "obey"):
+        fetcher, seen = _fetcher_meeting_a_disallow(robots_choice=choice)
+        assert fetcher.get("https://shop.test/public/thing").status_code == 200, (
+            f"{choice} refused a path robots.txt allows")
+        assert len(seen) == 1
+
+
+def test_the_disclosure_is_one_line_per_host_not_one_per_page():
+    """A 400-page crawl must not write 400 lines nobody will read."""
+    fetcher, _ = _fetcher_meeting_a_disallow()
+
+    for n in range(5):
+        fetcher.get(f"https://shop.test/private/{n}")
+
+    disallow_notes = [n for n in fetcher.robots_warnings if "disallows" in n]
+    assert len(disallow_notes) == 1, f"{len(disallow_notes)} lines for one host"
+
+
+def test_every_crawl_setting_is_a_parameter_this_fetcher_accepts():
+    """`HttpFetcher(**crawl_settings(conn))` is a real call site in webui/app.py.
+
+    It means the settings dict IS the constructor's keyword list, and a new
+    setting whose key does not match a parameter name is a TypeError the first
+    time exchange rates refresh — nowhere near the change that caused it. This
+    caught exactly that while `crawl_obey_disallow` was being added.
+
+    The keys are read out of the FUNCTION'S SOURCE rather than by calling it,
+    because calling it needs a migrated database and the first version of this
+    test quietly skipped itself when it could not build one. A guard that skips
+    is not a guard.
+    """
+    import ast
+    import inspect as _inspect
+    import pathlib
+
+    from scrapex import capture
+
+    tree = ast.parse(pathlib.Path(capture.__file__).read_text(encoding="utf-8"))
+    returns = [node for node in ast.walk(tree)
+               if isinstance(node, ast.FunctionDef) and node.name == "crawl_settings"]
+    assert returns, "crawl_settings was renamed; this guard must follow it"
+    keys = {key.value for node in ast.walk(returns[0])
+            if isinstance(node, ast.Dict)
+            for key in node.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)}
+    assert keys, "no keys found — the guard is reading nothing and would pass on anything"
+
+    accepted = set(_inspect.signature(HttpFetcher.__init__).parameters)
+    unknown = keys - accepted
+    assert not unknown, (
+        f"crawl_settings returns {sorted(unknown)}, which HttpFetcher does not "
+        "accept. Every call of HttpFetcher(**crawl_settings(conn)) now raises "
+        "TypeError — rename the parameter to match the settings key.")
