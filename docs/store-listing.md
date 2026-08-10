@@ -149,6 +149,13 @@ outside the browser. Be specific and do not soften it.
 > so the panel can tell the user an update exists. It is a plain public file
 > fetch and carries no information about the user.
 
+### `https://oauth2.googleapis.com/revoke*`
+
+Ending the Google session when the user presses Sign out. Without it, "sign out"
+would only forget the key held in this browser and leave ScrapeX authorised in
+the user's Google account — so a shared computer would keep the account
+connected, and a user could never sign in as somebody else.
+
 ### `https://www.googleapis.com/oauth2/v3/*`
 
 > Google's own endpoints, used only after the user signs in: the name and
