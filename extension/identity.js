@@ -43,6 +43,8 @@ export const SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
 ];
 
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
 const USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo";
 
 /**
@@ -55,8 +57,47 @@ const USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo";
  * feed's are: a single "sign-in failed" teaches the owner to press it again
  * and learn nothing.
  */
-export function readTokenResult(token, lastError) {
-  if (token) return { state: "ok", token };
+/** The scopes a token actually carries, against the ones we asked for.
+ *
+ * GOOGLE LETS THE USER SAY NO TO ONE THING AND YES TO THE REST. The consent
+ * screen puts `drive.file` behind its own checkbox, unticked, on a second page —
+ * so the ordinary way to sign in is to tick nothing, and Chrome hands back a
+ * perfectly valid token with two scopes instead of three.
+ *
+ * Nothing here used to look. The panel said "signed in", showed the name and
+ * the picture, and the first backup failed with a 403 days later — the same
+ * shape of failure this project keeps meeting: a partial state displayed as a
+ * complete one.
+ */
+export function missingScopes(granted, wanted = SCOPES) {
+  // Chrome only started passing grantedScopes in MV3, and an older build hands
+  // back undefined. Undefined is NOT "nothing was granted" — it is "this
+  // browser cannot tell us", and reporting a false refusal would be worse than
+  // the silence it replaces.
+  if (!Array.isArray(granted)) return null;
+  const held = new Set(granted);
+  return wanted.filter((scope) => !held.has(scope));
+}
+
+export function readTokenResult(token, lastError, grantedScopes) {
+  if (token) {
+    const missing = missingScopes(grantedScopes);
+    if (missing && missing.length) {
+      return {
+        state: "partial", token, missing,
+        // Named by what it COSTS, not by the scope string. "drive.file was not
+        // granted" means nothing to the person reading it; "backups to Drive
+        // will fail" is the sentence he can act on.
+        detail: missing.includes(DRIVE_SCOPE)
+          ? "Signed in, but Drive access was not granted — the checkbox on "
+            + "Google's second screen was left unticked, so backups to Drive "
+            + "will fail. Sign in again and tick it."
+          : "Signed in, but Google did not grant everything ScrapeX asked for: "
+            + missing.join(", "),
+      };
+    }
+    return { state: "ok", token };
+  }
   const message = (lastError && lastError.message) || "";
   if (/did not approve|canceled|closed/i.test(message)) {
     return { state: "declined",
@@ -81,9 +122,93 @@ export function readTokenResult(token, lastError) {
 export function getToken({ interactive = true, identity = chrome.identity,
                            runtime = chrome.runtime } = {}) {
   return new Promise((resolve) => {
-    identity.getAuthToken({ interactive }, (token) =>
-      resolve(readTokenResult(token, runtime.lastError)));
+    // The SECOND argument is the whole point: Chrome reports which scopes the
+    // user actually agreed to, and this call has been throwing it away.
+    identity.getAuthToken({ interactive }, (token, grantedScopes) =>
+      resolve(readTokenResult(token, runtime.lastError, grantedScopes)));
   });
+}
+
+//: Google's own revocation endpoint. Fetching it is the ONLY way to end a
+//: grant; `chrome.identity.removeCachedAuthToken` forgets Chrome's copy and
+//: leaves the authorisation standing in the owner's Google account.
+const REVOKE = "https://oauth2.googleapis.com/revoke";
+
+/** End the grant at Google, not merely the copy in this browser.
+ *
+ * WHY THE OLD SIGN-OUT WAS NOT ONE. It called `removeCachedAuthToken` and
+ * nothing else, so Google still saw an authorised app: signing in again handed
+ * back a new token instantly, with no consent screen and no chance to choose a
+ * different account. The owner noticed it as "sign in is suspiciously fast",
+ * which is exactly what a grant that never ended looks like from outside.
+ *
+ * It also means a partial grant can never be repaired by signing out and in —
+ * Google returns the same scopes it remembers agreeing to, silently, for ever.
+ *
+ * ORDER MATTERS. Revoke first, while the token is still valid; Chrome's cached
+ * copy is dropped second, because a token removed from the cache is one this
+ * function can no longer present to Google.
+ */
+export async function revokeToken(token, { identity = chrome.identity,
+                                           fetchImpl = fetch } = {}) {
+  if (!token) return { state: "ok", revoked: false };
+  let revoked = false;
+  let detail = "";
+  try {
+    const answer = await fetchImpl(REVOKE, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token }).toString(),
+    });
+    // 200 is a revoked token. 400 is Google saying it was already invalid,
+    // which is the same END STATE and must not be shown as a failure — the
+    // grant is gone either way and the owner is not interested in which.
+    revoked = answer.ok || answer.status === 400;
+    if (!revoked) detail = `Google answered ${answer.status} to the revoke request.`;
+  } catch (error) {
+    detail = `Could not reach Google to end the session (${error && error.message
+      ? error.message : error}).`;
+  }
+  // ALWAYS dropped, even when the revoke failed. Leaving Chrome holding a token
+  // whose grant we tried to end is the worst of both: the panel looks signed
+  // out and the browser is still carrying credentials.
+  await forgetToken(token, { identity });
+  return revoked ? { state: "ok", revoked: true }
+                 : { state: "local-only", revoked: false, detail };
+}
+
+/** Make sure one scope is actually granted, asking Google again if it is not.
+ *
+ * THE RE-ASK IS THE WHOLE FUNCTION, and it needs one non-obvious step. Chrome
+ * caches the token it already has, so calling `getAuthToken` again hands back
+ * the SAME partial token without showing anyone anything — the consent screen
+ * never appears and the caller concludes the user refused twice. The cached
+ * token has to be dropped first; then Chrome has nothing to return and asks.
+ *
+ * Called at the moment a feature needs the scope, not at sign-in. A person who
+ * never uses Drive is never asked about Drive, and one who does is asked when
+ * the request means something to him rather than as the fifth item on a consent
+ * screen he is skimming.
+ */
+export async function ensureScope(scope, { identity = chrome.identity,
+                                           runtime = chrome.runtime } = {}) {
+  const held = await getToken({ interactive: false, identity, runtime });
+  if (held.state === "ok") return held;
+  if (held.state !== "partial") return held;      // not signed in, or a real failure
+  if (!held.missing.includes(scope)) {
+    // Something else is missing, but not the thing being asked for. Not this
+    // function's business to force a prompt for a scope nobody needs yet.
+    return { ...held, state: "ok" };
+  }
+
+  await forgetToken(held.token, { identity });
+  const again = await getToken({ interactive: true, identity, runtime });
+  if (again.state === "partial" && again.missing.includes(scope)) {
+    // Asked, and refused a second time. That is an ANSWER, and repeating the
+    // prompt would be nagging — the caller says what cannot happen and stops.
+    return { ...again, state: "refused" };
+  }
+  return again;
 }
 
 /** The account behind a token: name, address and photo.

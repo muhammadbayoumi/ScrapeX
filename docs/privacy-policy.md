@@ -68,14 +68,15 @@ behind a login.
 
 ### Every other address ScrapeX contacts
 
-Besides the sites you add, the extension can reach exactly two addresses, and
-only these two. Both are narrowed to a single path rather than a whole host: an
+Besides the sites you add, the extension can reach exactly three addresses, and
+only these three. Both are narrowed to a single path rather than a whole host: an
 extension that may read all of `googleapis.com` can read a great deal more than
 the name on your account.
 
 | Host | What for |
 |---|---|
 | `raw.githubusercontent.com/muhammadbayoumi/mbiX-hub` | Reading one small file that says which engine version is the newest. Narrowed to that one repository, so the extension cannot read anything else on GitHub even by mistake. It is fetched exactly as any browser fetches a public page, and the request carries no information about you at all. |
+| `oauth2.googleapis.com/revoke` | Ending your session when you press Sign out. This is what makes signing out mean it: ScrapeX asks Google to cancel its own access, rather than only forgetting the key on this computer. Nothing is sent but the key being cancelled. |
 | `www.googleapis.com/oauth2/v3` | One Google endpoint and no more: the name, address and picture of the signed-in account. **Drive is not here.** Backups are uploaded by the engine on your own computer, not by the extension, so the extension has no Drive access at all. |
 
 The engine itself talks to the sites you added, and to `127.0.0.1` — which is

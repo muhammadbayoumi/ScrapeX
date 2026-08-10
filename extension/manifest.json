@@ -35,7 +35,8 @@
     "http://127.0.0.1/*",
     "http://localhost/*",
     "https://raw.githubusercontent.com/muhammadbayoumi/mbiX-hub/*",
-    "https://www.googleapis.com/oauth2/v3/*"
+    "https://www.googleapis.com/oauth2/v3/*",
+    "https://oauth2.googleapis.com/revoke*"
   ],
   "oauth2": {
     "client_id": "668111083414-0fd7tso17orbbqrkg0mjnne8oig0pqru.apps.googleusercontent.com",

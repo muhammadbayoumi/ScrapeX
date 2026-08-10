@@ -12,7 +12,7 @@ import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDataba
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { latestEngineRelease } from "./releases.js";
-import { getToken, accountFor, forgetToken } from "./identity.js";
+import { getToken, accountFor, forgetToken, revokeToken } from "./identity.js";
 
 const $ = (id) => document.getElementById(id);
 // Called by renderSchemaLag since c4ea06b and DEFINED NOWHERE until now, so the
@@ -3672,11 +3672,22 @@ async function init() {
     const btn = $("signout");
     btn.disabled = true;
     try {
-      await forgetToken(state.token);
+      // REVOKE, not forget. `forgetToken` alone dropped Chrome's copy and left
+      // the grant standing in the owner's Google account, so the next sign-in
+      // was instant, silent, and locked to the same account and the same
+      // scopes. Signing out has to mean he can come back as someone else.
+      const ended = await revokeToken(state.token);
       state.token = "";
       state.account = null;
       state.accountStatus = null;
-      renderAccount({});
+      renderAccount(ended.state === "local-only"
+        // Said out loud rather than swallowed: this browser has forgotten the
+        // account, and Google has not. The difference matters on a shared
+        // machine, and the owner can finish the job himself.
+        ? { tokenProblem: { state: "signed-out-locally", detail: ended.detail
+              + " This browser has forgotten the account, but Google still lists"
+              + " ScrapeX under your account's permissions." } }
+        : {});
       focusSignin();
     } finally {
       btn.disabled = false;
