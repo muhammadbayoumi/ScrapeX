@@ -423,10 +423,8 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     startup_bootstrap_js = (EXT / "startup-bootstrap.js").read_text(encoding="utf-8")
     startup_js = (EXT / "startup.js").read_text(encoding="utf-8")
     appearance_js = (EXT / "appearance.js").read_text(encoding="utf-8")
-    # The shared split-button behaviour, loaded (in app.html) before app.js so
-    # its global exists when the Activity panel wires the log control. It is a
-    # classic head script, which build_page drops with the rest of <head>, so
-    # the harness must carry it explicitly or app.js's init throws.
+    # The shared split-button behaviour is loaded in the production head before
+    # app.js so its global exists when the Activity panel wires the log control.
     split_button_js = (EXT / "split-button.js").read_text(encoding="utf-8")
     timezone_js = (EXT / "timezone.js").read_text(encoding="utf-8")
     engine_js = (EXT / "engine.js").read_text(encoding="utf-8")
@@ -456,12 +454,15 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     tmp.mkdir(parents=True, exist_ok=True)
     page = tmp / name
     page.write_text(
-        "<!doctype html><meta charset='utf-8'><title>ScrapeX panel</title>"
-        "<style>html,body{margin:0}</style>"
-        f"<style>{tokens_css}</style><style>{components_css}</style>"
-        f"<style>{style}</style>\n{body}\n"
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>ScrapeX panel</title>"
         f"<script>{startup_bootstrap_js}</script>\n"
         f"<script>{appearance_js}</script>\n"
+        # Match app.html's startup-critical ordering: local appearance runs in
+        # <head> before styles and before any body content can be painted.
+        f"<style>{tokens_css}</style><style>{components_css}</style>"
+        f"<style>{style}</style>\n"
         # Every page this harness builds is a file:// document, and Chromium
         # gives them all ONE localStorage. A zone chosen by one test would
         # therefore be the starting state of the next, which made a real test
@@ -476,12 +477,13 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # before the panel adds its own.
         f"<script>{timezone_js}</script>\n"
         f"<script>{split_button_js}</script>\n"
+        f"</head><body>{body}\n"
         f"<script>{stub_js}</script>\n"
         # No manual DOMContentLoaded dispatch: this inline script is parsed
         # BEFORE the browser fires the real event, so dispatching one as well
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
         f"<script>{startup_js}\n{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
-        f"{engine_js}\n{app_js}</script>",
+        f"{engine_js}\n{app_js}</script></body></html>",
         encoding="utf-8")
     return page

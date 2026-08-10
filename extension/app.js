@@ -4002,7 +4002,6 @@ function wireStartupShell() {
   // Engine or a network request. The remote contract may refine it after paint.
   renderWorkspaceNavigation(WORKSPACE_NAVIGATION_FALLBACK);
   showView("profile", false);
-  markStartup("shell-visible");
   document.documentElement.dataset.shellInteractive = "true";
   markStartup("shell-interactive");
 }
@@ -4222,7 +4221,14 @@ function scheduleNonCriticalStartup(backendPromise) {
 
 async function init() {
   wireStartupShell();
-  await afterNextPaint();
+  const paintOpportunity = await afterNextPaint({signal: panelController.signal});
+  if (paintOpportunity.source === "cancelled" || panelController.signal.aborted) return;
+  // FCP remains the authoritative browser paint measurement. This mark records
+  // that startup yielded a bounded renderer opportunity before remote work.
+  markStartup("shell-visible", {
+    source: paintOpportunity.source,
+    visibilityState: document.visibilityState,
+  });
 
   // These start in the same turn and settle independently. The Engine only
   // waits for its backend address; it never waits for Chrome/Google account work.
