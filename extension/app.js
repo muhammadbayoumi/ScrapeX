@@ -1931,7 +1931,11 @@ function focusSignin() {
 
 function setGoogleButtonScheme() {
   const scheme = window.ScrapeXAppearance?.get?.().effectiveScheme || "light";
-  $("welcome-signed-out").querySelectorAll(".profile-signin-img").forEach((img) => {
+  // [data-scheme], not .profile-signin-img: the class is for styling, and a
+  // JavaScript hook on a class means a CSS tidy can silently unwire the button.
+  // The attribute is already what this function reads, so it is also what it
+  // should select on.
+  $("welcome-signed-out").querySelectorAll("img[data-scheme]").forEach((img) => {
     img.classList.toggle("hidden", img.dataset.scheme !== scheme);
   });
 }

@@ -221,17 +221,31 @@ window.chrome = {{
       if (SIGNIN_ERROR) {{ chrome.runtime.lastError = {{message: SIGNIN_ERROR}};
                            cb(undefined);
                            chrome.runtime.lastError = null; return; }}
-      if (!SIGNED_IN) {{ chrome.runtime.lastError =
-                           {{message: "The user did not approve access."}};
-                         cb(undefined);
-                         chrome.runtime.lastError = null; return; }}
-      if (SIGNIN_DELAY_MS) {{
-        setTimeout(() => cb("stub-token"), SIGNIN_DELAY_MS);
-        return;
-      }}
-      cb("stub-token");
+      // The delay is about WHEN Chrome answers, not WHAT it answers, so it
+      // wraps both outcomes. It used to sit below the signed-out branch, which
+      // returned first -- so `signin_delay_ms` did nothing for a signed-out
+      // panel and the waiting state was unobservable in the one case a test
+      // wanted to see it.
+      const answer = () => {{
+        if (!SIGNED_IN) {{ chrome.runtime.lastError =
+                             {{message: "The user did not approve access."}};
+                           cb(undefined);
+                           chrome.runtime.lastError = null; return; }}
+        cb("stub-token");
+      }};
+      if (SIGNIN_DELAY_MS) {{ setTimeout(answer, SIGNIN_DELAY_MS); return; }}
+      answer();
     }},
-    removeCachedAuthToken: (opts, cb) => {{ SIGNED_IN = null; cb && cb(); }},
+    // The removed tokens are RECORDED, not just acted on. A 401 that forgets to
+    // clear Chrome's cache leaves a dead token that every later sign-in hands
+    // back, and the panel then asks the owner to sign in to an account he is
+    // already signed in to -- indistinguishable, from the outside, from a 401
+    // that cleared it properly.
+    removeCachedAuthToken: (opts, cb) => {{
+      window.__sx_removed_tokens = (window.__sx_removed_tokens || [])
+        .concat([opts && opts.token]);
+      SIGNED_IN = null; cb && cb();
+    }},
   }},
 }};
 let SIGNED_IN = {json.dumps(signed_in)};
@@ -344,8 +358,16 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
                   "google-signin/light-rectangular@4x.png",
                   "google-signin/dark-rectangular@4x.png"):
         path = EXT / "icons" / asset
+        # RAISES, and does not `continue`. Skipping a missing asset let every
+        # assertion about the Google button pass while the panel drew a BROKEN
+        # IMAGE -- which is the exact failure this inlining was written to
+        # prevent, and it is how the broken mark shipped once already. A test
+        # run that cannot find the asset has not tested the button.
         if not path.exists():
-            continue
+            raise FileNotFoundError(
+                f"{path} is missing, so the panel would render a broken image and "
+                "every assertion about it would still pass. Restore the asset or "
+                "remove it from this list -- do not let the harness skip it.")
         data = base64.b64encode(path.read_bytes()).decode("ascii")
         body = body.replace(f'src="icons/{asset}"',
                             f'src="data:image/png;base64,{data}"')

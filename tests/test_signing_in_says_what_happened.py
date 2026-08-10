@@ -66,6 +66,12 @@ def open_panel(browser, tmp_path):
             page.close()
 
 
+# THE ONE PLACE THE ID IS WRITTEN DOWN. Chrome derives it from the manifest
+# `key`, the OAuth client is registered against it, and docs/store-listing.md
+# tells the owner to abort the listing if what Chrome shows him differs. Three
+# copies of a fact is two too many, so the test derives it and compares.
+EXTENSION_ID = "hlamngednfddacoabhoapfkpaedgbapp"
+
 ACCOUNT = {"name": "Muhammad Bayoumi", "email": "madastore1899@gmail.com",
            "picture": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf"
                       "FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}
@@ -78,7 +84,24 @@ def _visible_img_selector(page):
 
 def test_the_initial_state_is_checking_then_resolves_to_signed_out(open_panel):
     """Before Chrome answers, the page waits. Once Chrome says no, the button
-    appears and the checking state is gone."""
+    appears and the checking state is gone.
+
+    THE FIRST HALF USED TO GO UNTESTED. Every assertion here was about the END
+    state -- signed-out shown, checking hidden -- so deleting the checking state
+    from the product entirely would not have failed this test, under a name that
+    promises it. `slow=True` holds Chrome's answer back so the waiting state can
+    actually be SEEN before it resolves.
+    """
+    slow_page = open_panel(signin_delay_ms=1200)
+    assert slow_page.is_visible("#welcome-checking"), (
+        "the panel never shows a waiting state while Chrome is deciding, so a "
+        "slow answer looks like a signed-out account")
+    assert not slow_page.is_visible("#welcome-signed-out"), (
+        "the sign-in button is offered before Chrome has answered, which is how "
+        "an already-signed-in owner gets asked to sign in again")
+    slow_page.wait_for_selector("#welcome-signed-out:visible", timeout=15000)
+    assert not slow_page.is_visible("#welcome-checking")
+
     page = open_panel()
 
     assert page.is_visible("#welcome-signed-out")
@@ -254,6 +277,8 @@ def test_the_client_is_named_and_the_id_it_is_bound_to_is_pinned():
     client id safe to ship — and makes the manifest's `key` load-bearing: drop
     it and the ID changes, and every sign-in fails with the one error pressing
     again cannot fix."""
+    import base64
+    import hashlib
     import json
     import pathlib
 
@@ -267,6 +292,27 @@ def test_the_client_is_named_and_the_id_it_is_bound_to_is_pinned():
     assert manifest.get("key"), (
         "the extension's ID is no longer pinned, so it changes between machines "
         "and the OAuth client stops matching it")
+
+    # THE ID ITSELF, DERIVED. A truthy `key` only proves the id is stable, not
+    # that it is THE id. The key was rotated once in this project's history and
+    # the id changed with it, while docs/store-listing.md still told the owner
+    # to abort the listing unless Chrome showed him the old one -- a rotation
+    # nobody would notice until the store rejected the upload.
+    digest = hashlib.sha256(base64.b64decode(manifest["key"])).hexdigest()[:32]
+    derived = "".join(chr(ord("a") + int(char, 16)) for char in digest)
+    assert derived == EXTENSION_ID, (
+        f"the manifest key now derives the extension id {derived}, not "
+        f"{EXTENSION_ID}. Every place that names the id is now wrong -- the "
+        "OAuth client, docs/store-listing.md and docs/SITE-BRIEF.md -- and "
+        "sign-in will fail with a client mismatch nobody can debug from the "
+        "error Chrome shows.")
+
+    for doc in ("docs/store-listing.md", "docs/SITE-BRIEF.md"):
+        text = (pathlib.Path(__file__).resolve().parents[1] / doc).read_text(
+            encoding="utf-8")
+        assert EXTENSION_ID in text, (
+            f"{doc} no longer names the pinned extension id {EXTENSION_ID}; "
+            "the listing instructions and the manifest have drifted apart")
     assert "identity" in manifest["permissions"]
 
 
@@ -436,6 +482,16 @@ def test_a_401_account_lookup_clears_the_cached_token(open_panel):
     problem = page.text_content("#signin-problem")
     assert "isn’t currently granted" in problem
     assert page.get_attribute("#signin", "aria-label") == "Sign in with Google"
+
+    # THE THING THIS TEST IS NAMED AFTER. Everything above is the UI landing in
+    # the signed-out state, which it would also do if the dead token were left
+    # in Chrome's cache -- and then every later sign-in would hand back the same
+    # invalid token and fail the same way, with the panel insisting the owner
+    # sign in to an account he is already signed in to.
+    cleared = page.evaluate("() => window.__sx_removed_tokens || []")
+    assert cleared == ["stub-token"], (
+        "the 401 did not reach chrome.identity.removeCachedAuthToken, so the "
+        f"invalid token is still cached (removed: {cleared!r})")
 
 
 def test_retryable_account_failures_show_a_retry_button(open_panel):

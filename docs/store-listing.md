@@ -157,14 +157,20 @@ The Google consent screen asks for these separately from the store.
 | `userinfo.email` | To show which account is signed in, so the user can tell whose Drive a backup went to. |
 | `userinfo.profile` | The account's name and picture, shown in the panel so the signed-in account is visible at a glance. |
 | `drive.file` | To write backups to the user's own Drive. **This scope only ever sees files ScrapeX itself created** — it cannot read anything else in the user's Drive. |
-| `spreadsheets` | To write an export into a spreadsheet **the user chooses**. This is the "use my existing sheet" option; without it ScrapeX could only ever create new sheets and never write into one the user already has. |
 
-**Note for the privacy-practices form:** `drive.file` is non-sensitive.
-`spreadsheets` **is a sensitive scope**. While the listing is unlisted and
-published to trusted testers this needs no Google verification. It would
-trigger verification if the extension is ever published to a wide audience —
-that is the cost Decision 28 accepts in exchange for the "use my existing sheet"
-button.
+**`spreadsheets` IS NOT REQUESTED AND MUST NOT BE DECLARED.** It was removed
+from `extension/identity.js` before the first listing, and this table said
+otherwise for long enough to matter: declaring a scope the manifest does not
+request is the fastest way to fail review, and the store's own guidance is
+blunt — "Requesting an unnecessary permission will result in this version being
+rejected." Read the scopes off `extension/identity.js`; a table is a copy and
+copies drift.
+
+**Note for the privacy-practices form:** every scope above is NON-SENSITIVE.
+`drive.file` sees only files ScrapeX created or the user hands it through the
+Google Picker, so this listing needs no Google verification even if it stops
+being unlisted — which is why the sensitive scope was dropped rather than
+carried.
 
 ---
 
