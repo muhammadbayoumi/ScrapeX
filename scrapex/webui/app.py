@@ -3027,4 +3027,20 @@ def _entry_from_form(form: dict) -> SourceEntry:
     identity = {k: v for k, v in (form.get("identity") or {}).items() if v not in (None, "")}
     if identity:
         data["identity"] = identity
+    # EVERYTHING ELSE THE MODEL HAS, carried rather than dropped. The block
+    # above names seventeen fields and normalises them; SourceEntry has
+    # twenty-nine, and an EDIT arrives as the whole stored entry merged with the
+    # changed ones — so the twelve unnamed were rebuilt out of existence every
+    # time the panel saved a rename. Measured, not guessed: api, brand,
+    # default_language, max_drop_pct, min_expected_rows, notes, robots,
+    # robots_custom, tax, taxonomy, unit_charter, user_agent.
+    #
+    # `user_agent` alone breaks a source outright — Zid 403s a non-browser
+    # client, which is why that field exists — and `unit_charter` is days of
+    # measured per-source rules. manifest_io.py already carries the same warning
+    # about the WRITER, and was fixed there; the fields never reached it,
+    # because they were gone before update_source was called.
+    for field in SourceEntry.model_fields:
+        if field not in data and field in form:
+            data[field] = form[field]
     return SourceEntry.model_validate(data)
