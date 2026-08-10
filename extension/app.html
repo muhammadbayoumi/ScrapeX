@@ -956,12 +956,12 @@
               <strong>Keep rates up to date</strong>
               <small>Run this check automatically while the engine is available.</small>
             </span>
-            <span class="finance-m3-switch">
+            <span class="finance-m3-switch m3-switch">
               <input id="google_finance_auto_refresh" type="checkbox" role="switch"
                      aria-label="Keep rates up to date">
-              <span class="finance-m3-switch-track" aria-hidden="true">
-                <span class="finance-m3-switch-handle-container">
-                  <span class="finance-m3-switch-handle"></span>
+              <span class="finance-m3-switch-track m3-switch-track" aria-hidden="true">
+                <span class="finance-m3-switch-handle-container m3-switch-handle-container">
+                  <span class="finance-m3-switch-handle m3-switch-handle"></span>
                 </span>
               </span>
             </span>
@@ -1150,8 +1150,30 @@
       </header>
 
       <div class="view-scroll">
-        <section class="card" aria-labelledby="engines-installed-title">
-          <h2 id="engines-installed-title">ScrapeX-Engine</h2>
+        <section class="card engine-card" aria-labelledby="engines-installed-title">
+          <div class="engine-card-header">
+            <h2 id="engines-installed-title">ScrapeX-Engine</h2>
+            <button class="icon-button ghost" id="engine-overflow" type="button"
+                    aria-label="More Engine actions" aria-haspopup="menu"
+                    aria-expanded="false" aria-controls="engine-overflow-menu">
+              <svg class="sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#more-vert"></use>
+              </svg>
+            </button>
+          </div>
+          <div class="engine-overflow-menu hidden" id="engine-overflow-menu"
+               role="menu" aria-labelledby="engine-overflow">
+            <button class="ghost" type="button" role="menuitem" id="engine-diagnostics">
+              Run diagnostics
+            </button>
+            <button class="ghost" type="button" role="menuitem" id="engine-setup-guide">
+              Open setup guide
+            </button>
+            <button class="ghost" type="button" role="menuitem" id="engine-copy-details">
+              Copy Engine technical details
+            </button>
+          </div>
+          <p class="engine-diagnostics-output muted text-sm hidden" id="engine-diagnostics-output"></p>
 
           <!-- The single semantic status. `aria-busy` is true while the panel
                is checking; the live region announces the result once only. -->
@@ -1212,13 +1234,13 @@
                  complete lifecycle tests exist. -->
             <span class="engine-power">
               <label class="engine-power-label" for="engine-power-switch">Engine power</label>
-              <span class="engine-power-switch">
+              <span class="engine-power-switch m3-switch">
                 <input id="engine-power-switch" type="checkbox" role="switch" disabled
                        aria-label="Engine power"
                        aria-describedby="engine-power-disclosure">
-                <span class="engine-power-switch-track" aria-hidden="true">
-                  <span class="engine-power-switch-handle-container">
-                    <span class="engine-power-switch-handle"></span>
+                <span class="engine-power-switch-track m3-switch-track" aria-hidden="true">
+                  <span class="engine-power-switch-handle-container m3-switch-handle-container">
+                    <span class="engine-power-switch-handle m3-switch-handle"></span>
                   </span>
                 </span>
               </span>
@@ -1251,7 +1273,7 @@
           </details>
         </section>
 
-        <section class="card" aria-labelledby="engines-others-title">
+        <section class="card engine-card" aria-labelledby="engines-others-title">
           <h2 id="engines-others-title">Other engines</h2>
           <p>
             Open-source crawlers, installed only when a site needs something

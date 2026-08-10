@@ -2872,7 +2872,11 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
     card = page.locator("#view-engines .card").first
 
     assert (card.locator("h2").text_content() or "").strip() == "ScrapeX-Engine"
-    assert card.locator("button").count() == 2
+    # The card now carries the primary/secondary actions plus the overflow
+    # menu and its three menu items. The two labelled actions are still present.
+    assert card.locator("#engine-download").count() == 1
+    assert card.locator("#engine-recheck").count() == 1
+    assert card.locator("#engine-overflow").count() == 1
 
     download = card.locator("#engine-download")
     # DOWNLOAD, not Install: Chrome does not let an extension write outside its
@@ -3785,3 +3789,126 @@ def test_the_engine_power_switch_is_readable_at_320px(open_panel):
     overflow = page.evaluate(
         "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
     assert not overflow, "the Engine page overflows at 320px after adding the power switch"
+
+
+
+def test_the_engine_card_uses_outlined_cards(open_panel):
+    """Engine cards use the M3 outlined-card modifier without shadow or hover
+    lift."""
+    page = open_panel()
+    page.click("#tab-engines")
+    cards = page.locator("#view-engines .card.engine-card")
+    assert cards.count() == 2
+    for i in range(cards.count()):
+        card = cards.nth(i)
+        style = card.evaluate("el => ({" +
+          "background: getComputedStyle(el).backgroundColor," +
+          "border: getComputedStyle(el).border," +
+          "borderRadius: getComputedStyle(el).borderRadius," +
+          "boxShadow: getComputedStyle(el).boxShadow," +
+          "})")
+        assert "1px" in style["border"]
+        assert style["borderRadius"] == "12px"
+
+
+def test_the_engine_overflow_menu_opens_and_closes(open_panel):
+    """The overflow menu opens, navigates by keyboard, closes on Escape and
+    outside click, and returns focus to the button."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "w" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    overflow = page.locator("#engine-overflow")
+    menu = page.locator("#engine-overflow-menu")
+    assert overflow.get_attribute("aria-haspopup") == "menu"
+    assert overflow.get_attribute("aria-expanded") == "false"
+
+    page.click("#engine-overflow")
+    assert menu.is_visible()
+    assert overflow.get_attribute("aria-expanded") == "true"
+    items = menu.locator('[role="menuitem"]')
+    assert items.count() == 3
+
+    # Keyboard navigation.
+    page.keyboard.press("ArrowDown")
+    active = page.evaluate("() => document.activeElement.id")
+    assert active == "engine-setup-guide"
+    page.keyboard.press("ArrowUp")
+    active = page.evaluate("() => document.activeElement.id")
+    assert active == "engine-diagnostics"
+
+    # Escape closes and returns focus.
+    page.keyboard.press("Escape")
+    assert not menu.is_visible()
+    assert overflow.get_attribute("aria-expanded") == "false"
+    active = page.evaluate("() => document.activeElement.id")
+    assert active == "engine-overflow"
+
+    # Outside click closes.
+    page.click("#engine-overflow")
+    assert menu.is_visible()
+    page.click("#engine-status")
+    assert not menu.is_visible()
+
+
+def test_the_engine_overflow_menu_fits_at_320px(open_panel):
+    """The opened overflow menu must not overflow the 320px viewport."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "x" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-overflow")
+    menu = page.locator("#engine-overflow-menu")
+    assert menu.is_visible()
+    box = menu.bounding_box()
+    assert box and box["x"] + box["width"] <= 320
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    assert not overflow
+
+
+def test_the_engine_version_request_times_out(open_panel):
+    """A stalled /api/version must not keep the Engine card stuck on
+    'Checking engine…' or leave Check again disabled."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "y" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    page.evaluate(r"""() => {
+      const orig = window.fetch;
+      window.fetch = async (url, options) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+        if (path.startsWith('/api/version')) {
+          await new Promise(r => setTimeout(r, 30000));
+        }
+        return orig(url, options);
+      };
+    }""")
+
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    assert text_of(page, "#engine-status") != "Checking engine…"
+    assert not page.locator("#engine-recheck").is_disabled()

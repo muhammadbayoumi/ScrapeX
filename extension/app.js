@@ -445,11 +445,20 @@ async function loadVersions(engine) {
   }
   const query = installed ? `?extension_version=${encodeURIComponent(installed)}` : "";
   try {
-    state.versionReport = await api(`/api/version${query}`);
+    // Local version compatibility must not hang the whole Engine card if the
+    // engine is slow or stuck. The health check already answered; this is a
+    // secondary report.
+    const deadline = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("version timeout")), 3000));
+    state.versionReport = await Promise.race([
+      api(`/api/version${query}`),
+      deadline,
+    ]);
   } catch (_) {
     // A 404 here is not a broken feature: it is an engine built before version
-    // reporting existed. Recorded as null and SAID as such below, never
-    // silently treated as "everything is fine".
+    // reporting existed. A timeout or any other failure is also a fact, not a
+    // broken build. Recorded as null and SAID as such below, never silently
+    // treated as "everything is fine".
     state.versionReport = null;
   }
   renderVersionNotice(engine);
@@ -2383,6 +2392,122 @@ async function refreshEngines() {
   }
 }
 
+// ---- Engine overflow menu ----------------------------------------------
+function openEngineSetupGuide() {
+  chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
+}
+
+async function copyEngineDetails() {
+  const backend = await getBackend();
+  const lines = [
+    `Status: ${$("engine-status").textContent}`,
+    `Installed version: ${$("engine-installed-version").textContent}`,
+    `Latest version: ${$("engine-latest-version").textContent}`,
+    `Protocol: ${$("engine-protocol-row").textContent}`,
+    `Backend: ${backend}`,
+  ];
+  if (state.versionReport && state.versionReport.outdated) {
+    lines.push(`Extension outdated: installed ${state.installedVersion}, requires ${state.versionReport.minimum_extension_version}`);
+  }
+  const text = lines.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_) {
+    // Fallback for contexts where clipboard permission is not granted.
+  }
+}
+
+async function runEngineDiagnostics() {
+  const out = $("engine-diagnostics-output");
+  out.classList.remove("hidden");
+  out.textContent = "Running diagnostics…";
+  const engine = await checkEngine();
+  setStatus(engine);
+  renderEngineStatusUI();
+  out.textContent = engine.protocolMismatch
+    ? `The panel and the ScrapeX engine speak different protocol versions ` +
+      `(panel ${engine.clientProtocol}, engine ${engine.engineProtocol}). ` +
+      `Update whichever is older.`
+    : engine.running
+    ? `Engine reachable at ${await getBackend()} · version ${engine.version || "unknown"}`
+    : `No engine at ${await getBackend()}. Start the engine, then check again.`;
+}
+
+function bindEngineOverflowMenu() {
+  const button = $("engine-overflow");
+  const menu = $("engine-overflow-menu");
+  if (!button || !menu) return;
+  const items = () => Array.from(menu.querySelectorAll('[role="menuitem"]'));
+
+  function openMenu() {
+    menu.classList.remove("hidden");
+    button.setAttribute("aria-expanded", "true");
+    const first = items()[0];
+    if (first) first.focus();
+    document.addEventListener("click", outsideClick, true);
+  }
+
+  function closeMenu(returnFocus = true) {
+    menu.classList.add("hidden");
+    button.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", outsideClick, true);
+    if (returnFocus) button.focus();
+  }
+
+  function outsideClick(e) {
+    if (!menu.contains(e.target) && e.target !== button) closeMenu(true);
+  }
+
+  button.addEventListener("click", () => {
+    if (menu.classList.contains("hidden")) openMenu(); else closeMenu(false);
+  });
+
+  button.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openMenu();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      openMenu();
+    }
+  });
+
+  menu.addEventListener("keydown", (e) => {
+    const list = items();
+    const idx = list.indexOf(document.activeElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeMenu(true);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = list[(idx + 1) % list.length];
+      next.focus();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prev = list[(idx - 1 + list.length) % list.length];
+      prev.focus();
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      document.activeElement.click();
+    } else if (e.key === "Tab") {
+      closeMenu(true);
+    }
+  });
+
+  $("engine-diagnostics").addEventListener("click", () => {
+    runEngineDiagnostics();
+    closeMenu(false);
+  });
+  $("engine-setup-guide").addEventListener("click", () => {
+    openEngineSetupGuide();
+    closeMenu(false);
+  });
+  $("engine-copy-details").addEventListener("click", () => {
+    copyEngineDetails();
+    closeMenu(false);
+  });
+}
+
 // ---- the refusal --------------------------------------------------------
 // M1's whole "done when": an incompatible engine is REFUSED WITH A NAMED
 // ACTION, instead of a dead panel.
@@ -4115,6 +4240,7 @@ async function init() {
   showView("profile", false);
   await loadAccount();
   await render();
+  bindEngineOverflowMenu();
 }
 
 document.addEventListener("DOMContentLoaded", init);
