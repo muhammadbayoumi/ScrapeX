@@ -19,10 +19,10 @@ on the manifest's word, because the payload cannot be wrong about itself.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
-from ..normalize import brand_pair
 from ..config import SourceEntry
+from ..normalize import brand_pair
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, ExtractKind, group_for_code
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
@@ -230,7 +230,6 @@ class HybrisOccConnector:
         display_base = source.base_url.rstrip("/")
         vat = "1" if source.vat_mode.value == "incl" else "0"
         currency = source.currency or "UNKNOWN"
-        rows: list[list[str]] = []
         notes: list[str] = []
         unpriced = 0
         # The pictures ride the SAME search response the prices come from, so
@@ -364,7 +363,7 @@ class HybrisOccConnector:
                     break
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — bilingual is additive, prices are vital
+        except Exception as exc:
             notes.append("english-names pass failed — names stay "
                          f"{PRIMARY_LANG}-only this run: {exc}")
             return {}
@@ -380,7 +379,7 @@ class HybrisOccConnector:
             body = self._fetcher.get(f"{_occ_root(source)}/languages").json() or {}
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             notes.append("could not read the store's language list — names "
                          f"stay {PRIMARY_LANG}-only this run: {exc}")
             return set()

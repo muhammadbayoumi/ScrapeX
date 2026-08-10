@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from ..config import SourceEntry
 from ..vocab import ConnectorFamily
+from .aramco import AramcoFuelConnector
 from .base import HttpFetcher, SiteConnector, resolve_fetcher
 from .custom_json import CustomJsonConnector
-from .aramco import AramcoFuelConnector
 from .gpp import GlobalPetrolPricesConnector
 from .heidelberg import HeidelbergPriceMatrixConnector
 from .hybris import HybrisOccConnector

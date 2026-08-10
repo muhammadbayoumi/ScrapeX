@@ -20,9 +20,10 @@ one day differ for no reason anybody can name.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Iterable, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 class PageKind(StrEnum):
@@ -118,7 +119,7 @@ def supports_slices(source: PageSource, *, base_url: str = "") -> bool:
             0, "")
     except SliceNotSupported:
         return False
-    except Exception:                      # noqa: BLE001
+    except Exception:
         # Any other failure on an empty page says nothing about whether the
         # site can slice a real one. Only an explicit refusal counts.
         return True

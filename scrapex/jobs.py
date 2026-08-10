@@ -21,22 +21,27 @@ import sys
 import threading
 import traceback
 import uuid
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, Iterable
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 from . import db as dbmod
-from .archive import archive_source, backup_database
+from .archive import backup_database
 from .capture import CaptureResult, capture_source
 from .connectors.base import CrawlInterrupted
 from .ingest import canary_breach, previous_rows_seen
 from .payload import utc_now_iso
 from .vocab import (
-    BLOCKING_JOB_STATUSES, TERMINAL_JOB_STATUSES, WORKER_HELD_STATUSES,
-    JobControl, JobStage, JobStatus, LogLevel, RunMode,
+    TERMINAL_JOB_STATUSES,
+    WORKER_HELD_STATUSES,
+    JobControl,
+    JobStage,
+    JobStatus,
+    LogLevel,
+    RunMode,
 )
 
 _COUNTER_FIELDS = ("observations", "duplicates", "products", "variants",
@@ -86,7 +91,7 @@ def list_jobs(conn: sqlite3.Connection, limit: int = 20, active_only: bool = Fal
         sql += f" WHERE status NOT IN ({marks})"
         params = tuple(s.value for s in TERMINAL_JOB_STATUSES)
     sql += " ORDER BY job_id DESC LIMIT ?"
-    return [_as_job(r) for r in conn.execute(sql, params + (limit,))]
+    return [_as_job(r) for r in conn.execute(sql, (*params, limit))]
 
 
 def set_control(conn: sqlite3.Connection, job_ref: str, control: JobControl | str) -> bool:
@@ -254,8 +259,8 @@ def record_source_fetch(conn: sqlite3.Connection, job_id: int, source_key: str,
     if row is None:
         return
     current = json.loads(row[0] or "{}") if row[0] else {}
-    slot = dict(((current.get(SOURCES_KEY) or {}).get(source_key) or {}))
-    slot.update({k: v for k, v in fields.items()})
+    slot = dict((current.get(SOURCES_KEY) or {}).get(source_key) or {})
+    slot.update(dict(fields.items()))
     conn.execute(
         "UPDATE crawl_job SET last_heartbeat_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
         f"counters_json = json_set(COALESCE(NULLIF(counters_json,''),'{{}}'), "
@@ -330,8 +335,8 @@ def _control_of(conn: sqlite3.Connection, job_id: int) -> str:
 
 
 def _merge_counters(counters: dict, result: CaptureResult) -> dict:
-    for field in _COUNTER_FIELDS:
-        counters[field] = counters.get(field, 0) + getattr(result.ingest, field)
+    for name in _COUNTER_FIELDS:
+        counters[name] = counters.get(name, 0) + getattr(result.ingest, name)
     counters["errors"] = (counters.get("errors", 0)
                           + len(result.ingest.errors) + len(result.ingest.contained))
     counters["requests"] = counters.get("requests", 0) + result.requests_count
@@ -384,7 +389,7 @@ def _host_of(manifest, key: str, fallback: str) -> str:
     """
     try:
         host = urlsplit(manifest.get(key).base_url).netloc.lower()
-    except Exception:  # noqa: BLE001 — resolved, and reported, per source
+    except Exception:
         return fallback
     return host.removeprefix("www.") or fallback
 
@@ -522,7 +527,7 @@ def _parallel_width(conn: sqlite3.Connection, connect, lanes: int) -> int:
 
 
 def _drive_lanes(run: _SourceRun, lanes: list[list[str]], width: int, connect,
-                 admission: "_CrawlAdmission | None" = None) -> None:
+                 admission: _CrawlAdmission | None = None) -> None:
     """Run each lane to completion; lanes concurrently when asked.
 
     `admission` (when present) is the cross-job gate every lane passes through —
@@ -545,7 +550,7 @@ def _drive_lanes(run: _SourceRun, lanes: list[list[str]], width: int, connect,
 
 
 def _run_lane(run: _SourceRun, lane: list[str], connect,
-              admission: "_CrawlAdmission | None" = None) -> None:
+              admission: _CrawlAdmission | None = None) -> None:
     """One host's sources, strictly in order, on a connection of this lane's own.
 
     The admission is acquired around the WHOLE lane, held across its sequential
@@ -729,7 +734,7 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                     last_heartbeat_at=utc_now_iso())
         conn.commit()
         return False
-    except Exception as exc:  # noqa: BLE001 — one bad source never kills the job (Q3)
+    except Exception as exc:
         run.errors.append(f"{source_key}: {exc}")
         append_log(conn, run.job_id, f"failed: {exc}", level=LogLevel.ERROR, source_key=source_key)
 
@@ -759,7 +764,7 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
                  capture: Callable[[sqlite3.Connection, object], CaptureResult] = capture_source,
                  backup: Callable[[], object] | None = None,
                  connect: Callable[[], sqlite3.Connection] | None = None,
-                 admission: "_CrawlAdmission | None" = None) -> dict:
+                 admission: _CrawlAdmission | None = None) -> dict:
     """Execute one job to completion, or until a pause/cancel boundary.
 
     `connect` opens a database connection of the caller's choosing. It is the
@@ -816,7 +821,7 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     if rebuilding and not done and backup is not None:
         try:
             append_log(conn, job_id, f"backup created: {backup()}")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             append_log(conn, job_id, f"backup failed: {exc}", level=LogLevel.ERROR)
             _finish(conn, job_id, JobStatus.FAILED, f"backup failed, rebuild aborted: {exc}")
             return get_job(conn, job_ref)
@@ -925,7 +930,7 @@ def record_worker_failure(conn: sqlite3.Connection, exc: BaseException,
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (WORKER_ERROR_KEY, payload))
         conn.commit()
-    except Exception:  # noqa: BLE001 — never let the reporter kill the worker
+    except Exception:
         traceback.print_exc(file=sys.stderr)
 
 
@@ -944,10 +949,10 @@ def _age_s(stamp: str | None) -> float | None:
     if not stamp:
         return None
     try:
-        then = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        then = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError:
         return None
-    return (datetime.now(timezone.utc) - then).total_seconds()
+    return (datetime.now(UTC) - then).total_seconds()
 
 
 def worker_health(conn: sqlite3.Connection) -> dict:
@@ -1041,10 +1046,10 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
     if row is None or not row[0]:
         return False
     try:
-        beat = datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        beat = datetime.strptime(row[0], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return False
-    return (datetime.now(timezone.utc) - beat).total_seconds() <= max_age_s
+    return (datetime.now(UTC) - beat).total_seconds() <= max_age_s
 
 
 def reclaim_orphaned_jobs(conn: sqlite3.Connection) -> int:
@@ -1234,7 +1239,7 @@ class JobRunner:
         try:
             if not rates.refresh_is_due(conn):
                 return
-        except Exception as exc:  # noqa: BLE001 — never fatal to the loop
+        except Exception as exc:
             traceback.print_exc(file=sys.stderr)
             self._record_failure(conn, exc)
             return
@@ -1249,7 +1254,7 @@ class JobRunner:
             # while /api/jobs was trying to insert a row.
             with dbmod.write_lock(self._db_path):
                 batch = rates.refresh_if_due(conn, HttpFetcher())
-        except Exception as exc:  # noqa: BLE001 — never fatal to the loop
+        except Exception as exc:
             traceback.print_exc(file=sys.stderr)
             self._record_failure(conn, exc)
             return
@@ -1315,7 +1320,7 @@ class JobRunner:
                     fire_due(conn, manifest=self._manifest_provider())
                     self._refresh_rates(conn)
                     self._dispatch(conn)
-                except Exception as exc:  # noqa: BLE001 — survive any one pass...
+                except Exception as exc:
                     # ...but NEVER silently. Swallowing this used to leave a job
                     # 'running' forever (blocking its source's schedules) or spin
                     # the loop on it at poll speed with nothing written anywhere.
@@ -1323,7 +1328,7 @@ class JobRunner:
                     # this handler is for the loop's own scheduling work.
                     traceback.print_exc(file=sys.stderr)
                     self._record_failure(conn, exc)
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             # The loop itself is gone — the connect, the orphan reclaim, or
             # anything the inner handler could not hold. This is the case
             # that produced a live port and a dead worker with nothing said
@@ -1331,7 +1336,7 @@ class JobRunner:
             traceback.print_exc(file=sys.stderr)
             try:
                 record_worker_failure(dbmod.connect(self._db_path), exc, fatal=True)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 traceback.print_exc(file=sys.stderr)
             raise
         finally:
@@ -1410,7 +1415,7 @@ class JobRunner:
                              # only the worker can offer concurrency.
                              connect=lambda: dbmod.connect(str(self._db_path)),
                              admission=admission)
-            except Exception as exc:  # noqa: BLE001 — one job never takes the loop with it
+            except Exception as exc:
                 traceback.print_exc(file=sys.stderr)
                 self._record_failure(conn, exc)
                 if conn is not None:
@@ -1437,7 +1442,7 @@ class JobRunner:
             return
         try:
             spare = dbmod.connect(self._db_path)
-        except Exception:  # noqa: BLE001 — the database itself is what is unreachable
+        except Exception:
             traceback.print_exc(file=sys.stderr)
             return
         try:
@@ -1455,7 +1460,7 @@ class JobRunner:
                 return
             append_log(conn, job["job_id"], f"worker error: {exc}", level=LogLevel.ERROR)
             _finish(conn, job["job_id"], JobStatus.FAILED, f"worker error: {exc}")
-        except Exception:  # noqa: BLE001 — a failing failure-handler must not kill the worker
+        except Exception:
             conn.rollback()
             traceback.print_exc(file=sys.stderr)
 

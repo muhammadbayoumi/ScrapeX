@@ -38,27 +38,50 @@ than it works on.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from bs4 import BeautifulSoup
 
-from ..localinbox import safe_token
-from ..normalize import brand_pair
 from ..config import SourceEntry
+from ..localinbox import safe_token
+
 # ENRICHMENT is imported eagerly: the enrichment branch below referenced it
 # without it ever being in scope, so a salla source that declared an
 # enrichment extract would have died on NameError after the whole crawl.
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import ExtractKind
 from .base import HttpFetcher, ScrapedTable, declare_frontier
+
 # Shared SSR helpers (also re-exported for salla's tests). offer_price/parse are
 # generic; the /p{id} id scheme below is the salla-specific part. enrichment_rows
 # moved to jsonld when zid needed the same pictures-and-prose reading — it is
 # imported here rather than left behind so both families share one copy.
-from .jsonld import (Picture, WalkTally, brand_name, category_path,
-                     enrichment_rows, jsonld_pictures, merge_pictures,
-                     offer_price, parse_product_jsonld, product_row,
-                     sitemap_locs, sitemap_products, walk_product_pages)
+from .jsonld import (
+    Picture,
+    WalkTally,
+    brand_name,
+    category_path,
+    enrichment_rows,
+    jsonld_pictures,
+    merge_pictures,
+    offer_price,
+    parse_product_jsonld,
+    product_row,
+    sitemap_locs,
+    sitemap_products,
+    walk_product_pages,
+)
+
+# THE RE-EXPORTS, SAID OUT LOUD. The comment above has always claimed these are
+# re-exported for salla's tests; a comment could not stop `ruff --fix` deleting
+# four of them as unused, and it did -- tests/test_salla.py stopped importing.
+# __all__ is the same claim in a form the tooling reads.
+__all__ = [
+    "Picture", "SallaConnector", "WalkTally", "brand_name", "category_path",
+    "enrichment_rows", "jsonld_pictures", "merge_pictures", "offer_price",
+    "one_url_per_product", "page_pictures", "parse_product_jsonld",
+    "product_row", "sitemap_locs", "sitemap_products", "walk_product_pages",
+]
 
 _PRODUCT_ID = re.compile(r"/p(\d{5,})")
 

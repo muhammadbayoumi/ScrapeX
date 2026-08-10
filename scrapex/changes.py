@@ -166,7 +166,7 @@ def _display_unit(item: dict) -> str:
     raw columns are popped because they are query plumbing, not fields of a
     change event, and the feed's shape is part of its contract.
     """
-    from .reports import price_basis, price_unit      # display-only resolution
+    from .reports import price_basis, price_unit  # display-only resolution
     unit_code = item.pop("unit_code", None)
     basis = item.pop("basis_quantity", 1)
     weight = item.pop("weight", None)
@@ -206,7 +206,7 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
     sql += "ORDER BY c.change_event_id DESC LIMIT ?"
     params.append(max(1, min(limit, 500)))
 
-    from .reports import region_name          # display-only resolution
+    from .reports import region_name  # display-only resolution
     out = []
     for row in conn.execute(sql, params):
         item = dict(row)

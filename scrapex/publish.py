@@ -13,8 +13,7 @@ from typing import Protocol
 
 from .fields import ORIGINAL_SCHEMA, apply_schema
 from .payload import utc_now_iso
-from .reports import (export_details_table, export_history_table,
-                      export_source_table, source_summary)
+from .reports import export_details_table, export_history_table, export_source_table, source_summary
 
 
 class SheetSink(Protocol):

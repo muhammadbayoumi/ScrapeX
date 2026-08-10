@@ -18,7 +18,6 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-
 # db/ lives next to the package; schema.sql is the single DDL truth (Q1).
 DB_DIR = Path(__file__).resolve().parent.parent / "db"
 SCHEMA_FILE = DB_DIR / "schema.sql"

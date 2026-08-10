@@ -7,12 +7,13 @@ owner curates). This directly answers "did anything actually land?".
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from . import fields, rates, tax
 from .fields import AXIS_PREFIX
 from .normalize import option_axes_from
-from .vocab import BLOCK_ORDER, Block, DETAIL_GROUP_ORDER
+from .vocab import BLOCK_ORDER, DETAIL_GROUP_ORDER, Block
 
 
 @dataclass
@@ -1089,7 +1090,7 @@ _EXPORT_SELECT: dict[str, str] = {
 # `country`. The spreadsheet cannot notice that; the owner did, from a row of
 # copper cable. Pairing the name with its producer makes that class of defect
 # impossible rather than merely fixed once.
-EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
+EXPORT_COLUMNS: list[tuple[str, Callable[[dict, object], object]]] = [
     # Identity. region/country sit right after the name: for a commodity source
     # they are what distinguishes one row from the next.
     ("product_name", lambda r, s: r["name_en"] or ""),
@@ -1231,7 +1232,7 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     table = []
     parsed = []
     for raw in rows:
-        row = dict(zip(aliases, raw))
+        row = dict(zip(aliases, raw, strict=True))
         # ...and read for THIS row's figure, so tax_evidence never contradicts
         # the tax_included cell two columns to its left.
         state = (tax.resolve(tax_rules, row["country_code_alpha2"],
@@ -1312,9 +1313,9 @@ def _filter_groups(conn: sqlite3.Connection, source_key: str) -> dict[str, str]:
 
     rank = {name: position for position, name in enumerate(DETAIL_GROUP_ORDER)}
     best: dict[str, str] = {}
-    for label, group in rows:
-        label = str(label or "")
-        group = str(group or "")
+    for raw_label, raw_group in rows:
+        label = str(raw_label or "")
+        group = str(raw_group or "")
         if not label:
             continue
         current = best.get(label)
@@ -1384,7 +1385,7 @@ def _with_axis_columns(header: list[str], table: list[list],
     at = header.index("variant_ar") + 1
     widened = header[:at] + names + header[at:]
     rows = [row[:at] + [axes.get(name, "") for name in names] + row[at:]
-            for row, axes in zip(table, parsed)]
+            for row, axes in zip(table, parsed, strict=True)]
     return widened, rows
 
 
@@ -1629,7 +1630,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
     for r in rows:
         item = dict(r)
         item["country"] = region_name(item["country_code_alpha2"])
-        first, current = item["first_price"], item["current_price"]
+        current = item["current_price"]
         # The Change column now answers the owner's question — the move from
         # the PREVIOUS price to the current one, not from the dawn of history.
         # First stays as context; with change-only storage, previous is the
@@ -1953,29 +1954,29 @@ def fold_variant_rows(rows: list[dict]) -> list[dict]:
             folded.append(members[0])
             continue
         merged = dict(members[0])
-        for field in members[0]:
-            if field in _FOLD_JOINED:
+        for column in members[0]:
+            if column in _FOLD_JOINED:
                 seen: list[str] = []
                 for member in members:
-                    value = str(member.get(field) or "").strip()
+                    value = str(member.get(column) or "").strip()
                     if value and value not in seen:
                         seen.append(value)
                 # An Arabic list reads with an Arabic comma; the rest with a
                 # plain one. Same rule the columns already follow.
-                separator = "، " if field.endswith("_ar") else ", "
-                merged[field] = separator.join(_shared_axis_once(seen))
+                separator = "، " if column.endswith("_ar") else ", "
+                merged[column] = separator.join(_shared_axis_once(seen))
                 continue
-            if field in _FOLD_KEPT:
+            if column in _FOLD_KEPT:
                 continue
-            values = [member.get(field) for member in members]
+            values = [member.get(column) for member in members]
             if all(value == values[0] for value in values):
                 continue
-            if field in (_FOLD_MIN, _FOLD_MAX):
+            if column in (_FOLD_MIN, _FOLD_MAX):
                 numbers = [v for v in values if isinstance(v, (int, float))]
                 if numbers:
-                    merged[field] = min(numbers) if field == _FOLD_MIN else max(numbers)
+                    merged[column] = min(numbers) if column == _FOLD_MIN else max(numbers)
                     continue
-            merged[field] = ""
+            merged[column] = ""
         merged["variants"] = len(members)
         merged["offer_ids"] = [m.get("offer_id") for m in members]
         folded.append(merged)

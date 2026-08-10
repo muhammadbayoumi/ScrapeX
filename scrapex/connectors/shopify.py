@@ -6,7 +6,7 @@ against the canonical RowSpec (never hardcoded column order, Q2).
 """
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..config import SourceEntry
 from ..normalize import brand_pair, option_axes_json, option_fingerprint
@@ -127,7 +127,7 @@ class ShopifyConnector:
                 products = self._fetcher.get(url).json().get("products", [])
             except CrawlBlocked:
                 raise
-            except Exception as exc:  # noqa: BLE001 — bilingual is additive
+            except Exception as exc:
                 if page == 1:
                     notes.append(
                         f"{locale} locale unavailable — every name stays in the "

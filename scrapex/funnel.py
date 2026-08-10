@@ -194,7 +194,7 @@ class FunnelClient:
                                   timeout=self._timeout_s, follow_redirects=True)
             response.raise_for_status()
             return response.json()
-        except Exception as exc:  # noqa: BLE001 — reported, not raised
+        except Exception as exc:
             return {"ok": False, "error": f"unreachable: {exc!r}"}
 
     def outbox_count(self) -> int:

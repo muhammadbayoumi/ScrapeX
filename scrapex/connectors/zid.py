@@ -72,17 +72,25 @@ is the only way anyone can ever see it.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 from urllib.parse import urljoin
 
-from ..localinbox import safe_token
 from ..config import SourceEntry
+from ..localinbox import safe_token
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import ExtractKind
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
-from .jsonld import (WalkTally, alternate_links, english_alternate,
-                     enrichment_rows, offer_price, parse_product_jsonld,
-                     product_row, sitemap_products, walk_product_pages)
+from .jsonld import (
+    WalkTally,
+    alternate_links,
+    english_alternate,
+    enrichment_rows,
+    offer_price,
+    parse_product_jsonld,
+    product_row,
+    sitemap_products,
+    walk_product_pages,
+)
 
 _PRODUCT_PATH = "/products/"
 
@@ -94,7 +102,7 @@ _STORE_RATE = re.compile(
     r'"code"\s*:\s*"([A-Za-z]{3})"'
     r'(?:(?!"code"\s*:).)*?'
     r'"exchange_rate"\s*:\s*"?([0-9]*\.?[0-9]+)"?',
-    re.S)
+    re.DOTALL)
 
 # 1 USD buying more than a million units is a parse gone wrong, not a rate.
 # Same ceiling rates.py applies to Google Finance, restated at this door
@@ -289,7 +297,7 @@ class ZidConnector:
                 found = _bootstrap_rates(probe.get(target).text)
             except CrawlBlocked:
                 raise                    # the site said stop — stop
-            except Exception as exc:  # noqa: BLE001 — one page never kills a crawl
+            except Exception as exc:
                 notes.append(f"{region.upper()}: the store's exchange rate was "
                              f"not read from {target} — {exc}")
                 continue
@@ -343,7 +351,7 @@ class ZidConnector:
             other = parse_product_jsonld(self._fetcher.get(alt).text)
         except CrawlBlocked:
             raise
-        except Exception:  # noqa: BLE001 — one dead page never kills the crawl (Q3)
+        except Exception:
             return {}, 1
         if not other:
             return {}, 1

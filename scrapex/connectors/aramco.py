@@ -14,7 +14,7 @@ the words are the contract.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..config import SourceEntry
 from ..normalize import strip_markup
@@ -156,14 +156,14 @@ class AramcoFuelConnector:
             lines = page_lines(html)
             start = next(i for i, line in enumerate(lines) if _HEADING_EN in line)
             labels = {}
-            for price, label in parse_pairs(lines, start):
+            for _price, label in parse_pairs(lines, start):
                 material = _MATERIALS_EN.get(label.strip().lower())
                 if material:
                     labels[material] = label.strip()
             return labels
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — the Arabic prices are the point
+        except Exception as exc:
             warnings.append(f"english edition unavailable — labels stay "
                             f"Arabic-only this run: {exc}")
             return {}

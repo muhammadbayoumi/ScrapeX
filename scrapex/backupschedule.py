@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from . import settings
 
@@ -68,7 +68,7 @@ def _stamp(moment: datetime) -> str:
 
 def _read_stamp(text: str) -> datetime | None:
     try:
-        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except (TypeError, ValueError):
         return None
 
@@ -81,7 +81,7 @@ def should_back_up(conn: sqlite3.Connection, *, changed: bool = False,
     `manual` is his own press and outranks everything except OFF: a person who
     just pressed Back up now is not asking to be told about a schedule.
     """
-    moment = (now or datetime.now(timezone.utc)).replace(microsecond=0)
+    moment = (now or datetime.now(UTC)).replace(microsecond=0)
     when = (settings.get(conn, "backup_when") or WHEN_AFTER_CHANGE).strip()
 
     if when == WHEN_OFF:
@@ -134,6 +134,6 @@ def record_upload(conn: sqlite3.Connection, now: datetime | None = None) -> str:
     failed upload postpone the next one, which is the opposite of what anyone
     would want from a backup.
     """
-    stamp = _stamp(now or datetime.now(timezone.utc))
+    stamp = _stamp(now or datetime.now(UTC))
     settings.save(conn, {"backup_last_uploaded_at": stamp})
     return stamp

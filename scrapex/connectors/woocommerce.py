@@ -14,13 +14,12 @@ request per variation buys the real numbers.
 from __future__ import annotations
 
 import re
-
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..config import SourceEntry
 from ..normalize import brand_pair, option_axes_json, option_fingerprint, strip_markup
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import DetailGroup, group_for_code, Availability, ExtractKind
+from ..vocab import Availability, DetailGroup, ExtractKind, group_for_code
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 PER_PAGE = 100
@@ -207,7 +206,7 @@ class WooCommerceConnector:
                 child = self._fetcher.get(f"{endpoint}/{vid}").json()
             except CrawlBlocked:
                 raise    # the site said no — hundreds more requests is not the answer
-            except Exception as exc:  # noqa: BLE001 — isolate per variation
+            except Exception as exc:
                 notes.append(f"{product.get('name')}: variation {vid}: {exc}")
                 continue
             row = self._row(builder, child if isinstance(child, dict) else {},

@@ -24,9 +24,9 @@ pairing spot-checked (Venezuela 0.004, Egypt 0.404, Saudi Arabia 0.476 USD/litre
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Iterable
 
 from bs4 import BeautifulSoup
 
@@ -118,7 +118,7 @@ def parse_price_table(html: str, country_sel: str = _COUNTRY_SEL,
         raise ValueError(
             f"GPP layout drift: {len(names)} country labels vs {len(values)} price "
             "values (positional parse would misalign — refusing)")
-    return list(zip(names, values))
+    return list(zip(names, values, strict=True))
 
 
 def parse_rank_table(html: str, column: int) -> list[tuple[str, str]]:
@@ -251,7 +251,7 @@ class GlobalPetrolPricesConnector:
                 # stop signal under it would turn "stop" into hundreds more
                 # requests against a server that already objected.
                 raise
-            except Exception as exc:  # noqa: BLE001 — one page down never kills the crawl
+            except Exception as exc:
                 page_errors.append(f"{material_key}: {exc}")
                 failures += 1
                 continue
@@ -298,7 +298,7 @@ class GlobalPetrolPricesConnector:
                     detail = parse_country_page(self._fetcher.get(base + href).text)
                 except CrawlBlocked:
                     raise
-                except Exception as exc:  # noqa: BLE001 — isolate per country
+                except Exception as exc:
                     # Deliberately NOT tokenized: a page that FAILED must be
                     # retried on resume, unlike one that answered "nothing".
                     page_errors.append(f"{material_key}/{region}: {exc}")
@@ -357,7 +357,7 @@ class GlobalPetrolPricesConnector:
         yield from self._finish(source, base, builder, page_errors, unmapped)
 
     def _history_rows(self, builder: RowBuilder, material_key: str, region: str,
-                      detail: "CountryPrice", base: str, href: str,
+                      detail: CountryPrice, base: str, href: str,
                       currency: str, unit: str, vat: str,
                       page_errors: list[str]) -> list[list[str]]:
         """The full weekly series from the Arabic mirror, as reported rows.
@@ -374,7 +374,7 @@ class GlobalPetrolPricesConnector:
             points = parse_arabic_history(self._fetcher.get(ar_url).text)
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — history is additive, not vital
+        except Exception as exc:
             page_errors.append(f"{material_key}/{region}: history mirror: {exc}")
             return []
         if not points:
@@ -428,7 +428,7 @@ class GlobalPetrolPricesConnector:
 
 
 def _row(builder: RowBuilder, material_key: str, region: str, price: str,
-         currency: str, unit: str, vat: str, country: "CountryPrice | None" = None,
+         currency: str, unit: str, vat: str, country: CountryPrice | None = None,
          *, as_of: str = "", provenance: str = "observed", value: str = ""):
     """One commodity row. `country` carries what the country page published.
 
@@ -440,12 +440,12 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
     amount = value or price
     if not any(ch.isdigit() for ch in amount):
         return None  # '-' / 'N/A' cells — skip, don't feed the money parser garbage
-    fields = dict(
-        material_key=material_key, country_code_alpha2=region, currency=currency, unit=unit,
-        tax_included=vat, price=amount, observed_label="",
-        provenance=provenance, as_of_date=as_of,
-        price_basis="converted",
-    )
+    fields = {
+        "material_key": material_key, "country_code_alpha2": region, "currency": currency, "unit": unit,
+        "tax_included": vat, "price": amount, "observed_label": "",
+        "provenance": provenance, "as_of_date": as_of,
+        "price_basis": "converted",
+    }
     if country and country.price and country.currency:
         # The price becomes the one the SOURCE publishes, in the currency it
         # publishes it in. Carrying an EGP amount in a field labelled USD — which
@@ -474,7 +474,7 @@ def _row(builder: RowBuilder, material_key: str, region: str, price: str,
 
 
 def country_rows(builder: RowBuilder, material_key: str, region: str,
-                 country: "CountryPrice", currency: str, unit: str, vat: str,
+                 country: CountryPrice, currency: str, unit: str, vat: str,
                  today: date) -> list[list[str]]:
     """The current price plus whatever history the country page published.
 
@@ -542,7 +542,7 @@ _AGO_LABELS = {
     "six months ago": 182,
     "one year ago": 365,
 }
-_CURRENCY_UNIT = re.compile(r"Price\s*\(([A-Za-z]{3})\s*/\s*([^)]+)\)", re.I)
+_CURRENCY_UNIT = re.compile(r"Price\s*\(([A-Za-z]{3})\s*/\s*([^)]+)\)", re.IGNORECASE)
 
 # GPP has a SECOND country-page template — COMPACT — for Libya, Venezuela and
 # evidently much of the regulated cheap-fuel cohort. Verified live 2026-07-27
@@ -737,7 +737,7 @@ def parse_country_page(html: str) -> CountryPrice:
 # (date, local-currency price) back to 2016, readable by any visitor's browser.
 # In scope under the owner's licence rule (what the public page shows any
 # visitor); the paid API and data download remain untouched.
-_ADDROWS = re.compile(r"data\.addRows\(\[(.*?)\]\);", re.S)
+_ADDROWS = re.compile(r"data\.addRows\(\[(.*?)\]\);", re.DOTALL)
 _AR_POINT = re.compile(r"\[\s*'([^']*)'\s*,\s*([\d.]+)\s*\]")
 # The labels read 'يوم DD شهر MM سنة YYYY' — day, month, year, in words the
 # regex anchors on so a digit can never be read out of position.

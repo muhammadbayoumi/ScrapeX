@@ -24,10 +24,11 @@ enforced rather than merely recorded.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Callable, Iterable
 
-from .crawlscope import CrawlScope, plan as plan_scope
+from .crawlscope import CrawlScope
+from .crawlscope import plan as plan_scope
 from .pagesource import FetchedPage, PageKind, PageSource, SliceNotSupported
 
 #: What the fetcher is: a url in, the page's text out. Anything that raises is
@@ -130,7 +131,7 @@ class PageWalker:
         self._fetched_any = True
         try:
             html = self._fetch(url)
-        except Exception as exc:                      # noqa: BLE001
+        except Exception as exc:
             # NOT RAISED. One dead page out of a hundred thousand must not
             # discard the rest, and a crawl that stops at the first 404 of a
             # thirty-four hour run is a crawl nobody can finish.

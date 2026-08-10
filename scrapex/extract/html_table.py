@@ -11,7 +11,10 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup, Tag
 
 from .models import (
-    MAX_PREVIEW_ROWS, MAX_TABLE_COLUMNS, MAX_TABLE_ROWS, MAX_TABLES,
+    MAX_PREVIEW_ROWS,
+    MAX_TABLE_COLUMNS,
+    MAX_TABLE_ROWS,
+    MAX_TABLES,
 )
 
 _INTEGER = re.compile(r"^[+-]?\d+$")
@@ -112,7 +115,7 @@ def _direct_rows(table: Tag) -> list[Tag]:
 
 
 def _cells(row: Tag) -> list[Tag]:
-    return [cell for cell in row.find_all(["th", "td"], recursive=False)]
+    return list(row.find_all(["th", "td"], recursive=False))
 
 
 def _infer_type(values: list[str | None]) -> tuple[str, float]:
@@ -147,7 +150,7 @@ def _is_datetime(value: str) -> bool:
     if "T" not in value and " " not in value:
         return False
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        datetime.fromisoformat(value)
         return True
     except ValueError:
         return False

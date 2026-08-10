@@ -30,16 +30,13 @@ So a configurable row is stored at 50.4 with tax_included=0 and reads "Excl.
 from __future__ import annotations
 
 import re
-
-from typing import Iterable
+from collections.abc import Iterable
 
 from ..config import SourceEntry
-from ..units import charter_for
-from ..normalize import (option_axes_json, option_fingerprint, selling_unit_from,
-                         strip_markup)
+from ..normalize import option_axes_json, option_fingerprint, selling_unit_from, strip_markup
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
-from ..vocab import (Availability, DetailGroup, DisplayMethod, ExtractKind,
-                     group_for_code)
+from ..units import charter_for
+from ..vocab import Availability, DisplayMethod, ExtractKind, group_for_code
 from .base import CrawlBlocked, HttpFetcher, ScrapedTable, declare_frontier
 
 PAGE_SIZE = 100
@@ -672,7 +669,7 @@ class MagentoGraphqlConnector:
                 )
 
     def _attribute_labels(self, endpoint: str, store: str | None,
-                          notes: list, codes: "set[str] | None" = None) -> dict:
+                          notes: list, codes: set[str] | None = None) -> dict:
         """attribute code -> the store's own human label, for EVERY attribute.
 
         The owner's report, with a screenshot: the site prints «المصنع»,
@@ -718,7 +715,7 @@ class MagentoGraphqlConnector:
             return found
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — labels are additive
+        except Exception as exc:
             notes.append(f"attribute labels unavailable for "
                          f"{store or 'the default store'} — codes stand in: {exc}")
             return {}
@@ -741,7 +738,7 @@ class MagentoGraphqlConnector:
                       .json() or {})
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — the crawl does not hang on this
+        except Exception as exc:
             notes.append(f"filters: aggregations unavailable ({exc}) — the site's "
                          "filterable attributes stay under More information")
             return {}
@@ -773,7 +770,7 @@ class MagentoGraphqlConnector:
                       .json() or {})
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — the crawl does not hang on this
+        except Exception as exc:
             notes.append(f"the store did not state the unit of its weights ({exc}) "
                          "— prices quoted against a weight show no basis this run")
             return ""
@@ -885,7 +882,7 @@ class MagentoGraphqlConnector:
                 page += 1
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — bilingual is additive, prices are vital
+        except Exception as exc:
             notes.append(f"english-names pass failed — names and variations stay "
                          f"Arabic-only this run: {exc}")
             return {"names": {}, "axis_labels": {}, "axis_values": {},
@@ -917,7 +914,7 @@ class MagentoGraphqlConnector:
                 walk(root, [])
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — the Arabic path still stands
+        except Exception as exc:
             notes.append(f"english category tree unavailable — classification "
                          f"stays Arabic-only this run: {exc}")
         return labels
@@ -991,7 +988,7 @@ class MagentoGraphqlConnector:
                 walk(root, [])
         except CrawlBlocked:
             raise
-        except Exception as exc:  # noqa: BLE001 — classification is additive, prices are vital
+        except Exception as exc:
             notes.append(f"category tree walk failed — rows carry no "
                          f"classification this run: {exc}")
             return {}

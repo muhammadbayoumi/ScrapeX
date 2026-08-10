@@ -121,7 +121,7 @@ def _convert(value: str | None, data_type: str, field_name: str) -> Any:
         if data_type == "date":
             return date.fromisoformat(value).isoformat()
         if data_type == "datetime":
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).isoformat()
+            return datetime.fromisoformat(value).isoformat()
         if data_type == "url":
             parsed = urlparse(value)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:

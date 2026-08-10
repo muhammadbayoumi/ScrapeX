@@ -88,7 +88,7 @@ def _write_sheet(book: Workbook, tab: str, header: list[str], rows: list[list],
     sheet.append(list(header))
     for row in rows:
         sheet.append(list(row))
-    if fresh and "Sheet" in book.sheetnames and "Sheet" != title:
+    if fresh and "Sheet" in book.sheetnames and title != "Sheet":
         del book["Sheet"]            # drop openpyxl's default empty sheet
 
 

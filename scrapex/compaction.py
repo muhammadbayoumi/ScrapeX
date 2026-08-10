@@ -169,7 +169,7 @@ def _typed_class_for(path: Path):
     quietly build the legacy way AND switch off the check that would have caught
     it. An id of 0 is an answer and means legacy. Silence is not an answer.
     """
-    from .databases.domain import EngineDatabase   # local: databases/ imports down to here
+    from .databases.domain import EngineDatabase  # local: databases/ imports down to here
 
     app_id = _application_id(path)
     if app_id is None:
@@ -361,7 +361,7 @@ def _refused_by_the_product(source: Path, successor: Path) -> list[str]:
         return []          # a legacy unmarked warehouse has no typed door to try
     try:
         typed(successor).connect().close()
-    except Exception as exc:            # noqa: BLE001 — any refusal is a problem
+    except Exception as exc:
         return [f"the successor is not a {typed.kind} database this product can "
                 f"open ({type(exc).__name__}: {exc})"]
     return []
@@ -393,7 +393,7 @@ def verify_successor(src_path: Path | str, dst_path: Path | str) -> list[str]:
                 f"for example offer {next(iter(missing))[0]}")
 
         for check in ("integrity_check", "foreign_key_check"):
-            findings = [r for r in dst.execute(f"PRAGMA {check}")]
+            findings = list(dst.execute(f"PRAGMA {check}"))
             if check == "integrity_check":
                 findings = [f for f in findings if f[0] != "ok"]
             if findings:

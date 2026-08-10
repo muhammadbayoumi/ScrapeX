@@ -4,7 +4,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from pydantic import (
-    AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator, model_validator,
+    AnyHttpUrl,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
 )
 
 from ..catalog_models import CatalogKey, FieldType
@@ -53,7 +58,7 @@ class CandidateApproval(BaseModel):
         return fields
 
     @model_validator(mode="after")
-    def has_identity_field(self) -> "CandidateApproval":
+    def has_identity_field(self) -> CandidateApproval:
         if not any(field.identity for field in self.fields):
             raise ValueError(
                 "select at least one identity field before approving the dataset"

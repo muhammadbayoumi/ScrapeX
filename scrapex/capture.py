@@ -7,9 +7,9 @@ it triggers this, which reuses the Python connectors + the one ingest pipeline.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import Callable
 
 from . import settings
 from .config import SourceEntry
@@ -341,7 +341,7 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         # Said in the log as well as on the result because the result is a
         # return value and the log is what the owner actually reads.
         if journal_skips:
-            from .jobs import append_log, LogLevel
+            from .jobs import LogLevel, append_log
             for line in journal_skips:
                 append_log(conn, job_id, line, level=LogLevel.WARNING,
                            source_key=entry.source_key)

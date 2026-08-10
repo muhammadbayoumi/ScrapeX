@@ -20,14 +20,13 @@ import sys
 from pathlib import Path
 
 from . import db as dbmod
-from . import localinbox
+from . import localinbox, version
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
 from .databases import DatabaseRegistry
 from .databases.registry import REGISTRY_FILE
 from .funnel import FunnelClient
 from .ingest import ingest_payloads
-from .reports import recent_observations, source_summary
 from .payload import (
     PAYLOAD_COMPAT_VERSION,
     PAYLOAD_VERSION,
@@ -35,9 +34,9 @@ from .payload import (
     new_payload,
     utc_now_iso,
 )
+from .reports import recent_observations, source_summary
 from .rowspec import ALL_SPECS
 from .vocab import ExtractKind, PayloadClient
-from . import version
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 CONTRACTS_DIR = ROOT_DIR / "contracts"
@@ -539,7 +538,7 @@ def _cmd_peek(args: argparse.Namespace) -> int:
     print(f"  last run: {summary.last_run or 'never'} ({summary.last_status or '-'})")
     print("  SOURCE-LOCAL layer (raw, as scraped):")
     print(f"    products: {summary.products} | variants: {summary.variants} | observations: {summary.observations}")
-    print(f"    curation: " + ", ".join(f"{n} {status}" for status, n in sorted(summary.curation.items())))
+    print("    curation: " + ", ".join(f"{n} {status}" for status, n in sorted(summary.curation.items())))
     print("  UNIFIED layer (fills only after you curate — census/apply-decisions, Phase 2):")
     print(f"    matched variants: {summary.matched_variants} | published (in view): {summary.published_rows}")
     if sample:
@@ -713,7 +712,7 @@ def _upgrade_what_is_only_behind(registry, report: dict) -> dict:
         path = Path(state["path"])
         try:
             made = backup_database(path, tag="pre-upgrade")
-        except Exception as exc:           # noqa: BLE001 — no backup, no migration
+        except Exception as exc:
             print(f"error: the {state['kind']} database is behind but could not be "
                   f"backed up, so it was not upgraded ({exc})", file=sys.stderr)
             return report
@@ -738,6 +737,7 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     _bind_log_streams()
     try:
         import uvicorn
+
         from .webui.app import create_app
     except ImportError:
         print("the UI needs the ui extra: pip install -e .[ui]", file=sys.stderr)
@@ -940,7 +940,7 @@ def _cmd_run_due(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    from .native import PROTOCOL_VERSION      # local, as everywhere else here
+    from .native import PROTOCOL_VERSION  # local, as everywhere else here
 
     parser = argparse.ArgumentParser(prog="scrapex", description=__doc__)
     # Answered without a subcommand, and it has to be: `--version` is what you
@@ -1114,7 +1114,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except Exception as exc:  # noqa: BLE001 — single explicit CLI error boundary (Q3)
+    except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

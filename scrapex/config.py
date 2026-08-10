@@ -174,7 +174,7 @@ class TaxEvidence(BaseModel):
     verified_at: str | None = None
 
     @model_validator(mode="after")
-    def _evidence_must_be_evidenced(self) -> "TaxEvidence":
+    def _evidence_must_be_evidenced(self) -> TaxEvidence:
         # These mirror the CHECK constraints in migration 0018, so a bad manifest
         # is refused by validate-manifest instead of by SQLite mid-crawl.
         if self.evidence == "stated":
@@ -395,7 +395,7 @@ class SourceEntry(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _fallbacks_exclude_self(self) -> "SourceEntry":
+    def _fallbacks_exclude_self(self) -> SourceEntry:
         # A fallback chain that re-tries the family that just failed would loop
         # over the same failure instead of escalating.
         if self.family in self.fallback_families:
@@ -405,7 +405,7 @@ class SourceEntry(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _probe_placeholder_is_inactive(self) -> "SourceEntry":
+    def _probe_placeholder_is_inactive(self) -> SourceEntry:
         # A source that has not been probed cannot be active (A3: no family until proven).
         if self.family == ConnectorFamily.TBD_PROBE and self.active:
             raise ValueError(
@@ -421,7 +421,7 @@ class Manifest(BaseModel):
     sources: list[SourceEntry] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def _unique_source_keys(self) -> "Manifest":
+    def _unique_source_keys(self) -> Manifest:
         seen: set[str] = set()
         for entry in self.sources:
             if entry.source_key in seen:

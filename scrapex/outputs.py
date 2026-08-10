@@ -26,8 +26,7 @@ from .fields import ORIGINAL_SCHEMA
 from .ingest import _canon_amount
 from .payload import new_payload, utc_now_iso
 from .publish import publish_source
-from .reports import export_source_table
-from .settings import RunResult          # the one shape every run reports in
+from .settings import RunResult  # the one shape every run reports in
 from .vocab import ExtractKind, PayloadClient
 
 EXCEL = "excel"

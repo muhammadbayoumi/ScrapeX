@@ -169,7 +169,7 @@ DISPLAY branches are correct. We record what is displayed.
 from __future__ import annotations
 
 import html
-from typing import Iterable
+from collections.abc import Iterable
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
@@ -349,7 +349,7 @@ def read_families(fetcher: HttpFetcher, taxonomy: TaxonomyConfig,
         url = f"{root}{path}"
         try:
             pages[lang] = _listing_labels(fetcher.get(url).text, url)
-        except Exception as exc:  # noqa: BLE001 — a second host is allowed to be down
+        except Exception as exc:
             pages[lang] = {}
             defects.append(
                 f"the {lang} cement-family listing ({url}) could not be read "

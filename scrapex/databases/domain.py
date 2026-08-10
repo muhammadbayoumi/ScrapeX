@@ -8,10 +8,11 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from .. import db as legacy_db
 from ..database_ids import ENGINE_APPLICATION_ID, ENGINE_DATABASE_KIND
@@ -541,7 +542,7 @@ class DomainDatabase(Generic[T]):
 
 def _engine_plan() -> tuple[Migration, ...]:
     """One stream: the derived schema at v1, then the folder beside it."""
-    return tuple([Migration(1, ENGINE_SCHEMA), *_folder_migrations(ENGINE_MIGRATIONS)])
+    return (Migration(1, ENGINE_SCHEMA), *_folder_migrations(ENGINE_MIGRATIONS))
 
 
 class EngineDatabase(DomainDatabase[T]):

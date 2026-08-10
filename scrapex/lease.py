@@ -29,7 +29,7 @@ import platform
 import socket
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 #: How long a lease is good for without being renewed. Short enough that a
@@ -45,7 +45,7 @@ _ISO = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(microsecond=0)
+    return datetime.now(UTC).replace(microsecond=0)
 
 
 def _stamp(moment: datetime) -> str:
@@ -54,7 +54,7 @@ def _stamp(moment: datetime) -> str:
 
 def _read_stamp(text: str) -> datetime | None:
     try:
-        return datetime.strptime(text, _ISO).replace(tzinfo=timezone.utc)
+        return datetime.strptime(text, _ISO).replace(tzinfo=UTC)
     except (TypeError, ValueError):
         return None
 
@@ -123,7 +123,7 @@ class Lease:
         }, indent=2) + "\n"
 
     @classmethod
-    def from_json(cls, text: str) -> "Lease | None":
+    def from_json(cls, text: str) -> Lease | None:
         try:
             data = json.loads(text)
         except (ValueError, TypeError):
@@ -173,7 +173,7 @@ def claim(path: Path | str, device: str, label: str = "",
             0, int((remaining - moment).total_seconds() // 60)) if remaining else 0
         return Verdict(
             allowed=False, lease=held,
-            reason=(f"another device holds this warehouse"
+            reason=("another device holds this warehouse"
                     + (f" — {held.label}" if held.label else "")),
             action=(f"Stop ScrapeX there, or wait {minutes_left} minute"
                     f"{'' if minutes_left == 1 else 's'} for its lease to expire."))

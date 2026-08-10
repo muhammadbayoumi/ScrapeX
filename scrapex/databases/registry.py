@@ -52,14 +52,14 @@ class DatabaseRegistry:
                 "the database and the registry cannot be the same file")
 
     @classmethod
-    def defaults(cls, *, pointer_file: Path | str = REGISTRY_FILE) -> "DatabaseRegistry":
+    def defaults(cls, *, pointer_file: Path | str = REGISTRY_FILE) -> DatabaseRegistry:
         pointer = Path(pointer_file)
         if pointer.is_file():
             return cls.read(pointer)
         return cls(EngineDatabase(DEFAULT_ENGINE_PATH), pointer_file=pointer)
 
     @classmethod
-    def read(cls, pointer_file: Path | str = REGISTRY_FILE) -> "DatabaseRegistry":
+    def read(cls, pointer_file: Path | str = REGISTRY_FILE) -> DatabaseRegistry:
         pointer = Path(pointer_file)
         try:
             data = json.loads(pointer.read_text(encoding="utf-8"))
