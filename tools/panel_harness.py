@@ -74,7 +74,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
          protocol_version=None, engine_manifest=None,
-         signed_in=None, signin_error=None, signin_delay_ms=0) -> str:
+         signed_in=None, signin_error=None, signin_delay_ms=0,
+         signin_never_returns=False, route_delays=None, blackhole_routes=(),
+         native_mode="absent", google_account_mode="ok",
+         worker_alive=True) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -118,6 +121,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     engine_version = VERSION if engine_version is None else engine_version
     routes = {
         "/api/health": {"ok": True, "app": "scrapex", "version": engine_version,
+                        "worker_alive": worker_alive,
                         "latest_extension_version": VERSION,
                         "minimum_extension_version": MINIMUM_EXTENSION_VERSION,
                         "protocol_version": PROTOCOL_VERSION if protocol_version is None
@@ -209,7 +213,18 @@ window.chrome = {{
   // getManifest is the extension's only honest answer to "which version of ME
   // is running", so the panel reads it and the harness has to provide it.
   runtime: {{ getURL: p => p, lastError: null,
-              getManifest: () => ({{version: {extension_version!r}}}) }},
+              getManifest: () => ({{version: {extension_version!r}}}),
+              sendNativeMessage: (_host, message, callback) => {{
+                window.__nativeCalls.push(message.command);
+                if (NATIVE_MODE === "nonresponsive") return;
+                if (NATIVE_MODE === "absent") {{
+                  chrome.runtime.lastError = {{message: "Specified native messaging host not found."}};
+                  callback(undefined);
+                  chrome.runtime.lastError = null;
+                  return;
+                }}
+                callback({{ok: true, installed: false}});
+              }} }},
   tabs: {{ query: async () => [{json.dumps(tab if tab is not None else ACTIVE_TAB)}],
            create: () => {{}} }},
   storage: {{ local: {{ get: async () => ({{backend: {backend!r}}}), set: async () => {{}} }} }},
@@ -218,6 +233,7 @@ window.chrome = {{
   // ever returned a token could not test a single refusal branch.
   identity: {{
     getAuthToken: (opts, cb) => {{
+      if (SIGNIN_NEVER_RETURNS) return;
       if (SIGNIN_ERROR) {{ chrome.runtime.lastError = {{message: SIGNIN_ERROR}};
                            cb(undefined);
                            chrome.runtime.lastError = null; return; }}
@@ -251,6 +267,9 @@ window.chrome = {{
 let SIGNED_IN = {json.dumps(signed_in)};
 const SIGNIN_ERROR = {json.dumps(signin_error)};
 const SIGNIN_DELAY_MS = {json.dumps(signin_delay_ms)};
+const SIGNIN_NEVER_RETURNS = {str(signin_never_returns).lower()};
+const NATIVE_MODE = {json.dumps(native_mode)};
+const GOOGLE_ACCOUNT_MODE = {json.dumps(google_account_mode)};
 const ROUTES = {json.dumps(routes)};
 const WRITE_ROUTES = {json.dumps(write_routes)};
 const LOG_PAYLOAD = {json.dumps(log_payload)};
@@ -264,11 +283,27 @@ const FAIL = {json.dumps(list(fail_routes))};
 // happen.
 const ENGINE_MANIFEST = {json.dumps(engine_manifest)};
 window.__calls = [];
+window.__nativeCalls = [];
 // The BODY of every write, which __calls (a path list) cannot carry — and the
 // body is where "resume" lives, so a test that only saw the path could not
 // tell a resume from a run that discards the journal.
 window.__writes = [];
-window.fetch = async (url, options) => {{
+const ROUTE_DELAYS = {json.dumps(route_delays or {})};
+const BLACKHOLE_ROUTES = {json.dumps(list(blackhole_routes))};
+const waitWithSignal = (ms, signal) => new Promise((resolveWait, rejectWait) => {{
+  let timer = null;
+  const aborted = () => {{
+    if (timer !== null) clearTimeout(timer);
+    rejectWait(signal.reason || Object.assign(new Error("aborted"), {{name: "AbortError"}}));
+  }};
+  if (signal && signal.aborted) {{ aborted(); return; }}
+  if (signal) signal.addEventListener("abort", aborted, {{once: true}});
+  timer = setTimeout(() => {{
+    if (signal) signal.removeEventListener("abort", aborted);
+    resolveWait();
+  }}, ms);
+}});
+window.fetch = async (url, options = {{}}) => {{
   const path = String(url).replace({backend!r}, "");
   const method = (options && options.method) || "GET";
   window.__calls.push(path);
@@ -278,6 +313,10 @@ window.fetch = async (url, options) => {{
     window.__writes.push({{path, method, body}});
   }}
   if (String(url).includes("oauth2/v3/userinfo")) {{
+    if (GOOGLE_ACCOUNT_MODE === "offline") throw new Error("network offline");
+    if (GOOGLE_ACCOUNT_MODE === "nonresponsive") {{
+      await waitWithSignal(60000, options.signal);
+    }}
     if (!SIGNED_IN) return {{ ok: false, status: 401, json: async () => ({{}}) }};
     return {{ ok: true, status: 200, json: async () => SIGNED_IN }};
   }}
@@ -292,7 +331,11 @@ window.fetch = async (url, options) => {{
     return {{ ok: true, status: 200, json: async () => ENGINE_MANIFEST }};
   }}
   if (!ENGINE_UP) throw new Error("engine down");
-  if (SLOW) await new Promise(r => setTimeout(r, 60000));   // freeze on loading state
+  if (SLOW || BLACKHOLE_ROUTES.some(route => path.startsWith(route))) {{
+    await waitWithSignal(60000, options.signal);
+  }}
+  const delayed = Object.entries(ROUTE_DELAYS).find(([route]) => path.startsWith(route));
+  if (delayed) await waitWithSignal(Number(delayed[1]), options.signal);
   if (FAIL.some(f => path.startsWith(f))) {{
     return {{ ok: false, status: 500, statusText: "engine error",
               json: async () => ({{detail: "the engine could not do that"}}) }};
@@ -377,6 +420,8 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         f"{sprite_body}</svg>{body}"
     )
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
+    startup_bootstrap_js = (EXT / "startup-bootstrap.js").read_text(encoding="utf-8")
+    startup_js = (EXT / "startup.js").read_text(encoding="utf-8")
     appearance_js = (EXT / "appearance.js").read_text(encoding="utf-8")
     # The shared split-button behaviour, loaded (in app.html) before app.js so
     # its global exists when the Activity panel wires the log control. It is a
@@ -395,12 +440,13 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # transitive import in this classic inline script stops the whole panel
     # before DOMContentLoaded. Keep the harness on the extension's real module
     # graph instead of re-declaring any of its functions in a test-only stub.
-    app_js = re.sub(r"^import .*?;$", "", app_js, flags=re.M)
+    app_js = re.sub(r"^import[\s\S]*?;\s*$", "", app_js, flags=re.M)
     engine_js = re.sub(r"^import .*?;$", "", engine_js, flags=re.M)
     transport_js = re.sub(r"^import .*?;$", "", transport_js, flags=re.M)
     version_js = re.sub(r"^import .*?;$", "", version_js, flags=re.M)
     releases_js = re.sub(r"^import .*?;$", "", releases_js, flags=re.M)
     identity_js = re.sub(r"^import .*?;$", "", identity_js, flags=re.M)
+    startup_js = re.sub(r"\bexport\s+", "", startup_js)
     engine_js = re.sub(r"\bexport\s+", "", engine_js)
     transport_js = re.sub(r"\bexport\s+", "", transport_js)
     version_js = re.sub(r"\bexport\s+", "", version_js)
@@ -414,6 +460,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         "<style>html,body{margin:0}</style>"
         f"<style>{tokens_css}</style><style>{components_css}</style>"
         f"<style>{style}</style>\n{body}\n"
+        f"<script>{startup_bootstrap_js}</script>\n"
         f"<script>{appearance_js}</script>\n"
         # Every page this harness builds is a file:// document, and Chromium
         # gives them all ONE localStorage. A zone chosen by one test would
@@ -434,7 +481,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # BEFORE the browser fires the real event, so dispatching one as well
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
-        f"<script>{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
+        f"<script>{startup_js}\n{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
         f"{engine_js}\n{app_js}</script>",
         encoding="utf-8")
     return page

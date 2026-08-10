@@ -1,3 +1,5 @@
+import { fetchWithDeadline, STARTUP_DEADLINES } from "./startup.js";
+
 // Who is signed in, and the token the engine borrows.
 //
 // PLATFORM-PLAN, the owner's ruling of 2026-08-05: «الإضافة تملكه وتُعيره
@@ -79,10 +81,45 @@ export function readTokenResult(token, lastError) {
 
 /** Ask Chrome for a token. `interactive` false checks silently on open. */
 export function getToken({ interactive = true, identity = chrome.identity,
-                           runtime = chrome.runtime } = {}) {
+                           runtime = chrome.runtime,
+                           timeoutMs = interactive
+                             ? STARTUP_DEADLINES.interactiveToken
+                             : STARTUP_DEADLINES.silentToken,
+                           signal = null } = {}) {
   return new Promise((resolve) => {
-    identity.getAuthToken({ interactive }, (token) =>
-      resolve(readTokenResult(token, runtime.lastError)));
+    let settled = false;
+    let timer = null;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", cancelled);
+      resolve(result);
+    };
+    const cancelled = () => finish({
+      state: "cancelled", retryable: true,
+      detail: "The account check was cancelled.",
+    });
+
+    if (signal?.aborted) {
+      cancelled();
+      return;
+    }
+    if (signal) signal.addEventListener("abort", cancelled, {once: true});
+    timer = setTimeout(() => finish({
+      state: "timeout", retryable: true,
+      detail: interactive
+        ? "Google sign-in did not finish in time. Try again when you are ready."
+        : "Chrome did not finish checking the account in time. Try again.",
+    }), timeoutMs);
+
+    try {
+      identity.getAuthToken({ interactive }, (token) =>
+        finish(readTokenResult(token, runtime.lastError)));
+    } catch (error) {
+      finish({state: "failed", retryable: true,
+              detail: (error && error.message) || "Chrome could not check the account."});
+    }
   });
 }
 
@@ -92,13 +129,12 @@ export function getToken({ interactive = true, identity = chrome.identity,
  * from a token that Chrome needs to forget. Missing optional fields are still
  * a successful account response.
  */
-export async function accountFor(token, fetchImpl = fetch) {
+export async function accountFor(token, fetchImpl = fetch, {signal = null} = {}) {
   let res;
   try {
-    res = await fetchImpl(USERINFO, {
+    res = await fetchWithDeadline(fetchImpl, USERINFO, {
       headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(6000),
-    });
+    }, STARTUP_DEADLINES.accountDetails, [signal]);
   } catch (error) {
     const name = error && error.name;
     if (name === "AbortError" || name === "TimeoutError") {

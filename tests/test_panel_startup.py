@@ -1,0 +1,371 @@
+"""Side-panel startup stays usable while independent work resolves behind it."""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+
+pytest.importorskip("playwright", reason="needs the browser extra")
+import panel_harness as harness  # noqa: E402
+from playwright.sync_api import sync_playwright  # noqa: E402
+
+pytestmark = pytest.mark.extension
+
+PROFILE_TAB = 'nav.side-rail button[data-view="profile"]'
+RUN_TAB = 'nav.side-rail button[data-view="run"]'
+SETTINGS_TAB = 'nav.side-rail button[data-view="settings"]'
+DESTINATION_ROUTES = (
+    "/api/sources", "/api/outputs", "/api/jobs", "/api/resolve",
+    "/api/records", "/api/changes", "/api/schedules", "/api/storage",
+    "/api/settings", "/api/fields", "/api/rates",
+)
+
+
+@pytest.fixture(scope="module")
+def browser():
+    with sync_playwright() as playwright:
+        instance = playwright.chromium.launch()
+        try:
+            yield instance
+        finally:
+            instance.close()
+
+
+@pytest.fixture()
+def open_starting_panel(browser, tmp_path):
+    pages = []
+
+    def opener(*, width=360, init_script=None, **stub_kwargs):
+        page_file = harness.build_page(
+            tmp_path,
+            harness.stub(**stub_kwargs),
+            name=f"startup-{len(pages)}.html",
+        )
+        page = browser.new_page(viewport={"width": width, "height": 800})
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        if init_script:
+            page.add_init_script(init_script)
+        page.goto(page_file.as_uri(), wait_until="domcontentloaded")
+        page.js_errors = errors
+        pages.append(page)
+        return page
+
+    try:
+        yield opener
+    finally:
+        for page in pages:
+            page.close()
+
+
+def _wait_for_mark(page, name: str, timeout=5_000):
+    page.wait_for_function(
+        "name => performance.getEntriesByName('scrapex:' + name).length === 1",
+        arg=name,
+        timeout=timeout,
+    )
+
+
+def _marks(page):
+    return page.evaluate("""() => Object.fromEntries(
+      performance.getEntriesByType("mark")
+        .filter(mark => mark.name.startsWith("scrapex:"))
+        .map(mark => [mark.name.slice(8), mark.startTime]))""")
+
+
+def _calls(page):
+    return page.evaluate("() => window.__calls.slice()")
+
+
+def test_the_shell_is_interactive_before_account_or_engine_settles(open_starting_panel):
+    page = open_starting_panel(
+        signin_never_returns=True,
+        blackhole_routes=("/api/health",),
+    )
+
+    assert page.locator("html").get_attribute("data-shell-interactive") == "true"
+    assert page.locator("#view-profile").is_visible()
+    assert page.locator("nav.side-rail").is_visible()
+    assert page.locator("#welcome-checking").is_visible()
+
+    # This click occurs while both checks remain intentionally nonresponsive.
+    page.click("#tab-appearance")
+    assert page.locator("#view-appearance").is_visible()
+    page.click(PROFILE_TAB)
+    assert page.locator("#welcome-checking").is_visible()
+
+    _wait_for_mark(page, "account-check-start")
+    _wait_for_mark(page, "engine-check-start")
+    marks = _marks(page)
+    assert marks["shell-interactive"] - marks["document-start"] <= 250
+    assert marks["shell-interactive"] <= marks["account-check-start"]
+    assert marks["shell-interactive"] <= marks["engine-check-start"]
+    assert "account-check-finish" not in marks
+    assert "engine-check-finish" not in marks
+    assert not page.js_errors
+
+
+def test_account_and_engine_checks_start_independently(open_starting_panel):
+    page = open_starting_panel(
+        signed_in={"name": "Owner", "email": "owner@example.com"},
+        signin_delay_ms=1_200,
+        route_delays={"/api/health": 900},
+    )
+    _wait_for_mark(page, "fully-settled")
+    marks = _marks(page)
+
+    assert marks["engine-check-start"] < marks["account-check-finish"]
+    assert marks["account-check-start"] < marks["engine-check-finish"]
+    assert abs(marks["account-check-start"] - marks["engine-check-start"]) < 100
+    assert page.locator("#welcome-signed-in").is_visible()
+    assert page.locator("#estat-text").inner_text().startswith("Ready")
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize(
+    ("worker_alive", "expected"),
+    [(True, "Ready"), (False, "Stopped")],
+)
+def test_profile_startup_handles_healthy_and_stopped_engines_without_run_data(
+        open_starting_panel, worker_alive, expected):
+    page = open_starting_panel(worker_alive=worker_alive)
+    _wait_for_mark(page, "fully-settled")
+
+    assert page.locator("#estat-text").inner_text().startswith(expected)
+    assert not any(call.startswith(DESTINATION_ROUTES) for call in _calls(page))
+    assert _calls(page).count("/api/health") == 1
+    assert not page.js_errors
+
+
+def test_a_nonresponsive_health_check_times_out_without_blocking_profile(
+        open_starting_panel):
+    page = open_starting_panel(blackhole_routes=("/api/health",))
+
+    assert page.locator("#view-profile").is_visible()
+    page.click("#tab-engines")
+    assert page.locator("#view-engines").is_visible()
+    assert page.locator("#engine-status").inner_text() == "Checking…"
+    page.wait_for_function(
+        "() => document.querySelector('#estat-text').textContent === 'Check timed out'",
+        timeout=4_000,
+    )
+    _wait_for_mark(page, "fully-settled")
+    assert "deadline" in page.locator("#engine-note").inner_text().lower()
+    assert page.locator("#engine-status").inner_text() == "Check timed out — retry available"
+    assert not page.js_errors
+
+
+def test_a_delayed_version_request_gets_its_own_recoverable_state(open_starting_panel):
+    page = open_starting_panel(route_delays={"/api/version": 4_000})
+    _wait_for_mark(page, "fully-settled", timeout=4_000)
+
+    notice = page.locator("#version-notice")
+    assert notice.is_visible()
+    assert "timed out" in notice.inner_text().lower()
+    assert page.locator("#estat-text").inner_text().startswith("Ready")
+    assert not page.js_errors
+
+
+def test_an_absent_token_callback_cannot_hold_engine_or_profile(open_starting_panel):
+    page = open_starting_panel(signin_never_returns=True)
+
+    page.wait_for_function(
+        "() => document.querySelector('#estat-text').textContent.startsWith('Ready')",
+        timeout=1_500,
+    )
+    assert page.locator("#welcome-checking").is_visible()
+    page.wait_for_function(
+        "() => !document.querySelector('#signin-problem').classList.contains('hidden')",
+        timeout=3_500,
+    )
+    assert "did not finish" in page.locator("#signin-problem").inner_text()
+    assert page.locator("#view-profile").is_visible()
+    assert not page.js_errors
+
+
+def test_a_late_token_callback_cannot_overwrite_the_timeout(open_starting_panel):
+    page = open_starting_panel(
+        signed_in={"name": "Too late", "email": "late@example.com"},
+        signin_delay_ms=3_000,
+    )
+    page.wait_for_function(
+        "() => !document.querySelector('#signin-problem').classList.contains('hidden')",
+        timeout=3_500,
+    )
+    assert "did not finish" in page.locator("#signin-problem").inner_text()
+
+    # Chrome's callback arrives after the 2.5s silent deadline. It must be
+    # ignored instead of replacing the newer timeout state with a stale token.
+    page.wait_for_timeout(750)
+    assert page.locator("#welcome-signed-out").is_visible()
+    assert not page.locator("#welcome-signed-in").is_visible()
+    assert "did not finish" in page.locator("#signin-problem").inner_text()
+    assert not page.js_errors
+
+
+def test_google_offline_keeps_the_signed_in_state_and_offers_retry(open_starting_panel):
+    page = open_starting_panel(
+        signed_in={"name": "Owner", "email": "owner@example.com"},
+        google_account_mode="offline",
+    )
+    _wait_for_mark(page, "fully-settled")
+
+    assert page.locator("#welcome-signed-in").is_visible()
+    assert "Could not reach Google" in page.locator("#account-detail-status").inner_text()
+    assert page.locator("#retry-account").is_visible()
+    assert page.locator("#estat-text").inner_text().startswith("Ready")
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("native_mode", ["absent", "nonresponsive"])
+def test_native_status_is_deferred_until_its_settings_section_is_visible(
+        open_starting_panel, native_mode):
+    page = open_starting_panel(native_mode=native_mode)
+    _wait_for_mark(page, "fully-settled")
+    assert page.evaluate("() => window.__nativeCalls.length") == 0
+
+    page.click(SETTINGS_TAB)
+    assert page.locator("#ui_time_zone").get_attribute("data-time-zone-select") == ""
+    page.click('[data-sect="s-engine"]')
+    page.wait_for_function("() => window.__nativeCalls.length === 1")
+    assert page.evaluate("() => window.__nativeCalls") == ["AUTOSTART_STATUS"]
+    assert not page.js_errors
+
+
+def test_generic_backend_blackhole_ends_at_the_destination_deadline(open_starting_panel):
+    page = open_starting_panel(blackhole_routes=("/api/sources",))
+    _wait_for_mark(page, "fully-settled")
+    page.click(RUN_TAB)
+    _wait_for_mark(page, "first-destination-data-request")
+    page.wait_for_function(
+        "() => document.querySelector('#sites').textContent.includes(\"Couldn't reach\")",
+        timeout=6_500,
+    )
+
+    assert page.locator("nav.side-rail").is_visible()
+    assert _calls(page).count("/api/sources") == 1
+    assert not page.js_errors
+
+
+def test_hidden_panel_pauses_refreshes_and_visible_panel_resumes_one_of_each(
+        open_starting_panel):
+    track_intervals = """
+      (() => {
+        window.__startupIntervals = [];
+        const realSetInterval = window.setInterval.bind(window);
+        window.setInterval = (callback, delay, ...args) => {
+          window.__startupIntervals.push(delay);
+          return realSetInterval(callback, delay, ...args);
+        };
+      })();
+    """
+    job = {
+        "job_ref": "job_live", "source_keys": ["SHORT"], "status": "running",
+        "stage": "fetching", "current_source_key": "SHORT",
+        "progress": {"done": 0, "total": 1},
+        "fetch": {"requests": 0, "expected": None, "basis": None,
+                  "as_of": None, "unknown_sources": [], "sources": {}},
+        "counters": {"observations": 0, "duplicates": 0, "products": 0,
+                     "requests": 0, "errors": 0},
+        "queued_behind": None,
+    }
+    page = open_starting_panel(init_script=track_intervals, jobs=[job])
+    _wait_for_mark(page, "fully-settled")
+    page.click(RUN_TAB)
+    page.wait_for_function(
+        "() => window.__calls.some(path => path.startsWith('/api/jobs?active_only'))",
+    )
+    page.wait_for_function(
+        "() => window.__calls.includes('/api/appearance') "
+        "&& window.__calls.includes('/api/timezone')",
+    )
+
+    page.evaluate("""() => {
+      window.__testVisibility = "hidden";
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true, get: () => window.__testVisibility,
+      });
+      window.__calls.length = 0;
+      document.dispatchEvent(new Event("visibilitychange"));
+    }""")
+    page.wait_for_timeout(2_200)
+    assert not [call for call in _calls(page) if call.startswith(
+        ("/api/appearance", "/api/timezone", "/api/jobs"))]
+
+    page.evaluate("""() => {
+      window.__testVisibility = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+    }""")
+    page.wait_for_timeout(200)
+    calls = _calls(page)
+    assert calls.count("/api/appearance") == 1
+    assert calls.count("/api/timezone") == 1
+    assert len([call for call in calls if call.startswith("/api/jobs?active_only")]) == 1
+    assert page.evaluate("() => window.__startupIntervals.filter(n => n === 2000).length") == 1
+    assert page.evaluate("() => window.__startupIntervals.filter(n => n === 5000).length") == 1
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("width", [320, 400])
+def test_startup_shell_fits_supported_panel_widths(open_starting_panel, width):
+    page = open_starting_panel(
+        width=width,
+        signin_never_returns=True,
+        blackhole_routes=("/api/health",),
+    )
+
+    assert page.locator("#view-profile").is_visible()
+    assert page.locator("nav.side-rail").is_visible()
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth",
+    )
+    assert overflow <= 1
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("palette", ["whatsapp", "github"])
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_cached_theme_is_applied_before_the_first_frame(
+        open_starting_panel, palette, scheme):
+    init_script = f"""
+      localStorage.setItem("scrapex-appearance-v2", JSON.stringify({{
+        mode: "manual", scheme: {scheme!r}, palette: {palette!r},
+        deviceColors: false, updatedAt: 100,
+      }}));
+      requestAnimationFrame(() => {{
+        window.__firstFrameAppearance = {{
+          theme: document.documentElement.dataset.theme,
+          palette: document.documentElement.dataset.palette,
+        }};
+      }});
+    """
+    page = open_starting_panel(init_script=init_script)
+    page.wait_for_function("() => Boolean(window.__firstFrameAppearance)")
+
+    first = page.evaluate("() => window.__firstFrameAppearance")
+    assert first == {"theme": scheme, "palette": palette}
+    assert not page.js_errors
+
+
+def test_startup_instrumentation_spans_shell_checks_and_first_destination(
+        open_starting_panel):
+    page = open_starting_panel()
+    _wait_for_mark(page, "fully-settled")
+    before = _marks(page)
+    required = {
+        "document-start", "dom-content-loaded", "shell-visible", "shell-interactive",
+        "account-check-start", "account-check-finish", "engine-check-start",
+        "engine-check-finish", "fully-settled",
+    }
+    assert required <= before.keys()
+    assert "first-destination-data-request" not in before
+
+    page.click(RUN_TAB)
+    _wait_for_mark(page, "first-destination-data-request")
+    after = _marks(page)
+    assert after["first-destination-data-request"] >= before["shell-interactive"]
+    assert not page.js_errors

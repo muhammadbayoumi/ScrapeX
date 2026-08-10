@@ -5,14 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ScrapeX</title>
 <link rel="icon" href="icons/x-mark.svg">
+<script src="startup-bootstrap.js"></script>
+<!-- Local appearance is startup-critical and runs before styles so the first
+     painted frame already has the saved scheme and palette. -->
 <script src="appearance.js"></script>
-<script src="timezone.js"></script>
-<!-- The shared split-button behaviour, before app.js (a module) so its global
-     exists when the Activity panel's log control wires itself. -->
-<script src="split-button.js"></script>
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="app.css">
+<!-- These classic scripts are not needed to choose the first painted palette.
+     Defer them so styles and the static Profile shell can be parsed first. -->
+<script defer src="timezone.js"></script>
+<!-- The shared split-button behaviour executes before app.js (a module) so its
+     global exists when the Activity panel's deferred controls are wired. -->
+<script defer src="split-button.js"></script>
 </head>
 <body>
   <main>
@@ -1499,7 +1504,7 @@
                 workspace pages share the one choice you make here.</p>
 
               <label for="ui_time_zone">Show dates and times in</label>
-              <select id="ui_time_zone" data-time-zone-select dir="ltr"></select>
+              <select id="ui_time_zone" data-time-zone-lazy-select dir="ltr"></select>
               <p class="muted text-xs" data-time-zone-note>&nbsp;</p>
               <p class="muted text-xs" id="timezone-example">&nbsp;</p>
               <div id="timezone-msg" class="muted text-sm" role="status" aria-live="polite"></div>
