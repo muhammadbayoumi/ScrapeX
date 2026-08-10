@@ -84,7 +84,32 @@ def main() -> int:
     return serve()
 
 
+def _close_splash() -> None:
+    """Take down the image the bootloader drew during the unpack.
+
+    `pyi_splash` exists ONLY inside a one-file build made with `--splash`, so
+    every other way of running this file — the source tree, a test, a onedir
+    build — must reach here and do nothing rather than fail. That is what the
+    bare except is for, and it is the one place in this file where swallowing an
+    error is right: the splash is a courtesy, and a courtesy must never be able
+    to stop the engine starting.
+    """
+    try:
+        import pyi_splash                          # type: ignore[import-not-found]
+    except Exception:                              # noqa: BLE001
+        return
+    try:
+        pyi_splash.close()
+    except Exception:                              # noqa: BLE001
+        pass
+
+
 def _say(line: str = "") -> None:
+    # The first real line means the unpack is over and the console has something
+    # to show, so the image comes down HERE rather than at some later "ready"
+    # point — leaving it up while text scrolls behind it is worse than never
+    # showing it.
+    _close_splash()
     print(line, flush=True)
 
 

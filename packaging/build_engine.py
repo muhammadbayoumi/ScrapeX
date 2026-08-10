@@ -38,6 +38,22 @@ def build() -> int:
     command = [
         sys.executable, "-m", "PyInstaller",
         "--onefile", "--name", NAME,
+        # THE ONLY THING THAT CAN SPEAK BEFORE PYTHON DOES. A one-file binary
+        # opens its console and then extracts ~60 MB before a single line of
+        # our code runs -- measured at 2.6-6.9 seconds on a warm machine, and
+        # longer on a first run while Defender inspects a new unsigned exe. All
+        # of it is a black window with no text, which is how the owner met the
+        # engine on 2026-08-10 and concluded it was broken.
+        #
+        # `_say` flushes correctly and prints early; neither helps, because
+        # Python has not started. PyInstaller draws this image itself, from the
+        # bootloader, during the extraction. engine_entry closes it as soon as
+        # it has something real to show.
+        #
+        # Trimming the bundle does NOT fix this: dropping the test extras took
+        # it from 67.6 MB to 60.1 MB, which is still seconds of unpacking. Size
+        # and silence are two problems and this one is the silence.
+        "--splash", str(ROOT / "packaging" / "splash.png"),
         "--distpath", str(ROOT / "dist"),
         "--workpath", str(ROOT / "build"),
         "--specpath", str(ROOT / "build"),
