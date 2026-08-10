@@ -1174,6 +1174,7 @@
     border-radius: 0;
     background: transparent;
     cursor: pointer;
+    transition: box-shadow var(--dur) var(--ease);
   }
   .profile-signin:focus-visible {
     outline: 2px solid var(--focus);
@@ -1188,12 +1189,14 @@
   /* The Google button is a transparent wrapper around an official PNG asset.
      Extension-wide `button:hover/active/disabled` rules must not paint the
      wrapper, transform it, or dim the image. Each state is declared separately
-     so tests and future readers see exactly what is cancelled. */
+     so tests and future readers see exactly what is cancelled.
+     Hover adds a neutral external outline/elevation OUTSIDE the asset so the
+     control gives feedback without recolouring, cropping, or moving it. */
   .profile-signin:hover:not(:disabled) {
     border-color: transparent;
     background: transparent;
     color: inherit;
-    box-shadow: none;
+    box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-sm);
     transform: none;
     opacity: 1;
   }
@@ -1201,7 +1204,7 @@
     border-color: transparent;
     background: transparent;
     color: inherit;
-    box-shadow: none;
+    box-shadow: 0 0 0 1px var(--line-strong);
     transform: none;
     opacity: 1;
   }

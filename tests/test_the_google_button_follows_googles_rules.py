@@ -142,23 +142,33 @@ def test_the_google_button_has_a_48px_clickable_target():
     assert "min-width: 180px" in rule
 
 
-def test_the_google_button_wrapper_stays_transparent_on_hover():
-    """The global `button:hover` rule would paint the 48px wrapper around the
-    official asset. The Profile override must win and leave the image untouched.
+def test_the_google_button_wrapper_shows_a_neutral_hover_indicator():
+    """Hover must give visible feedback without painting, transforming, or
+    recolouring the official asset. The wrapper stays transparent; a neutral
+    external outline/elevation appears outside the image boundary.
     """
     rule = _css_rule(APP_CSS, ".profile-signin:hover:not(:disabled)")
     assert "background: transparent" in rule
     assert "border-color: transparent" in rule
-    assert "box-shadow: none" in rule
     assert "transform: none" in rule
     assert "opacity: 1" in rule
+    # A visible external indicator, not the old invisible state.
+    assert "box-shadow:" in rule
+    assert "box-shadow: none" not in rule
+    img = _css_rule(APP_CSS, ".profile-signin-img")
+    assert "filter" not in img, "hover must not recolour the official image"
+    assert "opacity" not in img, "hover must not dim the official image"
 
 
-def test_the_google_button_wrapper_stays_transparent_on_active():
-    """Active must not translate or recolour the wrapper."""
+def test_the_google_button_wrapper_shows_a_neutral_active_indicator():
+    """Active keeps a neutral external indicator and does not translate or
+    recolour the wrapper or the official asset."""
     rule = _css_rule(APP_CSS, ".profile-signin:active:not(:disabled)")
     assert "background: transparent" in rule
     assert "transform: none" in rule
+    assert "opacity: 1" in rule
+    assert "box-shadow:" in rule
+    assert "box-shadow: none" not in rule
 
 
 def test_the_google_button_wrapper_does_not_dim_when_disabled():
