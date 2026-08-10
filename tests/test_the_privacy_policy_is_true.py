@@ -51,6 +51,46 @@ def test_the_policy_names_every_scope_the_extension_actually_asks_for():
             f"the extension asks for {short} and the policy does not mention it")
 
 
+def test_the_policy_claims_no_scope_the_extension_stopped_asking_for():
+    """THE OTHER DIRECTION, which went unchecked and let a false promise stand.
+
+    The test above only asks whether every REQUESTED scope is disclosed. It says
+    nothing about a scope the policy declares and the manifest no longer wants —
+    so when `spreadsheets` was dropped from identity.js, this file went on
+    telling users ScrapeX writes into their Google Sheets, and the suite stayed
+    green. Over-declaring is not the safe direction it looks like: it is a
+    promise about someone's data that is not true, and on the store's data-usage
+    form it declares a SENSITIVE scope the extension does not request.
+    """
+    policy = POLICY.read_text(encoding="utf-8")
+    asked = {scope.rsplit("/", 1)[-1] for scope in MANIFEST["oauth2"]["scopes"]}
+
+    # ONLY the OAuth-scope section, bounded by its own heading. The first
+    # version of this test read every backtick table row in the file and so
+    # tripped over "Every other address ScrapeX contacts", whose rows are
+    # HOSTNAMES -- a different table answering a different question. Prose
+    # elsewhere may also name a scope in order to say it is NOT used, which is
+    # the opposite of a false claim.
+    heading = "### The permissions ScrapeX asks for, and why each one"
+    assert heading in policy, (
+        "the scope section was renamed; this test must follow it or it silently "
+        "stops reading anything")
+    section = policy.split(heading, 1)[1].split("\n## ", 1)[0]
+    table = [line for line in section.splitlines()
+             if line.startswith("| `") and "|" in line[3:]]
+    assert table, "the scope table is empty, so this test is asserting nothing"
+    for line in table:
+        for named in line.split("|")[1].replace("`", "").split(","):
+            short = named.strip()
+            if not short:
+                continue
+            assert short in asked, (
+                f"the privacy policy declares the {short!r} scope and "
+                f"extension/manifest.json does not ask for it. The policy is a "
+                "promise about a real person's data — it may not claim access "
+                "the extension gave up.")
+
+
 def test_the_policy_claims_no_full_drive_access_and_the_manifest_agrees():
     """"ScrapeX never asks for full Drive access" is a sentence a single
     manifest edit can turn into a false one."""
