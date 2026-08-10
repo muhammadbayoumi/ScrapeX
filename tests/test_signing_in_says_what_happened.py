@@ -66,11 +66,17 @@ def open_panel(browser, tmp_path):
             page.close()
 
 
+# THE ID THE CHROME WEB STORE ASSIGNED, which is the only one that counts. The
+# repository carried a different key for a while and everything agreed with it —
+# the manifest, both documents, and this constant — so a check that they matched
+# each other passed while all four were wrong together. The store item is the
+# authority; it was read off the listing on 2026-08-10.
+#
 # THE ONE PLACE THE ID IS WRITTEN DOWN. Chrome derives it from the manifest
 # `key`, the OAuth client is registered against it, and docs/store-listing.md
 # tells the owner to abort the listing if what Chrome shows him differs. Three
 # copies of a fact is two too many, so the test derives it and compares.
-EXTENSION_ID = "hlamngednfddacoabhoapfkpaedgbapp"
+EXTENSION_ID = "ekcgggphcfdbjgfkcmjagehfjhijeang"
 
 ACCOUNT = {"name": "Muhammad Bayoumi", "email": "madastore1899@gmail.com",
            "picture": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAf"

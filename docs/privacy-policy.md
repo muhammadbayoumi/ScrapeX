@@ -68,13 +68,15 @@ behind a login.
 
 ### Every other address ScrapeX contacts
 
-Besides the sites you add, the extension can reach exactly two hosts, and only
-these two:
+Besides the sites you add, the extension can reach exactly two addresses, and
+only these two. Both are narrowed to a single path rather than a whole host: an
+extension that may read all of `googleapis.com` can read a great deal more than
+the name on your account.
 
 | Host | What for |
 |---|---|
-| `raw.githubusercontent.com` | Reading one small file that says which engine version is the newest. It is fetched exactly as any browser fetches a public page, and the request carries no information about you at all. |
-| `www.googleapis.com` | Google's own endpoints — the name and picture of the signed-in account, and Drive when you back up. Nothing is sent here unless you have signed in, and nothing beyond what the permissions above describe. |
+| `raw.githubusercontent.com/muhammadbayoumi/mbiX-hub` | Reading one small file that says which engine version is the newest. Narrowed to that one repository, so the extension cannot read anything else on GitHub even by mistake. It is fetched exactly as any browser fetches a public page, and the request carries no information about you at all. |
+| `www.googleapis.com/oauth2/v3` | One Google endpoint and no more: the name, address and picture of the signed-in account. **Drive is not here.** Backups are uploaded by the engine on your own computer, not by the extension, so the extension has no Drive access at all. |
 
 The engine itself talks to the sites you added, and to `127.0.0.1` — which is
 your own computer.

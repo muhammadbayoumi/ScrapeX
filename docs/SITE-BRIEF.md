@@ -204,9 +204,9 @@ Leave each as an empty string in `links.json`, with the UI already wired, and
 **list them in your final report** so they can be filled in one edit:
 
 1. **The Chrome Web Store URL.** The item does not exist yet. The extension ID
-   is pinned and will be `hlamngednfddacoabhoapfkpaedgbapp`, so the URL will
+   is pinned and will be `ekcgggphcfdbjgfkcmjagehfjhijeang`, so the URL will
    almost certainly be
-   `https://chromewebstore.google.com/detail/hlamngednfddacoabhoapfkpaedgbapp`
+   `https://chromewebstore.google.com/detail/ekcgggphcfdbjgfkcmjagehfjhijeang`
    — but it is unconfirmed until the listing is created, so do not present it
    as live.
 2. **The first release does not exist yet**, so the version manifest 404s
