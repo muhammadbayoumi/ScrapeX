@@ -190,7 +190,46 @@ jobs:
         run: python -m pytest -q
 
       - name: Build
-        run: python packaging/build_engine.py
+        # IN A CLEAN ENVIRONMENT, and that is the whole point of this step.
+        #
+        # The step above installs `.[dev,browser,...]` and downloads Chromium
+        # because the suite drives a real browser. PyInstaller then built in
+        # THAT SAME environment and swept the lot into the artifact: pytest and
+        # the whole of Playwright, neither of which the shipped engine calls.
+        # The result was a 68 MB one-file binary that spends 3-7 seconds
+        # unpacking itself before Python runs — a black console window with no
+        # text, on every launch, which is how the owner met it on 2026-08-10.
+        #
+        # A venv with only the RUNTIME extras is what packaging/build_engine.py
+        # has documented as the build all along; the workflow had drifted from
+        # its own instructions.
+        #
+        # The browser tier is M8 and is not built. When it is, `browser` comes
+        # back here WITH it, and the size is paid for something that exists.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv .buildenv
+          .buildenv/Scripts/python -m pip install --quiet --upgrade pip
+          .buildenv/Scripts/python -m pip install --quiet -e ".[ui,local,commodity]" pyinstaller
+          .buildenv/Scripts/python packaging/build_engine.py
+
+      - name: The artifact must not carry what the tests needed
+        # A SIZE CEILING, because the defect this guards is invisible any other
+        # way: the binary works, it is simply enormous and slow to start, and
+        # nobody notices a build environment leaking into a release until a
+        # person double-clicks it and waits.
+        shell: bash
+        run: |
+          set -euo pipefail
+          bytes=$(stat -c%s dist/scrapex-engine.exe)
+          echo "the engine is $((bytes / 1048576)) MB"
+          if [ "$bytes" -gt 47185920 ]; then
+            echo "REFUSED: the engine is over 45 MB, which means the build" >&2
+            echo "environment is leaking into the artifact again — pytest and" >&2
+            echo "Playwright were in the 68 MB build that shipped as 0.2.1." >&2
+            exit 1
+          fi
 
       - name: The thing that was built must actually run
         # An .exe that does not start is a release that turns every install
