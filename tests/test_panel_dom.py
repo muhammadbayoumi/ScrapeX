@@ -3299,7 +3299,7 @@ def test_the_engine_page_says_not_installed_when_it_is_not(open_panel):
     page = open_panel(engine_up=False)
     page.click("#tab-engines")
     page.wait_for_function(
-        "() => document.getElementById('engine-status').textContent !== 'Checking…'",
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
         timeout=10_000)
 
     assert "Not installed" in text_of(page, "#engine-status")
@@ -3497,3 +3497,143 @@ def test_the_engine_actions_have_visible_keyboard_focus(open_panel):
         outline = page.locator(selector).evaluate(
             "el => getComputedStyle(el).outlineWidth")
         assert outline not in ("0px", "", "0")
+
+
+
+def test_the_engine_page_scrolls_when_the_panel_is_short(open_panel):
+    """With a short panel and expanded install steps the Engine view must
+    scroll internally, keeping the heading fixed and the actions reachable."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "i" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 480})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-install-steps summary")
+    page.wait_for_function("() => document.getElementById('engine-install-steps').open")
+
+    info = page.evaluate("""() => {
+      const scroll = document.querySelector('#view-engines .view-scroll');
+      const heading = document.querySelector('#view-engines > .view-heading');
+      return {
+        scrollHeight: scroll.scrollHeight,
+        clientHeight: scroll.clientHeight,
+        headingSticky: getComputedStyle(heading).position === 'sticky',
+        htmlScrollWidth: document.documentElement.scrollWidth,
+        htmlClientWidth: document.documentElement.clientWidth,
+      };
+    }""")
+    assert info["scrollHeight"] > info["clientHeight"], (
+        f"scrollHeight {info['scrollHeight']} is not taller than clientHeight {info['clientHeight']}")
+    assert info["headingSticky"], "the Engine heading is not sticky"
+    assert info["htmlScrollWidth"] <= info["htmlClientWidth"], "the Engine page overflows horizontally"
+
+    page.evaluate("() => { document.querySelector('#view-engines .view-scroll').scrollTop = 99999; }")
+    new_top = page.evaluate(
+        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
+    assert new_top > 0, ".view-scroll did not scroll"
+
+    checksum_box = page.locator("#engine-download-checksum").bounding_box()
+    scroll_box = page.locator("#view-engines .view-scroll").bounding_box()
+    assert checksum_box and scroll_box
+    assert checksum_box["y"] + checksum_box["height"] <= scroll_box["y"] + scroll_box["height"], (
+        "the checksum is clipped below the scrollport")
+
+    others = page.locator("#engines-others-title").bounding_box()
+    assert others
+    assert others["y"] + others["height"] <= scroll_box["y"] + scroll_box["height"], (
+        "Other engines heading is clipped below the scrollport")
+
+
+def test_the_engine_compatibility_warning_is_not_a_second_live_announcement(open_panel):
+    """The status region already announces the mismatch. A duplicate
+    assertive alert on the same fact would double-speak to screen readers."""
+    page = open_panel(protocol_version=99)
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+
+    warning = page.locator("#engine-compatibility-warning")
+    assert warning.get_attribute("role") != "alert"
+    region_text = text_of(page, "#engine-status-region")
+    assert "Incompatible" in region_text
+    assert "99" in region_text
+    assert "1" in region_text
+
+
+def test_the_engine_page_does_not_restate_no_release_three_times(open_panel):
+    """One metadata value and one explanation are enough; three consecutive
+    restatements of the same fact train the owner to ignore the row."""
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    view_text = text_of(page, "#view-engines")
+    assert view_text.count("No release yet") <= 1
+    assert "No engine has been released yet" in view_text
+    assert "No release available yet" not in view_text
+
+
+def test_the_engine_verdict_says_up_to_date_without_installer(open_panel):
+    """A published release equal to the installed version is up to date even
+    when the release has no installer attached."""
+    page = open_panel(engine_version="0.9.0", engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0", "installer": None,
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-release-verdict") == "Up to date"
+    assert "no installer attached" in text_of(page, "#engine-latest-detail")
+
+
+def test_the_engine_verdict_says_update_available_without_installer(open_panel):
+    """A newer published release without an installer still truthfully says
+    an update exists, while the detail explains there is nothing to download."""
+    page = open_panel(engine_version="0.1.0", engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0", "installer": None,
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-release-verdict") == "Update available"
+    assert "no installer attached" in text_of(page, "#engine-latest-detail")
+
+
+def test_the_engine_verdict_does_not_say_available_with_no_engine_and_no_installer(open_panel):
+    """When nothing is installed and the release has no installer, the page
+    must not promise an install."""
+    page = open_panel(engine_up=False, engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0", "installer": None,
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert "Available to install" not in text_of(page, "#engine-release-verdict")
+    assert "no installer attached" in text_of(page, "#engine-latest-detail")

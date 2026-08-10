@@ -2200,14 +2200,13 @@ function renderAccount({ tokenProblem = null } = {}) {
 // first minute. So the feed is read by the extension, and the page is filled
 // whether or not anything is running.
 //
-// Asked once per panel open and remembered. The number changes a few times a
-// year; re-asking on every render would be a request per keystroke for an
-// answer that has not moved since the panel opened.
+// Asked once per panel open and remembered. Engine status and release status
+// are checked independently: the local engine state is known immediately from
+// `state`, while the remote release feed is fetched only when missing and
+// never blocks the engine status from being shown.
 let latestRelease = null;
-let engineChecking = false;
 
 function setEngineBusy(busy) {
-  engineChecking = busy;
   const region = $("engine-status-region");
   if (region) region.setAttribute("aria-busy", String(busy));
 }
@@ -2259,11 +2258,32 @@ function engineProtocolText() {
   return String(state.engineProtocol);
 }
 
+function updateEngineWarning() {
+  const warning = $("engine-compatibility-warning");
+  if (state.protocolMismatch) {
+    warning.textContent =
+      `The installed engine uses protocol ${state.engineProtocol}; this extension uses ${PROTOCOL_VERSION}. They cannot communicate.`;
+    warning.classList.remove("hidden");
+  } else {
+    warning.classList.add("hidden");
+    warning.textContent = "";
+  }
+}
+
+function renderEngineStatusUI() {
+  const installed = state.engineVersion || "";
+  $("engine-installed-version").textContent = installed || "Not installed";
+  $("engine-protocol-row").textContent = engineProtocolText();
+  updateEngineWarning();
+  updateEngineStatus();
+}
+
 function engineReleaseVerdict(installed, latest) {
   if (latest.state === "offline" || latest.state === "unreadable") return "Update status unavailable";
-  if (latest.state === "none") return "No release available yet";
-  if (latest.state !== "ok" || !latest.installer) return "";
-  if (!installed) return "Available to install";
+  if (latest.state === "none") return "";
+  if (latest.state !== "ok") return "";
+  const hasInstaller = !!latest.installer;
+  if (!installed) return hasInstaller ? "Available to install" : "";
   try {
     if (isOlder(installed, latest.version)) return "Update available";
     return "Up to date";
@@ -2272,81 +2292,76 @@ function engineReleaseVerdict(installed, latest) {
   }
 }
 
+function updateEngineReleaseUI(latest) {
+  const installed = state.engineVersion || "";
+
+  $("engine-latest-version").textContent =
+    latest.state === "ok" ? latest.version
+    : latest.state === "none" ? "No release yet"
+    : "Unavailable";
+
+  $("engine-latest-detail").textContent = latest.state === "ok"
+    ? (latest.installer
+        ? ""
+        : "This release has no installer attached, so there is nothing to install yet.")
+    : (latest.detail || "");
+
+  $("engine-release-verdict").textContent = engineReleaseVerdict(installed, latest);
+
+  const download = $("engine-download");
+  const steps = $("engine-install-steps");
+  const installer = latest.state === "ok" ? latest.installer : null;
+
+  download.disabled = !installer;
+  steps.classList.toggle("hidden", !installer);
+
+  if (installer) {
+    $("engine-download-checksum").textContent = installer.sha256
+      ? `If you want to verify the download — SHA-256: ${installer.sha256}`
+      : "";
+    download.onclick = () => {
+      window.open(installer.url, "_blank");
+      steps.open = true;
+    };
+  } else {
+    download.onclick = null;
+  }
+}
+
 async function renderEngines() {
+  // The local engine status is known from state immediately and must not be
+  // hidden while waiting for the remote release feed.
+  renderEngineStatusUI();
+  setEngineBusy(false);
+  $("engine-recheck").onclick = refreshEngines;
+
+  if (!latestRelease) {
+    latestRelease = await latestEngineRelease();
+  }
+  updateEngineReleaseUI(latestRelease);
+}
+
+async function refreshEngines() {
+  const recheck = $("engine-recheck");
+  recheck.disabled = true;
   setEngineBusy(true);
-  // Transient checking text; the final state is applied before busy is cleared.
   $("engine-status").textContent = "Checking engine…";
   $("engine-status-badge").className = "badge";
   $("engine-status-dot").className = "dot";
   $("engine-status-detail").classList.add("hidden");
   try {
-    const installed = state.engineVersion || "";
-    $("engine-installed-version").textContent = installed || "Not installed";
-    $("engine-protocol-row").textContent = engineProtocolText();
-
-    const warning = $("engine-compatibility-warning");
-    if (state.protocolMismatch) {
-      warning.textContent =
-        `The installed engine uses protocol ${state.engineProtocol}; this extension uses ${PROTOCOL_VERSION}. They cannot communicate.`;
-      warning.classList.remove("hidden");
-    } else {
-      warning.classList.add("hidden");
-      warning.textContent = "";
-    }
-
-    if (!latestRelease) latestRelease = await latestEngineRelease();
-    const latest = latestRelease;
-
-    $("engine-latest-version").textContent =
-      latest.state === "ok" ? latest.version
-      : latest.state === "none" ? "No release yet"
-      : "Unavailable";
-
-    $("engine-latest-detail").textContent = latest.state === "ok"
-      ? (latest.installer
-          ? ""
-          : "This release has no installer attached, so there is nothing to install yet.")
-      : (latest.detail || "");
-
-    $("engine-release-verdict").textContent = engineReleaseVerdict(installed, latest);
-
-    const recheck = $("engine-recheck");
-    recheck.onclick = async () => {
-      recheck.disabled = true;
-      setEngineBusy(true);
-      $("engine-status").textContent = "Checking engine…";
-      try {
-        latestRelease = null;
-        await render();
-        await renderEngines();
-      } finally {
-        recheck.disabled = false;
-      }
-    };
-
-    const download = $("engine-download");
-    const steps = $("engine-install-steps");
-    const installer = latest.state === "ok" ? latest.installer : null;
-
-    download.disabled = !installer;
-    steps.classList.toggle("hidden", !installer);
-
-    if (installer) {
-      $("engine-download-checksum").textContent = installer.sha256
-        ? `If you want to verify the download — SHA-256: ${installer.sha256}`
-        : "";
-      download.onclick = () => {
-        window.open(installer.url, "_blank");
-        steps.open = true;
-      };
-    } else {
-      download.onclick = null;
-    }
-  } finally {
-    updateEngineStatus();
+    await render();
+    renderEngineStatusUI();
     setEngineBusy(false);
+
+    latestRelease = null;
+    const latest = await latestEngineRelease();
+    updateEngineReleaseUI(latest);
+  } finally {
+    recheck.disabled = false;
   }
 }
+
 // ---- the refusal --------------------------------------------------------
 // M1's whole "done when": an incompatible engine is REFUSED WITH A NAMED
 // ACTION, instead of a dead panel.

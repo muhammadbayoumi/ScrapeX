@@ -202,7 +202,7 @@
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
   #view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-  #view-appearance, #view-finance, #view-settings {
+  #view-appearance, #view-finance, #view-settings, #view-engines {
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -216,15 +216,15 @@
     scrollbar-color: var(--muted) transparent;
   }
   :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings)::-webkit-scrollbar {
+      #view-appearance, #view-finance, #view-settings, #view-engines)::-webkit-scrollbar {
     width: .45rem;
   }
   :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings)::-webkit-scrollbar-track {
+      #view-appearance, #view-finance, #view-settings, #view-engines)::-webkit-scrollbar-track {
     background: transparent;
   }
   :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings)::-webkit-scrollbar-thumb {
+      #view-appearance, #view-finance, #view-settings, #view-engines)::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: var(--radius-pill);
     background: var(--muted);
@@ -233,7 +233,7 @@
   /* Run, Finance and Settings have a fixed page introduction followed by one
      independent scrollport. The scrollbar therefore starts exactly where the
      moving content starts, rather than beside the fixed heading. */
-  :is(#view-run, #view-finance, #view-settings) {
+  :is(#view-run, #view-finance, #view-settings, #view-engines) {
     padding-inline-end: 0;
     overflow: hidden;
     scrollbar-gutter: auto;
@@ -2216,6 +2216,10 @@
   }
   .engine-action-primary {
     /* Inherits default button appearance; keeps the official action visible. */
+  }
+  .engine-action-primary:disabled {
+    opacity: .55;
+    cursor: not-allowed;
   }
   .engine-action-secondary {
     /* Ghost button for the refresh action. */
