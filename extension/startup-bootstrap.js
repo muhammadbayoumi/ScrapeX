@@ -1,6 +1,12 @@
 (function () {
   "use strict";
 
+  const STARTUP_EVENT = "scrapex-side-panel-startup-event";
+
+  function epochAt(startTime = window.performance.now()) {
+    return window.performance.timeOrigin + startTime;
+  }
+
   function snapshot(extra = {}) {
     let hasFocus = false;
     try { hasFocus = document.hasFocus(); } catch (_) {}
@@ -16,6 +22,12 @@
     catch (_) {
       try { window.performance.mark(`scrapex:${name}`); } catch (_) {}
     }
+    try {
+      chrome.runtime.sendMessage({
+        type: STARTUP_EVENT,
+        event: {name, at: epochAt(), detail},
+      }).catch(() => {});
+    } catch (_) {}
   }
 
   // Earliest extension-owned timestamp. Chrome does not expose the toolbar
@@ -33,4 +45,26 @@
   document.addEventListener("visibilitychange", () => {
     mark("visibilitychange", snapshot());
   });
+
+  try {
+    const paintObserver = new globalThis.PerformanceObserver((list) => {
+      const fcp = list.getEntries().find((entry) =>
+        entry.name === "first-contentful-paint");
+      if (!fcp) return;
+      const detail = snapshot({startTime: fcp.startTime});
+      try {
+        window.performance.mark("scrapex:first-contentful-paint", {
+          startTime: fcp.startTime, detail,
+        });
+      } catch (_) {}
+      try {
+        chrome.runtime.sendMessage({
+          type: STARTUP_EVENT,
+          event: {name: "first-contentful-paint", at: epochAt(fcp.startTime), detail},
+        }).catch(() => {});
+      } catch (_) {}
+      paintObserver.disconnect();
+    });
+    paintObserver.observe({type: "paint", buffered: true});
+  } catch (_) {}
 })();

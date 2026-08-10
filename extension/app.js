@@ -4225,7 +4225,7 @@ async function init() {
   if (paintOpportunity.source === "cancelled" || panelController.signal.aborted) return;
   // FCP remains the authoritative browser paint measurement. This mark records
   // that startup yielded a bounded renderer opportunity before remote work.
-  markStartup("shell-visible", {
+  markStartup("shell-post-opportunity", {
     source: paintOpportunity.source,
     visibilityState: document.visibilityState,
   });

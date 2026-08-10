@@ -7,6 +7,7 @@ import {
   STARTUP_PAINT_FALLBACK_MS,
   deadlineForLocalRequest,
   fetchWithDeadline,
+  markStartup,
 } from "../startup.js";
 
 function pendingFetch(_input, {signal}) {
@@ -55,6 +56,26 @@ test("every startup deadline is finite and positive", () => {
   for (const [name, value] of Object.entries(STARTUP_DEADLINES)) {
     assert.ok(Number.isFinite(value) && value > 0, `${name} has no finite deadline`);
   }
+});
+
+test("document startup marks also reach the combined host trace", () => {
+  const sent = [];
+  const originalChrome = globalThis.chrome;
+  globalThis.chrome = {
+    runtime: {sendMessage(message) { sent.push(message); return Promise.resolve(); }},
+  };
+  try {
+    markStartup("account-check-start", {interactive: false});
+  } finally {
+    if (originalChrome === undefined) delete globalThis.chrome;
+    else globalThis.chrome = originalChrome;
+  }
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].type, "scrapex-side-panel-startup-event");
+  assert.equal(sent[0].event.name, "account-check-start");
+  assert.equal(sent[0].event.detail.interactive, false);
+  assert.ok(Number.isFinite(sent[0].event.at));
 });
 
 test("startup takes the bounded fallback when an animation frame never runs", async () => {
