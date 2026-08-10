@@ -22,6 +22,14 @@ engine calls. `packaging/build_engine.py` has documented the correct build all
 along (`pip install -e ".[ui,local,commodity]" pyinstaller`); the workflow had
 drifted from its own instructions.
 
+AND WHAT TRIMMING DID NOT FIX, measured rather than assumed. Excluding the test
+extras took the binary from 67.6 MB to 60.1 MB — eleven per cent, not the two
+thirds the disk sizes suggested, because PyInstaller compresses and most of
+Playwright's 105 MB is driver binaries it never bundles. Sixty megabytes still
+unpacks in seconds. Size and silence are two separate problems: this file guards
+the size, and `--splash` in packaging/build_engine.py answers the silence, by
+drawing something from the bootloader while Python is still not running.
+
 These tests read the workflow rather than building a binary: a build takes
 minutes and needs PyInstaller, and what has to stay true is a property of the
 recipe.
@@ -117,3 +125,27 @@ def test_the_documented_build_and_the_shipped_build_agree(workflow):
         f"the release workflow uses {sorted(shipped)}. The workflow is what "
         "ships, so the documented command is the one nobody has run — and that "
         "drift is exactly how Playwright ended up inside the engine.")
+
+
+def test_something_is_drawn_while_the_bootloader_unpacks():
+    """THE ANSWER TO THE BLACK WINDOW, which trimming the bundle did not give.
+
+    A one-file binary opens its console and extracts the bundle before any of
+    our code runs, so nothing this repository writes can appear during it —
+    measured at 2.6-6.9 seconds warm, longer on a first run. `--splash` is the
+    only mechanism that can put anything on the screen in that window, because
+    PyInstaller's own bootloader draws it.
+    """
+    build = (ROOT / "packaging" / "build_engine.py").read_text(encoding="utf-8")
+    assert "--splash" in build, (
+        "the build draws nothing during the unpack, so a person who "
+        "double-clicks the engine sees a black window for several seconds and "
+        "has no way to tell it from a broken download")
+    assert (ROOT / "packaging" / "splash.png").is_file(), (
+        "build_engine.py asks PyInstaller for a splash image that does not "
+        "exist, which fails the build rather than the launch")
+
+    entry = (ROOT / "packaging" / "engine_entry.py").read_text(encoding="utf-8")
+    assert "pyi_splash" in entry, (
+        "nothing closes the splash, so the image stays on top of the console "
+        "while the engine reports what it is doing behind it")
