@@ -1496,6 +1496,92 @@ def create_app(
         return {"source": json.loads(entry.model_dump_json()), "holds": holds,
                 "implemented": entry.family in _BUILDERS}
 
+    @app.get("/api/sources/{source_key}/robots")
+    def api_source_robots(source_key: str):
+        """LOOK BEFORE CHOOSING: what this site's robots.txt actually says.
+
+        Its own route, and a GET, because it is the one step of the three that
+        changes nothing. A choice offered before the facts is a guess with a
+        dropdown around it — the owner cannot sensibly pick "obey" for a site
+        until he knows whether obeying means a five-second delay or an empty
+        crawl, and the only honest way to tell him is to read the file.
+
+        `would_block_everything` is the field that decides the answer: when it
+        is true, choosing obey does not make this source polite, it makes it
+        collect nothing while reporting success.
+        """
+        import httpx
+
+        from ..connectors.base import DEFAULT_USER_AGENT
+        from ..robots import RobotsChoice, RobotsCustom, decide, inspect
+
+        try:
+            entry = app.state.manifest.get(source_key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+
+        conn = read_conn()
+        try:
+            crawl = crawl_settings(conn)
+            agent = entry.user_agent or crawl.get("user_agent") or DEFAULT_USER_AGENT
+            obeys_by_default = bool(crawl.get("obey_disallow"))
+        finally:
+            conn.close()
+
+        text, unreadable = None, ""
+        try:
+            base = urlsplit(entry.base_url)
+            with httpx.Client(timeout=15.0, follow_redirects=True,
+                              headers={"User-Agent": agent}) as client:
+                answer = client.get(f"{base.scheme}://{base.netloc}/robots.txt")
+            if answer.status_code == 200:
+                text = answer.text
+            elif answer.status_code not in (404, 410):
+                # 404 means there is no file, which is an ANSWER. Anything else
+                # means we did not get to read one, and the two must not look
+                # alike on the screen.
+                unreadable = f"HTTP {answer.status_code}"
+        except Exception as exc:
+            # Any failure to READ robots.txt is reported as a failure to read
+            # it, never as an empty file: "the site asks nothing" and "we could
+            # not find out" lead the owner to opposite choices.
+            unreadable = f"{type(exc).__name__}: {exc}"
+
+        report = inspect(entry.base_url, text, user_agent=agent, unreadable=unreadable)
+        choice = RobotsChoice(entry.robots or "default")
+        custom = None
+        if choice is RobotsChoice.CUSTOM and entry.robots_custom:
+            custom = RobotsCustom(
+                enforce_disallow=bool(entry.robots_custom.get("enforce_disallow")),
+                crawl_delay_s=entry.robots_custom.get("crawl_delay_s"))
+        # Shown as "what would happen on a disallowed path", because that is the
+        # only case where the three choices differ at all.
+        try:
+            verdict = decide(report, choice, custom=custom,
+                             tool_default_obeys=obeys_by_default, url_disallowed=True)
+            outcome = {"may_fetch": verdict.may_fetch, "delay_s": verdict.delay_s,
+                       "reason": verdict.reason}
+        except ValueError as exc:
+            outcome = {"may_fetch": None, "delay_s": None, "error": str(exc)}
+
+        return {
+            "source_key": source_key,
+            "host": report.host,
+            "found": report.found,
+            "unreadable": report.unreadable,
+            "names_us": report.names_us,
+            "user_agent": agent,
+            "crawl_delay_s": report.crawl_delay_s,
+            "would_block_everything": report.obeying_would_block_everything,
+            "summary": report.summary(),
+            "rules": [{"kind": r.kind, "value": r.value, "agent": r.agent}
+                      for r in report.rules],
+            "choice": str(choice),
+            "custom": entry.robots_custom,
+            "tool_default_obeys": obeys_by_default,
+            "on_a_disallowed_path": outcome,
+        }
+
     @app.post("/api/sources/{source_key}/edit")
     def api_edit_source(source_key: str, body: dict):
         """Replace one source's manifest block.
@@ -1518,6 +1604,15 @@ def create_app(
         # "edit". Only what the form actually sends changes.
         form = {**current, **{k: v for k, v in (body or {}).items() if v is not None}}
         form.setdefault("source_key", source_key)
+        # ENFORCED HERE, not trusted from the form. The merge above drops nulls
+        # on purpose -- a partial edit must not wipe fields it did not mention --
+        # so a client switching a source AWAY from `custom` cannot clear its
+        # custom rule by sending null. Left behind, the rule sits under a choice
+        # that ignores it and reads as "this site is customised" on every later
+        # open, until someone switches back and is silently governed by a rule
+        # they last saw weeks ago.
+        if form.get("robots") != "custom":
+            form["robots_custom"] = None
         if str(form.get("source_key")) != source_key:
             raise HTTPException(
                 status_code=400,
@@ -3027,6 +3122,7 @@ def _entry_from_form(form: dict) -> SourceEntry:
     identity = {k: v for k, v in (form.get("identity") or {}).items() if v not in (None, "")}
     if identity:
         data["identity"] = identity
+
     # EVERYTHING ELSE THE MODEL HAS, carried rather than dropped. The block
     # above names seventeen fields and normalises them; SourceEntry has
     # twenty-nine, and an EDIT arrives as the whole stored entry merged with the

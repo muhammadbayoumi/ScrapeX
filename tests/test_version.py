@@ -488,9 +488,27 @@ def test_an_engine_release_does_not_raise_the_floor_under_the_published_extensio
     # NEEDS and not about which engine is reading it. Tagging engine-v0.4.0
     # changes VERSION and nothing here.
     assert all(s != "" for s in panel_sinces)
-    assert MINIMUM_EXTENSION_VERSION == "0.2.0", (
+    assert MINIMUM_EXTENSION_VERSION == "0.2.2", (
         "the floor moved without a capability being added; if that was "
         "deliberate, the published extension must be republished first")
+    # MOVED FROM 0.2.0 ON 2026-08-10, deliberately, with the republish this
+    # message demands done in the same change: `robots_per_source` puts a
+    # control on the source editor, so a panel older than 0.2.2 does not have
+    # the screen the engine now expects it to have.
+    #
+    # The trap this test exists to catch was live for about a minute. Raising
+    # the floor to 0.2.2 while extension/manifest.json still said 0.2.1 would
+    # have shipped an engine that REFUSES the very extension about to be
+    # published to the store — a first release rejected by its own engine, for
+    # a reason nobody would look for on day one.
+    from json import loads
+    from pathlib import Path
+    shipped = loads((Path(__file__).resolve().parents[1] / "extension" /
+                     "manifest.json").read_text(encoding="utf-8"))["version"]
+    assert _newest((shipped, MINIMUM_EXTENSION_VERSION)) == shipped, (
+        f"the engine demands extension >= {MINIMUM_EXTENSION_VERSION} and the "
+        f"extension in this repository is {shipped}. Publishing that build "
+        "would hand the owner an extension his own engine turns away.")
 
 
 def test_the_extension_may_be_tagged_for_the_store_on_its_own():

@@ -712,6 +712,50 @@
            this file is interface, and Arabic here is data, never chrome.
            Reordering here is Up/Down rather than drag: the panel is a narrow
            column and a drag target that thin is a control you fight. -->
+      <!-- robots.txt, per site. Three steps in the order a person takes them:
+           look at what the site says, then choose, and the consequence of the
+           choice is spelled out beside it rather than left to be discovered by
+           watching a run come back empty. -->
+      <section class="card" aria-labelledby="source-edit-robots-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="source-edit-robots-heading">robots.txt</h2>
+            <p class="muted text-xs">What this site asks of a crawler, and what
+              ScrapeX does about it.</p>
+          </div>
+          <button id="source-edit-robots-look" type="button" class="ghost">
+            Check what the site says
+          </button>
+        </div>
+        <!-- Empty until asked. The check costs a request to someone else's
+             server, so it happens when the owner wants it, not on every open. -->
+        <div id="source-edit-robots-report" class="muted text-sm">
+          Not checked yet.
+        </div>
+        <div class="fieldset">
+          <label for="source-edit-robots">What this source does</label>
+          <select id="source-edit-robots">
+            <option value="default">Use the tool default</option>
+            <option value="obey">Obey this site's robots.txt</option>
+            <option value="custom">A custom rule for this site</option>
+          </select>
+          <p id="source-edit-robots-consequence" class="muted text-xs"></p>
+        </div>
+        <!-- Shown only for `custom`: the two things robots.txt itself controls,
+             and nothing else. -->
+        <div id="source-edit-robots-custom" class="hidden">
+          <label class="check">
+            <input id="source-edit-robots-enforce" type="checkbox">
+            <span>Do not fetch paths this site disallows</span>
+          </label>
+          <div class="fieldset">
+            <label for="source-edit-robots-delay">Seconds between requests</label>
+            <input id="source-edit-robots-delay" type="number" min="0" step="0.5"
+                   placeholder="whatever the site asks for">
+          </div>
+        </div>
+      </section>
+
       <section class="card" aria-labelledby="source-edit-columns-heading">
         <div class="section-head">
           <div>

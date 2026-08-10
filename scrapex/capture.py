@@ -94,6 +94,13 @@ def crawl_settings(conn: sqlite3.Connection) -> dict:
         # fast crawl and a polite one indistinguishable afterwards.
         "honour_crawl_delay": settings.get(conn, "crawl_honour_delay") not in
                               ("0", "false", "False", False),
+        # WHAT A SOURCE GETS WHEN IT HAS SAID NOTHING. Unlike the delay above,
+        # silence here reads as "crawl and disclose" -- the ruling every source
+        # has had since 2026-07-22 -- because flipping it under twelve sources
+        # the owner already reviewed would change what they collect without him
+        # asking. A source that wants the other answer says so on itself.
+        "obey_disallow": settings.get(conn, "crawl_obey_disallow") in
+                         ("1", "true", "True", True),
     }
 
 

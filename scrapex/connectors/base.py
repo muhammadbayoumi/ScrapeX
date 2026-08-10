@@ -197,6 +197,15 @@ def declare_frontier(fetcher, pages: int) -> None:
         pass
 
 
+class RobotsDisallowed(RuntimeError):
+    """This source is set to obey robots.txt, and robots.txt said no.
+
+    Its own class because the alternative -- returning nothing, or a 403-shaped
+    failure -- makes a deliberate refusal indistinguishable from a site being
+    down, and those need opposite responses from the owner.
+    """
+
+
 class HttpFetcher:
     """Shared polite HTTP transport (F5): rate-limited, retrying, one UA.
 
@@ -247,6 +256,9 @@ class HttpFetcher:
         max_attempts: int = 3,
         jitter: float = 0.3,          # +/- 30% around the base interval
         honour_crawl_delay: bool = True,
+                 robots_choice: str = "default",
+                 robots_custom: dict | None = None,
+                 obey_disallow: bool = False,
     ) -> None:
         self._client = httpx.Client(
             headers={"User-Agent": user_agent},
@@ -264,6 +276,8 @@ class HttpFetcher:
         # "robots crawl-delay 10s — honored" for ELBUROJ and NOTHING read
         # robots.txt at all; a promise in a comment is not a mechanism.
         self._robots: dict[str, object] = {}
+        #: host -> the file as it arrived, for the report.
+        self._robots_text: dict[str, str] = {}
         self._user_agent = user_agent
         # The owner's per-run choice (2026-07-28). Default TRUE: a crawler that
         # ignores a site's asked-for pace by default is one that gets the owner
@@ -272,6 +286,20 @@ class HttpFetcher:
         # which pace it ran at — otherwise a fast crawl and a polite one look
         # identical afterwards.
         self._honour_crawl_delay = honour_crawl_delay
+        # WHOSE DECISION THIS FETCHER CARRIES. Passed in rather than read from
+        # settings here, because one crawl can run several sources and each may
+        # have answered differently -- a fetcher that looked the answer up would
+        # give them all the same one.
+        self._robots_choice = robots_choice
+        self._robots_custom = robots_custom
+        # NAMED EXACTLY AS THE SETTING IS, because `HttpFetcher(**crawl_settings(
+        # conn))` is a real call site: a parameter whose name drifts from its
+        # settings key is a TypeError the moment somebody adds the setting.
+        # tests/test_http_fetcher.py pins the two together.
+        self._obey_disallow = obey_disallow
+        #: host -> RobotsReport, so the file is read once and the report can be
+        #: shown to the owner afterwards without fetching it again.
+        self._robots_reports: dict[str, object] = {}
         self.robots_warnings: list[str] = []
         # url -> {"ETag": ..., "Last-Modified": ...}, replayed on the next visit.
         self._validators: dict[str, dict[str, str]] = {}
@@ -419,6 +447,10 @@ class HttpFetcher:
             if answer.status_code == 200:
                 parser = RobotFileParser()
                 parser.parse(answer.text.splitlines())
+                # Kept so the report shown to the owner can quote the actual
+                # lines. RobotFileParser answers questions and cannot be asked
+                # what it read.
+                self._robots_text[host] = answer.text
         except Exception:
             parser = None
         self._robots[host] = parser
@@ -448,19 +480,41 @@ class HttpFetcher:
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
         robots = self._robots_for(url)
         if robots is not None and not robots.can_fetch(self._user_agent, url):
-            # Owner policy (docs/robots-policy.md, 2026-07-22): Disallow is
-            # informational, NOT enforced — refusing outright could silently
-            # kill a source the owner relies on. Crawl-delay, by contrast, IS
-            # enforced (above). ONE warning per host (a 400-page crawl must
-            # not write 400 lines) keeps the fact visible in the job log.
+            # NO LONGER ONE RULING FOR EVERY SITE. docs/robots-policy.md carried
+            # "Disallow is informational" for every source from 2026-07-22; it
+            # is now what a source gets when it has said nothing, and the source
+            # can say otherwise. scrapex/robots.py resolves the three cases and
+            # writes the sentence that explains whichever happened.
             from urllib.parse import urlsplit
+
+            from ..robots import RobotsChoice, RobotsCustom, decide, inspect
+
             host = urlsplit(url).netloc
+            report = self._robots_reports.get(host)
+            if report is None:
+                report = inspect(url, self._robots_text.get(host),
+                                 user_agent=self._user_agent)
+                self._robots_reports[host] = report
+
+            custom = None
+            if self._robots_choice == RobotsChoice.CUSTOM and self._robots_custom:
+                custom = RobotsCustom(
+                    enforce_disallow=bool(self._robots_custom.get("enforce_disallow")),
+                    crawl_delay_s=self._robots_custom.get("crawl_delay_s"))
+            verdict = decide(report, RobotsChoice(self._robots_choice), custom=custom,
+                             tool_default_obeys=self._obey_disallow,
+                             url_disallowed=True)
+
+            # ONE line per host: a 400-page crawl must not write 400 of them.
             marker = f"{host}: robots.txt disallows"
             if not any(w.startswith(marker) for w in self.robots_warnings):
-                self.robots_warnings.append(
-                    f"{marker} some of the paths we crawl (first: "
-                    f"{urlsplit(url).path}) — crawled anyway per the robots "
-                    "policy: Disallow is informational, not enforced")
+                self.robots_warnings.append(f"{marker} — {verdict.reason}")
+            if not verdict.may_fetch:
+                # RAISED, not skipped. A skipped page becomes an empty crawl
+                # that reports success, and a source that silently stops being
+                # collected is the worst failure this product has. The owner
+                # chose to obey; the run must say so out loud and stop.
+                raise RobotsDisallowed(verdict.reason)
         if method == "GET":
             kwargs["headers"] = self._conditional_headers(url, kwargs.get("headers"))
         last_error: Exception | None = None
@@ -643,5 +697,11 @@ def resolve_fetcher(source: SourceEntry,
         min_interval_s=1.0 if interval is None else float(interval),
         timeout_s=30.0 if timeout is None else float(timeout),
         honour_crawl_delay=True if honour is None else bool(honour),
+        # The source's own answer, and what it means when the source did not
+        # give one. Read HERE and not inside the fetcher because a single crawl
+        # can run several sources and each may have answered differently.
+        robots_choice=source.robots or "default",
+        robots_custom=source.robots_custom,
+        obey_disallow=bool(chosen.get("obey_disallow")),
     )
 

@@ -52,6 +52,10 @@ sources:
     notes: two days of measurement live in this line
     min_expected_rows: 40
     max_drop_pct: 25.0
+    robots: custom
+    robots_custom:
+      enforce_disallow: true
+      crawl_delay_s: 9.0
     extract:
       - kind: product_prices
         scope: census

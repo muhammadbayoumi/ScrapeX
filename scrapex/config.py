@@ -348,6 +348,18 @@ class SourceEntry(BaseModel):
     # Some platforms (Zid) 403 non-browser clients; such a source declares the
     # exact UA the fetcher must send. Explicit per source, never a silent global (F5).
     user_agent: str | None = None
+    # ROBOTS IS A PER-SITE DECISION, and this is where the owner records it.
+    # "default" defers to the tool-wide setting, so a source that never asked
+    # for anything different moves when he changes his mind once. "obey" follows
+    # this site's robots.txt. "custom" uses `robots_custom` below and refuses to
+    # run without it -- see scrapex/robots.py for why falling back would be
+    # worse than failing. Stored as a plain string because the manifest is a
+    # hand-editable file and an enum in YAML is a trap; robots.RobotsChoice
+    # validates it at the point of use.
+    robots: str = "default"
+    #: Only read when `robots` is "custom": {enforce_disallow: bool,
+    #: crawl_delay_s: float | null}. A null delay means the site's own.
+    robots_custom: dict | None = None
     # Ordered families to try if `family` fails (spec 32). Recorded per source so
     # the choice is visible in the manifest rather than hidden in code.
     fallback_families: list[ConnectorFamily] = Field(default_factory=list)
