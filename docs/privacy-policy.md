@@ -38,7 +38,7 @@ it will.
 ## Google sign-in, and what it is for
 
 Signing in with Google is **optional**. ScrapeX works without it; you simply
-cannot back up to Drive or write to a Google Sheet until you do.
+cannot back up to Drive until you do.
 
 When you sign in, Chrome — not ScrapeX — obtains and holds the access token.
 ScrapeX asks Chrome for it when it needs to make a request and never writes it
@@ -51,8 +51,7 @@ revokes it immediately.
 | Permission | Why |
 |---|---|
 | `userinfo.email`, `userinfo.profile` | To show which account is signed in — your name, address and picture, on the panel's own Profile page. Nothing is stored and nothing is sent anywhere. |
-| `drive.file` | To create and update **only the files ScrapeX itself creates**. Google enforces this per file: ScrapeX is structurally unable to read the rest of your Drive, whether or not it wanted to. |
-| `spreadsheets` | To write your collected data into a Google Sheet — either one ScrapeX created, or one you point it at yourself. |
+| `drive.file` | To create and update **only the files ScrapeX itself creates**. Google enforces this per file: ScrapeX is structurally unable to read the rest of your Drive, whether or not it wanted to. It is also what a future export to Google Sheets will use — a sheet ScrapeX creates, or one you hand it yourself. |
 
 ScrapeX never asks for full Drive access, never reads your mail, and never
 touches a file it did not create or that you did not explicitly hand it.

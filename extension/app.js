@@ -55,7 +55,7 @@ const state = {
   // state.engineVersion too, so silence is never read as a refusal.
   // Chrome holds the token; this is the copy the panel lends onward, and
   // it is never written to storage.
-  token: "", account: null,
+  token: "", account: null, accountStatus: null,
   installedVersion: "", engineVersion: "", versionReport: null,
   // null means the engine never said, which is a THIRD state and not a
   // mismatch: an engine built before the handshake moved here answers
@@ -1890,37 +1890,185 @@ function syncModeChoices() {
 // signed in and never sees the button again. Only the button itself is allowed
 // to open a consent window — a panel that popped one on every open would be
 // indistinguishable from a broken extension.
-async function loadAccount({ interactive = false } = {}) {
-  const result = await getToken({ interactive });
-  if (result.state !== "ok") {
-    state.account = null;
-    state.token = "";
-    renderAccount(interactive ? result : null);
-    return result;
+
+function setChecking(checking) {
+  $("profile-stage").setAttribute("aria-busy", String(checking));
+  $("welcome-checking").classList.toggle("hidden", !checking);
+  if (checking) {
+    $("welcome-signed-out").classList.add("hidden");
+    $("welcome-signed-in").classList.add("hidden");
+  } else {
+    const signedIn = Boolean(state.token);
+    $("welcome-signed-out").classList.toggle("hidden", signedIn);
+    $("welcome-signed-in").classList.toggle("hidden", !signedIn);
   }
-  state.token = result.token;
-  state.account = await accountFor(result.token);
-  renderAccount(null);
-  return result;
+  updateRailLabel();
 }
 
-function renderAccount(problem) {
+function updateRailLabel() {
+  const tab = $("tab-profile");
+  if (!tab) return;
+  let suffix = "signed out";
+  if (!$("welcome-checking").classList.contains("hidden")) {
+    suffix = "checking account";
+  } else if (state.token) {
+    suffix = "signed in";
+  }
+  const label = `Profile, ${suffix}`;
+  tab.setAttribute("aria-label", label);
+  tab.title = label;
+}
+
+function focusAccountSummary() {
+  const summary = $("welcome-summary");
+  if (summary) summary.focus({ preventScroll: true });
+}
+
+function focusSignin() {
+  const btn = $("signin");
+  if (btn) btn.focus({ preventScroll: true });
+}
+
+function setGoogleButtonScheme() {
+  const scheme = window.ScrapeXAppearance?.get?.().effectiveScheme || "light";
+  // [data-scheme], not .profile-signin-img: the class is for styling, and a
+  // JavaScript hook on a class means a CSS tidy can silently unwire the button.
+  // The attribute is already what this function reads, so it is also what it
+  // should select on.
+  $("welcome-signed-out").querySelectorAll("img[data-scheme]").forEach((img) => {
+    img.classList.toggle("hidden", img.dataset.scheme !== scheme);
+  });
+}
+
+async function loadAccount({ interactive = false } = {}) {
+  setChecking(true);
+  try {
+    const result = await getToken({ interactive });
+    if (result.state !== "ok") {
+      state.account = null;
+      state.token = "";
+      state.accountStatus = null;
+      renderAccount({ tokenProblem: interactive ? result : null });
+      return result;
+    }
+
+    const accountResult = await accountFor(result.token);
+    if (accountResult.state === "ok") {
+      state.token = result.token;
+      state.account = accountResult.account;
+      state.accountStatus = null;
+      renderAccount({});
+      return { ...result, account: accountResult.account };
+    }
+
+    if (accountResult.state === "unauthorized") {
+      await forgetToken(result.token);
+      state.token = "";
+      state.account = null;
+      state.accountStatus = null;
+      renderAccount({
+        tokenProblem: {
+          state: "authorization-required",
+          detail: "Google access isn’t currently granted. Sign in with Google to try again.",
+        },
+      });
+      return { state: "authorization-required" };
+    }
+
+    // Token is still valid, but the account lookup failed in a way we can
+    // explain and possibly retry.
+    state.token = result.token;
+    state.account = null;
+    state.accountStatus = accountResult;
+    renderAccount({});
+    return { ...result, accountStatus: accountResult };
+  } catch (error) {
+    state.token = "";
+    state.account = null;
+    state.accountStatus = null;
+    renderAccount({
+      tokenProblem: {
+        state: "failed",
+        detail: "Something went wrong while checking the account.",
+      },
+    });
+    return { state: "failed", detail: String(error && error.message) };
+  } finally {
+    setChecking(false);
+  }
+}
+
+async function loadAccountDetails() {
+  const token = state.token;
+  if (!token) return;
+  const retry = $("retry-account");
+  if (retry) retry.disabled = true;
+  try {
+    const result = await accountFor(token);
+    if (result.state === "ok") {
+      state.account = result.account;
+      state.accountStatus = null;
+      renderAccount({});
+      return;
+    }
+    if (result.state === "unauthorized") {
+      await forgetToken(token);
+      state.token = "";
+      state.account = null;
+      state.accountStatus = null;
+      renderAccount({
+        tokenProblem: {
+          state: "authorization-required",
+          detail: "Google access isn’t currently granted. Sign in with Google to try again.",
+        },
+      });
+      focusSignin();
+      return;
+    }
+    state.accountStatus = result;
+    renderAccount({});
+  } finally {
+    if (retry) retry.disabled = false;
+  }
+}
+
+function renderAccount({ tokenProblem = null } = {}) {
   const signedIn = Boolean(state.token);
   $("welcome-signed-out").classList.toggle("hidden", signedIn);
   $("welcome-signed-in").classList.toggle("hidden", !signedIn);
+
   // A silent check that found nobody is not a problem to report: it is the
   // ordinary state of a machine nobody has signed in on yet.
-  $("signin-problem").textContent = problem ? problem.detail : "";
+  // The box appears only when it has something to say. An empty notice frame
+  // reads as "something is wrong and we are not telling you".
+  const note = $("signin-problem");
+  note.textContent = tokenProblem ? tokenProblem.detail : "";
+  note.classList.toggle("hidden", !tokenProblem);
+
+  const status = $("account-detail-status");
+  const retry = $("retry-account");
+  const summary = $("welcome-summary");
 
   if (!signedIn) {
     setProfileAvatar(null);
+    if (status) status.classList.add("hidden");
+    if (retry) retry.classList.add("hidden");
+    if (summary) summary.setAttribute("aria-label", "Signed in");
+    updateRailLabel();
     return;
   }
+
   const account = state.account;
+  const accountStatus = state.accountStatus;
+
   // Signed in with no network: the token is real and the profile is not
   // readable. Saying "Signed in" is true; inventing a name would not be.
-  $("welcome-name").textContent = (account && account.name) || "Signed in";
-  $("welcome-email").textContent = (account && account.email) || "";
+  const name = (account && account.name) || "";
+  $("welcome-name").textContent = name || "Signed in";
+  const email = (account && account.email) || "";
+  $("welcome-email").textContent = email;
+  $("welcome-email").classList.toggle("hidden", !email);
+
   const photo = $("welcome-photo");
   if (account && account.picture) {
     photo.onerror = () => photo.classList.add("hidden");
@@ -1931,6 +2079,23 @@ function renderAccount(problem) {
     photo.classList.add("hidden");
   }
   setProfileAvatar(account ? account.picture : "");
+
+  if (accountStatus && accountStatus.retryable) {
+    status.textContent = `${accountStatus.detail} Try again in a moment.`;
+    status.classList.remove("hidden");
+    retry.classList.remove("hidden");
+    retry.onclick = () => { loadAccountDetails(); };
+  } else if (accountStatus) {
+    status.textContent = accountStatus.detail;
+    status.classList.remove("hidden");
+    retry.classList.add("hidden");
+  } else {
+    status.classList.add("hidden");
+    retry.classList.add("hidden");
+  }
+
+  summary.setAttribute("aria-label", name ? `Signed in as ${name}` : "Signed in");
+  updateRailLabel();
 }
 
 // ---- what is installed, and what is available -----------------------------
@@ -3464,15 +3629,40 @@ async function init() {
   adoptUiContract();
 
   $("signin").addEventListener("click", async () => {
-    $("signin").disabled = true;
-    try { await loadAccount({ interactive: true }); }
-    finally { $("signin").disabled = false; }
+    const btn = $("signin");
+    const status = $("signin-status");
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+    status.textContent = "Signing in…";
+    status.classList.remove("hidden");
+    try {
+      await loadAccount({ interactive: true });
+      if (state.token) focusAccountSummary();
+    } finally {
+      btn.disabled = false;
+      btn.setAttribute("aria-busy", "false");
+      status.classList.add("hidden");
+      status.textContent = "";
+    }
   });
   $("signout").addEventListener("click", async () => {
-    await forgetToken(state.token);
-    state.token = "";
-    state.account = null;
-    renderAccount(null);
+    const btn = $("signout");
+    btn.disabled = true;
+    try {
+      await forgetToken(state.token);
+      state.token = "";
+      state.account = null;
+      state.accountStatus = null;
+      renderAccount({});
+      focusSignin();
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  setGoogleButtonScheme();
+  window.addEventListener("scrapexappearancechange", () => {
+    setGoogleButtonScheme();
   });
 
   const tabs = [...document.querySelectorAll("nav.side-rail button[data-view]")];

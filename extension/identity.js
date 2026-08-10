@@ -20,17 +20,27 @@
  *      never needs Google's review, and it is the whole of Decision 20's
  *      promise: "only the files it creates. It never asks for the rest of
  *      your Drive."
- *  spreadsheets  full Sheets access, and the one SENSITIVE scope here. It is
- *      needed only to write into a spreadsheet the owner made by hand rather
- *      than one ScrapeX created. In Testing mode it costs nothing; if the
- *      Console ends up creating its own sheet, this can be dropped and the
- *      app never needs review at all.
+ *
+ * `spreadsheets` USED TO BE HERE AND WAS REMOVED BEFORE THE FIRST LISTING. It
+ * is Google's one SENSITIVE scope in this set, and nothing in the codebase
+ * called the Sheets API — it was declared for the Console, which is M7 and not
+ * built. The store's own guidance is blunt about that: "Requesting an
+ * unnecessary permission will result in this version being rejected."
+ *
+ * And it turns out not to be needed even when M7 arrives. `drive.file` already
+ * grants read and write on any file the app CREATED, and on any file the user
+ * hands it through the Google Picker — which covers both of Decision 28's
+ * buttons, create-a-sheet and use-my-existing-sheet, without a sensitive scope.
+ * That is better for the owner's users too: the consent screen says "files you
+ * open with this app" instead of "see and edit all your spreadsheets".
+ *
+ * If the Picker route turns out not to reach some case at build time, the scope
+ * comes back THEN, attached to a feature that exists and can be demonstrated.
  */
 export const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
   "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/spreadsheets",
 ];
 
 const USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -53,8 +63,8 @@ export function readTokenResult(token, lastError) {
              detail: "Sign-in was closed before it finished. Nothing changed." };
   }
   if (/OAuth2 not granted or revoked/i.test(message)) {
-    return { state: "revoked",
-             detail: "This account's access was revoked. Sign in again to restore it." };
+    return { state: "authorization-required",
+             detail: "Google access isn’t currently granted. Sign in with Google to try again." };
   }
   if (/bad client id|invalid client/i.test(message)) {
     // The one failure the owner cannot fix by trying again, so it must not
@@ -76,28 +86,68 @@ export function getToken({ interactive = true, identity = chrome.identity,
   });
 }
 
-/** The account behind a token: name, address and photo. */
+/** The account behind a token: name, address and photo.
+ *
+ * Returns a discriminated result so callers can tell retryable lookup failures
+ * from a token that Chrome needs to forget. Missing optional fields are still
+ * a successful account response.
+ */
 export async function accountFor(token, fetchImpl = fetch) {
+  let res;
   try {
-    const res = await fetchImpl(USERINFO, {
+    res = await fetchImpl(USERINFO, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(6000),
     });
-    if (!res.ok) return null;
-    const body = await res.json();
-    return {
+  } catch (error) {
+    const name = error && error.name;
+    if (name === "AbortError" || name === "TimeoutError") {
+      return { state: "timeout", retryable: true,
+               detail: "The account request timed out." };
+    }
+    return { state: "network", retryable: true,
+             detail: "Could not reach Google." };
+  }
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      return { state: "unauthorized", retryable: false,
+               detail: "Google access isn’t currently granted." };
+    }
+    if (res.status === 403) {
+      return { state: "forbidden", retryable: false,
+               detail: "Google refused this account request." };
+    }
+    if (res.status === 429) {
+      return { state: "rate-limited", retryable: true,
+               detail: "Google is rate-limiting account requests." };
+    }
+    if (res.status >= 500) {
+      return { state: "server", retryable: true,
+               detail: "Google had a server error." };
+    }
+    return { state: "client", retryable: false,
+             detail: `Google returned an error (${res.status}).` };
+  }
+
+  let body;
+  try { body = await res.json(); }
+  catch (_) {
+    return { state: "malformed", retryable: false,
+             detail: "Google returned an unreadable account response." };
+  }
+
+  return {
+    state: "ok",
+    account: {
       name: typeof body.name === "string" ? body.name : "",
       email: typeof body.email === "string" ? body.email : "",
       // Google serves this from lh3.googleusercontent.com and the URL expires.
       // The panel treats a photo that fails to load as no photo, which is why
       // setProfileAvatar restores the account mark on `error`.
       picture: typeof body.picture === "string" ? body.picture : "",
-    };
-  } catch (_) {
-    // A signed-in owner with no network is still signed in. Returning null
-    // says "the photo and name are unknown", never "you are signed out".
-    return null;
-  }
+    },
+  };
 }
 
 /** Sign out on this device: drop Chrome's cached token and forget it. */

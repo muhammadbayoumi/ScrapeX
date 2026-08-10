@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import re
 from pathlib import Path
 
@@ -73,7 +74,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
          protocol_version=None, engine_manifest=None,
-         signed_in=None, signin_error=None) -> str:
+         signed_in=None, signin_error=None, signin_delay_ms=0) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -197,6 +198,13 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     entries = logs if logs is not None else []
     log_payload = {"entries": entries, "total": len(entries), "truncated": False}
     return f"""
+if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {{
+  AbortSignal.timeout = (ms) => {{
+    const c = new AbortController();
+    setTimeout(() => c.abort(), ms);
+    return c.signal;
+  }};
+}}
 window.chrome = {{
   // getManifest is the extension's only honest answer to "which version of ME
   // is running", so the panel reads it and the harness has to provide it.
@@ -213,17 +221,36 @@ window.chrome = {{
       if (SIGNIN_ERROR) {{ chrome.runtime.lastError = {{message: SIGNIN_ERROR}};
                            cb(undefined);
                            chrome.runtime.lastError = null; return; }}
-      if (!SIGNED_IN) {{ chrome.runtime.lastError =
-                           {{message: "The user did not approve access."}};
-                         cb(undefined);
-                         chrome.runtime.lastError = null; return; }}
-      cb("stub-token");
+      // The delay is about WHEN Chrome answers, not WHAT it answers, so it
+      // wraps both outcomes. It used to sit below the signed-out branch, which
+      // returned first -- so `signin_delay_ms` did nothing for a signed-out
+      // panel and the waiting state was unobservable in the one case a test
+      // wanted to see it.
+      const answer = () => {{
+        if (!SIGNED_IN) {{ chrome.runtime.lastError =
+                             {{message: "The user did not approve access."}};
+                           cb(undefined);
+                           chrome.runtime.lastError = null; return; }}
+        cb("stub-token");
+      }};
+      if (SIGNIN_DELAY_MS) {{ setTimeout(answer, SIGNIN_DELAY_MS); return; }}
+      answer();
     }},
-    removeCachedAuthToken: (opts, cb) => {{ SIGNED_IN = null; cb && cb(); }},
+    // The removed tokens are RECORDED, not just acted on. A 401 that forgets to
+    // clear Chrome's cache leaves a dead token that every later sign-in hands
+    // back, and the panel then asks the owner to sign in to an account he is
+    // already signed in to -- indistinguishable, from the outside, from a 401
+    // that cleared it properly.
+    removeCachedAuthToken: (opts, cb) => {{
+      window.__sx_removed_tokens = (window.__sx_removed_tokens || [])
+        .concat([opts && opts.token]);
+      SIGNED_IN = null; cb && cb();
+    }},
   }},
 }};
 let SIGNED_IN = {json.dumps(signed_in)};
 const SIGNIN_ERROR = {json.dumps(signin_error)};
+const SIGNIN_DELAY_MS = {json.dumps(signin_delay_ms)};
 const ROUTES = {json.dumps(routes)};
 const WRITE_ROUTES = {json.dumps(write_routes)};
 const LOG_PAYLOAD = {json.dumps(log_payload)};
@@ -285,7 +312,7 @@ window.fetch = async (url, options) => {{
 """
 
 
-_ICON_URL = re.compile(r'url\(["\']?(?:[^"\')]*/)?icons/([\w.-]+)["\']?\)')
+_ICON_URL = re.compile(r'url\(["\']?(?:[^"\')]*/)?icons/([^"\')]+)["\']?\)')
 
 
 def _embed_icons(css: str) -> str:
@@ -299,8 +326,9 @@ def _embed_icons(css: str) -> str:
         icon = EXT / "icons" / match.group(1)
         if not icon.exists():
             return match.group(0)
+        mime = mimetypes.guess_type(str(icon))[0] or "image/png"
         data = base64.b64encode(icon.read_bytes()).decode("ascii")
-        return f'url("data:image/png;base64,{data}")'
+        return f'url("data:{mime};base64,{data}")'
 
     return _ICON_URL.sub(sub, css)
 
@@ -326,8 +354,21 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # IMAGE in every screenshot while every assertion about it passed, because
     # they read the markup and the file rather than the page. Inlined, like the
     # sprite above and for the same reason.
-    for asset in ("google-g.png",):
-        data = base64.b64encode((EXT / "icons" / asset).read_bytes()).decode("ascii")
+    for asset in ("google-g.png",
+                  "google-signin/light-rectangular@4x.png",
+                  "google-signin/dark-rectangular@4x.png"):
+        path = EXT / "icons" / asset
+        # RAISES, and does not `continue`. Skipping a missing asset let every
+        # assertion about the Google button pass while the panel drew a BROKEN
+        # IMAGE -- which is the exact failure this inlining was written to
+        # prevent, and it is how the broken mark shipped once already. A test
+        # run that cannot find the asset has not tested the button.
+        if not path.exists():
+            raise FileNotFoundError(
+                f"{path} is missing, so the panel would render a broken image and "
+                "every assertion about it would still pass. Restore the asset or "
+                "remove it from this list -- do not let the harness skip it.")
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
         body = body.replace(f'src="icons/{asset}"',
                             f'src="data:image/png;base64,{data}"')
     body = (

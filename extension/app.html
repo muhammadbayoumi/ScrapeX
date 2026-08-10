@@ -1036,41 +1036,66 @@
 
     <!-- ========================== SETTINGS ========================== -->
     <section id="view-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0">
-      <!-- The first thing a new install shows, and deliberately the emptiest
-           page in the panel: one line and one button. There is nothing true to
-           display before we know who is asking — an account, a backup, a lease
-           all need a signed-in owner — so the page waits rather than printing a
-           column of em dashes. What appears after sign-in is decided once
-           sign-in exists. -->
-      <div class="view-scroll welcome" id="welcome-signed-out">
-        <h1>Welcome to ScrapeX</h1>
-        <!-- Google's button, to Google's rules: the coloured "G" only, one of
-             the three sanctioned strings, and the mark never recoloured. See
-             developers.google.com/identity/branding-guidelines. -->
-        <button class="google-signin" id="signin" type="button">
-          <!-- The published asset is 200x204, not square. Those numbers are
-               here as the intrinsic size so the box is reserved before it
-               loads; the DISPLAY size is set in CSS by height alone, because
-               "you must preserve the aspect ratio so that the Google logo is
-               not stretched" and a 20x20 box stretches this one. -->
-          <img class="google-signin-mark" src="icons/google-g.png" alt=""
-               aria-hidden="true" width="200" height="204">
-          Continue with Google
-        </button>
-        <!-- Why it did not work, when it did not. Chrome reports a closed
-             consent window and a mismatched client the same way — an empty
-             token and a message — and one "sign-in failed" for both teaches
-             the owner to press again and learn nothing. -->
-        <p class="muted text-sm" id="signin-problem"></p>
-      </div>
+      <!-- The Profile page is a single centered state card. The card shell is
+           persistent so the surface itself does not disappear or jump when the
+           state changes. -->
+      <div class="profile-stage" id="profile-stage" aria-busy="true">
+        <div class="profile-card" id="profile-card">
 
-      <!-- After sign-in. Kept to what is TRUE and nothing more, because the
-           owner asked to decide what belongs here once he could see it. -->
-      <div class="view-scroll welcome hidden" id="welcome-signed-in">
-        <img class="welcome-face hidden" id="welcome-photo" alt="" aria-hidden="true">
-        <h1 id="welcome-name">Signed in</h1>
-        <p class="muted" id="welcome-email"></p>
-        <button class="ghost compact" id="signout" type="button">Sign out</button>
+          <!-- Checking: the mark and welcome stay stable; only the status line
+               changes. The Google action is hidden until Chrome answers. -->
+          <div class="profile-state" id="welcome-checking">
+            <div class="welcome-mark" aria-hidden="true"></div>
+            <h1>Welcome to ScrapeX</h1>
+            <p class="profile-status" role="status" aria-live="polite">
+              Checking your account…
+            </p>
+          </div>
+
+          <!-- Signed out: the one question this page can answer. -->
+          <div class="profile-state hidden" id="welcome-signed-out">
+            <div class="welcome-mark" aria-hidden="true"></div>
+            <h1>Welcome to ScrapeX</h1>
+            <p class="welcome-purpose text-sm" id="signin-purpose">
+              Sign in to identify your account and use Google Drive features you choose.
+            </p>
+            <!-- Google's button, to Google's rules: the official pre-approved asset,
+                 never recoloured or redrawn. See
+                 developers.google.com/identity/branding-guidelines. -->
+            <button class="profile-signin" id="signin" type="button"
+                    aria-label="Sign in with Google">
+              <!-- Both light and dark assets are shipped; JS shows the one that
+                   matches the effective colour scheme. The 720x160 intrinsic size is
+                   the @4x asset; CSS displays it at the official 1× size (180x40). -->
+              <img class="profile-signin-img" data-scheme="light"
+                   src="icons/google-signin/light-rectangular@4x.png" alt=""
+                   aria-hidden="true" width="720" height="160">
+              <img class="profile-signin-img hidden" data-scheme="dark"
+                   src="icons/google-signin/dark-rectangular@4x.png" alt=""
+                   aria-hidden="true" width="720" height="160">
+            </button>
+            <p class="signin-status hidden" role="status" aria-live="polite" id="signin-status"></p>
+            <!-- Why it did not work, when it did not. -->
+            <p class="notice hidden" role="status" aria-live="polite" id="signin-problem"></p>
+          </div>
+
+          <!-- Signed in. Account identity is the primary content. -->
+          <div class="profile-state hidden" id="welcome-signed-in">
+            <div class="profile-summary" id="welcome-summary" tabindex="-1"
+                 aria-label="Signed in">
+              <img class="welcome-face hidden" id="welcome-photo" alt="" aria-hidden="true">
+              <h1 id="welcome-name">Signed in</h1>
+              <p class="muted" id="welcome-email"></p>
+              <p class="notice hidden" role="status" aria-live="polite"
+                 id="account-detail-status"></p>
+              <button class="ghost compact hidden" id="retry-account" type="button">
+                Retry
+              </button>
+            </div>
+            <button class="ghost compact" id="signout" type="button">Sign out</button>
+          </div>
+
+        </div>
       </div>
     </section>
 
