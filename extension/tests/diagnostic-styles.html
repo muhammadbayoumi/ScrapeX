@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  BISECT STEP 1 OF 2 — THE STYLESHEETS ONLY.
+
+  The minimal page paints immediately; app.html does not. Six things stand
+  between them, and this page carries exactly three of them: the production
+  stylesheets, render-blocking, in app.html's own order. No scripts of app.html's
+  are here — not startup-trace, not startup-bootstrap, not appearance.
+
+    it paints    -> three render-blocking stylesheets are NOT what delays the
+                    first frame. The cause is in the head scripts; go to
+                    diagnostic-scripts.html.
+    it stays dark-> the stylesheets alone are enough to lose the frame, and the
+                    fix is to get a painted shell out ahead of them.
+
+  Its own colours are inline, on the elements, so the verdict never depends on
+  the very sheets under test: if they were the only source of colour, a page
+  that failed to apply them would look identical to a page that failed to paint.
+
+  Not shippable. `extension/tests/` is deleted by the release workflow, which
+  then fails the build if the directory survives.
+-->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>ScrapeX side panel diagnostic — stylesheets</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="../app.css">
+</head>
+<body style="margin:0;background:darkgreen;color:white;font:700 26px/1.25 system-ui,sans-serif">
+  <div style="padding:24px">STYLESHEETS ONLY</div>
+  <div style="padding:0 24px;font:400 15px/1.5 system-ui,sans-serif">
+    tokens.css, components.css and app.css are loaded above. No app.html script
+    is on this page.
+  </div>
+  <script src="../startup-trace.js"></script>
+  <script src="diagnostic-panel.js"></script>
+</body>
+</html>
