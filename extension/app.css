@@ -2278,9 +2278,19 @@
     background: transparent;
     color: var(--text);
   }
+  /* `--control-hover` is the SHARED button hover layer, and on a pale surface
+     it pairs with a light foreground. These Engine controls stay neutral, so
+     they set their own translucent layer over the current text colour and pin
+     `color` — otherwise hover reads as white-on-pale, which looks disabled. */
   .engine-action-secondary:hover:not(:disabled) {
-    background: var(--control-hover);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
     border-color: var(--outline);
+    color: var(--text);
+  }
+  .engine-action-secondary:active:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    border-color: var(--outline);
+    color: var(--text);
   }
 
   .engine-power-setting {
@@ -2329,7 +2339,11 @@
     transition: transform 200ms ease;
   }
   .install-steps[open] > summary .sx-icon { transform: rotate(180deg); }
-  .install-steps > summary:hover { background: var(--control-hover); }
+  .install-steps > summary:hover {
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+    border-radius: var(--radius);
+    color: var(--text);
+  }
   .install-steps > summary:focus-visible {
     outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
     outline-offset: 2px;
@@ -2400,8 +2414,15 @@
     color: var(--text);
     cursor: pointer;
   }
-  .engine-overflow-button:hover:not(:disabled) { background: var(--control-hover); }
-  .engine-overflow-button:active:not(:disabled) { background: color-mix(in srgb, var(--text) 12%, transparent); }
+  .engine-overflow-button svg { color: currentColor; }
+  .engine-overflow-button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text);
+  }
+  .engine-overflow-button:active:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    color: var(--text);
+  }
   .engine-overflow-button:focus-visible {
     outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
     outline-offset: 2px;

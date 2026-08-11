@@ -247,7 +247,20 @@ def test_google_finance_control_is_reachable_from_the_panel():
     assert 'id="view-finance"' in panel
     assert 'data-view="finance"' in panel
     assert 'role="switch"' in panel
-    assert 'class="finance-m3-switch-track"' in panel
+    # The CLASS, not the whole attribute. This asserted
+    # `class="finance-m3-switch-track"` exactly, which passes only while that is
+    # the element's ONLY class -- so adding the shared `m3-switch-track`
+    # primitive beside it broke a test that had nothing to do with the change.
+    # The alternative was to keep the finance switch on its own name and
+    # duplicate fifteen selectors in app.css to style both, which is a
+    # permanent cost paid to a brittle assertion. What this test means is that
+    # the finance switch still carries its own identity; that is what it now
+    # says.
+    assert any("finance-m3-switch-track" in attribute.split()
+               for attribute in re.findall(r'class="([^"]*)"', panel)), (
+        "the Google Finance switch lost its `finance-m3-switch-track` class, "
+        "so any styling or markup keyed to the finance switch specifically no "
+        "longer reaches it")
     assert 'data-sect="s-finance"' not in panel
     assert 'post("/api/rates/google-finance/refresh"' in script
 

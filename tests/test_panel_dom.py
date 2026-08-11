@@ -3965,6 +3965,11 @@ def test_the_engine_overflow_trigger_has_no_visible_resting_container(open_panel
 
     btn = page.locator("#engine-overflow")
     box = btn.bounding_box()
+    # 48x48 EXACTLY, and it must stay a hard floor. This assertion was
+    # relaxed to 47.5 in an uncommitted change; measured on this branch the
+    # button renders at exactly 48x48, so the relaxation bought nothing and
+    # lowered the accessibility minimum for a touch target by half a pixel of
+    # permanent slack. A guard that is loosened to pass stops being a guard.
     assert box and box["width"] >= 48 and box["height"] >= 48
 
     style = btn.evaluate("""el => ({
@@ -4157,3 +4162,132 @@ def test_the_engine_overflow_menu_returns_focus_after_page_actions(open_panel):
         active = page.evaluate("() => document.activeElement.id")
         assert active == "engine-overflow", (
             f"{action} left focus on {active!r} instead of the overflow trigger")
+
+
+def _alpha_of(css_colour: str) -> float:
+    """Alpha from any form Chrome serialises a computed colour in.
+
+    `color-mix()` comes back as `color(srgb r g b / a)`, a plain declaration as
+    `rgba(r, g, b, a)`, and a fully transparent result as `oklab(0 0 0 / 0)`.
+    A test that only understood `rgba(...)` would read every mixed colour as
+    opaque and pass on exactly the thing it is checking.
+    """
+    text = css_colour.strip()
+    if "/" in text:
+        return float(text.rsplit("/", 1)[1].strip(" )"))
+    if text.startswith("rgba"):
+        return float(text.rsplit(",", 1)[1].strip(" )"))
+    return 1.0 if text.startswith(("rgb", "#", "color(")) else 0.0
+
+
+def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
+    """Engine controls that intentionally stay neutral must not inherit the
+    shared button hover foreground (which can be white on a pale background)."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "w" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    combos = [
+        ("light", "whatsapp"),
+        ("dark", "whatsapp"),
+        ("light", "github"),
+        ("dark", "github"),
+    ]
+    selectors = ["#engine-overflow", "#engine-recheck", "#engine-install-steps summary"]
+
+    for scheme, palette in combos:
+        page.evaluate(
+            f"window.ScrapeXAppearance.set({{'mode': 'manual', 'scheme': '{scheme}', "
+            f"'palette': '{palette}', 'deviceColors': false}})")
+        page.wait_for_timeout(150)
+        for selector in selectors:
+            rest = page.evaluate(
+                f"() => getComputedStyle(document.querySelector('{selector}')).color")
+            page.hover(selector)
+            hover = page.evaluate(
+                f"() => getComputedStyle(document.querySelector('{selector}')).color")
+            assert rest == hover, (
+                f"{selector} hover foreground changed in {scheme}/{palette}: "
+                f"{rest} -> {hover}")
+
+# Move the cursor away so the next combo starts from rest.
+            page.hover("#view-engines > .view-heading")
+
+
+def test_engine_controls_show_focus_visible_not_just_hover(open_panel):
+    """Keyboard focus on the overflow trigger and secondary action keeps a
+    visible focus outline that is distinct from the hover state layer."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "x" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    for selector in ("#engine-overflow", "#engine-recheck"):
+        page.focus(selector)
+        outline = page.locator(selector).evaluate(
+            "el => getComputedStyle(el).outlineWidth")
+        assert outline not in ("0px", "", "0"), f"{selector} has no focus outline"
+
+
+def test_the_neutral_engine_hover_is_a_state_layer_not_an_opaque_fill(open_panel):
+    """The correction this PR made, asserted where it can actually be seen.
+
+    WHY NOT BY HOVERING. `test_engine_neutral_controls_keep_text_color_on_hover`
+    above hovers each control and compares the foreground, and it passes whether
+    or not the fix is present -- measured by reverting the CSS and watching it
+    stay green. Two reasons: the fix changed the BACKGROUND, and `:hover` does
+    not take effect in this headless harness at all (a hovered control still
+    computes `oklab(0 0 0 / 0)`). Any assertion phrased as "hover it and look"
+    is therefore decoration here.
+
+    THE RULE IS OBSERVABLE, so the rule is what gets checked. `--control-hover`
+    is an opaque pale fill (#F0EEEC in light) shared with the primary buttons,
+    which is what made these neutral controls read as white-on-pale and look
+    disabled. The replacement is a translucent layer mixed from the CURRENT text
+    colour, so it darkens or lightens whatever surface it sits on and works in
+    every scheme without a per-palette value.
+    """
+    page = open_panel()
+    rules = page.evaluate("""() => {
+      const wanted = ['.engine-overflow-button:hover',
+                      '.engine-action-secondary:hover',
+                      '.install-steps > summary:hover'];
+      const found = {};
+      for (const sheet of document.styleSheets) {
+        let list; try { list = sheet.cssRules } catch { continue }
+        for (const rule of list) {
+          if (!rule.selectorText) continue;
+          for (const want of wanted) {
+            if (rule.selectorText.includes(want)) found[want] = rule.style.background
+                                                            || rule.style.backgroundColor;
+          }
+        }
+      }
+      return found;
+    }""")
+
+    for selector in ('.engine-overflow-button:hover',
+                     '.engine-action-secondary:hover',
+                     '.install-steps > summary:hover'):
+        declared = rules.get(selector)
+        assert declared, f"no hover background rule found for {selector}"
+        assert "control-hover" not in declared, (
+            f"{selector} is back on the shared opaque `--control-hover` fill, "
+            f"which is what made these neutral controls read as white-on-pale "
+            f"and look disabled: {declared!r}")
+        assert "color-mix" in declared and "--text" in declared, (
+            f"{selector} hover is {declared!r}, not a translucent layer mixed "
+            f"from the current text colour — so it cannot follow the scheme")
