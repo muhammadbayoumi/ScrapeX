@@ -28,6 +28,11 @@ const BROWSER = {
   structuredClone: "readonly", crypto: "readonly", btoa: "readonly",
   atob: "readonly", TextEncoder: "readonly", TextDecoder: "readonly",
   cancelAnimationFrame: "readonly", queueMicrotask: "readonly",
+  // The startup instrumentation's whole vocabulary. `first-contentful-paint`
+  // from a PerformanceObserver is the only thing in the trace that claims an
+  // actual paint — every other mark says when OUR code ran, which is a
+  // different question and was answered as if it were the same one twice.
+  performance: "readonly", PerformanceObserver: "readonly",
   CSS: "readonly", Node: "readonly", MouseEvent: "readonly",
   AbortSignal: "readonly", DecompressionStream: "readonly",
   TextDecoderStream: "readonly", HTMLElement: "readonly",
@@ -114,6 +119,32 @@ export default [
     rules: RULES,
   },
   {
+    // The MV3 service worker, which manifest.json declares WITHOUT
+    // `"type": "module"` — so it is a classic worker script, and
+    // `importScripts` is the only way it can reach startup-trace.js.
+    //
+    // Named here and not in EXTENSION on purpose, in this file's own spirit: a
+    // panel script that reaches for `importScripts` is a bug, and listing the
+    // global one directory wide would stop it being one.
+    files: ["extension/background.js"],
+    languageOptions: {
+      sourceType: "script",
+      globals: { ...EXTENSION, importScripts: "readonly" },
+    },
+  },
+  {
+    // Loaded THREE ways, which is the point of it: a classic <script> on the
+    // panel's pages, `importScripts` in the service worker, and `require` under
+    // `node --test`. Its last two lines are the detection that lets one file do
+    // that, and `module` is defined in exactly one of the three — which is what
+    // the `typeof` guard in front of it is checking.
+    files: ["extension/startup-trace.js"],
+    languageOptions: {
+      sourceType: "script",
+      globals: { ...EXTENSION, module: "writable" },
+    },
+  },
+  {
     files: ["scrapex/webui/static/**/*.js"],
     ignores: ["scrapex/webui/static/vendor/**"],
     languageOptions: { ecmaVersion: 2023, sourceType: "script", globals: BROWSER },
@@ -123,6 +154,17 @@ export default [
     // The extension's own node:test files run on node, not in a page.
     files: ["extension/tests/**/*.mjs", "extension/tests/**/*.js"],
     languageOptions: { ecmaVersion: 2023, sourceType: "module", globals: NODE },
+    rules: RULES,
+  },
+  {
+    // …but not everything in that directory is a test. The diagnostic pages of
+    // the Side Panel bisect live there because extension/tests/ is the one
+    // directory the release workflow deletes and then fails the build over, so
+    // nothing in it can ship. They are ordinary classic browser scripts loaded
+    // by a <script> tag, and lining them up with node's globals reported the
+    // browser's own `performance` as undefined.
+    files: ["extension/tests/diagnostic-*.js"],
+    languageOptions: { ecmaVersion: 2023, sourceType: "script", globals: EXTENSION },
     rules: RULES,
   },
   {

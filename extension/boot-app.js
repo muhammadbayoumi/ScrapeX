@@ -33,7 +33,7 @@
 // interactive. A person may see the shell for a moment before the buttons
 // respond. That is strictly better than the alternative they reported — a blank
 // panel that stays blank until they click somewhere else entirely.
-addEventListener("load", () => {
+window.addEventListener("load", () => {
   const module = document.createElement("script");
   module.type = "module";
   module.src = "app.js";
