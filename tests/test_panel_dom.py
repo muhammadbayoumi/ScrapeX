@@ -3375,6 +3375,49 @@ def test_the_engine_status_maps_installed_but_not_running(open_panel):
     assert text_of(page, "#engine-status") == "Installed, not running"
 
 
+def test_a_health_check_that_times_out_is_not_reported_as_no_engine(open_panel):
+    """A health check that runs out of time is a DIFFERENT answer from an engine
+    that is not there, and the difference is the whole of what to do next.
+
+    The Engine check has its own deadline now, and when it expires nothing was
+    learned about the engine at all. Reading that as "Not detected" tells the
+    owner his engine is not installed — a wrong sentence, about a different
+    problem, whose remedy (install it) he has already done."""
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+
+    # Stalls until its deadline aborts it, exactly as an engine that accepted
+    # the connection and then stopped answering would.
+    page.evaluate(r"""() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (String(url).includes('/api/health')) {
+          return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => resolve(undefined), 30000);
+            if (options && options.signal) {
+              options.signal.addEventListener("abort", () => {
+                clearTimeout(timer);
+                reject(options.signal.reason || new Error("aborted"));
+              }, {once: true});
+            }
+          });
+        }
+        return original(url, options);
+      };
+    }""")
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-status") == "Check timed out"
+    assert "deadline" in text_of(page, "#engine-status-detail")
+    assert not page.locator("#engine-recheck").is_disabled()
+
+
 def test_the_engine_release_verdict_says_available_to_install(open_panel):
     """No engine + a valid installer means the release is available to install."""
     page = open_panel(engine_up=False, engine_manifest={
