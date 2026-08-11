@@ -53,7 +53,14 @@ def verify_step() -> str:
 def test_the_markdown_is_read_from_the_address_a_browser_uses(verify_step):
     """Not the Contents API this job just wrote through. A write succeeding
     proves nothing about the CDN a reader goes to."""
-    assert "raw.githubusercontent.com" in verify_step, (
+    # The WHOLE prefix, not the bare hostname. CodeQL flags a hostname
+    # substring as incomplete URL sanitization -- rightly, in general, because
+    # `evil.com/raw.githubusercontent.com` contains it too. Here the haystack is
+    # a shell script rather than a URL, so the alert is wrong about the danger
+    # and right about the assertion: pinning owner and repository is what this
+    # test actually means, and a check pointed at some OTHER account's raw
+    # endpoint would have passed the looser version.
+    assert "https://raw.githubusercontent.com/muhammadbayoumi/mbiX-hub/" in verify_step, (
         "the check reads back through a different path than the website does, "
         "so it can pass while every visitor gets nothing")
 
