@@ -247,20 +247,26 @@ def test_google_finance_control_is_reachable_from_the_panel():
     assert 'id="view-finance"' in panel
     assert 'data-view="finance"' in panel
     assert 'role="switch"' in panel
-    # The CLASS, not the whole attribute. This asserted
-    # `class="finance-m3-switch-track"` exactly, which passes only while that is
-    # the element's ONLY class -- so adding the shared `m3-switch-track`
-    # primitive beside it broke a test that had nothing to do with the change.
-    # The alternative was to keep the finance switch on its own name and
-    # duplicate fifteen selectors in app.css to style both, which is a
-    # permanent cost paid to a brittle assertion. What this test means is that
-    # the finance switch still carries its own identity; that is what it now
-    # says.
-    assert any("finance-m3-switch-track" in attribute.split()
-               for attribute in re.findall(r'class="([^"]*)"', panel)), (
-        "the Google Finance switch lost its `finance-m3-switch-track` class, "
-        "so any styling or markup keyed to the finance switch specifically no "
-        "longer reaches it")
+    # THE FINANCE SWITCH SPECIFICALLY, and this is the second correction to
+    # this assertion. It began as `class="finance-m3-switch-track"` matched
+    # against the whole document -- and every `finance-m3-switch*` class it
+    # named was DEAD MARKUP that no stylesheet ever defined, which
+    # `test_ui_kit.py::test_every_class_in_markup_resolves_to_a_rule` says out
+    # loud. Removing them is right; asserting on them would have pinned them
+    # back.
+    #
+    # Replacing it with a document-wide search for `m3-switch` was no better:
+    # measured, it still passed with the finance switch's own track deleted,
+    # because the Engine power switch elsewhere on the page supplies the same
+    # class. An assertion satisfied by a DIFFERENT control is not a test of
+    # this one. So the markup is narrowed to the finance switch first.
+    finance = panel[panel.index('id="google_finance_auto_refresh"'):]
+    finance = finance[:finance.index("</label>")]
+    for part in ("m3-switch-track", "m3-switch-handle"):
+        assert any(part in attribute.split()
+                   for attribute in re.findall(r'class="([^"]*)"', finance)), (
+            f"the Google Finance switch is missing its `{part}` element, so the "
+            "control renders as a bare checkbox rather than a switch")
     assert 'data-sect="s-finance"' not in panel
     assert 'post("/api/rates/google-finance/refresh"' in script
 

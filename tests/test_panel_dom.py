@@ -837,7 +837,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     assert page.input_value("#google_finance_refresh_hours") == "6"
     switch = page.get_by_role("switch", name="Keep rates up to date")
     switch_box = switch.bounding_box()
-    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    track_box = page.locator("#google_finance_auto_refresh + .m3-switch-track").bounding_box()
     assert switch_box and switch_box["width"] == pytest.approx(46, abs=.1)
     assert switch_box["height"] == pytest.approx(40, abs=.1)
     assert track_box and track_box["width"] == pytest.approx(46, abs=.1)
@@ -849,7 +849,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     })""")
     assert switch_styles == {
         "opacity": "0", "borderWidth": "0px", "background": "rgba(0, 0, 0, 0)"}
-    handle = page.locator(".finance-m3-switch-handle")
+    handle = page.locator("#google_finance_auto_refresh + .m3-switch-track .m3-switch-handle")
     handle_box = handle.bounding_box()
     assert handle_box and handle_box["width"] == pytest.approx(20, abs=.1)
     assert handle_box["height"] == pytest.approx(20, abs=.1)
@@ -868,7 +868,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     switch.click()
     page.wait_for_timeout(350)
     assert not switch.is_checked()
-    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    track_box = page.locator("#google_finance_auto_refresh + .m3-switch-track").bounding_box()
     handle_box = handle.bounding_box()
     assert track_box
     assert handle_box and handle_box["width"] == pytest.approx(14, abs=.1)
@@ -883,7 +883,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     switch.click()
     page.wait_for_timeout(350)
     assert switch.is_checked()
-    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    track_box = page.locator("#google_finance_auto_refresh + .m3-switch-track").bounding_box()
     handle_box = handle.bounding_box()
     assert track_box and handle_box
     assert track_box["x"] + track_box["width"] - handle_box["x"] - handle_box["width"] \
