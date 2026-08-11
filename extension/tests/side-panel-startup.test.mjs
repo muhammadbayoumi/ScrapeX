@@ -493,7 +493,33 @@ test("the minimal diagnostic page stays minimal", () => {
   assert.ok(html.includes("SIDE PANEL DOCUMENT STARTED"));
   assert.ok(!/<link\b/.test(html), "the diagnostic page pulled in a stylesheet");
   assert.ok(!/type="module"/.test(html), "the diagnostic page pulled in a module");
-  const markup = html.replace(/<!--[\s\S]*?-->/g, "");
+  // Comments come out first, so a commented-out example cannot be misread as the
+  // page hiding something.
+  //
+  // TO A FIXPOINT, not once, because removing a comment can CREATE one that the
+  // single pass has already read past. Measured, not reasoned about:
+  //
+  //     "<!<!-- -->-- hidden -->"   one pass -> "<!-- hidden -->"
+  //                                 fixpoint -> ""
+  //
+  // The pass removes the inner `<!-- -->`, and the two halves left either side
+  // of it close up into a comment nothing will look at again. Here that leaks
+  // the word `hidden` into the text scanned below, so a commented-out example
+  // would be reported as the page hiding something — this test failing for a
+  // reason that is not true, which is the failure mode it exists to prevent in
+  // the page.
+  //
+  // CodeQL flags it as js/incomplete-multi-character-sanitization. It is right
+  // to, even though this input is a file in this repository and nothing is ever
+  // rendered from it: what makes one pass safe here is where the input comes
+  // from, and that stops being true the day someone points this at something
+  // else.
+  let markup = html;
+  let previous;
+  do {
+    previous = markup;
+    markup = markup.replace(/<!--[\s\S]*?-->/g, "");
+  } while (markup !== previous);
   assert.ok(!/\bhidden\b|display:\s*none|visibility:\s*hidden|opacity:\s*0/.test(markup),
     "the diagnostic page hides something");
 
