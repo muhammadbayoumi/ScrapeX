@@ -1,3 +1,22 @@
+/* One display time zone, shared by the side panel and the Workspace.
+ *
+ * AUTHORED IN design/timezone.js, and copied byte-for-byte into
+ * extension/timezone.js and scrapex/webui/static/timezone.js by
+ * tools/sync_design_assets.py.
+ *
+ * IF THE PATH ABOVE YOUR EDITOR IS NOT design/, THIS IS A GENERATED COPY, and
+ * an edit made here is reverted by the next sync without a word. Edit the
+ * design/ file and run the tool.
+ *
+ * IT USED TO BE TWO HAND-MAINTAINED COPIES with no source between them, kept
+ * equal by tests/test_display_time_zone.py comparing their bytes. That test is
+ * correct and still runs, but on its own it could only say the two had drifted
+ * — its message was "copy one over the other", which does not say WHICH. A
+ * reader who had just fixed the extension copy and a reader who had just fixed
+ * the workspace copy got the same instruction, and one of them would have
+ * reverted the other's work while following it. A generated copy cannot pose
+ * that question: design/ is the answer by construction.
+ */
 (function () {
   "use strict";
 
@@ -9,9 +28,10 @@
   // not UTC (contracts/fixtures/payload_invalid_timezone.json is that test's
   // vector), so a zone can only ever change what a screen SAYS.
   //
-  // It is a byte-for-byte copy of scrapex/webui/static/timezone.js, exactly as
+  // It is distributed as a byte-for-byte copy to both surfaces, exactly as
   // appearance.js is: a chrome-extension:// page and http://127.0.0.1 are
-  // different origins and cannot share one file. A test fails if the two drift.
+  // different origins and cannot share one file. See the header above for
+  // which file is the authored one.
   //
   // There is ONE formatter in here and three thin adapters onto it, because
   // this codebase emits time in three ways — a Jinja template (data-utc

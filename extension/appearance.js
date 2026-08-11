@@ -1,3 +1,18 @@
+/* One appearance engine — palette, mode and the first painted frame.
+ *
+ * AUTHORED IN design/appearance.js, and copied byte-for-byte into
+ * extension/appearance.js and scrapex/webui/static/appearance.js by
+ * tools/sync_design_assets.py. The extension and the packaged web workspace
+ * cannot import from each other at runtime, so each needs its own copy.
+ *
+ * IF THE PATH ABOVE YOUR EDITOR IS NOT design/, THIS IS A GENERATED COPY.
+ *
+ * THIS FILE IS WHY THE WARNING EXISTS. The engine-poll backoff below was
+ * written straight into extension/appearance.js — reviewed, correct, and
+ * one `sync_design_assets.py` run away from being erased with no diff, no
+ * failure and nothing to notice. It was caught by another pair of eyes, not by
+ * anything in the repository. This header is the thing that catches it now.
+ */
 (function () {
   "use strict";
 
