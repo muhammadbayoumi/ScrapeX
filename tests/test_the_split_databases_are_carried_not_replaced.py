@@ -36,6 +36,23 @@ def _make_source(path: Path, rows: int, *, extra_table: bool = False,
     conn.execute("CREATE TABLE scrapex_meta (key TEXT PRIMARY KEY, value TEXT)")
     conn.executemany("INSERT INTO scrapex_meta VALUES (?, ?)",
                      [(f"{prefix}-{n}", f"value-{n}") for n in range(rows)])
+    # A real DATA table beside the ledger, because the guard under test must be
+    # exercised on something the destination does not own. Its columns match the
+    # shipped schema: the first version of this fixture invented two of them and
+    # every row was dropped by INSERT OR IGNORE on a NOT NULL it did not supply.
+    # The guard caught that (45 read, 0 written) -- which is the guard working,
+    # and a reminder that OR IGNORE swallows constraint failures as quietly as
+    # it swallows duplicates.
+    conn.execute("""CREATE TABLE currency_rate (
+        currency_rate_id INTEGER PRIMARY KEY, currency TEXT NOT NULL,
+        per_usd REAL NOT NULL, as_of TEXT NOT NULL, source_key TEXT,
+        source_kind TEXT, recorded_at TEXT)""")
+    conn.executemany(
+        "INSERT INTO currency_rate (currency_rate_id, currency, per_usd, as_of, "
+        "source_key, source_kind, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(hash(prefix) % 1000 * 100 + n, f"{prefix[:2].upper()}{n}", 1.0 + n,
+          "2026-08-11", "TEST", "manual", "2026-08-11T00:00:00Z")
+         for n in range(rows)])
     if extra_table:
         conn.execute("CREATE TABLE forgotten_domain (id INTEGER PRIMARY KEY, note TEXT)")
         conn.executemany("INSERT INTO forgotten_domain (note) VALUES (?)",
@@ -176,9 +193,12 @@ def test_a_short_count_refuses_and_leaves_the_pointer_where_it_was(split, monkey
     real_count = module._row_count
 
     def short(conn, table):
-        # Report the destination as holding one row fewer than it does.
+        # `currency_rate`, NOT `scrapex_meta`. The latter is a LEDGER the
+        # destination owns, so a shortfall there is expected and excused by
+        # design; using it here would have made this test pass for a reason
+        # that has nothing to do with what it guards.
         value = real_count(conn, table)
-        return value - 1 if table == "scrapex_meta" and value > 10 else value
+        return value - 1 if table == "currency_rate" and value > 3 else value
 
     monkeypatch.setattr(module, "_row_count", short)
     report = carry_over(plan)

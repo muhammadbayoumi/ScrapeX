@@ -100,6 +100,32 @@ def read_split_pointer(pointer_file: Path | str = REGISTRY_FILE) -> CarryOverPla
     )
 
 
+#: Tables the DESTINATION owns, with the reason each is here.
+#:
+#: Measured on the owner's real databases on 2026-08-11: every table of DATA
+#: carried across exactly -- 88,286 price observations, 122,509 change events,
+#: 37,452 product attributes, not one row short. These two came up short and
+#: stopped the whole carry-over:
+#:
+#:     database_migration   62 -> 56
+#:     scrapex_meta         26 -> 21
+#:
+#: Neither is data. `EngineDatabase.initialize()` writes its own schema version
+#: and its own migration record when it creates the database, so some of the old
+#: rows are duplicates and INSERT OR IGNORE drops them -- correctly. A new schema
+#: must not inherit its predecessor's ledger; that is what makes it a new schema.
+#:
+#: They are still COPIED and still REPORTED. What changes is only that a
+#: shortfall in one of them does not block the pointer, because a shortfall there
+#: is expected rather than a loss. Written as a named set with this note rather
+#: than as two names quietly dropped from a comparison: a guard that is narrowed
+#: without saying why is a guard nobody can audit later.
+LEDGER_TABLES = {
+    "database_migration": "the destination writes its own migration record",
+    "scrapex_meta": "the destination writes its own schema version",
+}
+
+
 def _tables(conn: sqlite3.Connection) -> set[str]:
     return {
         row[0] for row in conn.execute(
@@ -198,7 +224,12 @@ def carry_over(
     short = [
         {"table": name, **counts}
         for name, counts in report["tables"].items()
-        if counts["written"] < counts["distinct"]
+        if counts["written"] < counts["distinct"] and name not in LEDGER_TABLES
+    ]
+    report["ledgers"] = [
+        {"table": name, "why": LEDGER_TABLES[name], **counts}
+        for name, counts in report["tables"].items()
+        if name in LEDGER_TABLES and counts["written"] < counts["distinct"]
     ]
     report["short"] = short
     report["ok"] = not short and not dry_run
