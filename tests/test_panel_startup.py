@@ -209,11 +209,20 @@ def test_initially_unfocused_panel_finishes_without_a_frame_or_interaction(
     assert started["visibilityState"] == "hidden"
     assert started["hasFocus"] is False
     assert started["readyState"] == "loading"
+    # "hidden", NOT "timer". This asserted "timer" when it was written, and that
+    # was the defect rather than the contract: a hidden document was requesting
+    # an animation frame it can never be given and then falling through to a
+    # fallback timer that is ITSELF throttled while hidden — measured at 785 ms
+    # in the owner's trace, where the whole shell had been ready since 168 ms.
+    #
+    # `afterNextPaint` now recognises the state and resolves at once, which moved
+    # the mark to 177.6 ms. "hidden" is the source that says startup understood
+    # where it was; "timer" would mean it had gone back to waiting for nothing.
     assert _mark_detail(page, "paint-opportunity-resolved") == {
-        "source": "timer", "visibilityState": "hidden",
+        "source": "hidden", "visibilityState": "hidden",
     }
     assert _mark_detail(page, "shell-post-opportunity") == {
-        "source": "timer", "visibilityState": "hidden",
+        "source": "hidden", "visibilityState": "hidden",
     }
 
     _wait_for_mark(page, "fully-settled", timeout=4_000)
@@ -259,14 +268,26 @@ def test_a_nonresponsive_health_check_times_out_without_blocking_profile(
     assert page.locator("#view-profile").is_visible()
     page.click("#tab-engines")
     assert page.locator("#view-engines").is_visible()
-    assert page.locator("#engine-status").inner_text() == "Checking…"
+    # The Engine page's own wording, and its own live region. Both come from the
+    # Engine destination this branch was rebased onto; the card is rendered from
+    # `state` by one status map rather than written to by hand here.
+    assert page.locator("#engine-status").inner_text() == "Checking engine…"
+    assert page.locator("#engine-status-region").get_attribute("aria-busy") == "true"
     page.wait_for_function(
         "() => document.querySelector('#estat-text').textContent === 'Check timed out'",
         timeout=4_000,
     )
     _wait_for_mark(page, "fully-settled")
     assert "deadline" in page.locator("#engine-note").inner_text().lower()
-    assert page.locator("#engine-status").inner_text() == "Check timed out — retry available"
+    # A deadline that expired is its OWN answer, and not "Not detected" — which
+    # is the sentence for a machine with no engine on it, and the wrong thing to
+    # tell someone whose engine is merely slow.
+    assert page.locator("#engine-status").inner_text() == "Check timed out"
+    assert "deadline" in page.locator("#engine-status-detail").inner_text().lower()
+    # The retry the old wording promised in the status text itself. It is a
+    # labelled action beside the row now, so the assertion moved to the control.
+    assert page.locator("#engine-recheck").is_enabled()
+    assert page.locator("#engine-status-region").get_attribute("aria-busy") == "false"
     assert not page.js_errors
 
 
