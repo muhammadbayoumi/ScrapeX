@@ -1,70 +1,102 @@
+// The Side Panel document's own half of the startup trace.
+//
+// This runs before the stylesheets, before app.js, and before anything that can
+// throw. It writes straight to chrome.storage.session through startup-trace.js,
+// so a document that never paints still leaves a complete record behind.
+//
+// MV3 forbids inline scripts on extension pages (`script-src 'self'`), so this
+// is a separate file rather than an inline block. It is still the first script
+// the document executes.
 (function () {
   "use strict";
 
-  const STARTUP_EVENT = "scrapex-side-panel-startup-event";
+  const factory = globalThis.ScrapeXStartupTrace;
+  if (!factory) return;
+  const trace = factory.createTrace(factory.DOCUMENT_KEY);
+  globalThis.ScrapeXPanelTrace = trace;
 
-  function epochAt(startTime = window.performance.now()) {
-    return window.performance.timeOrigin + startTime;
-  }
-
-  function snapshot(extra = {}) {
-    let hasFocus = false;
+  function snapshot(extra) {
+    let hasFocus = null;
     try { hasFocus = document.hasFocus(); } catch (_) {}
-    return {
+    return Object.assign({
+      readyState: document.readyState,
       visibilityState: document.visibilityState,
       hasFocus,
-      ...extra,
-    };
+    }, extra || {});
   }
 
-  function mark(name, detail) {
-    try { window.performance.mark(`scrapex:${name}`, {detail}); }
-    catch (_) {
-      try { window.performance.mark(`scrapex:${name}`); } catch (_) {}
-    }
-    try {
-      chrome.runtime.sendMessage({
-        type: STARTUP_EVENT,
-        event: {name, at: epochAt(), detail},
-      }).catch(() => {});
-    } catch (_) {}
-  }
+  // The earliest extension-owned timestamp in the document. Chrome does not
+  // hand the toolbar click to the panel, so the gap between the service
+  // worker's `side-panel-open-request` and this mark IS the host's opening
+  // interval — the measurement that was missing.
+  trace.mark("document-first-script", snapshot({url: location.href}));
 
-  // Earliest extension-owned timestamp. Chrome does not expose the toolbar
-  // click that opened a side panel to the document, so this deliberately marks
-  // only the start of the document-owned interval.
-  mark("document-start", snapshot());
-  document.addEventListener("DOMContentLoaded", () => {
-    mark("dom-content-loaded", snapshot());
-  }, {once: true});
-  window.addEventListener("pageshow", (event) => {
-    mark("pageshow", snapshot({persisted: event.persisted}));
-  }, {once: true});
-  window.addEventListener("focus", () => mark("focus", snapshot()));
-  window.addEventListener("blur", () => mark("blur", snapshot()));
-  document.addEventListener("visibilitychange", () => {
-    mark("visibilitychange", snapshot());
-  });
+  document.addEventListener("DOMContentLoaded",
+    () => trace.mark("dom-content-loaded", snapshot()), {once: true});
+  window.addEventListener("load",
+    () => trace.mark("load", snapshot()), {once: true});
 
+  // Captured through startup-trace's own observer so the first one to arrive is
+  // recorded as `first-lifecycle-event-after-start`. On a blank untouched
+  // panel none of these can fire on their own: whichever appears is the
+  // browser reacting to the owner clicking outside the panel.
+  trace.observe(window, "pageshow", (event) => snapshot({persisted: event.persisted}));
+  trace.observe(window, "focus", () => snapshot());
+  trace.observe(window, "blur", () => snapshot());
+  trace.observe(window, "resize", () => snapshot({
+    width: window.innerWidth, height: window.innerHeight,
+  }));
+  trace.observe(document, "visibilitychange", () => snapshot());
+
+  // Whether the renderer ever offers this document a frame, recorded as a
+  // request and a firing rather than as a single "it worked". A request with no
+  // matching firing is the signature of a document the compositor is not
+  // driving.
   try {
-    const paintObserver = new globalThis.PerformanceObserver((list) => {
-      const fcp = list.getEntries().find((entry) =>
-        entry.name === "first-contentful-paint");
-      if (!fcp) return;
-      const detail = snapshot({startTime: fcp.startTime});
-      try {
-        window.performance.mark("scrapex:first-contentful-paint", {
-          startTime: fcp.startTime, detail,
-        });
-      } catch (_) {}
-      try {
-        chrome.runtime.sendMessage({
-          type: STARTUP_EVENT,
-          event: {name: "first-contentful-paint", at: epochAt(fcp.startTime), detail},
-        }).catch(() => {});
-      } catch (_) {}
-      paintObserver.disconnect();
+    trace.mark("document-animation-frame-requested", snapshot());
+    requestAnimationFrame((timestamp) => {
+      trace.mark("document-animation-frame-fired", snapshot({timestamp}));
     });
-    paintObserver.observe({type: "paint", buffered: true});
   } catch (_) {}
+
+  // An independent clock that does not depend on the compositor at all. If the
+  // timer fires and the frame never does, the document is running and simply
+  // not being painted.
+  const timerRequestedAt = Date.now();
+  trace.mark("fallback-timer-requested", snapshot({delayMs: 250}));
+  setTimeout(() => {
+    trace.mark("fallback-timer-fired", snapshot({
+      actualDelayMs: Date.now() - timerRequestedAt,
+    }));
+  }, 250);
+
+  // first-contentful-paint is the browser's own word for "pixels reached the
+  // screen". Its ABSENCE in a trace is the finding: the document ran, and
+  // nothing was ever painted.
+  try {
+    const observer = new PerformanceObserver((list) => {
+      const paint = list.getEntries()
+        .find((entry) => entry.name === "first-contentful-paint");
+      if (!paint) return;
+      trace.mark("first-contentful-paint", snapshot({startTime: paint.startTime}), {
+        epochMs: performance.timeOrigin + paint.startTime,
+      });
+      observer.disconnect();
+    });
+    observer.observe({type: "paint", buffered: true});
+  } catch (_) {}
+
+  window.addEventListener("error", (event) => {
+    trace.mark("document-error", snapshot({
+      message: String(event.message || ""),
+      source: String(event.filename || ""),
+      line: event.lineno || 0,
+    }));
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    let message = "";
+    try { message = String(event.reason && event.reason.message || event.reason || ""); }
+    catch (_) {}
+    trace.mark("document-unhandled-rejection", snapshot({message}));
+  });
 })();

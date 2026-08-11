@@ -107,7 +107,11 @@ def test_only_fcp_claims_that_the_shell_was_visually_painted():
     assert "shell-visible" not in app
     assert 'markStartup("shell-post-opportunity"' in app
     assert 'entry.name === "first-contentful-paint"' in bootstrap
-    assert 'event: {name: "first-contentful-paint"' in bootstrap
+    # The paint is recorded into the persistent trace rather than posted to a
+    # service worker that may not be awake. Its ABSENCE from a stored trace is
+    # the finding: the document ran and nothing was ever painted.
+    assert 'trace.mark("first-contentful-paint"' in bootstrap
+    assert "chrome.runtime.sendMessage" not in bootstrap
 
 
 def test_the_shell_is_interactive_before_account_or_engine_settles(open_starting_panel):
@@ -130,7 +134,7 @@ def test_the_shell_is_interactive_before_account_or_engine_settles(open_starting
     _wait_for_mark(page, "account-check-start")
     _wait_for_mark(page, "engine-check-start")
     marks = _marks(page)
-    assert marks["shell-interactive"] - marks["document-start"] <= 250
+    assert marks["shell-interactive"] - marks["document-first-script"] <= 250
     assert marks["shell-interactive"] <= marks["account-check-start"]
     assert marks["shell-interactive"] <= marks["engine-check-start"]
     assert "account-check-finish" not in marks
@@ -200,10 +204,11 @@ def test_initially_unfocused_panel_finishes_without_a_frame_or_interaction(
     assert marks["paint-opportunity-resolved"] <= marks["shell-post-opportunity"]
     assert marks["shell-post-opportunity"] <= marks["account-check-start"]
     assert marks["shell-post-opportunity"] <= marks["engine-check-start"]
-    assert marks["shell-post-opportunity"] - marks["document-start"] < 1_000
-    assert _mark_detail(page, "document-start") == {
-        "visibilityState": "hidden", "hasFocus": False,
-    }
+    assert marks["shell-post-opportunity"] - marks["document-first-script"] < 1_000
+    started = _mark_detail(page, "document-first-script")
+    assert started["visibilityState"] == "hidden"
+    assert started["hasFocus"] is False
+    assert started["readyState"] == "loading"
     assert _mark_detail(page, "paint-opportunity-resolved") == {
         "source": "timer", "visibilityState": "hidden",
     }
@@ -516,7 +521,7 @@ def test_startup_instrumentation_spans_shell_checks_and_first_destination(
     _wait_for_mark(page, "fully-settled")
     before = _marks(page)
     required = {
-        "document-start", "dom-content-loaded", "pageshow",
+        "document-first-script", "dom-content-loaded", "pageshow",
         "animation-frame-requested", "animation-frame-resolved",
         "paint-opportunity-resolved", "shell-post-opportunity", "shell-interactive",
         "account-check-start", "account-check-finish", "engine-check-start",

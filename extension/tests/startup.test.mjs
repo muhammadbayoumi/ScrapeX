@@ -58,24 +58,36 @@ test("every startup deadline is finite and positive", () => {
   }
 });
 
-test("document startup marks also reach the combined host trace", () => {
-  const sent = [];
-  const originalChrome = globalThis.chrome;
-  globalThis.chrome = {
-    runtime: {sendMessage(message) { sent.push(message); return Promise.resolve(); }},
+test("app startup marks land in the persistent document trace", () => {
+  // These used to be runtime.sendMessage calls whose failure was swallowed, so
+  // they went missing in the one case worth recording: a startup that never
+  // finishes and a service worker that is not listening.
+  const marked = [];
+  const originalTrace = globalThis.ScrapeXPanelTrace;
+  globalThis.ScrapeXPanelTrace = {
+    mark(name, detail) { marked.push({name, detail}); },
   };
   try {
     markStartup("account-check-start", {interactive: false});
   } finally {
-    if (originalChrome === undefined) delete globalThis.chrome;
-    else globalThis.chrome = originalChrome;
+    if (originalTrace === undefined) delete globalThis.ScrapeXPanelTrace;
+    else globalThis.ScrapeXPanelTrace = originalTrace;
   }
 
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].type, "scrapex-side-panel-startup-event");
-  assert.equal(sent[0].event.name, "account-check-start");
-  assert.equal(sent[0].event.detail.interactive, false);
-  assert.ok(Number.isFinite(sent[0].event.at));
+  assert.deepEqual(marked, [
+    {name: "account-check-start", detail: {interactive: false}},
+  ]);
+});
+
+test("a startup mark without a trace present still never throws", () => {
+  const originalTrace = globalThis.ScrapeXPanelTrace;
+  delete globalThis.ScrapeXPanelTrace;
+  try {
+    assert.doesNotThrow(() => markStartup("account-check-start", {interactive: false}));
+  } finally {
+    if (originalTrace === undefined) delete globalThis.ScrapeXPanelTrace;
+    else globalThis.ScrapeXPanelTrace = originalTrace;
+  }
 });
 
 test("startup takes the bounded fallback when an animation frame never runs", async () => {

@@ -420,6 +420,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         f"{sprite_body}</svg>{body}"
     )
     app_js = (EXT / "app.js").read_text(encoding="utf-8")
+    startup_trace_js = (EXT / "startup-trace.js").read_text(encoding="utf-8")
     startup_bootstrap_js = (EXT / "startup-bootstrap.js").read_text(encoding="utf-8")
     startup_js = (EXT / "startup.js").read_text(encoding="utf-8")
     appearance_js = (EXT / "appearance.js").read_text(encoding="utf-8")
@@ -457,6 +458,9 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         "<title>ScrapeX panel</title>"
+        # The trace comes first, exactly as app.html loads it: the bootstrap
+        # records nothing without it.
+        f"<script>{startup_trace_js}</script>\n"
         f"<script>{startup_bootstrap_js}</script>\n"
         f"<script>{appearance_js}</script>\n"
         # Match app.html's startup-critical ordering: local appearance runs in
