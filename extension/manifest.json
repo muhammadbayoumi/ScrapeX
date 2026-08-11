@@ -37,6 +37,8 @@
     "http://localhost/*",
     "https://raw.githubusercontent.com/muhammadbayoumi/mbiX-hub/*",
     "https://www.googleapis.com/oauth2/v3/*",
+    "https://www.googleapis.com/drive/v3/*",
+    "https://www.googleapis.com/upload/drive/v3/*",
     "https://oauth2.googleapis.com/revoke*"
   ],
   "oauth2": {

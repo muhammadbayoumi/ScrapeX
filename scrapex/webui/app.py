@@ -13,23 +13,25 @@ import json
 import math
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .. import compaction, localinbox, nativehost, pricehistory, rates, retention
+from .. import bundle, compaction, localinbox, nativehost, pricehistory, rates, retention
 from .. import db as dbmod
+from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..changes import change_summary, changes_for_offer, recent_changes
 from ..config import SourceEntry, load_manifest, resolve_manifest_path
@@ -2425,6 +2427,95 @@ def create_app(
     @app.post("/api/storage/backup")
     def api_storage_backup():
         return _storage_action(lambda conn: backup_now(conn, app.state.db_path))
+
+    # ---- the bundle the panel puts in Drive --------------------------------
+    #
+    # THE OWNER'S RULING, 2026-08-11: the engine fetches and saves locally, and
+    # the extension owns every Google operation. So these two routes are the
+    # whole of the engine's part in a Drive backup — it builds the bundle on
+    # its own disk and hands over the bytes. It never sees the Google token, and
+    # there is deliberately no route here that would accept one.
+    #
+    # That is not merely tidier. A token lent to this process would be a
+    # credential living in a second place, on disk or in memory, for a job the
+    # panel can do itself; the ruling removes it rather than protecting it.
+
+    #: Built bundles are named so the newest can be found without keeping any
+    #: state between the two requests. A build followed by a restart must still
+    #: be downloadable, and app.state would not survive one.
+    BUNDLE_PREFIX = "scrapex-bundle-"
+
+    def _bundle_folder(conn) -> Path:
+        return backup_folder(conn, app.state.db_path)
+
+    def _newest_bundle(folder: Path) -> Path | None:
+        made = sorted(folder.glob(f"{BUNDLE_PREFIX}*.zip"),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        return made[0] if made else None
+
+    @app.post("/api/bundle")
+    def api_bundle_build():
+        """Build a bundle, verify it, pack it, and describe what was made.
+
+        `pack` refuses an unverified bundle, so a reply from this route is a
+        promise that what the panel is about to upload reads back correctly.
+        The alternative — pack now, check later — is how `latest.json` ends up
+        naming an archive nobody can open.
+        """
+        conn = read_conn()
+        try:
+            folder = _bundle_folder(conn)
+        finally:
+            conn.close()
+
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        staging = folder / f"{BUNDLE_PREFIX}{stamp}"
+        archive = folder / f"{BUNDLE_PREFIX}{stamp}.zip"
+        try:
+            report = bundle.build(app.state.db_path, staging)
+            if not report.ok:
+                raise HTTPException(status_code=400, detail=(
+                    "the bundle did not verify, so nothing was packed: "
+                    + "; ".join(f"{f.path}: {f.problem}" for f in report.faults[:3])))
+            described = bundle.pack(staging, archive)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        finally:
+            # The staging directory is the bundle expanded; once packed it is a
+            # second full copy of the warehouse sitting on the owner's disk.
+            shutil.rmtree(staging, ignore_errors=True)
+
+        return {
+            "name": archive.name,
+            "bytes": described["bytes"],
+            "sha256": described["sha256"],
+            "files": described["files"],
+            "uncompressed_bytes": described["uncompressed_bytes"],
+            "bundle_format": bundle.BUNDLE_FORMAT,
+            "engine_version": engine_version.VERSION,
+            "created_at": utc_now_iso(),
+        }
+
+    @app.get("/api/bundle/archive")
+    def api_bundle_archive():
+        """Stream the newest built bundle so the panel can upload it.
+
+        The path is derived here and never taken from the caller: this route
+        reads from the backup folder and nowhere else, so no request can ask it
+        for a file outside one directory.
+        """
+        conn = read_conn()
+        try:
+            folder = _bundle_folder(conn)
+        finally:
+            conn.close()
+
+        archive = _newest_bundle(folder)
+        if archive is None:
+            raise HTTPException(status_code=404, detail=(
+                "no bundle has been built yet — POST /api/bundle first"))
+        return FileResponse(
+            archive, media_type="application/zip", filename=archive.name)
 
     @app.post("/api/storage/restore")
     def api_storage_restore(body: dict):
