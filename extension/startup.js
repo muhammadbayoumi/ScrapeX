@@ -2,8 +2,6 @@
 // are also copied to the service worker's short-lived session trace so host
 // opening and document startup share one clock. No account data is included.
 
-const STARTUP_EVENT = "scrapex-side-panel-startup-event";
-
 export const STARTUP_DEADLINES = Object.freeze({
   silentToken: 2500,
   interactiveToken: 120000,
@@ -95,24 +93,29 @@ export async function fetchWithDeadline(
 }
 
 export function markStartup(name, detail) {
-  const startTime = globalThis.performance.now();
+  // Straight into the document's own chrome.storage.session trace, which emits
+  // the matching performance mark itself. This used to be a runtime.sendMessage
+  // whose failure was swallowed, so the marks went missing in exactly the case
+  // worth recording: a startup that never finishes and a service worker that is
+  // not listening.
+  //
+  // Exactly ONE emitter, deliberately: marking here as well would put two
+  // entries under every name, and a timeline that counts each event twice is a
+  // timeline nobody can read an ordering out of.
+  const trace = globalThis.ScrapeXPanelTrace;
+  if (trace) {
+    try {
+      trace.mark(name, detail);
+      return;
+    } catch (_) {}
+  }
   try {
+    const startTime = globalThis.performance.now();
     if (detail === undefined) {
       globalThis.performance.mark(`scrapex:${name}`, {startTime});
     } else {
       globalThis.performance.mark(`scrapex:${name}`, {startTime, detail});
     }
-  } catch (_) {}
-  try {
-    const delivery = globalThis.chrome?.runtime?.sendMessage({
-      type: STARTUP_EVENT,
-      event: {
-        name,
-        at: globalThis.performance.timeOrigin + startTime,
-        detail,
-      },
-    });
-    delivery?.catch?.(() => {});
   } catch (_) {}
 }
 

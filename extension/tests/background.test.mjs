@@ -1,14 +1,19 @@
+// The service worker's half of the startup trace: what the HOST did, written
+// where it survives a panel that never paints.
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 
-const TRACE_KEY = "scrapexSidePanelStartupTrace";
+const HOST_KEY = "scrapexStartupTraceHost";
+const require = createRequire(import.meta.url);
 
 function chromeHarness() {
   const calls = {
     actionListeners: [],
     configuration: [],
-    messageListeners: [],
     openedListeners: [],
+    installedListeners: [],
     open: [],
     storage: [],
     timeline: [],
@@ -16,15 +21,13 @@ function chromeHarness() {
 
   const chrome = {
     action: {
-      onClicked: {
-        addListener(listener) { calls.actionListeners.push(listener); },
-      },
+      onClicked: {addListener(listener) { calls.actionListeners.push(listener); }},
     },
     runtime: {
+      lastError: undefined,
       getURL(path) { return `chrome-extension://test/${path}`; },
-      onInstalled: {addListener() {}},
-      onMessage: {
-        addListener(listener) { calls.messageListeners.push(listener); },
+      onInstalled: {
+        addListener(listener) { calls.installedListeners.push(listener); },
       },
     },
     sidePanel: {
@@ -39,9 +42,7 @@ function chromeHarness() {
         calls.open.push(structuredClone(options));
         return Promise.resolve();
       },
-      onOpened: {
-        addListener(listener) { calls.openedListeners.push(listener); },
-      },
+      onOpened: {addListener(listener) { calls.openedListeners.push(listener); }},
     },
     storage: {
       session: {
@@ -56,63 +57,95 @@ function chromeHarness() {
   return {calls, chrome};
 }
 
-function nextTurn() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+const nextTurn = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+async function loadBackground(t, chrome) {
+  const originals = {
+    chrome: globalThis.chrome,
+    importScripts: globalThis.importScripts,
+    trace: globalThis.ScrapeXStartupTrace,
+  };
+  globalThis.chrome = chrome;
+  globalThis.importScripts = () => {
+    delete require.cache[require.resolve("../startup-trace.js")];
+    globalThis.ScrapeXStartupTrace = require("../startup-trace.js");
+  };
+  t.after(() => {
+    for (const [key, value] of Object.entries(originals)) {
+      const name = key === "trace" ? "ScrapeXStartupTrace" : key;
+      if (value === undefined) delete globalThis[name];
+      else globalThis[name] = value;
+    }
+  });
+  // require(), not import(): Node caches a CommonJS file by path and ignores a
+  // cache-busting query, so import() would reuse the first load and every later
+  // test would assert against a worker that never ran again.
+  delete require.cache[require.resolve("../background.js")];
+  require("../background.js");
+  await nextTurn();
 }
 
-test("the toolbar explicitly opens one preconfigured global panel", async (t) => {
-  const originalChrome = globalThis.chrome;
+test("the worker records that it started, and with which strategy", async (t) => {
   const {calls, chrome} = chromeHarness();
-  globalThis.chrome = chrome;
-  t.after(() => {
-    if (originalChrome === undefined) delete globalThis.chrome;
-    else globalThis.chrome = originalChrome;
-  });
+  await loadBackground(t, chrome);
 
-  await import(`../background.js?host-opening=${Date.now()}`);
-  await nextTurn();
-
-  assert.deepEqual(calls.configuration, [
-    ["behavior", {openPanelOnActionClick: false}],
-    ["options", {enabled: true, path: "app.html"}],
-  ]);
+  const trace = calls.storage.at(-1)[HOST_KEY];
+  assert.equal(trace.events[0].name, "service-worker-start");
+  assert.equal(trace.events[0].detail.strategy, "explicit");
+  assert.equal(trace.events[0].detail.path, "app.html");
   assert.equal(calls.actionListeners.length, 1);
-  assert.equal(calls.messageListeners.length, 1);
   assert.equal(calls.openedListeners.length, 1);
+  assert.equal(calls.installedListeners.length, 1);
+});
 
-  const actionClick = calls.actionListeners[0];
-  const returned = actionClick({id: 41, windowId: 17});
+test("a toolbar click writes the whole opening interval to session storage",
+  async (t) => {
+    const {calls, chrome} = chromeHarness();
+    await loadBackground(t, chrome);
 
-  // open() is called before the click callback returns. No awaited setup can
-  // consume Chrome's user gesture, and one click produces exactly one request.
-  assert.equal(returned, undefined);
-  assert.deepEqual(calls.open, [{windowId: 17}]);
-  assert.equal(calls.timeline[0], "open");
-  await nextTurn();
+    calls.timeline.length = 0;
+    calls.actionListeners[0]({id: 41, windowId: 17});
 
-  let trace = calls.storage.at(-1)[TRACE_KEY];
-  assert.deepEqual(
-    trace.events.slice(-3).map((event) => event.name),
-    ["action-click", "side-panel-open-request", "side-panel-open-resolved"],
-  );
+    // open() runs before any storage write: the trace must never be the thing
+    // that spends the user gesture.
+    assert.equal(calls.timeline[0], "open");
+    assert.deepEqual(calls.open, [{windowId: 17}]);
+    await nextTurn();
 
-  calls.messageListeners[0]({
-    type: "scrapex-side-panel-startup-event",
-    event: {
-      name: "document-start",
-      at: 1234,
-      detail: {visibilityState: "hidden", hasFocus: false},
-    },
-  }, {url: "chrome-extension://test/app.html"});
-  await nextTurn();
-
-  trace = calls.storage.at(-1)[TRACE_KEY];
-  assert.equal(trace.events.at(-1).name, "document-start");
-  assert.equal(trace.events.at(-1).at, 1234);
-  assert.deepEqual(trace.events.at(-1).detail, {
-    visibilityState: "hidden",
-    hasFocus: false,
-    documentUrl: "chrome-extension://test/app.html",
+    const trace = calls.storage.at(-1)[HOST_KEY];
+    const names = trace.events.map((event) => event.name);
+    assert.deepEqual(names.slice(-3), [
+      "action-click", "side-panel-open-request", "side-panel-open-resolved",
+    ]);
+    for (const event of trace.events) {
+      assert.ok(Number.isFinite(event.dateNow), `${event.name} has no Date.now()`);
+      assert.ok(Number.isFinite(event.epochMs), `${event.name} has no epoch clock`);
+    }
   });
-  assert.equal(calls.open.length, 1);
+
+test("a rejected open is recorded rather than swallowed", async (t) => {
+  const {calls, chrome} = chromeHarness();
+  chrome.sidePanel.open = () => {
+    calls.timeline.push("open");
+    return Promise.reject(new Error("Side panel is not available"));
+  };
+  await loadBackground(t, chrome);
+
+  calls.actionListeners[0]({id: 41, windowId: 17});
+  await nextTurn();
+
+  const trace = calls.storage.at(-1)[HOST_KEY];
+  const failure = trace.events.at(-1);
+  assert.equal(failure.name, "side-panel-open-failed");
+  assert.equal(failure.detail.message, "Side panel is not available");
+});
+
+test("the host trace and the document trace never share one storage key", () => {
+  const factory = (() => {
+    delete require.cache[require.resolve("../startup-trace.js")];
+    return require("../startup-trace.js");
+  })();
+  // Two contexts read-modify-writing one key lose events exactly when both are
+  // busy, which is startup. Retrieval merges them on the clock instead.
+  assert.notEqual(factory.HOST_KEY, factory.DOCUMENT_KEY);
 });

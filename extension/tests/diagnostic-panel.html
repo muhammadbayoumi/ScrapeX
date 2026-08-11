@@ -1,0 +1,44 @@
+<!doctype html>
+<!--
+  THE CONTROLLED MINIMAL PAGE. Not a product surface and not shippable: it lives
+  under extension/tests/, which the release workflow deletes from the package
+  and then fails the build if it still exists.
+
+  It answers exactly one question, and it can only answer it by containing
+  nothing else. No stylesheet, no module, no appearance setup, no Account or
+  Engine request, no requestAnimationFrame gate, no async bootstrap, no hidden
+  element, no navigation. The background colour and the text are in this file,
+  so they are painted by the HTML parser and by nothing else.
+
+  Open it through the same explicit sidePanel.open() path by setting
+  OPENING_STRATEGY = "diagnostic" in background.js, then reload the extension.
+
+    Outcome A - the text is ALSO blank until the click outside the panel.
+                Nothing here can bootstrap late, so the failure is in Chrome's
+                side-panel host lifecycle or in how the panel is opened, and
+                not in app.html.
+
+    Outcome B - the text appears immediately while app.html does not. The
+                failure is inside app.html: its CSS, its modules, appearance
+                setup, or an early JS path.
+
+  The script is a file rather than an inline block only because MV3 forbids
+  inline scripts on extension pages. It is still one script, and it does
+  nothing but record that it ran.
+-->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>ScrapeX side panel diagnostic</title>
+</head>
+<!-- Named colours, not hex: the shared colour system owns every literal in this
+     repository and a diagnostic page is not a reason to make an exception. -->
+<body style="margin:0;background:navy;color:white;font:700 28px/1.25 system-ui,sans-serif">
+  <div style="padding:24px">SIDE PANEL DOCUMENT STARTED</div>
+  <div id="script-state" style="padding:0 24px;font:400 15px/1.5 system-ui,sans-serif">
+    the one script has not run
+  </div>
+  <script src="../startup-trace.js"></script>
+  <script src="diagnostic-panel.js"></script>
+</body>
+</html>
