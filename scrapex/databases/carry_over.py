@@ -138,6 +138,12 @@ def carry_over(
     target = sqlite3.connect(plan.destination)
     try:
         target_tables = _tables(target)
+        # WHAT THE DESTINATION ALREADY HOLDS. `initialize()` writes its own rows
+        # -- schema version, migration ledger -- and counting those as carried
+        # would make a short carry look complete. Comparing "rows read" against
+        # "rows now in the table" was the first version of this check and it was
+        # simply the wrong comparison; the baseline is what makes it right.
+        baseline = {table: _row_count(target, table) for table in target_tables}
         for source_path in plan.sources:
             source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True)
             try:
@@ -161,13 +167,19 @@ def carry_over(
                     quoted = ", ".join(f'"{c}"' for c in shared)
                     payload = source.execute(
                         f'SELECT {quoted} FROM "{table}"').fetchall()
+                    # DISTINCT, because the two old files can legitimately hold
+                    # the same row -- both carried `scrapex_meta`, for instance.
+                    # `INSERT OR IGNORE` drops the second copy, and counting it
+                    # as missing would fail every real carry-over.
+                    distinct = len({tuple(row) for row in payload})
                     if not dry_run:
                         target.executemany(
                             f'INSERT OR IGNORE INTO "{table}" ({quoted}) '
                             f'VALUES ({", ".join("?" * len(shared))})', payload)
                     entry = report["tables"].setdefault(
-                        table, {"read": 0, "written": 0, "source": []})
+                        table, {"read": 0, "distinct": 0, "written": 0, "source": []})
                     entry["read"] += rows
+                    entry["distinct"] += distinct
                     entry["source"].append(source_path.name)
                 for table in sorted(_tables(source) - target_tables):
                     report["skipped"].append(
@@ -178,23 +190,28 @@ def carry_over(
 
         if not dry_run:
             target.commit()
-        for table in report["tables"]:
-            report["tables"][table]["written"] = _row_count(target, table)
+        for table, counts in report["tables"].items():
+            counts["written"] = _row_count(target, table) - baseline.get(table, 0)
     finally:
         target.close()
 
     short = [
         {"table": name, **counts}
         for name, counts in report["tables"].items()
-        if counts["written"] < counts["read"]
+        if counts["written"] < counts["distinct"]
     ]
     report["short"] = short
     report["ok"] = not short and not dry_run
 
     if short:
-        # INSERT OR IGNORE drops a row whose key already exists, which is right
-        # when a carry-over is re-run and wrong if it hides a real loss. Either
-        # way the pointer does not move: a human decides.
+        # Fewer rows arrived than the sources hold DISTINCTLY, so something was
+        # genuinely dropped rather than deduplicated. The pointer does not move
+        # and a human decides.
+        #
+        # WHAT THIS STILL CANNOT SEE: a row that arrived with a different value
+        # under the same key. The counts would agree and the content would not.
+        # Proving that needs a per-row comparison this command does not do, and
+        # saying so here is better than implying a guarantee it has not earned.
         return report
 
     if not dry_run:
