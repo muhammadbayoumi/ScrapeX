@@ -59,6 +59,16 @@ action and the read far more than the work in between, so the deferred thing has
 landed by the time you look. Measured — a build broken on purpose to defer one of
 these failed 15/15 unthrottled and passed 15/15 at 20x. A green run under load is
 not evidence of synchrony; the same-task read is.
+
+NONE OF THAT APPLIES TO MEASURING A BOX. The rule above is about VISIBILITY, and
+it holds because visibility is a yes/no that the action's own task has already
+decided. A size or a position is a number, and while `showView`'s 180ms entry
+animation is running the view carries a live transform that puts a float32
+sub-pixel error into every Y-axis reading — measured, and enough to fail an
+assertion against an exact pixel constant. So: read visibility immediately, and
+never wait for it; call `settle_view` before you MEASURE. The two rules point in
+opposite directions on purpose, and `settle_view`'s docstring carries the
+numbers for the second one.
 """
 from __future__ import annotations
 
@@ -132,6 +142,96 @@ def open_panel(browser, tmp_path):
 
 def text_of(page, selector: str) -> str:
     return (page.text_content(selector) or "").strip()
+
+
+def settle_view(page, name: str) -> None:
+    """Wait out `showView`'s entry animation before MEASURING a box in that view.
+
+    THE NUMBERS BELOW ARE THE POINT OF THIS FUNCTION. A wait with no visible
+    cause is a wait the next reader deletes — which is precisely how the guard
+    in `test_the_engine_overflow_trigger_has_no_visible_resting_container` came
+    to be broken: someone loosened it to 47.5 without writing down why, and the
+    next person along removed the 47.5 as unjustified slack. Both were right
+    about the other's evidence and wrong about the cause. Do not repeat that by
+    deleting this because it looks like a sleep.
+
+    `showView` animates a view in with `transform: translateY(8px) -> (0)` over
+    180ms (extension/app.js). The animation is on the `#view-<name>` element
+    ITSELF — measured: `getAnimations()` on that element returns exactly 1 while
+    it runs, target `view-engines`, keyframes ["translateY(8px)","translateY(0px)"].
+    Do NOT add `{subtree: true}`: measured, that returns 4, because it also
+    picks up three unrelated transitions on `#engine-download` that this has no
+    business waiting for.
+
+    While the animation runs the view carries a live transform, so every box
+    read through it comes back as a float32 compositor quad. Measured on
+    Windows, Chromium, devicePixelRatio 1, running the overflow-trigger test
+    ALONE — no suite around it:
+
+      * 20/20 runs read the box MID-animation. The `wait_for_function` that
+        precedes the read resolves about 17ms into a 180ms animation, so this
+        race is not close, and no run of that test has ever measured a settled
+        button.
+      * 7/20 runs FAILED outright.
+      * The failures report height 47.99999237060547. That is 48 - 2**-17: one
+        float32 ulp at y ~= 120. The error is symmetric — 48.00000762939453
+        turns up just as often, and a `>= 48` assertion swallows that half in
+        silence, which is why the flake looked one-sided and load-dependent.
+      * Width was exact in every single sample, because the animation only
+        moves Y. That asymmetry is the fingerprint: a genuine sizing bug would
+        not spare the X axis.
+      * 0/20 failures once the animation is settled first.
+
+    So it is not a device scale factor, not a leaked viewport, not another test
+    in the suite, and not Windows: it is this animation, and it is on every
+    machine that runs with motion enabled. Settling is the fix. An epsilon alone
+    would leave the race in place and merely widen the target it has to hit.
+
+    Costs nothing when there is nothing to wait for: under reduced motion, or
+    when re-entering a view that is already shown, `showView` creates no
+    animation at all and `getAnimations()` is empty on the first poll.
+    """
+    page.wait_for_function(
+        f"() => document.getElementById('view-{name}').getAnimations().length === 0",
+        timeout=5_000)
+
+
+def declared_size(page, selector: str) -> dict:
+    """The width/height `app.css` DECLARES for `selector`, read from the CSSOM.
+
+    A declaration is exact and cannot drift by a rounding error, which is what
+    makes it the right place to assert a touch-target contract. The rendered box
+    is a consequence, and consequences carry sub-pixel noise — see `settle_view`.
+
+    Unconditional rules only: a size inside a `@media` block is a different
+    promise, and folding it in here would let a 48px phone rule vouch for a
+    desktop layout that never applies it.
+
+    The walk tests `selectorText` BEFORE recursing, deliberately. Under CSS
+    Nesting a plain `CSSStyleRule` also carries an (empty) `cssRules` list, so
+    the obvious `if (rule.cssRules) { recurse; continue; }` treats every style
+    rule as a group, descends into nothing, and reports that the stylesheet
+    declares nothing at all. Measured — it found 0 rules for a selector that
+    is plainly there.
+    """
+    return page.evaluate(
+        """(selector) => {
+          const out = {matches: 0, width: null, height: null};
+          const walk = (rules, conditional) => {
+            for (const rule of rules) {
+              const parts = (rule.selectorText || "").split(",").map((s) => s.trim());
+              if (!conditional && parts.includes(selector)) {
+                out.matches += 1;
+                if (rule.style.width) out.width = rule.style.width;
+                if (rule.style.height) out.height = rule.style.height;
+              }
+              if (rule.cssRules) walk(rule.cssRules, conditional || !rule.selectorText);
+            }
+          };
+          for (const sheet of document.styleSheets) walk(sheet.cssRules, false);
+          return out;
+        }""",
+        selector)
 
 
 # ---- the opening screen ------------------------------------------------------
@@ -273,6 +373,16 @@ def test_appearance_is_a_complete_android_style_destination(open_panel):
     assert page.locator("#appearance-popover").count() == 0
     assert page.locator("#appearance-backdrop").count() == 0
     assert page.locator("#s-appearance").count() == 0
+
+    # Everything above this line is read DELIBERATELY mid-entry-animation — see
+    # the module docstring on `#view-appearance` passing `is_visible()` at
+    # `opacity: 0`. Do not move this call up; it would delete that measurement.
+    # From here the test measures BOXES, and the `>= 48` floor below is the same
+    # hard touch-target floor that flakes in the Engine overflow test. Measured:
+    # these three boxes are also read mid-animation 20/20, and two of them are
+    # exactly 48px tall, so this site is the same coin flip — it has simply not
+    # come up tails yet. Settled, so it cannot.
+    settle_view(page, "appearance")
 
     view_bounds = view.bounding_box()
     main_bounds = page.locator("main").bounding_box()
@@ -3962,15 +4072,65 @@ def test_the_engine_overflow_trigger_has_no_visible_resting_container(open_panel
     page.wait_for_function(
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
+    # A box is about to be measured, so the view has to have LANDED. Read
+    # `settle_view` before touching this line: without it the measurement below
+    # lands mid-entry-animation 20/20 and fails 7/20.
+    settle_view(page, "engines")
 
     btn = page.locator("#engine-overflow")
+
+    # TWO CLAIMS, SEPARATED ON PURPOSE. They used to be one assertion, and
+    # conflating them is what made this test unfixable: it read a rendered box
+    # and blamed the stylesheet for the answer.
+    #
+    # (1) THE CONTRACT. app.css pins the trigger at exactly 48x48 — the Android
+    #     touch-target minimum. It is a declaration: exact, and beyond the reach
+    #     of any rounding. THIS is the assertion that bites a real regression,
+    #     and for the HEIGHT it is the only one that can.
+    #
+    #     Verified by mutation, not by hope. Setting .engine-overflow-button to
+    #     44px in app.css fails here, naming the value it found. The rendered
+    #     box does NOT catch it: measured, the button then renders 44 WIDE and
+    #     still 48 TALL, because a global `button, .button {min-height:
+    #     var(--control-height)}` (48px) silently clamps the height back up.
+    #     Width has no such floor (min-width: 0px), so only width moves.
+    #
+    #     Read that twice, because it condemns the assertion this replaced:
+    #     `box["height"] >= 48` could NEVER have caught a height regression.
+    #     The clamp would have handed it 48 and it would have passed, green and
+    #     useless, while the declared contract sat broken in the stylesheet. The
+    #     guard everyone was arguing about was not guarding the thing it named.
+    #     `matches` guards the failure that would otherwise pass silently: the
+    #     rule renamed or dropped from the sheet, leaving nothing to compare and
+    #     an assertion that vacuously holds. It is `>= 1`, not `== 1`, on
+    #     purpose — splitting a rule in two is a benign refactor and should not
+    #     fail a touch-target test. When there are several, the last
+    #     unconditional declaration wins, which is what the cascade does at
+    #     equal specificity.
+    declared = declared_size(page, ".engine-overflow-button")
+    assert declared["matches"] >= 1, declared
+    assert declared["width"] == "48px", declared
+    assert declared["height"] == "48px", declared
+
+    # (2) THE CONSEQUENCE. That the contract actually reaches the screen — the
+    #     rule is not overridden, and no parent has collapsed the button. This
+    #     is a RENDERED box, so it carries float32 sub-pixel error and needs a
+    #     stated epsilon rather than a bare `>=`. 0.01 is ~1300x the largest
+    #     deviation ever measured here (2**-17, or 7.6e-06) and far below any
+    #     regression worth catching, because the smallest one that matters is a
+    #     whole pixel and (1) catches whole pixels exactly.
+    #
+    #     An earlier version of this line was `>= 48`, and it was twice wrong.
+    #     A bare floor cannot express "measured, with error", so it read as a
+    #     hard accessibility promise it could not keep, and it silently accepted
+    #     the +2**-17 half of the same noise. The floor now lives in (1), where
+    #     it is exact. Do not merge these back into one assertion, and do not
+    #     restore a bare 47.5 — a number with no reason attached is what got
+    #     reverted last time.
     box = btn.bounding_box()
-    # 48x48 EXACTLY, and it must stay a hard floor. This assertion was
-    # relaxed to 47.5 in an uncommitted change; measured on this branch the
-    # button renders at exactly 48x48, so the relaxation bought nothing and
-    # lowered the accessibility minimum for a touch target by half a pixel of
-    # permanent slack. A guard that is loosened to pass stops being a guard.
-    assert box and box["width"] >= 48 and box["height"] >= 48
+    assert box
+    assert box["width"] == pytest.approx(48, abs=0.01), box["width"]
+    assert box["height"] == pytest.approx(48, abs=0.01), box["height"]
 
     style = btn.evaluate("""el => ({
       bg: getComputedStyle(el).backgroundColor,
