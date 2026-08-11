@@ -535,9 +535,9 @@ function setStatus(engine) {
   // cannot remain stuck on "Checking engine…" after Profile has already settled.
   //
   // The STATUS half only. `renderEngines` also fetches the release feed, and
-  // pulling a network request into every health answer is what the Engine page
-  // was separated from in #151. `renderEngineStatusUI` reads `state` and writes
-  // DOM, so it is safe on a hidden view and costs nothing.
+  // pulling a network request into every health answer is exactly what the
+  // Engine page was separated from. `renderEngineStatusUI` reads `state` and
+  // writes DOM, so it is safe on a hidden view and costs nothing.
   //
   // aria-busy is deliberately NOT touched here: the check owns it, and the
   // version report it is still waiting for is part of that check.
