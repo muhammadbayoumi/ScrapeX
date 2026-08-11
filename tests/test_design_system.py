@@ -19,6 +19,61 @@ def test_generated_design_assets_are_current() -> None:
     assert sync(check=True) == []
 
 
+def test_every_generated_copy_says_it_is_one() -> None:
+    """A generated file that reads like a source file will be edited like one.
+
+    THE INCIDENT, 2026-08-11. An engine-poll backoff was written straight into
+    `extension/appearance.js` — correct code, reviewed, merged. That file is a
+    generated copy of `design/appearance.js`, and the next run of
+    `tools/sync_design_assets.py` would have erased it with no diff, no failing
+    test and nothing at all to notice. It was caught by a second reader, not by
+    the repository.
+
+    `test_generated_design_assets_are_current` was already there and could not
+    have caught it: it fails when a copy has drifted from its source, and the
+    sync run that erases the edit is precisely the run that makes them agree
+    again. The guard was working exactly as designed, on the wrong side of the
+    event.
+
+    So the thing that was missing is not a comparison. It is a sentence at the
+    top of each copy telling the reader where the file they are holding came
+    from, BEFORE they start typing. That is what this asserts, on the
+    destinations rather than the sources, because the destination is what gets
+    opened by mistake.
+
+    `AUTHORED IN design/<name>` names the file to edit instead; `GENERATED COPY`
+    names what the reader is holding. Both phrases are asserted rather than the
+    surrounding prose, so the wording can be improved without breaking this and
+    the two load-bearing facts still cannot be dropped.
+    """
+    from tools.sync_design_assets import ASSETS
+
+    # Text only. A PNG cannot carry a comment, and nobody hand-edits a binary
+    # into a divergent state without noticing.
+    readable = {".js", ".css"}
+    checked = 0
+    for source, destinations in ASSETS.items():
+        if source.suffix not in readable:
+            continue
+        for destination in destinations:
+            body = destination.read_text(encoding="utf-8")
+            relative = destination.relative_to(ROOT).as_posix()
+            assert f"AUTHORED IN design/{source.name}" in body, (
+                f"{relative} is generated from design/{source.name} and does "
+                "not say so. A reader who opens it has no way to know an edit "
+                "here is reverted by the next sync without a word.")
+            assert "GENERATED COPY" in body, (
+                f"{relative} names its source but never tells the reader that "
+                "the file in front of them is the copy.")
+            checked += 1
+
+    # A filter that quietly matched nothing would make every assertion above
+    # vacuous, and this file's own history is the argument for saying so.
+    assert checked >= 10, (
+        f"only {checked} generated copies were checked; the asset table or the "
+        "suffix filter has changed and this test is no longer covering them")
+
+
 def test_the_generated_catalogue_is_the_same_on_every_platform() -> None:
     """CI failed on this and the machine that wrote it could not see it.
 

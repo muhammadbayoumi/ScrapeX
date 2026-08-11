@@ -28,6 +28,19 @@ ASSETS = {
         ROOT / "extension" / "split-button.js",
         ROOT / "scrapex" / "webui" / "static" / "split-button.js",
     ),
+    # ADDED 2026-08-11, and it was already duplicated for months before that.
+    # `extension/timezone.js` and `scrapex/webui/static/timezone.js` were two
+    # hand-maintained copies with no source between them, held equal by
+    # `tests/test_display_time_zone.py::test_the_two_copies_of_the_module_are_identical`.
+    # That test works — it was not a missing guard. What it could not do is say
+    # which copy was right: its failure message read "copy one over the other",
+    # and following it in the wrong direction reverts a fix as silently as no
+    # test at all would have. Five files cross this boundary; four followed the
+    # rule below and one had a rule of its own.
+    ROOT / "design" / "timezone.js": (
+        ROOT / "extension" / "timezone.js",
+        ROOT / "scrapex" / "webui" / "static" / "timezone.js",
+    ),
     ROOT / "design" / "tokens.css": (
         ROOT / "extension" / "tokens.css",
         ROOT / "scrapex" / "webui" / "static" / "tokens.css",

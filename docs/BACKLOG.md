@@ -623,6 +623,100 @@ opening strategy, a zero-width layout, the engine's absence. Three mechanisms
 were recorded WRONGLY on PR #152 and corrected. The conclusions converged only
 because nothing was accepted without a number.
 
+## 6c. The extension/engine separation, audited — 2026-08-11
+
+The owner asked whether the extension is fully separated from the engine. What
+follows is what was measured, including the note that turned out to be my own
+misreading. Four were raised; one was a defect, two were correct by design, one
+did not exist. A fifth was found only by comparing the two directories directly
+instead of trusting the tool's own list.
+
+**Separated, verified.** Zero `.py` or `.pyc` under `extension/`. The shipped
+package is literally `cp -r extension build/scrapex` minus `tests/`, `README.md`
+and `*.pem` (`release-extension.yml:85`), so no Python byte reaches the store.
+Two independent release triggers — `scrapex-v*` and `engine-v*` — neither
+building the other's artifact. Runtime contact is two narrow paths and nothing
+else: native messaging for CONTROL, HTTP on `127.0.0.1:8000` for DATA
+(`extension/transport.js`). The extension id is a runtime argument to
+`nativehost.build_manifest`, not a constant in Python.
+
+### SEP-1 · The extension's own tests are written in Python — DECISION, not debt
+
+`release-extension.yml:64` installs the Python package and runs
+`pytest -m extension`; 21 test files carry that mark. CI *also* runs
+`node --test extension/tests/*.test.mjs` — 9 files, **zero npm dependencies**.
+
+The split is not accidental. The Python tests drive a real Chrome through
+Playwright and assert rendered geometry, resolved CSS and live DOM; node cannot
+do that without an npm dependency, and this repository refuses npm dependencies
+on purpose (the reason is written out in `extension/bundleview.js`, which reads
+a gzip stream with the browser's own `DecompressionStream` rather than bundling
+a zip library).
+
+So the recorded position is: the extension's **runtime** carries no Python; its
+**browser-driving test harness** does, by choice. The cost is stated rather than
+paid — if `extension/` is ever moved to its own repository, that harness has to
+be ported or replaced, and that is a real day of work, not a footnote. Nobody
+has asked for a separate repository, and until someone does this is not debt.
+
+### SEP-2 · Generated copies that did not say they were generated — FIXED
+
+Five files exist on both sides of the boundary. Four were generated from
+`design/` by `tools/sync_design_assets.py` and carried no marking at all —
+`extension/appearance.js` opened straight with `(function () {`, and
+`design/tokens.css` said *"canonical source … run the tool after editing this
+file"*, a sentence copied verbatim into both generated copies where **both
+halves of it become false**.
+
+This is not theoretical: it is the trap this session fell into. See Q1b in
+`ENGINEERING.md` for the rule and `test_every_generated_copy_says_it_is_one` for
+the guard, which was mutation-tested — the banner was stripped from one copy and
+the test failed by name before it was restored.
+
+### SEP-3 · `timezone.js` had a rule of its own — FIXED
+
+The fifth file. `extension/timezone.js` and `scrapex/webui/static/timezone.js`
+were 493 identical lines with **no source between them**, kept equal by
+`test_display_time_zone.py::test_the_two_copies_of_the_module_are_identical`.
+
+That test works and was never missing — the first draft of this audit was about
+to report it as an unguarded duplicate, and re-reading the file refuted that.
+What the test could not do is say which copy is right. Its failure message reads
+*"copy one over the other"*, and a reader who had just fixed the extension copy
+and a reader who had just fixed the workspace copy receive the same instruction;
+one of them reverts the other's work while obeying it.
+
+`timezone.js` is now authored in `design/` and generated into both, like the
+other four. The byte-equality test is kept — it guards the property directly
+rather than through the tool, and deleting a working test to lean on a script is
+the weaker arrangement.
+
+### SEP-4 · `PROTOCOL_VERSION` in two languages — CORRECT, no change
+
+`scrapex/native.py:49` and `extension/transport.js:25` both state the number,
+because JavaScript cannot import Python. `test_native.py::test_the_two_protocol_constants_cannot_drift`
+holds them together, and it has the shape section 6b demands: it asserts the
+regex **found** the line, by name, before comparing the value. A reformatted
+declaration fails the test rather than passing it vacuously. It is inside the
+extension gate (`test_every_test_file_that_reads_the_extension_carries_the_mark`),
+so a change to `transport.js` cannot route around it. There is exactly one
+literal on each side — `engine.js` and `webui/app.py` both import rather than
+restate. Closed as a correct contract coupling.
+
+### SEP-5 · "The engine reads the extension's manifest" — WITHDRAWN, my error
+
+I reported that `scrapex/version.py:10` makes the engine depend on
+`extension/manifest.json`, reversing the dependency. It does not. `version.py`
+contains no `open`, no `read_text`, no `Path` and no `json.load` at all — line 10
+is prose in the module docstring saying the extension's number is deliberately
+**not** there, and explaining why the two versions are allowed to differ. I read
+a docstring as code.
+
+The only Python that reads that manifest is `tools/panel_harness.py:119`, a
+development harness that never ships. There is no reversed runtime dependency.
+Recorded here so the note is not raised a second time by someone reading the
+same docstring.
+
 ## 7. Done — newest first, so it is not re-proposed
 
 *This table and `CHANGELOG.md` answer two different questions and neither replaces the

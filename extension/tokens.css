@@ -1,9 +1,18 @@
 /* ==========================================================================
- * ScrapeX design tokens — canonical source.
+ * ScrapeX design tokens.
  *
- * Run `python tools/sync_design_assets.py` after editing this file. The
- * extension and the packaged web workspace need their own physical copies,
- * but this file is the only authored source of token values.
+ * AUTHORED IN design/tokens.css, and copied byte-for-byte into
+ * extension/tokens.css and scrapex/webui/static/tokens.css by
+ * tools/sync_design_assets.py. The extension and the packaged web workspace
+ * cannot import from each other at runtime, so each needs its own copy.
+ *
+ * IF THE PATH ABOVE YOUR EDITOR IS NOT design/, THIS IS A GENERATED COPY.
+ * Edit the design/ file and run the tool. An edit written into a copy survives
+ * review and merge and is then reverted by the next sync WITHOUT A WORD — which
+ * has already happened in this repository, to the engine-poll backoff in
+ * appearance.js. The header saying so is the only warning a reader gets before
+ * they start typing, which is why it is repeated in every one of these files
+ * rather than written once somewhere nobody is looking.
  * ======================================================================== */
 :root {
   color-scheme: light;

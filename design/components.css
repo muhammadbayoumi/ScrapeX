@@ -1,8 +1,16 @@
 /* ==========================================================================
- * ScrapeX shared UI primitives — canonical source.
+ * ScrapeX shared UI primitives.
  *
  * Layout that belongs to one screen stays in that screen's stylesheet. These
  * rules define the reusable vocabulary and interaction behaviour.
+ *
+ * AUTHORED IN design/components.css, and copied byte-for-byte into
+ * extension/components.css and scrapex/webui/static/components.css by
+ * tools/sync_design_assets.py.
+ *
+ * IF THE PATH ABOVE YOUR EDITOR IS NOT design/, THIS IS A GENERATED COPY, and
+ * an edit made here is reverted by the next sync without a word. Edit the
+ * design/ file and run the tool.
  * ======================================================================== */
 *,
 *::before,

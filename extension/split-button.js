@@ -1,5 +1,13 @@
 /* One split button, for every surface that needs one.
  *
+ * AUTHORED IN design/split-button.js, and copied byte-for-byte into
+ * extension/split-button.js and scrapex/webui/static/split-button.js by
+ * tools/sync_design_assets.py.
+ *
+ * IF THE PATH ABOVE YOUR EDITOR IS NOT design/, THIS IS A GENERATED COPY, and
+ * an edit made here is reverted by the next sync without a word. Edit the
+ * design/ file and run the tool.
+ *
  * The dataset Export control invented this pattern — a primary action beside a
  * <details> menu of secondary ones — and the Activity panel's log control is the
  * same shape. Rather than write it twice (the DRY the owner asked for by name),
