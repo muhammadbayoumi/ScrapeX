@@ -157,6 +157,26 @@ export function afterNextPaint({
       return;
     }
     signal?.addEventListener("abort", abort, {once: true});
+
+    // A HIDDEN DOCUMENT NEVER GETS A FRAME, so waiting for one is waiting for
+    // nothing. Measured on the owner's machine, twice, from this file's own
+    // trace: the side panel document is created with visibilityState "hidden",
+    // rAF is requested at 28ms and does not fire until 2372ms -- the moment
+    // Chrome finally marks the document visible. The 250ms fallback does not
+    // rescue it either, because timers are throttled in a hidden document too:
+    // it fired at 767ms and 1131ms in two runs.
+    //
+    // So the shell sat ready at 168ms and startup waited ~785ms for a paint
+    // opportunity that could not arrive. That wait is OURS, and it is the part
+    // of the blank panel this repository can actually fix. It does not make
+    // Chrome paint sooner -- nothing here can -- but when Chrome does show the
+    // panel, everything behind the first frame is already done instead of
+    // starting then.
+    if (visibilityState() === "hidden") {
+      finish("hidden");
+      return;
+    }
+
     fallbackTimer = setTimer(() => finish("timer"), timeoutMs);
 
     if (typeof requestFrame !== "function") return;

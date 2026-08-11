@@ -412,19 +412,34 @@ test("an Engine request that never answers ends at its own deadline", async () =
   );
 });
 
-test("a hidden, unfocused document still gets a bounded paint opportunity", async () => {
+test("a hidden document does not wait for a frame, or for a timer either", async () => {
   const {afterNextPaint} = await import("../startup.js");
   const originalDocument = globalThis.document;
   globalThis.document = {visibilityState: "hidden"};
+  let frameRequested = false;
   try {
-    // Chrome does not service animation frames for a document it does not
-    // consider visible. Startup must not wait for one.
+    // MEASURED, TWICE, ON THE OWNER'S MACHINE. The side panel document is
+    // created with visibilityState "hidden": rAF was requested at 28ms and did
+    // not fire until 2372ms, the moment Chrome finally marked the document
+    // visible. The timer fallback does not rescue it, because timers are
+    // throttled in a hidden document too — a 250ms fallback fired at 767ms in
+    // one run and 1131ms in another.
+    //
+    // This asserted `source === "timer"`, which meant startup still paid that
+    // throttled wait: the shell was ready at 168ms and sat behind ~785ms of it.
+    // Nothing here can make Chrome paint sooner. What it can do is not be the
+    // reason the panel is still empty once Chrome does show it.
     const result = await afterNextPaint({
-      timeoutMs: 20,
-      requestFrame: () => 5,
+      timeoutMs: 20_000,               // deliberately huge: if it is consulted
+      requestFrame: () => {             // at all, this test hangs rather than
+        frameRequested = true;          // passing by accident
+        return 5;
+      },
       cancelFrame: () => {},
     });
-    assert.equal(result.source, "timer");
+    assert.equal(result.source, "hidden");
+    assert.equal(frameRequested, false,
+      "a frame was requested for a hidden document, which cannot service one");
   } finally {
     if (originalDocument === undefined) delete globalThis.document;
     else globalThis.document = originalDocument;
