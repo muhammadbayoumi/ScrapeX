@@ -523,8 +523,44 @@ test("the minimal diagnostic page stays minimal", () => {
   assert.ok(!/\bhidden\b|display:\s*none|visibility:\s*hidden|opacity:\s*0/.test(markup),
     "the diagnostic page hides something");
 
+  // The same idea for the script, but a `//` strip has to fail in the opposite
+  // direction to the one above. `//` is not only a comment marker, it is also
+  // the middle of every URL, and deleting to end of line deletes real code:
+  //
+  //     open("http://x"); fetch("/y");   ->   open("http:
+  //
+  // `fetch(` is now absent from the text scanned below and the assertion passes
+  // for a page that plainly does fetch. That is the guard quietly ceasing to
+  // guard, which is worse than the guard being wrong out loud — and a URL is
+  // exactly what the person who adds the first request to this page will type.
+  //
+  // So: drop a whole-line comment always, and drop a trailing one only on a
+  // line carrying no quote at all. A comment that merely mentions `fetch(`
+  // beside a string now fails this test loudly and someone moves the comment;
+  // a real `fetch(` can no longer be swallowed by the thing meant to find it.
+  //
+  // Deliberately NOT to a fixpoint, unlike the markup above. That loop is there
+  // because removing `<!-- -->` can join its two sides into a new comment; this
+  // regex runs to end of line, so the character after every removal is `\n` and
+  // two `/` can never be brought together. Measured over 20k random strings of
+  // `/`, `"`, `*`, `(`, newline and `fetch`: a second pass changed 0 of them.
+  // A loop here would be copied ritual, not a fix, and CodeQL does not ask for
+  // one — js/incomplete-multi-character-sanitization cannot fire on this shape.
+  //
+  // There is deliberately no `/* */` strip. That page uses `//` only — measured,
+  // `grep -c '/\*'` over it is 0 — so such a strip has nothing to remove and one
+  // way to be wrong: a `/*` inside a string literal deletes forward to the next
+  // `*/`, which is the same silent hiding of real code as above, arriving by a
+  // second door. If a block comment is ever added there and this test fails on a
+  // word inside it, write it as `//` lines; do not bring the strip back.
   const script = read("tests/diagnostic-panel.js")
-    .replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    .split("\n")
+    .map((line) => {
+      if (/^\s*\/\//.test(line)) return "";
+      if (/["'`]/.test(line)) return line;
+      return line.replace(/\/\/.*$/, "");
+    })
+    .join("\n");
   assert.ok(!/\bfetch\s*\(/.test(script), "the diagnostic page makes a request");
   assert.ok(!/loadAccount|engine|appearance/i.test(script),
     "the diagnostic page runs product startup work");
