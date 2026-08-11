@@ -84,7 +84,79 @@ jobs:
               "ScrapeX docs, published from ${GITHUB_SHA:0:7}"
           done
 
+      - name: The pages the store depends on must actually work
+        # PRINTING A URL IS NOT CHECKING IT. This step used to end by echoing
+        # the two page addresses, which proves nothing: publishing can succeed
+        # while the page stays blank for ever, and the chain that follows is the
+        # one the whole listing hangs on.
+        #
+        #   the Chrome Web Store refuses a listing without a WORKING privacy
+        #   policy URL  ->  the URL is a page that fetches this markdown at
+        #   runtime  ->  if that fetch breaks, the page reads "Loading the
+        #   policy..." and the publish still says success
+        #
+        # The first person to notice would be a Google reviewer rejecting the
+        # submission, with nothing in any log to explain why.
+        #
+        # TWO THINGS BREAK INDEPENDENTLY, so both are checked:
+        #   1. the markdown is reachable at the address the BROWSER uses --
+        #      raw.githubusercontent.com, not the Contents API this job just
+        #      wrote through. A successful write says nothing about the CDN.
+        #   2. the page still carries `data-sx-doc`, the attribute the site's
+        #      loader hooks onto. mbiXsite is a separate repository: a redesign
+        #      there can drop it without anything here noticing.
+        #
+        # No browser and no JavaScript, deliberately. A headless check of the
+        # RENDERED text would be the truest test and the flakiest one, and a
+        # publish step that cries wolf gets ignored -- which is the failure it
+        # was written to prevent.
+        run: |
+          set -uo pipefail
+          RAW=https://raw.githubusercontent.com/muhammadbayoumi/mbiX-hub/main/ScrapeX/docs
+          SITE=https://muhammadbayoumi.github.io/mbiXsite
+          failed=0
+
+          for doc in privacy-policy support; do
+            # Up to five tries: the write above went through the Contents API
+            # and raw.githubusercontent.com is a CDN behind it, so a few seconds
+            # of lag is normal and is NOT a failure.
+            for attempt in 1 2 3 4 5; do
+              body=$(curl -fsSL --max-time 20 "$RAW/$doc.md" 2>/dev/null) && break
+              sleep 5
+            done
+            if [ -z "${body:-}" ]; then
+              echo "::error::$RAW/$doc.md is not readable, so the page that"
+              echo "fetches it will show its 'waiting on its source' message."
+              failed=1
+              continue
+            fi
+            echo "  $doc.md: readable, $(printf '%s' "$body" | wc -c) bytes"
+            body=""
+          done
+
+          for page in scrapex-privacy scrapex-support; do
+            html=$(curl -fsSL --max-time 20 "$SITE/$page.html" 2>/dev/null) || {
+              echo "::error::$SITE/$page.html did not load at all."
+              failed=1; continue
+            }
+            case "$html" in
+              *data-sx-doc*) echo "  $page.html: still hooks the loader" ;;
+              *) echo "::error::$SITE/$page.html no longer carries data-sx-doc,"
+                 echo "so nothing on it will ever fetch the document this job"
+                 echo "just published. The page renders its heading and nothing"
+                 echo "else, and the store listing depends on it."
+                 failed=1 ;;
+            esac
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo ""
+            echo "The documents WERE published. What broke is the path between"
+            echo "them and the reader, which lives in muhammadbayoumi/mbiXsite."
+            exit 1
+          fi
+
           echo ""
-          echo "The website's ScrapeX pages read these directly:"
-          echo "  https://muhammadbayoumi.github.io/mbiXsite/scrapex-privacy.html"
-          echo "  https://muhammadbayoumi.github.io/mbiXsite/scrapex-support.html"
+          echo "Both pages read what this job just published:"
+          echo "  $SITE/scrapex-privacy.html"
+          echo "  $SITE/scrapex-support.html"
