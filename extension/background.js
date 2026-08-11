@@ -42,13 +42,25 @@ const SIDE_PANEL_PATH = "app.html";
 // Changed here, in source, rather than read from storage: MV3 requires event
 // listeners to be registered synchronously at the top level, and a strategy
 // that depends on an awaited storage read cannot honour that.
-const OPENING_STRATEGY = "explicit";
+const OPENING_STRATEGY = "diagnostic-styles";
 
 // The diagnostic page lives under extension/tests/ because the release workflow
 // deletes that directory from the package and then FAILS the build if it is
 // still present. The page therefore cannot ship, and that is enforced by the
 // existing gate rather than by remembering to remove it.
-const DIAGNOSTIC_PANEL_PATH = "tests/diagnostic-panel.html";
+// THE BISECT. The minimal page paints immediately and app.html does not, so
+// the cause is one of the six things app.html has and it does not: three
+// render-blocking stylesheets and three synchronous head scripts. Each of these
+// pages carries exactly one of those halves, so two runs say which half is
+// guilty before anything is changed in production code.
+const DIAGNOSTIC_PAGES = {
+  diagnostic: "tests/diagnostic-panel.html",   // neither half — the control
+  "diagnostic-styles": "tests/diagnostic-styles.html",   // stylesheets only
+  "diagnostic-scripts": "tests/diagnostic-scripts.html", // head scripts only
+};
+const DIAGNOSTIC_PANEL_PATH = DIAGNOSTIC_PAGES[OPENING_STRATEGY]
+  || DIAGNOSTIC_PAGES.diagnostic;
+const IS_DIAGNOSTIC = OPENING_STRATEGY in DIAGNOSTIC_PAGES;
 
 const trace = globalThis.ScrapeXStartupTrace.createTrace(
   globalThis.ScrapeXStartupTrace.HOST_KEY,
@@ -60,7 +72,7 @@ function lastError() {
 
 trace.mark("service-worker-start", {
   strategy: OPENING_STRATEGY,
-  path: OPENING_STRATEGY === "diagnostic" ? DIAGNOSTIC_PANEL_PATH : SIDE_PANEL_PATH,
+  path: IS_DIAGNOSTIC ? DIAGNOSTIC_PANEL_PATH : SIDE_PANEL_PATH,
 });
 
 // STRATEGY A ONLY. Chrome performs the opening itself, so there is nothing for
@@ -84,7 +96,7 @@ if (OPENING_STRATEGY === "behavior") {
 // resolved long before any toolbar click. Clicking the icon on a cold worker
 // instead would recreate the very race this branch removed from production, and
 // the diagnostic would be measuring that race rather than the panel.
-if (OPENING_STRATEGY === "diagnostic") {
+if (IS_DIAGNOSTIC) {
   chrome.sidePanel.setOptions({enabled: true, path: DIAGNOSTIC_PANEL_PATH}).then(
     () => trace.mark("set-panel-options-resolved", {path: DIAGNOSTIC_PANEL_PATH}),
     (error) => trace.mark("set-panel-options-failed", {
