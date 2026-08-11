@@ -538,7 +538,7 @@ before trusting it.*
 
 | what | where | state |
 |---|---|---|
-| Side panel startup | PR #152 · branch `perf/extension-side-panel-startup` | Fix **owner-verified in real Chrome**. Blocked on a rebase: nine SEMANTIC conflicts with `main` in `app.js` and `identity.js`, because #151 changed 356 lines of the same file. Handed to a separate session. **The owner loads the unpacked extension from that worktree**, so a broken rebase breaks their install. |
+| ~~Side panel startup~~ | **MERGED `815ecae` (#152)** | Owner-verified in real Chrome after the rebase. Nine semantic conflicts resolved by a separate session, which also surfaced four gate failures none of us had run and one silent-pass bug in a test guard. |
 | Carry the split databases over | PR #159 · branch `feat/carry-the-split-databases-into-one` | Command works and **has already run on the owner's real data** — pointer moved, `database-status` Healthy. Nine tests, three proved to bite. Blocked on: the full suite has never been run against this branch, only its own test file. |
 | Four panel-placement defects | issue #160 | Not started |
 | The untested remote-control promise | issue #161 | Not started |
@@ -550,7 +550,39 @@ so a certificate buys trust from strangers there are none of. Do not re-propose
 it; the only consequence is Defender scanning each new download once, which the
 splash now covers.
 
-## 6b. The failure this repository keeps making
+### OP-18 · A test guard was blind to the thing it was written to find
+
+Found on 2026-08-11 by the session that rebased #152, while hardening a line I
+had asked it to look at for a different reason.
+
+`side-panel-startup.test.mjs` stripped script comments with
+`.replace(/\/\/[^
+]*/g, "")` before asserting the diagnostic page makes no
+request. The `//` in a URL reads as a comment marker, so everything after it on
+that line is deleted — **including a real `fetch(` on the same line**. Proved
+with a probe: `fetch("https://example.invalid/probe")` passed the guard silently
+on the old strip and fails loudly on the new one.
+
+The strip is now line-by-line: a whole-line comment is dropped, a line
+containing any quote is kept verbatim, otherwise a trailing `//` goes. The trade
+is stated in the comment — a comment mentioning `fetch(` beside a string now
+causes a loud false failure instead of a real one being swallowed.
+
+**And a suggestion of mine was refuted in the same reply, correctly.** I proposed
+a fixpoint loop by analogy with the `<!--` strip beside it. Removing an inner
+`<!-- -->` joins its two sides into a fresh comment, so that one needs the loop;
+the line-comment regex ends at `
+`, so two `/` can never be brought together.
+Fuzzed 20,000 strings: zero changed on a second pass. Copying the loop would have
+been ritual.
+
+**Still open, deliberately:** the `/* */` strip on the following line has the same
+class of hazard — a `/*` inside a string literal deletes forward to the next
+`*/`. Latent today. Before hardening it, check whether the file contains a block
+comment at all: if not, the line is dead code and deleting it is safer than
+making it clever.
+
+
 
 *Added 2026-08-11 after it appeared NINE times in a single day. Not a task — a
 lens to hold while reading everything above.*
