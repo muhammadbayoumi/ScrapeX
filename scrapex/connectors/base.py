@@ -12,7 +12,14 @@ import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    # Named here so the annotation on `_robots_reports` resolves for a reader
+    # and for a checker. The RUNTIME import stays inside `_request`, where the
+    # module is actually used — scrapex.robots imports nothing from here, but
+    # keeping the runtime edge where it is costs nothing and adds no cycle.
+    from ..robots import RobotsReport
 
 import httpx
 
@@ -298,8 +305,11 @@ class HttpFetcher:
         # tests/test_http_fetcher.py pins the two together.
         self._obey_disallow = obey_disallow
         #: host -> RobotsReport, so the file is read once and the report can be
-        #: shown to the owner afterwards without fetching it again.
-        self._robots_reports: dict[str, object] = {}
+        #: shown to the owner afterwards without fetching it again. Typed as the
+        #: real thing rather than `object`: it was the latter, so nothing checked
+        #: what went in, and `decide()` -- which needs a RobotsReport -- was
+        #: being handed something the type system knew nothing about.
+        self._robots_reports: dict[str, RobotsReport] = {}
         self.robots_warnings: list[str] = []
         # url -> {"ETag": ..., "Last-Modified": ...}, replayed on the next visit.
         self._validators: dict[str, dict[str, str]] = {}
