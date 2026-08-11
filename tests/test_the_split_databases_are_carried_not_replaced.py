@@ -36,23 +36,46 @@ def _make_source(path: Path, rows: int, *, extra_table: bool = False,
     conn.execute("CREATE TABLE scrapex_meta (key TEXT PRIMARY KEY, value TEXT)")
     conn.executemany("INSERT INTO scrapex_meta VALUES (?, ?)",
                      [(f"{prefix}-{n}", f"value-{n}") for n in range(rows)])
-    # A real DATA table beside the ledger, because the guard under test must be
-    # exercised on something the destination does not own. Its columns match the
-    # shipped schema: the first version of this fixture invented two of them and
-    # every row was dropped by INSERT OR IGNORE on a NOT NULL it did not supply.
-    # The guard caught that (45 read, 0 written) -- which is the guard working,
-    # and a reminder that OR IGNORE swallows constraint failures as quietly as
-    # it swallows duplicates.
+    # A REAL DATA TABLE beside the ledger, because the guard under test must be
+    # exercised on something the destination does NOT own.
+    #
+    # Its columns and constraints are copied from the shipped schema, read out of
+    # the owner's own database rather than retyped from memory. The first two
+    # attempts were retyped and both were wrong: `source_key`, `source_kind` and
+    # `recorded_at` are all NOT NULL, and `(currency, as_of, source_key)` carries
+    # a UNIQUE index, and `source_kind` carries a CHECK limiting it to
+    # 'provider' or 'shop'. Every row was dropped and the guard reported 45 read,
+    # 0 written — the guard working, on a fixture that was not. The CHECK was the
+    # last one found, and only by attempting one insert and reading the error
+    # instead of reading PRAGMA table_info, which does not show CHECKs at all.
+    #
+    # That is worth keeping in mind beyond this test: INSERT OR IGNORE swallows a
+    # CONSTRAINT failure exactly as quietly as it swallows a duplicate. A row
+    # that violates a NOT NULL in the new schema vanishes with no error at all,
+    # and the row count is the only thing that notices.
     conn.execute("""CREATE TABLE currency_rate (
-        currency_rate_id INTEGER PRIMARY KEY, currency TEXT NOT NULL,
-        per_usd REAL NOT NULL, as_of TEXT NOT NULL, source_key TEXT,
-        source_kind TEXT, recorded_at TEXT)""")
+        currency_rate_id INTEGER PRIMARY KEY,
+        currency    TEXT NOT NULL,
+        per_usd     REAL NOT NULL,
+        as_of       TEXT NOT NULL,
+        source_key  TEXT NOT NULL,
+        source_kind TEXT NOT NULL CHECK (source_kind IN ('provider', 'shop')),
+        recorded_at TEXT NOT NULL,
+        UNIQUE (currency, as_of, source_key))""")
+    # THE PRIMARY KEY IS GIVEN EXPLICITLY, and disjoint per file. Left to
+    # autoincrement, both old databases number their rows from 1 and the two
+    # ranges collide the moment they are carried into one table -- INSERT OR
+    # IGNORE then drops the second file's rows without a word. That is a real
+    # limitation of carry_over on any table present in BOTH files, and it is
+    # exactly what the row-count guard caught here: 45 read, 40 written, pointer
+    # not moved. It did not bite on the owner's own data only because no table
+    # of theirs lives in both files.
+    base = 0 if prefix == "key" else 100_000
     conn.executemany(
         "INSERT INTO currency_rate (currency_rate_id, currency, per_usd, as_of, "
         "source_key, source_kind, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [(hash(prefix) % 1000 * 100 + n, f"{prefix[:2].upper()}{n}", 1.0 + n,
-          "2026-08-11", "TEST", "manual", "2026-08-11T00:00:00Z")
-         for n in range(rows)])
+        [(base + n, f"{prefix[:3].upper()}{n:03d}", 1.0 + n, "2026-08-11",
+          prefix, "provider", "2026-08-11T00:00:00Z") for n in range(rows)])
     if extra_table:
         conn.execute("CREATE TABLE forgotten_domain (id INTEGER PRIMARY KEY, note TEXT)")
         conn.executemany("INSERT INTO forgotten_domain (note) VALUES (?)",
@@ -208,3 +231,43 @@ def test_a_short_count_refuses_and_leaves_the_pointer_where_it_was(split, monkey
     assert json.loads(pointer.read_text(encoding="utf-8"))["mode"] == "split", (
         "the pointer moved even though rows were missing — the installation "
         "would now start and serve an incomplete warehouse with nothing saying so")
+
+
+
+def test_a_ledger_the_destination_owns_does_not_block_the_pointer(split):
+    """The fix that came out of the owner's real run, guarded.
+
+    `database_migration` and `scrapex_meta` are LEDGERS: the destination writes
+    its own schema version and migration record when it is created, so some of
+    the old rows are duplicates and INSERT OR IGNORE drops them. On the owner's
+    machine that shortfall — 62 -> 56 and 26 -> 21 — stopped a carry-over in
+    which every table of DATA had arrived exactly. The refusal was right in its
+    logic and wrong in its verdict.
+
+    Removing the exemption must fail this test. Without it the exemption is a
+    line nobody is holding to account, which is how it would quietly widen later
+    into "and these other tables too".
+    """
+    pointer, destination, _, _ = split
+
+    # Put a row in the destination's ledger that the sources also carry, so the
+    # ledger is genuinely short after the carry while the data table is not.
+    from scrapex.databases.domain import EngineDatabase
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    EngineDatabase(destination).initialize()
+    conn = sqlite3.connect(destination)
+    conn.execute("INSERT OR REPLACE INTO scrapex_meta (key, value) VALUES (?, ?)",
+                 ("key-0", "written by the destination, not carried"))
+    conn.commit()
+    conn.close()
+
+    report = carry_over(read_split_pointer(pointer))
+
+    assert report["ledgers"], (
+        "the ledger shortfall was not reported at all; it has to be visible "
+        "even though it is excused")
+    assert report["ledgers"][0]["table"] == "scrapex_meta"
+    assert report["ledgers"][0]["why"], "excused with no reason recorded"
+    assert not report["short"], f"a ledger blocked the pointer: {report['short']}"
+    assert report["ok"], report
+    assert json.loads(pointer.read_text(encoding="utf-8"))["mode"] == "single"
