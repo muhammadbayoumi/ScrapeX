@@ -4644,9 +4644,26 @@ function closePanelWork() {
 
 window.addEventListener("pagehide", closePanelWork, {once: true});
 window.addEventListener("beforeunload", closePanelWork, {once: true});
-document.addEventListener("DOMContentLoaded", () => {
+// START NOW IF THE DOCUMENT IS ALREADY PARSED, and only wait if it is not.
+//
+// This waited unconditionally on DOMContentLoaded, which was right while the
+// module was loaded from a <script> tag in the markup. It is not any more:
+// boot-app.js appends this module when `load` fires, so DOMContentLoaded is long
+// past by the time this line runs and the listener would never be called. The
+// panel painted immediately and then did nothing at all -- every button dead,
+// no engine check, no account -- which is how the owner found it.
+//
+// `readyState` is the question that has an answer in both worlds: "loading"
+// means the event is still coming, anything else means it has been and gone.
+function startPanel() {
   init().catch((error) => {
     markStartup("startup-failed", {message: error && error.message || "unknown"});
     console.error("ScrapeX panel startup failed", error);
   });
-}, {once: true});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", startPanel, {once: true});
+} else {
+  startPanel();
+}
