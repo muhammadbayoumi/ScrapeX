@@ -346,10 +346,34 @@
     return result;
   }
 
+  // HOW MANY REFUSED CONNECTIONS BEFORE THIS STOPS ASKING. Measured on the
+  // owner's machine with no engine running: this polled every 2 seconds for as
+  // long as the panel stayed open, and each attempt wrote a red
+  // ERR_CONNECTION_REFUSED to the console. Thirty-odd of them in the first
+  // minute, none of which a reader can act on, burying the one line that
+  // mattered. The engine being absent is a NORMAL state -- it is what every
+  // user sees before they install it -- so the panel must be able to sit in it
+  // quietly.
+  //
+  // Six is deliberate: about twelve seconds of retrying covers an engine that
+  // is starting up, and stops well before the console becomes unreadable.
+  // Polling resumes on focus and whenever `connect` is called again, so a user
+  // who starts the engine is never left waiting on a dead poller.
+  const QUIET_AFTER_FAILURES = 6;
+  let consecutiveFailures = 0;
+
+  function stopPolling(reason) {
+    if (pollTimer === undefined) return;
+    window.clearInterval(pollTimer);
+    pollTimer = undefined;
+    try { console.info(`[scrapex] appearance sync paused: ${reason}`); } catch (_) {}
+  }
+
   async function pullRemote() {
     if (!remoteBase || document.visibilityState === "hidden") return false;
     try {
       const response = await fetch(`${remoteBase}${SYNC_PATH}`, {cache: "no-store"});
+      consecutiveFailures = 0;
       if (!response.ok) return false;
       const body = await response.json();
       const remote = body?.appearance ? normalize(body.appearance) : null;
@@ -362,6 +386,11 @@
       }
       return true;
     } catch (error) {
+      // The engine being unreachable is not an error to shout about; it is the
+      // state every user is in before they install it.
+      if (++consecutiveFailures >= QUIET_AFTER_FAILURES) {
+        stopPolling(`the engine did not answer ${consecutiveFailures} times`);
+      }
       return false;
     }
   }
@@ -370,6 +399,9 @@
     const clean = String(baseUrl || "").replace(/\/+$/, "");
     if (!clean) return false;
     remoteBase = clean;
+    // Every call to connect is a fresh start: the user may have just launched
+    // the engine, so a poller that gave up must come back.
+    consecutiveFailures = 0;
     const connected = await pullRemote();
     window.clearInterval(pollTimer);
     pollTimer = window.setInterval(pullRemote, 2000);
@@ -421,7 +453,16 @@
     if (saved.updatedAt < current.updatedAt) return;
     adopt(saved);
   });
-  window.addEventListener("focus", pullRemote);
+  // Focus is the user coming back, and quite possibly having just started the
+  // engine. It resets the failure count and REVIVES the poller — calling
+  // pullRemote alone would check once and leave a stopped interval stopped.
+  window.addEventListener("focus", () => {
+    consecutiveFailures = 0;
+    if (remoteBase && pollTimer === undefined) {
+      pollTimer = window.setInterval(pullRemote, 2000);
+    }
+    pullRemote();
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") pullRemote();
   });
