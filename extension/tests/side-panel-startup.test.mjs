@@ -522,3 +522,24 @@ test("the shipping build uses the explicit opening strategy", () => {
   assert.ok(/const OPENING_STRATEGY = "explicit";/.test(source),
     "a diagnostic or experimental opening strategy is about to ship");
 });
+
+test("app.js starts even though DOMContentLoaded is long past when it arrives", () => {
+  // THE DEFECT THIS EXISTS FOR, found by the owner within a minute of the fix
+  // above. boot-app.js appends app.js when `load` fires, so DOMContentLoaded has
+  // already been and gone. app.js waited on that event unconditionally, its
+  // listener was never called, and the panel painted instantly and then did
+  // NOTHING -- every control dead, no engine check, no account.
+  //
+  // Half a fix that turns a blank panel into a dead one is not an improvement,
+  // and the ordering test above cannot see it: the markup is correct in both
+  // cases. This reads the entry point instead.
+  const source = read("app.js");
+
+  assert.ok(/document\.readyState/.test(source),
+    "app.js does not check readyState, so it cannot tell whether "
+    + "DOMContentLoaded is still coming or already gone");
+  assert.ok(!/^document\.addEventListener\("DOMContentLoaded"/m.test(source),
+    "app.js waits on DOMContentLoaded unconditionally at the top level. "
+    + "boot-app.js appends it after `load`, so that event never fires again "
+    + "and nothing in the panel ever starts");
+});
