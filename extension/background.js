@@ -78,6 +78,12 @@ if (OPENING_STRATEGY === "behavior") {
 
 // STRATEGY "diagnostic" ONLY. Registered once, at worker start, long before any
 // click — the ordering the production path deliberately no longer needs.
+//
+// RELOAD THE EXTENSION BEFORE THE FIRST DIAGNOSTIC CLICK. Pressing reload on
+// chrome://extensions starts the worker immediately, so this setOptions has
+// resolved long before any toolbar click. Clicking the icon on a cold worker
+// instead would recreate the very race this branch removed from production, and
+// the diagnostic would be measuring that race rather than the panel.
 if (OPENING_STRATEGY === "diagnostic") {
   chrome.sidePanel.setOptions({enabled: true, path: DIAGNOSTIC_PANEL_PATH}).then(
     () => trace.mark("set-panel-options-resolved", {path: DIAGNOSTIC_PANEL_PATH}),
