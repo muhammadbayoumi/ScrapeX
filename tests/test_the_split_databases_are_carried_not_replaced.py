@@ -75,7 +75,7 @@ def _rows(path: Path, table: str = "scrapex_meta") -> int:
 
 
 def test_every_row_arrives_and_only_then_does_the_pointer_move(split):
-    pointer, destination, marketlens, general = split
+    pointer, destination, _, _ = split
 
     report = carry_over(read_split_pointer(pointer))
 
@@ -104,7 +104,7 @@ def test_the_old_files_are_never_touched(split):
 
 
 def test_a_dry_run_writes_nothing_and_leaves_the_pointer_alone(split):
-    pointer, destination, _, _ = split
+    pointer, _, _, _ = split
 
     report = carry_over(read_split_pointer(pointer), dry_run=True)
 
@@ -147,7 +147,7 @@ def test_running_it_twice_is_safe_and_does_not_double_the_rows(split):
 
 
 def test_a_pointer_that_already_says_single_is_refused_by_name(split):
-    pointer, destination, _, _ = split
+    pointer, _, _, _ = split
     carry_over(read_split_pointer(pointer))
 
     with pytest.raises(DatabasePointerError, match="already points at a single"):
@@ -169,7 +169,7 @@ def test_a_missing_old_file_stops_everything_before_a_single_row_moves(split):
 def test_a_short_count_refuses_and_leaves_the_pointer_where_it_was(split, monkeypatch):
     """THE ONE THAT MATTERS. If rows do not arrive, the installation must keep
     refusing to start rather than start on top of an incomplete warehouse."""
-    pointer, destination, _, _ = split
+    pointer, _, _, _ = split
     plan = read_split_pointer(pointer)
 
     import scrapex.databases.carry_over as module
