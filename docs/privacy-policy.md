@@ -77,7 +77,9 @@ the name on your account.
 |---|---|
 | `raw.githubusercontent.com/muhammadbayoumi/mbiX-hub` | Reading one small file that says which engine version is the newest. Narrowed to that one repository, so the extension cannot read anything else on GitHub even by mistake. It is fetched exactly as any browser fetches a public page, and the request carries no information about you at all. |
 | `oauth2.googleapis.com/revoke` | Ending your session when you press Sign out. This is what makes signing out mean it: ScrapeX asks Google to cancel its own access, rather than only forgetting the key on this computer. Nothing is sent but the key being cancelled. |
-| `www.googleapis.com/oauth2/v3` | One Google endpoint and no more: the name, address and picture of the signed-in account. **Drive is not here.** Backups are uploaded by the engine on your own computer, not by the extension, so the extension has no Drive access at all. |
+| `www.googleapis.com/oauth2/v3` | The name, address and picture of the signed-in account, and nothing else. |
+| `www.googleapis.com/drive/v3` | Finding, listing and downloading your backups. **Only files ScrapeX itself made.** The permission it holds is Google's `drive.file`, which grants access to files an app created and to files you hand it yourself — never to the rest of your Drive. ScrapeX cannot see, list or open a document it did not create, and no setting inside ScrapeX can change that: it is a limit Google enforces, not a promise ScrapeX keeps. |
+| `www.googleapis.com/upload/drive/v3` | Sending a backup up. The upload is resumable and reports its progress, which is why it is a separate address from the one above. |
 
 The engine itself talks to the sites you added, and to `127.0.0.1` — which is
 your own computer.

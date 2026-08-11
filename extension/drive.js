@@ -1,0 +1,437 @@
+// The owner's backups, in the owner's Drive — driven from the panel.
+//
+// THE OWNER'S RULING, 2026-08-11: the engine fetches and saves locally, and the
+// extension owns every Google operation. So this file is where Drive lives now.
+// The engine builds a bundle on its own disk and hands the bytes over the
+// loopback; the token never leaves this extension and is never written down.
+//
+// IT REPLACES scrapex/drive.py, WHICH NEVER RAN. That module had zero importers
+// — 300 lines that nothing in the repository could reach. It did have nineteen
+// careful tests, and they are the reason this file exists rather than a port:
+// the fake Drive they run against reads the boundary out of whatever
+// Content-Type the client declares, so it accepts multipart/form-data exactly
+// as readily as the multipart/related the real service requires. Nineteen tests
+// could not catch the one defect that would have broken the feature on its
+// first real use, because the fake was written to accept what the code sends.
+//
+// Porting it faithfully would have carried two defects across:
+//
+//   1. It sent multipart/form-data, because that is what httpx's `files=`
+//      produces. Drive's multipart upload requires multipart/RELATED (RFC 2387,
+//      metadata part first). The upload could never have succeeded.
+//   2. Multipart upload is documented for files of 5 MB or less. The module's
+//      own comment reasoned about 33 MB, which is the size at which that route
+//      stops being allowed at all.
+//
+// So the upload here is RESUMABLE instead. It is the correct route at this size,
+// and it pays for itself twice: a chunked upload is the only kind a browser can
+// report progress for, because fetch() exposes no upload progress event. The
+// owner asked for a loading bar; this is where it comes from.
+//
+// WHY THE MANIFEST NEEDS THE HOST PERMISSIONS, beyond simply being allowed to
+// call: an extension request covered by host_permissions is not subject to CORS,
+// so every response header is readable. The resumable handshake returns its
+// session URI in the `Location` header, and a CORS-restricted response would
+// hide it. The permission is not a formality here — without it this file cannot
+// work at all.
+
+const FILES = "https://www.googleapis.com/drive/v3/files";
+const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
+
+/** One folder, made once and found thereafter. */
+export const FOLDER_NAME = "ScrapeX backups";
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/** The pointer that says which upload is the current one. */
+export const LATEST = "latest.json";
+
+/** How many bundles survive a prune. Three is a fortnight of daily backups
+ * without asking the owner to think about it, and Drive quota is the owner's. */
+export const KEEP = 3;
+
+//: The bundle layout this panel knows how to read. Its twin is BUNDLE_FORMAT in
+//: scrapex/bundle.py, and the pair is what lets an older device refuse a newer
+//: backup by name rather than by failing to open it. Two constants that must
+//: agree, in two languages that cannot import each other — the same arrangement
+//: PROTOCOL_VERSION has, and held together the same way, by a test that reads
+//: this line from Python.
+export const BUNDLE_FORMAT = 1;
+
+// A multiple of 256 KB, which Drive requires of every chunk but the last. Large
+// enough that a 40 MB bundle is ten requests rather than a hundred, small enough
+// that the progress bar moves often enough to be believed.
+const CHUNK_BYTES = 4 * 1024 * 1024;
+
+/** Something Drive refused, in words the owner can act on. */
+export class DriveError extends Error {
+  constructor(message, status = null, kind = "drive") {
+    super(message);
+    this.name = "DriveError";
+    this.status = status;
+    this.kind = kind;
+  }
+}
+
+function headers(token, extra = {}) {
+  if (!token) {
+    throw new DriveError(
+      "No Google account is connected. Sign in from the panel first.",
+      null, "no-token");
+  }
+  return {Authorization: `Bearer ${token}`, ...extra};
+}
+
+/**
+ * Turn a refused response into a sentence naming what was being attempted.
+ *
+ * The status is kept on the error because the caller's decision differs by it:
+ * 401 means sign in again, 403 may mean quota, and a 5xx means try later. A
+ * single opaque failure sends the owner to fix the wrong thing — the lesson
+ * transport.js already learned and wrote down.
+ */
+async function refuse(response, doing) {
+  let detail = "";
+  try {
+    const body = await response.json();
+    detail = (body && body.error && body.error.message) || "";
+  } catch (_) {
+    try { detail = (await response.text()).slice(0, 200); } catch (_) { /* nothing */ }
+  }
+  const tail = detail ? ` — ${detail}` : "";
+  if (response.status === 401) {
+    return new DriveError(
+      `Google refused the token while ${doing}. Sign in again from the panel.${tail}`,
+      401, "unauthorized");
+  }
+  if (response.status === 403) {
+    return new DriveError(
+      `Google refused permission while ${doing}. This is usually a full Drive ` +
+      `or a rate limit rather than a wrong account.${tail}`, 403, "forbidden");
+  }
+  return new DriveError(`Google returned ${response.status} while ${doing}.${tail}`,
+                        response.status, "drive");
+}
+
+async function ask(fetchImpl, url, init, doing) {
+  let response;
+  try {
+    response = await fetchImpl(url, init);
+  } catch (error) {
+    // A network failure and a refusal are different problems with different
+    // fixes, and collapsing them is how "you are offline" gets shown to someone
+    // whose token simply expired.
+    throw new DriveError(`Could not reach Google while ${doing}.`, null, "network");
+  }
+  if (!response.ok) throw await refuse(response, doing);
+  return response;
+}
+
+/**
+ * The id of ScrapeX's own folder, made once and found thereafter.
+ *
+ * Searched by name AND by `'me' in owners` and not trashed — a folder the owner
+ * deleted must not be written into, or the backups go somewhere they can neither
+ * see nor restore from. Carried over from the Python module, which had this part
+ * right.
+ */
+export async function folderId(token, {fetchImpl = fetch} = {}) {
+  const query = `name = '${FOLDER_NAME}' and mimeType = '${FOLDER_MIME}' ` +
+                "and trashed = false and 'me' in owners";
+  const found = await (await ask(
+    fetchImpl,
+    `${FILES}?${new URLSearchParams({q: query, fields: "files(id,name)"})}`,
+    {headers: headers(token)},
+    "looking for the backup folder")).json();
+
+  const files = found.files || [];
+  if (files.length) return files[0].id;
+
+  const made = await (await ask(
+    fetchImpl, `${FILES}?${new URLSearchParams({fields: "id"})}`,
+    {
+      method: "POST",
+      headers: headers(token, {"Content-Type": "application/json"}),
+      body: JSON.stringify({name: FOLDER_NAME, mimeType: FOLDER_MIME}),
+    },
+    "creating the backup folder")).json();
+  return made.id;
+}
+
+/** What is in the folder, newest first. */
+export async function listing(token, parent, {fetchImpl = fetch} = {}) {
+  const found = await (await ask(
+    fetchImpl,
+    `${FILES}?${new URLSearchParams({
+      q: `'${parent}' in parents and trashed = false`,
+      orderBy: "createdTime desc",
+      fields: "files(id,name,size,createdTime)",
+    })}`,
+    {headers: headers(token)},
+    "listing the backup folder")).json();
+  return found.files || [];
+}
+
+export async function remove(token, fileId, {fetchImpl = fetch} = {}) {
+  await ask(fetchImpl, `${FILES}/${encodeURIComponent(fileId)}`,
+            {method: "DELETE", headers: headers(token)}, `deleting ${fileId}`);
+}
+
+/**
+ * Which bundles to delete, newest kept.
+ *
+ * Returned rather than deleted, so the caller — and the test — can see the
+ * decision before anything is destroyed. `latest.json` is never a candidate: it
+ * is the pointer, not a backup.
+ *
+ * It sorts by createdTime here rather than trusting the caller's order. The
+ * Python version relied on the listing arriving newest-first and said so in a
+ * comment; a function whose correctness depends on an argument's order, with
+ * nothing checking that order, is one refactor away from deleting the newest
+ * three and keeping the oldest.
+ */
+export function prunable(files, keep = KEEP) {
+  const bundles = (files || []).filter((f) => (f.name || "").endsWith(".zip"));
+  const newestFirst = [...bundles].sort(
+    (a, b) => String(b.createdTime || "").localeCompare(String(a.createdTime || "")));
+  return newestFirst.slice(keep);
+}
+
+/**
+ * Send one file, in chunks, reporting progress as it goes.
+ *
+ * `onProgress` receives {sent, total} after every chunk. It is called with
+ * {sent: 0} before the first byte so a bar can appear at once rather than after
+ * the first four megabytes.
+ */
+export async function upload(token, {
+  blob, name, parent, mime = "application/zip", onProgress = null,
+  fetchImpl = fetch,
+} = {}) {
+  if (!blob) throw new DriveError("Nothing was given to upload.", null, "empty");
+  const total = blob.size;
+
+  // STEP 1 — the handshake. Drive answers with a one-use session URI in the
+  // Location header, and everything after this goes there rather than to the
+  // upload endpoint.
+  const start = await ask(
+    fetchImpl,
+    `${UPLOAD}?${new URLSearchParams({uploadType: "resumable"})}`,
+    {
+      method: "POST",
+      headers: headers(token, {
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": mime,
+        "X-Upload-Content-Length": String(total),
+      }),
+      body: JSON.stringify({name, parents: parent ? [parent] : undefined}),
+    },
+    `starting the upload of ${name}`);
+
+  const session = start.headers.get("location");
+  if (!session) {
+    // Reached when the response is CORS-restricted, which is what happens if
+    // the host permission for this endpoint is ever dropped from the manifest.
+    // Saying that here is cheaper than debugging an upload that stops on its
+    // first line with no error at all.
+    throw new DriveError(
+      "Google accepted the upload request but its session address could not be " +
+      "read. This is what a missing host permission for googleapis.com looks " +
+      "like from inside the panel.", null, "no-session");
+  }
+
+  if (onProgress) onProgress({sent: 0, total});
+
+  // STEP 2 — the bytes. A zero-length blob still needs one request, or Drive
+  // never learns the upload is finished.
+  let sent = 0;
+  for (;;) {
+    const end = Math.min(sent + CHUNK_BYTES, total);
+    const chunk = blob.slice(sent, end);
+    const range = total === 0
+      ? "bytes */0"
+      : `bytes ${sent}-${end - 1}/${total}`;
+
+    let response;
+    try {
+      response = await fetchImpl(session, {
+        method: "PUT",
+        headers: {"Content-Range": range},
+        body: chunk,
+      });
+    } catch (error) {
+      throw new DriveError(
+        `The connection dropped after ${sent} of ${total} bytes of ${name}.`,
+        null, "network");
+    }
+
+    // 308 is Drive saying "resume incomplete" — not an error and not a
+    // redirect to follow. fetch() reports it with ok === false, so a plain
+    // `if (!response.ok)` would abort every multi-chunk upload on its first
+    // chunk. It carries a Range header of what it actually holds, and that,
+    // not our own arithmetic, is where the next chunk starts.
+    if (response.status === 308) {
+      const held = response.headers.get("range");
+      const match = held && /bytes=0-(\d+)/.exec(held);
+      sent = match ? Number(match[1]) + 1 : end;
+      if (onProgress) onProgress({sent, total});
+      continue;
+    }
+    if (!response.ok) throw await refuse(response, `uploading ${name}`);
+
+    if (onProgress) onProgress({sent: total, total});
+    return await response.json();
+  }
+}
+
+/**
+ * Fetch one file by id.
+ *
+ * Returns a Blob rather than writing anywhere: the panel has no filesystem, and
+ * every caller either hands the bytes to bundleview.js or offers them as a
+ * download. Progress is reported when Drive sends a length; a response without
+ * one still succeeds, with `total` null, because refusing to download a file
+ * whose size is unknown would be a worse failure than a bar that cannot fill.
+ */
+export async function download(token, fileId, {
+  onProgress = null, fetchImpl = fetch,
+} = {}) {
+  const response = await ask(
+    fetchImpl,
+    `${FILES}/${encodeURIComponent(fileId)}?${new URLSearchParams({alt: "media"})}`,
+    {headers: headers(token)},
+    `downloading ${fileId}`);
+
+  const declared = Number(response.headers.get("content-length"));
+  const total = Number.isFinite(declared) && declared > 0 ? declared : null;
+
+  if (!onProgress || !response.body) return await response.blob();
+
+  const reader = response.body.getReader();
+  const parts = [];
+  let received = 0;
+  onProgress({received: 0, total});
+  for (;;) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    parts.push(value);
+    received += value.length;
+    onProgress({received, total});
+  }
+  return new Blob(parts);
+}
+
+/**
+ * Read the pointer that says which upload is current.
+ *
+ * Returns null when there is none, which is not a fault: it is what a Drive
+ * looks like before the first backup, and every caller has to tell that apart
+ * from a failure.
+ */
+export async function readLatest(token, parent, {fetchImpl = fetch} = {}) {
+  const files = await listing(token, parent, {fetchImpl});
+  const pointer = files.find((f) => f.name === LATEST);
+  if (!pointer) return null;
+  const blob = await download(token, pointer.id, {fetchImpl});
+  try {
+    return JSON.parse(await blob.text());
+  } catch (_) {
+    throw new DriveError(
+      "The backup pointer in Drive could not be read. Nothing has been changed; " +
+      "the next backup will replace it.", null, "malformed-pointer");
+  }
+}
+
+/**
+ * Upload an archive and only then say it is the latest.
+ *
+ * THE ORDER IS THE WHOLE POINT, and it is the one thing worth keeping from the
+ * module this replaces. The archive goes up FIRST. The pointer is replaced
+ * SECOND. Pruning happens LAST, after the pointer already names a file that is
+ * certainly there. A pointer written first would, on a failed upload, name a
+ * backup that does not exist — and a restoring machine would follow it.
+ *
+ * `manifest` is the bundle's own manifest, read by the engine and passed
+ * through: this file never opens a bundle, because that is the engine's job and
+ * doing it twice is how two readers of one format drift.
+ */
+export async function backUp(token, {
+  archive, name, manifest = {}, bundleFormat = 1,
+  onProgress = null, fetchImpl = fetch,
+} = {}) {
+  const parent = await folderId(token, {fetchImpl});
+
+  const stored = await upload(token, {
+    blob: archive, name, parent, onProgress, fetchImpl,
+  });
+
+  const pointer = {
+    file_id: stored.id,
+    name: stored.name || name,
+    bytes: archive.size,
+    sha256: manifest.sha256 || "",
+    created_at: manifest.created_at || "",
+    engine_version: manifest.engine_version || "",
+    bundle_format: bundleFormat,
+  };
+
+  // Replace, never append. The old pointer is deleted before the new one is
+  // written, so there is a moment with none — which a restore reports as "no
+  // backup yet" rather than reading a stale one. Between naming the wrong
+  // backup and naming none, none is the recoverable failure.
+  const existing = await listing(token, parent, {fetchImpl});
+  for (const file of existing.filter((f) => f.name === LATEST)) {
+    await remove(token, file.id, {fetchImpl});
+  }
+  await upload(token, {
+    blob: new Blob([JSON.stringify(pointer, null, 2) + "\n"],
+                   {type: "application/json"}),
+    name: LATEST, parent, mime: "application/json", fetchImpl,
+  });
+
+  const pruned = [];
+  for (const old of prunable(await listing(token, parent, {fetchImpl}))) {
+    await remove(token, old.id, {fetchImpl});
+    pruned.push(old.name);
+  }
+
+  return {...pointer, parent, pruned};
+}
+
+/**
+ * Fetch the current backup's bytes, checked against what the pointer promised.
+ *
+ * The size check is not the checksum the engine does — a browser cannot cheaply
+ * hash 40 MB without blocking — but a truncated download is the failure that
+ * actually happens, and it is the one this catches. Whoever unpacks the archive
+ * verifies the rest.
+ */
+export async function fetchLatest(token, {
+  reads = BUNDLE_FORMAT, onProgress = null, fetchImpl = fetch,
+} = {}) {
+  const parent = await folderId(token, {fetchImpl});
+  const pointer = await readLatest(token, parent, {fetchImpl});
+  if (!pointer) {
+    throw new DriveError(
+      "No backup has been uploaded from any device yet.", null, "no-backup");
+  }
+
+  // A BACKUP FROM A NEWER ENGINE IS REFUSED, WITH THE REMEDY IN THE SENTENCE.
+  // Carried over from the module this replaces, which had it right and is the
+  // only reason it is here: the format number exists so that a machine running
+  // last month's engine says "update me" instead of opening an archive it does
+  // not understand and reporting whatever it manages to read as the warehouse.
+  const format = pointer.bundle_format;
+  if (format !== undefined && format !== null && format !== reads) {
+    throw new DriveError(
+      `That backup was written in bundle format ${format} and this device ` +
+      `reads ${reads}. Update the ScrapeX engine on this machine, then try ` +
+      "again. Nothing was restored.", null, "wrong-format");
+  }
+  const archive = await download(token, pointer.file_id, {onProgress, fetchImpl});
+  if (pointer.bytes && archive.size !== pointer.bytes) {
+    throw new DriveError(
+      `The download stopped at ${archive.size} of ${pointer.bytes} bytes. ` +
+      "Nothing was restored.", null, "truncated");
+  }
+  return {archive, pointer};
+}
