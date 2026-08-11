@@ -1,5 +1,6 @@
 // Shared engine-detection helper for popup + onboarding.
 import { PROTOCOL_VERSION } from "./transport.js";
+import { fetchWithDeadline, isTimeoutError, STARTUP_DEADLINES } from "./startup.js";
 
 // The extension is only a face; the ScrapeX engine is a local Python app the
 // user must install. Here we detect whether it's installed & running.
@@ -17,11 +18,14 @@ export async function setBackend(url) {
 
 // `running` means the background worker is alive, not merely that something
 // answered on port 8000. `reachable` lets the UI distinguish those states.
-export async function checkEngine() {
-  const backend = await getBackend();
+export async function checkEngine({backend = null, signal = null,
+                                   timeoutMs = STARTUP_DEADLINES.engineHealth} = {}) {
+  const target = (backend || await getBackend()).replace(/\/+$/, "");
   try {
-    const res = await fetch(backend + "/api/health", { signal: AbortSignal.timeout(2500) });
-    if (!res.ok) return { running: false, reachable: true, backend };
+    const res = await fetchWithDeadline(
+      fetch, target + "/api/health", {}, timeoutMs, [signal],
+    );
+    if (!res.ok) return { running: false, reachable: true, backend: target };
     const h = await res.json();
     // A mismatch is reported, never guessed at — the same rule the native path
     // has always followed, on the path that actually carries the data. An
@@ -39,9 +43,15 @@ export async function checkEngine() {
       clientProtocol: PROTOCOL_VERSION,
       sources: h.sources_with_data,
       databases: h.databases || null,
-      backend,
+      backend: target,
     };
-  } catch (_) {
-    return { running: false, reachable: false, backend };
+  } catch (error) {
+    return {
+      running: false,
+      reachable: false,
+      timedOut: isTimeoutError(error),
+      cancelled: Boolean(signal?.aborted) && !isTimeoutError(error),
+      backend: target,
+    };
   }
 }

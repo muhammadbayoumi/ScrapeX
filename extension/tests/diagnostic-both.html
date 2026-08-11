@@ -1,0 +1,42 @@
+<!doctype html>
+<!--
+  BISECT STEP 1 OF 2 — THE BOTH HALVES.
+
+  Measured on the owner's Chrome: the three stylesheets alone paint on the first
+  click, and the three head scripts alone paint on the first click. Neither half
+  is guilty by itself, so this page carries BOTH and nothing else.
+
+    it paints    -> the two halves together are still not it. What remains is
+                    what app.html has beyond them: the app.js module graph and
+                    the volume of view markup.
+    it stays dark-> the combination is the cause -- scripts that block the
+                    parser while three stylesheets are still blocking render --
+                    and the fix is to get a painted shell out ahead of both.
+
+  Its own colours are inline, on the elements, so the verdict never depends on
+  the very sheets under test: if they were the only source of colour, a page
+  that failed to apply them would look identical to a page that failed to paint.
+
+  Not shippable. `extension/tests/` is deleted by the release workflow, which
+  then fails the build if the directory survives.
+-->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>ScrapeX side panel diagnostic — both halves</title>
+<script src="../startup-trace.js"></script>
+<script src="../startup-bootstrap.js"></script>
+<script src="../appearance.js"></script>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="../app.css">
+</head>
+<body style="margin:0;background:indigo;color:white;font:700 26px/1.25 system-ui,sans-serif">
+  <div style="padding:24px">BOTH HALVES</div>
+  <div style="padding:0 24px;font:400 15px/1.5 system-ui,sans-serif">
+    The three head scripts AND the three stylesheets, in app.html's own order.
+    Nothing else: no app.js module, no view markup.
+  </div>
+  <script src="diagnostic-panel.js"></script>
+</body>
+</html>

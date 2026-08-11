@@ -1,0 +1,43 @@
+<!doctype html>
+<!--
+  BISECT STEP 2 OF 2 — THE HEAD SCRIPTS ONLY.
+
+  The other half of the difference between the minimal page and app.html: the
+  three synchronous classic scripts app.html runs in its head, in its order, and
+  BEFORE the parser has seen a single stylesheet. No stylesheet is loaded here.
+
+    it paints    -> the head scripts are not what delays the first frame either,
+                    and the cause is in the two halves TOGETHER or further down
+                    app.html (its modules, its markup size).
+    it stays dark-> one of these three is the cause. `appearance.js` is the
+                    first suspect: it reads window.localStorage synchronously,
+                    which is a disk-backed call made while the parser is
+                    stopped. Comment the scripts out one at a time from the
+                    bottom up to find which.
+
+  appearance.js expects the elements it wires to be absent and must simply do
+  nothing; if it throws here, THAT is the finding — check the console.
+
+  Colours are inline, so nothing about the verdict depends on a stylesheet that
+  this page deliberately does not load.
+
+  Not shippable: `extension/tests/` is deleted by the release workflow, which
+  then fails the build if the directory survives.
+-->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>ScrapeX side panel diagnostic — head scripts</title>
+<script src="../startup-trace.js"></script>
+<script src="../startup-bootstrap.js"></script>
+<script src="../appearance.js"></script>
+</head>
+<body style="margin:0;background:darkred;color:white;font:700 26px/1.25 system-ui,sans-serif">
+  <div style="padding:24px">HEAD SCRIPTS ONLY</div>
+  <div style="padding:0 24px;font:400 15px/1.5 system-ui,sans-serif">
+    startup-trace.js, startup-bootstrap.js and appearance.js ran above, in
+    app.html's order. No stylesheet is on this page.
+  </div>
+  <script src="diagnostic-panel.js"></script>
+</body>
+</html>

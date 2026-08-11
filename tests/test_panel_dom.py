@@ -1792,6 +1792,12 @@ def test_the_active_crawl_minimizes_to_a_statusbar_and_opens_again(open_panel):
     page = open_panel(jobs=[job])
     bar = page.locator("#miniplayer")
 
+    # Job state is destination-specific startup work: Profile opens without it,
+    # and entering Run performs the first active-job read.
+    assert not bar.is_visible()
+    page.click(RUN_TAB)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
     assert bar.is_visible()
     assert bar.evaluate("el => el.tagName") == "DETAILS"
     assert not bar.evaluate("el => el.open"), "a running crawl should rest minimized"
@@ -3367,6 +3373,49 @@ def test_the_engine_status_maps_installed_but_not_running(open_panel):
         "() => document.getElementById('engine-status').textContent === 'Installed, not running'",
         timeout=10_000)
     assert text_of(page, "#engine-status") == "Installed, not running"
+
+
+def test_a_health_check_that_times_out_is_not_reported_as_no_engine(open_panel):
+    """A health check that runs out of time is a DIFFERENT answer from an engine
+    that is not there, and the difference is the whole of what to do next.
+
+    The Engine check has its own deadline now, and when it expires nothing was
+    learned about the engine at all. Reading that as "Not detected" tells the
+    owner his engine is not installed — a wrong sentence, about a different
+    problem, whose remedy (install it) he has already done."""
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+
+    # Stalls until its deadline aborts it, exactly as an engine that accepted
+    # the connection and then stopped answering would.
+    page.evaluate(r"""() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (String(url).includes('/api/health')) {
+          return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => resolve(undefined), 30000);
+            if (options && options.signal) {
+              options.signal.addEventListener("abort", () => {
+                clearTimeout(timer);
+                reject(options.signal.reason || new Error("aborted"));
+              }, {once: true});
+            }
+          });
+        }
+        return original(url, options);
+      };
+    }""")
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-status") == "Check timed out"
+    assert "deadline" in text_of(page, "#engine-status-detail")
+    assert not page.locator("#engine-recheck").is_disabled()
 
 
 def test_the_engine_release_verdict_says_available_to_install(open_panel):

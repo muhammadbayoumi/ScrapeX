@@ -513,8 +513,13 @@ def test_the_web_page_shows_the_active_zone_and_offers_no_control(client):
 def test_the_panel_is_where_the_zone_is_chosen():
     """§6.1's home, asserted the way the crawl-pace controls are."""
     panel = (EXT / "app.html").read_text(encoding="utf-8")
+    script = (EXT / "app.js").read_text(encoding="utf-8")
     assert 'id="ui_time_zone"' in panel, "the zone selector is not in the side panel"
-    assert "data-time-zone-select" in panel
+    assert "data-time-zone-lazy-select" in panel, (
+        "the panel lost the lazy selector that keeps the IANA option list out "
+        "of startup")
+    assert 'setAttribute("data-time-zone-select", "")' in script, (
+        "opening Settings no longer hands the populated selector to the shared formatter")
     assert 'src="timezone.js"' in panel, "the panel does not load the formatter"
 
 

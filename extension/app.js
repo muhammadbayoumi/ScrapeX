@@ -13,6 +13,10 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { latestEngineRelease } from "./releases.js";
 import { getToken, accountFor, forgetToken, revokeToken } from "./identity.js";
+import {
+  afterIdle, afterNextPaint, deadlineForLocalRequest, fetchWithDeadline,
+  isTimeoutError, markStartup,
+} from "./startup.js";
 
 const $ = (id) => document.getElementById(id);
 // Called by renderSchemaLag since c4ea06b and DEFINED NOWHERE until now, so the
@@ -33,12 +37,76 @@ const icon = (name, className = "") =>
   `<svg class="sx-icon ${className}" aria-hidden="true">` +
   `<use href="${ICON_SPRITE}#${name}"></use></svg>`;
 
-async function api(path, options) {
-  const res = await fetch((await getBackend()) + path, options);
+const nativeFetch = window.fetch.bind(window);
+const panelController = new AbortController();
+let backendController = new AbortController();
+let activeBackend = "";
+let backendGeneration = 0;
+let accountGeneration = 0;
+let engineGeneration = 0;
+let firstDestinationDataMarked = false;
+
+function activateBackend(url) {
+  const clean = String(url || "").replace(/\/+$/, "");
+  if (clean === activeBackend) return clean;
+  backendController.abort();
+  backendController = new AbortController();
+  activeBackend = clean;
+  backendGeneration += 1;
+  engineGeneration += 1;
+  return clean;
+}
+
+async function backendBase() {
+  if (activeBackend) return activeBackend;
+  return activateBackend(await getBackend());
+}
+
+function localApiPath(input) {
+  try {
+    const url = new URL(String(input), window.location.href);
+    if (!url.pathname.startsWith("/api/")) return null;
+    if (activeBackend && !String(input).startsWith(activeBackend)) return null;
+    return url.pathname + url.search;
+  } catch (_) {
+    return null;
+  }
+}
+
+// The shared appearance/timezone modules use fetch directly. Install the same
+// endpoint policy beneath them without changing the byte-identical Web UI
+// copies of those modules. Calls that already declare a signal keep it.
+window.fetch = (input, options = {}) => {
+  const path = localApiPath(input);
+  if (!path || options.signal) return nativeFetch(input, options);
+  const deadline = deadlineForLocalRequest(path, options.method || "GET");
+  return fetchWithDeadline(
+    nativeFetch, input, options, deadline,
+    [panelController.signal, backendController.signal],
+  );
+};
+
+const DESTINATION_DATA_PATH =
+  /^\/api\/(?:sources|outputs|jobs|resolve|records|changes|schedules|storage|settings|fields|rates)(?:[/?]|$)/;
+
+async function api(path, options = {}) {
+  const backend = await backendBase();
+  const method = options.method || "GET";
+  const deadlineMs = options.deadlineMs || deadlineForLocalRequest(path, method);
+  const requestOptions = {...options};
+  delete requestOptions.deadlineMs;
+  if (!firstDestinationDataMarked && DESTINATION_DATA_PATH.test(path)) {
+    firstDestinationDataMarked = true;
+    markStartup("first-destination-data-request", {path});
+  }
+  const res = await fetchWithDeadline(
+    window.fetch, backend + path, requestOptions, deadlineMs,
+    [panelController.signal, backendController.signal],
+  );
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch (_) {}
-    throw new Error(detail);
+    throw Object.assign(new Error(detail), {status: res.status, kind: "http"});
   }
   return res.json();
 }
@@ -51,7 +119,10 @@ const del = (path) => api(path, { method: "DELETE" });
 function out(id, html, cls) {
   $(id).innerHTML = html ? `<span class="${cls || ""}">${html}</span>` : "";
 }
-async function openTab(path) { chrome.tabs.create({ url: (await getBackend()) + path }); }
+async function openTab(path) { chrome.tabs.create({ url: (await backendBase()) + path }); }
+async function probeEngine() {
+  return checkEngine({backend: await backendBase(), signal: backendController.signal});
+}
 
 // ---- state ----------------------------------------------------------------
 const state = {
@@ -59,7 +130,7 @@ const state = {
   editingSourceKey: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
   financeRates: [], financeSavedSettings: null, financeStatus: null,
-  engineUp: false,
+  engineUp: false, engineState: "checking",
   // The two versions and what the engine says it deploys. `versionReport` is
   // null for an engine too old to publish one, which is NOT the same as an
   // engine that has not been asked yet — every reader of it checks
@@ -68,6 +139,7 @@ const state = {
   // it is never written to storage.
   token: "", account: null, accountStatus: null,
   installedVersion: "", engineVersion: "", versionReport: null,
+  versionStatus: "pending",
   // null means the engine never said, which is a THIRD state and not a
   // mismatch: an engine built before the handshake moved here answers
   // nothing, and refusing it as incompatible would be a guess.
@@ -253,9 +325,21 @@ function showView(name, animate = true) {
   if (name === "data") loadDatasets();
   if (name === "sources") loadSources();
   if (name === "finance") loadGoogleFinance();
-  if (name === "settings") { loadSchedules(); loadStorage(); }
+  if (name === "settings") {
+    ensureTimeZoneControl();
+    loadSchedules();
+    loadStorage();
+  }
+  if (name === "run") {
+    loadRunDestination();
+    maybeRenderAutostart();
+  }
   if (name === "source") loadCurrentPage();
   if (name === "engines") renderEngines();
+}
+
+function currentViewName() {
+  return VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden")) || "";
 }
 
 // ---- runtime status --------------------------------------------------------
@@ -374,6 +458,18 @@ function clearRuntimeIssue() {
   setRuntimeIssue(null);
 }
 
+function setEngineChecking() {
+  state.engineState = "checking";
+  state.versionStatus = "pending";
+  $("dot").className = "dot";
+  $("estat-text").textContent = "Checking…";
+  $("engine-note").textContent = "Checking the local engine independently…";
+  // The Engine page's status row is rendered FROM `state`, never written to by
+  // hand, so "checking" reaches it — and aria-busy with it — by the one road
+  // every other answer takes.
+  renderEngineStatusUI();
+}
+
 function renderSchemaLag(lag) {
   // Absent is the normal case, so the banner is absent too: a badge that is
   // always on screen is a badge nobody reads. When it IS there it must say the
@@ -399,6 +495,10 @@ function renderSchemaLag(lag) {
 function setStatus(engine) {
   state.engineUp = engine.running;
   state.engineReachable = engine.reachable;
+  state.engineState = engine.running
+    ? "ready"
+    : engine.timedOut ? "timeout"
+    : engine.reachable ? "stopped" : "unavailable";
   state.engineVersion = engine.version || "";
   // engine.js has computed `protocolMismatch` from /api/health since the
   // handshake moved onto the transport that carries the traffic. It reached
@@ -417,11 +517,31 @@ function setStatus(engine) {
   // sits beside it, because one number under no label was the original defect.
   $("estat-text").textContent = engine.running
     ? `Ready${engine.version ? " · engine v" + engine.version : ""}`
-    : "Setup required";
+    : engine.timedOut ? "Check timed out"
+    : engine.reachable ? "Stopped" : "Unavailable";
+  $("engine-note").textContent = engine.running
+    ? "The local engine is ready."
+    : engine.timedOut
+      ? "The engine did not answer before its deadline. Check again when it is ready."
+      : engine.reachable
+        ? "The engine answered but is not running. Start it from here."
+        : "The local engine is unavailable. Start it or check again.";
   renderRuntimeCheckAction(engine);
   $("about-version").textContent = engine.version || "—";
   renderSchemaLag(engine.schema_lag);
   renderRuntime(engine);
+  // The Engine destination may have been opened while this independent check
+  // was still pending. Repaint its status card when the answer arrives so it
+  // cannot remain stuck on "Checking engine…" after Profile has already settled.
+  //
+  // The STATUS half only. `renderEngines` also fetches the release feed, and
+  // pulling a network request into every health answer is exactly what the
+  // Engine page was separated from. `renderEngineStatusUI` reads `state` and
+  // writes DOM, so it is safe on a hidden view and costs nothing.
+  //
+  // aria-busy is deliberately NOT touched here: the check owns it, and the
+  // version report it is still waiting for is part of that check.
+  renderEngineStatusUI();
 }
 
 // ---- versions ---------------------------------------------------------------
@@ -432,7 +552,7 @@ function setStatus(engine) {
 // extension could not reach looked exactly like a feature that was never built.
 // That is issue 32 §1.2/§1.3, and it is what cost two sessions.
 
-async function loadVersions(engine) {
+async function loadVersions(engine, stillCurrent = () => true) {
   const installed = installedVersion();
   state.installedVersion = installed;
   $("about-extension-version").textContent = installed || "unknown";
@@ -440,26 +560,33 @@ async function loadVersions(engine) {
     // Nothing to compare against. The setup card already says the engine is
     // down; inventing a version verdict on top of it would be noise.
     state.versionReport = null;
+    state.versionStatus = "unavailable";
     renderVersionNotice(engine);
     return;
   }
   const query = installed ? `?extension_version=${encodeURIComponent(installed)}` : "";
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(new Error("version timeout")), 2500);
   try {
     // Local version compatibility must not hang the whole Engine card if the
     // engine is slow or stuck. The health check already answered; this is a
-    // secondary report. The AbortController aborts the underlying fetch and the
-    // timer is cleared in every completion path.
-    state.versionReport = await api(`/api/version${query}`, { signal: controller.signal });
-  } catch (_) {
+    // secondary report, and `api` gives it its own 2500 ms deadline from
+    // `deadlineForLocalRequest` — the same bound the hand-rolled
+    // AbortController here used to apply, now stated once for every local
+    // request instead of once per call site, and raised as a TimeoutError the
+    // status below can actually name.
+    const report = await api(`/api/version${query}`);
+    if (!stillCurrent()) return;
+    state.versionReport = report;
+    state.versionStatus = "ready";
+  } catch (error) {
+    if (!stillCurrent()) return;
     // A 404 here is not a broken feature: it is an engine built before version
     // reporting existed. A timeout or any other failure is also a fact, not a
     // broken build. Recorded as null and SAID as such below, never silently
     // treated as "everything is fine".
     state.versionReport = null;
-  } finally {
-    clearTimeout(timeoutId);
+    state.versionStatus = error && error.status === 404
+      ? "unsupported"
+      : isTimeoutError(error) ? "timeout" : "unavailable";
   }
   renderVersionNotice(engine);
 }
@@ -481,6 +608,19 @@ function renderVersionNotice(engine) {
         `<span class="tech">${esc(c.since)}${c.commit ? " · " + esc(c.commit) : ""}</span></div>`
       ).join("")
     : "";
+
+  if (!report && ["timeout", "unavailable"].includes(state.versionStatus)
+      && engine.reachable) {
+    notice.innerHTML = state.versionStatus === "timeout"
+      ? `<div class="setup-title">The engine version check timed out</div>` +
+        `<div class="muted text-sm">The engine health check succeeded, but its ` +
+        `version endpoint did not answer before its own deadline. Recheck status to try again.</div>`
+      : `<div class="setup-title">The engine version could not be checked</div>` +
+        `<div class="muted text-sm">The engine is reachable, but its version endpoint ` +
+        `is unavailable. Recheck status to try again.</div>`;
+    notice.classList.remove("hidden");
+    return;
+  }
 
   if (report && report.outdated) {
     // The five facts §1.4 asks for, none of them optional: what is installed,
@@ -563,11 +703,32 @@ function renderVersionNotice(engine) {
 }
 
 // Engine-only state refresh. Used by the Engine page recheck action so it does
-// not pull in sources, outputs, jobs, or other destination data.
+// not pull in sources, outputs, jobs, or other destination data — and by
+// render(), so the two can never run different checks or guard them differently.
+//
+// The generation guard is not decoration. The Engine check settles independently
+// of the account and of whatever the owner does next: pressing Check again, or
+// saving a new backend address, starts a second check while the first is still
+// out, and without this the older answer overwrites the newer one whenever it
+// happens to come back last. `{cancelled: true}` means SOMETHING ELSE IS NOW
+// AUTHORITATIVE — every caller returns rather than painting.
 async function updateEngineState() {
-  const engine = await checkEngine();
+  const backend = await backendBase();
+  const request = ++engineGeneration;
+  const backendAtStart = backendGeneration;
+  const current = () => request === engineGeneration
+    && backendAtStart === backendGeneration
+    && !panelController.signal.aborted;
+  setEngineChecking();
+  markStartup("engine-check-start", {backend});
+  const engine = await checkEngine({backend, signal: backendController.signal});
+  if (!current() || engine.cancelled) return {cancelled: true};
   setStatus(engine);
-  await loadVersions(engine);
+  await loadVersions(engine, current);
+  if (!current()) return {cancelled: true};
+  markStartup("engine-check-finish", {
+    state: state.engineState, reachable: Boolean(engine.reachable),
+  });
   return engine;
 }
 
@@ -701,7 +862,7 @@ async function restartEngineFromPanel() {
   // would never change. Raw fetch, so the status and the body are both readable.
   let refused = null;
   try {
-    const asked = await fetch((await getBackend()) + "/api/engine/restart",
+    const asked = await fetch((await backendBase()) + "/api/engine/restart",
                               {method: "POST"});
     if (asked.status === 404) refused = ENGINE_TOO_OLD;
     else if (!asked.ok) {
@@ -1116,6 +1277,43 @@ async function refreshGoogleFinance() {
 // the current choice looks like on a real time, and whether it reached the
 // engine — because a preference that silently failed to save would come back
 // on the next crawl and look like the panel had forgotten it.
+
+let timeZoneControlReady = false;
+
+function ensureTimeZoneControl() {
+  if (timeZoneControlReady) return true;
+  const time = window.ScrapeXTime;
+  const select = $("ui_time_zone");
+  if (!time || !select) return false;
+
+  const {zones: all, complete} = time.zones();
+  const detected = time.detected();
+  const auto = document.createElement("option");
+  auto.value = "";
+  auto.textContent = detected ? `Detected (${detected})` : "Detected";
+  select.replaceChildren(auto);
+  all.forEach((id) => {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    select.append(option);
+  });
+  select.dataset.timeZoneComplete = String(complete);
+  select.value = time.get().zone;
+  // Added only after the expensive option list exists. From this point the
+  // shared module may keep the value synchronized without having built it at
+  // DOMContentLoaded.
+  select.setAttribute("data-time-zone-select", "");
+  select.addEventListener("change", () => {
+    time.set(select.value);
+    timeZoneEffect();
+    out("timezone-msg", "saving…");
+    confirmTimeZoneShared();
+  });
+  timeZoneControlReady = true;
+  timeZoneEffect();
+  return true;
+}
 
 function timeZoneEffect() {
   const time = window.ScrapeXTime;
@@ -1927,7 +2125,6 @@ function setupRunModeSelect() {
 // workspace sidebar renders from) overlays it, so the two surfaces can never
 // hold two drifting wordings of the same mode.
 async function adoptUiContract() {
-  renderWorkspaceNavigation(WORKSPACE_NAVIGATION_FALLBACK);
   try {
     const manifest = await api("/api/ui");
     for (const mode of manifest.run_modes || []) {
@@ -2056,18 +2253,27 @@ function setGoogleButtonScheme() {
 }
 
 async function loadAccount({ interactive = false } = {}) {
+  const generation = ++accountGeneration;
+  const current = () => generation === accountGeneration && !panelController.signal.aborted;
+  markStartup("account-check-start", {interactive});
   setChecking(true);
   try {
-    const result = await getToken({ interactive });
+    const result = await getToken({interactive, signal: panelController.signal});
+    if (!current()) return {state: "stale"};
     if (result.state !== "ok") {
       state.account = null;
       state.token = "";
       state.accountStatus = null;
-      renderAccount({ tokenProblem: interactive ? result : null });
+      const visibleProblem = interactive || ["timeout", "failed"].includes(result.state)
+        ? result : null;
+      renderAccount({tokenProblem: visibleProblem});
       return result;
     }
 
-    const accountResult = await accountFor(result.token);
+    const accountResult = await accountFor(
+      result.token, window.fetch, {signal: panelController.signal},
+    );
+    if (!current()) return {state: "stale"};
     if (accountResult.state === "ok") {
       state.token = result.token;
       state.account = accountResult.account;
@@ -2078,6 +2284,7 @@ async function loadAccount({ interactive = false } = {}) {
 
     if (accountResult.state === "unauthorized") {
       await forgetToken(result.token);
+      if (!current()) return {state: "stale"};
       state.token = "";
       state.account = null;
       state.accountStatus = null;
@@ -2098,6 +2305,7 @@ async function loadAccount({ interactive = false } = {}) {
     renderAccount({});
     return { ...result, accountStatus: accountResult };
   } catch (error) {
+    if (!current()) return {state: "stale"};
     state.token = "";
     state.account = null;
     state.accountStatus = null;
@@ -2109,17 +2317,25 @@ async function loadAccount({ interactive = false } = {}) {
     });
     return { state: "failed", detail: String(error && error.message) };
   } finally {
-    setChecking(false);
+    if (current()) {
+      setChecking(false);
+      markStartup("account-check-finish", {
+        signedIn: Boolean(state.token), interactive,
+      });
+    }
   }
 }
 
 async function loadAccountDetails() {
   const token = state.token;
   if (!token) return;
+  const generation = ++accountGeneration;
+  const current = () => generation === accountGeneration && !panelController.signal.aborted;
   const retry = $("retry-account");
   if (retry) retry.disabled = true;
   try {
-    const result = await accountFor(token);
+    const result = await accountFor(token, window.fetch, {signal: panelController.signal});
+    if (!current()) return;
     if (result.state === "ok") {
       state.account = result.account;
       state.accountStatus = null;
@@ -2128,6 +2344,7 @@ async function loadAccountDetails() {
     }
     if (result.state === "unauthorized") {
       await forgetToken(token);
+      if (!current()) return;
       state.token = "";
       state.account = null;
       state.accountStatus = null;
@@ -2143,7 +2360,7 @@ async function loadAccountDetails() {
     state.accountStatus = result;
     renderAccount({});
   } finally {
-    if (retry) retry.disabled = false;
+    if (retry && current()) retry.disabled = false;
   }
 }
 
@@ -2230,7 +2447,31 @@ function setEngineBusy(busy) {
   if (region) region.setAttribute("aria-busy", String(busy));
 }
 
+// True for the whole of the Engine page's own Check again — the health answer,
+// the version report AND the release feed — because that is what the owner
+// pressed, and the button is disabled for exactly as long.
+let engineRecheckRunning = false;
+
+// aria-busy is DERIVED, never hand-set beside a status write. It was hand-set in
+// four places once the Engine check began settling independently of the rest of
+// startup, and they disagreed: entering this page mid-check announced a settled
+// region over the words "Checking engine…", and clearing it when the health
+// answer landed announced a finished recheck while Check again was still
+// disabled and the release feed still out.
+function refreshEngineBusy() {
+  setEngineBusy(engineRecheckRunning || state.engineState === "checking");
+}
+
 function engineStatusFromState() {
+  // THE CHECK IS STILL RUNNING is a state, not a verdict. The Engine check now
+  // settles independently of the rest of startup, so this card can be read
+  // while the answer is still in flight — and showing the previous open's
+  // verdict in that window is how a panel comes to claim "Not detected" about
+  // an engine nobody has asked about yet. Said first, because every branch
+  // below it is a conclusion and this one is the absence of a conclusion.
+  if (state.engineState === "checking") {
+    return { text: "Checking engine…", tone: "neutral", detail: "" };
+  }
   if (state.protocolMismatch) {
     return {
       text: "Incompatible",
@@ -2240,6 +2481,18 @@ function engineStatusFromState() {
   }
   if (state.engineUp) {
     return { text: "Running", tone: "ok", detail: "" };
+  }
+  // A DEADLINE THAT EXPIRED IS NOT AN ABSENT ENGINE. Without this the health
+  // check's own timeout fell through to "Not detected" below and told the owner
+  // his engine is not installed, which is a different problem with a different
+  // and useless answer. The Check again action beside this row is what repairs
+  // it, so the text does not have to say "retry available" — the button does.
+  if (state.engineState === "timeout") {
+    return {
+      text: "Check timed out",
+      tone: "warn",
+      detail: "The engine did not answer before its deadline. Check again when it is ready.",
+    };
   }
   if (state.engineVersion) {
     return { text: "Installed, not running", tone: "warn", detail: "" };
@@ -2304,6 +2557,7 @@ function renderEngineStatusUI() {
   $("engine-protocol-row").textContent = engineProtocolText();
   updateEngineWarning();
   updateEngineStatus();
+  refreshEngineBusy();
 }
 
 function engineReleaseVerdict(installed, latest) {
@@ -2358,7 +2612,6 @@ async function renderEngines() {
   // The local engine status is known from state immediately and must not be
   // hidden while waiting for the remote release feed.
   renderEngineStatusUI();
-  setEngineBusy(false);
   $("engine-recheck").onclick = refreshEngines;
 
   if (!latestRelease) {
@@ -2370,14 +2623,16 @@ async function renderEngines() {
 async function refreshEngines() {
   const recheck = $("engine-recheck");
   recheck.disabled = true;
-  setEngineBusy(true);
-  $("engine-status").textContent = "Checking engine…";
-  $("engine-status-badge").className = "badge";
-  $("engine-status-dot").className = "dot";
-  $("engine-status-detail").classList.add("hidden");
+  engineRecheckRunning = true;
+  refreshEngineBusy();
   try {
     // Only refresh Engine health and version compatibility. Do not pull in
     // sources, outputs, jobs, or other destination data.
+    //
+    // The card is put into its checking state by updateEngineState, through the
+    // same renderer every other answer takes. This used to hand-write the badge,
+    // the dot and the words here — a second description of "checking" that the
+    // status renderer knew nothing about and could contradict.
     await updateEngineState();
     renderEngineStatusUI();
 
@@ -2385,7 +2640,11 @@ async function refreshEngines() {
     const latest = await latestEngineRelease();
     updateEngineReleaseUI(latest);
   } finally {
-    setEngineBusy(false);
+    // Both in the same synchronous step, deliberately: a reader who sees the
+    // region stop being busy must find the button that ends it enabled, not
+    // enabled a network round trip later.
+    engineRecheckRunning = false;
+    refreshEngineBusy();
     recheck.disabled = false;
   }
 }
@@ -2396,7 +2655,7 @@ function openEngineSetupGuide() {
 }
 
 async function copyEngineDetails() {
-  const backend = await getBackend();
+  const backend = await backendBase();
   const lines = [
     `Status: ${$("engine-status").textContent}`,
     `Installed version: ${$("engine-installed-version").textContent}`,
@@ -2419,7 +2678,10 @@ async function runEngineDiagnostics() {
   const out = $("engine-diagnostics-output");
   out.classList.remove("hidden");
   out.textContent = "Running diagnostics…";
-  const engine = await checkEngine();
+  // probeEngine, not checkEngine: the same deadline and the same cancellation
+  // signal every other local request now carries. A diagnostics button that can
+  // hang for ever is the one button in the panel that must not.
+  const engine = await probeEngine();
   setStatus(engine);
   renderEngineStatusUI();
   out.textContent = engine.protocolMismatch
@@ -2427,8 +2689,8 @@ async function runEngineDiagnostics() {
       `(panel ${engine.clientProtocol}, engine ${engine.engineProtocol}). ` +
       `Update whichever is older.`
     : engine.running
-    ? `Engine reachable at ${await getBackend()} · version ${engine.version || "unknown"}`
-    : `No engine at ${await getBackend()}. Start the engine, then check again.`;
+    ? `Engine reachable at ${await backendBase()} · version ${engine.version || "unknown"}`
+    : `No engine at ${await backendBase()}. Start the engine, then check again.`;
 }
 
 function bindEngineOverflowMenu() {
@@ -2659,6 +2921,7 @@ async function startRun() {
 // ---- activity + mini-player ------------------------------------------------
 const POLL_MS = 1500;   // throttled: aggregated progress, never per-record events
 let pollTimer = null;
+let pollPromise = null;
 
 // ---- ONE formatter each (the DRY the owner asked for) ----------------------
 // A count with thousands separators. Every number the panel shows goes through
@@ -2906,8 +3169,10 @@ function renderMiniplayer(job, queued) {
   $("mini-pause").dataset.control = paused ? "resume" : "pause";
 }
 
-async function pollJob() {
+async function pollJobOnce() {
   clearTimeout(pollTimer);
+  pollTimer = null;
+  if (document.visibilityState === "hidden") return;
   let jobs = [];
   try { jobs = (await api("/api/jobs?active_only=true&limit=5")).jobs; }
   catch (_) { renderMiniplayer(null); renderActivity(null); return; }
@@ -2926,7 +3191,9 @@ async function pollJob() {
       renderLogs(log.entries, log);
     } catch (_) {}
     refreshRunButton();
-    pollTimer = setTimeout(pollJob, POLL_MS);
+    if (document.visibilityState === "visible") {
+      pollTimer = setTimeout(() => { pollJob(); }, POLL_MS);
+    }
     return;
   }
   // Nothing active. Report how the last one ended, then refresh the counts.
@@ -2942,6 +3209,27 @@ async function pollJob() {
     await loadSources();
   }
   refreshRunButton();
+}
+
+async function pollJob() {
+  clearTimeout(pollTimer);
+  pollTimer = null;
+  if (document.visibilityState === "hidden") return null;
+  if (pollPromise) return pollPromise;
+  pollPromise = pollJobOnce().finally(() => { pollPromise = null; });
+  return pollPromise;
+}
+
+function handlePanelVisibility() {
+  if (document.visibilityState === "hidden") {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+    return;
+  }
+  // The shared appearance/timezone modules perform their own immediate refresh
+  // on this event. Only the job poll is owned here, and the in-flight guard
+  // above prevents a second timer or request from being created.
+  if (state.engineUp && (state.job || state.jobRef)) pollJob();
 }
 
 async function controlJob(control) {
@@ -3609,7 +3897,7 @@ async function startEngineFromPanel() {
     // slower than the old budget allowed, so the panel used to give up while
     // the engine was still coming up and then blame the installation.
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      const engine = await checkEngine();
+      const engine = await probeEngine();
       if (engine.running) { await render(); return; }
       if (attempt === 8) note.textContent = "Still starting — first run of the day is slower.";
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -3639,7 +3927,7 @@ async function startEngineFromPanel() {
       // and is usually open when this fault happens.
       note.textContent = "The helper does not recognise this extension yet — re-linking…";
       try {
-        const backend = await getBackend();
+        const backend = await backendBase();
         const r = await fetch(`${backend}/api/native-host/register`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
@@ -3753,20 +4041,71 @@ async function renderAutostart() {
   }
 }
 
+let autostartLoaded = false;
+let autostartLoadPromise = null;
+
+function maybeRenderAutostart() {
+  const setupVisible = currentViewName() === "run" && !$("setup").classList.contains("hidden");
+  const settingsVisible = currentViewName() === "settings"
+    && !$("s-engine").classList.contains("hidden");
+  if ((!setupVisible && !settingsVisible) || autostartLoaded) return autostartLoadPromise;
+  if (!autostartLoadPromise) {
+    autostartLoadPromise = renderAutostart()
+      .catch(() => {})
+      .finally(() => {
+        autostartLoaded = true;
+        autostartLoadPromise = null;
+      });
+  }
+  return autostartLoadPromise;
+}
+
 // ---- shell ------------------------------------------------------------------
+let runDestinationPromise = null;
+let runDestinationLoadedFor = -1;
+
+async function loadRunDestination() {
+  if (currentViewName() !== "run" || !state.engineUp) return null;
+  if (runDestinationLoadedFor === backendGeneration) return runDestinationPromise;
+  if (runDestinationPromise) return runDestinationPromise;
+  const generation = backendGeneration;
+  runDestinationPromise = Promise.all([
+    loadCurrentSite(), loadSources(), loadOutputs(), pollJob(),
+  ]).then((result) => {
+    if (generation === backendGeneration) runDestinationLoadedFor = generation;
+    return result;
+  }).catch((error) => {
+    if (!panelController.signal.aborted && generation === backendGeneration) {
+      const message = $("run-blocked");
+      if (message) message.textContent = error && error.message
+        || "Run data could not be loaded.";
+    }
+    return null;
+  }).finally(() => {
+    runDestinationPromise = null;
+  });
+  return runDestinationPromise;
+}
+
 async function render() {
-  const engine = await updateEngineState();
   // Before anything is loaded or offered: a panel that cannot work half of what
   // it is showing should say so at the top of the screen, not after the click.
+  // updateEngineState owns the health check, the version report, and the
+  // generation guard around both, so the Engine page's Check again and this
+  // whole-panel render cannot disagree about what was asked or answered.
+  const engine = await updateEngineState();
+  if (engine.cancelled) return engine;
   $("setup").classList.toggle("hidden", engine.running);
-  if (engine.running) {
-    await Promise.all([loadCurrentSite(), loadSources(), loadOutputs(), pollJob()]);
-  } else {
+  runDestinationLoadedFor = -1;
+  if (!engine.running) {
     clearTimeout(pollTimer);
     renderMiniplayer(null);
     $("sites").innerHTML = `<div class="srow"><span class="muted">Start the engine to see your sites.</span></div>`;
   }
   refreshRunButton();
+  if (currentViewName() === "run" && engine.running) loadRunDestination();
+  maybeRenderAutostart();
+  return engine;
 }
 
 // ---- runtime repair, in the panel ------------------------------------------
@@ -3796,7 +4135,7 @@ async function upgradeDatabaseFromPanel() {
     let result;
     let httpAnswered = false;
     try {
-      const response = await fetch((await getBackend()) + "/api/databases/upgrade",
+      const response = await fetch((await backendBase()) + "/api/databases/upgrade",
                                    {method: "POST"});
       if (response.status !== 404) httpAnswered = true;
       if (response.status === 404) throw Object.assign(new Error("old engine"), {kind: "old_engine"});
@@ -3871,7 +4210,7 @@ function wireRuntimeRepair() {
     // threw it away.
     let refused = null;
     try {
-      const asked = await fetch((await getBackend()) + "/api/engine/restart",
+      const asked = await fetch((await backendBase()) + "/api/engine/restart",
                                 {method: "POST"});
       if (asked.status === 404) refused = ENGINE_TOO_OLD;
       else if (!asked.ok) {
@@ -3894,7 +4233,7 @@ function wireRuntimeRepair() {
     const timer = setInterval(async () => {
       attempts += 1;
       try {
-        const probe = await fetch((await getBackend()) + "/api/engine/health",
+        const probe = await fetch((await backendBase()) + "/api/engine/health",
                                   {cache: "no-store"});
         if (probe.ok) {
           clearInterval(timer);
@@ -3931,16 +4270,12 @@ function wireRuntimeRepair() {
   });
 }
 
-async function init() {
-  const backend = await getBackend();
-  $("backend").value = backend;
-  window.ScrapeXAppearance?.connect(backend);
-  // The zone travels the same road as the appearance, so the panel and the
-  // workspace can never be showing two different times (§6.9).
-  window.ScrapeXTime?.connect(backend);
-  renderAutostart();
-  adoptUiContract();
+let startupControlsWired = false;
+let deferredControlsWired = false;
 
+function wireStartupShell() {
+  if (startupControlsWired) return;
+  startupControlsWired = true;
   $("signin").addEventListener("click", async () => {
     const btn = $("signin");
     const status = $("signin-status");
@@ -3962,6 +4297,10 @@ async function init() {
     const btn = $("signout");
     btn.disabled = true;
     try {
+      // BUMPED BEFORE THE AWAIT, not after. An account check started at open
+      // may still be out; without this it comes back after the sign-out and
+      // repaints the name and the picture of the account just signed out of.
+      accountGeneration += 1;
       // REVOKE, not forget. `forgetToken` alone dropped Chrome's copy and left
       // the grant standing in the owner's Google account, so the next sign-in
       // was instant, silent, and locked to the same account and the same
@@ -4020,6 +4359,27 @@ async function init() {
     const active = document.querySelector('nav.side-rail button[aria-current="page"]');
     positionRailIndicator(active, true);
   });
+  document.addEventListener("visibilitychange", handlePanelVisibility);
+
+  // The fallback is local and complete, so navigation is usable without an
+  // Engine or a network request. The remote contract may refine it after paint.
+  renderWorkspaceNavigation(WORKSPACE_NAVIGATION_FALLBACK);
+  // The opening view must be ENTERED through showView like every other one.
+  // Relying on the markup's initial visibility skipped its loader entirely, so
+  // the default screen sat at "Reading the active tab…" until the owner
+  // navigated away and back — and the screenshot harness hid it by clicking a
+  // nav button before capturing.
+  // The panel opens on Welcome. Before we know who is asking there is nothing
+  // true to put on a page — no account, no backup, no lease — so the first
+  // screen asks that one question and shows nothing else.
+  showView("profile", false);
+  document.documentElement.dataset.shellInteractive = "true";
+  markStartup("shell-interactive");
+}
+
+function wireDeferredControls() {
+  if (deferredControlsWired) return;
+  deferredControlsWired = true;
   // `[data-sect]` is load-bearing: other buttons borrow the `.sect` LOOK (the
   // Advanced-settings toggle does), and without the attribute filter they get
   // this handler too and blow up on a null target.
@@ -4028,6 +4388,7 @@ async function init() {
       const body = $(b.dataset.sect);
       const open = body.classList.toggle("hidden");
       b.setAttribute("aria-expanded", String(!open));
+      if (!open && b.dataset.sect === "s-engine") maybeRenderAutostart();
     }));
 
   wireRuntimeRepair();
@@ -4043,7 +4404,7 @@ async function init() {
     }
     button.disabled = true;
     $("diag-out").textContent = "Running diagnostics…";
-    const engine = await checkEngine();
+    const engine = await probeEngine();
     setStatus(engine);
     // A protocol mismatch OUTRANKS "reachable": an engine that answers while
     // speaking an older command surface produces 404s and missing fields, and
@@ -4054,11 +4415,11 @@ async function init() {
         `(panel ${engine.clientProtocol}, engine ${engine.engineProtocol}). ` +
         `Update whichever is older.`
       : engine.running
-      ? `Engine reachable at ${await getBackend()} · version ${engine.version || "unknown"}`
+      ? `Engine reachable at ${await backendBase()} · version ${engine.version || "unknown"}`
       // Not "start it with a command": the owner does not use a terminal, so
       // naming one is a dead end dressed as help. The button above this one
       // starts it, and Windows starts it at logon.
-      : `No engine at ${await getBackend()}. Press Start engine above — it also ` +
+      : `No engine at ${await backendBase()}. Press Start engine above — it also ` +
         `starts by itself when you sign in to Windows.`;
     button.disabled = false;
   });
@@ -4166,10 +4527,13 @@ async function init() {
 
   $("save").addEventListener("click", async () => {
     await setBackend($("backend").value);
-    const moved = await getBackend();
-    window.ScrapeXAppearance?.connect(moved);
-    window.ScrapeXTime?.connect(moved);
-    render();
+    const moved = activateBackend(await getBackend());
+    await Promise.allSettled([
+      window.ScrapeXAppearance?.connect(moved),
+      window.ScrapeXTime?.connect(moved),
+      adoptUiContract(),
+    ]);
+    await render();
   });
   $("how").addEventListener("click", () =>
     chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") }));
@@ -4210,35 +4574,96 @@ async function init() {
   $("finance-converter-amount").addEventListener("input", updateFinanceConverter);
   $("finance-converter-currency").addEventListener("change", updateFinanceConverter);
   $("finance-dataset").addEventListener("click", () => openTab("/data/google-finance"));
-  // The zone needs no loader: timezone.js has already read the stored
-  // preference and filled the select before this runs. Choosing one re-renders
-  // every visible time from the data already on screen — nothing is refetched
-  // and nothing stored is touched (§6.10) — so all that is left is to keep the
-  // example sentence honest and say whether the engine took the choice.
-  timeZoneEffect();
+  // The formatter has already read the small local preference. The expensive
+  // option list is built only when Settings is entered.
   window.ScrapeXTime.subscribe(() => {
-    timeZoneEffect();
+    if (timeZoneControlReady) timeZoneEffect();
     if (state.financeStatus) renderGoogleFinanceStatus(state.financeStatus);
-  });
-  $("ui_time_zone").addEventListener("change", () => {
-    timeZoneEffect();
-    out("timezone-msg", "saving…");
-    confirmTimeZoneShared();
   });
 
   refreshMode();
-  // The opening view must be ENTERED through showView like every other one.
-  // Relying on the markup's initial visibility skipped its loader entirely, so
-  // the default screen sat at "Reading the active tab…" until the owner
-  // navigated away and back — and the screenshot harness hid it by clicking a
-  // nav button before capturing.
-  // The panel opens on Welcome. Before we know who is asking there is nothing
-  // true to put on a page — no account, no backup, no lease — so the first
-  // screen asks that one question and shows nothing else.
-  showView("profile", false);
-  await loadAccount();
-  await render();
+  // The Engine page's overflow menu. Deferred with the rest: it is a menu on a
+  // destination nobody is looking at when the panel opens, and none of the
+  // three things it offers exists before the shell is on screen.
   bindEngineOverflowMenu();
 }
 
-document.addEventListener("DOMContentLoaded", init);
+function scheduleNonCriticalStartup(backendPromise) {
+  afterIdle(async () => {
+    try {
+      const backend = await backendPromise;
+      await Promise.allSettled([
+        window.ScrapeXAppearance?.connect(backend),
+        // The zone travels the same road as appearance, after the locally saved
+        // preference has already painted the document.
+        window.ScrapeXTime?.connect(backend),
+        adoptUiContract(),
+      ]);
+    } catch (_) {}
+  });
+}
+
+async function init() {
+  wireStartupShell();
+  const paintOpportunity = await afterNextPaint({signal: panelController.signal});
+  if (paintOpportunity.source === "cancelled" || panelController.signal.aborted) return;
+  // FCP remains the authoritative browser paint measurement. This mark records
+  // that startup yielded a bounded renderer opportunity before remote work.
+  markStartup("shell-post-opportunity", {
+    source: paintOpportunity.source,
+    visibilityState: document.visibilityState,
+  });
+
+  // These start in the same turn and settle independently. The Engine only
+  // waits for its backend address; it never waits for Chrome/Google account work.
+  const backendPromise = backendBase().then((backend) => {
+    $("backend").value = backend;
+    return backend;
+  });
+  const accountPromise = loadAccount();
+  const enginePromise = backendPromise.then(() => render());
+  Promise.allSettled([accountPromise, enginePromise]).then(() => {
+    markStartup("fully-settled", {
+      account: state.token ? "signed-in" : "signed-out",
+      engine: state.engineState,
+    });
+  });
+
+  wireDeferredControls();
+  scheduleNonCriticalStartup(backendPromise);
+}
+
+function closePanelWork() {
+  accountGeneration += 1;
+  engineGeneration += 1;
+  clearTimeout(pollTimer);
+  pollTimer = null;
+  panelController.abort();
+  backendController.abort();
+}
+
+window.addEventListener("pagehide", closePanelWork, {once: true});
+window.addEventListener("beforeunload", closePanelWork, {once: true});
+// START NOW IF THE DOCUMENT IS ALREADY PARSED, and only wait if it is not.
+//
+// This waited unconditionally on DOMContentLoaded, which was right while the
+// module was loaded from a <script> tag in the markup. It is not any more:
+// boot-app.js appends this module when `load` fires, so DOMContentLoaded is long
+// past by the time this line runs and the listener would never be called. The
+// panel painted immediately and then did nothing at all -- every button dead,
+// no engine check, no account -- which is how the owner found it.
+//
+// `readyState` is the question that has an answer in both worlds: "loading"
+// means the event is still coming, anything else means it has been and gone.
+function startPanel() {
+  init().catch((error) => {
+    markStartup("startup-failed", {message: error && error.message || "unknown"});
+    console.error("ScrapeX panel startup failed", error);
+  });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", startPanel, {once: true});
+} else {
+  startPanel();
+}
