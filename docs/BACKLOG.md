@@ -539,8 +539,9 @@ before trusting it.*
 | what | where | state |
 |---|---|---|
 | ~~Side panel startup~~ | **MERGED `815ecae` (#152)** | Owner-verified in real Chrome after the rebase. Nine semantic conflicts resolved by a separate session, which also surfaced four gate failures none of us had run and one silent-pass bug in a test guard. |
-| Carry the split databases over | PR #159 · branch `feat/carry-the-split-databases-into-one` | Command works and **has already run on the owner's real data** — pointer moved, `database-status` Healthy. Nine tests, three proved to bite. Blocked on: the full suite has never been run against this branch, only its own test file. |
-| Four panel-placement defects | issue #160 | Not started |
+| ~~Carry the split databases over~~ | **MERGED `61ded7e` (#159)** | Ran on the owner's real data before merge — pointer moved, `database-status` Healthy, 338,000 rows with zero short. Full suite green locally and in CI on the rebased head. |
+| ~~The 48px touch target~~ | **MERGED `6ccdd3c` (#162)** | Not a flake under load, as I had guessed: `showView` animates every view in over 180ms and the test measured ~17ms in, reading a box through a live transform as a float32 quad. 47.99999237060547 is 48 − 2⁻¹⁷. **And the mutation test found worse** — a global `.button { min-height: var(--control-height) }` meant `height >= 48` could never have caught a height regression at all. The guard was blind on the axis it named. |
+| Four panel-placement defects | issue #160 | Not started. The version banner should now be gone — the extension is 0.2.2. |
 | The untested remote-control promise | issue #161 | Not started |
 
 **Owner-side, no code involved:** the privacy policy is published and its whole
