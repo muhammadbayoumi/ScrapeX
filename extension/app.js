@@ -398,6 +398,7 @@ function renderSchemaLag(lag) {
 
 function setStatus(engine) {
   state.engineUp = engine.running;
+  state.engineReachable = engine.reachable;
   state.engineVersion = engine.version || "";
   // engine.js has computed `protocolMismatch` from /api/health since the
   // handshake moved onto the transport that carries the traffic. It reached
@@ -443,13 +444,22 @@ async function loadVersions(engine) {
     return;
   }
   const query = installed ? `?extension_version=${encodeURIComponent(installed)}` : "";
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(new Error("version timeout")), 2500);
   try {
-    state.versionReport = await api(`/api/version${query}`);
+    // Local version compatibility must not hang the whole Engine card if the
+    // engine is slow or stuck. The health check already answered; this is a
+    // secondary report. The AbortController aborts the underlying fetch and the
+    // timer is cleared in every completion path.
+    state.versionReport = await api(`/api/version${query}`, { signal: controller.signal });
   } catch (_) {
     // A 404 here is not a broken feature: it is an engine built before version
-    // reporting existed. Recorded as null and SAID as such below, never
-    // silently treated as "everything is fine".
+    // reporting existed. A timeout or any other failure is also a fact, not a
+    // broken build. Recorded as null and SAID as such below, never silently
+    // treated as "everything is fine".
     state.versionReport = null;
+  } finally {
+    clearTimeout(timeoutId);
   }
   renderVersionNotice(engine);
 }
@@ -550,6 +560,15 @@ function renderVersionNotice(engine) {
   }
   notice.innerHTML = "";
   notice.classList.add("hidden");
+}
+
+// Engine-only state refresh. Used by the Engine page recheck action so it does
+// not pull in sources, outputs, jobs, or other destination data.
+async function updateEngineState() {
+  const engine = await checkEngine();
+  setStatus(engine);
+  await loadVersions(engine);
+  return engine;
 }
 
 // The gate (§1.6). Called BEFORE a capability is used, never after the request
@@ -2200,69 +2219,122 @@ function renderAccount({ tokenProblem = null } = {}) {
 // first minute. So the feed is read by the extension, and the page is filled
 // whether or not anything is running.
 //
-// Asked once per panel open and remembered. The number changes a few times a
-// year; re-asking on every render would be a request per keystroke for an
-// answer that has not moved since the panel opened.
+// Asked once per panel open and remembered. Engine status and release status
+// are checked independently: the local engine state is known immediately from
+// `state`, while the remote release feed is fetched only when missing and
+// never blocks the engine status from being shown.
 let latestRelease = null;
 
-async function renderEngines() {
-  $("engine-installed-version").textContent = state.engineVersion || "not installed";
-  $("engine-status").textContent = state.engineUp
-    ? "Running"
-    : (state.engineVersion ? "Installed, not running" : "Not installed");
-  $("engine-protocol-row").textContent = state.engineProtocol === null
-    ? `${PROTOCOL_VERSION} (the engine has not stated its own)`
-    : `${state.engineProtocol}` +
-      (state.protocolMismatch ? ` — this extension speaks ${PROTOCOL_VERSION}` : "");
+function setEngineBusy(busy) {
+  const region = $("engine-status-region");
+  if (region) region.setAttribute("aria-busy", String(busy));
+}
 
-  // Asked once per panel open and remembered; the button beside the row is what
-  // asks again. Without it the only way to see a release cut five minutes ago
-  // was to close the panel and reopen it — which is a thing nobody discovers.
-  if (!latestRelease) latestRelease = await latestEngineRelease();
-  const latest = latestRelease;
-  // "unknown" MEANS WE COULD NOT FIND OUT, and for `none` that is false: we
-  // asked, the endpoint answered, and the answer was that nothing has been
-  // released. Collapsing the two threw away a distinction the reader is built
-  // to make — and the row then contradicted the sentence directly beneath it,
-  // which said we had checked. Found by looking at the panel, not by a test:
-  // four guards cover the reader and none covered the row that displays it.
+function engineStatusFromState() {
+  if (state.protocolMismatch) {
+    return {
+      text: "Incompatible",
+      tone: "danger",
+      detail: `Engine protocol ${state.engineProtocol} · Extension protocol ${PROTOCOL_VERSION}`,
+    };
+  }
+  if (state.engineUp) {
+    return { text: "Running", tone: "ok", detail: "" };
+  }
+  if (state.engineVersion) {
+    return { text: "Installed, not running", tone: "warn", detail: "" };
+  }
+  if (state.engineReachable) {
+    // The endpoint answered but the worker is not alive. We cannot prove the
+    // executable is absent, only that it is not running right now.
+    return { text: "Not running", tone: "warn", detail: "" };
+  }
+  return {
+    text: "Not detected",
+    tone: "neutral",
+    detail: "The panel could not reach the Engine.",
+  };
+}
+
+function updateEngineStatus() {
+  const summary = engineStatusFromState();
+  const badge = $("engine-status-badge");
+  const dot = $("engine-status-dot");
+  badge.className = "badge";
+  dot.className = "dot";
+  if (summary.tone === "ok") {
+    badge.classList.add("ok");
+    dot.classList.add("on");
+  } else if (summary.tone === "warn") {
+    badge.classList.add("off");
+    dot.classList.add("warn");
+  } else if (summary.tone === "danger") {
+    badge.classList.add("danger");
+    dot.classList.add("off");
+  }
+  $("engine-status").textContent = summary.text;
+  const detail = $("engine-status-detail");
+  detail.textContent = summary.detail;
+  detail.classList.toggle("hidden", !summary.detail);
+}
+
+function engineProtocolText() {
+  const installed = state.engineVersion;
+  if (!installed) return "Not available";
+  if (state.engineProtocol === null) return `Not reported · Extension expects ${PROTOCOL_VERSION}`;
+  if (state.protocolMismatch) return `Engine ${state.engineProtocol} · Extension ${PROTOCOL_VERSION}`;
+  return String(state.engineProtocol);
+}
+
+function updateEngineWarning() {
+  const warning = $("engine-compatibility-warning");
+  if (state.protocolMismatch) {
+    warning.textContent =
+      `The installed engine uses protocol ${state.engineProtocol}; this extension uses ${PROTOCOL_VERSION}. They cannot communicate.`;
+    warning.classList.remove("hidden");
+  } else {
+    warning.classList.add("hidden");
+    warning.textContent = "";
+  }
+}
+
+function renderEngineStatusUI() {
+  const installed = state.engineVersion || "";
+  $("engine-installed-version").textContent = installed || "Not detected";
+  $("engine-protocol-row").textContent = engineProtocolText();
+  updateEngineWarning();
+  updateEngineStatus();
+}
+
+function engineReleaseVerdict(installed, latest) {
+  if (latest.state === "offline" || latest.state === "unreadable") return "Update status unavailable";
+  if (latest.state === "none") return "";
+  if (latest.state !== "ok") return "";
+  const hasInstaller = !!latest.installer;
+  if (!installed) return hasInstaller ? "Available to install" : "";
+  try {
+    if (isOlder(installed, latest.version)) return "Update available";
+    return "Up to date";
+  } catch {
+    return "";
+  }
+}
+
+function updateEngineReleaseUI(latest) {
+  const installed = state.engineVersion || "";
+
   $("engine-latest-version").textContent =
     latest.state === "ok" ? latest.version
-    : latest.state === "none" ? "none yet"
-    : "unknown";
-  // The detail line carries WHY, which is the whole difference between a row
-  // worth reading and a row nobody reads twice.
+    : latest.state === "none" ? "No release yet"
+    : "Unavailable";
+
   $("engine-latest-detail").textContent = latest.state === "ok"
     ? (latest.installer
         ? ""
         : "This release has no installer attached, so there is nothing to install yet.")
     : (latest.detail || "");
 
-  // THE BUTTON HANDS OVER THE FILE AND STOPS THERE. Chrome does not let an
-  // extension write outside its own storage or start a program, so "install"
-  // was never available to it — and a button that pretended otherwise would
-  // fail in a way the owner could not act on. Opening the url is the browser's
-  // ordinary download, and what happens next is the owner's decision.
-  const recheck = $("engine-recheck");
-  recheck.onclick = async () => {
-    recheck.disabled = true;
-    try {
-      // TWO CALLS, AND THE SECOND IS THE ONE THAT SHOWS ANYTHING.
-      //
-      // `render()` refreshes `state` — what is installed, what is running — but
-      // it does not touch this card: `renderEngines` has exactly one other call
-      // site, `showView`, so nothing here is repainted by entering render().
-      // With only the first call the button dropped the cache, re-fetched, and
-      // left every field showing the answer from when the page was opened; the
-      // one way to see a release cut five minutes ago was still to navigate away
-      // and back, which is what this button exists to replace.
-      latestRelease = null;
-      await render();
-      await renderEngines();
-    } finally {
-      recheck.disabled = false;
-    }
-  };
+  $("engine-release-verdict").textContent = engineReleaseVerdict(installed, latest);
 
   const download = $("engine-download");
   const steps = $("engine-install-steps");
@@ -2272,19 +2344,166 @@ async function renderEngines() {
   steps.classList.toggle("hidden", !installer);
 
   if (installer) {
-    download.title = `Download ${installer.name}`;
-    download.setAttribute("aria-label", download.title);
-    // The checksum is shown rather than checked, because the check belongs to
-    // whoever holds the file. Publishing it is what makes the check possible.
-    // Prefixed with what it is FOR, not just what it is. "SHA-256:" followed
-    // by hex tells a reader nothing about whether they need to care.
-    $("engine-download-checksum").textContent = installer.sha256
-      ? `If you want to verify the download — SHA-256: ${installer.sha256}`
-      : "";
-    download.onclick = () => { window.open(installer.url, "_blank"); };
+    $("engine-download-checksum").textContent = installer.sha256 ? installer.sha256 : "";
+    download.onclick = () => {
+      window.open(installer.url, "_blank");
+      steps.open = true;
+    };
   } else {
     download.onclick = null;
   }
+}
+
+async function renderEngines() {
+  // The local engine status is known from state immediately and must not be
+  // hidden while waiting for the remote release feed.
+  renderEngineStatusUI();
+  setEngineBusy(false);
+  $("engine-recheck").onclick = refreshEngines;
+
+  if (!latestRelease) {
+    latestRelease = await latestEngineRelease();
+  }
+  updateEngineReleaseUI(latestRelease);
+}
+
+async function refreshEngines() {
+  const recheck = $("engine-recheck");
+  recheck.disabled = true;
+  setEngineBusy(true);
+  $("engine-status").textContent = "Checking engine…";
+  $("engine-status-badge").className = "badge";
+  $("engine-status-dot").className = "dot";
+  $("engine-status-detail").classList.add("hidden");
+  try {
+    // Only refresh Engine health and version compatibility. Do not pull in
+    // sources, outputs, jobs, or other destination data.
+    await updateEngineState();
+    renderEngineStatusUI();
+
+    latestRelease = null;
+    const latest = await latestEngineRelease();
+    updateEngineReleaseUI(latest);
+  } finally {
+    setEngineBusy(false);
+    recheck.disabled = false;
+  }
+}
+
+// ---- Engine overflow menu ----------------------------------------------
+function openEngineSetupGuide() {
+  chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
+}
+
+async function copyEngineDetails() {
+  const backend = await getBackend();
+  const lines = [
+    `Status: ${$("engine-status").textContent}`,
+    `Installed version: ${$("engine-installed-version").textContent}`,
+    `Latest version: ${$("engine-latest-version").textContent}`,
+    `Protocol: ${$("engine-protocol-row").textContent}`,
+    `Backend: ${backend}`,
+  ];
+  if (state.versionReport && state.versionReport.outdated) {
+    lines.push(`Extension outdated: installed ${state.installedVersion}, requires ${state.versionReport.minimum_extension_version}`);
+  }
+  const text = lines.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_) {
+    // Fallback for contexts where clipboard permission is not granted.
+  }
+}
+
+async function runEngineDiagnostics() {
+  const out = $("engine-diagnostics-output");
+  out.classList.remove("hidden");
+  out.textContent = "Running diagnostics…";
+  const engine = await checkEngine();
+  setStatus(engine);
+  renderEngineStatusUI();
+  out.textContent = engine.protocolMismatch
+    ? `The panel and the ScrapeX engine speak different protocol versions ` +
+      `(panel ${engine.clientProtocol}, engine ${engine.engineProtocol}). ` +
+      `Update whichever is older.`
+    : engine.running
+    ? `Engine reachable at ${await getBackend()} · version ${engine.version || "unknown"}`
+    : `No engine at ${await getBackend()}. Start the engine, then check again.`;
+}
+
+function bindEngineOverflowMenu() {
+  const button = $("engine-overflow");
+  const menu = $("engine-overflow-menu");
+  if (!button || !menu) return;
+  const items = () => Array.from(menu.querySelectorAll('[role="menuitem"]'));
+
+  function openMenu() {
+    menu.classList.remove("hidden");
+    button.setAttribute("aria-expanded", "true");
+    const first = items()[0];
+    if (first) first.focus({ preventScroll: true });
+    document.addEventListener("click", outsideClick, true);
+  }
+
+  function closeMenu(returnFocus = true) {
+    menu.classList.add("hidden");
+    button.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", outsideClick, true);
+    if (returnFocus) button.focus({ preventScroll: true });
+  }
+
+  function outsideClick(e) {
+    if (!menu.contains(e.target) && e.target !== button) closeMenu(true);
+  }
+
+  button.addEventListener("click", () => {
+    if (menu.classList.contains("hidden")) openMenu(); else closeMenu(false);
+  });
+
+  button.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openMenu();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      openMenu();
+    }
+  });
+
+  menu.addEventListener("keydown", (e) => {
+    const list = items();
+    const idx = list.indexOf(document.activeElement);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeMenu(true);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = list[(idx + 1) % list.length];
+      next.focus({ preventScroll: true });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prev = list[(idx - 1 + list.length) % list.length];
+      prev.focus({ preventScroll: true });
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      document.activeElement.click();
+    } else if (e.key === "Tab") {
+      closeMenu(true);
+    }
+  });
+
+  $("engine-diagnostics").addEventListener("click", () => {
+    runEngineDiagnostics();
+    closeMenu(true);
+  });
+  $("engine-setup-guide").addEventListener("click", () => {
+    openEngineSetupGuide();
+    closeMenu(false);
+  });
+  $("engine-copy-details").addEventListener("click", () => {
+    copyEngineDetails();
+    closeMenu(true);
+  });
 }
 
 // ---- the refusal --------------------------------------------------------
@@ -3536,11 +3755,9 @@ async function renderAutostart() {
 
 // ---- shell ------------------------------------------------------------------
 async function render() {
-  const engine = await checkEngine();
-  setStatus(engine);
+  const engine = await updateEngineState();
   // Before anything is loaded or offered: a panel that cannot work half of what
   // it is showing should say so at the top of the screen, not after the click.
-  await loadVersions(engine);
   $("setup").classList.toggle("hidden", engine.running);
   if (engine.running) {
     await Promise.all([loadCurrentSite(), loadSources(), loadOutputs(), pollJob()]);
@@ -4021,6 +4238,7 @@ async function init() {
   showView("profile", false);
   await loadAccount();
   await render();
+  bindEngineOverflowMenu();
 }
 
 document.addEventListener("DOMContentLoaded", init);

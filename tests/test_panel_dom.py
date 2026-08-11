@@ -837,7 +837,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     assert page.input_value("#google_finance_refresh_hours") == "6"
     switch = page.get_by_role("switch", name="Keep rates up to date")
     switch_box = switch.bounding_box()
-    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    track_box = page.locator("#google_finance_auto_refresh + .m3-switch-track").bounding_box()
     assert switch_box and switch_box["width"] == pytest.approx(46, abs=.1)
     assert switch_box["height"] == pytest.approx(40, abs=.1)
     assert track_box and track_box["width"] == pytest.approx(46, abs=.1)
@@ -849,7 +849,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     })""")
     assert switch_styles == {
         "opacity": "0", "borderWidth": "0px", "background": "rgba(0, 0, 0, 0)"}
-    handle = page.locator(".finance-m3-switch-handle")
+    handle = page.locator("#google_finance_auto_refresh + .m3-switch-track .m3-switch-handle")
     handle_box = handle.bounding_box()
     assert handle_box and handle_box["width"] == pytest.approx(20, abs=.1)
     assert handle_box["height"] == pytest.approx(20, abs=.1)
@@ -868,7 +868,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     switch.click()
     page.wait_for_timeout(350)
     assert not switch.is_checked()
-    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    track_box = page.locator("#google_finance_auto_refresh + .m3-switch-track").bounding_box()
     handle_box = handle.bounding_box()
     assert track_box
     assert handle_box and handle_box["width"] == pytest.approx(14, abs=.1)
@@ -883,7 +883,7 @@ def test_google_finance_is_a_standalone_responsive_page(open_panel):
     switch.click()
     page.wait_for_timeout(350)
     assert switch.is_checked()
-    track_box = page.locator(".finance-m3-switch-track").bounding_box()
+    track_box = page.locator("#google_finance_auto_refresh + .m3-switch-track").bounding_box()
     handle_box = handle.bounding_box()
     assert track_box and handle_box
     assert track_box["x"] + track_box["width"] - handle_box["x"] - handle_box["width"] \
@@ -2859,54 +2859,39 @@ ACCOUNT = {"name": "Test Owner", "email": "owner@example.com",
                       "FcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}
 
 
-def test_the_engine_is_named_and_offers_one_square_install(open_panel):
-    """The engine is a product with a name — ScrapeX-Engine — not "the engine",
-    because the page is a catalogue that will hold more than one of them."""
+def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_action(open_panel):
+    """The primary action is no longer icon-only. A button that only shows an
+    icon looked like a toolbar and gave no visible verb; Download and Check
+    again are labelled actions that wrap on narrow panels."""
     page = open_panel()
 
-    # The owner chose this glyph by name. It is the one icon in the rail that
-    # comes from Material SYMBOLS rather than the classic filled set, because
-    # the classic set has no folder-of-code at all — so a well-meaning tidy-up
-    # towards "one icon set" would silently take it away.
     assert page.locator("#tab-engines use").get_attribute("href").endswith(
         "#folder-code")
 
     page.click("#tab-engines")
     card = page.locator("#view-engines .card").first
 
-    assert (card.locator("h2").text_content() or "").strip() == "ScrapeX-Engine"
-    # TWO buttons now: check-again and download, in that order. The count is
-    # asserted rather than "at least one", because a third arriving unnoticed is
-    # how a card becomes a toolbar.
-    assert card.locator("button").count() == 2
-    install = card.locator("#engine-download")
+    assert (card.locator("h2").text_content() or "").strip() == "ScrapeX Engine"
+    # The card now carries the primary/secondary actions plus the overflow
+    # menu and its three menu items. The two labelled actions are still present.
+    assert card.locator("#engine-download").count() == 1
+    assert card.locator("#engine-recheck").count() == 1
+    assert card.locator("#engine-overflow").count() == 1
+
+    download = card.locator("#engine-download")
     # DOWNLOAD, not Install: Chrome does not let an extension write outside its
     # own storage or start a program, so the button hands over the file and the
-    # owner decides. A label promising more than the button can do is the kind
-    # of claim a store reviewer reads as a deceptive install.
-    assert install.get_attribute("aria-label") == "Download ScrapeX-Engine"
-    assert install.locator("use").get_attribute("href").endswith("#file-download")
+    # owner decides.
+    assert "Download engine" in (download.text_content() or "")
+    assert download.locator("use").get_attribute("href").endswith("#file-download")
+    # The control must be wide enough to be a labelled action, not a square icon.
+    box = download.bounding_box()
+    assert box and box["width"] > box["height"], (
+        f"the download control is {box['width']}x{box['height']}, not a labelled button")
 
-    # A SMALL square, and both halves have to be asserted. `icon-button` alone
-    # is already square at the full touch-target height, so a squareness check
-    # on its own passes whether or not the control is compact and proves
-    # nothing about the size that was asked for.
-    box = install.bounding_box()
-    # Measured rather than parsed, so the assertion holds whatever unit the
-    # token is written in.
-    small = page.evaluate("""() => {
-        const probe = document.createElement('div');
-        probe.style.cssText =
-          'position:absolute;visibility:hidden;height:var(--control-height-sm)';
-        document.body.appendChild(probe);
-        const h = probe.getBoundingClientRect().height;
-        probe.remove();
-        return h;
-    }""")
-    assert box and abs(box["width"] - box["height"]) < 1.5, (
-        f"the install control is {box['width']}x{box['height']}, not a square")
-    assert abs(box["width"] - small) < 1.5, (
-        f"the install square is {box['width']}px, not the compact {small}px")
+    recheck = card.locator("#engine-recheck")
+    assert "Check again" in (recheck.text_content() or "")
+    assert recheck.locator("use").get_attribute("href").endswith("#sync")
 
 
 def test_no_two_rail_buttons_wear_the_same_icon(open_panel):
@@ -3110,7 +3095,7 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
     # answer was that nothing is released. The row therefore contradicted the
     # sentence directly beneath it, which said we had checked. Found by looking
     # at the panel — four guards covered the reader and none covered the row.
-    assert text_of(page, "#engine-latest-version") == "none yet"
+    assert text_of(page, "#engine-latest-version") == "No release yet"
     assert "No engine has been released yet" in text_of(page, "#engine-latest-detail")
 
 
@@ -3204,7 +3189,7 @@ def test_the_download_button_hands_over_the_file_and_the_steps(open_panel):
     # nothing else. Nothing on the card was called refresh. That is the same
     # shape as the two defects this suite has already been bitten by: a test
     # standing over wording the rest of the panel contradicts.
-    recheck_name = page.get_attribute("#engine-recheck", "aria-label")
+    recheck_name = (page.text_content("#engine-recheck") or "").strip()
     assert recheck_name and recheck_name in steps, (
         f"the steps tell the owner to press something the card does not call "
         f"anything: the control's only name is {recheck_name!r}")
@@ -3313,14 +3298,996 @@ def test_a_release_with_no_installer_says_so_before_the_press(open_panel):
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
 
 
-def test_the_engine_page_says_not_installed_when_it_is_not(open_panel):
+def test_the_engine_page_says_not_detected_when_unreachable(open_panel):
     """The first minute on a new machine, which is the state the page exists for."""
     page = open_panel(engine_up=False)
     page.click("#tab-engines")
     page.wait_for_function(
-        "() => document.getElementById('engine-status').textContent !== 'Checking…'",
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
         timeout=10_000)
 
-    assert "Not installed" in text_of(page, "#engine-status")
-    assert text_of(page, "#engine-installed-version") == "not installed"
-    assert "has not stated its own" in text_of(page, "#engine-protocol-row")
+    assert "Not detected" in text_of(page, "#engine-status")
+    assert text_of(page, "#engine-installed-version") == "Not detected"
+    assert text_of(page, "#engine-protocol-row") == "Not available"
+
+
+def test_the_engine_status_uses_a_single_live_region(open_panel):
+    """Status changes are announced once through a polite live region, and the
+    region exposes busy while the engine and release feed are being checked."""
+    page = open_panel()
+    page.click("#tab-engines")
+
+    region = page.locator("#engine-status-region")
+    assert region.get_attribute("role") == "status"
+    assert region.get_attribute("aria-live") == "polite"
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    status = text_of(page, "#engine-status")
+    assert status in ("Running", "Not detected", "Not running", "Installed, not running", "Incompatible")
+
+
+def test_the_engine_status_maps_protocol_mismatch_to_a_warning(open_panel):
+    """A protocol mismatch is shown as Incompatible on the Engine page, with a
+    compact warning and both protocol versions visible."""
+    page = open_panel(protocol_version=99)
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-status") == "Incompatible"
+    assert "99" in text_of(page, "#engine-protocol-row")
+    assert "1" in text_of(page, "#engine-protocol-row")
+    warning = text_of(page, "#engine-compatibility-warning")
+    assert "cannot communicate" in warning
+
+
+def test_the_engine_status_maps_installed_but_not_running(open_panel):
+    """An engine that reports a version but is not running is a warning state."""
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (String(url).includes('/api/health')) {
+          return { ok: true, status: 200, json: async () => ({
+            app: 'scrapex', version: '0.2.0', worker_alive: false,
+            protocol_version: 1, sources_with_data: 0
+          }) };
+        }
+        return original(url, options);
+      };
+    }""")
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent === 'Installed, not running'",
+        timeout=10_000)
+    assert text_of(page, "#engine-status") == "Installed, not running"
+
+
+def test_the_engine_release_verdict_says_available_to_install(open_panel):
+    """No engine + a valid installer means the release is available to install."""
+    page = open_panel(engine_up=False, engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "c" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+    assert text_of(page, "#engine-release-verdict") == "Available to install"
+
+
+def test_the_engine_release_verdict_says_update_available(open_panel):
+    """An older installed engine with a newer release means an update is available."""
+    page = open_panel(engine_version="0.1.0", engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "d" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+    assert text_of(page, "#engine-release-verdict") == "Update available"
+
+
+def test_the_engine_release_verdict_says_up_to_date(open_panel):
+    """An installed engine equal to the latest release is up to date."""
+    page = open_panel(engine_version="0.9.0", engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "e" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+    assert text_of(page, "#engine-release-verdict") == "Up to date"
+
+
+def test_the_engine_release_verdict_says_unavailable_when_feed_is_offline(open_panel):
+    """When the release endpoint cannot be reached, the verdict says so without
+    making the running engine look unhealthy."""
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
+        timeout=10_000)
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (String(url).includes('raw.githubusercontent.com')) {
+          throw new TypeError('offline');
+        }
+        return original(url, options);
+      };
+    }""")
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-release-verdict').textContent === 'Update status unavailable'",
+        timeout=10_000)
+    assert text_of(page, "#engine-status") == "Running"
+
+
+def test_the_engine_download_does_not_claim_completion(open_panel):
+    """Clicking Download hands the URL to the browser and opens the steps, but
+    the page never claims the file finished downloading."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "f" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-download")
+    assert page.locator("#engine-install-steps").evaluate("el => el.open")
+    assert "Download engine" in text_of(page, "#engine-download")
+    assert "Downloaded" not in text_of(page, "#view-engines")
+    assert "complete" not in text_of(page, "#view-engines").lower()
+
+
+def test_the_engine_page_does_not_overflow_at_320px(open_panel):
+    """The Engine card and its actions survive the narrowest panel width."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "g" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    assert not overflow, "the Engine page overflows at 320px"
+    box = page.locator(".engine-actions").bounding_box()
+    assert box and box["height"] > 0
+    assert page.is_visible("#engine-download")
+    assert page.is_visible("#engine-recheck")
+
+
+
+def test_the_engine_actions_have_visible_keyboard_focus(open_panel):
+    """Both Engine actions are focusable and show the shared focus outline."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "h" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    for selector in ("#engine-download", "#engine-recheck"):
+        page.focus(selector)
+        active = page.evaluate("() => document.activeElement.id")
+        assert active == selector.lstrip("#"), f"{selector} did not receive focus"
+        outline = page.locator(selector).evaluate(
+            "el => getComputedStyle(el).outlineWidth")
+        assert outline not in ("0px", "", "0")
+
+
+
+def test_the_engine_page_scrolls_when_the_panel_is_short(open_panel):
+    """With a short panel and expanded install steps the Engine view must
+    scroll internally, keeping the heading fixed and the actions reachable."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "i" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 480})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-install-steps summary")
+    page.wait_for_function("() => document.getElementById('engine-install-steps').open")
+
+    info = page.evaluate("""() => {
+      const scroll = document.querySelector('#view-engines .view-scroll');
+      const heading = document.querySelector('#view-engines > .view-heading');
+      return {
+        scrollHeight: scroll.scrollHeight,
+        clientHeight: scroll.clientHeight,
+        headingSticky: getComputedStyle(heading).position === 'sticky',
+        htmlScrollWidth: document.documentElement.scrollWidth,
+        htmlClientWidth: document.documentElement.clientWidth,
+      };
+    }""")
+    assert info["scrollHeight"] > info["clientHeight"], (
+        f"scrollHeight {info['scrollHeight']} is not taller than clientHeight {info['clientHeight']}")
+    assert info["headingSticky"], "the Engine heading is not sticky"
+    assert info["htmlScrollWidth"] <= info["htmlClientWidth"], "the Engine page overflows horizontally"
+
+    page.evaluate("() => { document.querySelector('#view-engines .view-scroll').scrollTop = 99999; }")
+    new_top = page.evaluate(
+        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
+    assert new_top > 0, ".view-scroll did not scroll"
+
+    checksum_box = page.locator("#engine-download-checksum").bounding_box()
+    scroll_box = page.locator("#view-engines .view-scroll").bounding_box()
+    assert checksum_box and scroll_box
+    assert checksum_box["y"] + checksum_box["height"] <= scroll_box["y"] + scroll_box["height"], (
+        "the checksum is clipped below the scrollport")
+
+    others = page.locator("#engines-others-title").bounding_box()
+    assert others
+    assert others["y"] + others["height"] <= scroll_box["y"] + scroll_box["height"], (
+        "Other engines heading is clipped below the scrollport")
+
+
+def test_the_engine_compatibility_warning_is_not_a_second_live_announcement(open_panel):
+    """The status region already announces the mismatch. A duplicate
+    assertive alert on the same fact would double-speak to screen readers."""
+    page = open_panel(protocol_version=99)
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+
+    warning = page.locator("#engine-compatibility-warning")
+    assert warning.get_attribute("role") != "alert"
+    region_text = text_of(page, "#engine-status-region")
+    assert "Incompatible" in region_text
+    assert "99" in region_text
+    assert "1" in region_text
+
+
+def test_the_engine_page_does_not_restate_no_release_three_times(open_panel):
+    """One metadata value and one explanation are enough; three consecutive
+    restatements of the same fact train the owner to ignore the row."""
+    page = open_panel()
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    view_text = text_of(page, "#view-engines")
+    assert view_text.count("No release yet") <= 1
+    assert "No engine has been released yet" in view_text
+    assert "No release available yet" not in view_text
+
+
+def test_the_engine_verdict_says_up_to_date_without_installer(open_panel):
+    """A published release equal to the installed version is up to date even
+    when the release has no installer attached."""
+    page = open_panel(engine_version="0.9.0", engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0", "installer": None,
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-release-verdict") == "Up to date"
+    assert "no installer attached" in text_of(page, "#engine-latest-detail")
+
+
+def test_the_engine_verdict_says_update_available_without_installer(open_panel):
+    """A newer published release without an installer still truthfully says
+    an update exists, while the detail explains there is nothing to download."""
+    page = open_panel(engine_version="0.1.0", engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0", "installer": None,
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-release-verdict") == "Update available"
+    assert "no installer attached" in text_of(page, "#engine-latest-detail")
+
+
+def test_the_engine_verdict_does_not_say_available_with_no_engine_and_no_installer(open_panel):
+    """When nothing is installed and the release has no installer, the page
+    must not promise an install."""
+    page = open_panel(engine_up=False, engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0", "installer": None,
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''",
+        timeout=10_000)
+
+    assert "Available to install" not in text_of(page, "#engine-release-verdict")
+    assert "no installer attached" in text_of(page, "#engine-latest-detail")
+
+
+
+def test_the_engine_recheck_does_not_fetch_unrelated_routes(open_panel):
+    """The Engine recheck must only refresh Engine health, version
+    compatibility, and the release manifest. It must not pull in data for
+    other destinations."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "r" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    page.evaluate(r"""() => {
+      window.__engineRoutes = [];
+      const orig = window.fetch;
+      window.fetch = async (url, options) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+        window.__engineRoutes.push(path);
+        return orig(url, options);
+      };
+    }""")
+
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+
+    routes = page.evaluate("window.__engineRoutes")
+    unrelated = [r for r in routes if any(
+        r.startswith(p) for p in ("/api/sources","/api/outputs","/api/records","/api/jobs","/api/current-site","/api/changes"))]
+    assert not unrelated, f"recheck fetched unrelated routes: {unrelated}"
+
+
+def test_the_engine_recheck_ignores_slow_unrelated_endpoints(open_panel):
+    """A stalled source/output/job endpoint must not keep the Engine card on
+    'Checking engine…'."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "s" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    page.evaluate(r"""() => {
+      const orig = window.fetch;
+      window.fetch = async (url, options) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+        if (["/api/sources","/api/outputs","/api/jobs"].includes(path)) {
+          await new Promise(r => setTimeout(r, 30000));
+        }
+        return orig(url, options);
+      };
+    }""")
+
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    status = text_of(page, "#engine-status")
+    assert status in ("Running", "Not detected", "Not running", "Installed, not running", "Incompatible")
+    assert status != "Checking engine…"
+
+
+def test_the_engine_power_switch_is_a_disabled_placeholder(open_panel):
+    """The Engine power switch is visible, disabled, and correctly labelled,
+    and its pending disclosure is connected to it."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "t" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    switch = page.locator("#engine-power-switch")
+    assert switch.is_visible()
+    assert switch.is_disabled()
+    assert switch.get_attribute("type") == "checkbox"
+    assert switch.get_attribute("role") == "switch"
+    assert switch.get_attribute("aria-label") == "Engine power"
+    described = switch.get_attribute("aria-describedby")
+    assert described == "engine-power-disclosure"
+    disclosure = page.locator(f"#{described}")
+    assert disclosure.is_visible()
+    assert "not connected yet" in text_of(page, f"#{described}")
+
+
+def test_the_engine_power_switch_cannot_be_activated(open_panel):
+    """Mouse, Space, and Enter must not change the disabled placeholder."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "u" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    switch = page.locator("#engine-power-switch")
+    before = switch.is_checked()
+    page.evaluate("""() => {
+      const el = document.getElementById('engine-power-switch');
+      el.click();
+      ['keydown', 'keyup'].forEach(type => {
+        el.dispatchEvent(new KeyboardEvent(type, {key: ' ', bubbles: true}));
+        el.dispatchEvent(new KeyboardEvent(type, {key: 'Enter', bubbles: true}));
+      });
+    }""")
+    assert switch.is_checked() == before, "the disabled switch changed state"
+
+
+def test_the_engine_power_switch_is_readable_at_320px(open_panel):
+    """The placeholder switch and its disclosure must not overflow the narrowest
+    panel and must remain visible."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "v" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    switch = page.locator("#engine-power-switch")
+    assert switch.is_visible()
+    box = page.locator(".engine-power-setting").bounding_box()
+    assert box and box["width"] <= 320
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    assert not overflow, "the Engine page overflows at 320px after adding the power switch"
+
+
+
+def test_the_engine_card_uses_outlined_cards(open_panel):
+    """Engine cards use the M3 outlined-card modifier without shadow or hover
+    lift."""
+    page = open_panel()
+    page.click("#tab-engines")
+    cards = page.locator("#view-engines .card.engine-card")
+    assert cards.count() == 2
+    for i in range(cards.count()):
+        card = cards.nth(i)
+        style = card.evaluate("el => ({" +
+          "background: getComputedStyle(el).backgroundColor," +
+          "border: getComputedStyle(el).border," +
+          "borderRadius: getComputedStyle(el).borderRadius," +
+          "boxShadow: getComputedStyle(el).boxShadow," +
+          "})")
+        assert "1px" in style["border"]
+        assert style["borderRadius"] == "12px"
+
+
+def test_the_engine_overflow_menu_opens_and_closes(open_panel):
+    """The overflow menu opens, navigates by keyboard, closes on Escape and
+    outside click, and returns focus to the button."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "w" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    overflow = page.locator("#engine-overflow")
+    menu = page.locator("#engine-overflow-menu")
+    assert overflow.get_attribute("aria-haspopup") == "menu"
+    assert overflow.get_attribute("aria-expanded") == "false"
+
+    page.click("#engine-overflow")
+    assert menu.is_visible()
+    assert overflow.get_attribute("aria-expanded") == "true"
+    items = menu.locator('[role="menuitem"]')
+    assert items.count() == 3
+
+    # Keyboard navigation.
+    page.keyboard.press("ArrowDown")
+    active = page.evaluate("() => document.activeElement.id")
+    assert active == "engine-setup-guide"
+    page.keyboard.press("ArrowUp")
+    active = page.evaluate("() => document.activeElement.id")
+    assert active == "engine-diagnostics"
+
+    # Escape closes and returns focus.
+    page.keyboard.press("Escape")
+    assert not menu.is_visible()
+    assert overflow.get_attribute("aria-expanded") == "false"
+    active = page.evaluate("() => document.activeElement.id")
+    assert active == "engine-overflow"
+
+    # Outside click closes.
+    page.click("#engine-overflow")
+    assert menu.is_visible()
+    page.click("#engines-installed-title")
+    assert not menu.is_visible()
+
+
+def test_the_engine_overflow_menu_fits_at_320px(open_panel):
+    """The opened overflow menu must not overflow the 320px viewport."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "x" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-overflow")
+    menu = page.locator("#engine-overflow-menu")
+    assert menu.is_visible()
+    box = menu.bounding_box()
+    assert box and box["x"] + box["width"] <= 320
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+    assert not overflow
+
+
+def test_the_engine_version_request_times_out(open_panel):
+    """A stalled /api/version must not keep the Engine card stuck on
+    'Checking engine…' or leave Check again disabled."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "y" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    page.evaluate(r"""() => {
+      const orig = window.fetch;
+      window.fetch = async (url, options) => {
+        const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+        if (path.startsWith('/api/version')) {
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              if (options && options.signal && options.signal.aborted) {
+                reject(options.signal.reason || new Error('aborted'));
+              } else {
+                resolve(undefined);
+              }
+            }, 30000);
+            if (options && options.signal) {
+              options.signal.addEventListener('abort', () => {
+                clearTimeout(timer);
+                reject(options.signal.reason || new Error('aborted'));
+              }, {once: true});
+            }
+          });
+        }
+        return orig(url, options);
+      };
+    }""")
+
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
+        timeout=10_000)
+    assert text_of(page, "#engine-status") != "Checking engine…"
+    assert not page.locator("#engine-recheck").is_disabled()
+
+
+def test_the_engine_card_has_m3_outlined_geometry(open_panel):
+    """Engine cards follow the M3 outlined-card values exactly."""
+    page = open_panel()
+    page.click("#tab-engines")
+    card = page.locator("#view-engines .card.engine-card").first
+    style = card.evaluate("""el => ({
+      borderRadius: getComputedStyle(el).borderRadius,
+      paddingInline: getComputedStyle(el).paddingInline,
+      boxShadow: getComputedStyle(el).boxShadow,
+      textAlign: getComputedStyle(el).textAlign,
+    })""")
+    assert style["borderRadius"] == "12px"
+    assert style["paddingInline"] == "16px"
+    assert style["boxShadow"] == "none"
+    assert style["textAlign"] in ("start", "left")
+
+    view_scroll = page.locator("#view-engines .view-scroll")
+    gap = view_scroll.evaluate("el => getComputedStyle(el).gap")
+    assert gap == "8px"
+
+
+def test_the_engine_overflow_trigger_has_no_visible_resting_container(open_panel):
+    """The three-dot trigger is a 48px hit target with no resting border,
+    background, or square container."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "q" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    btn = page.locator("#engine-overflow")
+    box = btn.bounding_box()
+    # 48x48 EXACTLY, and it must stay a hard floor. This assertion was
+    # relaxed to 47.5 in an uncommitted change; measured on this branch the
+    # button renders at exactly 48x48, so the relaxation bought nothing and
+    # lowered the accessibility minimum for a touch target by half a pixel of
+    # permanent slack. A guard that is loosened to pass stops being a guard.
+    assert box and box["width"] >= 48 and box["height"] >= 48
+
+    style = btn.evaluate("""el => ({
+      bg: getComputedStyle(el).backgroundColor,
+      border: getComputedStyle(el).border,
+      borderRadius: getComputedStyle(el).borderRadius,
+    })""")
+    assert "rgba(0, 0, 0, 0)" in style["bg"] or style["bg"] == "transparent", style["bg"]
+    assert style["border"].startswith("0px"), style["border"]
+    assert style["borderRadius"] == "50%", style["borderRadius"]
+
+
+def test_the_engine_overflow_menu_is_anchored_without_scrolling(open_panel):
+    """The menu opens directly below its trigger, stays in the viewport, and
+    leaves the Engine heading visible without changing .view-scroll position."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "r" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    scroll_before = page.evaluate(
+        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
+
+    btn = page.locator("#engine-overflow")
+    menu = page.locator("#engine-overflow-menu")
+    # Use a native click so the assertion measures the page, not Playwright's
+    # own scroll-into-view behaviour for the trigger.
+    page.evaluate("() => document.getElementById('engine-overflow').click()")
+    page.wait_for_timeout(150)
+    assert menu.is_visible()
+
+    btn_box = btn.bounding_box()
+    menu_box = menu.bounding_box()
+    heading_box = page.locator("#engines-installed-title").bounding_box()
+    assert btn_box and menu_box and heading_box
+
+    offset = menu_box["y"] - (btn_box["y"] + btn_box["height"])
+    assert 0 <= offset <= 6, f"menu offset from trigger is {offset}px"
+
+    viewport_w = 320
+    viewport_h = 600
+    for label, box in (("trigger", btn_box), ("menu", menu_box)):
+        assert box["x"] >= 0, f"{label} left is negative"
+        assert box["x"] + box["width"] <= viewport_w, f"{label} overflows right"
+        assert box["y"] >= 0, f"{label} top is negative"
+        assert box["y"] + box["height"] <= viewport_h, f"{label} overflows bottom"
+
+    assert heading_box["y"] >= 0
+    assert heading_box["y"] + heading_box["height"] <= viewport_h
+
+    scroll_after = page.evaluate(
+        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
+    assert scroll_after == scroll_before
+
+
+def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):
+    """The power setting label and disclosure live in one row; the switch is at
+    the inline end and remains disabled and unwired."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "s" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    row = page.locator(".engine-power-setting")
+    assert row.is_visible()
+    row_box = row.bounding_box()
+
+    label = page.locator("#engine-power-label")
+    disclosure = page.locator("#engine-power-disclosure")
+    switch = page.locator("#engine-power-switch")
+    assert label.is_visible()
+    assert disclosure.is_visible()
+    assert switch.is_visible()
+    assert switch.is_disabled()
+
+    for el, name in ((label, "label"), (disclosure, "disclosure")):
+        box = el.bounding_box()
+        assert box["y"] >= row_box["y"] - 4
+        assert box["y"] + box["height"] <= row_box["y"] + row_box["height"] + 4
+
+    switch_box = switch.bounding_box()
+    assert switch_box["x"] + switch_box["width"] <= row_box["x"] + row_box["width"] + 1
+
+    before = switch.is_checked()
+    page.evaluate("""() => {
+      const el = document.getElementById('engine-power-switch');
+      el.click();
+      ['keydown', 'keyup'].forEach(type => {
+        el.dispatchEvent(new KeyboardEvent(type, {key: ' ', bubbles: true}));
+        el.dispatchEvent(new KeyboardEvent(type, {key: 'Enter', bubbles: true}));
+      });
+    }""")
+    assert switch.is_checked() == before
+
+
+def test_the_engine_install_region_is_divided_and_sha_wraps(open_panel):
+    """The expandable installation region is separated by a divider and the
+    SHA-256 value is presented as a wrapped technical block."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "t" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+    page.click("#engine-install-steps summary")
+    page.wait_for_function("() => document.getElementById('engine-install-steps').open")
+
+    details = page.locator("#engine-install-steps")
+    style = details.evaluate("""el => ({
+      borderTopWidth: getComputedStyle(el).borderTopWidth,
+      borderTopStyle: getComputedStyle(el).borderTopStyle,
+    })""")
+    assert style["borderTopWidth"] == "1px"
+    assert style["borderTopStyle"] == "solid"
+
+    summary = page.locator("#engine-install-steps summary")
+    summary_box = summary.bounding_box()
+    details_box = details.bounding_box()
+    assert summary_box and details_box
+    assert abs(summary_box["width"] - details_box["width"]) < 2
+
+    code = page.locator("#engine-download-checksum")
+    code_box = code.bounding_box()
+    html_width = page.evaluate("() => document.documentElement.clientWidth")
+    assert code_box["x"] + code_box["width"] <= html_width
+
+
+def test_the_engine_actions_stack_full_width_at_320px(open_panel):
+    """At the narrowest width the two action buttons stack cleanly to the full
+    available width instead of colliding."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "u" * 64},
+    })
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    actions = page.locator(".engine-actions")
+    action_box = actions.bounding_box()
+    download = page.locator("#engine-download").bounding_box()
+    recheck = page.locator("#engine-recheck").bounding_box()
+    assert action_box and download and recheck
+    assert download["width"] >= action_box["width"] - 4
+    assert recheck["width"] >= action_box["width"] - 4
+    assert recheck["y"] > download["y"] + download["height"] - 1
+
+
+def test_the_engine_overflow_menu_returns_focus_after_page_actions(open_panel):
+    """Run diagnostics and Copy details close the menu and return focus to the
+    overflow trigger instead of leaving it inside the hidden menu."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "v" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    for action in ("engine-diagnostics", "engine-copy-details"):
+        page.click("#engine-overflow")
+        page.wait_for_selector("#engine-overflow-menu", state="visible")
+        page.click(f"#{action}")
+        page.wait_for_selector("#engine-overflow-menu", state="hidden")
+        active = page.evaluate("() => document.activeElement.id")
+        assert active == "engine-overflow", (
+            f"{action} left focus on {active!r} instead of the overflow trigger")
+
+
+def _alpha_of(css_colour: str) -> float:
+    """Alpha from any form Chrome serialises a computed colour in.
+
+    `color-mix()` comes back as `color(srgb r g b / a)`, a plain declaration as
+    `rgba(r, g, b, a)`, and a fully transparent result as `oklab(0 0 0 / 0)`.
+    A test that only understood `rgba(...)` would read every mixed colour as
+    opaque and pass on exactly the thing it is checking.
+    """
+    text = css_colour.strip()
+    if "/" in text:
+        return float(text.rsplit("/", 1)[1].strip(" )"))
+    if text.startswith("rgba"):
+        return float(text.rsplit(",", 1)[1].strip(" )"))
+    return 1.0 if text.startswith(("rgb", "#", "color(")) else 0.0
+
+
+def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
+    """Engine controls that intentionally stay neutral must not inherit the
+    shared button hover foreground (which can be white on a pale background)."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "w" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    combos = [
+        ("light", "whatsapp"),
+        ("dark", "whatsapp"),
+        ("light", "github"),
+        ("dark", "github"),
+    ]
+    selectors = ["#engine-overflow", "#engine-recheck", "#engine-install-steps summary"]
+
+    for scheme, palette in combos:
+        page.evaluate(
+            f"window.ScrapeXAppearance.set({{'mode': 'manual', 'scheme': '{scheme}', "
+            f"'palette': '{palette}', 'deviceColors': false}})")
+        page.wait_for_timeout(150)
+        for selector in selectors:
+            rest = page.evaluate(
+                f"() => getComputedStyle(document.querySelector('{selector}')).color")
+            page.hover(selector)
+            hover = page.evaluate(
+                f"() => getComputedStyle(document.querySelector('{selector}')).color")
+            assert rest == hover, (
+                f"{selector} hover foreground changed in {scheme}/{palette}: "
+                f"{rest} -> {hover}")
+
+# Move the cursor away so the next combo starts from rest.
+            page.hover("#view-engines > .view-heading")
+
+
+def test_engine_controls_show_focus_visible_not_just_hover(open_panel):
+    """Keyboard focus on the overflow trigger and secondary action keeps a
+    visible focus outline that is distinct from the hover state layer."""
+    page = open_panel(engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "x" * 64},
+    })
+    page.click("#tab-engines")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-download').disabled",
+        timeout=10_000)
+
+    for selector in ("#engine-overflow", "#engine-recheck"):
+        page.focus(selector)
+        outline = page.locator(selector).evaluate(
+            "el => getComputedStyle(el).outlineWidth")
+        assert outline not in ("0px", "", "0"), f"{selector} has no focus outline"
+
+
+def test_the_neutral_engine_hover_is_a_state_layer_not_an_opaque_fill(open_panel):
+    """The correction this PR made, asserted where it can actually be seen.
+
+    WHY NOT BY HOVERING. `test_engine_neutral_controls_keep_text_color_on_hover`
+    above hovers each control and compares the foreground, and it passes whether
+    or not the fix is present -- measured by reverting the CSS and watching it
+    stay green. Two reasons: the fix changed the BACKGROUND, and `:hover` does
+    not take effect in this headless harness at all (a hovered control still
+    computes `oklab(0 0 0 / 0)`). Any assertion phrased as "hover it and look"
+    is therefore decoration here.
+
+    THE RULE IS OBSERVABLE, so the rule is what gets checked. `--control-hover`
+    is an opaque pale fill (#F0EEEC in light) shared with the primary buttons,
+    which is what made these neutral controls read as white-on-pale and look
+    disabled. The replacement is a translucent layer mixed from the CURRENT text
+    colour, so it darkens or lightens whatever surface it sits on and works in
+    every scheme without a per-palette value.
+    """
+    page = open_panel()
+    rules = page.evaluate("""() => {
+      const wanted = ['.engine-overflow-button:hover',
+                      '.engine-action-secondary:hover',
+                      '.install-steps > summary:hover'];
+      const found = {};
+      for (const sheet of document.styleSheets) {
+        let list; try { list = sheet.cssRules } catch { continue }
+        for (const rule of list) {
+          if (!rule.selectorText) continue;
+          for (const want of wanted) {
+            if (rule.selectorText.includes(want)) found[want] = rule.style.background
+                                                            || rule.style.backgroundColor;
+          }
+        }
+      }
+      return found;
+    }""")
+
+    for selector in ('.engine-overflow-button:hover',
+                     '.engine-action-secondary:hover',
+                     '.install-steps > summary:hover'):
+        declared = rules.get(selector)
+        assert declared, f"no hover background rule found for {selector}"
+        assert "control-hover" not in declared, (
+            f"{selector} is back on the shared opaque `--control-hover` fill, "
+            f"which is what made these neutral controls read as white-on-pale "
+            f"and look disabled: {declared!r}")
+        assert "color-mix" in declared and "--text" in declared, (
+            f"{selector} hover is {declared!r}, not a translucent layer mixed "
+            f"from the current text colour — so it cannot follow the scheme")

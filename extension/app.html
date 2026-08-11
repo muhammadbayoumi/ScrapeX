@@ -956,12 +956,12 @@
               <strong>Keep rates up to date</strong>
               <small>Run this check automatically while the engine is available.</small>
             </span>
-            <span class="finance-m3-switch">
+            <span class="m3-switch">
               <input id="google_finance_auto_refresh" type="checkbox" role="switch"
                      aria-label="Keep rates up to date">
-              <span class="finance-m3-switch-track" aria-hidden="true">
-                <span class="finance-m3-switch-handle-container">
-                  <span class="finance-m3-switch-handle"></span>
+              <span class="m3-switch-track" aria-hidden="true">
+                <span class="m3-switch-handle-container">
+                  <span class="m3-switch-handle"></span>
                 </span>
               </span>
             </span>
@@ -1150,83 +1150,131 @@
       </header>
 
       <div class="view-scroll">
-        <section class="card" aria-labelledby="engines-installed-title">
-          <h2 id="engines-installed-title">ScrapeX-Engine</h2>
-          <div class="kv"><span>Status</span><span id="engine-status">Checking…</span></div>
-          <div class="kv"><span>Installed version</span>
-            <span class="tech" id="engine-installed-version">—</span></div>
-          <div class="kv"><span>Latest released</span>
-            <span class="tech" id="engine-latest-version">—</span></div>
-          <div class="kv"><span>Protocol</span>
-            <span class="tech" id="engine-protocol-row">—</span></div>
-          <!-- One line under the rows for whatever the feed actually said. The
-               four states it can be in are four different sentences, and one
-               "unavailable" for all of them is how a row stops being read. -->
-          <p class="muted text-sm" id="engine-latest-detail"></p>
+        <section class="card engine-card" aria-labelledby="engines-installed-title">
+          <div class="engine-card-header">
+            <h2 id="engines-installed-title">ScrapeX Engine</h2>
+            <div class="engine-overflow">
+              <button class="engine-overflow-button" id="engine-overflow" type="button"
+                      aria-label="More Engine actions" aria-haspopup="menu"
+                      aria-expanded="false" aria-controls="engine-overflow-menu">
+                <svg class="sx-icon" aria-hidden="true">
+                  <use href="icons/material-icons.svg#more-vert"></use>
+                </svg>
+              </button>
+              <div class="engine-overflow-menu hidden" id="engine-overflow-menu"
+                   role="menu" aria-labelledby="engine-overflow">
+                <button class="engine-overflow-menu-item" type="button" role="menuitem" id="engine-diagnostics">
+                  <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#tune"></use></svg>
+                  Run diagnostics
+                </button>
+                <button class="engine-overflow-menu-item" type="button" role="menuitem" id="engine-setup-guide">
+                  <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#info"></use></svg>
+                  Open setup guide
+                </button>
+                <button class="engine-overflow-menu-item" type="button" role="menuitem" id="engine-copy-details">
+                  <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#description"></use></svg>
+                  Copy Engine technical details
+                </button>
+              </div>
+            </div>
+          </div>
 
-          <!-- DOWNLOAD, NOT INSTALL, and the difference is not modesty. Chrome
-               does not let an extension write outside its own storage or run a
-               program — that is a browser security boundary, not a gap. So the
-               honest button hands the owner the file and tells them the three
-               things to do with it. -->
-          <!-- ONE PER ENGINE, not one for the page. This card is a catalogue
-               entry and the page will hold more of them; a single refresh at
-               the top would re-ask about every engine to answer about one. -->
-          <button class="icon-button ghost compact" type="button"
-                  id="engine-recheck"
-                  aria-label="Check ScrapeX-Engine again"
-                  title="Check ScrapeX-Engine again">
-            <svg class="sx-icon" aria-hidden="true">
-              <use href="icons/material-icons.svg#sync"></use>
-            </svg>
-          </button>
-          <button class="icon-button ghost compact" type="button" disabled
-                  id="engine-download"
-                  aria-label="Download ScrapeX-Engine"
-                  title="Download ScrapeX-Engine">
-            <svg class="sx-icon" aria-hidden="true">
-              <use href="icons/material-icons.svg#file-download"></use>
-            </svg>
-          </button>
-          <!-- FOLDED SHUT. Opened by default this was a wall of warning
-               before the owner had even pressed anything — and the checksum,
-               sixty-four characters of hex, is meaningless to everyone except
-               the one person who came looking for it. `details` needs no
-               script and remembers nothing: it is shut again next time, which
-               is right, because after the first install nobody needs it. -->
+          <p class="engine-diagnostics-output muted text-sm hidden" id="engine-diagnostics-output"></p>
+
+          <div class="engine-status" id="engine-status-region"
+               role="status" aria-live="polite" aria-busy="true">
+            <span class="badge" id="engine-status-badge">
+              <span class="dot" id="engine-status-dot" aria-hidden="true"></span>
+              <span id="engine-status">Checking engine…</span>
+            </span>
+            <span class="engine-status-detail hidden" id="engine-status-detail"></span>
+          </div>
+
+          <p class="notice hidden" id="engine-compatibility-warning"></p>
+
+          <dl class="engine-meta">
+            <div class="kv">
+              <dt>Installed version</dt>
+              <dd class="tech" id="engine-installed-version">—</dd>
+            </div>
+            <div class="kv">
+              <dt>Latest version</dt>
+              <dd class="tech" id="engine-latest-version">—</dd>
+            </div>
+            <div class="kv">
+              <dt>Protocol</dt>
+              <dd class="tech" id="engine-protocol-row">—</dd>
+            </div>
+          </dl>
+
+          <div class="engine-release">
+            <p class="engine-release-verdict" id="engine-release-verdict"></p>
+            <p class="engine-release-detail muted text-sm" id="engine-latest-detail"></p>
+          </div>
+
+          <div class="engine-actions">
+            <button class="engine-action-primary" id="engine-download" type="button" disabled>
+              <svg class="sx-icon sm" aria-hidden="true">
+                <use href="icons/material-icons.svg#file-download"></use>
+              </svg>
+              Download engine
+            </button>
+            <button class="engine-action-secondary" id="engine-recheck" type="button">
+              <svg class="sx-icon sm" aria-hidden="true">
+                <use href="icons/material-icons.svg#sync"></use>
+              </svg>
+              Check again
+            </button>
+          </div>
+
+          <div class="engine-power-setting">
+            <div class="engine-power-info">
+              <span class="engine-power-label" id="engine-power-label">Engine power</span>
+              <span class="engine-power-disclosure muted text-sm" id="engine-power-disclosure">Control is not connected yet.</span>
+            </div>
+            <span class="m3-switch">
+              <input id="engine-power-switch" type="checkbox" role="switch" disabled
+                     aria-label="Engine power"
+                     aria-describedby="engine-power-disclosure">
+              <span class="m3-switch-track" aria-hidden="true">
+                <span class="m3-switch-handle-container">
+                  <span class="m3-switch-handle"></span>
+                </span>
+              </span>
+            </span>
+          </div>
+
           <details class="install-steps hidden" id="engine-install-steps">
-            <summary>After it downloads</summary>
-            <ol class="text-sm">
-              <li>Run <span class="tech">scrapex-engine.exe</span>. It installs
-                for you alone — no administrator rights.</li>
-              <li>Windows shows a blue notice the first time, because the file
-                is new rather than because anything is wrong with it. Choose
-                <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
-              <!-- NAMED THE WAY THE CONTROL IS NAMED. This said "the refresh
-                   button above"; the control is icon-only and its whole
-                   accessible name is "Check ScrapeX-Engine again", so nothing
-                   on the card was called "refresh" and the instruction pointed
-                   at a button that does not exist by that name. -->
-              <li>Leave its window open — that window <strong>is</strong> the
-                engine — then press <strong>Check ScrapeX-Engine again</strong>
-                above.</li>
-            </ol>
-            <p class="muted text-sm" id="engine-download-checksum"></p>
+            <summary>Installation instructions <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#expand-more"></use></svg></summary>
+            <div class="install-steps-content">
+              <ol class="text-sm">
+                <li>Run <span class="tech">scrapex-engine.exe</span>. It installs
+                  for you alone — no administrator rights.</li>
+                <li>Windows shows a blue notice the first time, because the file
+                  is new rather than because anything is wrong with it. Choose
+                  <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+                <li>Leave its window open — that window <strong>is</strong> the
+                  engine — then press <strong>Check again</strong>.</li>
+              </ol>
+              <div class="engine-checksum">
+                <span>SHA-256</span>
+                <code class="tech" id="engine-download-checksum"></code>
+              </div>
+            </div>
           </details>
         </section>
 
-        <section class="card" aria-labelledby="engines-others-title">
+        <section class="card engine-card" aria-labelledby="engines-others-title">
           <h2 id="engines-others-title">Other engines</h2>
           <p>
             Open-source crawlers, installed only when a site needs something
             ScrapeX-Engine cannot do. Each keeps its own store and hands its
             output to ScrapeX-Engine.
           </p>
-          <div class="kv"><span>Available</span><span>None yet</span></div>
+          <p class="muted text-sm">No additional engines are available yet.</p>
         </section>
       </div>
     </section>
-
     <section id="view-console" class="hidden" role="tabpanel" aria-labelledby="tab-console" tabindex="0">
       <header class="view-heading">
         <h1>Console</h1>
