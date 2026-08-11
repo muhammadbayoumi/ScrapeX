@@ -72,6 +72,38 @@ def _cmd_init_db(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_carry_over(args: argparse.Namespace) -> int:
+    """Copy a two-database installation into the single file that replaced it."""
+    from .databases.carry_over import carry_over, read_split_pointer
+
+    plan = read_split_pointer(Path(args.registry) if args.registry else REGISTRY_FILE)
+    print(f"carrying {', '.join(p.name for p in plan.sources)} -> {plan.destination}")
+    report = carry_over(plan, dry_run=args.dry_run)
+
+    for table, counts in sorted(report["tables"].items()):
+        mark = " " if counts["written"] >= counts["read"] else "!"
+        print(f"  {mark} {table:<34} read {counts['read']:>8}  "
+              f"now holds {counts['written']:>8}")
+    for skip in report["skipped"]:
+        print(f"  - {skip['table']:<34} {skip['rows']:>8} rows LEFT BEHIND — "
+              f"{skip['why']}")
+
+    if args.dry_run:
+        print()
+        print("nothing was written and the pointer was not moved (--dry-run).")
+        return 0
+    if report["short"]:
+        print()
+        print("REFUSED to move the pointer: some tables hold fewer rows than "
+              "were read.")
+        print("The old files are untouched. Nothing now uses the new database.")
+        return 1
+    print()
+    print(f"the pointer now names {report['pointer_moved_to']}.")
+    print("The old files were opened read-only and are still where they were.")
+    return 0
+
+
 def _cmd_database_status(args: argparse.Namespace) -> int:
     registry = DatabaseRegistry.read(Path(args.registry) if args.registry else REGISTRY_FILE)
     health = registry.health()
@@ -983,6 +1015,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="legacy unified database path (only for migration or rollback)",
     )
     p.set_defaults(func=_cmd_init_db)
+
+    p = sub.add_parser(
+        "carry-over",
+        help="copy a two-database installation into the single database")
+    p.add_argument("--registry", help="pointer file (default: ~/.scrapex/databases.json)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="report what would be carried and write nothing")
+    p.set_defaults(func=_cmd_carry_over)
 
     p = sub.add_parser("database-status", help="show the database's health")
     p.add_argument("--registry", help="database registry path")

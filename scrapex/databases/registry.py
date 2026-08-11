@@ -80,8 +80,13 @@ class DatabaseRegistry:
                 f"{pointer} points at the two-database layout that ScrapeX used "
                 "before it kept everything in one file. Nothing has been changed "
                 "and nothing has been lost: the old files are still where they "
-                "were. Run 'scrapex init-db' to create the single database, then "
-                "'scrapex database-status'.")
+                "were. Run 'scrapex carry-over' to copy them into the single "
+                "database, then 'scrapex database-status'. "
+                "NOT 'init-db': that is what this message used to say and it "
+                "was a trap, because init-db creates a NEW database and applies "
+                "migrations to it and never reads the old files. On an "
+                "installation with data in them it produces an empty warehouse "
+                "beside a full one that nothing will open again.")
         if mode != "single":
             raise DatabasePointerError(
                 f"{pointer} does not say which database is live (mode={mode!r}); "
