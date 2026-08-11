@@ -368,18 +368,34 @@ test("no stylesheet hides the document until a script marks it ready", () => {
   }
 });
 
-test("the trace scripts load before the stylesheets and before app.js", () => {
+test("the trace scripts load first, and app.js is not in the markup at all", () => {
   const html = read("app.html");
   const trace = html.indexOf("startup-trace.js");
   const bootstrap = html.indexOf("startup-bootstrap.js");
   const firstStylesheet = html.indexOf("<link rel=\"stylesheet\"");
-  const appModule = html.indexOf("src=\"app.js\"");
 
   assert.ok(trace > -1 && bootstrap > trace,
     "the trace must be loaded before the bootstrap that uses it");
   assert.ok(bootstrap < firstStylesheet,
     "a stylesheet is fetched before the document records that it started");
-  assert.ok(bootstrap < appModule);
+
+  // THE ORDERING THAT REPLACED "bootstrap BEFORE app.js". app.js is no longer
+  // in the markup: Chrome reveals the Side Panel only after `load`, and a
+  // hidden document's resource loading is deprioritised, so a module graph in
+  // front of `load` keeps the panel hidden which keeps the graph slow. Measured
+  // on the owner's Chrome: every piece of our own work finished at 825ms and
+  // `load` still did not fire until 2024ms; the same page in a visible tab goes
+  // from DOMContentLoaded to load in 17ms.
+  //
+  // Putting the module tag back would restore the blank panel, so this asserts
+  // its ABSENCE rather than its position.
+  assert.ok(!/<script[^>]*src="app\.js"/.test(html),
+    "app.js is loaded from the markup again, which puts the whole module graph "
+    + "in front of `load` and leaves the Side Panel blank until the user clicks "
+    + "somewhere outside it");
+  assert.ok(html.includes("boot-app.js"),
+    "nothing appends app.js after `load`, so the panel would paint and then "
+    + "never become interactive");
 });
 
 // ---------------------------------------------------------------------------

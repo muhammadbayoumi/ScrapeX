@@ -1725,6 +1725,11 @@
          aria-label="Workspace pages"></div>
   </aside>
 
-  <script type="module" src="app.js"></script>
+  <!-- app.js is appended by boot-app.js when `load` fires, NOT loaded here.
+       Chrome reveals the Side Panel only after `load`, and a hidden document's
+       resource loading is deprioritised, so a module graph in front of `load`
+       keeps the panel hidden which keeps the graph slow. boot-app.js explains
+       the measurements. The shell above needs no JavaScript to be correct. -->
+  <script defer src="boot-app.js"></script>
 </body>
 </html>
