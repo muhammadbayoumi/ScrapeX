@@ -42,7 +42,7 @@ const SIDE_PANEL_PATH = "app.html";
 // Changed here, in source, rather than read from storage: MV3 requires event
 // listeners to be registered synchronously at the top level, and a strategy
 // that depends on an awaited storage read cannot honour that.
-const OPENING_STRATEGY = "diagnostic-nomodule";
+const OPENING_STRATEGY = "explicit";
 
 // The diagnostic page lives under extension/tests/ because the release workflow
 // deletes that directory from the package and then FAILS the build if it is
