@@ -110,7 +110,14 @@ what `source_site.active` is *for* — right now it is a column nobody reads and
 maintains. *(That last clause is **inferred** from the mismatch, not from reading the write
 path.)*
 
-### OP-3 · Five currencies have no exchange rate, and the cause is a page-shape change
+### OP-3 · ~~Five currencies have no exchange rate~~ — CLOSED 2026-08-11, and it was never five
+
+> Measured: 123 currencies in use, 119 with a rate, four without — and three of
+> those four were not gaps. `UNKNOWN` is a placeholder belonging entirely to the
+> deleted SPARK_ESHOP, `USD` is the base, and `SLL`/`ZWD` retired in 2022 and
+> 2009. Named in `UNQUOTABLE` (#156). The original text below is kept because its
+> premise — a page-shape change — was wrong, and that is worth knowing.
+
 **Status: open.** Live `scrapex_meta.runtime_rates_note`, 2026-07-29T12:18:32Z: 116 rates
 stored, five refused —
 
@@ -208,7 +215,14 @@ SAMEHGABRIEL's `lang=''` attribute rows; memory recorded 1,129. Measured today:
 **Next action:** find the connector path that emits an attribute with no `lang` before
 back-filling, or the backfill will be undone by the next crawl.
 
-### OP-12 · The repository has no linter, no formatter and no type checker
+### OP-12 · ~~No linter, formatter or type checker~~ — PARTLY CLOSED 2026-08-11
+
+> ruff gates `scrapex/` and caught three of my own mistakes in one day. `mypy
+> --strict` was RUN over the price files and reported 72 findings — 14
+> correctness-shaped, of which 10 were false and 2 real, both fixed (#157). The
+> GATE is deliberately not added: 60 of the 72 are annotations and that churn
+> buys no defect. Widening ruff to `tests/` and `tools/` is still open.
+
 **Status: open.** No `ruff`, no `mypy`, no `eslint` anywhere (`REVIEW-2026-07-28` §9).
 Every style and type rule in `ENGINEERING.md` §2 (Q5: "type hints everywhere") is enforced
 by attention alone.
@@ -226,6 +240,68 @@ refused to assert it from memory (`REVIEW-2026-07-28` §9). Worth settling becau
 decides whether a large record set can be returned at all.
 
 ---
+
+### OP-15 · The panel talks about the engine in the wrong places, and says it twice differently
+
+Reported by the owner on 2026-08-11 with the engine at 0.2.2 and the unpacked
+extension at 0.2.1, so all of it is visible on a real installation right now.
+Recorded in full as issue #160; the four parts are:
+
+- The version-mismatch banner follows the reader onto **all eleven views**. It
+  sits outside every view deliberately — its comment argues that a warning you
+  have to hunt for arrives after the owner has already asked why a feature is
+  missing. That reasoning was sound before the Engine page existed. Moving it is
+  a **reversal of a documented decision**, so whoever does it must answer the
+  original problem rather than delete the note.
+- The Engine card reads `Installed version 0.2.2 / Latest released 0.2.1` while
+  the banner above it reads `Installed extension 0.2.1 / Engine 0.2.2`. Each is
+  correct alone. **The word "installed" means two different things two inches
+  apart.**
+- Engine controls stay enabled when there is no engine to control.
+- The About page carries three version numbers and eight capability entries with
+  their own commit hashes. That is a changelog, on the page a person opens to
+  find out what the thing is.
+
+The owner's own rule decides most of it without arguing case by case: *leave what
+belongs to the extension where it is, and tie everything else to the engine.*
+
+### OP-16 · "Closing the panel never stops a run" is asserted in a comment and checked by nothing
+
+`extension/app.js` opens by stating that the panel is a remote control, that
+closing it never stops a run, and that reopening reconnects to whatever is in
+flight. **No test exercises any of it** — every panel test opens the panel,
+drives it, and ends. Issue #161.
+
+Two halves, failing differently. *Closing never stops a run* is probably true —
+the engine owns execution — but the panel holds a poll loop and, since #152, work
+that begins on `load`; if the close path aborts a request the engine reads as a
+cancel, a long crawl dies because the owner closed a side panel to read a page,
+and they would never connect the two. *Reopening reconnects* is the fragile half:
+a reopened panel is a **fresh document** that must find the running job and
+re-attach to its progress. If it shows idle, the owner sees a crawl vanish while
+it is still running, and starts it again.
+
+Five minutes by hand settles it: start a long crawl, close the panel, wait 30
+seconds, reopen.
+
+### OP-17 · `carry_over` cannot merge a table that lives in both old databases
+
+Found by running the carry-over for real on 2026-08-11. Both old files number
+their rows from 1, so any table present in BOTH collides on its primary key and
+`INSERT OR IGNORE` drops the second file's rows without a word. It did not bite
+the owner only because no table of theirs lives in both.
+
+**Refusing is the correct behaviour and the row-count guard already produces it**
+— 45 read, 40 written, pointer not moved. Recorded rather than fixed, because a
+merge would have to invent new keys and rewrite every foreign key that points at
+them. Worth doing only if a real installation ever needs it.
+
+A second thing that run taught, worth keeping beyond this item: **`INSERT OR
+IGNORE` swallows a CONSTRAINT failure exactly as quietly as it swallows a
+duplicate.** A row violating a NOT NULL in the new schema vanishes with no error;
+the row count is the only thing that notices. `PRAGMA table_info` does not show
+CHECK constraints at all, which is why the test fixture was wrong three times
+before it was built from the shipped schema instead of from memory.
 
 ## 3. Decided, not yet built
 
@@ -455,6 +531,65 @@ reachable from an extension whose id the old manifest does not know.)*
 
 ---
 
+## 6a. In flight right now — 2026-08-11
+
+*The only section that goes stale by the hour. Check it against `gh pr list`
+before trusting it.*
+
+| what | where | state |
+|---|---|---|
+| Side panel startup | PR #152 · branch `perf/extension-side-panel-startup` | Fix **owner-verified in real Chrome**. Blocked on a rebase: nine SEMANTIC conflicts with `main` in `app.js` and `identity.js`, because #151 changed 356 lines of the same file. Handed to a separate session. **The owner loads the unpacked extension from that worktree**, so a broken rebase breaks their install. |
+| Carry the split databases over | PR #159 · branch `feat/carry-the-split-databases-into-one` | Command works and **has already run on the owner's real data** — pointer moved, `database-status` Healthy. Nine tests, three proved to bite. Blocked on: the full suite has never been run against this branch, only its own test file. |
+| Four panel-placement defects | issue #160 | Not started |
+| The untested remote-control promise | issue #161 | Not started |
+
+**Owner-side, no code involved:** the privacy policy is published and its whole
+chain verified; the Chrome Web Store listing still needs uploading without the
+`key` field. The engine stays **unsigned** by decision on 2026-08-11 — sole user,
+so a certificate buys trust from strangers there are none of. Do not re-propose
+it; the only consequence is Defender scanning each new download once, which the
+splash now covers.
+
+## 6b. The failure this repository keeps making
+
+*Added 2026-08-11 after it appeared NINE times in a single day. Not a task — a
+lens to hold while reading everything above.*
+
+**A gate that checks something is DECLARED, not that it WORKS.**
+
+Every instance looked like coverage and was not:
+
+- ~2,200 tests, and **not one starts the built binary**. The engine could ship
+  68 MB with `pytest` inside it and pass everything, because the binary *works* —
+  it is merely enormous and slow, which no assertion about behaviour notices.
+- `source_site.active` was read through `WHERE active = 1`, a filter matching
+  every row because nothing ever wrote 0. It looked like maintenance for months.
+- A touch target asserted at `>= 48` was **loosened to 47.5 so it would pass**.
+  Measured afterwards: the button renders at exactly 48. The relaxation bought
+  nothing and lowered an accessibility floor permanently.
+- A hover test compared the foreground colour, which the fix never changed. It
+  passed with the fix reverted — proved by reverting it.
+- An assertion on the finance switch was satisfied by the ENGINE POWER switch
+  elsewhere on the page. An assertion another element can satisfy is not a test
+  of this one.
+- `publish-docs.yml` ended by printing two URLs it never opened.
+- The privacy policy's truth is asserted against the shipped manifest — good —
+  but nothing checked the page a reader actually loads.
+- A ledger exemption was added to `carry_over` with **nothing holding it to
+  account**, which is how "these two tables" quietly becomes "and these others".
+- The panel's own comment promises that closing it never stops a run (OP-16).
+
+**The test.** For any guard, ask: *if the thing it protects were broken right
+now, would this fail?* If you cannot answer without running it, run it — break
+the thing, watch it fail, restore. Three tests written on 2026-08-11 exist only
+because their first versions passed while guarding nothing.
+
+**And the same discipline applies to diagnosis.** Four hypotheses about the blank
+side panel were measured and killed before the right one — Windows occlusion, the
+opening strategy, a zero-width layout, the engine's absence. Three mechanisms
+were recorded WRONGLY on PR #152 and corrected. The conclusions converged only
+because nothing was accepted without a number.
+
 ## 7. Done — newest first, so it is not re-proposed
 
 *This table and `CHANGELOG.md` answer two different questions and neither replaces the
@@ -465,6 +600,15 @@ only when a release carries it.*
 
 | when | what | commit |
 |---|---|---|
+| 08-11 | **The Side Panel opened blank until you clicked elsewhere.** Chrome creates the panel document HIDDEN and reveals it only after `load` (8.9ms and 6.5ms after it, two traces); a hidden document's resource loading is deprioritised, so the panel stayed hidden until `load` and `load` was slow *because* it was hidden. `app.js` is now appended by `boot-app.js` on `load`, and its entry point asks `readyState` instead of waiting on a `DOMContentLoaded` that has already passed. Owner-verified in real Chrome | PR #152 |
+| 08-11 | **The engine had not started since the collapse to one database.** `databases.json` still said `mode: split`, and the refusal message named `init-db` — which creates an EMPTY database and has never read `marketlens.db`. Following it would have left 110 MB of prices orphaned. `scrapex carry-over` copies both files read-only, counts distinct source rows against a destination baseline, and moves the pointer only if every table of data agrees. Ran on the owner's data: 338,000 rows, 88,286 price observations, zero short | PR #159 |
+| 08-11 | The release built the engine in the same environment that ran the tests, so `pytest` and Playwright shipped inside the binary (193 references to playwright in the published exe). Build moved to a venv with runtime extras only, plus a 45 MB ceiling. **Measured honestly: 67.6 MB → 60.1 MB, eleven per cent — not the two thirds the disk sizes suggested.** A `--splash` covers the unpack, which is the part that actually looked broken | `756fa39` (#154) |
+| 08-11 | `source_site.active` said all twelve sources were live while `sources.yaml` had five switched off. The column is written once on insert and never set to 0 — an inactive source is never crawled, so the only code touching its row never runs. Its one reader filtered on `WHERE active = 1`, matching every row. `reconcile_active` writes the manifest's intent on every panel flip; a source the manifest no longer names is left alone, because that is `undeclared_sources`' business | `b90c239` (#155) |
+| 08-11 | "Five currencies with no exchange rate" was never five and never currencies: `UNKNOWN` (3,149 obs, all belonging to the deleted SPARK_ESHOP), `USD` (the base), and `SLL`/`ZWD` — retired in 2022 and 2009. The engine asked Google for all three every refresh cycle, failed, and wrote three warnings nobody could act on. Named in `UNQUOTABLE` with a reason and date each | `0010677` (#156) |
+| 08-11 | `publish-docs.yml` ended by echoing two URLs. The publish writes through the Contents API; the page reads through raw.githubusercontent.com, and hangs on a `data-sx-doc` attribute in a separate repository. Either half could break with the publish still reporting success — and the first to notice would have been a Google reviewer rejecting the store listing. Both halves are now checked, with a retry for CDN lag and no browser | `bf0912b` (#158) |
+| 08-11 | `mypy --strict` over the price files for the first time: 72 findings, 14 correctness-shaped, **10 false and 2 real** — a `None` ruled out only by a raise twenty lines up, and a cache typed `dict[str, object]` feeding a function that needs a `RobotsReport`. Both were mine from the same day. The gate itself is NOT here: 60 of the 72 are annotations, and that churn buys no defect | `1631af8` (#157) |
+| 08-11 | robots.txt became the owner's decision per site — follow the tool default, obey that site, or write a rule for it alone | `adf31b2` (#153) |
+| 08-11 | The Engine page: status, install disclosure, overflow menu, and a disabled power placeholder. Final review found a touch target loosened from 48 to 47.5 to pass (measured: it renders at exactly 48), a hover test that stayed green with its own fix removed, and eight dead class names the UI-kit gate was right to reject | `db44ce0` (#151) |
 | 07-30 | Version management: one version with drift-tested mirrors in `pyproject.toml` and `extension/manifest.json`, a capability ledger whose minimum-extension gate is derived from it, a baseline that fails the build when the capability set moves while the number stands still, and a panel that says which version it is and what that version can do | `e9dd17e` |
 | 07-29 | Crawl pace controls moved into the panel; the web page proved display-only by a test that fails if it grows an input | `2253308` |
 | 07-29 | A market rate now outranks a storefront's in all four USD subqueries — authority first, then recency | `69e986c` |
