@@ -42,6 +42,11 @@
     "https://sheets.googleapis.com/v4/*",
     "https://oauth2.googleapis.com/revoke*"
   ],
+  "externally_connectable": {
+    "matches": [
+      "https://muhammadbayoumi.github.io/*"
+    ]
+  },
   "oauth2": {
     "client_id": "668111083414-0fd7tso17orbbqrkg0mjnne8oig0pqru.apps.googleusercontent.com",
     "scopes": [

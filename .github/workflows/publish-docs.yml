@@ -33,6 +33,26 @@ on:
     paths:
       - "docs/privacy-policy.md"
       - "docs/support.md"
+  # A DAILY LOOK AT WHAT IS ACTUALLY PUBLISHED, because the push trigger above
+  # only fires when this repository changes and says nothing about whether the
+  # publish SUCCEEDED or survived.
+  #
+  # Three ways the published copy drifts from this one, none of which touches
+  # `docs/` here and so none of which the push trigger can see:
+  #   * a publish run that failed after the tests and before the write
+  #   * an edit made directly in mbiX-hub
+  #   * a revert, a force-push, or a restore in that repository
+  #
+  # The owner asked for this on 2026-08-12 in terms of the DATE — "if the
+  # published date differs from ours, run the workflow". The check below
+  # compares the whole file rather than the date line, which is strictly
+  # stronger: a date can match while the text underneath has moved, and it is
+  # the text that makes promises. The date is reported because it is the line a
+  # human reads first.
+  schedule:
+    # 04:11 UTC. An odd minute on purpose: GitHub queues every job scheduled on
+    # the hour, and a policy check is not worth waiting in that queue.
+    - cron: "11 4 * * *"
 
 permissions:
   contents: read
@@ -47,10 +67,65 @@ env:
   PUBLIC_REPO: muhammadbayoumi/mbiX-hub
 
 jobs:
+  # WHAT IS PUBLISHED, AGAINST WHAT IS HERE. Runs on every trigger and decides
+  # whether the publish job below has anything to do.
+  #
+  # On a push it will almost always say "drifted", which is correct and costs a
+  # single fetch: this repository just changed and the hub has not. On the daily
+  # schedule it is usually silent, which is the point — a scheduled job that
+  # republishes unconditionally teaches everyone to ignore its runs.
+  drift:
+    runs-on: ubuntu-latest
+    outputs:
+      drifted: ${{ steps.compare.outputs.drifted }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the published documents with these
+        id: compare
+        run: |
+          set -uo pipefail
+          RAW=https://raw.githubusercontent.com/muhammadbayoumi/mbiX-hub/main/ScrapeX/docs
+          drifted=no
+          for doc in privacy-policy support; do
+            mine=$(sha256sum "docs/$doc.md" | cut -d' ' -f1)
+            # NOT `curl -f`: a 404 is a real answer here — the document has
+            # never been published — and it must read as drift rather than as a
+            # broken check.
+            theirs=$(curl -sL --max-time 20 "$RAW/$doc.md" 2>/dev/null | sha256sum | cut -d' ' -f1)
+            here=$(grep -m1 'Last updated' "docs/$doc.md" || echo "(no date line)")
+            there=$(curl -sL --max-time 20 "$RAW/$doc.md" 2>/dev/null | grep -m1 'Last updated' || echo "(unreadable)")
+            if [ "$mine" != "$theirs" ]; then
+              drifted=yes
+              echo "::notice::$doc.md differs from what is published."
+              echo "  here:      $here"
+              echo "  published: $there"
+            else
+              echo "$doc.md matches what is published — $here"
+            fi
+          done
+          echo "drifted=$drifted" >> "$GITHUB_OUTPUT"
+          if [ "$drifted" = no ]; then
+            echo "Nothing to publish. The website already carries these documents."
+          fi
+
   publish:
+    needs: drift
+    # NO `if:` HERE, ON PURPOSE. It was on the job, and the comment beside it
+    # claimed the tests still ran on every path -- which the `if:` itself made
+    # false: skipping the job skipped the guards too. A daily run that found no
+    # drift then proved nothing at all, while reporting green.
+    #
+    # The condition now sits on the two steps that WRITE. Everything that CHECKS
+    # runs every time.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, because the privacy-policy guards below ask git when a
+          # document last really changed. A depth-1 clone grafts HEAD, so every
+          # file looks newly added and the guard answers with HEAD's date for
+          # everything -- confidently, and wrongly.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -66,6 +141,7 @@ jobs:
           python -m pytest -q tests/test_the_privacy_policy_is_true.py
 
       - name: Publish to the public delivery endpoint
+        if: needs.drift.outputs.drifted == 'yes'
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
         run: |
@@ -85,6 +161,7 @@ jobs:
           done
 
       - name: The pages the store depends on must actually work
+        if: needs.drift.outputs.drifted == 'yes'
         # PRINTING A URL IS NOT CHECKING IT. This step used to end by echoing
         # the two page addresses, which proves nothing: publishing can succeed
         # while the page stays blank for ever, and the chain that follows is the

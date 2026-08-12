@@ -26,12 +26,27 @@ function loadTraceFactory() {
 /** A chrome.storage.session that records every write, in order. */
 function sessionStorage() {
   const writes = [];
+  const held = new Map();
   const area = {
     async set(value) {
       writes.push(structuredClone(value));
+      for (const [key, item] of Object.entries(value)) {
+        held.set(key, structuredClone(item));
+      }
+    },
+    async get(key) {
+      const wanted = typeof key === "string" ? [key] : (key || [...held.keys()]);
+      const answer = {};
+      for (const name of wanted) {
+        if (held.has(name)) answer[name] = structuredClone(held.get(name));
+      }
+      return answer;
+    },
+    async remove(key) {
+      for (const name of (typeof key === "string" ? [key] : key)) held.delete(name);
     },
   };
-  return {writes, area};
+  return {writes, area, held};
 }
 
 /**
@@ -44,12 +59,14 @@ function workerHarness() {
     actionListeners: [],
     installedListeners: [],
     openedListeners: [],
+    externalListeners: [],
     configuration: [],
     open: [],
     tabs: [],
   };
-  const {writes, area} = sessionStorage();
+  const {writes, area, held} = sessionStorage();
   calls.storage = writes;
+  calls.held = held;
 
   const chrome = {
     action: {
@@ -62,6 +79,13 @@ function workerHarness() {
       getURL: (path) => `chrome-extension://test/${path}`,
       onInstalled: {
         addListener(listener) { calls.installedListeners.push(listener); },
+      },
+      // The chooser page's only way back in. A harness without it does not
+      // merely skip a test — background.js throws on load and every test in
+      // this file fails with a message about `addListener` rather than about
+      // the panel.
+      onMessageExternal: {
+        addListener(listener) { calls.externalListeners.push(listener); },
       },
     },
     sidePanel: {
@@ -87,6 +111,18 @@ function workerHarness() {
         async set(value) {
           calls.apiOrder.push("storage.session.set");
           return area.set(value);
+        },
+        // A real key-value store, not a write log. The nonce handoff is READ
+        // and DELETED as well as written, and a stub that only records writes
+        // would make every trade succeed by returning undefined and letting the
+        // code decide what that means.
+        async get(key) {
+          calls.apiOrder.push("storage.session.get");
+          return area.get(key);
+        },
+        async remove(key) {
+          calls.apiOrder.push("storage.session.remove");
+          return area.remove(key);
         },
       },
     },
@@ -569,3 +605,241 @@ test("app.js starts even though DOMContentLoaded is long past when it arrives", 
     + "boot-app.js appends it after `load`, so that event never fires again "
     + "and nothing in the panel ever starts");
 });
+
+// ---------------------------------------------------------------------------
+// The one door a web page has into this extension.
+//
+// `externally_connectable` in the manifest decides WHO may knock. These decide
+// what happens once someone has. Every one of them drives the real listener out
+// of background.js rather than a copy of its rules.
+// ---------------------------------------------------------------------------
+
+const PICKER_ORIGIN = "https://muhammadbayoumi.github.io";
+
+/** The listener the worker registered, with the harness's recorded writes. */
+async function externalListener(t) {
+  const {calls, chrome} = workerHarness();
+  await loadBackground(t, chrome);
+  assert.equal(calls.externalListeners.length, 1,
+    "background.js registers no external listener, so the chooser page can "
+    + "never hand anything back");
+  return {listen: calls.externalListeners[0], calls};
+}
+
+/**
+ * The last thing written under the picked-spreadsheet key.
+ *
+ * `.at(-1)` is wrong here: trace.mark() writes to the same session area, so the
+ * newest write is often the trace rather than the choice, and a test that read
+ * it would pass or fail on which promise settled first.
+ */
+function lastPicked(calls) {
+  const written = calls.storage
+    .filter((write) => "scrapexPickedSpreadsheet" in write);
+  return written.length ? written.at(-1).scrapexPickedSpreadsheet : undefined;
+}
+
+/** Every write that carried a choice — the count refusals must not raise. */
+function pickedWrites(calls) {
+  return calls.storage.filter((write) => "scrapexPickedSpreadsheet" in write).length;
+}
+
+/** Calls the listener and waits for whatever it promised to write. */
+async function knock(listen, message, origin) {
+  let answered;
+  const replied = new Promise((resolve) => { answered = resolve; });
+  listen(message, {origin, id: "whoever"}, answered);
+  const answer = await Promise.race([
+    replied,
+    new Promise((resolve) => setTimeout(() => resolve("never answered"), 50)),
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return answer;
+}
+
+test("a page on any other origin is refused, and nothing is written", async (t) => {
+  const {listen, calls} = await externalListener(t);
+  const before = pickedWrites(calls);
+
+  const answer = await knock(listen, {
+    kind: "scrapex-picked-spreadsheet",
+    fileId: "1AttackerSuppliedId",
+    name: "Payroll",
+  }, "https://muhammadbayoumi.github.io.example.com");
+
+  assert.deepEqual(answer, {ok: false});
+  assert.equal(pickedWrites(calls), before,
+    "a message from a look-alike origin reached storage. The manifest's match "
+    + "pattern is a prefix match on the host; a listener that trusts it is one "
+    + "typo away from taking a file id from any site");
+});
+
+test("an empty or absent origin is refused as firmly as a wrong one", async (t) => {
+  const {listen, calls} = await externalListener(t);
+  const before = pickedWrites(calls);
+
+  assert.deepEqual(await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: "1x"}, undefined), {ok: false});
+  assert.deepEqual(await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: "1x"}, ""), {ok: false});
+  assert.equal(pickedWrites(calls), before);
+});
+
+test("another kind of message from the right origin is still refused", async (t) => {
+  const {listen, calls} = await externalListener(t);
+  const before = pickedWrites(calls);
+
+  // The origin is correct here. Being allowed to speak is not being believed:
+  // one page on that site is compromised or one script is added to it, and this
+  // is what stands between that and the panel.
+  for (const message of [
+    null,
+    {},
+    {kind: "start-a-job", target: "http://127.0.0.1:8000"},
+    {kind: "scrapex-picked-spreadsheet ", fileId: "1x"},
+  ]) {
+    assert.deepEqual(await knock(listen, message, PICKER_ORIGIN), {ok: false},
+      `accepted ${JSON.stringify(message)}`);
+  }
+  assert.equal(pickedWrites(calls), before);
+});
+
+test("a chosen file arrives as an id and a name, and nothing else", async (t) => {
+  const {listen, calls} = await externalListener(t);
+
+  const answer = await knock(listen, {
+    kind: "scrapex-picked-spreadsheet",
+    fileId: "1RealFileId",
+    name: "Quarterly prices",
+    // Everything below was not asked for. A listener that spread the message
+    // would carry all of it into the panel's session storage.
+    token: "ya29.a-token-the-page-should-never-return",
+    url: "https://example.com/collect",
+    mimeType: "application/vnd.google-apps.spreadsheet",
+  }, PICKER_ORIGIN);
+
+  assert.deepEqual(answer, {ok: true});
+  const written = lastPicked(calls);
+  assert.deepEqual(written, {fileId: "1RealFileId", name: "Quarterly prices"},
+    "the panel received more than the id and the name it asked for");
+});
+
+test("a cancelled choice is recorded as a choice of nothing", async (t) => {
+  const {listen, calls} = await externalListener(t);
+
+  // Not silence: the panel is waiting, and a wait that ends only on a timeout
+  // makes cancelling feel like a fault.
+  assert.deepEqual(await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: null}, PICKER_ORIGIN), {ok: true});
+  assert.deepEqual(lastPicked(calls),
+    {fileId: null, name: ""});
+});
+
+test("a file id that is not a string becomes no file id", async (t) => {
+  const {listen, calls} = await externalListener(t);
+
+  await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: {toString: "not a string"}, name: 42}, PICKER_ORIGIN);
+  assert.deepEqual(lastPicked(calls),
+    {fileId: null, name: ""});
+});
+
+// ---------------------------------------------------------------------------
+// The nonce that replaced a token in a URL.
+//
+// The token used to travel in the chooser tab's fragment, defended by the true
+// and irrelevant fact that browsers do not send fragments to servers. The
+// reader that matters is local: chrome.tabs.create COMMITS the URL, and the
+// committed URL reaches every extension holding the `tabs` permission through
+// onCreated and onUpdated. Erasing it in the page cannot help — the delivery
+// already happened.
+// ---------------------------------------------------------------------------
+
+/** The listener, with a handoff already waiting as the panel would leave it. */
+async function withHandoff(t, handoff) {
+  const {calls, chrome} = workerHarness();
+  await loadBackground(t, chrome);
+  if (handoff) await chrome.storage.session.set({scrapexPickerHandoff: handoff});
+  return {listen: calls.externalListeners[0], calls, chrome};
+}
+
+const LIVE = {nonce: "n-1234", token: "ya29.a-real-token", expires: 4102444800000};
+
+test("the right nonce buys the token exactly once", async (t) => {
+  const {listen, calls} = await withHandoff(t, LIVE);
+
+  const first = await knock(listen,
+    {kind: "scrapex-picker-token", nonce: "n-1234"}, PICKER_ORIGIN);
+  assert.deepEqual(first, {ok: true, token: "ya29.a-real-token"});
+
+  // SPENT. Whoever read the nonce out of the tab's URL arrives second.
+  const second = await knock(listen,
+    {kind: "scrapex-picker-token", nonce: "n-1234"}, PICKER_ORIGIN);
+  assert.deepEqual(second, {ok: false},
+    "the same nonce bought the token twice, which makes it a token with extra "
+    + "steps rather than a one-time handoff");
+  assert.equal(calls.held.has("scrapexPickerHandoff"), false);
+});
+
+test("a wrong nonce buys nothing, and does not destroy the real one", async (t) => {
+  const {listen, calls} = await withHandoff(t, LIVE);
+
+  assert.deepEqual(await knock(listen,
+    {kind: "scrapex-picker-token", nonce: "n-9999"}, PICKER_ORIGIN), {ok: false});
+  for (const nonce of [null, "", 42, {}, undefined]) {
+    assert.deepEqual(await knock(listen,
+      {kind: "scrapex-picker-token", nonce}, PICKER_ORIGIN), {ok: false},
+      `accepted a nonce of ${JSON.stringify(nonce)}`);
+  }
+
+  // The owner's own chooser is still waiting. A guess that consumed the handoff
+  // would let any page on that origin break the feature at will.
+  assert.equal(calls.held.has("scrapexPickerHandoff"), true);
+  assert.deepEqual(await knock(listen,
+    {kind: "scrapex-picker-token", nonce: "n-1234"}, PICKER_ORIGIN),
+    {ok: true, token: "ya29.a-real-token"});
+});
+
+test("an expired handoff hands nothing over, and is cleared", async (t) => {
+  const {listen, calls} = await withHandoff(t,
+    {nonce: "n-1234", token: "ya29.stale", expires: 1});
+
+  assert.deepEqual(await knock(listen,
+    {kind: "scrapex-picker-token", nonce: "n-1234"}, PICKER_ORIGIN), {ok: false});
+  assert.equal(calls.held.has("scrapexPickerHandoff"), false,
+    "an expired handoff was left in storage");
+});
+
+test("a handoff with no expiry at all is refused rather than trusted", async (t) => {
+  const {listen} = await withHandoff(t, {nonce: "n-1234", token: "ya29.forever"});
+  assert.deepEqual(await knock(listen,
+    {kind: "scrapex-picker-token", nonce: "n-1234"}, PICKER_ORIGIN), {ok: false});
+});
+
+test("no handoff means no token, whatever is asked", async (t) => {
+  const {listen} = await withHandoff(t, null);
+  assert.deepEqual(await knock(listen,
+    {kind: "scrapex-picker-token", nonce: "n-1234"}, PICKER_ORIGIN), {ok: false});
+});
+
+test("another origin cannot ask for the token either", async (t) => {
+  const {listen, calls} = await withHandoff(t, LIVE);
+
+  assert.deepEqual(await knock(listen, {kind: "scrapex-picker-token", nonce: "n-1234"},
+    "https://muhammadbayoumi.github.io.example.com"), {ok: false});
+  assert.equal(calls.held.has("scrapexPickerHandoff"), true,
+    "a refused origin still spent the handoff");
+});
+
+test("choosing a file ends the handoff — picking is the last thing it is for",
+  async (t) => {
+    const {listen, calls} = await withHandoff(t, LIVE);
+
+    await knock(listen, {kind: "scrapex-picked-spreadsheet", fileId: "1Real"},
+      PICKER_ORIGIN);
+
+    assert.equal(calls.held.has("scrapexPickerHandoff"), false,
+      "the handoff outlived the choice, so the nonce could still be traded");
+    assert.deepEqual(calls.held.get("scrapexPickedSpreadsheet"),
+      {fileId: "1Real", name: ""});
+  });

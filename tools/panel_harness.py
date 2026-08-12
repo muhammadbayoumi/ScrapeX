@@ -248,6 +248,28 @@ window.chrome = {{
         return {{...held}};
       }},
       set: async (patch) => {{ Object.assign(held, patch); }},
+      // A store you cannot delete from is not the one the panel talks to.
+      // "Create a spreadsheet" clears the chosen export target through here, so
+      // a stub without `remove` turns a working button into a TypeError that
+      // only appears in the browser.
+      remove: async (keys) => {{
+        for (const key of (typeof keys === "string" ? [keys] : keys)) delete held[key];
+      }},
+    }};
+  }})(),
+  // The chooser's handoff lives here. Nothing survives the page, which is
+  // exactly what chrome.storage.session is.
+  session: (() => {{
+    const kept = {{}};
+    return {{
+      get: async (keys) => {{
+        if (typeof keys === "string") return keys in kept ? {{[keys]: kept[keys]}} : {{}};
+        return {{...kept}};
+      }},
+      set: async (patch) => {{ Object.assign(kept, patch); }},
+      remove: async (keys) => {{
+        for (const key of (typeof keys === "string" ? [keys] : keys)) delete kept[key];
+      }},
     }};
   }})() }},
   // chrome.identity reports failure by leaving the token undefined and setting

@@ -158,6 +158,107 @@ chrome.sidePanel.onOpened?.addListener((info) => {
   trace.mark("side-panel-on-opened", info);
 });
 
+// ---- the spreadsheet the owner chose, arriving from a web page --------------
+//
+// Google Picker cannot run in this panel: it loads apis.google.com/js/api.js,
+// and MV3 forbids an extension executing code fetched from a server. So the
+// chooser lives on an ordinary web origin (docs/picker/scrapex-picker.html,
+// served from the owner's site) and hands back an id here.
+//
+// EVERYTHING FROM OUTSIDE IS UNTRUSTED, and `externally_connectable` narrows
+// WHO may speak, never WHAT they may say. The origin is checked again below
+// even though the manifest already restricts it — a match pattern is one
+// character from being widened, and this listener is the last thing standing
+// between a web page and the panel.
+//
+// It carries no token in either direction. The page was handed one to draw the
+// Picker with; what returns is a file id and a name, and the panel opens that
+// file with its own token exactly as it opens one it created.
+const PICKER_ORIGIN = "https://muhammadbayoumi.github.io";
+
+/**
+ * Hand the page the access token it needs, once, in exchange for the nonce the
+ * panel put in its URL.
+ *
+ * WHY THE TOKEN IS NOT SIMPLY IN THE URL. It was, and that was wrong. A
+ * fragment is not sent to a server — which is true, and defends against the
+ * wrong adversary. Locally a tab's URL is public: chrome.tabs.onCreated and
+ * onUpdated hand it, fragment and all, to EVERY installed extension holding the
+ * `tabs` permission. A live OAuth bearer token sitting there is readable by any
+ * of them and usable from any machine for the rest of its hour.
+ *
+ * So the URL carries a nonce and nothing else. What a watching extension can
+ * copy is a number that:
+ *
+ *   - is spent by the first caller and refused for ever after,
+ *   - expires on its own within the chooser's own two-minute window,
+ *   - is worthless without ALSO being able to send from the picker's origin,
+ *     which needs a content script on that site — a far higher bar than the
+ *     `tabs` permission that used to be sufficient.
+ */
+async function tradeNonceForToken(nonce) {
+  if (typeof nonce !== "string" || !nonce) return null;
+
+  const held = await chrome.storage.session.get("scrapexPickerHandoff");
+  const handoff = held.scrapexPickerHandoff;
+  if (!handoff || handoff.nonce !== nonce) return null;
+
+  // SPENT ON SIGHT, before the expiry is even considered. An early return that
+  // left the handoff in place would make a wrong guess free to repeat.
+  await chrome.storage.session.remove("scrapexPickerHandoff");
+
+  if (!handoff.expires || Date.now() > handoff.expires) return null;
+  return handoff.token || null;
+}
+
+chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
+  const origin = (sender && sender.origin) || "";
+  if (origin !== PICKER_ORIGIN) {
+    trace.mark("picker-message-refused", {origin});
+    respond({ok: false});
+    return false;
+  }
+  if (!message || typeof message.kind !== "string") {
+    respond({ok: false});
+    return false;
+  }
+
+  if (message.kind === "scrapex-picker-token") {
+    tradeNonceForToken(message.nonce).then(
+      (token) => {
+        trace.mark("picker-token-handed", {granted: Boolean(token)});
+        respond(token ? {ok: true, token} : {ok: false});
+      },
+      () => respond({ok: false}));
+    return true;                     // the reply is asynchronous
+  }
+
+  if (message.kind !== "scrapex-picked-spreadsheet") {
+    respond({ok: false});
+    return false;
+  }
+
+  // A FILE ID AND NOTHING ELSE. Whatever else the page sent is dropped here
+  // rather than forwarded, so a future field cannot arrive in the panel without
+  // someone adding it deliberately on this line.
+  const picked = {
+    fileId: typeof message.fileId === "string" ? message.fileId : null,
+    name: typeof message.name === "string" ? message.name : "",
+  };
+  trace.mark("picker-message", {picked: Boolean(picked.fileId)});
+
+  // chrome.storage.session, not local: a choice the owner made a moment ago is
+  // meaningless after the browser closes, and writing it to disk would keep a
+  // record of a document nobody asked us to remember.
+  //
+  // The handoff dies with the choice too. Picking is the last thing the page
+  // needs a token for, and one left behind is one that can still be traded.
+  chrome.storage.session.set({scrapexPickedSpreadsheet: picked})
+    .then(() => chrome.storage.session.remove("scrapexPickerHandoff"))
+    .then(() => respond({ok: true}), () => respond({ok: false}));
+  return true;                       // the reply is asynchronous
+});
+
 // RETRIEVING THE TRACE. Run scrapexTrace() in the service worker's console
 // (chrome://extensions -> ScrapeX -> "service worker"). The two contexts write
 // to separate keys, so this is where they are merged back onto one clock — the

@@ -16,6 +16,7 @@ import pathlib
 import re
 
 import pytest
+from urllib.parse import urlparse
 
 pytestmark = pytest.mark.extension
 
@@ -271,6 +272,11 @@ def test_every_place_the_extension_persists_data_is_in_the_policy():
         "timezone.js": "time zone",
         "accounts.js": "accounts",
         "engine.js": "engine",
+        # The workbook exports are written into, once the owner picks one
+        # through the Picker. It outlives the panel deliberately — choosing
+        # where a business's data lands is not a decision to re-make daily —
+        # and outliving the panel is exactly what puts it in this table.
+        "app.js": "spreadsheet",
     }
     missing = [name for name in writers
                if name in described and described[name].lower() not in storage_table.lower()]
@@ -370,3 +376,324 @@ def test_the_listing_names_the_version_being_submitted():
     assert MANIFEST["version"] in listing.splitlines()[0], (
         f"the listing is headed {listing.splitlines()[0]!r} and the manifest is "
         f"at {MANIFEST['version']}")
+
+
+# ---- the date is a claim like any other -------------------------------------
+
+def _stated_date(document: pathlib.Path) -> str:
+    """The `*Last updated: 6 August 2026*` line, as an ISO date."""
+    import datetime
+
+    text = document.read_text(encoding="utf-8")
+    found = re.search(r"\*Last updated:\s*(.+?)\s*\*", text)
+    assert found, f"{document.name} carries no 'Last updated' line"
+    return datetime.datetime.strptime(
+        found.group(1), "%d %B %Y").date().isoformat()
+
+
+def _last_changed(document: pathlib.Path) -> str | None:
+    """When this document's CONTENT last changed, or None if unknowable.
+
+    Not `git log -1`. Correcting the date is itself a change to the file, so a
+    guard measured that way demands the date be moved again, and again after
+    that: the document would be perpetually one commit behind a line that exists
+    only to describe it. The first version of this helper did exactly that and
+    failed the moment its own correction was committed.
+
+    So commits whose only effect on this file is the `Last updated` line are
+    walked past. What remains answers the question actually being asked — has
+    anything a reader would care about changed since the date printed at the top.
+    """
+    import subprocess
+
+    relative = str(document.relative_to(ROOT))
+
+    def git(*arguments: str) -> str | None:
+        try:
+            out = subprocess.run(["git", *arguments], cwd=ROOT,
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return out.stdout if out.returncode == 0 else None
+
+    # A SHALLOW CLONE ANSWERS CONFIDENTLY AND WRONGLY, which is worse than not
+    # answering. HEAD is grafted, so git treats it as a root commit and
+    # `git show` prints the WHOLE FILE as added lines — for every file, whether
+    # or not that commit touched it. The date-only skip below then never
+    # triggers and this helper returns HEAD's date for everything.
+    #
+    # That is not hypothetical: publish-docs.yml and release-extension.yml both
+    # checked out at depth 1 and both run this file. They now fetch the full
+    # history, and this refuses to guess if one ever stops.
+    shallow = git("rev-parse", "--is-shallow-repository")
+    if shallow is None or shallow.strip() == "true":
+        return None
+
+    history = git("log", "--format=%H %ad", "--date=short", "--", relative)
+    if not history:
+        return None
+
+    for line in history.splitlines():
+        commit, _, stamp = line.partition(" ")
+        # --unified=0 so the surrounding unchanged lines are not mistaken for
+        # the change itself.
+        patch = git("show", "--format=", "--unified=0", commit, "--", relative)
+        if patch is None:
+            return stamp.strip() or None
+        touched = [
+            body for body in (
+                text[1:] for text in patch.splitlines()
+                if text[:1] in "+-" and not text.startswith(("+++", "---"))
+            )
+            if body.strip() and not body.lstrip().startswith("*Last updated:")
+        ]
+        if touched:
+            return stamp.strip() or None
+
+    # Every commit that ever touched it only moved the date. Nothing to be late
+    # for.
+    return None
+
+
+@pytest.mark.parametrize("name", ["privacy-policy.md", "support.md"])
+def test_the_last_updated_line_is_not_older_than_the_document(name):
+    """A DATE NOBODY MAINTAINS IS A CLAIM NOBODY CHECKS.
+
+    Found 2026-08-12. The policy was edited three times that day — the accounts
+    directory, three new hosts, the storage table — and its line still read
+    "6 August 2026". The PUBLISHED copy said the same, because publishing copies
+    the file including its stale date.
+
+    That is not a cosmetic slip. "Last updated" is the one line telling a reader
+    whether what follows describes the software they are running, and a policy
+    that has changed while claiming it has not is worse than one with no date at
+    all: it invites the reader to skip re-reading it.
+
+    Compared against git rather than against a hand-kept list, because the
+    question is "did this file change after the date it claims" and git is the
+    only thing that knows. A shallow checkout cannot answer, and that is a skip
+    rather than a pass — a check that cannot run must not report success.
+    """
+    document = ROOT / "docs" / name
+    changed = _last_changed(document)
+    if changed is None:
+        pytest.skip("no git history here — the comparison cannot be made")
+
+    stated = _stated_date(document)
+    assert stated >= changed, (
+        f"{name} says it was last updated {stated} and git records a change on "
+        f"{changed}. Set the line to the day of the change: a policy that has "
+        "moved while claiming it has not is the one a reader trusts and should "
+        "not.")
+
+
+@pytest.mark.parametrize("name", ["privacy-policy.md", "support.md"])
+def test_the_last_updated_line_is_not_in_the_future(name):
+    """The other direction, and the easier mistake: a date typed forward to
+    "cover" a change that has not happened yet describes a document nobody has
+    written."""
+    import datetime
+
+    stated = _stated_date(ROOT / "docs" / name)
+    today = datetime.date.today().isoformat()
+    assert stated <= today, (
+        f"{name} claims it was updated on {stated}, which has not happened yet")
+
+
+# ---- the chooser page, which is PUBLIC ---------------------------------------
+
+PICKER = ROOT / "docs" / "picker" / "scrapex-picker.html"
+
+
+def test_the_picker_page_carries_no_secret():
+    """THIS FILE IS SERVED FROM A PUBLIC WEBSITE. Anything in it is readable by
+    anyone, for ever, including after it is deleted.
+
+    The OAuth client id is public by design and lives in the manifest already.
+    A client SECRET, a refresh token, or an unrestricted key is not, and the
+    JSON Google hands over when a client is created carries the id and the
+    secret side by side — which is exactly how one ends up pasted into a page.
+    """
+    page = PICKER.read_text(encoding="utf-8")
+
+    assert "GOCSPX-" not in page, (
+        "a Google client SECRET is in a page served to the public internet")
+    assert "client_secret" not in page
+    assert "refresh_token" not in page
+    assert re.search(r"\bya29\.", page) is None, (
+        "an access token is written into the page rather than passed to it")
+
+
+def test_the_picker_answers_only_this_extension():
+    """`externally_connectable` says who may TALK TO the extension. It says
+    nothing about who this page may talk to, and a page that sent a chosen file
+    to any id in its query string would hand the owner's document to whatever
+    opened it."""
+    page = PICKER.read_text(encoding="utf-8")
+
+    assert "ALLOWED_EXTENSIONS" in page
+    assert "ekcgggphcfdbjgfkcmjagehfjhijeang" in page, (
+        "the page does not name the extension it is allowed to answer")
+    assert "indexOf(handed.extension) === -1" in page, (
+        "the extension id is read and not checked, so any id would be answered")
+
+
+def test_no_access_token_is_ever_put_into_the_chooser_url():
+    """THE FIRST VERSION OF THIS TEST GUARDED THE WRONG FILE.
+
+    It asserted `"?token=" not in page` against scrapex-picker.html — a file
+    that only ever READS a URL. The URL is built in extension/app.js, so the
+    line the test was written to protect was never looked at.
+
+    And the design it protected was itself wrong. Putting the token in the
+    fragment defends against the server, which is not the reader that matters:
+    chrome.tabs.create COMMITS the URL, and the committed URL is delivered whole
+    — fragment included — to every extension holding the `tabs` permission,
+    through onCreated and onUpdated. Erasing it in the page afterwards cannot
+    help; the delivery has already happened.
+
+    So the URL carries a single-use nonce, and this checks the file that builds
+    it.
+    """
+    app_js = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    built = re.search(r"const url = `\$\{PICKER_PAGE\}([^`]*)`\s*\n?\s*\+ `([^`]*)`",
+                      app_js)
+    assert built, "extension/app.js no longer builds a chooser URL this test can read"
+    url = built.group(1) + built.group(2)
+
+    assert "token" not in url.lower(), (
+        f"a token is placed in the chooser URL: {url!r}. Every extension with "
+        "the `tabs` permission reads that, whether it is in the query or the "
+        "fragment")
+    assert "#n=${encodeURIComponent(nonce)}" in url, (
+        f"the chooser URL carries {url!r} rather than a single-use nonce")
+
+
+def test_the_nonce_is_spent_once_and_expires():
+    """A nonce that could be replayed would be a token with extra steps."""
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+
+    trade = background[background.index("async function tradeNonceForToken"):]
+    trade = trade[:trade.index("\n}\n")]
+
+    assert 'handoff.nonce !== nonce' in trade, "the nonce is not compared at all"
+    assert 'remove("scrapexPickerHandoff")' in trade, (
+        "the handoff survives being used, so the nonce can be traded twice")
+    assert trade.index('remove("scrapexPickerHandoff")') < trade.index("handoff.expires"), (
+        "the handoff is removed only after the expiry check passes, so an "
+        "EXPIRED nonce is left in place and a wrong guess is free to repeat")
+
+
+def test_the_page_still_erases_what_it_was_given():
+    """Only a nonce now, but a URL that still describes a handoff invites a
+    reload that cannot work."""
+    page = PICKER.read_text(encoding="utf-8")
+
+    assert "location.hash" in page
+    assert "history.replaceState" in page
+
+
+def test_the_extension_admits_exactly_one_origin():
+    matches = MANIFEST.get("externally_connectable", {}).get("matches", [])
+    assert matches == ["https://muhammadbayoumi.github.io/*"], (
+        f"externally_connectable admits {matches}; it must name one origin, and "
+        "widening it opens the panel to every page on whatever it matches")
+
+
+def test_the_receiver_checks_the_origin_again():
+    """The manifest already restricts the sender, and the listener checks it
+    anyway. A match pattern is one character away from being widened, and this
+    listener is the last thing between a web page and the panel."""
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+
+    assert "onMessageExternal" in background
+    assert 'origin !== PICKER_ORIGIN' in background, (
+        "the external listener trusts whatever the manifest let through")
+    assert 'message.kind !== "scrapex-picked-spreadsheet"' in background, (
+        "any message shape from that origin is accepted")
+
+
+def test_the_choice_is_not_written_to_disk():
+    """A spreadsheet someone opened once is not a preference. `storage.session`
+    is gone when the browser closes; `storage.local` would keep a record of a
+    document nobody asked to be remembered."""
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+    listener = background[background.index("onMessageExternal"):]
+    listener = listener[:listener.index("\n});")]
+
+    assert "storage.session" in listener
+    assert "storage.local" not in listener, (
+        "the chosen file is kept on disk after the browser closes")
+
+
+def test_the_three_places_that_name_the_chooser_agree():
+    """The panel opens an address; the manifest admits an origin; the listener
+    checks one. Three files naming the same host in three syntaxes is three
+    chances to move the page and leave the button opening nothing."""
+    app_js = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+
+    page = re.search(r'PICKER_PAGE\s*=\s*"([^"]+)"', app_js)
+    assert page, "app.js no longer names a chooser page"
+    opened = urlparse(page.group(1))
+    origin = f"{opened.scheme}://{opened.netloc}"
+
+    checked = re.search(r'PICKER_ORIGIN\s*=\s*"([^"]+)"', background)
+    assert checked, "background.js no longer names an origin to check"
+    assert checked.group(1) == origin, (
+        f"the panel opens {origin} but the listener only answers "
+        f"{checked.group(1)}, so nothing chosen there can ever come back")
+
+    admitted = MANIFEST["externally_connectable"]["matches"][0]
+    assert admitted == f"{origin}/*", (
+        f"the manifest admits {admitted} while the chooser is served from "
+        f"{origin}")
+
+    # The path matters to nobody but the person publishing the file, which is
+    # exactly why it is written down.
+    readme = (ROOT / "docs" / "picker" / "README.md").read_text(encoding="utf-8")
+    assert page.group(1) in readme, (
+        "docs/picker/README.md does not state the address the panel actually "
+        "opens, so the file would be published to the wrong place")
+
+
+def test_the_picker_key_is_a_browser_key_and_nothing_else():
+    """The API_KEY slot is the one place in a public file where a secret would
+    look at home. It sits beside a client id, it is called a key, and the JSON
+    Google hands over when a client is created carries the SECRET under a
+    neighbouring name — so the wrong string lands here by resemblance, not by
+    carelessness.
+
+    A browser API key has a shape: `AIza` and 35 more characters. A client
+    secret (`GOCSPX-…`), a service-account private key, or an access token do
+    not have it, and none of them belongs in a page the whole internet reads.
+    """
+    page = PICKER.read_text(encoding="utf-8")
+    found = re.search(r'API_KEY\s*=\s*"([^"]*)"', page)
+    assert found, "the picker page no longer has an API_KEY to check"
+
+    key = found.group(1)
+    if not key:
+        return  # empty is the honest state before one exists; it refuses by name
+
+    assert re.fullmatch(r"AIza[0-9A-Za-z_\-]{35}", key), (
+        "API_KEY does not have the shape of a browser API key. If this is a "
+        "client secret or a service-account key, it is now public and must be "
+        "revoked, not merely deleted")
+
+
+def test_the_key_restrictions_are_written_down_where_they_can_be_checked():
+    """A key that is public is safe only because of restrictions that live in
+    Google Cloud, where this repository cannot see them. Nothing here can prove
+    they are set — so the least dishonest thing is to say exactly which two are
+    relied upon, so a future reader can go and look."""
+    readme = (ROOT / "docs" / "picker" / "README.md").read_text(encoding="utf-8")
+
+    assert "Google Picker API" in readme
+    assert "https://muhammadbayoumi.github.io/*" in readme, (
+        "the README does not state the website restriction the key's safety "
+        "rests on")
+    assert re.search(r"referrer.{0,40}forge", readme, re.I | re.S), (
+        "the README claims the website restriction protects the key without "
+        "saying that a referrer header is forgeable outside a browser. That "
+        "overstates it, and someone will rely on the overstatement")

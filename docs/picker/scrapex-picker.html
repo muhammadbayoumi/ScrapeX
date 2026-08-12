@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Choose a spreadsheet — ScrapeX</title>
+<meta name="robots" content="noindex">
+<!--
+  THE PAGE THAT EXISTS BECAUSE MANIFEST V3 FORBIDS REMOTE CODE.
+
+  Google Picker is the only way to widen `drive.file` to a spreadsheet the owner
+  already had. It needs `https://apis.google.com/js/api.js`, and an MV3
+  extension may not execute code fetched from a server — so the Picker cannot
+  run inside the side panel at all. It has to run on an ordinary web origin, and
+  this is that origin.
+
+  THE TOKEN IS NEVER IN THE URL. An earlier version put it in the fragment and
+  argued that browsers do not send fragments to servers. True, and the wrong
+  adversary: a tab's URL is handed in full, fragment included, to every
+  installed extension holding the `tabs` permission, through
+  chrome.tabs.onCreated and onUpdated.
+
+  So the URL carries a SINGLE-USE NONCE, and this page trades it back through
+  the extension's own message channel, which no other extension can read. The
+  nonce is spent by the first caller, refused for ever after, and expires within
+  the chooser's own two-minute window. The page uses the token it gets to draw
+  the Picker and for nothing else: it makes no API call of its own, stores
+  nothing, and sends nothing anywhere.
+
+  WHAT COMES BACK is a file id and a name — not a token, not a document. The
+  panel then opens that file with ITS OWN token through sheets.js, exactly as it
+  opens one it created. This page is a chooser and nothing more.
+
+  WHY NOT A REDIRECT BACK. A web page cannot navigate to a chrome-extension://
+  URL, so the id is returned with chrome.runtime.sendMessage, which requires the
+  extension to name this origin in `externally_connectable`. That is a narrower
+  door than it sounds: it admits exactly one origin, and only to send a message
+  the extension's own handler validates.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font: 15px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: Canvas; color: CanvasText;
+  }
+  main { max-width: 34rem; padding: 2rem 1.5rem; text-align: center; }
+  h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
+  p { margin: .5rem 0; }
+  .muted { opacity: .7; }
+  .err { color: #b8322a; }
+  button {
+    font: inherit; padding: .6rem 1.1rem; border-radius: .5rem;
+    border: 1px solid CanvasText; background: Canvas; color: CanvasText;
+    cursor: pointer; margin-top: 1rem;
+  }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Choose a spreadsheet</h1>
+  <p id="status">Opening your Drive…</p>
+  <p class="muted" id="hint">
+    Only the spreadsheet you pick is handed to ScrapeX. Nothing else in your
+    Drive is read, and this page keeps nothing.
+  </p>
+  <button id="retry" hidden type="button">Try again</button>
+</main>
+
+<script src="https://apis.google.com/js/api.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // THE CLOUD PROJECT NUMBER, which is what Picker calls an "app id". It is the
+  // project the OAuth client already lives in; a Picker pointed at a different
+  // project returns files the extension's token cannot then open.
+  var APP_ID = "668111083414";
+
+  // PUBLIC BY DESIGN, and restricted so that being public costs nothing.
+  //
+  // Picker requires the key to be readable by the page, so there is no version
+  // of this that hides it. What makes that safe is the pair of restrictions on
+  // the key itself, set in Google Cloud when it was created:
+  //
+  //   API restrictions          Google Picker API, and nothing else. It cannot
+  //                             touch Drive or Sheets — those are reached with
+  //                             an OAuth token, never with this.
+  //   Application restrictions  Websites -> https://muhammadbayoumi.github.io/*
+  //
+  // A key is not a credential here: it identifies the project for quota, and
+  // grants nothing. The honest limit of the second restriction is that a
+  // referrer header is forgeable by anything that is not a browser, so the worst
+  // a copied key buys is Picker quota on this project — no data, no access.
+  //
+  // Rotating it is one click in Cloud Console; nothing else needs changing.
+  var API_KEY = "AIzaSyBL5buzgRbGOdHw30DESCc6fe6myMQWXqY";
+
+  // The one extension allowed to be answered. Read from the query so a build
+  // loaded from a different unpacked folder can still be tested, and CHECKED
+  // against this list rather than trusted: an arbitrary id here would let any
+  // page send a chosen file to any extension.
+  var ALLOWED_EXTENSIONS = ["ekcgggphcfdbjgfkcmjagehfjhijeang"];
+
+  var status = document.getElementById("status");
+  var retry = document.getElementById("retry");
+
+  function say(text, isError) {
+    status.textContent = text;
+    status.className = isError ? "err" : "";
+  }
+
+  function readFragment() {
+    var raw = (location.hash || "").replace(/^#/, "");
+    var parts = new URLSearchParams(raw);
+    // ERASED IMMEDIATELY, even though what is here is only a nonce. A URL that
+    // still describes a handoff invites someone to reload it and wonder why it
+    // no longer works.
+    if (location.hash) {
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    return {
+      nonce: parts.get("n") || "",
+      extension: parts.get("ext") || new URLSearchParams(location.search).get("ext") || "",
+    };
+  }
+
+  var handed = readFragment();
+  var token = "";
+
+  // NO TOKEN IN THE URL. A fragment is not sent to a server, which is true and
+  // is the wrong threat: a tab's URL is handed in full, fragment included, to
+  // every extension holding the `tabs` permission. So the panel puts a
+  // single-use nonce here instead and this page trades it back through the
+  // extension's own message channel, which no other extension can read.
+  function requestToken(then) {
+    if (ALLOWED_EXTENSIONS.indexOf(handed.extension) === -1) {
+      say("This page was opened by something that is not ScrapeX. Nothing was "
+          + "sent, and no Google session was requested.", true);
+      return;
+    }
+    if (!handed.nonce) {
+      say("This page was opened without a handoff from ScrapeX, so it has "
+          + "nothing to show. Start again from the ScrapeX panel.", true);
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(handed.extension,
+        {kind: "scrapex-picker-token", nonce: handed.nonce},
+        function (answer) {
+          void (chrome.runtime.lastError);
+          if (!answer || !answer.ok || !answer.token) {
+            // Spent, expired, or never issued. All three mean the same thing to
+            // whoever is looking at this page, and saying which would only help
+            // someone guessing.
+            say("ScrapeX did not confirm this session. Start again from the "
+                + "panel — the link is only good once, and only for a moment.",
+                true);
+            retry.hidden = true;
+            return;
+          }
+          token = answer.token;
+          then();
+        });
+    } catch (error) {
+      say("ScrapeX could not be reached from this page. Is the extension still "
+          + "installed?", true);
+    }
+  }
+
+  function answer(payload) {
+    if (ALLOWED_EXTENSIONS.indexOf(handed.extension) === -1) {
+      say("This page was opened by something that is not ScrapeX. Nothing was "
+          + "sent.", true);
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(handed.extension, payload, function () {
+        // A missing receiver sets lastError; the panel may simply have been
+        // closed, which is not a fault worth alarming anyone about.
+        void (chrome.runtime.lastError);
+        say(payload.fileId
+            ? "Sent to ScrapeX. You can close this tab."
+            : "Nothing was chosen. You can close this tab.");
+      });
+    } catch (error) {
+      say("ScrapeX could not be reached from this page. Is the extension still "
+          + "installed?", true);
+    }
+  }
+
+  function openPicker() {
+    retry.hidden = true;
+    if (!API_KEY) {
+      say("This build has no Picker API key, so Drive cannot be browsed here. "
+          + "One has to be created in Google Cloud and restricted to this page.",
+          true);
+      return;
+    }
+    // The nonce is good once. A retry after the token is already in hand must
+    // not spend it again — and must not ask for a second one, which would be
+    // refused.
+    if (!token) {
+      requestToken(drawPicker);
+      return;
+    }
+    drawPicker();
+  }
+
+  function drawPicker() {
+    var view = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false)
+      // The owner's own files by default. Shared-with-me is still reachable
+      // from the Picker's own tabs; this only decides where it opens.
+      .setOwnedByMe(true);
+
+    new google.picker.PickerBuilder()
+      .setAppId(APP_ID)
+      .setOAuthToken(token)
+      .setDeveloperKey(API_KEY)
+      .addView(view)
+      .setTitle("Choose a spreadsheet for ScrapeX")
+      .setCallback(function (data) {
+        if (data.action === google.picker.Action.PICKED) {
+          var doc = data.docs && data.docs[0];
+          answer({
+            kind: "scrapex-picked-spreadsheet",
+            fileId: doc && doc.id,
+            name: doc && doc.name,
+          });
+        } else if (data.action === google.picker.Action.CANCEL) {
+          answer({kind: "scrapex-picked-spreadsheet", fileId: null});
+        }
+      })
+      .build()
+      .setVisible(true);
+
+    say("Pick a spreadsheet in the window Google opened.");
+  }
+
+  retry.addEventListener("click", openPicker);
+
+  if (typeof gapi === "undefined") {
+    say("Google's picker script did not load. Check the connection and try "
+        + "again.", true);
+    retry.hidden = false;
+    return;
+  }
+  gapi.load("picker", {
+    callback: openPicker,
+    onerror: function () {
+      say("Google's picker could not start.", true);
+      retry.hidden = false;
+    },
+  });
+})();
+</script>
+</body>
+</html>

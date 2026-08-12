@@ -1,6 +1,6 @@
 # ScrapeX — Privacy Policy
 
-*Last updated: 6 August 2026*
+*Last updated: 12 August 2026*
 
 ScrapeX is a Chrome extension and a companion program, **ScrapeX-Engine**, that
 run on your own computer. This policy describes every piece of data either of
@@ -33,6 +33,7 @@ your email address. The extension contains no telemetry of any kind.
 | Your appearance choice — light or dark, and which palette | This computer, in the browser's own storage | You |
 | The time zone dates are shown in | The same | You |
 | The address of your local engine — `127.0.0.1:8000` unless you change it | The same | You |
+| The spreadsheet you chose for exports — its name, its link, and Google's id for it | The same | You |
 
 Nothing in that table leaves your computer unless you press a button that says
 it will.
