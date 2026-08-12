@@ -1187,11 +1187,7 @@
               <button class="ghost compact hidden" id="retry-account" type="button">
                 Retry
               </button>
-              <!-- Disabled until the Manage account screen exists. A control
-                   that looks live and answers nothing is worse than one that
-                   says plainly it is not ready yet. -->
-              <button class="ghost profile-manage" id="manage-account" type="button"
-                      disabled>
+              <button class="ghost profile-manage" id="manage-account" type="button">
                 Manage your account
               </button>
             </div>
@@ -1225,6 +1221,149 @@
           </div>
 
         </div>
+      </div>
+    </section>
+
+    <!-- ====================== MANAGE ACCOUNT ======================
+         A SIBLING of #view-profile, not a child, and the reason is a test:
+         tests/test_panel_dom.py forbids [role="dialog"] anywhere INSIDE
+         #view-profile, and this screen's confirmation is a real modal. It also
+         has no rail button — it is reached from the Profile card and leaves by
+         its own back button, exactly as #view-source-edit does for Sources. -->
+    <section id="view-manage-account" class="hidden"
+             aria-labelledby="manage-account-title" tabindex="0">
+      <header class="manage-account-heading">
+        <button id="manage-account-back" type="button" class="ghost manage-account-back"
+                aria-label="Back to Profile" title="Back to Profile">
+          <svg class="sx-icon" aria-hidden="true">
+            <use href="icons/material-icons.svg#arrow-back"></use>
+          </svg>
+        </button>
+        <h1 id="manage-account-title">Manage account</h1>
+      </header>
+
+      <div class="manage-account-body">
+        <!-- The name and address appear ONLY here on this screen. -->
+        <section class="card manage-account-identity" aria-label="Signed in as">
+          <img class="manage-account-face hidden" id="manage-account-photo" alt=""
+               aria-hidden="true">
+          <span class="manage-account-face-fallback" aria-hidden="true">
+            <svg class="sx-icon manage-account-face-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#account-circle"></use>
+            </svg>
+          </span>
+          <span class="manage-account-identity-text">
+            <span class="manage-account-name" id="manage-account-name">Signed in</span>
+            <span class="manage-account-email" id="manage-account-email" dir="ltr"></span>
+          </span>
+        </section>
+
+        <h2 class="manage-account-section" id="manage-drive-title">Google Drive</h2>
+        <section class="card manage-account-rows" aria-labelledby="manage-drive-title">
+          <div class="manage-account-row">
+            <span class="manage-account-row-text">
+              <span class="manage-account-row-title">Drive features</span>
+              <!-- The handoff's line was "Nothing is uploaded while this is off",
+                   which describes a product this is not: there is no automatic
+                   upload to stop. Every Drive write in the extension is behind a
+                   button someone presses (Settings › Data output settings), and
+                   no preference gates them. So the switch ships disabled — the
+                   same ruling the owner gave for the erase action on 2026-08-12 —
+                   and the line says what is actually true. -->
+              <span class="manage-account-row-sub">Backups run only when you ask;
+                ScrapeX never uploads on its own. This switch is not wired up
+                yet.</span>
+            </span>
+            <!-- The shared switch, markup contract copied from the Appearance
+                 page: a label wrapping a real checkbox and a decorative span.
+                 The label is its own touch target, so it is NOT wrapped around
+                 the whole row. -->
+            <label class="appearance-switch">
+              <input type="checkbox" id="drive-enabled" aria-label="Drive features"
+                     disabled>
+              <span aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <div class="manage-account-row">
+            <span class="manage-account-row-text">
+              <span class="manage-account-row-title">Granted access</span>
+              <!-- Literal, and deliberately not softened: identity.js asks for
+                   drive.file and nothing else. -->
+              <span class="manage-account-row-sub">Only files ScrapeX created in your
+                Drive. Nothing else is readable.</span>
+            </span>
+          </div>
+
+          <button class="manage-account-row manage-account-row-button" type="button"
+                  id="drive-review-permissions">
+            <span class="manage-account-row-text">
+              <span class="manage-account-row-title">Review permissions in Google</span>
+            </span>
+            <svg class="sx-icon lg manage-account-row-icon" aria-hidden="true">
+              <use href="icons/material-icons.svg#open-in-new"></use>
+            </svg>
+          </button>
+        </section>
+
+        <h2 class="manage-account-section" id="manage-backups-title">In your Drive</h2>
+        <section class="card manage-account-rows" aria-labelledby="manage-backups-title"
+                 id="drive-backups"></section>
+
+        <!-- The one destructive card. Its copy says what the code does, which is
+             not what the handoff drafted: revoking at Google ends the WHOLE
+             grant, identity scopes included, so this signs the account out. -->
+        <section class="card manage-account-danger" aria-labelledby="disconnect-title">
+          <strong id="disconnect-title">Disconnect Drive</strong>
+          <p class="manage-account-danger-copy">Stops backups and revokes ScrapeX's
+            access to your Drive. Because the same grant carries your name and
+            address, this signs you out of ScrapeX too. The backups already there
+            stay in your Drive — delete them yourself if you want them gone.
+            Nothing on this machine is touched.</p>
+
+          <div class="split-button danger" id="drive-disconnect" role="group"
+               aria-label="Disconnect Drive">
+            <button class="split-button-primary" type="button"
+                    data-split-action="disconnect-drive">
+              <svg class="sx-icon" aria-hidden="true">
+                <use href="icons/material-icons.svg#logout"></use>
+              </svg>
+              <span>Disconnect Drive and sign out</span>
+            </button>
+            <details class="split-button-menu">
+              <summary class="split-button-trigger" aria-haspopup="menu"
+                       aria-expanded="false" aria-label="More disconnect options">
+                <svg class="sx-icon split-button-chevron" aria-hidden="true">
+                  <use href="icons/material-icons.svg#expand-more"></use>
+                </svg>
+              </summary>
+              <div class="split-button-options" role="menu"
+                   aria-label="Disconnect options">
+                <!-- Disabled by the owner's ruling of 2026-08-12: the engine has
+                     no erase. /api/storage/start-fresh RENAMES the database
+                     aside and lists it under Restore (storage.py: "sealed aside,
+                     not erased"), and /api/storage/export writes to a path on
+                     the engine host rather than handing the browser a file.
+                     Shipping this live would put two false sentences in a
+                     confirmation dialog.
+                     It carries no icon slot: no symbol in the sprite means
+                     "erase", and adding one to the shared sprite for a control
+                     that cannot run yet would be inventing vocabulary ahead of
+                     the thing it names. The grid is adjusted for this instance
+                     in app.css. -->
+                <button class="split-button-option" type="button" role="menuitem"
+                        data-split-action="disconnect-and-erase" disabled>
+                  <span class="split-button-option-copy">
+                    <strong>Disconnect and erase everything</strong>
+                    Not available yet — the engine has no erase to call
+                  </span>
+                </button>
+              </div>
+            </details>
+          </div>
+          <p class="manage-account-status hidden" role="status" aria-live="polite"
+             id="disconnect-status"></p>
+        </section>
       </div>
     </section>
 
@@ -1921,6 +2060,30 @@
     <div id="workspace-links" class="workspace-menu-groups"
          aria-label="Workspace pages"></div>
   </aside>
+
+  <!-- The disconnect confirmation, at BODY level for two reasons a nested one
+       would meet. showView animates a view with a live `transform` for 180ms,
+       and a transformed ancestor becomes the containing block for
+       `position: fixed` — so a veil inside the view would be laid out against
+       the view instead of the panel, mid-navigation. And it keeps the dialog
+       out of #view-profile's subtree, which a test forbids outright.
+       Not a native <dialog>: a document-level keydown handler in app.js calls
+       preventDefault() on every Escape, which would stop the browser's own
+       close. This one is a plain element and owns its Escape. -->
+  <div id="disconnect-veil" class="modal-veil hidden">
+    <div class="modal-card" role="dialog" aria-modal="true"
+         aria-labelledby="disconnect-dialog-title" tabindex="-1"
+         id="disconnect-dialog">
+      <h2 class="modal-title" id="disconnect-dialog-title">Disconnect Drive?</h2>
+      <div class="modal-copy" id="disconnect-dialog-copy"></div>
+      <div class="modal-actions">
+        <button class="ghost" type="button" id="disconnect-cancel">Cancel</button>
+        <button class="danger" type="button" id="disconnect-confirm">
+          Disconnect and sign out
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- app.js is appended by boot-app.js when `load` fires, NOT loaded here.
        Chrome reveals the Side Panel only after `load`, and a hidden document's
