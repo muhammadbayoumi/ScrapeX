@@ -352,6 +352,41 @@
                        inset-inline-end: var(--sp-3); color: var(--muted); }
   .dataset-card:hover .dataset-card-open { color: var(--accent-ink); }
   .dataset-card-open svg { width: 1rem; height: 1rem; fill: currentColor; }
+
+  /* THE ACTIONS MENU ON A DATASET CARD, and the two things it inherited that
+     were wrong for this place. Both were mine, from the menu that replaced the
+     chevron, and both were visible in one screenshot.
+
+     ONE: the chevron was `position: absolute` in the corner. Its replacement is
+     a real element, so it took the FIRST CELL of the card and pushed the whole
+     content sideways — a menu button sitting above the site name instead of
+     beside it. It goes back in the corner the chevron held.
+
+     TWO: `.split-button-options` is `width: 100%` of its container, which is
+     correct for the wide split button in the Activity log and absurd here: the
+     container is a 32px icon, so every label wrapped to one character per line
+     — "Up / da / te / no / w". Sized to its CONTENT here, with a floor so short
+     labels still line up and a ceiling so it cannot overflow the panel at
+     320px.
+
+     Local to this card on purpose. Changing the shared rule would move the
+     Activity log's menu, which is not broken. */
+  .dataset-card > .split-button {
+    position: absolute;
+    inset-block-start: var(--sp-2);
+    inset-inline-end: var(--sp-2);
+    z-index: 1;
+  }
+  /* Only the FLOOR is local now: the trigger is a 32px icon, so `min-width:
+     100%` from the shared rule would let a one-word label make a menu narrower
+     than it reads well at. The sizing itself is fixed where it was broken. */
+  /* MEASURED at 320px: the card is 184px, the menu's longest label
+     ("Export to Google Sheets · not built yet") wants 206px, and anchored to
+     the card's end edge that put its left side at -3px — three pixels off the
+     screen. Capped so it fits: the label wraps to two lines instead, which is
+     what a menu does on a narrow panel.
+     The floor keeps a one-word option from making a menu too narrow to read. */
+  .dataset-card .split-button-options { min-width: 11rem; max-width: 12rem; }
   .source-manager-panel { padding-bottom: var(--sp-2); }
   .source-manager-section-head {
     align-items: center;

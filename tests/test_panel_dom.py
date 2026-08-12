@@ -4683,3 +4683,71 @@ def test_a_reopened_panel_with_nothing_running_says_nothing(open_panel):
 
     assert "hidden" in (page.get_attribute("#miniplayer", "class") or ""), (
         "the miniplayer is showing with no job to show")
+
+
+# ---- the dropdown that collapsed to one character per line -----------------
+
+@pytest.mark.parametrize("width", [320, 400])
+def test_a_menu_under_a_small_trigger_is_wide_enough_to_read(open_panel, width):
+    """FOUND IN A SCREENSHOT BY THE OWNER, 2026-08-12, on two screens at once.
+
+    `.split-button-options` was `width: 100%` of its container. That is only
+    ever right when the trigger is already wide — the Activity log's split
+    button is, so it looked correct for a year. The dataset card's actions menu
+    and Manage account's danger menu both hang from a ~32px icon, and both
+    rendered every label one character per line: "Up / da / te / no / w".
+
+    Measured rather than eyeballed, because "looks fine" is what it looked like
+    to whoever wrote the rule. A menu item narrower than about six characters
+    is not a label, it is a column of letters.
+    """
+    page = open_panel()
+    page.set_viewport_size({"width": width, "height": 800})
+    page.click(DATA_TAB)
+    page.wait_for_timeout(400)
+
+    trigger = page.locator(".dataset-card .split-button-trigger").first
+    trigger.click()
+    page.wait_for_timeout(250)
+
+    box = page.locator(".dataset-card .split-button-options").first.bounding_box()
+    assert box is not None, "the menu did not open"
+    assert box["width"] >= 140, (
+        f"the actions menu is {box['width']:.0f}px wide at {width}px — under a "
+        "32px trigger it inherits the trigger's width unless the shared rule "
+        "sizes it to its content")
+
+    # And it must stay inside the panel: a menu anchored to the card's right
+    # edge that is sized to content can run off a 320px screen if nothing caps
+    # it. That cap is the other half of the shared fix.
+    assert box["x"] >= -1, f"the menu starts off the left edge at {box['x']:.0f}px"
+    assert box["x"] + box["width"] <= width + 1, (
+        f"the menu ends at {box['x'] + box['width']:.0f}px on a {width}px panel")
+
+
+def test_no_menu_label_is_broken_into_a_column_of_letters(open_panel):
+    """The symptom itself, guarded where a width alone would not catch it: a
+    label can also be shredded by `white-space` or an inline-grid the box model
+    reports as wide. This measures the rendered LINE COUNT of a known label."""
+    page = open_panel()
+    page.set_viewport_size({"width": 320, "height": 800})
+    page.click(DATA_TAB)
+    page.wait_for_timeout(400)
+    page.locator(".dataset-card .split-button-trigger").first.click()
+    page.wait_for_timeout(250)
+
+    option = page.locator('.dataset-card [data-split-action="update"]').first
+
+    # THE TEXT'S OWN LINE BOXES, via a Range. The first version of this divided
+    # the BUTTON's height by its line-height and called the answer lines — which
+    # reported three for a label on one line, because `min-height` pins every
+    # option to the 48px touch target. It was measuring the touch target and
+    # blaming the typography.
+    lines = option.evaluate(
+        "el => { const r = document.createRange(); r.selectNodeContents(el);"
+        "  return r.getClientRects().length; }")
+
+    assert lines <= 2, (
+        f"'Update now' renders over {lines} line boxes — that is the "
+        "one-character-per-line collapse the owner photographed, not a wrapped "
+        "label")

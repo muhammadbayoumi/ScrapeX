@@ -415,9 +415,22 @@ def test_export_actions_follow_the_grid_instead_of_sitting_above_it():
     assert ".split-button-primary:active:not(:disabled)" in shared_css
     assert ".split-button-options" in shared_css
     options_rule = shared_css.split(".split-button-options {", 1)[1].split("}", 1)[0]
-    assert "inset-inline: 0" in options_rule
+    # THE MENU HANGS FROM ITS CONTROL AND IS AT LEAST AS WIDE AS IT.
+    #
+    # These read `inset-inline: 0` and `width: 100%` until 2026-08-12 — the
+    # exact declarations rather than what they were for. `width: 100%` is only
+    # correct when the trigger is already wide, and the grid's export button is,
+    # so it looked right here while collapsing every label to one character per
+    # line under the 32px triggers on two other screens.
+    #
+    # What this test was guarding is unchanged and still asserted: anchored to
+    # the control, hung below it, never narrower than it. The sizing that was
+    # wrong is now `max-content` with `min-width: 100%` as the floor, so this
+    # grid's menu is pixel-identical.
+    assert "inset-inline: auto 0" in options_rule
     assert "top: calc(100% + var(--sp-1))" in options_rule
-    assert "width: 100%" in options_rule
+    assert "min-width: 100%" in options_rule
+    assert "width: max-content" in options_rule
     assert "bottom:" not in options_rule
     assert ".split-button-trigger:focus-visible" in shared_css
     focus_rule = shared_css.split(".split-button-trigger:focus-visible {", 1)[1].split("}", 1)[0]
