@@ -18,7 +18,7 @@ import sys
 # The CLI's subcommands. Anything NOT in here means Chrome launched us.
 KNOWN_COMMANDS = frozenset({
     "init-db", "validate-manifest", "export-contract", "funnel-test", "crawl",
-    "ingest", "peek", "google-connect", "push", "export", "ui", "native-host",
+    "ingest", "peek", "export", "ui", "native-host",
     "install-native-host", "status",
 })
 

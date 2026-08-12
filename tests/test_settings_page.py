@@ -23,7 +23,7 @@ from tests.test_ingest import make_entry, make_payload, one_row  # noqa: E402
 # extension under the owner's one-settings-surface rule.
 SECTIONS = [
     "General", "Local runtime", "Storage", "Crawling", "Engines",
-    "Jobs and scheduling", "Google Finance", "Excel", "Apps Script", "Google account",
+    "Jobs and scheduling", "Google Finance", "Excel", "Apps Script",
     "Data and history", "Privacy and security", "Logs and diagnostics", "About",
 ]
 

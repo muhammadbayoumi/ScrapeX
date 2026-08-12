@@ -584,22 +584,6 @@ def _cmd_peek(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_google_connect(args: argparse.Namespace) -> int:
-    try:
-        from .gdrive import get_credentials
-    except ImportError:
-        print("Google support needs: pip install -e .[google]", file=sys.stderr)
-        return 1
-    from .gdrive import GoogleNotConfiguredError
-    try:
-        get_credentials()  # opens the browser for "Sign in with Google" on first run
-    except GoogleNotConfiguredError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    print("Signed in with Google — token cached. You can now: scrapex push <source>")
-    return 0
-
-
 def _cmd_relaunch(args: argparse.Namespace) -> int:
     """The detached helper behind the Restart engine button.
 
@@ -666,20 +650,6 @@ def _publish_with(args: argparse.Namespace, sink, verb: str) -> int:
     return 0
 
 
-def _cmd_push(args: argparse.Namespace) -> int:
-    try:
-        from .gdrive import DriveManager, GoogleNotConfiguredError, build_services, get_credentials
-        from .publish import GoogleSink
-    except ImportError:
-        print("Google support needs: pip install -e .[google]", file=sys.stderr)
-        return 1
-    try:
-        creds = get_credentials()
-    except GoogleNotConfiguredError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    drive, sheets = build_services(creds)
-    return _publish_with(args, GoogleSink(DriveManager(drive, sheets)), "pushed")
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -1083,17 +1053,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=10, help="how many recent observations to sample")
     p.set_defaults(func=_cmd_peek)
 
-    p = sub.add_parser("google-connect", help="Sign in with Google (one-time OAuth; needs .[google])")
-    p.set_defaults(func=_cmd_google_connect)
+    # The `google-connect` and `push` subcommands were here until 2026-08-11.
+    # Both drove scrapex/gdrive.py, a second Google identity on the engine with
+    # its own client_secret.json and the SENSITIVE `spreadsheets` scope. The
+    # owner ruled that the engine fetches and saves locally while the extension
+    # owns every Google operation, so signing in and pushing to a sheet are the
+    # side panel's now — see extension/sheets.js. `export` below is untouched:
+    # it writes an .xlsx on this machine and involves no account at all.
 
-    p = sub.add_parser("push", help="push a source's current prices to a Google Sheet tab")
-    p.add_argument("source", help="source_key from sources.yaml")
-    p.add_argument("--folder", default="ScrapeX", help="Drive folder name (created if absent)")
-    p.add_argument("--workbook", default="ScrapeX Data", help="spreadsheet name (created if absent)")
-    p.add_argument("--schema", choices=("original", "current"), default="original",
-                   help="original = every column with raw names; current = your saved view")
-    p.add_argument("--db", help="database path")
-    p.set_defaults(func=_cmd_push)
 
     home_scrapex = str(Path.home() / "ScrapeX")
     p = sub.add_parser("export", help="export a source's current prices to a local .xlsx (no Google)")

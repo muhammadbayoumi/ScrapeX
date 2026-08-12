@@ -1,4 +1,4 @@
-"""The shared publish path: same data to any sink (GoogleSink proven via a fake)."""
+"""The shared publish path: same data to any sink, proven through a fake."""
 from __future__ import annotations
 
 import sqlite3
@@ -7,7 +7,7 @@ import pytest
 
 from scrapex import db as dbmod
 from scrapex.ingest import ingest_payloads
-from scrapex.publish import GoogleSink, publish_source
+from scrapex.publish import publish_source
 from scrapex.reports import EXPORT_HEADER
 from tests.test_ingest import make_entry, make_payload, one_row
 
@@ -43,21 +43,3 @@ def test_publish_source_drives_the_sink(conn):
     assert rows[0][header.index("product_name")] == "LED 400W"
 
 
-def test_google_sink_maps_to_drive_manager():
-    """GoogleSink is a thin adapter — it must call ensure_folder -> ensure_spreadsheet
-    -> write_tab in that order on the manager."""
-    from unittest.mock import MagicMock
-    manager = MagicMock()
-    manager.ensure_folder.return_value = "FOLDER"
-    manager.ensure_spreadsheet.return_value = "SHEET"
-    manager.spreadsheet_url.return_value = "http://sheet"
-
-    sink = GoogleSink(manager)
-    handle = sink.ensure_workbook("ScrapeX", "ScrapeX Data")
-    sink.write_tab(handle, "ELSEWEDYSHOP", ["a"], [["1"]])
-
-    assert handle == "SHEET"
-    manager.ensure_folder.assert_called_once_with("ScrapeX")
-    manager.ensure_spreadsheet.assert_called_once_with("ScrapeX Data", "FOLDER")
-    manager.write_tab.assert_called_once_with("SHEET", "ELSEWEDYSHOP", ["a"], [["1"]])
-    assert sink.location("SHEET") == "http://sheet"

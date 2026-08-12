@@ -215,7 +215,7 @@ def test_export_and_sync_tabs_are_real_controls_now(client):
     """Spec 21-23: both tabs run their destination instead of documenting a command."""
     assert "Export to Excel" in client.get("/exports").text
     sync = client.get("/sync").text
-    assert "Send a test row" in sync and "Push to Drive" in sync
+    assert "Send a test row" in sync
 
 
 def test_apps_script_can_send_multiple_sources_and_exposes_existing_automation(client):

@@ -80,6 +80,7 @@ the name on your account.
 | `www.googleapis.com/oauth2/v3` | The name, address and picture of the signed-in account, and nothing else. |
 | `www.googleapis.com/drive/v3` | Finding, listing and downloading your backups. **Only files ScrapeX itself made.** The permission it holds is Google's `drive.file`, which grants access to files an app created and to files you hand it yourself — never to the rest of your Drive. ScrapeX cannot see, list or open a document it did not create, and no setting inside ScrapeX can change that: it is a limit Google enforces, not a promise ScrapeX keeps. |
 | `www.googleapis.com/upload/drive/v3` | Sending a backup up. The upload is resumable and reports its progress, which is why it is a separate address from the one above. |
+| `sheets.googleapis.com/v4` | Writing your exported rows into a spreadsheet. The same `drive.file` limit applies: a spreadsheet ScrapeX made, or one you chose for it, and no other. ScrapeX does **not** hold Google's `spreadsheets` permission — the one that would let an app read and edit every spreadsheet you own. |
 
 The engine itself talks to the sites you added, and to `127.0.0.1` — which is
 your own computer.

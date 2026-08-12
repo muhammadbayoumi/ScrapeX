@@ -275,52 +275,6 @@ def test_the_script_to_paste_verifies_signatures_without_locking_anyone_out():
     assert "constantTimeEquals_" in script
 
 
-# ---- Google (spec 23) --------------------------------------------------------
-
-def test_google_status_explains_each_missing_step_in_order(conn, monkeypatch, tmp_path):
-    # Without the extra, google_status stops at "needs the extra" and never
-    # reaches the steps under test. Skipping says that; failing blamed the code.
-    # The [google] client libraries are too heavy to pull into [dev] for one test.
-    pytest.importorskip("google_auth_oauthlib")
-    monkeypatch.setattr("scrapex.gdrive.CLIENT_SECRET_PATH", tmp_path / "client_secret.json")
-    monkeypatch.setattr("scrapex.gdrive.TOKEN_PATH", tmp_path / "token.json")
-    assert "Missing" in outputs.google_status(conn)["blocker"]
-
-    (tmp_path / "client_secret.json").write_text("{}", encoding="utf-8")
-    assert "Continue with Google" in outputs.google_status(conn)["blocker"]
-
-    (tmp_path / "token.json").write_text("{}", encoding="utf-8")
-    status = outputs.google_status(conn)
-    assert status["connected"] is True
-    # Ready only if the client libraries are installed too — the optional extra
-    # is a separate blocker from being signed in, and both must clear.
-    import importlib.util
-    assert status["ready"] is (importlib.util.find_spec("googleapiclient") is not None)
-
-
-def test_the_account_line_is_honest_about_least_privilege(conn):
-    """Spec 23 asks for the signed-in account; the scopes deliberately exclude
-    identity, so the interface says why instead of inventing a value."""
-    status = outputs.google_status(conn)
-    assert status["account"] == ""
-    assert "not requested" in status["account_note"]
-
-
-def test_disconnect_removes_only_the_local_sign_in(conn, monkeypatch, tmp_path):
-    token = tmp_path / "token.json"
-    token.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr("scrapex.gdrive.TOKEN_PATH", token)
-    assert outputs.google_disconnect(conn) is True
-    assert not token.exists()
-    assert "left exactly as they are" in settings.get_state(conn, "google_last")["detail"]
-
-
-def test_google_push_writes_the_same_table_as_excel(conn):
-    """One publish path, two sinks: the arrangement must not drift apart."""
-    excel_sink, drive_sink = FakeSink(), FakeSink()
-    outputs.excel_export(conn, [SOURCE], sink=excel_sink)
-    outputs.google_push(conn, [SOURCE], sink=drive_sink)
-    assert excel_sink.tabs[SOURCE] == drive_sink.tabs[SOURCE]
 
 
 # ---- the HTTP surface --------------------------------------------------------
@@ -370,19 +324,9 @@ def test_the_pages_render_the_real_state(client):
     excel = client.get("/exports").text
     assert "Export to Excel" in excel and "one tab per source" in excel.lower()
     sync = client.get("/sync").text
-    assert "Copy script" in sync and "Continue with Google" in sync
+    assert "Copy script" in sync
 
 
-def test_the_sync_page_states_the_disconnect_consequence(client, monkeypatch, tmp_path):
-    """Disconnect must never read as if it could delete the owner's Drive files.
-
-    TOKEN_PATH is redirected first: without it this test would delete the real
-    sign-in of whoever runs the suite — a test that damages the machine it runs
-    on is a worse defect than the one it checks for.
-    """
-    monkeypatch.setattr("scrapex.gdrive.TOKEN_PATH", tmp_path / "token.json")
-    assert "Nothing in Drive was changed" in \
-        client.post("/api/outputs/google/disconnect").json()["detail"]
 
 
 # ---- spec 19: the two workbook choices, which were absent entirely ----------

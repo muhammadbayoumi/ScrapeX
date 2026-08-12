@@ -58,14 +58,14 @@ def publish_source(conn: sqlite3.Connection, source_key: str, sink: SheetSink,
 def _sink_batch(sink: SheetSink, handle) -> AbstractContextManager[None]:
     """Let a sink treat one source's tabs as a single operation, if it can.
 
-    A tab is one cheap API call to Google, but a whole-file rewrite on disk:
-    LocalSink used to re-read and re-save the entire .xlsx per tab, which is
-    four passes over the workbook for the four tables an export is made of.
-    Asking for the batch here — the one place that knows a run of write_tab
-    calls belongs together — is what lets it read and write the file once.
+    A tab is one cheap remote call, but a whole-file rewrite on disk: LocalSink
+    used to re-read and re-save the entire .xlsx per tab, which is four passes
+    over the workbook for the four tables an export is made of. Asking for the
+    batch here — the one place that knows a run of write_tab calls belongs
+    together — is what lets it read and write the file once.
 
-    Optional on purpose: a sink without `batch` (GoogleSink, and the fakes the
-    tests publish into) keeps the plain one-call-per-tab path, unchanged.
+    Optional on purpose: a sink without `batch` (the fakes the tests publish
+    into) keeps the plain one-call-per-tab path, unchanged.
     """
     batch = getattr(sink, "batch", None)
     return batch(handle) if batch is not None else nullcontext()
@@ -147,18 +147,15 @@ def _about(conn: sqlite3.Connection, source_key: str,
     return ["fact", "value"], facts
 
 
-class GoogleSink:
-    """SheetSink backed by a gdrive.DriveManager (Sign in with Google)."""
-
-    def __init__(self, manager) -> None:
-        self._m = manager
-
-    def ensure_workbook(self, folder: str, workbook: str) -> str:
-        folder_id = self._m.ensure_folder(folder)
-        return self._m.ensure_spreadsheet(workbook, folder_id)
-
-    def write_tab(self, spreadsheet_id: str, tab: str, header, rows) -> None:
-        self._m.write_tab(spreadsheet_id, tab, header, rows)
-
-    def location(self, spreadsheet_id: str) -> str:
-        return self._m.spreadsheet_url(spreadsheet_id)
+# GoogleSink was here until 2026-08-11 — a thin adapter over gdrive.DriveManager,
+# and the last thing in this file that knew Google existed. The owner ruled that
+# the engine fetches and saves locally while the extension owns every Google
+# operation, so writing a tab into a spreadsheet is extension/sheets.js now.
+#
+# EVERYTHING ELSE IN THIS FILE STAYS, and the distinction is worth stating
+# because most of it reads like Google code and none of it is: SheetSink is the
+# protocol localsheets.LocalSink implements, publish_source and workbook_tables
+# serve the Excel export and the Apps Script funnel, and _sink_batch is what
+# stops a four-tab export rewriting the whole workbook four times (ت5, fixed in
+# 0a2209c). Deleting any of them alongside GoogleSink would have taken a working
+# local feature with it.
