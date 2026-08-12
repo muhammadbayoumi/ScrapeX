@@ -1097,8 +1097,8 @@
   /* The account's own photo, large enough to be a greeting rather than a
      status dot. Round for the same reason the rail's is. */
   .welcome-face {
-    width: 4rem;
-    height: 4rem;
+    width: 4.5rem;
+    height: 4.5rem;
     border-radius: 50%;
     object-fit: cover;
   }
@@ -1106,10 +1106,22 @@
 
   /* Profile page — Extension only. One centered state card on a distinct page
      background; all account states live inside the same card shell. */
+  /* The page is exactly as tall as the panel and never scrolls itself. That is
+     the first two links of the handoff's derived-height chain (REV01): the view
+     fixes the height, .profile-stage below takes what is left and is the ONE
+     scroller, and when the accounts card lands its rows wrapper takes over that
+     job from the stage.
+     `min-height: 0` is the link that is easy to miss: a flex item defaults to
+     `min-height: auto` and refuses to shrink below its content, so without it a
+     tall child grows the view instead of handing the overflow to the scroller
+     inside it — which is the page-scrolls-instead-of-rows behaviour the chain
+     exists to remove. */
   #view-profile {
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
+    overflow: hidden;
     margin: calc(-1 * var(--sp-4));
     padding: var(--sp-4);
     background: var(--bg);
@@ -1256,7 +1268,14 @@
     color: var(--muted);
     font-size: var(--fs-sm);
   }
+  /* `align-self: stretch` is load-bearing, not tidying. .profile-state centres
+     its children, so without it this block sizes to its own CONTENT: a long
+     address made the summary wider than the card, and `max-width: 100%` on the
+     address then measured a percentage of that too-wide parent, so the ellipsis
+     never engaged and the text ran past both edges of the card. Measured at
+     320px with an 58-character address. */
   .profile-summary {
+    align-self: stretch;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1266,6 +1285,502 @@
   .profile-summary:focus-visible {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
+  }
+
+  /* Profile page — Extension only. The signed-in state is the one state with
+     chrome at both edges. `flex: 1` is what the auto margins below push
+     against: without it the state collapses to its content height and the two
+     rows settle either side of the middle instead of at the card's edges.
+     Scoped to this state by id, because the checking and signed-out states are
+     a centred stack and must stay one. */
+  #welcome-signed-in {
+    flex: 1;
+    /* The link that finishes the chain. Without it this state keeps its default
+       `min-height: auto`, refuses to shrink below its content, and the accounts
+       card below grows the page instead of scrolling its own list — which put
+       `Add another account` and `Sign out of all accounts` off the bottom of
+       the panel entirely. Measured at 400x720 with four accounts. */
+    min-height: 0;
+  }
+  /* THE CARD IS GONE FROM THIS STATE, and the element is not.
+     The design removes the surface around the account: the avatar, the greeting
+     and the address sit directly on the page, and the only card on the finished
+     screen is the accounts card. But tests/test_panel_dom.py:2946 requires all
+     three states to be DESCENDANTS of #profile-card, so the element stays and
+     its appearance goes. Neutralised rather than deleted, and scoped with
+     :has() so the checking and signed-out states keep the shell they were
+     designed with — REV01's scope box permits the signed-in state only.
+
+     `justify-content: flex-start` also closes a defect this redesign
+     introduced. The card used to CENTRE its child and SCROLL it, and centring
+     an oversized child splits the overflow in two where only the bottom half is
+     reachable: scrollTop 0 is already as far up as a scroller goes. That was
+     survivable while the sign-out button was the last child; moving it to the
+     top edge put it in the half no scroll, focus or keyboard route can reach.
+     Measured before this rule: clipped by 75px and fully hidden at 400x520 with
+     Chrome's "very large" font, by 67px at 400x700 whenever the account-lookup
+     notice and Retry are showing, and by 22px at 320x440. Not centring removes
+     the whole class of failure rather than the three cases that were found.
+
+     `overflow: visible` leaves .profile-stage as the single scroller. Two
+     nested scrollers on one screen is the other half of the same trap. */
+  .profile-card:has(#welcome-signed-in:not(.hidden)) {
+    width: 100%;
+    min-height: 0;
+    max-height: none;
+    margin-block: 0;
+    padding: 0;
+    justify-content: flex-start;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+  .profile-topbar {
+    align-self: stretch;
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: auto;
+  }
+  /* Borderless and quiet — it takes its weight from position, not from paint.
+     Every state is spelled out rather than left to one flat rule: the base
+     `button` rules in components.css are (0,1,1) and (0,2,1), so a bare
+     `.profile-signout` would lose the fill and the hover back to them. This is
+     the same reason .profile-signin above writes its own triple.
+     Note there is NO min-height here: the general rule gives it the panel's
+     48px control height, and that is the rule this page follows. */
+  button.profile-signout {
+    border-color: transparent;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--muted);
+  }
+  button.profile-signout:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  button.profile-signout:active:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+    transform: none;
+  }
+  /* The account mark, shown exactly when there is no photo to show. The
+     selector reads the `hidden` class renderAccount already maintains on the
+     photo, so "is there a picture" keeps one answer and one owner. */
+  .profile-face-fallback {
+    display: none;
+  }
+  #welcome-photo.hidden ~ .profile-face-fallback {
+    display: grid;
+    place-items: center;
+    width: 4.5rem;
+    height: 4.5rem;
+    border-radius: 50%;
+    background: var(--accent-weak);
+    color: var(--accent-ink);
+  }
+  .profile-face-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+  /* The greeting. An h1 has no rule anywhere in either sheet, so its UA
+     `margin: .67em 0` would sit on top of .profile-summary's gap and read as
+     mysterious extra space above and below the name.
+     `overflow-wrap: anywhere` is for the name inside it: a long single-token
+     display name has nowhere to break, and at 320px it would otherwise run past
+     both edges the way the address did before .profile-summary was stretched. */
+  .profile-greeting {
+    max-width: 100%;
+    margin: var(--sp-1) 0 0;
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-bold);
+    line-height: var(--lh-tight);
+    overflow-wrap: anywhere;
+  }
+  /* One line, always: an address is identity, and a wrapped one reads as two
+     facts. dir="ltr" in the markup keeps it readable inside an Arabic panel. */
+  .profile-email {
+    max-width: 100%;
+    margin: 0;
+    font-size: var(--fs-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Written as button.ghost.profile-manage, not .profile-manage: `button.ghost`
+     is (0,1,1) and would otherwise decide the colour on source order alone. */
+  button.ghost.profile-manage {
+    margin-top: var(--sp-2);
+    padding: var(--sp-1) var(--sp-4);
+    border-radius: var(--radius-pill);
+    color: var(--accent-ink);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+  }
+  /* The legal row sits on the bottom edge and stays quiet. It wraps because the
+     panel can be 320px wide and two links plus a separator do not always fit. */
+  .profile-legal {
+    align-self: stretch;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: auto;
+    padding-top: var(--sp-4);
+  }
+  /* The default link colour is --accent-ink, which would make the two quietest
+     items on the page its loudest. Declared here rather than per element. */
+  .profile-legal .profile-legal-link {
+    color: var(--muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-regular);
+    text-decoration: none;
+  }
+  .profile-legal a.profile-legal-link:hover {
+    color: var(--text);
+    text-decoration: underline;
+    text-underline-offset: 0.16em;
+  }
+  .profile-legal-sep {
+    color: var(--muted);
+    font-size: var(--fs-xs);
+  }
+
+  /* ---- the accounts card ------------------------------------------------
+     The identity block above is fixed; this is the part that grows with how
+     many accounts a person has, so it is the one allowed to shrink and scroll.
+     `min-height: 0` is what lets it: a flex item defaults to `min-height: auto`
+     and refuses to go below its content, which would push the legal row off the
+     bottom instead of scrolling the list inside. */
+  .profile-summary {
+    flex: none;
+  }
+  .accounts-card {
+    position: relative;
+    flex: 0 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    text-align: start;
+  }
+  /* NO `overflow: hidden` on the card — the per-row menu has to be able to
+     hang outside it. The rounded corners are therefore put on the first and
+     last children instead, which is the only other way to get them. */
+  .accounts-card > :first-child {
+    border-start-start-radius: var(--radius-xl);
+    border-start-end-radius: var(--radius-xl);
+  }
+  /* `of :not(.account-menu)` because the open menu is a child of this card too,
+     and it is out of flow: it must not take the bottom corners from the row
+     that actually draws the card's last edge, and it must not be given a
+     divider above it. It lives here rather than inside its row because the row
+     sits in a clipping scroller — see .account-menu below. */
+  .accounts-card > :nth-last-child(1 of :not(.account-menu)) {
+    border-end-start-radius: var(--radius-xl);
+    border-end-end-radius: var(--radius-xl);
+  }
+  .accounts-card > :not(.account-menu) + :not(.account-menu) {
+    border-top: 1px solid var(--line);
+  }
+
+  /* Collapsed: one pill that says how many others there are by showing them. */
+  .accounts-pill {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto var(--control-height-xs);
+    align-items: center;
+    gap: var(--sp-3);
+    width: 100%;
+    padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--text);
+    font-weight: var(--fw-medium);
+    text-align: start;
+  }
+  button.accounts-pill:hover:not(:disabled) {
+    border-color: var(--line-strong);
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  .accounts-pill-faces {
+    display: flex;
+    align-items: center;
+  }
+  /* The ring is what makes the overlap read as depth rather than as a smudge,
+     and it is painted in the surface colour so it reads as a cut-out. */
+  .account-face-mini {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    background: var(--chip);
+    color: var(--muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    box-shadow: 0 0 0 2px var(--surface);
+  }
+  .account-face-mini + .account-face-mini {
+    margin-inline-start: -0.5rem;
+  }
+  /* A span, not a button: the pill itself is the button, and a button inside a
+     button is invalid markup that browsers repair by moving it out. It is sized
+     here rather than by `icon-button`, because that primitive only matches a
+     real button element. */
+  .accounts-pill-chevron {
+    display: grid;
+    place-items: center;
+    width: var(--control-height-xs);
+    height: var(--control-height-xs);
+    border-radius: var(--radius-pill);
+    background: var(--chip);
+    color: var(--muted);
+  }
+
+  /* Expanded: the disclosure row, the scrolling list, then the two actions. */
+  .accounts-disclosure {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 1.25rem;
+    align-items: center;
+    gap: var(--sp-2);
+    width: 100%;
+    padding: var(--sp-3) var(--sp-4);
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-weight: var(--fw-medium);
+    text-align: start;
+  }
+  button.accounts-disclosure:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  .accounts-chevron {
+    transition: transform var(--dur) var(--ease);
+  }
+  .accounts-disclosure[aria-expanded="true"] .accounts-chevron {
+    transform: rotate(180deg);
+  }
+
+  /* The ONE scrolling region on this screen. `overscroll-behavior: contain`
+     stops a flick at the end of the list from scrolling whatever is behind it. */
+  .accounts-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .accounts-list > * + * {
+    border-top: 1px solid var(--line);
+  }
+
+  .account-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--control-height-sm) minmax(0, 1fr) var(--control-height-sm);
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+  }
+  .account-face {
+    display: grid;
+    place-items: center;
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--chip);
+    color: var(--muted);
+    font-size: var(--fs-md);
+    font-weight: var(--fw-bold);
+  }
+  /* `min-width: 0` is what makes the ellipsis below possible: a grid item
+     defaults to `min-width: auto` and refuses to be narrower than its content,
+     so an address would push the row wider instead of being truncated. */
+  .account-identity {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .accounts-card.is-bare {
+    border: 0;
+    background: transparent;
+  }
+  .account-name-line {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+  }
+  .account-menu-question {
+    margin: 0;
+    padding: var(--sp-3) var(--sp-4);
+    color: var(--muted);
+    font-size: var(--fs-sm);
+  }
+  .account-name,
+  .account-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .account-name {
+    font-weight: var(--fw-medium);
+  }
+  /* The switch target is the text column itself. The design has no "switch"
+     button, and a row that reacts to a click while looking like nothing is a
+     control nobody discovers — so it is a real button, painted as the row. */
+  button.account-switch {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: start;
+  }
+  button.account-switch:hover:not(:disabled) {
+    border-color: transparent;
+    background: transparent;
+    color: inherit;
+  }
+  /* Hover belongs to the ROW, not to the middle column, or the feedback would
+     stop at the edges of the text and read as a second control. */
+  .account-row:has(button.account-switch:hover) {
+    background: var(--control-hover);
+  }
+  .account-email {
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+  /* An inactive row: the name goes quiet so the eye can tell at a glance which
+     accounts it can act as, without reading the badge on every one. */
+  .account-row.is-signed-out .account-name {
+    color: var(--muted);
+    font-weight: var(--fw-regular);
+  }
+  .account-badge {
+    justify-self: start;
+    padding: 2px var(--sp-2);
+    border-radius: var(--radius-pill);
+    background: var(--chip);
+    color: var(--muted);
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-medium);
+    white-space: nowrap;
+  }
+  /* The second line of a signed-out row. It sits under the text column, not
+     under the avatar, so the buttons line up with the name they belong to. */
+  .account-actions {
+    grid-column: 2 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    padding-top: var(--sp-1);
+  }
+  button.account-action {
+    border-radius: var(--radius-pill);
+  }
+  button.account-menu-button {
+    border-color: transparent;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--muted);
+  }
+  button.account-menu-button:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+
+  /* ANCHORED TO THE CARD, NOT TO ITS ROW, and the difference is whether it can
+     be seen at all. The rows live in an `overflow-y: auto` scroller, so a menu
+     positioned inside one is clipped by it: measured at 5px cut off at 400px
+     wide and 61px at 320px, in both directions, for the rows nearest an edge.
+     The handoff names this fallback itself — "if a row's menu can still not fit
+     either way, anchor it to the card instead of the row". The card sets no
+     overflow, so nothing clips it here.
+     `top` is therefore computed in app.js from where the row currently is,
+     which is the one value on this screen that no token can express. */
+  .account-menu {
+    position: absolute;
+    inset-inline-end: var(--sp-3);
+    z-index: var(--z-overlay);
+    min-width: 11.25rem;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-lg);
+  }
+  .account-menu > * + * {
+    border-top: 1px solid var(--line);
+  }
+  button.account-menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    padding: var(--sp-2) var(--sp-4);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-weight: var(--fw-regular);
+    text-align: start;
+  }
+  button.account-menu-item:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  button.account-menu-item.is-destructive {
+    color: var(--red);
+  }
+  button.account-menu-item.is-destructive:hover:not(:disabled) {
+    background: var(--red-weak);
+    color: var(--red);
+  }
+
+  /* The two card-level actions. Taller than a control on purpose: they are
+     destinations rather than adjustments, and the design gives them room. */
+  .accounts-action {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-4);
+    width: 100%;
+    min-height: 3.5rem;
+    padding: var(--sp-3) var(--sp-4);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-weight: var(--fw-regular);
+    text-align: start;
+  }
+  button.accounts-action:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  .accounts-action-icon {
+    color: var(--accent-ink);
+  }
+  .accounts-action-icon.is-quiet {
+    color: var(--muted);
   }
 
   /* Appearance is a complete Android-style destination. It uses the same

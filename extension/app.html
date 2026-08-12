@@ -1136,20 +1136,92 @@
             <p class="notice hidden" role="status" aria-live="polite" id="signin-problem"></p>
           </div>
 
-          <!-- Signed in. Account identity is the primary content. -->
+          <!-- Signed in. Account identity is the primary content, centred
+               between two edges: the sign-out control at the top, the legal
+               links at the bottom. Both rows stretch across the card; the
+               identity block keeps the centre. -->
           <div class="profile-state hidden" id="welcome-signed-in">
+            <div class="profile-topbar">
+              <!-- Icon-only, so it carries its name in aria-label AND title:
+                   the first for a screen reader, the second for the pointer. -->
+              <button class="icon-button xs profile-signout" id="signout" type="button"
+                      aria-label="Sign out" title="Sign out">
+                <svg class="sx-icon" aria-hidden="true">
+                  <use href="icons/material-icons.svg#logout"></use>
+                </svg>
+              </button>
+            </div>
+
             <div class="profile-summary" id="welcome-summary" tabindex="-1"
                  aria-label="Signed in">
               <img class="welcome-face hidden" id="welcome-photo" alt="" aria-hidden="true">
-              <h1 id="welcome-name">Signed in</h1>
-              <p class="muted" id="welcome-email"></p>
+              <!-- What the page wears when Google returns no picture. It has no
+                   id on purpose: a permanently aria-hidden element carrying one
+                   is refused by tests/test_panel_wiring.py, and it needs none —
+                   CSS shows it exactly when the photo above is hidden. -->
+              <span class="profile-face-fallback" aria-hidden="true">
+                <svg class="sx-icon profile-face-icon" aria-hidden="true">
+                  <use href="icons/material-icons.svg#account-circle"></use>
+                </svg>
+              </span>
+              <!-- The greeting is its own element so #welcome-name keeps holding
+                   the account name and NOTHING else: a test compares that node's
+                   text to what Google returned, exactly. It starts hidden and is
+                   shown only once there is a real name — otherwise the line reads
+                   "Hi, Signed in" during the moment before the account arrives,
+                   and again whenever the lookup fails.
+                   dir="auto" is on the name, the one field here that can hold a
+                   right-to-left script: Google returns the display name as the
+                   person wrote it, and inside this LTR shell a name that mixes
+                   scripts resolves its neutral separator to level 0 and lands the
+                   Latin half on the wrong side. Measured, and fixed by this
+                   attribute alone. Same pairing the panel already uses for
+                   #f-name / #f-name-ar. An address cannot be RTL, so the line
+                   below stays ltr. -->
+              <h1 class="profile-greeting"><span id="welcome-greeting"
+                  class="hidden">Hi,</span> <span id="welcome-name"
+                  dir="auto">Signed in</span></h1>
+              <p class="muted profile-email" id="welcome-email" dir="ltr"></p>
               <p class="notice hidden" role="status" aria-live="polite"
                  id="account-detail-status"></p>
               <button class="ghost compact hidden" id="retry-account" type="button">
                 Retry
               </button>
+              <!-- Disabled until the Manage account screen exists. A control
+                   that looks live and answers nothing is worse than one that
+                   says plainly it is not ready yet. -->
+              <button class="ghost profile-manage" id="manage-account" type="button"
+                      disabled>
+                Manage your account
+              </button>
             </div>
-            <button class="ghost compact" id="signout" type="button">Sign out</button>
+
+            <!-- The accounts card. Every row inside is rendered by app.js from
+                 the remembered directory, so this element is only the frame:
+                 the rows are data, and data does not belong in a template.
+                 It carries no `card` class — this surface has no padding, its
+                 children draw their own dividers, and a per-row menu has to be
+                 able to overflow it, which is three fights with that primitive
+                 rather than a reuse of it. -->
+            <section class="accounts-card hidden" id="accounts-card"
+                     aria-label="Your accounts"></section>
+
+            <p class="notice hidden" role="status" aria-live="polite"
+               id="accounts-status"></p>
+
+            <div class="profile-legal">
+              <a class="profile-legal-link"
+                 href="https://muhammadbayoumi.github.io/mbiXsite/scrapex-privacy.html"
+                 target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+              <span class="profile-legal-sep" aria-hidden="true">•</span>
+              <!-- Disabled until the terms are written. The store listing says
+                   ScrapeX is not a service and has no account, so this text has
+                   to be authored before it can be linked to. -->
+              <button class="link profile-legal-link" id="terms-of-service"
+                      type="button" disabled>
+                Terms of Service
+              </button>
+            </div>
           </div>
 
         </div>

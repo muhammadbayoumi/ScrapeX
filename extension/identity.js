@@ -303,6 +303,12 @@ export async function accountFor(token, fetchImpl = fetch, {signal = null} = {})
   return {
     state: "ok",
     account: {
+      // `sub` is Google's STABLE identifier for the account, and the only field
+      // here that is safe to key a remembered account on. An address is not: a
+      // person can change theirs, and Workspace admins reassign them — keying on
+      // it would make one account silently become two rows, or worse, make a
+      // renamed address land on somebody else's row. accounts.js requires this.
+      id: typeof body.sub === "string" ? body.sub : "",
       name: typeof body.name === "string" ? body.name : "",
       email: typeof body.email === "string" ? body.email : "",
       // Google serves this from lh3.googleusercontent.com and the URL expires.
@@ -311,6 +317,198 @@ export async function accountFor(token, fetchImpl = fetch, {signal = null} = {})
       picture: typeof body.picture === "string" ? body.picture : "",
     },
   };
+}
+
+// ---- more than one account -------------------------------------------------
+//
+// `getAuthToken` above can only ever speak for ONE account: the primary account
+// of the Chrome profile. It takes no chooser and offers no way to name someone
+// else, so an account SWITCHER cannot be built on it. `launchWebAuthFlow` can:
+// it opens Google's own screen, and `login_hint` names which account to use.
+//
+// THE OWNER'S RULING OF 2026-08-11 chose the variant of this that keeps the
+// 2026-08-05 ruling intact: «الصيغة الثالثة، بلا تخزين اعتمادات». So the flow
+// here is the IMPLICIT one — `response_type=token`. It returns an access token
+// and NO refresh token, which is exactly the point: there is no long-lived
+// credential to store, accounts.js keeps a directory rather than a keyring, and
+// a token for any account is minted at the moment it is needed.
+//
+// WHAT IT COSTS, said plainly: an access token lives about an hour and cannot be
+// renewed offline. A silent mint (`prompt=none`) works only while Google's own
+// session in this browser is alive. When it is not, the account is not broken —
+// it is SIGNED OUT, which is a state the design already draws, and one click
+// re-authorises it.
+//
+// WHY THE CODE FLOW IS NOT USED. Exchanging an authorization code at Google's
+// token endpoint requires a client secret, and an extension cannot hold one: it
+// ships to every user. PKCE removes the secret for installed apps, but the thing
+// it buys is a REFRESH token — the credential this design deliberately declines
+// to store. There is nothing to gain and a ruling to break.
+
+/** Google's authorisation screen. */
+const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
+
+/** The Web-application OAuth client, which the extension does not have yet.
+ *
+ * NOT the client in manifest.json. That one is of type "Chrome Extension" and is
+ * bound to `getAuthToken`; `launchWebAuthFlow` is refused against it. A second
+ * client of type "Web application" has to be created in Google Cloud with this
+ * extension's redirect URL — `chrome.identity.getRedirectURL()`, which resolves
+ * to https://<extension-id>.chromiumapp.org/ — as an authorised redirect URI.
+ *
+ * IT IS EMPTY ON PURPOSE, and `authorize` refuses with `misconfigured` while it
+ * is. A placeholder id would fail against Google with a message about the client
+ * rather than about the thing that is actually missing, and the one failure the
+ * owner cannot fix by trying again must not look like the ones he can.
+ */
+export const WEB_CLIENT_ID = "";
+
+/** Build the URL Google's screen is opened at.
+ *
+ * `prompt` is the whole difference between the two ways this is called. `none`
+ * asks Google to answer from the session it already has and to refuse rather
+ * than draw anything — that is the silent mint, and it must never open a window.
+ * `select_account` is the interactive one, and it shows the chooser even when
+ * Google could have answered silently: an ADD ANOTHER ACCOUNT button that
+ * skipped the chooser and re-signed-in the account you already had would be
+ * indistinguishable from a broken button.
+ */
+export function authUrl({ clientId, redirectUri, email = "", interactive = true,
+                          scopes = SCOPES } = {}) {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "token",
+    scope: scopes.join(" "),
+    // Carry forward anything this person already agreed to, so a second sign-in
+    // does not quietly drop a scope they granted the first time.
+    include_granted_scopes: "true",
+    prompt: interactive ? "select_account" : "none",
+  });
+  // Which account this is FOR. Without it a silent request answers for whoever
+  // Google considers default, and the panel would switch accounts by itself.
+  if (email) params.set("login_hint", email);
+  return `${AUTH_ENDPOINT}?${params.toString()}`;
+}
+
+/** Read what Google sent back to the redirect URL.
+ *
+ * The implicit flow puts its answer in the FRAGMENT, not the query, and errors
+ * can arrive in either — so both are read. Every branch is a different sentence
+ * for the same reason readTokenResult's are: a single "sign-in failed" teaches
+ * the owner to press the button again and learn nothing.
+ */
+export function readRedirect(redirectUrl, lastError) {
+  if (!redirectUrl) {
+    const message = (lastError && lastError.message) || "";
+    if (/did not approve|canceled|cancelled|closed/i.test(message)) {
+      return { state: "declined",
+               detail: "Sign-in was closed before it finished. Nothing changed." };
+    }
+    return { state: "failed",
+             detail: message || "Chrome did not say why sign-in failed." };
+  }
+
+  let url;
+  try { url = new URL(redirectUrl); }
+  catch (_) {
+    return { state: "failed", detail: "Google returned an unreadable answer." };
+  }
+  const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const error = fragment.get("error") || url.searchParams.get("error");
+
+  if (error) {
+    // THE ORDINARY REFUSAL, and it is not a failure. `prompt=none` asks Google
+    // to answer without drawing anything; these four are Google saying "not
+    // without the person". That is a SIGNED-OUT account, a state the panel
+    // draws, and it must not be reported as something going wrong.
+    if (/^(login_required|consent_required|interaction_required|account_selection_required)$/
+        .test(error)) {
+      return { state: "interaction-required", retryable: true,
+               detail: "This account's Google session has ended. Sign in to use it again." };
+    }
+    if (error === "access_denied") {
+      return { state: "declined",
+               detail: "Sign-in was refused. Nothing changed." };
+    }
+    if (/^(invalid_client|unauthorized_client|invalid_request|redirect_uri_mismatch)$/
+        .test(error)) {
+      return { state: "misconfigured",
+               detail: "Google refused the OAuth client in this build. The " +
+                       "extension's redirect URL and the client in Google Cloud " +
+                       "do not match." };
+    }
+    if (error === "admin_policy_enforced") {
+      // A Workspace administrator blocked it. Pressing again cannot fix that,
+      // and the person needs to know it is their organisation and not ScrapeX.
+      return { state: "blocked-by-admin",
+               detail: "This account's organisation blocks ScrapeX. Ask a " +
+                       "Google Workspace administrator to allow it, or use " +
+                       "another account." };
+    }
+    return { state: "failed", detail: `Google refused sign-in (${error}).` };
+  }
+
+  const token = fragment.get("access_token");
+  if (!token) {
+    return { state: "failed", detail: "Google's answer carried no token." };
+  }
+
+  // Same partial-grant reading as getAuthToken's, and deliberately the same
+  // vocabulary: the consent screen's unticked Drive checkbox is one behaviour
+  // and must not have two names depending on which flow met it. The implicit
+  // flow always reports `scope`, so unlike Chrome's callback there is no
+  // "this browser cannot tell us" case here.
+  const granted = (fragment.get("scope") || "").split(" ").filter(Boolean);
+  const missing = missingScopes(granted, SCOPES);
+  if (missing && missing.length) {
+    return {
+      state: "partial", token, missing,
+      detail: missing.includes(DRIVE_SCOPE)
+        ? "Signed in, but Drive access was not granted — the checkbox on "
+          + "Google's second screen was left unticked, so backups to Drive "
+          + "will fail. Sign in again and tick it."
+        : "Signed in, but Google did not grant everything ScrapeX asked for: "
+          + missing.join(", "),
+    };
+  }
+  return { state: "ok", token };
+}
+
+/** Get a token for ONE named account, silently when that is possible.
+ *
+ * `interactive: false` is the panel's ordinary path: it opens no window, and a
+ * refusal is the answer rather than an error. Only a control the person pressed
+ * is allowed to pass `true`.
+ */
+export async function authorize({ email = "", interactive = false,
+                                  identity = chrome.identity,
+                                  runtime = chrome.runtime,
+                                  clientId = WEB_CLIENT_ID } = {}) {
+  if (!clientId) {
+    return { state: "misconfigured",
+             detail: "This build has no Web OAuth client, so accounts cannot be "
+                   + "added or switched. One has to be created in Google Cloud "
+                   + "with this extension's redirect URL." };
+  }
+
+  let redirectUri;
+  try { redirectUri = identity.getRedirectURL(); }
+  catch (error) {
+    return { state: "failed",
+             detail: (error && error.message) || "Chrome would not name a redirect URL." };
+  }
+
+  const url = authUrl({ clientId, redirectUri, email, interactive });
+  return new Promise((resolve) => {
+    try {
+      identity.launchWebAuthFlow({ url, interactive }, (redirectUrl) =>
+        resolve(readRedirect(redirectUrl, runtime.lastError)));
+    } catch (error) {
+      resolve({ state: "failed", retryable: true,
+                detail: (error && error.message) || "Chrome could not open sign-in." });
+    }
+  });
 }
 
 /** Sign out on this device: drop Chrome's cached token and forget it. */

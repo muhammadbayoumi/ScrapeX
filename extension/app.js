@@ -12,7 +12,10 @@ import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDataba
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { latestEngineRelease } from "./releases.js";
-import { getToken, accountFor, forgetToken, revokeToken } from "./identity.js";
+import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
+import {
+  clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
+} from "./accounts.js";
 import { backUp, fetchLatest, fetchPanelPack } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
 import { ensureFolder, ensureSpreadsheet, DEFAULT_WORKBOOK, SHEET_FOLDER } from "./sheets.js";
@@ -141,6 +144,14 @@ const state = {
   // Chrome holds the token; this is the copy the panel lends onward, and
   // it is never written to storage.
   token: "", account: null, accountStatus: null,
+  // The DIRECTORY, not a keyring: who this browser has seen, read from
+  // chrome.storage.local by accounts.js. It holds names and addresses the panel
+  // already paints and never a credential — the owner's ruling of 2026-08-11.
+  accounts: [], currentAccountId: "",
+  // Card state. `openAccountMenu` holds an id rather than a boolean so "exactly
+  // one menu open" is a property of the state instead of a rule the handlers
+  // have to remember to keep.
+  accountsExpanded: true, openAccountMenu: null, pendingRemove: null,
   installedVersion: "", engineVersion: "", versionReport: null,
   versionStatus: "pending",
   // null means the engine never said, which is a THIRD state and not a
@@ -2263,11 +2274,61 @@ function setGoogleButtonScheme() {
   });
 }
 
+// ---- the remembered directory ---------------------------------------------
+// Every call here is wrapped, and every failure is swallowed. The directory is
+// what makes SWITCHING possible; signing in and using the panel does not depend
+// on it. A storage fault must not turn a working account into a broken panel —
+// so this layer is allowed to be absent, and nothing above it may assume it.
+
+async function loadAccountDirectory() {
+  try {
+    const held = await readAccounts();
+    state.accounts = held.accounts;
+    state.currentAccountId = held.currentId;
+  } catch (_) {
+    state.accounts = [];
+    state.currentAccountId = "";
+  }
+}
+
+/** Keep the directory in step with whoever just proved who they are.
+ *
+ * Called on EVERY successful lookup, not only the first: a name or a photo that
+ * changed at Google is the truth, and the row should be carrying it. An account
+ * with no `sub` is not remembered — accounts.js refuses it, and a row nothing
+ * can switch to is worse than no row.
+ */
+async function rememberSignedInAccount(account) {
+  if (!account || !account.id) return;
+  try {
+    const held = await rememberAccount(account);
+    state.accounts = held.accounts;
+    state.currentAccountId = held.currentId;
+  } catch (_) { /* the panel works without the directory */ }
+}
+
+/** Sign out: stop acting as the account, and KEEP it listed.
+ *
+ * The row becomes the design's signed-out row — the way back in without having
+ * to type the address again. Removing it is a different button entirely, and
+ * the only one that erases anything.
+ */
+async function endCurrentAccountSession() {
+  try {
+    const held = await clearCurrentAccount();
+    state.accounts = held.accounts;
+    state.currentAccountId = held.currentId;
+  } catch (_) { /* the panel works without the directory */ }
+}
+
 async function loadAccount({ interactive = false } = {}) {
   const generation = ++accountGeneration;
   const current = () => generation === accountGeneration && !panelController.signal.aborted;
   markStartup("account-check-start", {interactive});
   setChecking(true);
+  // Read before asking Chrome: the directory is what the switcher paints, and
+  // it is known from storage alone — it must not wait on a network round trip.
+  await loadAccountDirectory();
   try {
     const result = await getToken({interactive, signal: panelController.signal});
     if (!current()) return {state: "stale"};
@@ -2290,6 +2351,7 @@ async function loadAccount({ interactive = false } = {}) {
       state.account = accountResult.account;
       state.accountStatus = null;
       renderAccount({});
+      await rememberSignedInAccount(accountResult.account);
       return { ...result, account: accountResult.account };
     }
 
@@ -2351,6 +2413,7 @@ async function loadAccountDetails() {
       state.account = result.account;
       state.accountStatus = null;
       renderAccount({});
+      await rememberSignedInAccount(result.account);
       return;
     }
     if (result.state === "unauthorized") {
@@ -2397,6 +2460,12 @@ function renderAccount({ tokenProblem = null } = {}) {
     if (status) status.classList.add("hidden");
     if (retry) retry.classList.add("hidden");
     if (summary) summary.setAttribute("aria-label", "Signed in");
+    // Nothing is open on a card nobody can see, and a menu left open would
+    // reappear over whichever account signs in next.
+    state.openAccountMenu = null;
+    state.pendingRemove = null;
+    renderAccountsCard();
+    setAccountsStatus("");
     updateRailLabel();
     return;
   }
@@ -2408,6 +2477,10 @@ function renderAccount({ tokenProblem = null } = {}) {
   // readable. Saying "Signed in" is true; inventing a name would not be.
   const name = (account && account.name) || "";
   $("welcome-name").textContent = name || "Signed in";
+  // "Hi," is only true once there is someone to greet. Without this the line
+  // reads "Hi, Signed in" in the two states that have a token but no profile:
+  // the moment before Google answers, and every case where the lookup failed.
+  $("welcome-greeting").classList.toggle("hidden", !name);
   const email = (account && account.email) || "";
   $("welcome-email").textContent = email;
   $("welcome-email").classList.toggle("hidden", !email);
@@ -2438,7 +2511,455 @@ function renderAccount({ tokenProblem = null } = {}) {
   }
 
   summary.setAttribute("aria-label", name ? `Signed in as ${name}` : "Signed in");
+  renderAccountsCard();
   updateRailLabel();
+}
+
+// ---- the accounts card -----------------------------------------------------
+//
+// Every row here is DATA, so none of it lives in app.html: the card is rendered
+// from the remembered directory. Names and addresses come from Google and are
+// therefore untrusted, so every one of them is written with `textContent` and
+// nothing on this path builds markup by string concatenation. The only innerHTML
+// below carries `icon()`, whose argument is a literal in this file.
+//
+// WHAT "SIGNED OUT" MEANS ON A ROW. The directory deliberately stores no session
+// state — a cached "signed in" is a fact that goes stale on disk and then lies.
+// The only account this panel KNOWS it holds a token for is the current one;
+// every other row is offered as signed out until a silent authorisation proves
+// otherwise. That check needs the Web OAuth client, which this build does not
+// have yet, so today every other row renders as signed out. That is the truth
+// about this build rather than a placeholder.
+
+function accountInitial(account) {
+  const source = String(account.name || account.email || "").trim();
+  return source ? source[0].toUpperCase() : "?";
+}
+
+function accountInitialFace(account, className) {
+  const face = el("span", className, accountInitial(account));
+  face.setAttribute("aria-hidden", "true");
+  return face;
+}
+
+/** The face for a row: the photo when there is one, the initial when there is
+ *  not — and the initial again the moment the photo fails, because Google's
+ *  photo URLs expire and a broken image is worse than a letter. */
+function accountFace(account, className) {
+  if (!account.picture) return accountInitialFace(account, className);
+  const img = document.createElement("img");
+  img.className = className;
+  img.alt = "";
+  img.setAttribute("aria-hidden", "true");
+  img.addEventListener("error", () => {
+    img.replaceWith(accountInitialFace(account, className));
+  }, { once: true });
+  img.src = account.picture;
+  return img;
+}
+
+function accountLabel(account) {
+  return account.name || account.email || "Account";
+}
+
+/** One row. `signedIn` decides whether it can be switched to or must be
+ *  re-authorised first. */
+function accountRow(account, { signedIn }) {
+  const row = el("div", `account-row${signedIn ? "" : " is-signed-out"}`);
+  row.dataset.accountId = account.id;
+  row.append(accountFace(account, "account-face"));
+
+  const identity = el("div", "account-identity");
+  const nameLine = el("div", "account-name-line");
+  nameLine.append(el("span", "account-name", accountLabel(account)));
+  if (!signedIn) nameLine.append(el("span", "account-badge", "Signed out"));
+  identity.append(nameLine);
+  const email = el("span", "account-email", account.email);
+  email.setAttribute("dir", "ltr");
+  identity.append(email);
+
+  if (signedIn) {
+    // The whole text column is the switch target, not a separate control: the
+    // design has no "switch" button, and giving the row a click handler while
+    // it looks like a button to nobody is how a control becomes undiscoverable.
+    const target = el("button", "account-switch");
+    target.type = "button";
+    target.setAttribute("aria-label", `Use ${accountLabel(account)}`);
+    target.append(identity);
+    target.addEventListener("click", () => switchToAccount(account.id));
+    row.append(target);
+  } else {
+    row.append(identity);
+  }
+
+  const menuButton = el("button", "icon-button compact account-menu-button");
+  menuButton.type = "button";
+  menuButton.setAttribute("aria-label", `Actions for ${accountLabel(account)}`);
+  menuButton.setAttribute("aria-haspopup", "menu");
+  menuButton.setAttribute("aria-expanded", String(state.openAccountMenu === account.id));
+  menuButton.innerHTML = icon("more-vert");
+  menuButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleAccountMenu(account.id);
+  });
+  row.append(menuButton);
+
+  if (!signedIn) {
+    const actions = el("div", "account-actions");
+    const signIn = el("button", "compact account-action", "Sign in");
+    signIn.type = "button";
+    signIn.addEventListener("click", () => signInToAccount(account.id));
+    const remove = el("button", "ghost compact account-action", "Remove");
+    remove.type = "button";
+    // No confirm: this row holds no session and erases nothing. A confirm step
+    // in front of a harmless action teaches people to click through the ones
+    // that are not.
+    remove.addEventListener("click", () => removeAccount(account.id));
+    actions.append(signIn, remove);
+    row.append(actions);
+  }
+
+  // The menu is NOT appended here. It belongs to the card, because this row
+  // lives inside a clipping scroller — see renderAccountsCard.
+  return row;
+}
+
+/** The per-row menu, and the confirm step that lives inside it.
+ *
+ * NOT A DIALOG, and not by preference: tests/test_panel_dom.py forbids
+ * `[role="dialog"]` anywhere inside #view-profile. The confirm therefore
+ * replaces the menu's own contents, which also keeps the question next to the
+ * row it is about instead of floating over the whole panel.
+ */
+function accountMenu(account, { signedIn }) {
+  const menu = el("div", "account-menu");
+  menu.setAttribute("role", "menu");
+  menu.dataset.accountId = account.id;
+
+  if (state.pendingRemove === account.id) {
+    // Says what it does AND what it does not. In a local-first tool "remove
+    // account" reads as deleting the Google account, and it does not: nothing
+    // leaves Google and no collected data is touched.
+    menu.append(el("p", "account-menu-question",
+      `Remove ${accountLabel(account)} from ScrapeX? The Google account is not `
+      + "touched and no collected data is erased — this browser just stops "
+      + "listing it."));
+    const confirm = el("button", "account-menu-item is-destructive", "Remove");
+    confirm.type = "button";
+    confirm.setAttribute("role", "menuitem");
+    confirm.addEventListener("click", () => removeAccount(account.id));
+    const cancel = el("button", "account-menu-item", "Keep it");
+    cancel.type = "button";
+    cancel.setAttribute("role", "menuitem");
+    cancel.addEventListener("click", () => {
+      state.pendingRemove = null;
+      renderAccountsCard();
+      focusAccountMenuButton(account.id);
+    });
+    menu.append(confirm, cancel);
+    return menu;
+  }
+
+  if (signedIn) {
+    const signOut = el("button", "account-menu-item", "Sign out");
+    signOut.type = "button";
+    signOut.setAttribute("role", "menuitem");
+    signOut.addEventListener("click", () => signOutOfAccount(account.id));
+    menu.append(signOut);
+  }
+  const remove = el("button", "account-menu-item is-destructive", "Remove from ScrapeX");
+  remove.type = "button";
+  remove.setAttribute("role", "menuitem");
+  remove.addEventListener("click", () => {
+    state.pendingRemove = account.id;
+    renderAccountsCard();
+    // Focus the confirm, so a keyboard user is standing on the answer to the
+    // question that just appeared rather than back at the top of the menu.
+    const confirm = $("accounts-card").querySelector(".account-menu .is-destructive");
+    if (confirm) confirm.focus({ preventScroll: true });
+  });
+  menu.append(remove);
+  return menu;
+}
+
+function accountsAction(label, symbol, { quiet = false, onClick }) {
+  const button = el("button", "accounts-action");
+  button.type = "button";
+  button.innerHTML = icon(symbol, `lg accounts-action-icon${quiet ? " is-quiet" : ""}`);
+  button.append(el("span", "", label));
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function accountsCollapsedPill(others) {
+  const pill = el("button", "accounts-pill");
+  pill.type = "button";
+  pill.setAttribute("aria-expanded", "false");
+  pill.setAttribute("aria-controls", "accounts-list");
+  pill.append(el("span", "", "Show more accounts"));
+
+  const faces = el("span", "accounts-pill-faces");
+  faces.setAttribute("aria-hidden", "true");
+  for (const account of others.slice(0, 3)) {
+    faces.append(accountFace(account, "account-face-mini"));
+  }
+  pill.append(faces);
+
+  const chevron = el("span", "accounts-pill-chevron icon-button xs");
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.innerHTML = icon("expand-more");
+  pill.append(chevron);
+  pill.addEventListener("click", () => toggleAccountsList());
+  return pill;
+}
+
+function renderAccountsCard() {
+  const card = $("accounts-card");
+  if (!card) return;
+
+  // WHERE THE LIST WAS. Every state change rebuilds this card from scratch,
+  // which throws the scroller back to the top — and the row whose menu was just
+  // opened goes with it. Measured: the menu ended 205px below the visible list,
+  // clipped and unreachable, for a row the person had scrolled to.
+  const previous = card.querySelector(".accounts-list");
+  const scrollTop = previous ? previous.scrollTop : 0;
+
+  const signedIn = Boolean(state.token);
+  card.textContent = "";
+  card.classList.toggle("hidden", !signedIn);
+  card.classList.remove("is-bare");
+  if (!signedIn) return;
+
+  const others = state.accounts.filter((account) => account.id !== state.currentAccountId);
+
+  // Nobody else is listed yet, so there is nothing to disclose and nothing to
+  // sign out of "as well". One row, and it is the one that changes that.
+  if (!others.length) {
+    card.append(accountsAction("Add another account", "add", { onClick: addAnotherAccount }));
+    return;
+  }
+
+  if (!state.accountsExpanded) {
+    card.classList.add("is-bare");
+    card.append(accountsCollapsedPill(others));
+    return;
+  }
+
+  const disclosure = el("button", "accounts-disclosure");
+  disclosure.type = "button";
+  disclosure.setAttribute("aria-expanded", "true");
+  disclosure.setAttribute("aria-controls", "accounts-list");
+  disclosure.append(el("span", "", "Hide more accounts"));
+  disclosure.insertAdjacentHTML("beforeend", icon("expand-more", "accounts-chevron"));
+  disclosure.addEventListener("click", () => toggleAccountsList());
+  card.append(disclosure);
+
+  const list = el("div", "accounts-list");
+  list.id = "accounts-list";
+  for (const account of others) {
+    // See the note at the top of this section: without the Web OAuth client
+    // nothing can be authorised silently, so no other row can be shown as
+    // signed in without saying something this build cannot know.
+    list.append(accountRow(account, { signedIn: false }));
+  }
+  card.append(list);
+
+  card.append(accountsAction("Add another account", "add", { onClick: addAnotherAccount }));
+  card.append(accountsAction("Sign out of all accounts", "logout",
+                             { quiet: true, onClick: signOutOfAllAccounts }));
+
+  // Put the scroller back before deciding where the menu goes: where it can fit
+  // depends on where its row currently sits, and that is not settled until now.
+  list.scrollTop = scrollTop;
+
+  const open = others.find((account) => account.id === state.openAccountMenu);
+  if (open) {
+    card.append(accountMenu(open, { signedIn: false }));
+    placeOpenAccountMenu();
+  }
+
+  // The menu FOLLOWS its row; it is never closed from here.
+  //
+  // Closing on scroll was tried and is wrong, because scroll events are
+  // ASYNCHRONOUS: restoring the scroll position two lines above queues an event
+  // that arrives after this function returns, so the menu closed itself the
+  // instant it was opened on any row the person had scrolled to. Repositioning
+  // has no such race — and placeOpenAccountMenu clamps inside the card, so a
+  // row scrolled out of view leaves the menu parked at the edge rather than
+  // adrift.
+  list.addEventListener("scroll", () => {
+    if (state.openAccountMenu) placeOpenAccountMenu();
+  }, { passive: true });
+}
+
+/** Put the open menu where it fits, measured against the card it hangs in.
+ *
+ * Preferred position is just under the ⋮ that opened it. When there is not room
+ * below, it opens upward from just above it instead; when neither fits — a very
+ * short panel with a tall menu — it is clamped inside the card, because a menu
+ * half outside its surface is worse than one that does not quite line up.
+ *
+ * Everything here is read after layout, because it depends on where the row
+ * currently is, and scrolling moves that.
+ */
+/** The ⋮ the open menu belongs to, or null when there is no menu open. */
+function triggerForOpenMenu() {
+  const card = $("accounts-card");
+  if (!card || !state.openAccountMenu) return null;
+  const row = card.querySelector(
+    `.account-row[data-account-id="${CSS.escape(state.openAccountMenu)}"]`);
+  return row ? row.querySelector(".account-menu-button") : null;
+}
+
+function placeOpenAccountMenu() {
+  const card = $("accounts-card");
+  const menu = card && card.querySelector(".account-menu");
+  if (!menu) return;
+  const trigger = triggerForOpenMenu();
+  if (!trigger) return;
+
+  const cardBox = card.getBoundingClientRect();
+  const triggerBox = trigger.getBoundingClientRect();
+  const gap = 4;
+  const below = triggerBox.bottom - cardBox.top + gap;
+  const above = triggerBox.top - cardBox.top - menu.offsetHeight - gap;
+  const highest = gap;
+  const lowest = card.clientHeight - menu.offsetHeight - gap;
+
+  let top = below;
+  if (below > lowest) top = above;
+  menu.style.top = `${Math.round(Math.max(highest, Math.min(top, lowest)))}px`;
+}
+
+function focusAccountMenuButton(id) {
+  const card = $("accounts-card");
+  if (!card) return;
+  const row = card.querySelector(`.account-row[data-account-id="${CSS.escape(id)}"]`);
+  const button = row && row.querySelector(".account-menu-button");
+  if (button) button.focus({ preventScroll: true });
+}
+
+function toggleAccountsList() {
+  state.accountsExpanded = !state.accountsExpanded;
+  // Collapsing hides the rows a menu is anchored to, and a menu left open would
+  // be re-opened by the next expand for a row nobody is looking at any more.
+  state.openAccountMenu = null;
+  state.pendingRemove = null;
+  renderAccountsCard();
+}
+
+function toggleAccountMenu(id) {
+  const opening = state.openAccountMenu !== id;
+  state.openAccountMenu = opening ? id : null;
+  // A confirm belongs to the menu that raised it. Opening another one, or
+  // closing this one, ends the question rather than carrying it around.
+  state.pendingRemove = null;
+  renderAccountsCard();
+  if (!opening) focusAccountMenuButton(id);
+}
+
+function closeAccountMenu({ restoreFocus = false } = {}) {
+  if (!state.openAccountMenu) return;
+  const id = state.openAccountMenu;
+  state.openAccountMenu = null;
+  state.pendingRemove = null;
+  renderAccountsCard();
+  if (restoreFocus) focusAccountMenuButton(id);
+}
+
+function setAccountsStatus(detail) {
+  const status = $("accounts-status");
+  if (!status) return;
+  status.textContent = detail || "";
+  status.classList.toggle("hidden", !detail);
+}
+
+async function removeAccount(id) {
+  state.pendingRemove = null;
+  state.openAccountMenu = null;
+  try {
+    const held = await forgetAccount(id);
+    state.accounts = held.accounts;
+    state.currentAccountId = held.currentId;
+  } catch (_) { /* the panel works without the directory */ }
+  setAccountsStatus("");
+  renderAccountsCard();
+}
+
+// The four actions that need a token for an account this panel is not currently
+// holding one for. Each is a single call into identity.js, and each reports what
+// came back rather than pretending it worked — today that is the same sentence
+// for all of them, because the build has no Web OAuth client yet and
+// `authorize` refuses before opening anything.
+
+async function switchToAccount(id) {
+  const account = state.accounts.find((held) => held.id === id);
+  if (!account) return;
+  closeAccountMenu();
+  const result = await authorize({ email: account.email, interactive: false });
+  if (result.state !== "ok" && result.state !== "partial") {
+    setAccountsStatus(result.detail);
+    return;
+  }
+  await adoptAuthorizedAccount(result.token);
+}
+
+async function signInToAccount(id) {
+  const account = state.accounts.find((held) => held.id === id);
+  if (!account) return;
+  closeAccountMenu();
+  const result = await authorize({ email: account.email, interactive: true });
+  if (result.state !== "ok" && result.state !== "partial") {
+    setAccountsStatus(result.detail);
+    return;
+  }
+  await adoptAuthorizedAccount(result.token);
+}
+
+async function addAnotherAccount() {
+  closeAccountMenu();
+  const result = await authorize({ interactive: true });
+  if (result.state !== "ok" && result.state !== "partial") {
+    setAccountsStatus(result.detail);
+    return;
+  }
+  await adoptAuthorizedAccount(result.token);
+}
+
+/** Take a freshly authorised token as the panel's current identity. */
+async function adoptAuthorizedAccount(token) {
+  setAccountsStatus("");
+  const lookup = await accountFor(token, window.fetch, {signal: panelController.signal});
+  if (lookup.state !== "ok") {
+    setAccountsStatus(lookup.detail);
+    return;
+  }
+  state.token = token;
+  state.account = lookup.account;
+  state.accountStatus = null;
+  await rememberSignedInAccount(lookup.account);
+  renderAccount({});
+  renderAccountsCard();
+}
+
+async function signOutOfAccount(id) {
+  closeAccountMenu();
+  if (id === state.currentAccountId) {
+    const button = $("signout");
+    if (button) button.click();
+    return;
+  }
+  // No token is held for any other account — there is nothing to end here, and
+  // saying so is better than a button that appears to work and does nothing.
+  setAccountsStatus("That account has no session on this device to end.");
+}
+
+async function signOutOfAllAccounts() {
+  closeAccountMenu();
+  const button = $("signout");
+  // The current account is the only one holding a session, so ending it ends
+  // them all. The row for every account stays; signing out is not removing.
+  if (button) button.click();
 }
 
 // ---- what is installed, and what is available -----------------------------
@@ -4487,6 +5008,10 @@ function wireStartupShell() {
       state.token = "";
       state.account = null;
       state.accountStatus = null;
+      // The row STAYS. Signing out ends a session; it does not remove an
+      // account, and the person has to be able to come back through the same
+      // row rather than typing the address again.
+      await endCurrentAccountSession();
       renderAccount(ended.state === "local-only"
         // Said out loud rather than swallowed: this browser has forgotten the
         // account, and Google has not. The difference matters on a shared
@@ -4499,6 +5024,28 @@ function wireStartupShell() {
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // A menu closes the two ways every menu closes. Both are registered once,
+  // here, rather than per render: the card is rebuilt on every state change and
+  // listeners attached to it would be added again each time.
+  //
+  // Capture phase, and only while a menu is actually open: Escape already means
+  // something to the workspace menu and the rail, and the innermost open thing
+  // is the one that should answer it.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !state.openAccountMenu) return;
+    event.stopPropagation();
+    closeAccountMenu({ restoreFocus: true });
+  }, true);
+  // No focus restored on an outside click: the person is already pointing at
+  // wherever they want to be, and moving focus back would fight them for it.
+  document.addEventListener("click", (event) => {
+    if (!state.openAccountMenu) return;
+    const target = event.target;
+    if (target && typeof target.closest === "function"
+        && target.closest(".account-menu, .account-menu-button")) return;
+    closeAccountMenu();
   });
 
   setGoogleButtonScheme();

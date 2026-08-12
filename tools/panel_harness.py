@@ -77,6 +77,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          signed_in=None, signin_error=None, signin_delay_ms=0,
          signin_never_returns=False, route_delays=None, blackhole_routes=(),
          native_mode="absent", google_account_mode="ok",
+         remembered_accounts=None,
          worker_alive=True) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
@@ -201,6 +202,14 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     # an empty log. Carries `total` so the "all shown" caption has its number.
     entries = logs if logs is not None else []
     log_payload = {"entries": entries, "total": len(entries), "truncated": False}
+    # What chrome.storage.local already holds when the panel opens. `backend` is
+    # what engine.js reads; `remembered_accounts` seeds the account directory so
+    # a card with more than one row can be driven at all — the panel can only
+    # ever write ONE account into it by signing in.
+    local_seed = {"backend": backend}
+    if remembered_accounts is not None:
+        local_seed["scrapex-accounts-v1"] = remembered_accounts
+    local_seed = json.dumps(local_seed)
     return f"""
 if (typeof AbortSignal !== 'undefined' && !AbortSignal.timeout) {{
   AbortSignal.timeout = (ms) => {{
@@ -227,7 +236,20 @@ window.chrome = {{
               }} }},
   tabs: {{ query: async () => [{json.dumps(tab if tab is not None else ACTIVE_TAB)}],
            create: () => {{}} }},
-  storage: {{ local: {{ get: async () => ({{backend: {backend!r}}}), set: async () => {{}} }} }},
+  // A REAL store, not a fixed answer. accounts.js writes the remembered account
+  // directory through here and reads it back; a `set` that threw everything away
+  // would let a broken write pass every test driven by this harness, which is
+  // the shape of failure this file exists to prevent.
+  storage: {{ local: (() => {{
+    const held = {local_seed};
+    return {{
+      get: async (keys) => {{
+        if (typeof keys === "string") return keys in held ? {{[keys]: held[keys]}} : {{}};
+        return {{...held}};
+      }},
+      set: async (patch) => {{ Object.assign(held, patch); }},
+    }};
+  }})() }},
   // chrome.identity reports failure by leaving the token undefined and setting
   // runtime.lastError, so the shim must be able to do BOTH — a stub that only
   // ever returned a token could not test a single refusal branch.
@@ -433,6 +455,13 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     version_js = (EXT / "version.js").read_text(encoding="utf-8")
     releases_js = (EXT / "releases.js").read_text(encoding="utf-8")
     identity_js = (EXT / "identity.js").read_text(encoding="utf-8")
+    # THE LIST BELOW IS HAND-MAINTAINED, and a module missing from it does not
+    # fail loudly: app.js's imports are stripped, so a call into an un-inlined
+    # module is a ReferenceError at the call site. accounts.js is wrapped in
+    # try/catch by design — the panel must survive a storage fault — so leaving
+    # it out made the directory silently never written while every visible part
+    # of the panel kept working.
+    accounts_js = (EXT / "accounts.js").read_text(encoding="utf-8")
 
     # Flatten the ES-module graph. engine.js imports the protocol version from
     # transport.js, while app.js imports both modules; leaving even that
@@ -440,11 +469,20 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # before DOMContentLoaded. Keep the harness on the extension's real module
     # graph instead of re-declaring any of its functions in a test-only stub.
     app_js = re.sub(r"^import[\s\S]*?;\s*$", "", app_js, flags=re.M)
+    # The <use> rewrite above only touches app.html's TEXT, so every icon app.js
+    # renders at runtime kept the real path and 404'd here — 71 of them, all
+    # invisible, in a harness whose whole point is that the picture and the
+    # assertions describe the same page. Pointing the sprite constant at the
+    # inlined symbols fixes them the same way the markup was fixed.
+    app_js = app_js.replace('const ICON_SPRITE = "icons/material-icons.svg";',
+                            'const ICON_SPRITE = "";')
     engine_js = re.sub(r"^import .*?;$", "", engine_js, flags=re.M)
     transport_js = re.sub(r"^import .*?;$", "", transport_js, flags=re.M)
     version_js = re.sub(r"^import .*?;$", "", version_js, flags=re.M)
     releases_js = re.sub(r"^import .*?;$", "", releases_js, flags=re.M)
     identity_js = re.sub(r"^import .*?;$", "", identity_js, flags=re.M)
+    accounts_js = re.sub(r"^import .*?;$", "", accounts_js, flags=re.M)
+    accounts_js = re.sub(r"\bexport\s+", "", accounts_js)
     startup_js = re.sub(r"\bexport\s+", "", startup_js)
     engine_js = re.sub(r"\bexport\s+", "", engine_js)
     transport_js = re.sub(r"\bexport\s+", "", transport_js)
@@ -488,6 +526,6 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
         f"<script>{startup_js}\n{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
-        f"{engine_js}\n{app_js}</script></body></html>",
+        f"{accounts_js}\n{engine_js}\n{app_js}</script></body></html>",
         encoding="utf-8")
     return page
