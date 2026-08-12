@@ -468,6 +468,24 @@ button.icon-button.compact,
   min-width: var(--control-height-sm);
 }
 
+/* The smallest square, and the only one that also lowers min-height.
+   `compact` shrinks a control to the small notch; `xs` goes one further, to
+   --control-height-xs (32px on both surfaces). It exists because the Profile
+   design puts a secondary sign-out icon in a top bar where a 48px square reads
+   as the loudest thing on a page about an account, and the owner ruled on
+   2026-08-11 that both sizes belong to the general rule rather than to one
+   screen's stylesheet.
+   USE IT FOR SECONDARY ICON CONTROLS ONLY. 32px is under the 44px coarse-pointer
+   floor this sheet applies below, and under --control-height-sm. A primary or
+   destructive action, or anything on a touch surface, uses `icon-button` or
+   `icon-button compact` instead. */
+button.icon-button.xs,
+.button.icon-button.xs {
+  width: var(--control-height-xs);
+  min-width: var(--control-height-xs);
+  min-height: var(--control-height-xs);
+}
+
 button.compact,
 .button.compact {
   min-height: var(--control-height-sm);

@@ -25,10 +25,10 @@
 // limit Google enforces rather than a promise this code keeps, which is why the
 // privacy policy states it in those words.
 
-const FILES = "https://www.googleapis.com/drive/v3/files";
+const DRIVE_FILES = "https://www.googleapis.com/drive/v3/files";
 const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets";
 
-const FOLDER_MIME = "application/vnd.google-apps.folder";
+const SHEET_FOLDER_MIME = "application/vnd.google-apps.folder";
 export const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 
 // The cap gdrive.py carried, kept for the reason it carried it: a runaway export
@@ -56,7 +56,7 @@ export class SheetsError extends Error {
   }
 }
 
-function headers(token, extra = {}) {
+function sheetsHeaders(token, extra = {}) {
   if (!token) {
     throw new SheetsError(
       "No Google account is connected. Sign in from the panel first.",
@@ -122,10 +122,10 @@ async function findByName(token, {name, mime, parent = null, fetchImpl}) {
   if (parent) query += ` and '${parent}' in parents`;
 
   const found = await (await ask(
-    fetchImpl, `${FILES}?${new URLSearchParams({
+    fetchImpl, `${DRIVE_FILES}?${new URLSearchParams({
       q: query, spaces: "drive", fields: "files(id,name)",
     })}`,
-    {headers: headers(token)}, `looking for ${name}`)).json();
+    {headers: sheetsHeaders(token)}, `looking for ${name}`)).json();
 
   const files = found.files || [];
   return files.length ? files[0].id : null;
@@ -135,16 +135,16 @@ async function findByName(token, {name, mime, parent = null, fetchImpl}) {
 export async function ensureFolder(token, name, {
   parent = null, fetchImpl = fetch,
 } = {}) {
-  const found = await findByName(token, {name, mime: FOLDER_MIME, parent, fetchImpl});
+  const found = await findByName(token, {name, mime: SHEET_FOLDER_MIME, parent, fetchImpl});
   if (found) return found;
 
-  const body = {name, mimeType: FOLDER_MIME};
+  const body = {name, mimeType: SHEET_FOLDER_MIME};
   if (parent) body.parents = [parent];
   const made = await (await ask(
-    fetchImpl, `${FILES}?${new URLSearchParams({fields: "id"})}`,
+    fetchImpl, `${DRIVE_FILES}?${new URLSearchParams({fields: "id"})}`,
     {
       method: "POST",
-      headers: headers(token, {"Content-Type": "application/json"}),
+      headers: sheetsHeaders(token, {"Content-Type": "application/json"}),
       body: JSON.stringify(body),
     },
     `creating the folder ${name}`)).json();
@@ -168,10 +168,10 @@ export async function ensureSpreadsheet(token, name, {
   if (existing) {
     const known = await (await ask(
       fetchImpl,
-      `${FILES}/${encodeURIComponent(existing)}?${new URLSearchParams({
+      `${DRIVE_FILES}/${encodeURIComponent(existing)}?${new URLSearchParams({
         fields: "id,name,webViewLink",
       })}`,
-      {headers: headers(token)}, `reading the link for ${name}`)).json();
+      {headers: sheetsHeaders(token)}, `reading the link for ${name}`)).json();
     return {id: known.id, name: known.name, url: known.webViewLink, created: false};
   }
 
@@ -179,10 +179,10 @@ export async function ensureSpreadsheet(token, name, {
   if (folder) body.parents = [folder];
   const made = await (await ask(
     fetchImpl,
-    `${FILES}?${new URLSearchParams({fields: "id,name,webViewLink"})}`,
+    `${DRIVE_FILES}?${new URLSearchParams({fields: "id,name,webViewLink"})}`,
     {
       method: "POST",
-      headers: headers(token, {"Content-Type": "application/json"}),
+      headers: sheetsHeaders(token, {"Content-Type": "application/json"}),
       body: JSON.stringify(body),
     },
     `creating the spreadsheet ${name}`)).json();
@@ -196,7 +196,7 @@ export async function tabsOf(token, spreadsheetId, {fetchImpl = fetch} = {}) {
     `${SHEETS}/${encodeURIComponent(spreadsheetId)}?${new URLSearchParams({
       fields: "sheets(properties(title))",
     })}`,
-    {headers: headers(token)}, "reading the spreadsheet's tabs")).json();
+    {headers: sheetsHeaders(token)}, "reading the spreadsheet's tabs")).json();
   return (meta.sheets || []).map((s) => s.properties.title);
 }
 
@@ -206,7 +206,7 @@ async function ensureTab(token, spreadsheetId, tab, {fetchImpl}) {
     fetchImpl, `${SHEETS}/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
     {
       method: "POST",
-      headers: headers(token, {"Content-Type": "application/json"}),
+      headers: sheetsHeaders(token, {"Content-Type": "application/json"}),
       body: JSON.stringify({
         requests: [{addSheet: {properties: {title: tab}}}],
       }),
@@ -245,7 +245,7 @@ export async function writeTab(token, spreadsheetId, {
     `${encodeURIComponent(`'${tab}'`)}:clear`,
     {
       method: "POST",
-      headers: headers(token, {"Content-Type": "application/json"}),
+      headers: sheetsHeaders(token, {"Content-Type": "application/json"}),
       body: "{}",
     },
     `clearing the tab ${tab}`);
@@ -258,7 +258,7 @@ export async function writeTab(token, spreadsheetId, {
     })}`,
     {
       method: "PUT",
-      headers: headers(token, {"Content-Type": "application/json"}),
+      headers: sheetsHeaders(token, {"Content-Type": "application/json"}),
       body: JSON.stringify({values: [header, ...rows]}),
     },
     `writing the tab ${tab}`);
@@ -284,10 +284,10 @@ export async function writeTab(token, spreadsheetId, {
 export async function openChosen(token, spreadsheetId, {fetchImpl = fetch} = {}) {
   const known = await (await ask(
     fetchImpl,
-    `${FILES}/${encodeURIComponent(spreadsheetId)}?${new URLSearchParams({
+    `${DRIVE_FILES}/${encodeURIComponent(spreadsheetId)}?${new URLSearchParams({
       fields: "id,name,mimeType,webViewLink",
     })}`,
-    {headers: headers(token)}, "opening the spreadsheet you chose")).json();
+    {headers: sheetsHeaders(token)}, "opening the spreadsheet you chose")).json();
 
   if (known.mimeType !== SHEET_MIME) {
     throw new SheetsError(

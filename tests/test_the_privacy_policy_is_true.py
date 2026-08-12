@@ -217,3 +217,86 @@ def test_the_support_and_policy_name_the_same_public_home():
     for path in (ROOT / "docs" / "support.md", ROOT / "docs" / "privacy-policy.md"):
         assert PUBLIC_REPO in path.read_text(encoding="utf-8"), (
             f"{path.name} does not name the public home")
+
+
+# ---- what the extension writes to disk, against what the policy admits ------
+
+def test_every_place_the_extension_persists_data_is_in_the_policy():
+    """THE GAP THIS FILE HAD, found while reviewing #168 on 2026-08-12.
+
+    Every test above checks what the extension REACHES — scopes, hosts, remote
+    calls. Nothing checked what it KEEPS. So when accounts.js began writing a
+    directory of names, addresses and pictures into chrome.storage.local, the
+    published policy still said of exactly those fields "Nothing is stored and
+    nothing is sent anywhere", and the whole suite stayed green.
+
+    That sentence was not a small inaccuracy. It is the answer to the question a
+    reader of a privacy policy is actually asking, and it was false about the one
+    kind of data — a person's name and email address — that a policy exists for.
+
+    The check is deliberately crude: any module that touches a persistent store
+    must be named in the policy's storage table. Crude and loud beats precise
+    and absent, and the failure message says what to write rather than only that
+    something is wrong.
+    """
+    policy = POLICY.read_text(encoding="utf-8")
+    # Split on a horizontal RULE — a line that is only dashes — not on "---",
+    # because a markdown table's own header separator (`|---|---|`) contains it
+    # and the first version of this cut the section off above every data row.
+    # It then reported all three modules as missing, including one whose row was
+    # right there. A check that is wrong about its own input is worse than none.
+    after = policy.split("## What is stored, and where", 1)[-1]
+    storage_table = re.split(r"^-{3,}\s*$", after, maxsplit=1, flags=re.M)[0]
+
+    # A CALL, not a mention. The first version matched the bare API name and
+    # reported app.js, which names chrome.storage.local only in a comment
+    # explaining that accounts.js is the module that uses it. A test that cannot
+    # tell writing from talking about writing produces exactly the noise that
+    # gets a test disabled.
+    persistent = (r"chrome\.storage\.(?:local|sync)\.(?:set|get|remove|clear)\s*\(",
+                  r"\blocalStorage\.(?:setItem|getItem|removeItem)\s*\(",
+                  r"\bindexedDB\.open\s*\(")
+    writers: dict[str, set[str]] = {}
+    for module in sorted((ROOT / "extension").glob("*.js")):
+        body = module.read_text(encoding="utf-8")
+        found = {pattern for pattern in persistent if re.search(pattern, body)}
+        if found:
+            writers[module.name] = found
+
+    # The panel keeps three things on this machine and the policy must own all
+    # three: the appearance choice, the display time zone, and — since #168 —
+    # the accounts directory.
+    described = {
+        "appearance.js": "appearance",
+        "timezone.js": "time zone",
+        "accounts.js": "accounts",
+        "engine.js": "engine",
+    }
+    missing = [name for name in writers
+               if name in described and described[name].lower() not in storage_table.lower()]
+    assert not missing, (
+        "these modules write to a store that survives closing the panel, and the "
+        f"policy's storage table does not mention what they keep: {missing}. Add "
+        "a row saying WHAT is kept, WHERE, and WHO can read it — a reader of a "
+        "privacy policy is asking exactly that.")
+
+    unknown = sorted(set(writers) - set(described))
+    assert not unknown, (
+        f"{unknown} began persisting data and nobody decided what the policy "
+        "should say about it. Add it to `described` above WITH its policy row, "
+        "or stop persisting.")
+
+
+def test_the_policy_does_not_claim_the_accounts_list_is_unstored():
+    """The exact sentence that went false, guarded by its own test.
+
+    A general rule would let this be reintroduced in different words; the
+    specific claim is worth naming because it was published and wrong.
+    """
+    policy = POLICY.read_text(encoding="utf-8")
+    scopes_row = [line for line in policy.splitlines()
+                  if "userinfo.email" in line and "|" in line]
+    assert scopes_row, "the policy no longer describes the userinfo scopes"
+    assert "Nothing is stored" not in scopes_row[0], (
+        "the policy says nothing is stored about the account details, and "
+        "extension/accounts.js keeps a directory of them in chrome.storage.local")

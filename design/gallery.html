@@ -228,6 +228,9 @@
   <symbol id="expand-more" viewBox="0 0 24 24">
     <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"/>
   </symbol>
+  <symbol id="logout" viewBox="0 0 24 24">
+    <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+  </symbol>
   </svg>
   <!-- SPRITE:END -->
 
@@ -285,6 +288,10 @@
       <code class="code">icon-button</code> is square at the full touch-target size;
       add <code class="code">compact</code> for a <em>small</em> square. The two were
       never composable until 2026-08-05 — together they drew a rectangle.
+      <code class="code">xs</code> is the third notch, 32px, added 2026-08-11 for
+      <em>secondary</em> icon controls — a quiet action that must not out-shout the
+      page it sits on. It is under the 44px coarse-pointer floor, so a primary or
+      destructive action never uses it.
     </p>
     <div class="g-demo cluster">
       <button type="button" class="compact">Compact</button>
@@ -294,11 +301,15 @@
       <button type="button" class="ghost icon-button compact" aria-label="Download">
         <svg class="sx-icon" aria-hidden="true"><use href="#file-download"></use></svg>
       </button>
+      <button type="button" class="ghost icon-button xs" aria-label="Sign out">
+        <svg class="sx-icon" aria-hidden="true"><use href="#logout"></use></svg>
+      </button>
       <button type="button" class="link">A button that reads as a link</button>
     </div>
     <pre>&lt;button class="compact"&gt;Compact&lt;/button&gt;
 &lt;button class="ghost icon-button" aria-label="Add"&gt;…&lt;/button&gt;
 &lt;button class="ghost icon-button compact" aria-label="Download"&gt;…&lt;/button&gt;
+&lt;button class="ghost icon-button xs" aria-label="Sign out"&gt;…&lt;/button&gt;
 &lt;button class="link"&gt;A button that reads as a link&lt;/button&gt;</pre>
   </div>
 

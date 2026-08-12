@@ -43,6 +43,32 @@ def test_every_element_the_script_reaches_for_exists():
     assert not missing, f"app.js reaches for ids that app.html does not define: {missing}"
 
 
+def test_the_dom_harness_inlines_every_module_the_panel_imports():
+    """tools/panel_harness.py flattens the module graph by hand, and a module
+    left off that list does not fail loudly.
+
+    MET ON 2026-08-11. extension/accounts.js was added and wired into app.js but
+    not into the harness, so the harness stripped app.js's imports and every
+    call into it raised ReferenceError at the call site. Those calls are wrapped
+    in try/catch on purpose — the panel has to survive a storage fault — so the
+    remembered-accounts directory was silently never written while every visible
+    part of the panel, and every existing test, kept passing.
+
+    A missing module can break a feature outright or, worse, half of one. This
+    check is static and cheap, and it is the only thing standing between the two.
+    """
+    harness = (Path(__file__).resolve().parent.parent
+               / "tools" / "panel_harness.py").read_text(encoding="utf-8")
+    imported = set(re.findall(r'^import[\s\S]*?from "\./([\w.-]+\.js)";', JS, flags=re.M))
+    assert imported, "app.js appears to import nothing, so this guard reads the wrong file"
+
+    inlined = set(re.findall(r'EXT / "([\w.-]+\.js)"', harness))
+    missing = sorted(imported - inlined)
+    assert not missing, (
+        "tools/panel_harness.py does not inline modules app.js imports, so every "
+        f"call into them is a ReferenceError inside the harness: {missing}")
+
+
 def _pages_and_what_their_scripts_reach_for():
     """Every page in the extension, paired with the ids it defines and the ids
     the scripts IT loads reach for. Ids a script renders itself count as defined,
@@ -343,3 +369,43 @@ def test_the_offline_reader_is_reachable_from_the_data_page():
         "the Drive fallback is not offered where the engine request fails, so "
         "a machine with no engine still reaches a dead end — which is the whole "
         "case the bundle format exists for")
+
+
+def test_no_two_inlined_modules_declare_the_same_top_level_name():
+    """The DOM harness concatenates the panel's modules into ONE classic script,
+    and two modules declaring the same `const` is a SyntaxError that kills the
+    whole page.
+
+    FOUND ON 2026-08-12 the expensive way. drive.js and sheets.js both declared
+    `FILES`, `FOLDER_MIME` and `headers`. The harness produced a page that threw
+    before anything ran, four account tests timed out after thirty seconds each
+    waiting for an element that could never appear, and not one of the messages
+    said "SyntaxError" — Playwright reports what it was waiting for, not why the
+    page is dead.
+
+    `headers` is the worse half of the pair. Function declarations may be
+    redeclared, so it would NOT have thrown: sheets.js's version would silently
+    replace drive.js's, and the harness would test error messages that the real
+    panel never produces.
+
+    Checked here rather than left to the harness because the failure this
+    produces is unreadable at the point it happens, and one name is enough.
+    """
+    modules = ["startup.js", "transport.js", "version.js", "releases.js",
+               "identity.js", "accounts.js", "drive.js", "sheets.js",
+               "bundleview.js", "engine.js"]
+    seen: dict[str, str] = {}
+    clashes: list[str] = []
+    for name in modules:
+        body = (EXT / name).read_text(encoding="utf-8")
+        body = re.sub(r"^import[\s\S]*?;\s*$", "", body, flags=re.M)
+        body = re.sub(r"\bexport\s+", "", body)
+        for declared in re.findall(
+                r"^(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)", body, re.M):
+            if declared in seen and seen[declared] != name:
+                clashes.append(f"{declared} in both {seen[declared]} and {name}")
+            seen.setdefault(declared, name)
+
+    assert not clashes, (
+        "two panel modules declare the same top-level name, and the DOM harness "
+        "flattens them into one script: " + "; ".join(clashes))

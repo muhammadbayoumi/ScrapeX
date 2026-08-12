@@ -1116,20 +1116,55 @@
             <p class="notice hidden" role="status" aria-live="polite" id="signin-problem"></p>
           </div>
 
-          <!-- Signed in. Account identity is the primary content. -->
+          <!-- Signed in. Account identity is the primary content, centred
+               between two edges: the sign-out control at the top, the legal
+               links at the bottom. Both rows stretch across the card; the
+               identity block keeps the centre.
+               Sprite hrefs carry the `../` this page needs and app.html does
+               not — that is the one intended difference from the original. -->
           <div class="profile-state hidden" id="welcome-signed-in">
+            <div class="profile-topbar">
+              <button class="icon-button xs profile-signout" id="signout" type="button"
+                      aria-label="Sign out" title="Sign out">
+                <svg class="sx-icon" aria-hidden="true">
+                  <use href="../icons/material-icons.svg#logout"></use>
+                </svg>
+              </button>
+            </div>
+
             <div class="profile-summary" id="welcome-summary" tabindex="-1"
                  aria-label="Signed in">
               <img class="welcome-face hidden" id="welcome-photo" alt="" aria-hidden="true">
-              <h1 id="welcome-name">Signed in</h1>
-              <p class="muted" id="welcome-email"></p>
+              <span class="profile-face-fallback" aria-hidden="true">
+                <svg class="sx-icon profile-face-icon" aria-hidden="true">
+                  <use href="../icons/material-icons.svg#account-circle"></use>
+                </svg>
+              </span>
+              <h1 class="profile-greeting"><span id="welcome-greeting"
+                  class="hidden">Hi,</span> <span id="welcome-name"
+                  dir="auto">Signed in</span></h1>
+              <p class="muted profile-email" id="welcome-email" dir="ltr"></p>
               <p class="notice hidden" role="status" aria-live="polite"
                  id="account-detail-status"></p>
               <button class="ghost compact hidden" id="retry-account" type="button">
                 Retry
               </button>
+              <button class="ghost profile-manage" id="manage-account" type="button"
+                      disabled>
+                Manage your account
+              </button>
             </div>
-            <button class="ghost compact" id="signout" type="button">Sign out</button>
+
+            <div class="profile-legal">
+              <a class="profile-legal-link"
+                 href="https://muhammadbayoumi.github.io/mbiXsite/scrapex-privacy.html"
+                 target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+              <span class="profile-legal-sep" aria-hidden="true">•</span>
+              <button class="link profile-legal-link" id="terms-of-service"
+                      type="button" disabled>
+                Terms of Service
+              </button>
+            </div>
           </div>
 
         </div>
