@@ -653,7 +653,7 @@ for three different readers, and compression hides it. If space ever becomes a
 problem, the 90 MB of `.jsonl`/`.csv` is the part regenerable from the `.db`;
 the zip is not the thing to reconsider.
 
-### OP-19 · The chaos test races the startup sweep it is checking — FIXED 2026-08-12
+### OP-19 · The chaos test races the startup sweep it is checking — MOSTLY fixed 2026-08-12
 
 Found 2026-08-11 while removing the engine's Google surface. The suite went red
 on `test_a_killed_engine_does_not_leave_a_job_claiming_to_run`, and the first
@@ -686,6 +686,17 @@ now" was never evidence in the first place. The proof is structural and readable
 in the code: health is answered by the HTTP thread the moment the port binds,
 and the sweep runs on the worker thread after it connects. Two tests in
 `test_jobs.py` hold the marker's two properties deterministically.
+
+**NOT FULLY CLOSED, and saying so is the point.** Later the same day it failed
+once more inside a FULL `-m "not extension"` run, then passed the next full run
+and every targeted one. So the sweep wait removed the race it was aimed at and
+something else in that test is still load-sensitive — the kill/restart cycle
+runs real subprocesses and a 90-second health wait, and the whole suite is a
+heavier neighbour than any subset.
+
+Recorded rather than declared fixed, because "it passed this time" is exactly
+the evidence this entry exists to reject. The next step is to find what ELSE in
+the cycle depends on timing, not to run it again until it is green.
 
 ## 6c. The extension/engine separation, audited — 2026-08-11
 
