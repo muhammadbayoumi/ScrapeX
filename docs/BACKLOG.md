@@ -623,6 +623,36 @@ opening strategy, a zero-width layout, the engine's absence. Three mechanisms
 were recorded WRONGLY on PR #152 and corrected. The conclusions converged only
 because nothing was accepted without a number.
 
+### Measured: what a backup bundle actually weighs — 2026-08-12
+
+Built from the owner's real warehouse (113.6 MB database, 22.4s to build) when
+he asked why the backup is zipped at all. The answer is a number, not a
+preference:
+
+| | files | size | share |
+|---|---:|---:|---:|
+| `warehouse.db` | 1 | 113.6 MB | 54.6% |
+| `.jsonl` | 34 | 62.0 MB | 29.8% |
+| `.csv` | 34 | 28.2 MB | 13.6% |
+| `panel.jsonl.gz` | 1 | 4.0 MB | 1.9% |
+| **total** | **73** | **207.9 MB** | |
+
+Zipped: **36.0 MB — 17.3%**, in 1.8 seconds. So 1.8 seconds of CPU saves 172 MB
+of upload, and with `KEEP = 3` Drive holds 108 MB instead of 624 MB. Uploading
+unzipped is not a trade-off, it is six times everything.
+
+**But the question was right about the part that mattered.** `panel.jsonl.gz` is
+already gzip, which browsers read natively, and it was locked inside a zip they
+cannot open at all. Lifting that one file out beside the archive costs 11% more
+upload and removes the need for a zip reader — which is what made the
+no-engine Data page reachable.
+
+**Worth recording for later:** the bundle carries the same data three times —
+in the `.db`, as `.jsonl` + `.csv`, and as `panel.jsonl.gz`. That is deliberate,
+for three different readers, and compression hides it. If space ever becomes a
+problem, the 90 MB of `.jsonl`/`.csv` is the part regenerable from the `.db`;
+the zip is not the thing to reconsider.
+
 ### OP-19 · The chaos test races the startup sweep it is checking
 
 Found 2026-08-11 while removing the engine's Google surface. The suite went red

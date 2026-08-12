@@ -2397,11 +2397,15 @@ def create_app(
     #: be downloadable, and app.state would not survive one.
     BUNDLE_PREFIX = "scrapex-bundle-"
 
+    #: The panel pack lifted out of the bundle, named so the two files of one
+    #: backup share a stamp and sort together.
+    PANEL_SUFFIX = "-panel.jsonl.gz"
+
     def _bundle_folder(conn) -> Path:
         return backup_folder(conn, app.state.db_path)
 
-    def _newest_bundle(folder: Path) -> Path | None:
-        made = sorted(folder.glob(f"{BUNDLE_PREFIX}*.zip"),
+    def _newest(folder: Path, suffix: str) -> Path | None:
+        made = sorted(folder.glob(f"{BUNDLE_PREFIX}*{suffix}"),
                       key=lambda p: p.stat().st_mtime, reverse=True)
         return made[0] if made else None
 
@@ -2430,6 +2434,25 @@ def create_app(
                     "the bundle did not verify, so nothing was packed: "
                     + "; ".join(f"{f.path}: {f.problem}" for f in report.faults[:3])))
             described = bundle.pack(staging, archive)
+            # THE PANEL PACK IS LIFTED OUT OF THE BUNDLE BEFORE THE STAGING
+            # DIRECTORY GOES, and this is the whole reason this block exists.
+            #
+            # A browser has DecompressionStream for gzip and no zip reader at
+            # all, and this repository ships no npm dependency on purpose. So
+            # `panel.jsonl.gz` inside the archive is unreachable to the very
+            # reader it was written for: extension/bundleview.js.
+            #
+            # MEASURED on the owner's warehouse, 2026-08-12: the bundle is
+            # 207.9 MB raw and 36.0 MB zipped — the zip earns its 1.8 seconds
+            # many times over and is not going anywhere. But panel.jsonl.gz is
+            # 4.0 MB and ALREADY gzipped, so copying it out beside the archive
+            # costs 11% more upload and removes the need for a zip reader
+            # entirely. Compressing it again would be the mistake; carrying it
+            # separately is the fix.
+            pack_source = staging / bundle.PANEL_PACK
+            panel_pack = folder / f"{BUNDLE_PREFIX}{stamp}{PANEL_SUFFIX}"
+            if pack_source.is_file():
+                shutil.copy2(pack_source, panel_pack)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         finally:
@@ -2446,6 +2469,11 @@ def create_app(
             "bundle_format": bundle.BUNDLE_FORMAT,
             "engine_version": engine_version.VERSION,
             "created_at": utc_now_iso(),
+            "panel_pack": {
+                "name": panel_pack.name,
+                "bytes": panel_pack.stat().st_size,
+                "sha256": bundle.sha256_of(panel_pack),
+            } if panel_pack.is_file() else None,
         }
 
     @app.get("/api/bundle/archive")
@@ -2462,12 +2490,39 @@ def create_app(
         finally:
             conn.close()
 
-        archive = _newest_bundle(folder)
+        archive = _newest(folder, ".zip")
         if archive is None:
             raise HTTPException(status_code=404, detail=(
                 "no bundle has been built yet — POST /api/bundle first"))
         return FileResponse(
             archive, media_type="application/zip", filename=archive.name)
+
+    @app.get("/api/bundle/panel-pack")
+    def api_bundle_panel_pack():
+        """Stream the newest panel pack — the one file a browser can read.
+
+        Separate from the archive above rather than a parameter on it, for the
+        same reason that route takes no arguments at all: two fixed routes
+        cannot be pointed anywhere, and a `?which=` would be the first place a
+        path would eventually arrive from the caller.
+        """
+        conn = read_conn()
+        try:
+            folder = _bundle_folder(conn)
+        finally:
+            conn.close()
+
+        pack = _newest(folder, PANEL_SUFFIX)
+        if pack is None:
+            raise HTTPException(status_code=404, detail=(
+                "no panel pack has been built yet — POST /api/bundle first"))
+        # `application/gzip`, and the encoding is NOT declared as a Content-
+        # Encoding: this is a gzip FILE being transferred, not a response the
+        # browser should transparently inflate. Getting that wrong would hand
+        # bundleview.js already-decompressed bytes it would then try to
+        # decompress again.
+        return FileResponse(
+            pack, media_type="application/gzip", filename=pack.name)
 
     @app.post("/api/storage/restore")
     def api_storage_restore(body: dict):

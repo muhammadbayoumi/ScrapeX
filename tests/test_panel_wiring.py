@@ -313,7 +313,8 @@ def test_every_screen_loads_what_it_shows(screen, loaders):
 #: complete in every respect except being reachable. drive.js and sheets.js were
 #: one commit away from the same fate.
 PANEL_MODULES = ["engine.js", "transport.js", "version.js", "releases.js",
-                 "identity.js", "startup.js", "drive.js", "sheets.js"]
+                 "identity.js", "startup.js", "drive.js", "sheets.js",
+                 "bundleview.js"]
 
 
 @pytest.mark.parametrize("module", PANEL_MODULES)
@@ -328,15 +329,17 @@ def test_the_panel_actually_imports_the_module(module):
         "in for months.")
 
 
-def test_bundleview_is_named_here_when_it_is_finally_wired():
-    """The one still unreachable, named so it cannot be quietly forgotten.
+def test_the_offline_reader_is_reachable_from_the_data_page():
+    """bundleview.js was written, tested across two languages, and imported by
+    nothing for months. The sentinel that used to live here — a test asserting
+    it was NOT imported, which would fail the day someone wired it — has done
+    its job and is gone.
 
-    This asserts the CURRENT state rather than the desired one, and it fails the
-    day someone wires it — at which point the fix is one line: move
-    "bundleview.js" into PANEL_MODULES above. A todo that turns into a failing
-    test on completion is the only kind that does not rot.
-    """
-    imported = set(re.findall(r'from\s+"\./([\w.-]+)"', JS))
-    assert "bundleview.js" not in imported, (
-        "bundleview.js is imported now — good. Add it to PANEL_MODULES and "
-        "delete this test; the panel finally reads a bundle with no engine.")
+    What replaces it is narrower and worth more: being imported is not the same
+    as being reachable. The offline path has to be OFFERED, and the only place
+    it can be is where the engine has just failed."""
+    assert "browseFromDrive" in JS, "the offline reader has no entry point"
+    assert re.search(r'catch[^}]*?browse-offline', JS, re.S), (
+        "the Drive fallback is not offered where the engine request fails, so "
+        "a machine with no engine still reaches a dead end — which is the whole "
+        "case the bundle format exists for")

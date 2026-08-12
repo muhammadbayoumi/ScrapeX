@@ -171,3 +171,70 @@ def test_the_manifest_inside_names_the_format_the_panel_checks(client):
         manifest = json.loads(opened.read("manifest.json"))
 
     assert manifest["bundle_format"] == described["bundle_format"]
+
+
+def test_the_panel_pack_is_lifted_out_of_the_archive(client):
+    """THE FILE THE BROWSER CAN ACTUALLY READ.
+
+    A browser has DecompressionStream for gzip and no zip reader at all, and
+    this repository ships no npm dependency on purpose. So `panel.jsonl.gz`
+    inside the archive is unreachable to the one reader it was written for.
+
+    MEASURED on the owner's warehouse, 2026-08-12: the bundle is 207.9 MB raw
+    and 36.0 MB zipped, so the zip stays. The pack is 4.0 MB and already
+    gzipped, so carrying it separately costs 11% more upload and removes the
+    need for a zip reader entirely.
+    """
+    connected, backups = client
+
+    described = connected.post("/api/bundle").json()
+
+    assert described["panel_pack"], "no panel pack was reported"
+    pack = backups / described["panel_pack"]["name"]
+    assert pack.is_file(), f"the pack was reported but not written: {pack}"
+    assert described["panel_pack"]["bytes"] == pack.stat().st_size
+    assert described["panel_pack"]["sha256"] == bundle.sha256_of(pack)
+    assert pack.name.endswith(".jsonl.gz")
+
+
+def test_the_pack_is_readable_gzip_and_not_re_compressed(client):
+    """Served as a gzip FILE, not as a response the browser inflates on the way
+    in. Getting that wrong hands bundleview.js already-decompressed bytes that
+    it then tries to decompress again."""
+    import gzip
+
+    connected, _ = client
+    connected.post("/api/bundle")
+
+    got = connected.get("/api/bundle/panel-pack")
+
+    assert got.status_code == 200
+    assert got.headers["content-type"] == "application/gzip"
+    assert "content-encoding" not in {k.lower() for k in got.headers}, (
+        "the pack is declared as an encoding rather than a file, so the "
+        "browser would inflate it before bundleview.js ever sees it")
+    # It really is gzip, and it really is JSON Lines.
+    text = gzip.decompress(got.content).decode("utf-8")
+    for line in [line for line in text.splitlines() if line.strip()][:5]:
+        entry = json.loads(line)
+        assert "dataset" in entry, f"a pack line carries no dataset key: {entry}"
+
+
+def test_asking_for_a_pack_before_one_is_built_says_which_step_is_missing(client):
+    connected, _ = client
+
+    refused = connected.get("/api/bundle/panel-pack")
+
+    assert refused.status_code == 404
+    assert "POST /api/bundle" in refused.json()["detail"]
+
+
+def test_the_pack_route_cannot_be_pointed_anywhere_either(client):
+    connected, _ = client
+    connected.post("/api/bundle")
+
+    for attempt in ("?name=../../../etc/passwd", "?which=archive"):
+        got = connected.get(f"/api/bundle/panel-pack{attempt}")
+        assert got.status_code == 200
+        assert got.headers["content-disposition"].endswith('.jsonl.gz"'), (
+            f"the query string {attempt} changed which file was served")
