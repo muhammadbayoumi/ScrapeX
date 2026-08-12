@@ -75,7 +75,7 @@ and the extension's chrome.storage (later). Never in code or the repo (A4).
 
 ## Command surface (grows by phase)
 
-Now: `init-db` · `validate-manifest` · `crawl` · `ingest` · `peek` · `ui` · `google-connect` · `push` · `export` · `status`
+Now: `init-db` · `validate-manifest` · `crawl` · `ingest` · `peek` · `ui` · `export` · `status`
 Later: `census` · `apply-decisions` · `feeds` · `publish`
 
 ## Local export (no Google needed)
@@ -92,27 +92,21 @@ scrapex export ELSEWEDYSHOP --folder D:\prices --workbook "Q3 prices"
 Re-running replaces that source's tab; other sources' tabs are left intact
 (one workbook, a tab per source — mirrors the Drive layout exactly).
 
-## Google Sheets (Sign in with Google)
+## Google Sheets and Drive — in the side panel
 
-Push a source's current prices to a tab in a Google Sheet ScrapeX creates and
-manages in your Drive. Scope is `drive.file` — ScrapeX only ever touches the
-folder + sheets it creates, never your other files.
+Signing in to Google, backing the warehouse up to Drive, creating a spreadsheet
+and writing rows into it are all done by the **ScrapeX extension**, not by this
+engine. The owner ruled on 2026-08-11 that the engine fetches data and saves it
+locally, and that every Google operation belongs to the panel.
 
-**One-time setup (owner):**
-1. [console.cloud.google.com](https://console.cloud.google.com) → create a project (e.g. `ScrapeX`).
-2. APIs & Services → **Library** → enable **Google Drive API** and **Google Sheets API**.
-3. APIs & Services → **OAuth consent screen** → User type **External** → fill the app name + your email → add yourself under **Test users** (so no app verification is needed).
-4. APIs & Services → **Credentials** → Create credentials → **OAuth client ID** → Application type **Desktop app** → Create → **Download JSON**.
-5. Save it as `%USERPROFILE%\.scrapex\google\client_secret.json`.
+That is not only tidier. Chrome already holds a Google token for the extension,
+so the panel needs no `client_secret.json`, no second consent screen and no
+OAuth libraries — and the scope stays `drive.file`, which is non-sensitive.
+The engine used to ask for `spreadsheets` as well, which is Google's SENSITIVE
+scope, for work that `drive.file` covers.
 
-**Then:**
-```powershell
-pip install -e .[google]
-scrapex google-connect          # opens the browser: Sign in with Google (one-time)
-scrapex push ELSEWEDYSHOP       # creates the ScrapeX folder + workbook, writes the tab
-```
-`push` prints the Drive folder + spreadsheet URLs. Re-running is idempotent — it
-reuses the same folder/workbook and replaces the source's tab.
+`scrapex export` is unchanged: it writes an .xlsx on this machine and involves
+no account at all.
 
 ## Browse UI
 

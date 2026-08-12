@@ -10,17 +10,19 @@
 <div class="sync-page">
   <header class="sync-hero">
     <div class="sync-hero-copy">
-      <span class="page-eyebrow">Outputs · Google Sheets</span>
-      <h1 class="page-title">Google Sheets Synchronization</h1>
-      <p class="page-description">Keep collected data available in Google Sheets
-        through a secure Apps Script endpoint or a direct Google Drive connection.
-        Configure and run each route independently.</p>
+      <span class="page-eyebrow">Outputs · Apps Script</span>
+      <h1 class="page-title">Apps Script Synchronization</h1>
+      {# Drive and Sheets left this page on 2026-08-11: the owner ruled that the
+         engine fetches and saves locally while the extension owns every Google
+         operation, and the panel now does that work itself with the token
+         Chrome already holds for it. The Apps Script funnel stayed, because it
+         is not a Google sign-in — it is a URL the owner pastes. #}
+      <p class="page-description">Keep collected data available in a Google Sheet
+        through a secure Apps Script endpoint you paste the address of. Drive and
+        Sheets are set up in the ScrapeX side panel instead.</p>
       <nav class="sync-hero-actions" aria-label="Synchronization methods">
         <a class="button icon-label" href="#apps-script">
           {{ icon("sync", "sm") }} Set up Apps Script
-        </a>
-        <a class="button ghost icon-label" href="#google-drive">
-          {{ icon("insert-drive-file", "sm") }} Set up Google Drive
         </a>
         <a class="button ghost icon-label" href="#automation">
           {{ icon("schedule", "sm") }} View automation
@@ -39,16 +41,6 @@
           {{ "Ready" if funnel.ready else "Needs setup" }}
         </span>
       </a>
-      <a class="sync-overview-card" href="#google-drive">
-        <span class="icon-tile">{{ icon("insert-drive-file") }}</span>
-        <span class="sync-overview-copy">
-          <small>Google Drive</small>
-          <strong>{{ "Connected" if google.connected else "Not connected" }}</strong>
-        </span>
-        <span class="badge {{ 'ok' if google.ready else 'off' }}">
-          {{ "Ready" if google.ready else "Needs setup" }}
-        </span>
-      </a>
       <a class="sync-overview-card" href="#automation">
         <span class="icon-tile">{{ icon("schedule") }}</span>
         <span class="sync-overview-copy">
@@ -64,7 +56,6 @@
     <span>On this page</span>
     <a href="#apps-script">Apps Script</a>
     <a href="#automation">Automation</a>
-    <a href="#google-drive">Google Drive</a>
   </nav>
 
   <!-- ==================== Apps Script funnel (spec 22) ==================== -->
@@ -335,157 +326,6 @@
     </div>
   </section>
 
-  <!-- ==================== Google Drive and Sheets (spec 23) ==================== -->
-  <section class="sync-route" id="google-drive" aria-labelledby="google-drive-title">
-    <header class="sync-route-header">
-      <span class="sync-route-icon icon-tile">{{ icon("insert-drive-file") }}</span>
-      <div class="sync-route-heading">
-        <span class="page-eyebrow">Method 2 · Direct connection</span>
-        <h2 id="google-drive-title">Google Drive synchronization</h2>
-        <p>Sign in once, choose the destination, and write source tabs directly
-          into a spreadsheet managed by ScrapeX.</p>
-      </div>
-      <span class="badge sync-route-badge {{ 'ok' if google.ready else 'off' }}">
-        {{ "Ready to push" if google.ready else "Setup required" }}
-      </span>
-    </header>
-
-    {% if google.blocker %}
-      <div class="sync-blocker" role="status">
-        {{ icon("info") }}
-        <div>
-          <strong>Finish setup to connect Google Drive</strong>
-          <p>{{ google.blocker }}</p>
-        </div>
-      </div>
-    {% endif %}
-
-    <div class="sync-google-layout">
-      <aside class="sync-account-card" aria-labelledby="google-account-title">
-        <span class="sync-account-icon icon-tile">{{ icon("security") }}</span>
-        <span class="page-eyebrow">Google account</span>
-        <h3 id="google-account-title">
-          {{ google.account if google.account else ("Connected securely" if google.connected else "Not connected") }}
-        </h3>
-        <p>{{ google.account_note }}</p>
-        <dl class="sync-account-meta">
-          <div>
-            <dt>Connection</dt>
-            <dd><span class="badge {{ 'ok' if google.connected else 'off' }}">
-              {{ "Signed in" if google.connected else "Sign-in required" }}
-            </span></dd>
-          </div>
-          <div>
-            <dt>Access</dt>
-            <dd>Files created by ScrapeX only</dd>
-          </div>
-        </dl>
-        <details class="sync-account-details">
-          <summary>View permissions and local sign-in details</summary>
-          <div>
-            <strong>Access requested</strong>
-            {% for scope in google.scopes %}<code>{{ scope }}</code>{% endfor %}
-            <strong>Sign-in stored at</strong>
-            <code>{{ google.token_path }}</code>
-          </div>
-        </details>
-      </aside>
-
-      <form id="google-form" class="sync-google-form" onsubmit="return false">
-        <div>
-          <span class="page-eyebrow">Destination</span>
-          <h3>Choose where synchronized data is stored</h3>
-          <p class="hint">ScrapeX creates the folder and spreadsheet if they do
-            not already exist.</p>
-        </div>
-        <div class="field">
-          <label for="google_folder">Drive folder</label>
-          <input id="google_folder" value="{{ settings.google_folder.value }}" dir="auto">
-          <span class="hint">ScrapeX can only see folders and files it created itself.</span>
-        </div>
-        <div class="field">
-          <label for="google_workbook">Spreadsheet name</label>
-          <input id="google_workbook" value="{{ settings.google_workbook.value }}" dir="auto">
-          <span class="hint">One spreadsheet with one tab per source—the same
-            arrangement as the Excel workbook.</span>
-        </div>
-        <div class="sync-actions">
-          <button id="save-google">Save destination</button>
-          {% if google.connected %}
-            <button id="disconnect" class="ghost">Disconnect</button>
-          {% else %}
-            <button id="connect">Continue with Google</button>
-          {% endif %}
-          <span id="google-out" class="hint" role="status" aria-live="polite"></span>
-        </div>
-        {% if google.connected %}
-          <p class="sync-safe-note">{{ icon("check", "sm") }}
-            Disconnecting removes only the sign-in saved on this machine. Your
-            Drive files, folders, and spreadsheets remain unchanged.</p>
-        {% endif %}
-      </form>
-    </div>
-
-    <div class="sync-run-panel sync-drive-run">
-      <div class="sync-run-copy">
-        <span class="page-eyebrow">Run synchronization</span>
-        <h3>Push selected sources to Google Drive</h3>
-        <p>Each selected source becomes its own spreadsheet tab. Choose one or
-          several sources for this run.</p>
-      </div>
-      {% if not sources %}
-        <div class="empty sync-empty">No source has data yet. Collect a source first,
-          then return here to synchronize it.</div>
-      {% else %}
-        <form id="google-pick" class="sync-source-form" onsubmit="return false">
-          <fieldset class="source-selection-list">
-            <legend class="visually-hidden">Sources to synchronize</legend>
-            {% for s in sources %}
-              <label class="source-selection-row">
-                <input type="checkbox" name="gsrc" value="{{ s.source_key }}"
-                       {{ "checked" if source_key and s.source_key == source_key }}>
-                {{ source_identity(s, metric_value="{:,}".format(s.observations)) }}
-              </label>
-            {% endfor %}
-          </fieldset>
-          <div class="sync-actions">
-            <button id="push" {{ "disabled" if not google.ready }}>Push to Drive</button>
-            <span id="push-out" class="hint" role="status" aria-live="polite"></span>
-          </div>
-        </form>
-      {% endif %}
-    </div>
-
-    <section class="sync-activity" aria-labelledby="google-activity-title">
-      <header>
-        <div>
-          <span class="page-eyebrow">Activity</span>
-          <h3 id="google-activity-title">Last Google Drive synchronization</h3>
-        </div>
-        {% if google.last %}
-          <span class="badge {{ 'ok' if google.last.ok else 'off' }}">
-            {{ "Succeeded" if google.last.ok else "Failed" }}
-          </span>
-        {% endif %}
-      </header>
-      {% if google.last %}
-        <dl class="sync-activity-grid">
-          <div><dt>When</dt><dd class="num">{{ stamp(google.last.at, zone=true) }}</dd></div>
-          <div class="sync-activity-wide"><dt>Details</dt><dd>{{ google.last.detail }}</dd></div>
-          {% if google.last.location %}
-            <div class="sync-activity-wide">
-              <dt>Spreadsheet</dt>
-              <dd><a class="icon-label" href="{{ google.last.location }}"
-                     rel="noopener noreferrer" target="_blank" dir="ltr">
-                Open spreadsheet {{ icon("open-in-new", "sm") }}</a></dd>
-            </div>
-          {% endif %}
-        </dl>
-      {% else %}
-        <div class="empty sync-empty">No Google Drive synchronization has run yet.</div>
-      {% endif %}
-    </section>
-  </section>
 </div>
 
 <script>
@@ -622,39 +462,5 @@ async function loadAutomation() {
 }
 loadAutomation();
 
-// ---- Google ----------------------------------------------------------------
-on("save-google", () => act($("save-google"), $("google-out"), async () => {
-  await call("/api/settings", {google_folder: $("google_folder").value,
-                               google_workbook: $("google_workbook").value});
-  reload(400);
-  return "Saved.";
-}));
-
-on("connect", () => act($("connect"), $("google-out"), async () => {
-  await call("/api/outputs/google/connect");
-  // Sign-in happens in a browser window, so the page polls for the outcome
-  // instead of pretending it finished the moment the request returned.
-  for (let i = 0; i < 120; i++) {
-    await new Promise(r => setTimeout(r, 1000));
-    const s = await call("/api/outputs/google/connect", null, "GET");
-    if (s.status === "connected") { reload(300); return "Signed in."; }
-    if (s.status === "error") throw new Error(s.error);
-  }
-  throw new Error("Sign-in did not finish. Close the Google window and try again.");
-}));
-
-on("disconnect", () => act($("disconnect"), $("google-out"), async () => {
-  const r = await call("/api/outputs/google/disconnect");
-  reload(500);
-  return r.detail;
-}));
-
-on("push", () => act($("push"), $("push-out"), async () => {
-  const keys = [...document.querySelectorAll('input[name="gsrc"]:checked')].map(c => c.value);
-  if (!keys.length) throw new Error("Pick at least one source first.");
-  const r = await call("/api/outputs/google/push", {source_keys: keys});
-  reload(900);
-  return r.detail;
-}));
 </script>
 {% endblock %}

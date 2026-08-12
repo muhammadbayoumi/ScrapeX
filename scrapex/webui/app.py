@@ -90,10 +90,6 @@ from ..outputs import (
     apps_script_test,
     excel_export,
     excel_status,
-    google_connect,
-    google_disconnect,
-    google_push,
-    google_status,
     rotate_funnel_token,
 )
 from ..payload import utc_now_iso
@@ -1172,7 +1168,6 @@ def create_app(
                          storage=storage_status(conn, app.state.db_path),
                          retention=_retention_view(conn),
                          excel=excel_status(conn), funnel=apps_script_status(conn),
-                         google=google_status(conn),
                          google_finance=google_finance_status(conn),
                          engines=_engine_rows(),
                          schedule_count=len(list_schedules(conn)),
@@ -1185,7 +1180,7 @@ def create_app(
         conn = read_conn()
         try:
             return _page(request, "sync.html", "sync", source_key or None,
-                         funnel=apps_script_status(conn), google=google_status(conn),
+                         funnel=apps_script_status(conn),
                           settings=public_settings(conn), sources=_display_sources(conn))
         finally:
             conn.close()
@@ -2228,59 +2223,16 @@ def create_app(
                              "at once — no redeploy needed. The old token stops working "
                              "immediately."}
 
-    @app.get("/api/outputs/google")
-    def api_google_status():
-        conn = read_conn()
-        try:
-            return google_status(conn)
-        finally:
-            conn.close()
-
-    @app.post("/api/outputs/google/connect")
-    def api_google_connect():
-        """Start the one-time browser sign-in.
-
-        It runs on a worker thread because the OAuth flow blocks on a local
-        callback server: holding the request open would make the page look hung
-        for as long as the owner spends in Google's consent screen.
-        """
-        import threading
-
-        state = app.state.google_connect = {"status": "connecting", "error": ""}
-
-        def run():
-            try:
-                google_connect()
-                state.update(status="connected")
-            except Exception as exc:                       # surfaced verbatim below
-                state.update(status="error", error=str(exc))
-
-        threading.Thread(target=run, daemon=True).start()
-        return {"status": "connecting",
-                "note": "A browser window is opening for Google sign-in. "
-                        "This page reflects the result once you finish there."}
-
-    @app.get("/api/outputs/google/connect")
-    def api_google_connect_state():
-        return getattr(app.state, "google_connect", {"status": "idle", "error": ""})
-
-    @app.post("/api/outputs/google/push")
-    def api_google_push(body: dict):
-        keys = _source_keys(body)
-        return _integration(google_push, keys, state_after=google_status)
-
-    @app.post("/api/outputs/google/disconnect")
-    def api_google_disconnect():
-        with dbmod.write_lock(app.state.db_path):
-            conn = _write_conn()
-            try:
-                existed = google_disconnect(conn)
-                conn.commit()
-            finally:
-                conn.close()
-        app.state.google_connect = {"status": "idle", "error": ""}
-        return {"disconnected": existed,
-                "detail": "Signed out. Nothing in Drive was changed or removed."}
+    # The four /api/outputs/google/* routes were here until 2026-08-11, together
+    # with app.state.google_connect and the background thread that ran a desktop
+    # OAuth flow on this machine. They are gone because the owner ruled that the
+    # engine fetches and saves locally while the extension owns every Google
+    # operation: the panel already holds a token from chrome.identity, and a
+    # second sign-in on the engine meant one owner signing in twice, a
+    # client_secret.json they had to create, and the SENSITIVE `spreadsheets`
+    # scope — which Google's own Sheets documentation says drive.file replaces.
+    #
+    # See extension/drive.js and extension/sheets.js.
 
     # ---- storage and retention (spec 17/18/25) -----------------------------
     # Everything that can rewrite the warehouse lives here and nowhere else, so

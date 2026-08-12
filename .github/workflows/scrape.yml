@@ -3,9 +3,10 @@ name: Scrape (scheduled)
 # Cloud scraping with no machine on. Runs crawl -> ingest -> export and uploads
 # the .xlsx as a downloadable artifact — works with ZERO secrets.
 #
-# To also push into your Google Drive from CI (optional): store a Drive
-# credential in repo Secrets and add a `scrapex push` step (see README →
-# "GitHub Actions + Drive"). Headless Drive auth for CI is the next feature.
+# Drive is not reachable from CI and is not meant to be: since 2026-08-11
+# every Google operation belongs to the extension, which runs in the
+# owner's browser with a token Chrome holds. There is nothing here to
+# give a credential to.
 
 on:
   workflow_dispatch:

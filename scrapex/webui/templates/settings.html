@@ -321,23 +321,18 @@
     {% with label=funnel.label, ready=funnel.ready, blocker=funnel.blocker %}
       {% include "_destination.html" %}
     {% endwith %}
-    <p class="hint"><a class="link" href="/sync">open Google Sheets Synchronization</a></p>
+    <p class="hint"><a class="link" href="/sync">open Apps Script Synchronization</a></p>
   </div>
 </details>
 
-<details class="sect" id="s-google">
-  <summary><span class="sect-name">Google account</span>
-    <span class="sect-sub">Sign-in, folder and what access is asked for</span></summary>
-  <div class="sect-body">
-    {% with label=google.label, ready=google.ready, blocker=google.blocker %}
-      {% include "_destination.html" %}
-    {% endwith %}
-    <p class="hint">{{ google.account_note }}
-      <a class="link" href="/sync">open Google Sheets Synchronization</a></p>
-  </div>
-</details>
+{# The "Google account" section was here until 2026-08-11. Signing in to Google
+   is the side panel's job now — the owner ruled that the engine fetches and
+   saves locally while the extension owns every Google operation — so this page
+   no longer offers a second sign-in for the same account. The Google FINANCE
+   section above is unrelated: it is a scraped exchange-rate source, not an
+   account. #}
 
-<!-- 11 ------------------------------------------------------------------ -->
+<!-- 10 ------------------------------------------------------------------ -->
   </div>
 </section>
 

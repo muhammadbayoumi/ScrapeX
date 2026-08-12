@@ -31,7 +31,6 @@ from .vocab import ExtractKind, PayloadClient
 
 EXCEL = "excel"
 APPS_SCRIPT = "apps_script"
-GOOGLE = "google_drive"
 
 # Spec 22: the funnel accepts a batch at a time, and the Apps Script side has a
 # 6-minute execution budget. This is the size a send is COMFORTABLE at — it is
@@ -422,99 +421,17 @@ def apps_script_send(conn: sqlite3.Connection, source_key: str, *, client=None) 
                 f"ScrapeX menu.{oversized}")))
 
 
-# =============================================================================
-# Google Drive and Sheets (spec 23)
-# =============================================================================
+# The Google Drive and Sheets section was here until 2026-08-11 —
+# google_status, google_connect, google_disconnect and google_push, all of them
+# driving scrapex/gdrive.py. The owner ruled that the engine fetches and saves
+# locally while the extension owns every Google operation, so that work is now
+# extension/drive.js and extension/sheets.js, using the token chrome.identity
+# already holds. It cost the engine a client_secret.json the owner had to create
+# and the SENSITIVE `spreadsheets` scope; the panel needs neither.
+#
+# Excel and Apps Script below are untouched. Neither is a Google sign-in: one
+# writes a local .xlsx, the other posts to a URL the owner pastes.
 
-def google_status(conn: sqlite3.Connection) -> dict:
-    from .gdrive import CLIENT_SECRET_PATH, TOKEN_PATH
-
-    libs = _module_available("googleapiclient")
-    connected = Path(TOKEN_PATH).exists()
-    has_secret = Path(CLIENT_SECRET_PATH).exists()
-    if not libs:
-        blocker = 'Google support needs the extra: pip install -e ".[google]"'
-    elif not has_secret:
-        blocker = (f"Missing {CLIENT_SECRET_PATH}. Create a Google Cloud OAuth "
-                   "client (Desktop app) and save its JSON there.")
-    elif not connected:
-        blocker = "Not signed in yet — use Continue with Google."
-    else:
-        blocker = ""
-    return {
-        "key": GOOGLE,
-        "label": "Google Drive and Sheets",
-        "ready": connected and libs,
-        "blocker": blocker,
-        "connected": connected,
-        "client_secret_present": has_secret,
-        "token_path": str(TOKEN_PATH),
-        "folder": settings.get(conn, "google_folder"),
-        "workbook": settings.get(conn, "google_workbook"),
-        # Spec 23 asks for the connected account. Least-privilege scopes
-        # (drive.file + spreadsheets) do NOT include an identity scope, so the
-        # email is genuinely not available — saying so beats inventing a
-        # placeholder or widening the scope just to fill a line of UI.
-        "account": "",
-        "account_note": ("The signed-in email is not requested: ScrapeX asks only for "
-                         "access to the files it creates, not your identity."),
-        "scopes": ["drive.file (only files ScrapeX creates)", "spreadsheets (their contents)"],
-        "last": settings.get_state(conn, "google_last"),
-    }
-
-
-def google_connect(*, connector=None) -> None:
-    """Run the one-time browser sign-in. Blocking: the caller decides threading."""
-    if connector is not None:
-        connector()
-        return
-    from .gdrive import get_credentials
-    get_credentials()
-
-
-def google_disconnect(conn: sqlite3.Connection) -> bool:
-    """Forget the cached sign-in.
-
-    This removes ScrapeX's own OAuth token file and nothing else: no Drive file,
-    folder or spreadsheet is touched, and signing in again restores access.
-    """
-    from .gdrive import TOKEN_PATH
-
-    path = Path(TOKEN_PATH)
-    existed = path.exists()
-    path.unlink(missing_ok=True)
-    settings.set_state(conn, "google_last", RunResult(
-        ok=True, detail="Signed out. Drive files were left exactly as they are.").as_state())
-    return existed
-
-
-def google_push(conn: sqlite3.Connection, source_keys: list[str], *, sink=None) -> RunResult:
-    """Publish sources into the Drive spreadsheet (one tab per source)."""
-    if not source_keys:
-        raise NotConfiguredError("Pick at least one source to push.")
-    status = google_status(conn)
-    if sink is None:
-        if not status["ready"]:
-            raise NotConfiguredError(status["blocker"])
-        from .gdrive import DriveManager, build_services, get_credentials
-        from .publish import GoogleSink
-        sink = GoogleSink(DriveManager(*build_services(get_credentials())))
-
-    folder, workbook = status["folder"], status["workbook"]
-    total, location, failures = 0, "", []
-    for key in source_keys:
-        try:
-            rows, location = publish_source(conn, key, sink, folder, workbook)
-            total += rows
-        except ValueError as exc:
-            failures.append(f"{key}: {exc}")
-    conn.commit()
-
-    detail = f"Pushed {total} rows into {len(source_keys) - len(failures)} tab(s)."
-    if failures:
-        detail += " Skipped — " + "; ".join(failures)
-    return _record(conn, "google_last",
-                   RunResult(ok=total > 0, rows=total, location=location, detail=detail))
 
 
 # =============================================================================
@@ -533,5 +450,4 @@ def all_destinations(conn: sqlite3.Connection) -> list[dict]:
          "settings_url": ""},
         {**excel_status(conn), "required": False, "settings_url": "/exports"},
         {**apps_script_status(conn), "required": False, "settings_url": "/sync"},
-        {**google_status(conn), "required": False, "settings_url": "/sync"},
     ]

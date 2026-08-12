@@ -623,6 +623,29 @@ opening strategy, a zero-width layout, the engine's absence. Three mechanisms
 were recorded WRONGLY on PR #152 and corrected. The conclusions converged only
 because nothing was accepted without a number.
 
+### OP-19 · The chaos test races the startup sweep it is checking
+
+Found 2026-08-11 while removing the engine's Google surface. The suite went red
+on `test_a_killed_engine_does_not_leave_a_job_claiming_to_run`, and the first
+comparison — one run with the change, one without — said the change had caused
+it. **That comparison was worthless and the conclusion was wrong.** Four runs on
+the unchanged code failed three times.
+
+`Engine.start()` waits for `/api/health` to answer and nothing more, then the
+test reads `crawl_job.status` immediately. The stale-job sweep that clears a
+crashed run is a separate startup step, so whether the assertion passes depends
+on which of the two lands first. It is a race by construction.
+
+CI has been green all session, which means the sweep reliably wins on the Linux
+runner and reliably loses on a loaded Windows machine — the worst arrangement,
+because it makes the flake look like "works in CI, broken locally" and invites
+exactly the wrong diagnosis.
+
+**The fix is not to add a sleep.** `start()` should wait for a signal the sweep
+has run — the engine already knows when it has finished; the test does not ask.
+Not fixed here: it is a real defect in a test that guards a real property, and it
+deserves its own change rather than a line in a removal.
+
 ## 6c. The extension/engine separation, audited — 2026-08-11
 
 The owner asked whether the extension is fully separated from the engine. What

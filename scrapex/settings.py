@@ -57,9 +57,11 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # --- Apps Script funnel (spec 22) ---
     Setting("funnel_url", "", env="SCRAPEX_FUNNEL_URL", label="Deployment URL"),
     Setting("funnel_token", "", env="SCRAPEX_FUNNEL_TOKEN", secret=True, label="Shared token"),
-    # --- Google Drive and Sheets (spec 23) ---
-    Setting("google_folder", "ScrapeX", label="Drive folder"),
-    Setting("google_workbook", "ScrapeX Data", label="Spreadsheet name"),
+    # Google Drive and Sheets settings were here until 2026-08-11. The panel
+    # owns that work now, and it keeps its own choices in chrome.storage —
+    # a folder name in the engine's database would have been a second answer
+    # to a question only one side asks. Google FINANCE settings below are
+    # unrelated: a scraped rate source, not an account.
     # --- Crawling (spec 33) ---
     # Real knobs on the shared HttpFetcher, not decoration: politeness and
     # timeout were fixed constants until the owner could see and change them.
@@ -136,7 +138,7 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 
 # Status records written after a run. They are not owner-editable, so they are
 # kept out of SETTINGS and read/written through get_state/set_state.
-STATE_KEYS = ("excel_last", "apps_script_last", "google_last",
+STATE_KEYS = ("excel_last", "apps_script_last",
               "storage_last", "retention_last", "storage_migration")
 
 
