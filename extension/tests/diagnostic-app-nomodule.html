@@ -1083,8 +1083,15 @@
                changes. The Google action is hidden until Chrome answers. -->
           <div class="profile-state" id="welcome-checking">
             <div class="welcome-mark" aria-hidden="true"></div>
-            <h1>Welcome to ScrapeX</h1>
-            <p class="profile-status" role="status" aria-live="polite">
+            <div class="checking-copy">
+              <span class="checking-name">ScrapeX</span>
+              <span class="checking-tagline">where everything begins</span>
+              <div class="checking-bar" aria-hidden="true">
+                <span class="checking-bar-thumb"></span>
+              </div>
+            </div>
+            <h1 class="visually-hidden">Welcome to ScrapeX</h1>
+            <p class="profile-status visually-hidden" role="status" aria-live="polite">
               Checking your account…
             </p>
           </div>

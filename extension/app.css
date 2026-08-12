@@ -1190,6 +1190,86 @@
   @media (max-height: 500px) {
     .profile-card { min-height: auto; }
   }
+
+  /* ---- Profile › Checking -----------------------------------------------
+     The opening frame. No card: this is the one state with nothing to read,
+     and a border around emptiness reads as an error rather than as a wait.
+     The element stays — a test requires all three states inside #profile-card —
+     and only its paint goes, scoped by :has() so the other two states keep the
+     shell they were designed with. */
+  .profile-card:has(#welcome-checking:not(.hidden)) {
+    width: 100%;
+    min-height: 0;
+    max-height: none;
+    margin-block: 0;
+    padding: var(--sp-5);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+  #welcome-checking {
+    flex: 1;
+    justify-content: center;
+  }
+  /* The mark is the same masked box the signed-out state uses; only its size
+     differs here, so the size is all that is restated. */
+  #welcome-checking .welcome-mark {
+    width: 6rem;
+    height: 6rem;
+    background: var(--accent);
+    color: var(--accent);
+  }
+  .checking-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-4);
+  }
+  .checking-name {
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-bold);
+    letter-spacing: .01em;
+    color: var(--text);
+  }
+  .checking-tagline {
+    max-width: 15rem;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+
+  /* The bar. Its geometry is TWO custom properties and nothing else: the
+     keyframe below is written in terms of them, so the travel cannot drift out
+     of step with the track the way two hand-repeated pixel values would. */
+  .checking-bar {
+    --checking-track: 10rem;
+    --checking-thumb: 2.5rem;
+    position: relative;
+    width: var(--checking-track);
+    max-width: 100%;
+    height: 3px;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: var(--line);
+  }
+  .checking-bar-thumb {
+    position: absolute;
+    inset-block: 0;
+    inline-size: var(--checking-thumb);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    animation: sx-checking-sweep 1.4s linear infinite;
+  }
+  /* One direction, no bounce: in from the start edge, across, out at the end
+     edge, then again from the start.
+     `inset-inline-start` rather than `translateX`, because a transform is
+     physical and would run backwards under dir="rtl" — the panel is LTR today,
+     and a rule that only works because of that is a trap for the day it is not. */
+  @keyframes sx-checking-sweep {
+    from { inset-inline-start: calc(-1 * var(--checking-thumb)); }
+    to { inset-inline-start: var(--checking-track); }
+  }
   .profile-state {
     display: flex;
     flex-direction: column;
@@ -2999,6 +3079,13 @@
     .m3-switch-track,
     .m3-switch-handle-container,
     .m3-switch-handle { transition: none; }
+    /* Parked at the start edge, not stopped wherever it happened to be. A thumb
+       frozen mid-track reads as stalled — as if the wait had failed — which is
+       the opposite of what this screen is for. */
+    .checking-bar-thumb {
+      animation: none;
+      inset-inline-start: 0;
+    }
   }
 
 /* The install steps, folded. `summary` is a control, so it says so on hover and

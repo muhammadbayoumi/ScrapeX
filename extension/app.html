@@ -1101,10 +1101,33 @@
 
           <!-- Checking: the mark and welcome stay stable; only the status line
                changes. The Google action is hidden until Chrome answers. -->
+          <!-- The panel's opening frame. It is the one screen with nothing to
+               read, and a card frame around emptiness reads as an error — so
+               there is no card here, and no status sentence on screen. -->
           <div class="profile-state" id="welcome-checking">
             <div class="welcome-mark" aria-hidden="true"></div>
-            <h1>Welcome to ScrapeX</h1>
-            <p class="profile-status" role="status" aria-live="polite">
+            <div class="checking-copy">
+              <!-- Not an <h1>: the signed-in greeting owns the panel's heading,
+                   and this state is gone in a second. -->
+              <span class="checking-name">ScrapeX</span>
+              <span class="checking-tagline">where everything begins</span>
+              <div class="checking-bar" aria-hidden="true">
+                <span class="checking-bar-thumb"></span>
+              </div>
+            </div>
+            <!-- KEPT, AND HIDDEN, both halves on purpose.
+                 The design deletes these from the screen, not from the page. A
+                 state with nothing to read is still a state that has to be
+                 ANNOUNCED, and the handoff's own checklist says it is "conveyed
+                 by the existing live region" — this is that region. Deleting it
+                 would leave a screen-reader user in silence while the panel
+                 decides who they are.
+                 Both strings are also read by tests, by exact text:
+                 tests/test_panel_dom.py:3007-3008 and
+                 extension/tests/side-panel-startup.test.mjs:384-385, the second
+                 of which reads the raw file before any script runs. -->
+            <h1 class="visually-hidden">Welcome to ScrapeX</h1>
+            <p class="profile-status visually-hidden" role="status" aria-live="polite">
               Checking your account…
             </p>
           </div>
