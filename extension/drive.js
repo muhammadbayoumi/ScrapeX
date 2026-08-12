@@ -45,6 +45,21 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 /** The pointer that says which upload is the current one. */
 export const LATEST = "latest.json";
 
+/**
+ * The one file in a backup a browser can read on its own.
+ *
+ * A FIXED NAME, REPLACED EACH TIME, exactly like the pointer beside it — not a
+ * stamped file per backup. Two reasons, and the second is the load-bearing one:
+ *
+ *   * it always describes the CURRENT data, which is the only thing a panel
+ *     with no engine is asking for; nobody browses last week's backup.
+ *   * `prunable` only ever proposes `.zip` files, so a stamped pack would be
+ *     skipped by retention forever and accumulate one 4 MB file per backup
+ *     until the owner noticed. Making it a replaced singleton removes that
+ *     failure rather than adding a second rule to remember.
+ */
+export const PANEL_PACK = "panel.jsonl.gz";
+
 /** How many bundles survive a prune. Three is a fortnight of daily backups
  * without asking the owner to think about it, and Drive quota is the owner's. */
 export const KEEP = 3;
@@ -355,7 +370,7 @@ export async function readLatest(token, parent, {fetchImpl = fetch} = {}) {
  * doing it twice is how two readers of one format drift.
  */
 export async function backUp(token, {
-  archive, name, manifest = {}, bundleFormat = 1,
+  archive, name, panelPack = null, manifest = {}, bundleFormat = 1,
   onProgress = null, fetchImpl = fetch,
 } = {}) {
   const parent = await folderId(token, {fetchImpl});
@@ -363,6 +378,23 @@ export async function backUp(token, {
   const stored = await upload(token, {
     blob: archive, name, parent, onProgress, fetchImpl,
   });
+
+  // THE PANEL PACK, BEFORE THE POINTER AND AFTER THE ARCHIVE. Its place in the
+  // order follows the same rule as everything else here: the pointer is written
+  // last, so it can only ever name files that have already arrived. A pointer
+  // promising a pack that failed to upload would send a bare panel to fetch
+  // something that is not there — with no engine on that machine to explain it.
+  let packed = null;
+  if (panelPack) {
+    const existing = await listing(token, parent, {fetchImpl});
+    for (const file of existing.filter((f) => f.name === PANEL_PACK)) {
+      await remove(token, file.id, {fetchImpl});
+    }
+    packed = await upload(token, {
+      blob: panelPack, name: PANEL_PACK, parent,
+      mime: "application/gzip", fetchImpl,
+    });
+  }
 
   const pointer = {
     file_id: stored.id,
@@ -372,6 +404,9 @@ export async function backUp(token, {
     created_at: manifest.created_at || "",
     engine_version: manifest.engine_version || "",
     bundle_format: bundleFormat,
+    panel_pack: packed
+      ? {file_id: packed.id, name: PANEL_PACK, bytes: panelPack.size}
+      : null,
   };
 
   // Replace, never append. The old pointer is deleted before the new one is
@@ -434,4 +469,46 @@ export async function fetchLatest(token, {
       "Nothing was restored.", null, "truncated");
   }
   return {archive, pointer};
+}
+
+/**
+ * The 4 MB a bare panel actually needs — no engine, no zip reader, no archive.
+ *
+ * THIS IS THE FUNCTION THE WHOLE ARRANGEMENT EXISTS FOR. The archive above is
+ * 36 MB of zip that only an engine can open; this is one gzip file the browser
+ * decompresses natively, and it carries every row the Data page shows.
+ *
+ * It reads the pointer FIRST rather than fetching `panel.jsonl.gz` by name.
+ * Fetching by name would work and would also happily return a pack left behind
+ * by a backup that never finished — the pointer is what says a pack belongs to
+ * a complete one, which is the same reason nothing else here trusts a filename.
+ */
+export async function fetchPanelPack(token, {
+  onProgress = null, fetchImpl = fetch,
+} = {}) {
+  const parent = await folderId(token, {fetchImpl});
+  const pointer = await readLatest(token, parent, {fetchImpl});
+  if (!pointer) {
+    throw new DriveError(
+      "No backup has been uploaded from any device yet.", null, "no-backup");
+  }
+  if (!pointer.panel_pack || !pointer.panel_pack.file_id) {
+    // An OLD backup, made before the pack was carried separately. Saying that
+    // is better than "no data": the owner's warehouse is safe, it is this one
+    // screen that cannot open it, and the fix is one more backup.
+    throw new DriveError(
+      "That backup was made before ScrapeX could show data without the " +
+      "engine. Back up once more from a machine that has the engine, and this " +
+      "screen will work everywhere.", null, "no-panel-pack");
+  }
+
+  const pack = await download(token, pointer.panel_pack.file_id,
+                              {onProgress, fetchImpl});
+  const promised = pointer.panel_pack.bytes;
+  if (promised && pack.size !== promised) {
+    throw new DriveError(
+      `The download stopped at ${pack.size} of ${promised} bytes, so the rows ` +
+      "would be incomplete. Nothing is shown.", null, "truncated");
+  }
+  return {pack, pointer};
 }

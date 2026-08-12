@@ -13,7 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { latestEngineRelease } from "./releases.js";
 import { getToken, accountFor, forgetToken, revokeToken } from "./identity.js";
-import { backUp, fetchLatest } from "./drive.js";
+import { backUp, fetchLatest, fetchPanelPack } from "./drive.js";
+import { readPanelPack, datasetSummaries } from "./bundleview.js";
 import { ensureFolder, ensureSpreadsheet, DEFAULT_WORKBOOK, SHEET_FOLDER } from "./sheets.js";
 import {
   afterIdle, afterNextPaint, deadlineForLocalRequest, fetchWithDeadline,
@@ -3287,7 +3288,73 @@ async function loadDatasets() {
       });
     });
   } catch (_) {
-    box.innerHTML = `<div class="card"><span class="err">Couldn't reach the engine.</span></div>`;
+    // NOT A DEAD END ANY MORE. This is the machine with no engine on it — the
+    // case the whole bundle format was designed for — and until now the panel
+    // said "couldn't reach the engine" and stopped, while a complete copy of
+    // the owner's data sat in their Drive.
+    box.innerHTML = `<div class="card">
+      <span class="err">Couldn't reach the engine.</span>
+      <p class="hint">Your data is still in your Drive backup. It can be read
+        here without the engine — it will be a snapshot from the last backup,
+        not live.</p>
+      <button id="browse-offline" class="button" type="button">
+        Read my Drive backup</button>
+      <p id="offline-msg" class="hint" role="status" aria-live="polite"></p>
+    </div>`;
+    const button = $("browse-offline");
+    if (button) button.addEventListener("click", () => browseFromDrive(box));
+  }
+}
+
+/**
+ * The Data page, read from Drive, on a machine with no engine.
+ *
+ * 4 MB of gzip against a 36 MB archive only an engine can open, decompressed by
+ * the browser itself. bundleview.js has been able to do this since the day it
+ * was written and nothing ever called it; this is the call.
+ */
+async function browseFromDrive(box) {
+  if (!state.token) {
+    out("offline-msg", "Sign in with Google first — the Account button at the " +
+                       "top of the panel.", "err");
+    return;
+  }
+  const button = $("browse-offline");
+  if (button) button.disabled = true;
+  out("offline-msg", "Fetching the latest backup…", "");
+  try {
+    const {pack, pointer} = await fetchPanelPack(state.token, {
+      onProgress: ({received, total}) => {
+        if (total) {
+          out("offline-msg",
+              `Fetching… ${fmtMegabytes(received)} of ${fmtMegabytes(total)}`, "");
+        }
+      },
+    });
+    const datasets = await readPanelPack(pack);
+    const summaries = datasetSummaries(datasets);
+    if (!summaries.length) {
+      out("offline-msg", "That backup carries no datasets.", "err");
+      return;
+    }
+    // A SNAPSHOT, AND IT SAYS SO. Rows read here are as old as the last backup,
+    // and a screen that looked identical to the live one would be lying by
+    // omission on the day it matters.
+    box.innerHTML = `<div class="card">
+      <span class="muted">From your Drive backup${
+        pointer.created_at ? ` of ${esc(pointer.created_at)}` : ""
+      } — not live.</span></div>` +
+      summaries.map((d) => `
+      <article class="card dataset-card">
+        <div><div class="dataset-identity-line">${esc(d.source_key)}</div>
+          <div class="n">${fmtCount(d.rows)} rows</div>
+          <div class="n muted">${d.has_history
+            ? "with change history" : "current prices only"}</div></div>
+      </article>`).join("");
+  } catch (error) {
+    out("offline-msg", esc((error && error.message) || "Something went wrong."), "err");
+  } finally {
+    if ($("browse-offline")) $("browse-offline").disabled = false;
   }
 }
 
@@ -4451,11 +4518,19 @@ async function backUpToDrive(token) {
   // database.
   out("drive-msg", "Building the bundle…", "");
   const built = await api("/api/bundle", { method: "POST" });
-  const archive = await (await fetch(
-    (await backendBase()) + "/api/bundle/archive")).blob();
+  const base = await backendBase();
+  const archive = await (await fetch(base + "/api/bundle/archive")).blob();
+  // The 4 MB a browser can read on its own, carried beside the 36 MB archive
+  // only an engine can open. Fetched here rather than inside drive.js: that
+  // module talks to Google and nothing else, and giving it a second opinion
+  // about the engine's address is how one boundary becomes two.
+  const panelPack = built.panel_pack
+    ? await (await fetch(base + "/api/bundle/panel-pack")).blob()
+    : null;
 
   const stored = await backUp(token, {
-    archive, name: built.name, manifest: built, bundleFormat: built.bundle_format,
+    archive, name: built.name, panelPack,
+    manifest: built, bundleFormat: built.bundle_format,
     onProgress: ({sent, total}) => driveProgress(total ? sent / total : 0),
   });
   const pruned = stored.pruned.length

@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 
 import {
   backUp, download, fetchLatest, folderId, listing, prunable, upload,
-  BUNDLE_FORMAT, DriveError, KEEP, LATEST,
+  fetchPanelPack,
+  BUNDLE_FORMAT, DriveError, KEEP, LATEST, PANEL_PACK,
 } from "../drive.js";
 import {readFileSync} from "node:fs";
 
@@ -398,4 +399,146 @@ test("download reports progress and returns the bytes", async () => {
   assert.equal(blob.size, 5);
   assert.deepEqual(seen.map((p) => p.received), [0, 3, 5]);
   assert.equal(seen.at(-1).total, 5);
+});
+
+
+test("the panel pack goes up after the archive and before the pointer", async () => {
+  // Same rule as everything else here: the pointer is written last, so it can
+  // only ever name files that have already arrived. A pointer promising a pack
+  // that failed would send a bare panel to fetch something that is not there,
+  // with no engine on that machine to explain it.
+  const order = [];
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, (_url, init) => {
+      order.push(JSON.parse(init.body).name);
+      return reply(200, {headers: {Location: SESSION}});
+    }],
+    [isPut, () => reply(200, {body: {id: "up", name: "x"}})],
+  ]);
+
+  await backUp("tok", {
+    archive: new Blob(["archive"]), name: "bundle.zip",
+    panelPack: new Blob(["pack"]), fetchImpl,
+  });
+
+  assert.deepEqual(order, ["bundle.zip", PANEL_PACK, LATEST],
+    "the three uploads did not happen in the one order that is safe");
+});
+
+
+test("the pointer records the pack, so a reader never guesses a filename", async () => {
+  let written = null;
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, (_url, init) => {
+      written = JSON.parse(init.body).name;
+      return reply(200, {headers: {Location: SESSION}});
+    }],
+    [isPut, (_url, init) => {
+      if (written === LATEST) {
+        // The pointer's own bytes, which is the only place its shape is real.
+        return init.body.text().then((text) =>
+          reply(200, {body: {id: "ptr", name: LATEST, _wrote: text}}));
+      }
+      return reply(200, {body: {id: `id-${written}`, name: written}});
+    }],
+  ]);
+
+  const result = await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    panelPack: new Blob(["12345"]), fetchImpl,
+  });
+
+  assert.equal(result.panel_pack.name, PANEL_PACK);
+  assert.equal(result.panel_pack.bytes, 5);
+  assert.ok(result.panel_pack.file_id, "the pack's id was not recorded");
+});
+
+
+test("a backup with no pack still works and says so in the pointer", async () => {
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: []}}))],
+    [isStart, () => reply(200, {headers: {Location: SESSION}})],
+    [isPut, () => reply(200, {body: {id: "up", name: "x"}})],
+  ]);
+
+  const result = await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip", fetchImpl,
+  });
+
+  assert.equal(result.panel_pack, null,
+    "an absent pack must be null, not missing — a reader has to tell the two "
+    + "apart to give the owner the right sentence");
+});
+
+
+test("only one panel pack ever exists, however many were there before", async () => {
+  const deleted = [];
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: [
+        {id: "old-pack", name: PANEL_PACK, createdTime: "2026-08-01T00:00:00Z"},
+      ]}}))],
+    [isStart, () => reply(200, {headers: {Location: SESSION}})],
+    [isPut, () => reply(200, {body: {id: "new", name: "x"}})],
+    [(_url, init) => init.method === "DELETE",
+      (url) => { deleted.push(url); return reply(204); }],
+  ]);
+
+  await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    panelPack: new Blob(["p"]), fetchImpl,
+  });
+
+  assert.equal(deleted.filter((u) => u.includes("old-pack")).length, 1,
+    "the previous pack survived; retention only proposes .zip files, so it "
+    + "would sit there forever growing one 4 MB file per backup");
+});
+
+
+test("an old backup with no pack is named, not reported as no data", async () => {
+  // The owner's warehouse is safe; it is this one screen that cannot open it,
+  // and the fix is one more backup. "No data" would say the opposite.
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: [{id: "ptr", name: LATEST}]}}))],
+    [(url) => url.includes("alt=media"),
+      () => reply(200, {body: JSON.stringify({file_id: "a", bytes: 1})})],
+  ]);
+
+  await assert.rejects(() => fetchPanelPack("tok", {fetchImpl}), (error) => {
+    assert.equal(error.kind, "no-panel-pack");
+    assert.match(error.message, /Back up once more/);
+    return true;
+  });
+});
+
+
+test("a truncated pack shows nothing rather than half the rows", async () => {
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: [{id: "ptr", name: LATEST}]}}))],
+    [(url) => url.includes("alt=media"), (url) => (url.includes("ptr")
+      ? reply(200, {body: JSON.stringify({
+          file_id: "a", bytes: 1,
+          panel_pack: {file_id: "pack", name: PANEL_PACK, bytes: 4096},
+        })})
+      : reply(200, {body: "short"}))],
+  ]);
+
+  await assert.rejects(() => fetchPanelPack("tok", {fetchImpl}), (error) => {
+    assert.equal(error.kind, "truncated");
+    assert.match(error.message, /Nothing is shown/);
+    return true;
+  });
 });
