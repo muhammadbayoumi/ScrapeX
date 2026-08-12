@@ -426,6 +426,42 @@
   &lt;/details&gt;
 &lt;/div&gt;</pre>
   </div>
+
+  <div class="g-item">
+    <h3>Split button — destructive</h3>
+    <p class="g-why">
+      Add <code class="code">danger</code> when the primary action cannot be undone.
+      Light <em>fills</em> the primary; dark <em>outlines</em> it — a filled light-red
+      button on a dark surface reads as an alert banner rather than a control.
+      Do not combine it with <code class="code">button.danger</code>: that rule wins
+      some properties from this one and loses others, giving half of each.
+    </p>
+    <div class="g-demo cluster">
+      <div class="split-button danger" role="group" aria-label="Disconnect">
+        <button type="button" class="split-button-primary">
+          <svg class="sx-icon" aria-hidden="true"><use href="#logout"></use></svg>
+          <span>Disconnect and sign out</span>
+        </button>
+        <details class="split-button-menu">
+          <summary class="split-button-trigger" aria-haspopup="menu"
+                   aria-expanded="false" aria-label="More disconnect options">
+            <svg class="sx-icon split-button-chevron" aria-hidden="true"><use href="#expand-more"></use></svg>
+          </summary>
+          <div class="split-button-options" role="menu" aria-label="Disconnect options">
+            <button type="button" class="split-button-option" role="menuitem">
+              <span class="split-button-option-icon">
+                <svg class="sx-icon" aria-hidden="true"><use href="#close"></use></svg>
+              </span>
+              <span class="split-button-option-copy">
+                <strong>Disconnect and erase everything</strong>
+              </span>
+            </button>
+          </div>
+        </details>
+      </div>
+    </div>
+    <pre>&lt;div class="split-button danger" role="group"&gt;…&lt;/div&gt;</pre>
+  </div>
 </section>
 
 <!-- ===================================================================== -->

@@ -4535,3 +4535,99 @@ def test_the_neutral_engine_hover_is_a_state_layer_not_an_opaque_fill(open_panel
         assert "color-mix" in declared and "--text" in declared, (
             f"{selector} hover is {declared!r}, not a translucent layer mixed "
             f"from the current text colour — so it cannot follow the scheme")
+
+
+# ---- Manage account: the screen #173 built, guarded ------------------------
+#
+# THE REVIEW FINDING, 2026-08-12. #173 added 1,221 lines — a whole sub-view, a
+# modal, a Drive stub in the harness — and changed `tests/` by nothing at all.
+# Its description reported measurements at 400px and 320px, light and dark, and
+# said the dialog "takes focus, traps Tab, and returns focus on close".
+#
+# Every one of those is true. Every one of them was measured ONCE, by hand, by
+# the person who wrote it, and nothing repeats any of it. That is section 6b of
+# the backlog exactly: a property that is DECLARED rather than checked.
+#
+# These are the four claims whose failure the owner would actually meet.
+
+
+def test_manage_account_is_reachable_and_is_not_a_dialog_inside_profile(open_panel):
+    """Two things at once, because they constrain each other.
+
+    The screen has a real modal, and `test_the_profile_states_live_in_one_
+    persistent_centered_card` forbids `[role=dialog]` INSIDE `#view-profile`.
+    That is a descendant combinator, so the fix was to make this a top-level
+    section — the shape `#view-source-edit` already had. If someone later moves
+    it back under Profile "to tidy up", the older test fails and this one says
+    why.
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    assert page.locator("#view-profile #view-manage-account").count() == 0, (
+        "the sub-view was nested inside #view-profile, where a [role=dialog] "
+        "is forbidden by an older test that would then fail for a reason no "
+        "one could see from here")
+    assert page.locator("#view-profile [role='dialog']").count() == 0
+
+    # The rail keeps showing Profile as current: a sub-view is not a tab.
+    assert page.get_attribute("#tab-profile", "aria-selected") == "true", (
+        "the rail lost its selected entry when the sub-view opened, so the "
+        "owner cannot tell where they are")
+
+
+def test_leaving_manage_account_returns_to_the_profile_it_came_from(open_panel):
+    """A back button that lands somewhere else is worse than none: the owner
+    loses the account they were looking at and has to find it again."""
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    page.click("#manage-account-back")
+
+    page.wait_for_selector("#view-profile:visible")
+    assert page.locator("#view-manage-account:visible").count() == 0
+    assert page.is_visible("#welcome-signed-in"), (
+        "back landed on Profile but not on the signed-in state it came from")
+
+
+def test_the_screen_names_the_account_it_is_managing(open_panel):
+    """"Manage account" with no account on it is a screen that could be about
+    anybody's. The address is the whole point of the header."""
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    assert ACCOUNT["email"] in (page.text_content("#manage-account-email") or ""), (
+        "the screen does not say which account it is managing")
+
+
+def test_every_control_that_cannot_run_yet_says_so_on_its_face(open_panel):
+    """THE OWNER'S RULE, given on 2026-08-12 for the Data page and applied here
+    by #173: a control that is not built is SHOWN, disabled, with the reason
+    where a person reads it — not hidden until it is finished.
+
+    Asserted so the words cannot be dropped later while the control stays dead,
+    which is the state that teaches someone the button is broken rather than
+    unbuilt.
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    view = page.locator("#view-manage-account")
+    dead = view.locator("button:disabled, input:disabled")
+    assert dead.count() > 0, (
+        "nothing is disabled here any more — if the erase and the Drive switch "
+        "were wired up, delete this test with the copy that explains them")
+
+    text = (page.text_content("#view-manage-account") or "").lower()
+    assert "not available yet" in text or "not wired up" in text, (
+        "a control on this screen is disabled and nothing on the screen says "
+        "why. The owner asked to see work in progress, not dead buttons.")

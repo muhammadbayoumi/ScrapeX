@@ -1783,6 +1783,267 @@
     color: var(--muted);
   }
 
+  /* ---- Profile › Manage account ----------------------------------------
+     Its own view section rather than a child of #view-profile, and its own
+     layout rather than a place in the nine-id enumerations near the top of this
+     file: the header is pinned and only the body scrolls, which none of those
+     screens do. */
+  #view-manage-account {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    margin: calc(-1 * var(--sp-4));
+    background: var(--bg);
+  }
+  .manage-account-heading {
+    flex: none;
+    display: grid;
+    grid-template-columns: var(--control-height-sm) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  button.manage-account-back {
+    width: var(--control-height-sm);
+    min-width: var(--control-height-sm);
+    padding: 0;
+    border-color: transparent;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--muted);
+  }
+  button.manage-account-back:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  #manage-account-title {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-bold);
+    line-height: var(--lh-tight);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The only scroller on this screen. */
+  .manage-account-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--sp-4);
+  }
+
+  .manage-account-identity {
+    display: grid;
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-4);
+    border-radius: var(--radius-xl);
+  }
+  .manage-account-face {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  .manage-account-face-fallback {
+    display: none;
+  }
+  /* Same one-owner rule the Profile card uses: the photo's `hidden` class is
+     the single answer to "is there a picture", and this reads it. */
+  #manage-account-photo.hidden ~ .manage-account-face-fallback {
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    background: var(--accent-weak);
+    color: var(--accent-ink);
+  }
+  .manage-account-face-icon {
+    width: 2rem;
+    height: 2rem;
+  }
+  .manage-account-identity-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .manage-account-name,
+  .manage-account-email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .manage-account-name {
+    font-size: var(--fs-md);
+    font-weight: var(--fw-bold);
+  }
+  .manage-account-email {
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+
+  .manage-account-section {
+    margin: var(--sp-5) 0 var(--sp-2);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .manage-account-rows {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+  }
+  .manage-account-rows > * + * {
+    border-top: 1px solid var(--line);
+  }
+  .manage-account-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--sp-3);
+    width: 100%;
+    padding: var(--sp-3) var(--sp-4);
+    text-align: start;
+  }
+  /* A leading icon is a column, not an extra child in the last one. */
+  .manage-account-row.has-lead {
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  }
+  button.manage-account-row-button {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-weight: var(--fw-regular);
+  }
+  button.manage-account-row-button:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  .manage-account-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .manage-account-row-title {
+    font-weight: var(--fw-medium);
+  }
+  .manage-account-row-sub {
+    font-size: var(--fs-sm);
+    color: var(--muted);
+    /* Wraps: these lines are sentences, not labels, and truncating a promise
+       about what Google can read would be worse than two lines. */
+    white-space: normal;
+  }
+  .manage-account-row-icon {
+    color: var(--muted);
+  }
+  /* Sizes and counts read as data, not prose. */
+  .manage-account-figure {
+    font-family: var(--font-mono);
+  }
+
+  .manage-account-danger {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    margin-top: var(--sp-5);
+    padding: var(--sp-4);
+    border-color: var(--red);
+    border-radius: var(--radius-xl);
+  }
+  .manage-account-danger-copy {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+  .manage-account-status {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+
+  /* ---- the confirmation ------------------------------------------------
+     ABOVE the rail, unlike the workspace drawer below it, because this one is
+     modal: it must not be possible to navigate away from a question about
+     revoking a grant.
+     The z-index is derived rather than taken: --z-modal is 30 and the side rail
+     is also 30 (see .side-rail above), so the token as it stands ties with the
+     thing this has to cover and the winner would be decided by source order.
+     Correcting the token is a design-system decision, not this screen's. */
+  .modal-veil {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-modal) + 10);
+    display: grid;
+    place-items: center;
+    padding: var(--sp-5);
+    background: var(--overlay);
+  }
+  .modal-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    width: min(100%, 22rem);
+    max-height: 100%;
+    overflow-y: auto;
+    padding: var(--sp-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-lg);
+  }
+  /* `text-transform` and `color` are RESETS, not decoration. A global `h2` rule
+     near the top of this file paints every h2 in the panel as a small uppercase
+     muted section label — which is right for a section heading and wrong for the
+     title of a question. Without these two the dialog asked "DISCONNECT DRIVE?"
+     in grey small-caps. */
+  .modal-title {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: var(--fw-bold);
+    line-height: var(--lh-tight);
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text);
+  }
+  .modal-copy {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+  }
+  .modal-copy p {
+    margin: 0 0 var(--sp-2);
+  }
+  .modal-copy p:last-child {
+    margin-bottom: 0;
+  }
+  .modal-copy strong {
+    color: var(--text);
+  }
+  .modal-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+  }
+
   /* Appearance is a complete Android-style destination. It uses the same
      persistent page model as Source, Data and Settings; it is not a modal
      floating above whichever task happened to be open. */

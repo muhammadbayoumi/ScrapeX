@@ -77,7 +77,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          signed_in=None, signin_error=None, signin_delay_ms=0,
          signin_never_returns=False, route_delays=None, blackhole_routes=(),
          native_mode="absent", google_account_mode="ok",
-         remembered_accounts=None,
+         remembered_accounts=None, drive=None,
          worker_alive=True) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
@@ -304,6 +304,7 @@ const SIGNIN_DELAY_MS = {json.dumps(signin_delay_ms)};
 const SIGNIN_NEVER_RETURNS = {str(signin_never_returns).lower()};
 const NATIVE_MODE = {json.dumps(native_mode)};
 const GOOGLE_ACCOUNT_MODE = {json.dumps(google_account_mode)};
+const DRIVE = {json.dumps(drive)};
 const ROUTES = {json.dumps(routes)};
 const WRITE_ROUTES = {json.dumps(write_routes)};
 const LOG_PAYLOAD = {json.dumps(log_payload)};
@@ -345,6 +346,38 @@ window.fetch = async (url, options = {{}}) => {{
     let body = null;
     try {{ body = JSON.parse((options && options.body) || "null"); }} catch (_) {{}}
     window.__writes.push({{path, method, body}});
+  }}
+  // GOOGLE DRIVE. Without this every Drive read 404s and the Manage-account
+  // screen can only ever be seen in its failure state — which is how it was
+  // first shipped to review. `drive: None` keeps that behaviour deliberately,
+  // so the error path stays testable too.
+  //
+  // Three requests, told apart the way drive.js builds them: `alt=media` is a
+  // download, `orderBy` is only on the folder listing, and anything else is the
+  // search for the folder itself.
+  if (String(url).includes("googleapis.com/drive/v3/files")) {{
+    if (!DRIVE) {{
+      return {{ ok: false, status: 404, statusText: "Not Found",
+                headers: {{get: () => null}},
+                json: async () => ({{}}), text: async () => "" }};
+    }}
+    const target = String(url);
+    if (target.includes("alt=media")) {{
+      const id = decodeURIComponent(target.split("/files/")[1].split("?")[0]);
+      const pointer = (DRIVE.files || []).find(f => f.name === "latest.json");
+      const body = pointer && pointer.id === id
+        ? JSON.stringify(DRIVE.pointer || {{}}) : "";
+      return {{ ok: true, status: 200, headers: {{get: () => null}}, body: null,
+                blob: async () => new Blob([body]),
+                text: async () => body, json: async () => JSON.parse(body || "null") }};
+    }}
+    if (target.includes("orderBy")) {{
+      return {{ ok: true, status: 200, headers: {{get: () => null}},
+                json: async () => ({{files: DRIVE.files || []}}) }};
+    }}
+    return {{ ok: true, status: 200, headers: {{get: () => null}},
+              json: async () => ({{files: DRIVE.folder
+                ? [{{id: DRIVE.folder, name: "ScrapeX backups"}}] : []}}) }};
   }}
   if (String(url).includes("oauth2/v3/userinfo")) {{
     if (GOOGLE_ACCOUNT_MODE === "offline") throw new Error("network offline");
