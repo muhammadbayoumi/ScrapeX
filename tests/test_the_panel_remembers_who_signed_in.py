@@ -152,3 +152,69 @@ def test_an_account_without_a_stable_id_is_not_remembered(open_panel):
         "a row nothing can switch to was written into the directory")
     assert page.text_content("#welcome-name").strip() == ACCOUNT["name"], (
         "the panel stopped painting the account because the directory refused it")
+
+
+def test_signing_in_again_does_not_list_you_as_signed_out(open_panel):
+    """REPORTED BY THE OWNER FROM THE RUNNING PANEL, 2026-08-12.
+
+    Sign in, sign out, sign in again — and the account appeared TWICE: as the
+    signed-in header at the top, and in the list below it, labelled "Signed
+    out", with Sign in and Remove beside it. One account, two contradictory
+    truths, two inches apart.
+
+    The state was never wrong. It was READ ONE STEP TOO EARLY: `loadAccount`
+    called `renderAccount()` and only then awaited `rememberSignedInAccount()`,
+    so the card was drawn while `state.currentAccountId` still held the empty
+    string left by the sign-out. The row therefore passed the
+    `id !== currentAccountId` filter that exists to exclude the current account,
+    and nothing re-rendered afterwards, so it simply stayed there.
+
+    `adoptAuthorizedAccount` — the other path to the same place — already
+    remembered before rendering. The correct order was sitting ten lines away.
+
+    This is the panel-state twin of a pattern this project keeps meeting: a
+    partial state displayed as a complete one. Guarded here through the real
+    wiring rather than by asserting the order of two statements, because the
+    property is "the screen never contradicts itself", not "these lines are in
+    this sequence".
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.wait_for_function(
+        "async () => (await window.chrome.storage.local.get('scrapex-accounts-v1'))"
+        "['scrapex-accounts-v1'] != null",
+        timeout=10000)
+
+    page.click("#signout")
+    page.wait_for_selector("#welcome-signed-out:visible")
+    page.wait_for_function(
+        "async () => (await window.chrome.storage.local.get('scrapex-accounts-v1'))"
+        "['scrapex-accounts-v1'].currentId === ''",
+        timeout=10000)
+
+    # In again, through the same button the owner used. Chrome is told the
+    # account is grantable once more, because signing out really does clear its
+    # cache — the harness models that faithfully and the owner's next click is
+    # what puts it back.
+    page.evaluate("(account) => window.__sx_grant_again(account)", ACCOUNT)
+    page.click("#signin")
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.wait_for_function(
+        "async () => (await window.chrome.storage.local.get('scrapex-accounts-v1'))"
+        "['scrapex-accounts-v1'].currentId === '110001'",
+        timeout=10000)
+
+    # THE ASSERTION. The account that is signed in must not also be offered as a
+    # signed-out row to sign in to.
+    rows = page.locator(".accounts-list [data-account-id]")
+    listed = [rows.nth(n).get_attribute("data-account-id")
+              for n in range(rows.count())]
+    assert "110001" not in listed, (
+        "the signed-in account is also listed below as another account; that is "
+        "the row the owner saw labelled 'Signed out' while the header above it "
+        f"said signed in. Listed: {listed}")
+
+    card = page.text_content("#accounts-card") or ""
+    assert "Signed out" not in card, (
+        "the accounts card says 'Signed out' while the panel is signed in: "
+        + card.strip()[:200])

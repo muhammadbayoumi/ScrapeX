@@ -291,3 +291,26 @@ test("the Sheets host is declared in the manifest", async () => {
     "sheets.googleapis.com is not in host_permissions, so every call in " +
     "sheets.js fails before it leaves the panel");
 });
+
+
+test("a tab is named for its source, not shared with every other one", async () => {
+  // gdrive.py put everything in one workbook and one tab per source; the tab
+  // NAME is what keeps an export of MADAR from overwriting ELSEWEDY's rows.
+  // writeTab clears before it writes, so a shared name would not merge the two
+  // — it would replace one with the other and report success.
+  const written = [];
+  const fetchImpl = scripted([
+    [(url) => url.includes("fields=sheets"),
+      () => reply(200, {body: {sheets: [{properties: {title: "MADAR"}},
+                                        {properties: {title: "ELSEWEDY"}}]}})],
+    [(url) => url.endsWith(":clear"), (url) => { written.push(`clear:${url}`); return reply(200, {body: {}}); }],
+    [(_url, init) => init.method === "PUT", (url) => { written.push(`put:${url}`); return reply(200, {body: {}}); }],
+  ]);
+
+  await writeTab("tok", "sheet-1", {tab: "MADAR", header: ["a"], rows: [["1"]], fetchImpl});
+  await writeTab("tok", "sheet-1", {tab: "ELSEWEDY", header: ["a"], rows: [["2"]], fetchImpl});
+
+  const named = written.map((entry) => decodeURIComponent(entry));
+  assert.ok(named.some((entry) => entry.includes("'MADAR'")), named.join("\n"));
+  assert.ok(named.some((entry) => entry.includes("'ELSEWEDY'")), named.join("\n"));
+});

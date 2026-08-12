@@ -12,6 +12,7 @@ backup folder.
 """
 from __future__ import annotations
 
+import inspect
 import io
 import json
 import zipfile
@@ -238,3 +239,69 @@ def test_the_pack_route_cannot_be_pointed_anywhere_either(client):
         assert got.status_code == 200
         assert got.headers["content-disposition"].endswith('.jsonl.gz"'), (
             f"the query string {attempt} changed which file was served")
+
+
+# ---- the rows the panel writes into a spreadsheet ---------------------------
+
+def test_the_export_route_hands_over_the_same_table_the_xlsx_carries(client):
+    """ONE EXPRESSION OF WHAT AN EXPORT IS, not a third.
+
+    `export_source_table` already feeds the .xlsx download and the Apps Script
+    funnel. A separate query for the panel would drift from those two, which is
+    the drift `fields.column_order` exists to prevent — and the drift would show
+    as two spreadsheets of the same source with different columns.
+    """
+    from scrapex.reports import EXPORT_HEADER
+
+    connected, _ = client
+    # An empty warehouse still has to answer with the right SHAPE: the panel
+    # decides whether to write a tab from `rows`, and a 500 here would read to
+    # the owner as "Google refused" when Google was never asked.
+    known = connected.get("/api/sources").json()["sources"]
+    if not known:
+        pytest.skip("no sources in the fixture warehouse")
+    key = known[0]["source_key"]
+
+    table = connected.get(f"/api/export/{key}").json()
+
+    assert table["header"] == EXPORT_HEADER
+    assert table["source_key"] == key
+    assert isinstance(table["rows"], list)
+    assert table["truncated"] is False
+
+
+def test_a_source_that_does_not_exist_is_named_rather_than_empty(client):
+    """An unknown key answering with zero rows would have the panel write an
+    empty tab over a real one and report success."""
+    connected, _ = client
+
+    refused = connected.get("/api/export/NO_SUCH_SOURCE")
+
+    assert refused.status_code == 404
+    assert "NO_SUCH_SOURCE" in refused.json()["detail"]
+
+
+def test_the_row_ceiling_is_the_same_number_in_all_three_places():
+    """The engine's route, the function it calls, and the panel that writes the
+    result each carry this limit. Two of them agreeing is not enough: the panel
+    refuses at its own number BEFORE calling Google, so a lower ceiling there
+    would reject rows the engine was willing to send, and a higher one would
+    hand Google more than the engine ever produces.
+    """
+    import re
+
+    from scrapex.reports import export_source_table
+    from scrapex.webui import app as webui
+
+    engine_default = inspect.signature(export_source_table).parameters["limit"].default
+    route_limit = re.search(r"EXPORT_ROW_LIMIT = ([\d_]+)",
+                            Path(webui.__file__).read_text(encoding="utf-8"))
+    panel_limit = re.search(
+        r"MAX_EXPORT_ROWS = ([\d_]+)",
+        (Path(__file__).resolve().parent.parent / "extension" / "sheets.js")
+        .read_text(encoding="utf-8"))
+
+    assert route_limit, "EXPORT_ROW_LIMIT is gone from the web layer"
+    assert panel_limit, "MAX_EXPORT_ROWS is gone from extension/sheets.js"
+    assert int(route_limit.group(1).replace("_", "")) == engine_default
+    assert int(panel_limit.group(1).replace("_", "")) == engine_default
