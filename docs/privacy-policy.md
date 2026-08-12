@@ -29,9 +29,18 @@ your email address. The extension contains no telemetry of any kind.
 | Your settings and preferences | The same database | You |
 | Backups you ask for | **Your** Google Drive, in a folder ScrapeX creates | You |
 | Your Google sign-in token | Held by **Chrome**, not by ScrapeX | Chrome, and Google |
+| The accounts you have signed in with — name, address, picture | Chrome's own storage on **this computer**, so the Profile list survives closing the panel | You |
+| Your appearance choice — light or dark, and which palette | This computer, in the browser's own storage | You |
+| The time zone dates are shown in | The same | You |
+| The address of your local engine — `127.0.0.1:8000` unless you change it | The same | You |
 
 Nothing in that table leaves your computer unless you press a button that says
 it will.
+
+**The accounts list is a list, not a keyring.** It holds no password and no
+sign-in token: those are Chrome's, and a token is obtained fresh each time one
+is needed. Removing an account from the Profile page erases its row here
+immediately.
 
 ---
 
@@ -50,7 +59,7 @@ revokes it immediately.
 
 | Permission | Why |
 |---|---|
-| `userinfo.email`, `userinfo.profile` | To show which account is signed in — your name, address and picture, on the panel's own Profile page. Nothing is stored and nothing is sent anywhere. |
+| `userinfo.email`, `userinfo.profile` | To show which account is signed in — your name, address and picture, on the panel's own Profile page. Nothing is sent anywhere. Since the Profile page can list more than one account, these details are kept on **this computer** so the list survives closing the panel; see the table above. |
 | `drive.file` | To create and update **only the files ScrapeX itself creates**. Google enforces this per file: ScrapeX is structurally unable to read the rest of your Drive, whether or not it wanted to. It is also what a future export to Google Sheets will use — a sheet ScrapeX creates, or one you hand it yourself. |
 
 ScrapeX never asks for full Drive access, never reads your mail, and never

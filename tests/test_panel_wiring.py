@@ -369,3 +369,43 @@ def test_the_offline_reader_is_reachable_from_the_data_page():
         "the Drive fallback is not offered where the engine request fails, so "
         "a machine with no engine still reaches a dead end — which is the whole "
         "case the bundle format exists for")
+
+
+def test_no_two_inlined_modules_declare_the_same_top_level_name():
+    """The DOM harness concatenates the panel's modules into ONE classic script,
+    and two modules declaring the same `const` is a SyntaxError that kills the
+    whole page.
+
+    FOUND ON 2026-08-12 the expensive way. drive.js and sheets.js both declared
+    `FILES`, `FOLDER_MIME` and `headers`. The harness produced a page that threw
+    before anything ran, four account tests timed out after thirty seconds each
+    waiting for an element that could never appear, and not one of the messages
+    said "SyntaxError" — Playwright reports what it was waiting for, not why the
+    page is dead.
+
+    `headers` is the worse half of the pair. Function declarations may be
+    redeclared, so it would NOT have thrown: sheets.js's version would silently
+    replace drive.js's, and the harness would test error messages that the real
+    panel never produces.
+
+    Checked here rather than left to the harness because the failure this
+    produces is unreadable at the point it happens, and one name is enough.
+    """
+    modules = ["startup.js", "transport.js", "version.js", "releases.js",
+               "identity.js", "accounts.js", "drive.js", "sheets.js",
+               "bundleview.js", "engine.js"]
+    seen: dict[str, str] = {}
+    clashes: list[str] = []
+    for name in modules:
+        body = (EXT / name).read_text(encoding="utf-8")
+        body = re.sub(r"^import[\s\S]*?;\s*$", "", body, flags=re.M)
+        body = re.sub(r"\bexport\s+", "", body)
+        for declared in re.findall(
+                r"^(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)", body, re.M):
+            if declared in seen and seen[declared] != name:
+                clashes.append(f"{declared} in both {seen[declared]} and {name}")
+            seen.setdefault(declared, name)
+
+    assert not clashes, (
+        "two panel modules declare the same top-level name, and the DOM harness "
+        "flattens them into one script: " + "; ".join(clashes))

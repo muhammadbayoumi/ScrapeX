@@ -476,19 +476,28 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # inlined symbols fixes them the same way the markup was fixed.
     app_js = app_js.replace('const ICON_SPRITE = "icons/material-icons.svg";',
                             'const ICON_SPRITE = "";')
-    engine_js = re.sub(r"^import .*?;$", "", engine_js, flags=re.M)
-    transport_js = re.sub(r"^import .*?;$", "", transport_js, flags=re.M)
-    version_js = re.sub(r"^import .*?;$", "", version_js, flags=re.M)
-    releases_js = re.sub(r"^import .*?;$", "", releases_js, flags=re.M)
-    identity_js = re.sub(r"^import .*?;$", "", identity_js, flags=re.M)
-    accounts_js = re.sub(r"^import .*?;$", "", accounts_js, flags=re.M)
-    accounts_js = re.sub(r"\bexport\s+", "", accounts_js)
-    startup_js = re.sub(r"\bexport\s+", "", startup_js)
-    engine_js = re.sub(r"\bexport\s+", "", engine_js)
-    transport_js = re.sub(r"\bexport\s+", "", transport_js)
-    version_js = re.sub(r"\bexport\s+", "", version_js)
-    releases_js = re.sub(r"\bexport\s+", "", releases_js)
-    identity_js = re.sub(r"\bexport\s+", "", identity_js)
+    # ONE FLATTENING RULE, APPLIED TO EVERY MODULE, rather than three lines per
+    # module repeated down the file. The comment above says this list is
+    # hand-maintained; it still is, but adding a module is now one name instead
+    # of three near-identical substitutions to copy correctly.
+    #
+    # drive.js, bundleview.js and sheets.js arrived on 2026-08-12 when the Drive
+    # work landed on main, and the test below caught their absence during the
+    # rebase — which is what it was written for.
+    def flatten(source: str) -> str:
+        source = re.sub(r"^import[\s\S]*?;\s*$", "", source, flags=re.M)
+        return re.sub(r"\bexport\s+", "", source)
+
+    startup_js = flatten(startup_js)
+    engine_js = flatten(engine_js)
+    transport_js = flatten(transport_js)
+    version_js = flatten(version_js)
+    releases_js = flatten(releases_js)
+    identity_js = flatten(identity_js)
+    accounts_js = flatten(accounts_js)
+    drive_js = flatten((EXT / "drive.js").read_text(encoding="utf-8"))
+    sheets_js = flatten((EXT / "sheets.js").read_text(encoding="utf-8"))
+    bundleview_js = flatten((EXT / "bundleview.js").read_text(encoding="utf-8"))
 
     tmp.mkdir(parents=True, exist_ok=True)
     page = tmp / name
@@ -526,6 +535,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # would run init() twice and double-bind every listener — a click would
         # then toggle twice and appear to do nothing at all.
         f"<script>{startup_js}\n{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
-        f"{accounts_js}\n{engine_js}\n{app_js}</script></body></html>",
+        f"{accounts_js}\n{drive_js}\n{sheets_js}\n{bundleview_js}\n"
+        f"{engine_js}\n{app_js}</script></body></html>",
         encoding="utf-8")
     return page
