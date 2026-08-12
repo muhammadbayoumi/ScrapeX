@@ -160,17 +160,62 @@ class Engine:
             encoding="utf-8", errors="replace", timeout=300)
         assert made.returncode == 0, f"init-db failed:\n{made.stdout}\n{made.stderr}"
 
-    def start(self) -> None:
+    def start(self, *, swept: bool = False) -> None:
+        """Start the engine. `swept` also waits for the orphan sweep to finish.
+
+        OP-19, AND THE REASON THIS ARGUMENT EXISTS. Waiting for /api/health
+        proves the HTTP thread is up and nothing else. The sweep that settles
+        jobs left by a dead runtime happens on the WORKER thread, after it
+        connects — so a test that read crawl_job.status straight after health
+        was racing two threads and calling the result a verdict.
+
+        Measured before the fix: three failures in four runs on a loaded Windows
+        machine, and green every time on the Linux runner. That combination is
+        the worst one available, because it reads as "works in CI, broken
+        locally" and sends the reader looking at their own machine.
+
+        NOT A SLEEP. The engine records when the sweep completed
+        (jobs.RECLAIM_KEY); this waits for a marker written after the work,
+        which cannot pass early on a fast machine or fail late on a slow one.
+        """
+        started = _reclaim_marker(self._db)
         self.process = subprocess.Popen(
             self._args, cwd=str(ROOT), env=self._env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         _wait_for(lambda: _get(f"{self.url}/api/health"), 90, "the engine to answer")
+        if swept:
+            _wait_for(lambda: _reclaim_marker(self._db) not in (None, started),
+                      60, "the orphan sweep to finish")
 
     def kill(self) -> None:
         """No handler, no finally, no flush — TerminateProcess / SIGKILL."""
         if self.process and self.process.poll() is None:
             self.process.kill()
             self.process.wait(timeout=30)
+
+
+def _reclaim_marker(db: Path) -> str | None:
+    """When this database last had its orphaned jobs swept, or None.
+
+    Read straight from the database rather than through a new route: the engine
+    already writes it, the test already opens the file read-only, and an HTTP
+    endpoint would be a second thing to keep true.
+    """
+    if not Path(db).exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT value FROM scrapex_meta WHERE key = 'orphans_reclaimed_at'"
+        ).fetchone()
+        return row[0] if row else None
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
 
 
 def _job_status(db: Path, job_ref: str) -> str:
@@ -213,7 +258,9 @@ def test_a_killed_engine_does_not_leave_a_job_claiming_to_run(tmp_path, manifest
 
     # And now the part that matters: start again over the same database.
     survivor = Engine(manifest, db, _free_port())
-    survivor.start()
+    # The sweep is the thing under test here, so wait for IT rather than for
+    # the port. See Engine.start's docstring (OP-19).
+    survivor.start(swept=True)
     try:
         status = _job_status(db, job_ref)
         assert status not in IN_FLIGHT, (

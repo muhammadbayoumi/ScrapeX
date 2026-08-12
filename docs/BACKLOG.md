@@ -653,7 +653,7 @@ for three different readers, and compression hides it. If space ever becomes a
 problem, the 90 MB of `.jsonl`/`.csv` is the part regenerable from the `.db`;
 the zip is not the thing to reconsider.
 
-### OP-19 · The chaos test races the startup sweep it is checking
+### OP-19 · The chaos test races the startup sweep it is checking — FIXED 2026-08-12
 
 Found 2026-08-11 while removing the engine's Google surface. The suite went red
 on `test_a_killed_engine_does_not_leave_a_job_claiming_to_run`, and the first
@@ -671,10 +671,21 @@ runner and reliably loses on a loaded Windows machine — the worst arrangement,
 because it makes the flake look like "works in CI, broken locally" and invites
 exactly the wrong diagnosis.
 
-**The fix is not to add a sleep.** `start()` should wait for a signal the sweep
-has run — the engine already knows when it has finished; the test does not ask.
-Not fixed here: it is a real defect in a test that guards a real property, and it
-deserves its own change rather than a line in a removal.
+**The fix was not a sleep.** `reclaim_orphaned_jobs` now records when it
+finished, in `scrapex_meta` beside the heartbeat that was already there, and
+`Engine.start(swept=True)` waits for that value to change. The marker is written
+UNCONDITIONALLY — a marker that appears only when there were orphans would be
+absent on every healthy start, and anyone waiting for it would wait for ever on
+exactly the machines where nothing had gone wrong.
+
+**Four runs in four, green.** And an honest note on the check: removing the wait
+again passed three runs in three that afternoon, having failed three in four
+that morning. A race that depends on machine load cannot be reproduced on
+demand, so the mutation check proved nothing — which is precisely why "it passes
+now" was never evidence in the first place. The proof is structural and readable
+in the code: health is answered by the HTTP thread the moment the port binds,
+and the sweep runs on the worker thread after it connects. Two tests in
+`test_jobs.py` hold the marker's two properties deterministically.
 
 ## 6c. The extension/engine separation, audited — 2026-08-11
 
