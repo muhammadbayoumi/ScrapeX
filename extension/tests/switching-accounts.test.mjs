@@ -9,7 +9,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  SCOPES, accountFor, authUrl, authorize, readRedirect, WEB_CLIENT_ID,
+  SCOPES, accountFor, authUrl, authorize, readRedirect, registeredRedirect,
+  WEB_CLIENT_ID,
 } from "../identity.js";
 
 const DRIVE = "https://www.googleapis.com/auth/drive.file";
@@ -157,10 +158,17 @@ test("a build with no Web OAuth client refuses by name, before opening anything"
     "Chrome was asked to open a flow that could not possibly succeed");
 });
 
-test("this build has no Web OAuth client yet, and says so rather than guessing", () => {
-  // A placeholder id would fail against Google with a message about the client
-  // rather than about the thing that is actually missing.
-  assert.equal(WEB_CLIENT_ID, "");
+test("a build with no Web OAuth client refuses instead of guessing", () => {
+  // This asserted `WEB_CLIENT_ID === ""` until 2026-08-12, when the owner
+  // created the client. It was a sentinel, and it fell the moment it was
+  // satisfied — which is what a sentinel is for.
+  //
+  // What is worth guarding now is the BEHAVIOUR it was protecting: an absent
+  // client must still refuse by name rather than fail against Google with a
+  // message about the client id. The constant is no longer empty, so the
+  // refusal is exercised by passing an empty one in.
+  assert.equal(typeof WEB_CLIENT_ID, "string");
+  assert.notEqual(WEB_CLIENT_ID, "", "the client id is gone again");
 });
 
 test("the silent path passes its silence all the way to Chrome", async () => {
@@ -212,4 +220,47 @@ test("an account response without an id is still an account, with an empty one",
   const result = await accountFor("ya29.TOKEN", fetchImpl);
   assert.equal(result.state, "ok");
   assert.equal(result.account.id, "");
+});
+
+
+test("the redirect sent to Google matches what Google stored, slash and all", async () => {
+  // THE ONE-CHARACTER FAILURE. Chrome's getRedirectURL() ends in "/"; the
+  // Console strips it when the path is empty, so the client the owner created
+  // on 2026-08-12 records the bare host. Google compares the two literally and
+  // answers redirect_uri_mismatch — an error that names the redirect and not
+  // the slash, which is the whole reason this is asserted rather than trusted.
+  const chromeGives = "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org/";
+  const googleStores = "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org";
+
+  assert.equal(registeredRedirect(chromeGives), googleStores);
+  assert.equal(registeredRedirect(googleStores), googleStores,
+               "normalising an already-normal value must not change it");
+  assert.equal(registeredRedirect(`${googleStores}//`), googleStores);
+  assert.equal(registeredRedirect(""), "");
+});
+
+
+test("the auth URL carries the normalised redirect, not the raw one", async () => {
+  const url = new URL(authUrl({
+    clientId: "x.apps.googleusercontent.com",
+    redirectUri: registeredRedirect(
+      "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org/"),
+  }));
+
+  assert.equal(url.searchParams.get("redirect_uri"),
+               "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org",
+               "a trailing slash here is the mismatch Google refuses");
+});
+
+
+test("the web client is set, and it is a client id rather than a secret", async () => {
+  // A client id is public — the manifest already carries one. A client SECRET
+  // is not, and the JSON Google hands over contains both side by side, which is
+  // exactly how one ends up pasted into the wrong constant. The implicit flow
+  // uses no secret at all; anything shaped like one here is a mistake.
+  assert.match(WEB_CLIENT_ID, /\.apps\.googleusercontent\.com$/,
+               "WEB_CLIENT_ID is not a Google client id");
+  assert.equal(WEB_CLIENT_ID.startsWith("GOCSPX-"), false,
+               "that is a client SECRET, not a client id — it must never be in "
+               + "the extension, and the flow this file uses needs none");
 });

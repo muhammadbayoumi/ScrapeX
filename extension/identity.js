@@ -361,7 +361,31 @@ const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
  * rather than about the thing that is actually missing, and the one failure the
  * owner cannot fix by trying again must not look like the ones he can.
  */
-export const WEB_CLIENT_ID = "";
+export const WEB_CLIENT_ID =
+  "668111083414-p3485p5vjuc6uibagvhnoliapj61q1t5.apps.googleusercontent.com";
+
+/**
+ * Google stores the redirect URI WITHOUT a trailing slash; Chrome hands it over
+ * WITH one. That one character is a `redirect_uri_mismatch`.
+ *
+ * MEASURED, not guessed. The owner created the client on 2026-08-12 and the JSON
+ * Google produced records exactly:
+ *
+ *     "redirect_uris": ["https://<id>.chromiumapp.org"]
+ *
+ * while `chrome.identity.getRedirectURL()` with no path returns
+ * `https://<id>.chromiumapp.org/`. Google matches this value literally and
+ * refuses the pair, with an error naming the redirect rather than the slash —
+ * so the one-character cause is invisible in the one message that mentions it.
+ *
+ * Normalised HERE rather than by asking the owner to re-add the URI with a
+ * slash: the Console strips it when the path is empty, so that request would
+ * have been impossible to satisfy. Chrome still catches the redirect, because it
+ * intercepts anything under the extension's chromiumapp.org host.
+ */
+export function registeredRedirect(url) {
+  return String(url || "").replace(/\/+$/, "");
+}
 
 /** Build the URL Google's screen is opened at.
  *
@@ -493,7 +517,7 @@ export async function authorize({ email = "", interactive = false,
   }
 
   let redirectUri;
-  try { redirectUri = identity.getRedirectURL(); }
+  try { redirectUri = registeredRedirect(identity.getRedirectURL()); }
   catch (error) {
     return { state: "failed",
              detail: (error && error.message) || "Chrome would not name a redirect URL." };
