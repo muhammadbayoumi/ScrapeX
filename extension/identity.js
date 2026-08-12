@@ -361,7 +361,34 @@ const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
  * rather than about the thing that is actually missing, and the one failure the
  * owner cannot fix by trying again must not look like the ones he can.
  */
-export const WEB_CLIENT_ID = "";
+export const WEB_CLIENT_ID =
+  "668111083414-p3485p5vjuc6uibagvhnoliapj61q1t5.apps.googleusercontent.com";
+
+/**
+ * The redirect URL is sent EXACTLY as Chrome produces it, and this comment is
+ * here because the first attempt did something cleverer and was wrong.
+ *
+ * WHAT HAPPENED, 2026-08-12. The client the owner created recorded
+ * `https://<id>.chromiumapp.org` with NO trailing slash — the Console strips
+ * one when the path is empty — while `chrome.identity.getRedirectURL()` returns
+ * it WITH a slash. Google compares the two literally, so the pair would have
+ * been refused with `redirect_uri_mismatch`: an error naming the redirect and
+ * never the slash.
+ *
+ * The fix written first stripped the slash to match what the Console had
+ * stored. Then the owner added the slashed form to the client, which makes
+ * stripping the thing that breaks it. Two normalisations chasing each other is
+ * how a value ends up canonical nowhere.
+ *
+ * So: NOTHING is normalised here. Chrome's value is the canonical one, it is
+ * what the client now lists, and the test beside this asserts it goes out
+ * untouched — the guard is against a future well-meant "tidy up" of exactly the
+ * kind this paragraph records.
+ *
+ * IF THIS EVER FAILS with redirect_uri_mismatch, the fix is in the Google Cloud
+ * Console, not here: the Authorised redirect URI must read
+ * `https://<extension-id>.chromiumapp.org/`, slash included.
+ */
 
 /** Build the URL Google's screen is opened at.
  *

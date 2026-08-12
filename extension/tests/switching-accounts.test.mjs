@@ -157,10 +157,17 @@ test("a build with no Web OAuth client refuses by name, before opening anything"
     "Chrome was asked to open a flow that could not possibly succeed");
 });
 
-test("this build has no Web OAuth client yet, and says so rather than guessing", () => {
-  // A placeholder id would fail against Google with a message about the client
-  // rather than about the thing that is actually missing.
-  assert.equal(WEB_CLIENT_ID, "");
+test("a build with no Web OAuth client refuses instead of guessing", () => {
+  // This asserted `WEB_CLIENT_ID === ""` until 2026-08-12, when the owner
+  // created the client. It was a sentinel, and it fell the moment it was
+  // satisfied — which is what a sentinel is for.
+  //
+  // What is worth guarding now is the BEHAVIOUR it was protecting: an absent
+  // client must still refuse by name rather than fail against Google with a
+  // message about the client id. The constant is no longer empty, so the
+  // refusal is exercised by passing an empty one in.
+  assert.equal(typeof WEB_CLIENT_ID, "string");
+  assert.notEqual(WEB_CLIENT_ID, "", "the client id is gone again");
 });
 
 test("the silent path passes its silence all the way to Chrome", async () => {
@@ -212,4 +219,42 @@ test("an account response without an id is still an account, with an empty one",
   const result = await accountFor("ya29.TOKEN", fetchImpl);
   assert.equal(result.state, "ok");
   assert.equal(result.account.id, "");
+});
+
+
+test("the redirect goes to Google exactly as Chrome produced it", async () => {
+  // THE FIX THAT WAS WRONG, kept as a test so it is not re-attempted.
+  //
+  // The client Google created on 2026-08-12 recorded the bare host with no
+  // trailing slash, because the Console strips one when the path is empty. The
+  // first fix stripped the slash in code to match. Then the owner added the
+  // slashed form to the client — at which point stripping is the thing that
+  // breaks it.
+  //
+  // Chrome's value is canonical. Nothing normalises it, and a future tidy-up
+  // that "helpfully" trims it fails here.
+  const fromChrome = "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org/";
+  const identity = fakeIdentity(`${fromChrome}#access_token=ya29.T`
+    + `&scope=${encodeURIComponent(SCOPES.join(" "))}`);
+  identity.getRedirectURL = () => fromChrome;
+
+  await authorize({ identity, runtime: RUNTIME, clientId: CLIENT, interactive: true });
+
+  const asked = new URL(identity.calls[0].url);
+  assert.equal(asked.searchParams.get("redirect_uri"), fromChrome,
+    "the redirect was altered on the way to Google; it must be sent verbatim, "
+    + "and a mismatch is fixed in the Cloud Console rather than here");
+});
+
+
+test("the web client is set, and it is a client id rather than a secret", async () => {
+  // A client id is public — the manifest already carries one. A client SECRET
+  // is not, and the JSON Google hands over contains both side by side, which is
+  // exactly how one ends up pasted into the wrong constant. The implicit flow
+  // uses no secret at all; anything shaped like one here is a mistake.
+  assert.match(WEB_CLIENT_ID, /\.apps\.googleusercontent\.com$/,
+               "WEB_CLIENT_ID is not a Google client id");
+  assert.equal(WEB_CLIENT_ID.startsWith("GOCSPX-"), false,
+               "that is a client SECRET, not a client id — it must never be in "
+               + "the extension, and the flow this file uses needs none");
 });
