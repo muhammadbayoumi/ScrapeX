@@ -1472,6 +1472,98 @@ code {
   font-size: var(--fs-2xs);
 }
 
+/* The destructive split button.
+ *
+ * Added 2026-08-12 for Profile › Manage account, where the primary action
+ * revokes a Google grant. The neutral primitive above reads as an ordinary tool;
+ * an action that cannot be undone should not.
+ *
+ * WHY LIGHT AND DARK DIFFER. Light fills the primary — a red block is the
+ * strongest thing on a white page and that is the point. Dark outlines it
+ * instead: a filled light-red button on a dark surface reads as an alert banner
+ * announcing a problem, not as a control waiting to be pressed.
+ *
+ * NOT COMPOSED WITH `button.danger`. That rule is (0,1,1) and would win some
+ * properties from `.split-button.danger .split-button-primary` (0,2,0) and lose
+ * others, giving a control that is half one variant and half the other. Every
+ * declaration this variant needs is written here.
+ */
+.split-button.danger {
+  border-color: var(--red);
+}
+.split-button.danger .split-button-primary {
+  background: var(--red);
+  color: var(--danger-contrast);
+}
+.split-button.danger .split-button-primary .sx-icon {
+  color: var(--danger-contrast);
+}
+.split-button.danger .split-button-primary:hover:not(:disabled) {
+  background: var(--red-hover);
+  color: var(--danger-contrast);
+}
+.split-button.danger .split-button-primary:active:not(:disabled) {
+  background: var(--red-hover);
+  color: var(--danger-contrast);
+}
+.split-button.danger .split-button-trigger {
+  border-inline-start-color: var(--danger-contrast);
+  color: var(--red);
+}
+.split-button.danger .split-button-trigger:hover,
+.split-button.danger .split-button-menu[open] .split-button-trigger {
+  background: var(--red-weak);
+  color: var(--red);
+}
+.split-button.danger .split-button-options {
+  border-color: var(--red);
+}
+.split-button.danger .split-button-option {
+  color: var(--red);
+}
+.split-button.danger .split-button-option:hover:not(:disabled) {
+  background: var(--red-weak);
+  border-color: var(--red);
+  color: var(--red);
+}
+.split-button.danger .split-button-option:active:not(:disabled) {
+  background: var(--red-weak);
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* Dark outlines rather than fills — see the note above. */
+:root[data-theme="dark"] .split-button.danger .split-button-primary,
+:root[data-theme="dark"] .split-button.danger .split-button-primary .sx-icon {
+  background: transparent;
+  color: var(--red);
+}
+:root[data-theme="dark"] .split-button.danger .split-button-primary:hover:not(:disabled),
+:root[data-theme="dark"] .split-button.danger .split-button-primary:active:not(:disabled) {
+  background: var(--red-weak);
+  color: var(--red-hover);
+}
+:root[data-theme="dark"] .split-button.danger .split-button-trigger {
+  border-inline-start-color: var(--red);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .split-button.danger .split-button-primary,
+  :root:not([data-theme="light"]) .split-button.danger .split-button-primary .sx-icon {
+    background: transparent;
+    color: var(--red);
+  }
+  :root:not([data-theme="light"]) .split-button.danger
+    .split-button-primary:hover:not(:disabled),
+  :root:not([data-theme="light"]) .split-button.danger
+    .split-button-primary:active:not(:disabled) {
+    background: var(--red-weak);
+    color: var(--red-hover);
+  }
+  :root:not([data-theme="light"]) .split-button.danger .split-button-trigger {
+    border-inline-start-color: var(--red);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .split-button-options { animation: none; }
 }

@@ -16,7 +16,10 @@ import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./ide
 import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
 } from "./accounts.js";
-import { backUp, fetchLatest, fetchPanelPack } from "./drive.js";
+import {
+  backUp, fetchLatest, fetchPanelPack,
+  FOLDER_NAME, KEEP, folderId, listing, readLatest,
+} from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
 import { ensureFolder, ensureSpreadsheet, DEFAULT_WORKBOOK, SHEET_FOLDER } from "./sheets.js";
 import {
@@ -169,6 +172,11 @@ const VIEWS = [
   "profile", "engines",
   "source", "run", "data", "sources", "source-edit", "appearance", "finance",
   "console", "settings",
+  // A sub-view of Profile, like source-edit is of Sources: no rail button, and
+  // showView maps it back to the Profile rail entry below. A name here with no
+  // matching #view-<name> section takes down every navigation, so the two move
+  // together.
+  "manage-account",
 ];
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
@@ -309,9 +317,21 @@ function setProfileAvatar(url) {
 
 function showView(name, animate = true) {
   const current = VIEWS.find((view) => !$(`view-${view}`).classList.contains("hidden"));
-  const navigationName = name === "source-edit" ? "sources" : name;
+  // Which RAIL entry stays lit. A sub-view has no button of its own, and
+  // without an entry here every rail button loses aria-current and tabIndex,
+  // leaving the rail with no keyboard entry point at all.
+  const SUB_VIEW_RAIL = {"source-edit": "sources", "manage-account": "profile"};
+  const navigationName = SUB_VIEW_RAIL[name] || name;
   runModeSelectUi?.close();
   closeWorkspaceMenu();
+  // BUG FIXED HERE, introduced with the accounts card and merged in PR 168.
+  // (Written without the number sign: the colour-literal guard reads a hash
+  // followed by three hex digits as a colour, and 168 qualifies.)
+  // state.openAccountMenu survived navigation, and while it was set the
+  // capture-phase Escape handler swallowed Escape on EVERY other view. Nothing
+  // was visibly open, so the only symptom was Escape quietly doing nothing
+  // somewhere else entirely.
+  closeAccountMenu();
   for (const v of VIEWS) $(`view-${v}`).classList.toggle("hidden", v !== name);
   const activeButton = document.querySelector(
     `nav.side-rail button[data-view="${navigationName}"]`);
@@ -358,6 +378,7 @@ function showView(name, animate = true) {
   }
   if (name === "source") loadCurrentPage();
   if (name === "engines") renderEngines();
+  if (name === "manage-account") loadManageAccount();
 }
 
 function currentViewName() {
@@ -2962,6 +2983,270 @@ async function signOutOfAllAccounts() {
   if (button) button.click();
 }
 
+// ---- Profile › Manage account ----------------------------------------------
+//
+// Everything on this screen is about the Drive side of the signed-in account.
+// Every number is READ LIVE — the folder id, the listing and the pointer — and
+// nothing is cached between visits: a count that is stale is a count that lies,
+// and this screen exists to be believed.
+//
+// It is a sibling section of #view-profile rather than a child, because its
+// confirmation is a real modal and tests/test_panel_dom.py forbids
+// [role="dialog"] anywhere inside #view-profile.
+
+const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
+let manageAccountGeneration = 0;
+
+function driveFolderUrl(id) {
+  return `https://drive.google.com/drive/folders/${encodeURIComponent(id)}`;
+}
+
+/** One row of a Manage-account card. `onClick` makes it a button instead. */
+function manageRow(title, {
+  sub = "", figure = "", lead = "", symbol = "", onClick = null,
+} = {}) {
+  const row = el(onClick ? "button" : "div",
+                 "manage-account-row"
+                 + (onClick ? " manage-account-row-button" : "")
+                 + (lead ? " has-lead" : ""));
+  if (onClick) {
+    row.type = "button";
+    row.addEventListener("click", onClick);
+  }
+  // The leading icon is a column of its own. Appending it after the figure put
+  // a third child in a two-column grid, which wrapped it onto its own line.
+  if (lead) row.insertAdjacentHTML("beforeend", icon(lead, "lg manage-account-row-icon"));
+  const text = el("span", "manage-account-row-text");
+  text.append(el("span", "manage-account-row-title", title));
+  if (sub) text.append(el("span", "manage-account-row-sub", sub));
+  row.append(text);
+  if (figure) row.append(el("span", "manage-account-figure", figure));
+  if (symbol) row.insertAdjacentHTML("beforeend", icon(symbol, "lg manage-account-row-icon"));
+  return row;
+}
+
+// The one sentence that says what a backup contains. Sourced from
+// scrapex/bundle.py, not from the design draft, so a change to what is packed
+// has one place to be corrected.
+const BUNDLE_CONTENTS =
+  "The database, a plain export of every dataset (JSON Lines and CSV), and a "
+  + "manifest with row counts and checksums.";
+
+function renderDriveFacts(
+  { state: phase, pointer = null, count = 0, folder = "", detail = "" } = {}) {
+  const card = $("drive-backups");
+  if (!card) return;
+  card.textContent = "";
+
+  if (phase === "loading") {
+    card.append(manageRow("Reading your Drive…"));
+    return;
+  }
+  if (phase === "signed-out") {
+    card.append(manageRow("Sign in to see what is in your Drive"));
+    return;
+  }
+  if (phase === "error") {
+    card.append(manageRow("Could not read your Drive", { sub: detail }));
+    return;
+  }
+
+  if (pointer) {
+    // financeDateTime despite the name: it is the panel's ONE instant formatter
+    // and routes through ScrapeXTime, so this screen cannot invent a second date
+    // format. fmtMegabytes is the same argument for sizes.
+    card.append(manageRow("Latest backup", {
+      sub: financeDateTime(pointer.created_at, "Time not recorded"),
+      figure: fmtMegabytes(pointer.bytes),
+      lead: "history",
+    }));
+    // The REAL count, not the policy. Pruning happens on the next backup, so a
+    // folder can briefly hold more than KEEP; `Math.min(count, KEEP)` was tried
+    // and it silently reported 3 while 4 were sitting there. The policy belongs
+    // in the sentence beside it, where it is a promise rather than a miscount.
+    card.append(manageRow("Backups kept", {
+      sub: `In the folder ScrapeX created, ${FOLDER_NAME}. The newest ${KEEP} are kept.`,
+      figure: String(count),
+      lead: "storage",
+    }));
+  } else {
+    // The card STAYS. Hiding it would leave the person with no way to learn
+    // what a backup will contain before making one.
+    card.append(manageRow("No backups in your Drive yet."));
+  }
+
+  card.append(manageRow("Each backup holds", { sub: BUNDLE_CONTENTS }));
+
+  if (folder) {
+    card.append(manageRow("Open the folder in Drive", {
+      symbol: "open-in-new",
+      onClick: () => window.open(driveFolderUrl(folder), "_blank", "noopener,noreferrer"),
+    }));
+  }
+}
+
+/** Say what went wrong in the words the person's next step depends on. */
+function driveFailureDetail(error) {
+  if (!error) return "Google did not say why.";
+  if (error.kind === "unauthorized") {
+    return "Google refused the token. Sign in again from the Profile page.";
+  }
+  if (error.kind === "forbidden") {
+    return "Google refused the request — usually a full Drive or a rate limit.";
+  }
+  if (error.kind === "network") return "Could not reach Google.";
+  if (error.kind === "malformed-pointer") {
+    return "The backup pointer in your Drive could not be read.";
+  }
+  return error.message || "Google did not say why.";
+}
+
+function renderManageAccountIdentity() {
+  const account = state.account;
+  $("manage-account-name").textContent = (account && account.name) || "Signed in";
+  const email = (account && account.email) || "";
+  $("manage-account-email").textContent = email;
+  $("manage-account-email").classList.toggle("hidden", !email);
+
+  const photo = $("manage-account-photo");
+  if (account && account.picture) {
+    photo.onerror = () => photo.classList.add("hidden");
+    photo.onload = () => photo.classList.remove("hidden");
+    photo.src = account.picture;
+  } else {
+    photo.removeAttribute("src");
+    photo.classList.add("hidden");
+  }
+}
+
+async function loadManageAccount() {
+  renderManageAccountIdentity();
+  setDisconnectStatus("");
+  if (!state.token) {
+    renderDriveFacts({ state: "signed-out" });
+    return;
+  }
+
+  // Generation guard, the same one loadAccount uses: leaving and returning
+  // starts a second read, and the slower answer must not paint over the newer.
+  const generation = ++manageAccountGeneration;
+  const current = () => generation === manageAccountGeneration
+    && !panelController.signal.aborted;
+  renderDriveFacts({ state: "loading" });
+  try {
+    const folder = await folderId(state.token);
+    if (!current()) return;
+    const files = await listing(state.token, folder);
+    if (!current()) return;
+    const pointer = await readLatest(state.token, folder);
+    if (!current()) return;
+    // The pointer file is not a backup. Counting it would say 4 of 3.
+    const bundles = files.filter((file) => file.name && file.name.endsWith(".zip"));
+    renderDriveFacts({ state: "ok", pointer, count: bundles.length, folder });
+  } catch (error) {
+    if (!current()) return;
+    renderDriveFacts({ state: "error", detail: driveFailureDetail(error) });
+  }
+}
+
+function setDisconnectStatus(detail) {
+  const status = $("disconnect-status");
+  if (!status) return;
+  status.textContent = detail || "";
+  status.classList.toggle("hidden", !detail);
+}
+
+// ---- the confirmation ------------------------------------------------------
+// A plain element, not <dialog>: the document keydown handler in this file
+// calls preventDefault() on every Escape, which would stop the browser's own
+// close and leave a dialog that only the mouse can dismiss.
+
+let disconnectReturnFocus = null;
+
+function disconnectDialogCopy() {
+  const email = (state.account && state.account.email) || "your account";
+  const veil = document.createDocumentFragment();
+  const first = el("p", "", `Backups stop, and ScrapeX loses access to the folder it `
+    + `created for ${email}. The backups already in your Drive stay where they are.`);
+  const second = el("p", "");
+  second.append(el("strong", "", "Nothing is deleted."),
+                document.createTextNode(" Not in your Drive, not on this machine. "
+                  + "Because the same Google grant carries your name and address, "
+                  + "this also signs you out of ScrapeX."));
+  veil.append(first, second);
+  return veil;
+}
+
+function openDisconnectDialog() {
+  const veil = $("disconnect-veil");
+  if (!veil) return;
+  disconnectReturnFocus = document.activeElement;
+  const copy = $("disconnect-dialog-copy");
+  copy.textContent = "";
+  copy.append(disconnectDialogCopy());
+  veil.classList.remove("hidden");
+  $("disconnect-dialog").focus({ preventScroll: true });
+}
+
+function closeDisconnectDialog({ restoreFocus = true } = {}) {
+  const veil = $("disconnect-veil");
+  if (!veil || veil.classList.contains("hidden")) return;
+  veil.classList.add("hidden");
+  if (restoreFocus && disconnectReturnFocus && disconnectReturnFocus.isConnected) {
+    disconnectReturnFocus.focus({ preventScroll: true });
+  }
+  disconnectReturnFocus = null;
+}
+
+function disconnectDialogIsOpen() {
+  const veil = $("disconnect-veil");
+  return Boolean(veil) && !veil.classList.contains("hidden");
+}
+
+/** Keep Tab inside the dialog while it is open. */
+function trapDisconnectFocus(event) {
+  if (event.key !== "Tab" || !disconnectDialogIsOpen()) return;
+  const dialog = $("disconnect-dialog");
+  const focusable = dialog.querySelectorAll("button:not(:disabled)");
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === dialog)) {
+    event.preventDefault();
+    last.focus({ preventScroll: true });
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+  }
+}
+
+/** Disconnect Drive — which is the same act as signing out.
+ *
+ * `revokeToken` ends the WHOLE grant at Google, identity scopes included; there
+ * is no Drive-only revoke. The button says so, and this reuses the sign-out path
+ * rather than writing a second one: it is the tested one, and its ordering
+ * (revoke while the token is still valid, then drop Chrome's copy) is
+ * load-bearing.
+ */
+async function disconnectDrive() {
+  const primary = $("drive-disconnect").querySelector(".split-button-primary");
+  const confirm = $("disconnect-confirm");
+  primary.disabled = true;
+  confirm.disabled = true;
+  setDisconnectStatus("Ending the grant at Google…");
+  try {
+    const signout = $("signout");
+    if (signout) signout.click();
+    setDisconnectStatus("");
+    closeDisconnectDialog({ restoreFocus: false });
+    showView("profile");
+  } finally {
+    primary.disabled = false;
+    confirm.disabled = false;
+  }
+}
+
 // ---- what is installed, and what is available -----------------------------
 // The Engines page is the one page that has to work with NO ENGINE INSTALLED —
 // that is its whole purpose, and it is the state every machine is in for its
@@ -5034,7 +5319,14 @@ function wireStartupShell() {
   // something to the workspace menu and the rail, and the innermost open thing
   // is the one that should answer it.
   document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !state.openAccountMenu) return;
+    if (event.key !== "Escape") return;
+    // Innermost first. The dialog is modal, so nothing behind it may answer.
+    if (disconnectDialogIsOpen()) {
+      event.stopPropagation();
+      closeDisconnectDialog();
+      return;
+    }
+    if (!state.openAccountMenu) return;
     event.stopPropagation();
     closeAccountMenu({ restoreFocus: true });
   }, true);
@@ -5047,6 +5339,30 @@ function wireStartupShell() {
         && target.closest(".account-menu, .account-menu-button")) return;
     closeAccountMenu();
   });
+
+  // ---- Manage account -----------------------------------------------------
+  $("manage-account").addEventListener("click", () => showView("manage-account"));
+  $("manage-account-back").addEventListener("click", () => {
+    showView("profile");
+    focusAccountSummary();
+  });
+  $("drive-review-permissions").addEventListener("click", () => {
+    window.open(GOOGLE_PERMISSIONS_URL, "_blank", "noopener,noreferrer");
+  });
+  // The shared primitive owns open/close/aria/Escape/outside-click for the menu.
+  // Wired once, here, because wire() is once-per-node and a second call on a
+  // re-rendered node would leak a document listener.
+  window.ScrapeXSplitButton?.wire($("drive-disconnect"), (action) => {
+    if (action === "disconnect-drive") openDisconnectDialog();
+  });
+  $("disconnect-cancel").addEventListener("click", () => closeDisconnectDialog());
+  $("disconnect-confirm").addEventListener("click", () => { disconnectDrive(); });
+  // The veil itself, not the card: a click that lands on the card must not
+  // dismiss the question the card is asking.
+  $("disconnect-veil").addEventListener("click", (event) => {
+    if (event.target === $("disconnect-veil")) closeDisconnectDialog();
+  });
+  document.addEventListener("keydown", trapDisconnectFocus, true);
 
   setGoogleButtonScheme();
   window.addEventListener("scrapexappearancechange", () => {
