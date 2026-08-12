@@ -3273,16 +3273,29 @@ async function loadDatasets() {
       <article class="card dataset-card" data-open="${esc(s.source_key)}"
                role="link" tabindex="0"
                aria-label="Open ${esc(sourceDomain(s.base_url) || s.source_name || s.source_key)} dataset in workbook">
-        <span class="dataset-card-open">${icon("chevron-right", "sm")}</span>
+        ${sourceMenu(s)}
         <div><div class="dataset-identity-line">${sourceIdentity(
           s, false, fmtCount(s.observations))}</div>
           <div class="n">${fmtCount(s.products)} products</div>
           <div class="n muted">${freshnessLine(s)}</div></div>
       </article>`).join("");
+    box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
+      const key = root.closest("[data-open]").dataset.open;
+      window.ScrapeXSplitButton.wire(root, (action) => runSourceAction(action, key));
+    });
     box.querySelectorAll("[data-open]").forEach((card) => {
-      card.addEventListener("click", () => openDataset(card.dataset.open));
+      // THE MENU IS INSIDE THE CARD, AND THE CARD IS ITSELF A LINK. Without
+      // this guard, opening the menu ALSO opens the dataset in a new tab — the
+      // owner clicks three dots and lands on a different page, having chosen
+      // nothing. `closest` rather than a target check, because the click can
+      // land on the icon, the summary or the option inside it.
+      card.addEventListener("click", (event) => {
+        if (event.target.closest(".split-button")) return;
+        openDataset(card.dataset.open);
+      });
       card.addEventListener("keydown", (event) => {
         if (!["Enter", " "].includes(event.key)) return;
+        if (event.target.closest(".split-button")) return;
         event.preventDefault();
         openDataset(card.dataset.open);
       });
@@ -3375,6 +3388,87 @@ function freshnessLine(s) {
     : last.requests_count ? `${fmtCount(last.requests_count)} requests` : "";
   return `Last crawled ${when}${measure ? " · " + esc(measure) : ""}`;
 }
+
+// ---- what can be done to one source, from its own card ----------------------
+//
+// The card used to carry a chevron and one action: open. Everything else about a
+// source lived on another screen or on the engine's web page, and the owner had
+// to know where. The chevron is now a menu of the things that are actually about
+// THIS source, built on the split-button already shared with the Activity log
+// rather than a second menu implementation.
+//
+// AN ACTION THAT IS NOT BUILT IS SHOWN, DISABLED, WITH THE REASON. The owner
+// asked to see the work in progress rather than a tidy screen that hides it, and
+// this repository already had the convention ("Not built yet." on the file
+// source). A menu that quietly omits what is coming teaches the owner it will
+// never exist.
+const SOURCE_ACTIONS = [
+  {action: "update", label: "Update now",
+   why: "Crawl this source once, immediately."},
+  {action: "changes", label: "Recent changes",
+   why: "What moved since the last crawl."},
+  {action: "settings", label: "Source settings",
+   why: "Address, name and how this source is read."},
+  {action: "pause", label: "Pause collecting",
+   why: "Stop scheduled crawls without deleting anything."},
+  // THE ONE THAT IS NOT READY, and what is missing is an ENGINE route rather
+  // than panel work: sheets.js can create a spreadsheet and write a tab, but the
+  // rows have nowhere to come from. /api/records is paginated at 100 and carries
+  // the compact card shape, not the export shape; /export/{key}.xlsx is a binary
+  // workbook this panel cannot parse without a library it will not ship. One
+  // JSON route over reports.export_source_table is the whole gap.
+  {action: "sheet", label: "Export to Google Sheets", ready: false,
+   why: "Not built yet — the engine has no route that hands the panel export rows."},
+];
+
+function sourceMenu(source) {
+  const options = SOURCE_ACTIONS.map((item) => `
+    <button class="split-button-option" role="menuitem" type="button"
+            data-split-action="${item.action}"${item.ready === false ? " disabled" : ""}
+            title="${esc(item.why)}">${esc(item.label)}${
+      item.ready === false ? ' <span class="muted">· not built yet</span>' : ""
+    }</button>`).join("");
+  return `<div class="split-button" role="group"
+               aria-label="Actions for ${esc(source.source_key)}">
+      <details class="split-button-menu">
+        <summary class="split-button-trigger" aria-haspopup="menu"
+                 aria-expanded="false" title="Actions for this source">
+          ${icon("more-vert", "sm")}</summary>
+        <div class="split-button-options" role="menu">${options}</div>
+      </details>
+    </div>`;
+}
+
+/** Everything a source menu can do, in one place so the card stays a template. */
+async function runSourceAction(action, key) {
+  if (action === "changes") return openTab(`/source/${key}#changes`);
+  if (action === "settings") return openTab(`/sources/${key}`);
+  if (action === "update") {
+    try {
+      await post("/api/jobs", {source_keys: [key], run_mode: "current"});
+      showView("run");
+    } catch (error) {
+      out("datasets-msg", esc((error && error.message) || "Couldn't start it."), "err");
+    }
+    return;
+  }
+  if (action === "pause") {
+    try {
+      await post(`/api/sources/${encodeURIComponent(key)}/active`, {active: false});
+      out("datasets-msg", `${esc(key)} paused. Nothing was deleted.`, "ok");
+      loadDatasets();
+    } catch (error) {
+      out("datasets-msg", esc((error && error.message) || "Couldn't pause it."), "err");
+    }
+    return;
+  }
+  // `sheet` is disabled in the markup and cannot arrive here. Saying so if it
+  // ever does beats doing nothing silently.
+  out("datasets-msg",
+      "That action is not built yet — it needs an engine route that hands the "
+      + "panel export rows.", "err");
+}
+
 
 function openDataset(key) {
   openTab("/source/" + key);

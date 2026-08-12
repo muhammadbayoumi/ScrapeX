@@ -794,8 +794,24 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
     page.wait_for_timeout(300)
     assert page.locator("header.sx-header").count() == 0
     assert page.locator("#open-workbook").count() == 1
-    assert page.locator("#datasets button").count() == 0
+    # The rule this used to state as "no buttons in a card" is really "no
+    # REDUNDANT OPEN button in a card": the card IS the open action, and a
+    # second control saying so was the clutter that got removed. A menu of the
+    # things that are NOT opening — update, changes, settings, pause — is a
+    # different thing, and it arrived on 2026-08-12 at the owner's request.
     assert "Open in Workspace" not in page.text_content("#view-data")
+    cards = page.locator(".dataset-card")
+    assert cards.count() > 0
+    assert page.locator(".dataset-card .split-button-trigger").count() == cards.count(), (
+        "every dataset card must carry exactly one actions menu")
+    for label in ("Update now", "Recent changes", "Source settings",
+                  "Pause collecting", "Export to Google Sheets"):
+        assert page.locator(f'.dataset-card [data-split-action]:has-text("{label}")'
+                            ).count() == cards.count(), f"{label} is missing from the menu"
+    # The unbuilt one is PRESENT and DISABLED — the owner asked to watch the work
+    # in progress rather than have it hidden until it is finished.
+    assert page.locator('.dataset-card [data-split-action="sheet"][disabled]'
+                        ).count() == cards.count()
 
     page.click("#open-workbook")
     page.wait_for_timeout(200)
@@ -810,6 +826,18 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
     opened = page.evaluate("() => window.__opened")
     assert len(opened) == 1
     assert opened[0].endswith("/source/LONG_AR")
+
+    # OPENING THE MENU MUST NOT OPEN THE DATASET. The menu lives inside a card
+    # that is itself a link, so without a guard the owner clicks three dots,
+    # lands in a new tab, and has chosen nothing.
+    page.evaluate("() => { window.__opened = []; }")
+    page.click('[data-open="LONG_AR"] .split-button-trigger')
+    page.wait_for_timeout(200)
+
+    assert page.evaluate("() => window.__opened") == [], (
+        "opening the actions menu also opened the dataset in a new tab")
+    assert page.locator('[data-open="LONG_AR"] .split-button-menu[open]').count() == 1, (
+        "the menu did not open")
 
 
 def test_data_rows_scroll_inside_the_browse_card_not_the_page(open_panel):
