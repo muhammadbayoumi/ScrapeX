@@ -14,12 +14,18 @@
   run inside the side panel at all. It has to run on an ordinary web origin, and
   this is that origin.
 
-  THE EXTENSION NEVER LOSES CONTROL OF THE TOKEN. The panel opens this page with
-  the token in the URL FRAGMENT, which browsers do not send to the server and do
-  not write to server logs. The page uses it to draw the Picker and for nothing
-  else: it makes no API call of its own, stores nothing, and sends nothing
-  anywhere. The fragment is erased from the address bar on load, so the token is
-  not left in history.
+  THE TOKEN IS NEVER IN THE URL. An earlier version put it in the fragment and
+  argued that browsers do not send fragments to servers. True, and the wrong
+  adversary: a tab's URL is handed in full, fragment included, to every
+  installed extension holding the `tabs` permission, through
+  chrome.tabs.onCreated and onUpdated.
+
+  So the URL carries a SINGLE-USE NONCE, and this page trades it back through
+  the extension's own message channel, which no other extension can read. The
+  nonce is spent by the first caller, refused for ever after, and expires within
+  the chooser's own two-minute window. The page uses the token it gets to draw
+  the Picker and for nothing else: it makes no API call of its own, stores
+  nothing, and sends nothing anywhere.
 
   WHAT COMES BACK is a file id and a name — not a token, not a document. The
   panel then opens that file with ITS OWN token through sheets.js, exactly as it
@@ -72,16 +78,24 @@
   // project returns files the extension's token cannot then open.
   var APP_ID = "668111083414";
 
-  // EMPTY ON PURPOSE, exactly as WEB_CLIENT_ID was in identity.js until the
-  // owner created the client. Picker requires an API key, and a placeholder
-  // would fail against Google with a message about the key rather than about
-  // the thing that is missing.
+  // PUBLIC BY DESIGN, and restricted so that being public costs nothing.
   //
-  // To fill it: Google Cloud Console -> APIs & Services -> Credentials ->
-  // Create credentials -> API key. Restrict it to the Picker API and to this
-  // page's own origin; an unrestricted key in a public page is a key anyone can
-  // spend your quota with.
-  var API_KEY = "";
+  // Picker requires the key to be readable by the page, so there is no version
+  // of this that hides it. What makes that safe is the pair of restrictions on
+  // the key itself, set in Google Cloud when it was created:
+  //
+  //   API restrictions          Google Picker API, and nothing else. It cannot
+  //                             touch Drive or Sheets — those are reached with
+  //                             an OAuth token, never with this.
+  //   Application restrictions  Websites -> https://muhammadbayoumi.github.io/*
+  //
+  // A key is not a credential here: it identifies the project for quota, and
+  // grants nothing. The honest limit of the second restriction is that a
+  // referrer header is forgeable by anything that is not a browser, so the worst
+  // a copied key buys is Picker quota on this project — no data, no access.
+  //
+  // Rotating it is one click in Cloud Console; nothing else needs changing.
+  var API_KEY = "AIzaSyBL5buzgRbGOdHw30DESCc6fe6myMQWXqY";
 
   // The one extension allowed to be answered. Read from the query so a build
   // loaded from a different unpacked folder can still be tested, and CHECKED
@@ -100,19 +114,60 @@
   function readFragment() {
     var raw = (location.hash || "").replace(/^#/, "");
     var parts = new URLSearchParams(raw);
-    // ERASED IMMEDIATELY. The fragment never reaches a server, but it does
-    // reach the address bar and the session history, and a token sitting in
-    // either is a token living longer than the click that needed it.
+    // ERASED IMMEDIATELY, even though what is here is only a nonce. A URL that
+    // still describes a handoff invites someone to reload it and wonder why it
+    // no longer works.
     if (location.hash) {
       history.replaceState(null, "", location.pathname + location.search);
     }
     return {
-      token: parts.get("token") || "",
+      nonce: parts.get("n") || "",
       extension: parts.get("ext") || new URLSearchParams(location.search).get("ext") || "",
     };
   }
 
   var handed = readFragment();
+  var token = "";
+
+  // NO TOKEN IN THE URL. A fragment is not sent to a server, which is true and
+  // is the wrong threat: a tab's URL is handed in full, fragment included, to
+  // every extension holding the `tabs` permission. So the panel puts a
+  // single-use nonce here instead and this page trades it back through the
+  // extension's own message channel, which no other extension can read.
+  function requestToken(then) {
+    if (ALLOWED_EXTENSIONS.indexOf(handed.extension) === -1) {
+      say("This page was opened by something that is not ScrapeX. Nothing was "
+          + "sent, and no Google session was requested.", true);
+      return;
+    }
+    if (!handed.nonce) {
+      say("This page was opened without a handoff from ScrapeX, so it has "
+          + "nothing to show. Start again from the ScrapeX panel.", true);
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(handed.extension,
+        {kind: "scrapex-picker-token", nonce: handed.nonce},
+        function (answer) {
+          void (chrome.runtime.lastError);
+          if (!answer || !answer.ok || !answer.token) {
+            // Spent, expired, or never issued. All three mean the same thing to
+            // whoever is looking at this page, and saying which would only help
+            // someone guessing.
+            say("ScrapeX did not confirm this session. Start again from the "
+                + "panel — the link is only good once, and only for a moment.",
+                true);
+            retry.hidden = true;
+            return;
+          }
+          token = answer.token;
+          then();
+        });
+    } catch (error) {
+      say("ScrapeX could not be reached from this page. Is the extension still "
+          + "installed?", true);
+    }
+  }
 
   function answer(payload) {
     if (ALLOWED_EXTENSIONS.indexOf(handed.extension) === -1) {
@@ -137,18 +192,23 @@
 
   function openPicker() {
     retry.hidden = true;
-    if (!handed.token) {
-      say("This page was opened without a Google session, so it has nothing to "
-          + "show. Start again from the ScrapeX panel.", true);
-      return;
-    }
     if (!API_KEY) {
       say("This build has no Picker API key, so Drive cannot be browsed here. "
           + "One has to be created in Google Cloud and restricted to this page.",
           true);
       return;
     }
+    // The nonce is good once. A retry after the token is already in hand must
+    // not spend it again — and must not ask for a second one, which would be
+    // refused.
+    if (!token) {
+      requestToken(drawPicker);
+      return;
+    }
+    drawPicker();
+  }
 
+  function drawPicker() {
     var view = new google.picker.DocsView(google.picker.ViewId.SPREADSHEETS)
       .setIncludeFolders(true)
       .setSelectFolderEnabled(false)
@@ -158,7 +218,7 @@
 
     new google.picker.PickerBuilder()
       .setAppId(APP_ID)
-      .setOAuthToken(handed.token)
+      .setOAuthToken(token)
       .setDeveloperKey(API_KEY)
       .addView(view)
       .setTitle("Choose a spreadsheet for ScrapeX")

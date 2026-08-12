@@ -110,13 +110,22 @@ jobs:
 
   publish:
     needs: drift
-    # The tests still run on every path; only the WRITE is skipped when there is
-    # nothing to write. A scheduled run that finds no drift ends green having
-    # proved the published policy is the one this repository checks.
-    if: needs.drift.outputs.drifted == 'yes'
+    # NO `if:` HERE, ON PURPOSE. It was on the job, and the comment beside it
+    # claimed the tests still ran on every path -- which the `if:` itself made
+    # false: skipping the job skipped the guards too. A daily run that found no
+    # drift then proved nothing at all, while reporting green.
+    #
+    # The condition now sits on the two steps that WRITE. Everything that CHECKS
+    # runs every time.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, because the privacy-policy guards below ask git when a
+          # document last really changed. A depth-1 clone grafts HEAD, so every
+          # file looks newly added and the guard answers with HEAD's date for
+          # everything -- confidently, and wrongly.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -132,6 +141,7 @@ jobs:
           python -m pytest -q tests/test_the_privacy_policy_is_true.py
 
       - name: Publish to the public delivery endpoint
+        if: needs.drift.outputs.drifted == 'yes'
         env:
           GH_TOKEN: ${{ secrets.PUBLIC_SITE_TOKEN }}
         run: |
@@ -151,6 +161,7 @@ jobs:
           done
 
       - name: The pages the store depends on must actually work
+        if: needs.drift.outputs.drifted == 'yes'
         # PRINTING A URL IS NOT CHECKING IT. This step used to end by echoing
         # the two page addresses, which proves nothing: publishing can succeed
         # while the page stays blank for ever, and the chain that follows is the

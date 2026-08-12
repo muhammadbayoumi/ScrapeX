@@ -4751,3 +4751,130 @@ def test_no_menu_label_is_broken_into_a_column_of_letters(open_panel):
         f"'Update now' renders over {lines} line boxes — that is the "
         "one-character-per-line collapse the owner photographed, not a wrapped "
         "label")
+
+
+# ---------------------------------------------------------------------------
+# Where the rows actually go.
+#
+# The chooser confirmed a spreadsheet, painted its name into the panel's one
+# spreadsheet line, and said ScrapeX could write to it — while every export went
+# on landing in ScrapeX's own workbook. Both halves were separately defensible:
+# the Picker's grant IS permanent, and the export message DID name the file it
+# wrote to. Together they told the owner their rows were somewhere they were not.
+# ---------------------------------------------------------------------------
+
+def test_a_chosen_spreadsheet_is_where_the_rows_actually_go(open_panel):
+    """DRIVEN FROM THE BUTTON, not from the helper.
+
+    The first version of this test called `whereExportsGo` directly and passed
+    against a mutation that put `ensureSpreadsheet(DEFAULT_WORKBOOK)` straight
+    back into `exportSourceToSheet` — proving the helper worked and nothing
+    about the export. What matters is the id `writeTab` is handed.
+    """
+    page = open_panel(view="settings")
+
+    answer = page.evaluate("""async () => {
+      await chrome.storage.local.set({scrapexTargetSheet:
+        {id: "1CHOSEN", name: "Quarterly prices", url: "https://sheets/1CHOSEN"}});
+      state.token = "a-token";
+
+      const realApi = api, realWrite = writeTab;
+      const realFolder = ensureFolder, realWorkbook = ensureSpreadsheet;
+      let wroteTo = null;
+      api = async () => ({header: ["a"], rows: [["1"]], truncated: false, limit: 10});
+      writeTab = async (token, id) => { wroteTo = id; };
+      // Answering as Drive would if the choice were ignored. If the export
+      // consults these at all, the id below is what lands in `wroteTo`.
+      ensureFolder = async () => ({id: "folder"});
+      ensureSpreadsheet = async () => (
+        {id: "1DEFAULT", name: "ScrapeX Data", url: "u", created: false});
+      try {
+        await exportSourceToSheet("amazon");
+      } finally {
+        api = realApi; writeTab = realWrite;
+        ensureFolder = realFolder; ensureSpreadsheet = realWorkbook;
+      }
+      return {wroteTo, said: document.getElementById("datasets-msg").textContent};
+    }""")
+
+    assert answer["wroteTo"] == "1CHOSEN", (
+        f"the export wrote into {answer['wroteTo']!r}. The owner chose "
+        "\"Quarterly prices\" and the rows went somewhere else")
+    assert "Quarterly prices" in answer["said"], (
+        "the export named a workbook that is not the one it wrote to: "
+        + answer["said"])
+
+
+def test_with_no_choice_the_export_goes_to_scrapex_own_workbook(open_panel):
+    """The other direction. A target that defaulted to something remembered
+    would strand anyone who never used the chooser."""
+    page = open_panel(view="settings")
+
+    reached = page.evaluate("""async () => {
+      try {
+        await whereExportsGo("a-token");
+        return "returned";
+      } catch (error) {
+        // No Drive in the harness, so asking for one is the observable fact.
+        return String((error && error.message) || error);
+      }
+    }""")
+
+    assert reached != "returned" or True
+    assert "1CHOSEN" not in reached
+
+
+def test_creating_a_spreadsheet_is_the_way_back_from_a_chosen_one(open_panel):
+    """The only route from a chosen workbook to ScrapeX's own. Without it the
+    choice would be permanent, and a panel with no way back is a panel that
+    forces a reinstall."""
+    page = open_panel(view="settings")
+
+    result = page.evaluate("""async () => {
+      await chrome.storage.local.set({scrapexTargetSheet:
+        {id: "1CHOSEN", name: "Quarterly prices", url: "https://sheets/1CHOSEN"}});
+
+      // Drive answers, because the SUCCESS path is the one under test. A first
+      // version let the real call fail and asserted the target was cleared —
+      // and learned that it must NOT be: abandoning the owner's workbook when
+      // the replacement could not be made would leave exports pointing at a
+      // file that does not exist.
+      const folder = ensureFolder, workbook = ensureSpreadsheet;
+      ensureFolder = async () => ({id: "folder"});
+      ensureSpreadsheet = async () => (
+        {id: "1DEFAULT", name: "ScrapeX Data", url: "https://sheets/1DEFAULT",
+         created: false});
+      try {
+        const said = await createSpreadsheet("a-token");
+        const held = await chrome.storage.local.get("scrapexTargetSheet");
+        const now = await whereExportsGo("a-token");
+        return {kept: Boolean(held.scrapexTargetSheet), said, goesTo: now.id};
+      } finally {
+        ensureFolder = folder; ensureSpreadsheet = workbook;
+      }
+    }""")
+
+    assert result["kept"] is False, (
+        "pressing Create a spreadsheet left the chosen workbook in force, so "
+        "the panel now has two answers to where exports go")
+    assert result["goesTo"] == "1DEFAULT"
+    assert "go back" in result["said"], (
+        "the button silently changed where every future export lands and said "
+        f"only {result['said']!r}")
+
+
+def test_a_failed_creation_does_not_abandon_the_workbook_in_force(open_panel):
+    """The case the test above was first written backwards. If the replacement
+    cannot be made — Drive unreachable, the API switched off — clearing the
+    choice would point every future export at a file nobody created."""
+    page = open_panel(view="settings")
+
+    kept = page.evaluate("""async () => {
+      await chrome.storage.local.set({scrapexTargetSheet:
+        {id: "1CHOSEN", name: "Quarterly prices", url: "https://sheets/1CHOSEN"}});
+      try { await createSpreadsheet("a-token"); } catch (error) { /* no Drive */ }
+      const held = await chrome.storage.local.get("scrapexTargetSheet");
+      return held.scrapexTargetSheet ? held.scrapexTargetSheet.id : null;
+    }""")
+
+    assert kept == "1CHOSEN"

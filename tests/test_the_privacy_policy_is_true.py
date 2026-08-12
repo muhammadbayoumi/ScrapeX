@@ -272,6 +272,11 @@ def test_every_place_the_extension_persists_data_is_in_the_policy():
         "timezone.js": "time zone",
         "accounts.js": "accounts",
         "engine.js": "engine",
+        # The workbook exports are written into, once the owner picks one
+        # through the Picker. It outlives the panel deliberately — choosing
+        # where a business's data lands is not a decision to re-make daily —
+        # and outliving the panel is exactly what puts it in this table.
+        "app.js": "spreadsheet",
     }
     missing = [name for name in writers
                if name in described and described[name].lower() not in storage_table.lower()]
@@ -411,6 +416,19 @@ def _last_changed(document: pathlib.Path) -> str | None:
             return None
         return out.stdout if out.returncode == 0 else None
 
+    # A SHALLOW CLONE ANSWERS CONFIDENTLY AND WRONGLY, which is worse than not
+    # answering. HEAD is grafted, so git treats it as a root commit and
+    # `git show` prints the WHOLE FILE as added lines — for every file, whether
+    # or not that commit touched it. The date-only skip below then never
+    # triggers and this helper returns HEAD's date for everything.
+    #
+    # That is not hypothetical: publish-docs.yml and release-extension.yml both
+    # checked out at depth 1 and both run this file. They now fetch the full
+    # history, and this refuses to guess if one ever stops.
+    shallow = git("rev-parse", "--is-shallow-repository")
+    if shallow is None or shallow.strip() == "true":
+        return None
+
     history = git("log", "--format=%H %ad", "--date=short", "--", relative)
     if not history:
         return None
@@ -520,15 +538,59 @@ def test_the_picker_answers_only_this_extension():
         "the extension id is read and not checked, so any id would be answered")
 
 
-def test_the_token_travels_in_the_fragment_and_is_erased():
-    """A query string reaches the server and its logs; a fragment does not. And
-    a fragment left in the address bar outlives the click that needed it."""
+def test_no_access_token_is_ever_put_into_the_chooser_url():
+    """THE FIRST VERSION OF THIS TEST GUARDED THE WRONG FILE.
+
+    It asserted `"?token=" not in page` against scrapex-picker.html — a file
+    that only ever READS a URL. The URL is built in extension/app.js, so the
+    line the test was written to protect was never looked at.
+
+    And the design it protected was itself wrong. Putting the token in the
+    fragment defends against the server, which is not the reader that matters:
+    chrome.tabs.create COMMITS the URL, and the committed URL is delivered whole
+    — fragment included — to every extension holding the `tabs` permission,
+    through onCreated and onUpdated. Erasing it in the page afterwards cannot
+    help; the delivery has already happened.
+
+    So the URL carries a single-use nonce, and this checks the file that builds
+    it.
+    """
+    app_js = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    built = re.search(r"const url = `\$\{PICKER_PAGE\}([^`]*)`\s*\n?\s*\+ `([^`]*)`",
+                      app_js)
+    assert built, "extension/app.js no longer builds a chooser URL this test can read"
+    url = built.group(1) + built.group(2)
+
+    assert "token" not in url.lower(), (
+        f"a token is placed in the chooser URL: {url!r}. Every extension with "
+        "the `tabs` permission reads that, whether it is in the query or the "
+        "fragment")
+    assert "#n=${encodeURIComponent(nonce)}" in url, (
+        f"the chooser URL carries {url!r} rather than a single-use nonce")
+
+
+def test_the_nonce_is_spent_once_and_expires():
+    """A nonce that could be replayed would be a token with extra steps."""
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+
+    trade = background[background.index("async function tradeNonceForToken"):]
+    trade = trade[:trade.index("\n}\n")]
+
+    assert 'handoff.nonce !== nonce' in trade, "the nonce is not compared at all"
+    assert 'remove("scrapexPickerHandoff")' in trade, (
+        "the handoff survives being used, so the nonce can be traded twice")
+    assert trade.index('remove("scrapexPickerHandoff")') < trade.index("handoff.expires"), (
+        "the handoff is removed only after the expiry check passes, so an "
+        "EXPIRED nonce is left in place and a wrong guess is free to repeat")
+
+
+def test_the_page_still_erases_what_it_was_given():
+    """Only a nonce now, but a URL that still describes a handoff invites a
+    reload that cannot work."""
     page = PICKER.read_text(encoding="utf-8")
 
-    assert "location.hash" in page, "the token is not read from the fragment"
-    assert "history.replaceState" in page, (
-        "the fragment is left in the address bar and the session history")
-    assert "?token=" not in page, "the token is put in a query string"
+    assert "location.hash" in page
+    assert "history.replaceState" in page
 
 
 def test_the_extension_admits_exactly_one_origin():
@@ -593,3 +655,45 @@ def test_the_three_places_that_name_the_chooser_agree():
     assert page.group(1) in readme, (
         "docs/picker/README.md does not state the address the panel actually "
         "opens, so the file would be published to the wrong place")
+
+
+def test_the_picker_key_is_a_browser_key_and_nothing_else():
+    """The API_KEY slot is the one place in a public file where a secret would
+    look at home. It sits beside a client id, it is called a key, and the JSON
+    Google hands over when a client is created carries the SECRET under a
+    neighbouring name — so the wrong string lands here by resemblance, not by
+    carelessness.
+
+    A browser API key has a shape: `AIza` and 35 more characters. A client
+    secret (`GOCSPX-…`), a service-account private key, or an access token do
+    not have it, and none of them belongs in a page the whole internet reads.
+    """
+    page = PICKER.read_text(encoding="utf-8")
+    found = re.search(r'API_KEY\s*=\s*"([^"]*)"', page)
+    assert found, "the picker page no longer has an API_KEY to check"
+
+    key = found.group(1)
+    if not key:
+        return  # empty is the honest state before one exists; it refuses by name
+
+    assert re.fullmatch(r"AIza[0-9A-Za-z_\-]{35}", key), (
+        "API_KEY does not have the shape of a browser API key. If this is a "
+        "client secret or a service-account key, it is now public and must be "
+        "revoked, not merely deleted")
+
+
+def test_the_key_restrictions_are_written_down_where_they_can_be_checked():
+    """A key that is public is safe only because of restrictions that live in
+    Google Cloud, where this repository cannot see them. Nothing here can prove
+    they are set — so the least dishonest thing is to say exactly which two are
+    relied upon, so a future reader can go and look."""
+    readme = (ROOT / "docs" / "picker" / "README.md").read_text(encoding="utf-8")
+
+    assert "Google Picker API" in readme
+    assert "https://muhammadbayoumi.github.io/*" in readme, (
+        "the README does not state the website restriction the key's safety "
+        "rests on")
+    assert re.search(r"referrer.{0,40}forge", readme, re.I | re.S), (
+        "the README claims the website restriction protects the key without "
+        "saying that a referrer header is forgeable outside a browser. That "
+        "overstates it, and someone will rely on the overstatement")

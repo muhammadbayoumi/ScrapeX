@@ -4348,8 +4348,9 @@ async function exportSourceToSheet(key) {
     }
 
     out("datasets-msg", `Writing ${fmtCount(table.rows.length)} rows to Google…`, "");
-    const folder = await ensureFolder(state.token, SHEET_FOLDER);
-    const sheet = await ensureSpreadsheet(state.token, DEFAULT_WORKBOOK, {folder});
+    // The workbook the owner chose, if they chose one. Not ScrapeX's own by
+    // default — that was the whole defect.
+    const sheet = await whereExportsGo(state.token);
     await writeTab(state.token, sheet.id, {
       tab: key, header: table.header, rows: table.rows,
     });
@@ -5608,6 +5609,15 @@ async function fetchFromDrive(token) {
 //: owner's own site and answers through background.js's onMessageExternal.
 const PICKER_PAGE = "https://muhammadbayoumi.github.io/mbiXsite/scrapex-picker.html";
 
+//: How long the panel waits for a choice, and how long the handoff that carries
+//: the token stays tradeable. The same number deliberately: a handoff outliving
+//: the wait would be a key left under a mat nobody is watching any more.
+const PICK_WINDOW_MS = 120000;
+
+//: One chooser at a time. Module-level rather than on `state` because it is not
+//: a fact about the panel worth restoring — it is true only while a wait runs.
+let pickInFlight = false;
+
 /**
  * Let the owner point ScrapeX at a spreadsheet it did not create.
  *
@@ -5621,13 +5631,53 @@ const PICKER_PAGE = "https://muhammadbayoumi.github.io/mbiXsite/scrapex-picker.h
  * is an id, and the panel opens the file with its own token.
  */
 async function pickExistingSpreadsheet() {
-  if (!state.token) {
+  // ONE CHOOSER AT A TIME. Two overlapping waits share one message line and one
+  // session key: the loser wakes a second later, finds the key already spent,
+  // and paints "No spreadsheet was chosen" over the success the winner just
+  // wrote. The button stays enabled because it opens a tab rather than running
+  // a request — so the guard belongs here.
+  if (pickInFlight) {
+    out("drive-msg", "A chooser is already open — pick a spreadsheet in that "
+                     + "tab, or close it and press this again.", "");
+    return;
+  }
+
+  // FETCHED NOW, NOT REMEMBERED. state.token is read once when the panel opens,
+  // and a side panel document lives for as long as the window does. An access
+  // token lives about an hour. A stale one draws a Picker that shows nothing
+  // and leaves the owner believing they chose badly.
+  let token = "";
+  try {
+    const fresh = await getToken({interactive: false});
+    token = (fresh && fresh.token) || "";
+    if (token) state.token = token;
+  } catch {
+    token = "";
+  }
+  if (!token) {
     out("drive-msg", "Sign in with Google first — the Account button at the "
                      + "top of the panel.", "err");
     return;
   }
+
+  // THE TOKEN DOES NOT TRAVEL IN THE URL. It did, in the fragment, defended by
+  // the true and irrelevant fact that browsers do not send fragments to
+  // servers. The reader that matters is local: chrome.tabs.create COMMITS this
+  // URL, and the committed URL is delivered whole — fragment included — to
+  // every installed extension holding the `tabs` permission. Erasing it in the
+  // page afterwards cannot help; the delivery already happened.
+  //
+  // So what goes in the URL is a nonce. background.js trades it, once, for the
+  // token. A watching extension copies a number that is spent within a second,
+  // refused thereafter, and useless without also being able to send from the
+  // chooser's own origin.
+  const nonce = crypto.randomUUID();
+  await chrome.storage.session.set({
+    scrapexPickerHandoff: {nonce, token, expires: Date.now() + PICK_WINDOW_MS},
+  });
   await chrome.storage.session.remove("scrapexPickedSpreadsheet");
-  const url = `${PICKER_PAGE}#token=${encodeURIComponent(state.token)}`
+
+  const url = `${PICKER_PAGE}#n=${encodeURIComponent(nonce)}`
     + `&ext=${encodeURIComponent(chrome.runtime.id)}`;
   chrome.tabs.create({url});
   out("drive-msg", "Choose a spreadsheet in the tab that just opened, then come "
@@ -5638,45 +5688,120 @@ async function pickExistingSpreadsheet() {
   // which is why background.js writes the choice to session storage instead of
   // forwarding it. This reads that, and stops after two minutes rather than
   // polling for the life of the browser.
-  const deadline = Date.now() + 120000;
-  for (;;) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const held = await chrome.storage.session.get("scrapexPickedSpreadsheet");
-    const picked = held.scrapexPickedSpreadsheet;
-    if (picked) {
-      await chrome.storage.session.remove("scrapexPickedSpreadsheet");
-      if (!picked.fileId) {
-        out("drive-msg", "Nothing was chosen.", "");
+  pickInFlight = true;
+  const deadline = Date.now() + PICK_WINDOW_MS;
+  try {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const held = await chrome.storage.session.get("scrapexPickedSpreadsheet");
+      const picked = held.scrapexPickedSpreadsheet;
+      if (picked) {
+        await chrome.storage.session.remove("scrapexPickedSpreadsheet");
+        if (!picked.fileId) {
+          out("drive-msg", "Nothing was chosen.", "");
+          return;
+        }
+        await adoptChosenSpreadsheet(token, picked.fileId);
         return;
       }
-      try {
-        const sheet = await openChosen(state.token, picked.fileId);
-        const link = $("sheet-link");
-        if (link) {
-          link.innerHTML = `<a class="link" href="${esc(sheet.url)}" `
-            + `target="_blank" rel="noreferrer noopener">${esc(sheet.name)}</a>`;
-        }
-        out("drive-msg", `ScrapeX can now write to "${esc(sheet.name)}".`, "ok");
-      } catch (error) {
-        out("drive-msg", esc((error && error.message) || "That file could not be opened."), "err");
+      if (Date.now() > deadline) {
+        // The handoff dies with the wait. One left behind is a token that can
+        // still be traded by whoever kept the nonce.
+        await chrome.storage.session.remove("scrapexPickerHandoff");
+        out("drive-msg", "No spreadsheet was chosen. Press the button again when "
+                         + "you are ready.", "");
+        return;
       }
-      return;
     }
-    if (Date.now() > deadline) {
-      out("drive-msg", "No spreadsheet was chosen. Press the button again when "
-                       + "you are ready.", "");
-      return;
-    }
+  } finally {
+    pickInFlight = false;
   }
+}
+
+/**
+ * Take the owner at their word: this file, from now on, is where exports go.
+ *
+ * SAYING IT IS NOT ENOUGH — that was the defect. The first version confirmed
+ * the file, painted its name into the panel's one spreadsheet line, and
+ * announced that ScrapeX could write to it, while every export went on landing
+ * in ScrapeX's own workbook. Both halves were individually defensible: the
+ * Picker's grant IS permanent, and the export line DID name where it wrote. Put
+ * together they told the owner their rows were in a file that never received a
+ * row.
+ */
+async function adoptChosenSpreadsheet(token, fileId) {
+  try {
+    const sheet = await openChosen(token, fileId);
+    await chrome.storage.local.set({[TARGET_SHEET_KEY]: {
+      id: sheet.id, name: sheet.name, url: sheet.url,
+    }});
+    renderSheetTarget(sheet, {chosen: true});
+    out("drive-msg", `Exports will be written into "${esc(sheet.name)}" from now on.`,
+        "ok");
+  } catch (error) {
+    out("drive-msg",
+        esc((error && error.message) || "That file could not be opened."), "err");
+  }
+}
+
+//: The workbook exports are written into, when the owner has chosen one rather
+//: than letting ScrapeX make its own. In storage.local, not in memory: where a
+//: business's data lands is a decision, and one nobody should have to make
+//: again every time the panel closes.
+const TARGET_SHEET_KEY = "scrapexTargetSheet";
+
+async function chosenTarget() {
+  const held = await chrome.storage.local.get(TARGET_SHEET_KEY);
+  const sheet = held[TARGET_SHEET_KEY];
+  return sheet && sheet.id ? sheet : null;
+}
+
+/**
+ * WHERE THE ROWS ACTUALLY GO — the only answer to that question.
+ *
+ * Choosing a spreadsheet through the Picker used to paint a link, say "ScrapeX
+ * can now write to it", and change nothing: every export went on
+ * finding-or-creating "ScrapeX Data" by name. The panel told the truth about
+ * the permission and a lie about the destination, which is the worse half to be
+ * wrong about — the owner would have found their rows in the wrong file, or not
+ * found them at all.
+ */
+async function whereExportsGo(token) {
+  const chosen = await chosenTarget();
+  if (chosen) return chosen;
+  const folder = await ensureFolder(token, SHEET_FOLDER);
+  return ensureSpreadsheet(token, DEFAULT_WORKBOOK, {folder});
+}
+
+/** Say, in the panel, which workbook the next export will be written into. */
+function renderSheetTarget(sheet, {chosen = false} = {}) {
+  const link = $("sheet-link");
+  if (!link) return;
+  if (!sheet) {
+    link.textContent = "";
+    return;
+  }
+  const anchor = `<a class="link" href="${esc(sheet.url)}" target="_blank" `
+    + `rel="noreferrer noopener">${esc(sheet.name)}</a>`;
+  link.innerHTML = chosen
+    ? `Exports go to ${anchor} — the one you chose. Press `
+      + `<b>Create a spreadsheet</b> to go back to ScrapeX's own workbook.`
+    : `Exports go to ${anchor}.`;
 }
 
 async function createSpreadsheet(token) {
   const folder = await ensureFolder(token, SHEET_FOLDER);
   const sheet = await ensureSpreadsheet(token, DEFAULT_WORKBOOK, {folder});
-  const link = $("sheet-link");
-  if (link) {
-    link.innerHTML = `<a class="link" href="${esc(sheet.url)}" target="_blank" ` +
-                     `rel="noreferrer noopener">${esc(sheet.name)}</a>`;
+
+  // THE WAY BACK. This button is the only route from a chosen workbook to
+  // ScrapeX's own, so it clears the choice rather than leaving two answers to
+  // "where do exports go" and picking one silently.
+  const returning = Boolean(await chosenTarget());
+  await chrome.storage.local.remove(TARGET_SHEET_KEY);
+  renderSheetTarget(sheet);
+
+  if (returning) {
+    return `Exports go back to "${sheet.name}" in ${SHEET_FOLDER}.`;
   }
   return sheet.created
     ? `Created "${sheet.name}" in ${SHEET_FOLDER}.`
@@ -5694,6 +5819,14 @@ function wireGoogleControls() {
   // must not disable the row or claim to be working while nothing is.
   const choose = $("sheet-choose");
   if (choose) choose.addEventListener("click", () => pickExistingSpreadsheet());
+
+  // WHERE EXPORTS GO, SAID BEFORE ANYTHING IS EXPORTED. A choice made last week
+  // is still in force this morning, and a panel that shows nothing until the
+  // owner presses something leaves them to remember it themselves.
+  chosenTarget().then((sheet) => {
+    if (sheet) renderSheetTarget(sheet, {chosen: true});
+  }, () => {});
+
   for (const [id, working, action] of actions) {
     const button = $(id);
     if (button) {

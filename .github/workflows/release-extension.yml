@@ -34,6 +34,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, because the privacy-policy guards below ask git when a
+          # document last really changed. A depth-1 clone grafts HEAD, so every
+          # file looks newly added and the guard answers with HEAD's date for
+          # everything -- confidently, and wrongly.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

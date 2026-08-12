@@ -31,31 +31,51 @@ repository. Two things break if it moves:
 A test binds those three together, so moving it breaks a test rather than the
 button.
 
-## Before it will work
+## The API key in the page
 
-`API_KEY` in the page is **empty on purpose**. Picker requires an API key, and
-the page says so plainly rather than failing against Google with a message about
-a placeholder.
+`API_KEY` is filled in, and it is **meant** to be readable. Picker requires the
+key to reach the browser; there is no version of this that hides it.
 
-To create one: Google Cloud Console → *APIs & Services* → *Credentials* →
-*Create credentials* → *API key*. Then restrict it, on the key's own page:
+What makes that safe is not secrecy but the two restrictions set on the key
+itself, in Cloud Console → *Credentials* → the key:
 
-- **API restrictions** → the *Google Picker API* only.
-- **Application restrictions** → *Websites* → `https://muhammadbayoumi.github.io/*`.
+- **API restrictions** → *Google Picker API*, and nothing else. It cannot touch
+  Drive or Sheets; those are reached with an OAuth token, never with this key.
+- **Application restrictions** → *Websites* →
+  `https://muhammadbayoumi.github.io/*`.
 
-An unrestricted key in a public page is a key anyone can spend the project's
-quota with. Restricted to one API and one site, a copied key is worth nothing.
+Selecting *Websites* and adding no entry is not a restriction — the entry is.
 
-The Picker API must also be enabled for the project, in *APIs & Services* →
-*Library*. Enabling an API is not a scope review and needs no approval from
-Google — it takes effect in about a minute.
+An API key is not a credential here: it identifies the project for quota and
+grants nothing. The honest limit of the second restriction is that a referrer
+header is forgeable by anything that is not a browser, so the worst a copied key
+buys is Picker quota on this project. No data, no access, no cost that matters.
+
+Rotating it is one click on the key's page, then one line in this folder.
+
+The Picker API must be **enabled** for the project before a key can even be
+restricted to it — *APIs & Services* → *Library* →
+[Google Picker API](https://console.cloud.google.com/apis/library/picker.googleapis.com).
+Enabling an API is not a scope review and needs no approval from Google.
 
 ## What this page is trusted with, and what it is not
 
-It is handed a Google access token in the URL **fragment**, uses it to draw the
-Picker, and erases it from the address bar immediately. It makes no API call of
-its own, stores nothing, and sends nothing anywhere except one message to one
-extension id, containing a file id and a name.
+**No access token is ever in the URL.** An earlier version put one in the
+fragment, on the true and irrelevant grounds that browsers do not send fragments
+to servers. The reader that matters is local: `chrome.tabs.create` commits the
+URL, and the committed URL reaches every extension holding the `tabs` permission
+through `onCreated` and `onUpdated`. Erasing it in the page cannot help — the
+delivery has already happened.
+
+So the URL carries a **single-use nonce**. The page trades it back through the
+extension's own message channel, which no other extension can read. The nonce is
+spent by the first caller, refused for ever after, and expires inside the
+chooser's own two-minute window; and it is worthless to anyone who cannot also
+send from this page's origin.
+
+The page uses the token it receives to draw the Picker and for nothing else. It
+makes no API call of its own, stores nothing, and sends nothing anywhere except
+one message to one extension id, containing a file id and a name.
 
 The token is never returned. The panel opens the chosen file with its own token.
 
