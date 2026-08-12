@@ -256,7 +256,22 @@ def test_profile_startup_handles_healthy_and_stopped_engines_without_run_data(
     _wait_for_mark(page, "fully-settled")
 
     assert page.locator("#estat-text").inner_text().startswith(expected)
-    assert not any(call.startswith(DESTINATION_ROUTES) for call in _calls(page))
+
+    # THE RULE, NARROWED BY A DECISION RATHER THAN BY CONVENIENCE (2026-08-12).
+    #
+    # This forbade EVERY destination route on startup. The owner ruled that a
+    # crawl already running must be visible the moment the panel opens, on
+    # whatever screen it opens — issue 161, where a reopened panel showed an
+    # idle screen over a live run and the natural response was to start it
+    # again, putting two crawls on one source.
+    #
+    # Reattaching costs exactly one loopback request, and it happens AFTER the
+    # shell has settled. What the rule was protecting — a shell that paints
+    # before remote work — is untouched, and is still asserted: /api/health is
+    # called once, and the heavy reads are still forbidden.
+    heavy = tuple(route for route in DESTINATION_ROUTES if route != "/api/jobs")
+    assert not any(call.startswith(heavy) for call in _calls(page)), (
+        "startup read destination data it does not need to paint the shell")
     assert _calls(page).count("/api/health") == 1
     assert not page.js_errors
 
@@ -553,10 +568,22 @@ def test_startup_instrumentation_spans_shell_checks_and_first_destination(
     assert before["paint-opportunity-resolved"] <= before["shell-post-opportunity"]
     assert before["shell-post-opportunity"] <= before["account-check-start"]
     assert before["shell-post-opportunity"] <= before["engine-check-start"]
-    assert "first-destination-data-request" not in before
-
-    page.click(RUN_TAB)
+    # THE PROPERTY, STATED DIRECTLY. This used to assert that no destination
+    # request had happened by `fully-settled`, which was a proxy for "the shell
+    # is interactive first" and stopped being true on 2026-08-12: the owner
+    # ruled that a running crawl must be found the moment the panel opens
+    # (issue 161), so one loopback read now lands shortly after settle.
+    #
+    # The ordering is what the rule was ever about, and asserting it is stronger
+    # than asserting an absence at one instant — an absence that a slower
+    # machine could satisfy for the wrong reason.
     _wait_for_mark(page, "first-destination-data-request")
     after = _marks(page)
-    assert after["first-destination-data-request"] >= before["shell-interactive"]
+    assert after["first-destination-data-request"] >= after["shell-interactive"], (
+        "destination data was requested before the shell was interactive")
+    assert after["first-destination-data-request"] >= after["paint-opportunity-resolved"], (
+        "a remote read beat the renderer's paint opportunity")
+
+    page.click(RUN_TAB)
+    page.wait_for_timeout(300)
     assert not page.js_errors

@@ -1937,12 +1937,19 @@ def test_the_active_crawl_minimizes_to_a_statusbar_and_opens_again(open_panel):
     page = open_panel(jobs=[job])
     bar = page.locator("#miniplayer")
 
-    # Job state is destination-specific startup work: Profile opens without it,
-    # and entering Run performs the first active-job read.
-    assert not bar.is_visible()
-    page.click(RUN_TAB)
+    # THE PANEL FINDS A RUNNING CRAWL WHEREVER IT OPENS (owner's ruling,
+    # 2026-08-12, issue 161). This used to assert the opposite — "Profile opens
+    # without it, and entering Run performs the first active-job read" — which
+    # was a real decision and is now a reversed one: a run that looks vanished
+    # gets started a second time, and two crawls then write one source.
+    #
+    # What the miniplayer IS remains the subject of this test, and is unchanged
+    # below: a <details> that rests minimised.
     page.wait_for_function(
         "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    assert bar.is_visible(), "a running crawl is invisible until Run is opened"
+    page.click(RUN_TAB)
+    page.wait_for_timeout(300)
     assert bar.is_visible()
     assert bar.evaluate("el => el.tagName") == "DETAILS"
     assert not bar.evaluate("el => el.open"), "a running crawl should rest minimized"
@@ -4631,3 +4638,48 @@ def test_every_control_that_cannot_run_yet_says_so_on_its_face(open_panel):
     assert "not available yet" in text or "not wired up" in text, (
         "a control on this screen is disabled and nothing on the screen says "
         "why. The owner asked to see work in progress, not dead buttons.")
+# ---- issue #161: reopening reconnects to whatever is already in flight -----
+
+def test_a_reopened_panel_finds_a_crawl_that_was_already_running(open_panel):
+    """THE PROMISE IN app.js's FIRST PARAGRAPH, checked at last.
+
+        "closing this panel never stops a run and reopening reconnects to
+         whatever is already in flight"
+
+    The first half is the engine's doing and holds: it owns execution. The
+    second was nobody's. `pollJob` had one startup caller — loadRunDestination
+    — which returns early unless the current view is "run", and the panel opens
+    on Welcome. So a reopened panel polled nothing until the owner happened to
+    click Run, and a crawl an hour into muqawil's thirty-four hours showed as an
+    idle screen.
+
+    THE FAILURE IS WORSE THAN A BLANK. The natural response to a run that has
+    vanished is to start it again, and then two crawls of one source are writing
+    at once.
+
+    WHY EVERY EXISTING JOB TEST MISSED IT: they all go through `_open_on_run`,
+    which clicks the Run tab first. Not one asked whether the panel finds a job
+    WITHOUT being taken there. This test deliberately does not click anything —
+    a reopened side panel is a fresh document that has been clicked nowhere.
+    """
+    page = open_panel(jobs=[_running_job()])
+
+    # No navigation. This is exactly what Chrome hands back when the owner
+    # reopens the side panel while a crawl is running.
+    page.wait_for_selector("#miniplayer:not(.hidden)", timeout=10000)
+
+    title = text_of(page, "#mini-title")
+    assert "SALLA_SHOP" in title, (
+        f"the panel reopened onto a running crawl and does not name it: {title!r}")
+    assert "running" in title
+
+
+def test_a_reopened_panel_with_nothing_running_says_nothing(open_panel):
+    """The other half of the same reattach: asking the engine on every open must
+    not put an empty player on a panel with no crawl behind it. A miniplayer
+    that appears for nothing is a control that means nothing."""
+    page = open_panel(jobs=[])
+    page.wait_for_timeout(600)
+
+    assert "hidden" in (page.get_attribute("#miniplayer", "class") or ""), (
+        "the miniplayer is showing with no job to show")

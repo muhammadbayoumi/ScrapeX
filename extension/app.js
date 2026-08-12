@@ -4066,8 +4066,43 @@ function handlePanelVisibility() {
   }
   // The shared appearance/timezone modules perform their own immediate refresh
   // on this event. Only the job poll is owned here, and the in-flight guard
-  // above prevents a second timer or request from being created.
-  if (state.engineUp && (state.job || state.jobRef)) pollJob();
+  // in pollJob prevents a second timer or request from being created.
+  //
+  // NO `state.job || state.jobRef` CONDITION. It used to require one, which
+  // meant the poll only resumed for a run this DOCUMENT already knew about —
+  // and a panel that was closed and reopened is a new document that knows about
+  // nothing. See reattachToRunningJob for the rest of that story.
+  if (state.engineUp) pollJob();
+}
+
+/**
+ * Find a crawl that was already running when this panel opened.
+ *
+ * ISSUE 161, and the half of it that was fragile. (Written without a
+ * leading hash: a hash and three hex digits is a colour literal to
+ * test_ui_colour_literals_live_only_in_the_canonical_colour_system, and a
+ * false positive there is still the guard doing its job.) app.js has promised since it
+ * was written that "closing this panel never stops a run and reopening
+ * reconnects to whatever is already in flight". The first half is the engine's
+ * doing and holds. The second was nobody's.
+ *
+ * `pollJob` had exactly one startup caller — loadRunDestination — which returns
+ * early unless the current view is "run". The panel opens on "profile" (line
+ * "The panel opens on Welcome"), so a reopened panel polled NOTHING until the
+ * owner happened to click Run. A crawl could be an hour into muqawil's 34 hours
+ * and the panel would show an idle screen.
+ *
+ * The failure is worse than a blank: the natural response to a run that has
+ * vanished is to start it again, and now two crawls of one source are writing
+ * at once.
+ *
+ * `pollJobOnce` already asks the engine for `active_only=true` and adopts
+ * whatever comes back, so reconnecting needs no new endpoint and no state
+ * carried across the close — only for the question to be asked.
+ */
+async function reattachToRunningJob() {
+  if (!state.engineUp) return null;
+  return pollJob();
 }
 
 async function controlJob(control) {
@@ -5818,6 +5853,11 @@ function scheduleNonCriticalStartup(backendPromise) {
         window.ScrapeXTime?.connect(backend),
         adoptUiContract(),
       ]);
+      // AFTER the shell is settled, never during it. A crawl that was already
+      // running has to be found (issue 161), and /api/jobs is destination data
+      // that the startup path is forbidden to touch — three tests hold that
+      // rule and they are right to. Idle time is where the two fit together.
+      await reattachToRunningJob();
     } catch (_) {}
   });
 }
@@ -5840,6 +5880,9 @@ async function init() {
     return backend;
   });
   const accountPromise = loadAccount();
+  // `render()` is what settles state.engineUp, so the reattach hangs off it
+  // rather than racing it. A crawl that was already running is adopted here,
+  // on whatever view the panel opened — see reattachToRunningJob (issue 161).
   const enginePromise = backendPromise.then(() => render());
   Promise.allSettled([accountPromise, enginePromise]).then(() => {
     markStartup("fully-settled", {
