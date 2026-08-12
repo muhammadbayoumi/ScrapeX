@@ -2342,7 +2342,6 @@ def create_app(
         from .. import __version__
         from ..connectors.base import DEFAULT_USER_AGENT
         from ..contract import CONTRACT_VERSION
-        from ..jobs import worker_is_alive
         from ..version import LATEST_SOURCE, MINIMUM_EXTENSION_VERSION, UPDATE_INSTRUCTIONS, VERSION
 
         worker = worker_health(conn)
@@ -2360,7 +2359,15 @@ def create_app(
             "update_instructions": UPDATE_INSTRUCTIONS,
             "contract_version": CONTRACT_VERSION,
             "schema_version": dbmod.schema_version(conn),
-            "worker_alive": worker_is_alive(conn),
+            # THE SAME VERDICT /api/health PUBLISHES, from the `worker` dict
+            # already computed above. It used to call worker_is_alive(), which
+            # reads ONLY the runtime heartbeat — the single-heartbeat answer
+            # worker_health() was written to supersede. So the Settings page
+            # this feeds declared "Not running", and advised the owner to check
+            # whether the engine had started at all, WHILE it was crawling. The
+            # panel read the corrected one and was right; the engine's own page
+            # read the old one and was wrong, which is the worse way round.
+            "worker_alive": worker.get("alive") is True,
             # Says WHY when the answer is no, instead of leaving the owner
             # to infer it from a port that answers regardless.
             "worker": worker,

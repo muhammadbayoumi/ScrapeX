@@ -1045,6 +1045,14 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
     then hangs forever with a healthy-looking 'queued' status — the worst failure
     mode available. Callers that can only ENQUEUE (the native bridge) must check
     this first and refuse loudly instead.
+
+    IT HAS NO CALLERS. Measured 2026-08-12: `scrapex/native.py` — the caller this
+    docstring names — does not call it, and the last caller in the tree (`_about`
+    in webui/app.py) was moved to `worker_health` because THIS function reads
+    only the runtime heartbeat and therefore calls a busy worker dead. It is left
+    here rather than deleted because the refusal it describes is still missing
+    and still wanted; if the bridge is ever given that guard, it wants
+    `worker_health`'s two-heartbeat verdict, not this one.
     """
     row = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?", (HEARTBEAT_KEY,)).fetchone()
     if row is None or not row[0]:

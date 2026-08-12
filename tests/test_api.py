@@ -436,3 +436,86 @@ def test_the_version_report_without_a_caller_version_judges_nobody(client):
     assert body["installed_extension_version"] is None
     assert body["outdated"] is False and body["missing"] == []
     assert body["capabilities"], "the ledger is empty"
+
+
+def _a_crawl_is_running_but_the_loop_looks_quiet(db_path: Path) -> None:
+    """The exact shape that broke it: a job crawling, its OWN heartbeat fresh,
+    and the runtime heartbeat stale because the loop is busy.
+
+    This is not a contrived state — it is what a long crawl looks like from the
+    outside, and BACKLOG OP-6·ت2 records it costing the owner an afternoon.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    stale = (now - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fresh = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO scrapex_meta (key, value) VALUES ('runtime_heartbeat', ?)",
+            (stale,))
+        # BUILT FROM THE SHIPPED SCHEMA, not from memory, and not from PRAGMA
+        # either: `PRAGMA table_info` reports NOT NULL and defaults but shows no
+        # CHECK constraint at all. BACKLOG OP-17 records that exact trap costing
+        # three wrong fixtures, and the first version of this one repeated it —
+        # `run_mode='full'` is not in the allowed set, and only reading
+        # sqlite_master's CREATE TABLE says so.
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, status, "
+            "current_source_key, stage, last_heartbeat_at, started_at) "
+            "VALUES (?, 'update', ?, 'running', ?, ?, ?, ?)",
+            ("job_busy", "ELBUROJ", "ELBUROJ", "fetching", fresh, fresh))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_the_engine_does_not_call_itself_dead_on_its_own_settings_page(client, db_path):
+    """THE PANEL WAS RIGHT AND THE ENGINE'S OWN PAGE WAS WRONG, which is the
+    worse way round: the owner opens Settings precisely when something looks
+    broken.
+
+    There were TWO worker_alive computations. `/api/health` published the
+    two-heartbeat verdict from `worker_health`; `_about` — which renders the
+    Settings page — still called `worker_is_alive`, the single-heartbeat answer
+    that `worker_health` was written to supersede. So while a crawl ran, the
+    engine printed "Not running" beside advice to check whether it had started.
+    """
+    _a_crawl_is_running_but_the_loop_looks_quiet(db_path)
+
+    health = client.get("/api/health").json()
+    assert health["worker_alive"] is True, "the scenario under test did not arise"
+
+    # THE RENDERED PAGE, not the dict behind it. `_about` is a closure with no
+    # JSON route, and the badge is what the owner actually reads — a test on the
+    # dict would pass while the template said the opposite.
+    page = client.get("/settings").text
+    assert "Not running" not in page, (
+        "the engine's own Settings page says the worker is dead while a crawl "
+        "is running — the single-heartbeat verdict is back")
+    assert "Queued jobs wait until a worker is running" not in page, (
+        "the page advises the owner to check whether the engine started, while "
+        "it is crawling")
+    assert "Running" in page, "the badge says nothing at all"
+
+
+def test_the_two_liveness_answers_cannot_drift_apart_again(client, db_path):
+    """The point is not this one state, it is that there is ONE answer. Driven
+    across both directions rather than asserted about the source."""
+    def page_says_running() -> bool:
+        return "Not running" not in client.get("/settings").text
+
+    idle_health = client.get("/api/health").json()["worker_alive"]
+    assert page_says_running() is idle_health, (
+        "with nothing running, the page and /api/health already disagree")
+
+    _a_crawl_is_running_but_the_loop_looks_quiet(db_path)
+
+    busy_health = client.get("/api/health").json()["worker_alive"]
+    assert busy_health != idle_health, (
+        "the state did not actually change, so this test proves nothing")
+    assert page_says_running() is busy_health, (
+        "the page and /api/health drifted apart the moment a crawl started — "
+        "which is the only moment it matters")
