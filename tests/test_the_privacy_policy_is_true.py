@@ -300,3 +300,73 @@ def test_the_policy_does_not_claim_the_accounts_list_is_unstored():
     assert "Nothing is stored" not in scopes_row[0], (
         "the policy says nothing is stored about the account details, and "
         "extension/accounts.js keeps a directory of them in chrome.storage.local")
+
+
+# ---- the listing is the manifest, in prose ----------------------------------
+
+LISTING = ROOT / "docs" / "store-listing.md"
+
+
+def test_the_listing_justifies_every_permission_the_manifest_asks_for():
+    """FOUND ON 2026-08-12, on the day the owner asked to upload the listing.
+
+    Three host permissions had been added that day — drive/v3, upload/drive/v3
+    and sheets.googleapis.com/v4 — and the listing justified none of them. The
+    store requires a justification per permission and rejects a submission
+    without one, so this would have been discovered by a rejection days later
+    rather than by a build.
+
+    Every other document in this repository that repeats the manifest is
+    guarded: the privacy policy names every host, the version ledger names every
+    capability. The listing was the one that was not, and it is the document
+    Google actually reads.
+    """
+    listing = LISTING.read_text(encoding="utf-8")
+
+    for permission in MANIFEST["permissions"]:
+        assert f"`{permission}`" in listing, (
+            f"the manifest asks for the {permission!r} permission and the store "
+            "listing does not justify it; the store rejects a submission that "
+            "leaves one unexplained")
+
+    for host in MANIFEST["host_permissions"]:
+        # Loopback is described as one entry covering both spellings, which is
+        # how the listing reads and how a reviewer thinks about it.
+        if host.startswith("http://127.0.0.1") or host.startswith("http://localhost"):
+            assert "127.0.0.1" in listing
+            continue
+        assert host in listing, (
+            f"the manifest may reach {host} and the store listing does not "
+            "justify it")
+
+
+def test_the_listing_claims_no_permission_the_manifest_dropped():
+    """The other direction, and the one that reads as a lie rather than an
+    omission: a listing describing access the extension gave up still declares
+    it on the store's data-usage form."""
+    listing = LISTING.read_text(encoding="utf-8")
+    asked = set(MANIFEST["permissions"])
+    hosts = " ".join(MANIFEST["host_permissions"])
+
+    section = listing.split("## Permission justifications", 1)[-1]
+    section = section.split("## OAuth scope justifications", 1)[0]
+
+    for heading in re.findall(r"^### `([^`]+)`", section, re.M):
+        if heading.startswith("http"):
+            stem = heading.rstrip("*").rstrip("/")
+            assert stem in hosts or "127.0.0.1" in heading, (
+                f"the listing justifies {heading}, which the manifest no longer "
+                "asks for")
+        else:
+            assert heading in asked, (
+                f"the listing justifies the {heading!r} permission and the "
+                "manifest does not ask for it")
+
+
+def test_the_listing_names_the_version_being_submitted():
+    """A listing headed with last month's version is the surest sign nobody
+    re-read it before pressing submit."""
+    listing = LISTING.read_text(encoding="utf-8")
+    assert MANIFEST["version"] in listing.splitlines()[0], (
+        f"the listing is headed {listing.splitlines()[0]!r} and the manifest is "
+        f"at {MANIFEST['version']}")

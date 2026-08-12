@@ -1,4 +1,4 @@
-# Chrome Web Store listing — ScrapeX 0.2.1
+# Chrome Web Store listing — ScrapeX 0.2.2
 
 Draft for the owner to review, edit and paste. Every claim here is checked
 against what the extension actually declares — the permissions and scopes below
@@ -158,9 +158,31 @@ connected, and a user could never sign in as somebody else.
 
 ### `https://www.googleapis.com/oauth2/v3/*`
 
-> Google's own endpoints, used only after the user signs in: the name and
-> picture of the signed-in account, Google Drive for backups the user asks for,
-> and Google Sheets for exports the user asks for.
+> The name, address and picture of the signed-in account, shown on the panel's
+> Profile page. One endpoint and no more. Nothing is sent to it but the token
+> Chrome already holds.
+
+### `https://www.googleapis.com/drive/v3/*`
+
+> Finding, listing and downloading the user's own backups. Narrowed to the Drive
+> API path rather than the whole of googleapis.com. The permission behind it is
+> Google's `drive.file`, which reaches only files this extension created and
+> files the user hands it — it is structurally unable to read anything else in
+> their Drive.
+
+### `https://www.googleapis.com/upload/drive/v3/*`
+
+> Sending a backup up. Drive's upload endpoint is a separate address from the
+> one above, and the upload is resumable so the panel can show real progress on
+> a file of tens of megabytes.
+
+### `https://sheets.googleapis.com/v4/*`
+
+> Writing the user's exported rows into a spreadsheet — one tab per source. The
+> same `drive.file` limit applies: a spreadsheet ScrapeX created, or one the
+> user chose for it, and no other. ScrapeX does **not** request Google's
+> `spreadsheets` permission, which is the one that would let an app read and
+> edit every spreadsheet the user owns.
 
 ---
 
