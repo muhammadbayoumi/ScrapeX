@@ -535,6 +535,10 @@
         <div id="datasets" class="dataset-list">
           <div class="skeleton"></div><div class="skeleton"></div>
         </div>
+        <!-- Outside #datasets, which loadDatasets() overwrites wholesale: a
+             result written into it would be erased by the reload the action
+             itself triggers. -->
+        <p id="datasets-msg" class="hint" role="status" aria-live="polite"></p>
       </section>
 
     </section>
