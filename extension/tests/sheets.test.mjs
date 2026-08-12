@@ -239,19 +239,36 @@ test("the sensitive spreadsheets scope is nowhere in the extension", async () =>
   //
   // Asserted against the manifest and identity.js rather than left as a comment,
   // because the scope's whole cost is invisible until a store review.
+  //
+  // The first version read identity.js as TEXT and asked whether the scope
+  // string appeared in it. CodeQL failed the build over that, correctly:
+  // js/incomplete-url-substring-sanitization, "arbitrary hosts may come before
+  // or after it". The rule is aimed at origin checks rather than at a test, but
+  // the weakness it names is real here too — a substring search matches the
+  // scope inside a comment, a URL that merely ends with it, or a longer scope
+  // that contains it, and passes or fails for reasons that have nothing to do
+  // with what the extension asks Google for.
+  //
+  // Importing the array and comparing elements is exact, and it reads the same
+  // constant chrome.identity is handed rather than the file it lives in.
+  const {SCOPES} = await import("../identity.js");
   const manifest = JSON.parse(readFileSync(
     new URL("../manifest.json", import.meta.url), "utf8"));
-  const identity = readFileSync(
-    new URL("../identity.js", import.meta.url), "utf8");
 
   const sensitive = "https://www.googleapis.com/auth/spreadsheets";
   assert.equal(manifest.oauth2.scopes.includes(sensitive), false,
     "the sensitive spreadsheets scope is back in the manifest");
-  assert.equal(identity.includes(`"${sensitive}"`), false,
+  assert.equal(SCOPES.includes(sensitive), false,
     "the sensitive spreadsheets scope is back in identity.js");
   assert.ok(manifest.oauth2.scopes.includes(
     "https://www.googleapis.com/auth/drive.file"),
     "drive.file is gone, and nothing here can work without it");
+
+  // The two lists are the same promise written twice — Chrome reads the
+  // manifest, identity.js asks getAuthToken for its own array — so they must
+  // agree, and neither being sensitive is only half the property.
+  assert.deepEqual([...SCOPES].sort(), [...manifest.oauth2.scopes].sort(),
+    "identity.js and the manifest ask Google for different things");
 });
 
 
