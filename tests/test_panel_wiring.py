@@ -409,3 +409,37 @@ def test_no_two_inlined_modules_declare_the_same_top_level_name():
     assert not clashes, (
         "two panel modules declare the same top-level name, and the DOM harness "
         "flattens them into one script: " + "; ".join(clashes))
+
+
+def test_every_source_action_the_menu_offers_is_handled():
+    """A menu entry with no branch does nothing and says nothing.
+
+    The Export entry shipped DISABLED on 2026-08-12 with its reason written on
+    it, and was enabled the next day when the engine route existed. The risk
+    either way is the same: the markup and the handler drift, and the owner
+    clicks something that silently is not there. Read from the one list that
+    builds the markup, so adding an entry without a branch fails here.
+    """
+    listed = set(re.findall(r'\{action: "(\w+)"', JS))
+    assert listed, "SOURCE_ACTIONS no longer declares any action"
+
+    body = JS[JS.index("async function runSourceAction("):]
+    body = body[:body.index("\n}\n")]
+    handled = set(re.findall(r'action === "(\w+)"', body))
+
+    missing = sorted(listed - handled)
+    assert not missing, (
+        f"the source menu offers {missing} and runSourceAction has no branch "
+        "for them, so the click does nothing at all")
+
+
+def test_the_export_action_is_no_longer_advertised_as_unbuilt():
+    """It was, deliberately, for one day. Leaving the words behind after the
+    thing exists is how a working feature keeps telling people it does not."""
+    assert 'action: "sheet"' in JS
+    entry = JS[JS.index('{action: "sheet"'):]
+    entry = entry[:entry.index("},")]
+    assert "ready: false" not in entry, (
+        "the export action is still marked unbuilt while the engine route and "
+        "the panel handler both exist")
+    assert "Not built yet" not in entry

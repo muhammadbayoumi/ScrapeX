@@ -105,6 +105,7 @@ from ..reports import (
     column_presence,
     crawl_history,
     data_model_report,
+    export_source_table,
     facet_options,
     google_finance_status,
     history_counts,
@@ -2395,6 +2396,11 @@ def create_app(
     #: Built bundles are named so the newest can be found without keeping any
     #: state between the two requests. A build followed by a restart must still
     #: be downloadable, and app.state would not survive one.
+    #: The export ceiling, named once. reports.export_source_table defaults to
+    #: the same number and extension/sheets.js mirrors it as MAX_EXPORT_ROWS —
+    #: three places that must agree, held together by the test beside this.
+    EXPORT_ROW_LIMIT = 40_000
+
     BUNDLE_PREFIX = "scrapex-bundle-"
 
     #: The panel pack lifted out of the bundle, named so the two files of one
@@ -2496,6 +2502,55 @@ def create_app(
                 "no bundle has been built yet — POST /api/bundle first"))
         return FileResponse(
             archive, media_type="application/zip", filename=archive.name)
+
+    @app.get("/api/export/{source_key}")
+    def api_export_rows(source_key: str):
+        """The rows the panel writes into a Google Sheet.
+
+        THE LAST GAP IN THE OWNER'S RULING OF 2026-08-11. The extension owns
+        every Google operation, and extension/sheets.js could already create a
+        spreadsheet and fill a tab — but the rows had nowhere to come from. The
+        panel's own /api/records is paginated at 100 and carries the COMPACT
+        card shape; /export/{key}.xlsx is a binary workbook the panel will not
+        ship a library to parse. So the menu entry sat disabled, saying so.
+
+        This is the same `export_source_table` the .xlsx and the Apps Script
+        funnel already use — one expression of what an export IS, rather than a
+        third. A separate query here would drift from those two, which is the
+        drift `fields.column_order` exists to prevent.
+
+        BOUNDED (A8) at the same 40,000 rows the function's own default sets and
+        the panel's MAX_EXPORT_ROWS mirrors. `truncated` is reported rather than
+        left to be inferred from a row count nobody compares — a spreadsheet
+        that quietly stops at forty thousand looks exactly like a business with
+        forty thousand products.
+        """
+        conn = read_conn()
+        try:
+            # THE MANIFEST, which is what /api/sources answers from and
+            # therefore what the panel's Data page offers. The first version of
+            # this checked `list_sources`, which reads `source_site` in the
+            # WAREHOUSE — a different set. On a database that has been
+            # initialised but not yet crawled the manifest names twelve sources
+            # and the warehouse none, so every export the panel offered was
+            # refused with "no source called MADAR" while the card for MADAR sat
+            # on the screen. Validating against a set the caller cannot see is
+            # worse than not validating.
+            known = {entry.source_key for entry in app.state.manifest.sources}
+            if source_key not in known:
+                raise HTTPException(status_code=404, detail=(
+                    f"no source called {source_key!r} — the panel asked for "
+                    "something the warehouse does not have"))
+            header, rows = export_source_table(conn, source_key)
+        finally:
+            conn.close()
+        return {
+            "source_key": source_key,
+            "header": header,
+            "rows": rows,
+            "truncated": len(rows) >= EXPORT_ROW_LIMIT,
+            "limit": EXPORT_ROW_LIMIT,
+        }
 
     @app.get("/api/bundle/panel-pack")
     def api_bundle_panel_pack():

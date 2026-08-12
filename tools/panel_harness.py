@@ -286,6 +286,18 @@ window.chrome = {{
     }},
   }},
 }};
+
+// SIGNING IN A SECOND TIME, which this harness could not model at all.
+//
+// `removeCachedAuthToken` sets SIGNED_IN to null, correctly: Chrome really has
+// forgotten the token. But a person who signs out and presses Sign in again
+// gets a working sign-in, and until this existed no test could reach that
+// state — which is exactly where the owner found the panel listing him as
+// signed out while the header said he was signed in (2026-08-12).
+//
+// A test-only door, and a narrow one: it restores what Chrome would answer and
+// nothing else. The panel is driven through its own button either way.
+window.__sx_grant_again = (account) => {{ SIGNED_IN = account; }};
 let SIGNED_IN = {json.dumps(signed_in)};
 const SIGNIN_ERROR = {json.dumps(signin_error)};
 const SIGNIN_DELAY_MS = {json.dumps(signin_delay_ms)};

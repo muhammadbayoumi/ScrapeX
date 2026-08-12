@@ -18,7 +18,9 @@ import {
 } from "./accounts.js";
 import { backUp, fetchLatest, fetchPanelPack } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
-import { ensureFolder, ensureSpreadsheet, DEFAULT_WORKBOOK, SHEET_FOLDER } from "./sheets.js";
+import {
+  ensureFolder, ensureSpreadsheet, writeTab, DEFAULT_WORKBOOK, SHEET_FOLDER,
+} from "./sheets.js";
 import {
   afterIdle, afterNextPaint, deadlineForLocalRequest, fetchWithDeadline,
   isTimeoutError, markStartup,
@@ -2350,8 +2352,19 @@ async function loadAccount({ interactive = false } = {}) {
       state.token = result.token;
       state.account = accountResult.account;
       state.accountStatus = null;
-      renderAccount({});
+      // THE DIRECTORY IS UPDATED BEFORE THE CARD IS DRAWN, and the order is the
+      // whole fix. It used to render first and remember afterwards, so the card
+      // read `state.currentAccountId` while it still held the empty string left
+      // by the last sign-out — and the row for the account that had just signed
+      // in failed the `id !== currentAccountId` filter, appearing in the list
+      // BELOW the header, labelled "Signed out".
+      //
+      // Reported by the owner from the running panel on 2026-08-12: one
+      // account, signed in at the top and signed out two inches under it.
+      // Nothing re-rendered afterwards, so the contradiction simply stayed on
+      // screen. The state was never wrong; it was read one step too early.
       await rememberSignedInAccount(accountResult.account);
+      renderAccount({});
       return { ...result, account: accountResult.account };
     }
 
@@ -3932,14 +3945,13 @@ const SOURCE_ACTIONS = [
    why: "Address, name and how this source is read."},
   {action: "pause", label: "Pause collecting",
    why: "Stop scheduled crawls without deleting anything."},
-  // THE ONE THAT IS NOT READY, and what is missing is an ENGINE route rather
-  // than panel work: sheets.js can create a spreadsheet and write a tab, but the
-  // rows have nowhere to come from. /api/records is paginated at 100 and carries
-  // the compact card shape, not the export shape; /export/{key}.xlsx is a binary
-  // workbook this panel cannot parse without a library it will not ship. One
-  // JSON route over reports.export_source_table is the whole gap.
-  {action: "sheet", label: "Export to Google Sheets", ready: false,
-   why: "Not built yet — the engine has no route that hands the panel export rows."},
+  // BUILT ON 2026-08-12, and it shipped disabled for exactly one day with the
+  // reason written on it: sheets.js could create a spreadsheet and fill a tab,
+  // and the rows had nowhere to come from. GET /api/export/{key} closed that,
+  // reusing the same export_source_table the .xlsx and the Apps Script funnel
+  // already use rather than inventing a third idea of what an export is.
+  {action: "sheet", label: "Export to Google Sheets",
+   why: "One tab per source, in a spreadsheet ScrapeX made in your Drive."},
 ];
 
 function sourceMenu(source) {
@@ -3983,11 +3995,58 @@ async function runSourceAction(action, key) {
     }
     return;
   }
-  // `sheet` is disabled in the markup and cannot arrive here. Saying so if it
-  // ever does beats doing nothing silently.
-  out("datasets-msg",
-      "That action is not built yet — it needs an engine route that hands the "
-      + "panel export rows.", "err");
+  if (action === "sheet") return exportSourceToSheet(key);
+  out("datasets-msg", `Unknown action ${esc(action)}.`, "err");
+}
+
+/**
+ * One source, into a tab of the owner's own spreadsheet.
+ *
+ * THE DIVISION HOLDS ALL THE WAY THROUGH. The engine produces rows and knows
+ * nothing about Google; the panel talks to Google and never opens a database.
+ * The token is read at the moment of use, as everywhere else here, because
+ * sign-out clears it from five places and a captured copy would outlive it.
+ *
+ * ONE TAB PER SOURCE, named for the source. The alternative — everything in one
+ * sheet — is the arrangement gdrive.py had, and it means an export of one
+ * source silently rewrites the rows of another.
+ */
+async function exportSourceToSheet(key) {
+  if (!state.token) {
+    out("datasets-msg", "Sign in with Google first — the Account button at the "
+                        + "top of the panel.", "err");
+    return;
+  }
+  out("datasets-msg", `Reading ${esc(key)}…`, "");
+  try {
+    const table = await api(`/api/export/${encodeURIComponent(key)}`);
+    if (!table.rows.length) {
+      out("datasets-msg",
+          `${esc(key)} has no rows to export yet — crawl it first.`, "err");
+      return;
+    }
+
+    out("datasets-msg", `Writing ${fmtCount(table.rows.length)} rows to Google…`, "");
+    const folder = await ensureFolder(state.token, SHEET_FOLDER);
+    const sheet = await ensureSpreadsheet(state.token, DEFAULT_WORKBOOK, {folder});
+    await writeTab(state.token, sheet.id, {
+      tab: key, header: table.header, rows: table.rows,
+    });
+
+    // TRUNCATION IS SAID, NOT LEFT TO BE NOTICED. A spreadsheet that stops at
+    // forty thousand rows looks exactly like a business with forty thousand
+    // products, and the difference matters on the day someone counts.
+    const capped = table.truncated
+      ? ` Only the first ${fmtCount(table.limit)} rows fit — the tab is not the whole source.`
+      : "";
+    out("datasets-msg",
+        `${esc(key)}: ${fmtCount(table.rows.length)} rows written to `
+        + `<a class="link" href="${esc(sheet.url)}" target="_blank" `
+        + `rel="noreferrer noopener">${esc(sheet.name)}</a>.${capped}`,
+        table.truncated ? "" : "ok");
+  } catch (error) {
+    out("datasets-msg", esc((error && error.message) || "Something went wrong."), "err");
+  }
 }
 
 

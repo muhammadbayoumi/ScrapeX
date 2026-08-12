@@ -808,10 +808,17 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
                   "Pause collecting", "Export to Google Sheets"):
         assert page.locator(f'.dataset-card [data-split-action]:has-text("{label}")'
                             ).count() == cards.count(), f"{label} is missing from the menu"
-    # The unbuilt one is PRESENT and DISABLED — the owner asked to watch the work
-    # in progress rather than have it hidden until it is finished.
-    assert page.locator('.dataset-card [data-split-action="sheet"][disabled]'
-                        ).count() == cards.count()
+    # EVERY ENTRY IS LIVE. Export shipped disabled for one day, with its reason
+    # written on it, because the engine had no route that could hand the panel
+    # export rows. GET /api/export/{key} closed that on 2026-08-12 and the
+    # entry was enabled in the same change.
+    #
+    # This asserted the DISABLED state until then, and the flip is the point: a
+    # menu that keeps saying "not built yet" after the thing is built is the
+    # same defect as one that hides it, pointing the other way.
+    assert page.locator(".dataset-card [data-split-action][disabled]").count() == 0, (
+        "a source action is disabled; if that is deliberate the reason belongs "
+        "in the entry, and this assertion belongs with it")
 
     page.click("#open-workbook")
     page.wait_for_timeout(200)
