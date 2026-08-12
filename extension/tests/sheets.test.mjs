@@ -314,3 +314,43 @@ test("a tab is named for its source, not shared with every other one", async () 
   assert.ok(named.some((entry) => entry.includes("'MADAR'")), named.join("\n"));
   assert.ok(named.some((entry) => entry.includes("'ELSEWEDY'")), named.join("\n"));
 });
+
+
+test("a disabled API is named as that, not as a permission refusal", async () => {
+  // REPORTED BY THE OWNER, 2026-08-12, on his first spreadsheet. Google answers
+  // 403 for a project whose Drive API was never switched on, and this module
+  // told him ScrapeX could only open files it created — true in general, and
+  // nothing to do with what had just happened. He was sent to think about
+  // permissions while the fix was one click in a console.
+  //
+  // The truth reached him from Google's own detail after the em-dash, not from
+  // us. Blaming a component that is working sends the owner to fix the wrong
+  // thing; this is the same lesson transport.js wrote down, arriving through a
+  // different door.
+  const fetchImpl = scripted([[() => true, () => reply(403, {body: {error: {message:
+    "Google Drive API has not been used in project 668111083414 before or it is "
+    + "disabled. Enable it by visiting https://console.developers.google.com/apis/"
+    + "api/drive.googleapis.com/overview?project=668111083414 then retry."}}})]]);
+
+  await assert.rejects(() => ensureFolder("tok", "ScrapeX", {fetchImpl}), (error) => {
+    assert.equal(error.kind, "api-disabled",
+      "a disabled API was reported as a permission problem");
+    assert.match(error.message, /nothing is wrong with your account/);
+    assert.match(error.message, /console\.developers\.google\.com/,
+      "the link Google gave is not passed through, so the fix is unreachable");
+    return true;
+  });
+});
+
+
+test("a real permission refusal still says what it is", async () => {
+  // The branch above must not swallow the case it was carved out of.
+  const fetchImpl = scripted([[() => true,
+    () => reply(403, {body: {error: {message: "Insufficient permission"}}})]]);
+
+  await assert.rejects(() => openChosen("tok", "not-ours", {fetchImpl}), (error) => {
+    assert.equal(error.kind, "not-ours");
+    assert.match(error.message, /only open spreadsheets it created/);
+    return true;
+  });
+});

@@ -1411,12 +1411,30 @@ code {
 .split-button-options {
   position: absolute;
   z-index: 120;
-  inset-inline: 0;
+  /* SIZED TO ITS CONTENT, not to whatever happens to be above it.
+     
+     `width: 100%; min-width: 0` was here, and it is only ever correct when the
+     trigger is already wide. The Activity log's split button IS wide, so it
+     looked right for a year. Two screens built on 2026-08-12 — the dataset
+     card's actions menu and Manage account's danger menu — both put this menu
+     under a ~32px icon, and both collapsed to ONE CHARACTER PER LINE:
+     "Dis / co / nn / ect / an / d ...".
+     
+     When two independent consumers break the same way, the shared rule is the
+     defect rather than the consumers.
+     
+     `min-width: 100%` keeps the wide case pixel-identical — a menu is still at
+     least as wide as the control it hangs from — while `max-content` fixes the
+     narrow one. The ceiling is what stops a long label overflowing a 320px
+     panel, which is the failure the old `min-width: 0` was reaching for and
+     achieving by breaking every label instead. */
+  inset-inline: auto 0;
   top: calc(100% + var(--sp-1));
   display: grid;
   gap: 2px;
-  width: 100%;
-  min-width: 0;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(20rem, 88vw);
   padding: var(--sp-1);
   background: var(--surface);
   border: 1px solid var(--line-strong);
@@ -1430,8 +1448,22 @@ code {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .split-button-option {
+  /* THE ICON COLUMN SIZES TO ITS ICON, and to nothing when there is none.
+     
+     It was a fixed `1.25rem`, which silently required every option to carry an
+     icon child. An option that is only text puts that text in grid child ONE —
+     the icon slot — and 20px of column is the "Up / da / te / no / w" the owner
+     photographed on 2026-08-12.
+     
+     Two consumers hit it independently: the dataset card's actions menu, and
+     Manage account's erase option, which the PR that added it worked around
+     locally with a note that no sprite symbol means "erase". A template that
+     needs a workaround from every consumer without an icon is the defect.
+     
+     `auto` is 1.25rem when there IS an svg — the icons are that size — so every
+     existing menu is pixel-identical. */
   display: grid;
-  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--sp-2);
   width: 100%;

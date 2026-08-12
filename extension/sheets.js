@@ -74,6 +74,28 @@ async function refuse(response, doing) {
     try { detail = (await response.text()).slice(0, 200); } catch (_) { /* nothing */ }
   }
   const tail = detail ? ` — ${detail}` : "";
+
+  // A DISABLED API IS A 403, AND IT IS NOT A PERMISSION PROBLEM.
+  //
+  // Found by the owner on 2026-08-12, creating his first spreadsheet: Google
+  // answered 403 with "Google Drive API has not been used in project ... before
+  // or it is disabled", and this function told him ScrapeX could only open
+  // files it created — the drive.file explanation, which is true in general and
+  // had nothing to do with what had just happened. He was sent to think about
+  // permissions while the fix was one click in a console.
+  //
+  // Blaming a component that is working sends the owner to fix the wrong thing;
+  // transport.js learned that and wrote it down, and this is the same lesson
+  // arriving through a different door. The console URL is Google's own and
+  // carries the project number, so it is repeated rather than summarised.
+  if (/has not been used in project|SERVICE_DISABLED|accessNotConfigured/i.test(detail)) {
+    return new SheetsError(
+      "This Google project has not switched on the API ScrapeX needs. Open the " +
+      "link Google gives below, press Enable, wait a minute, and try again — " +
+      "nothing is wrong with your account or your files." + tail,
+      403, "api-disabled");
+  }
+
   if (response.status === 401) {
     return new SheetsError(
       `Google refused the token while ${doing}. Sign in again from the panel.${tail}`,
