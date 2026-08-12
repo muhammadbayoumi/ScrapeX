@@ -14,6 +14,7 @@ function chromeHarness() {
     configuration: [],
     openedListeners: [],
     installedListeners: [],
+    externalListeners: [],
     open: [],
     storage: [],
     timeline: [],
@@ -28,6 +29,12 @@ function chromeHarness() {
       getURL(path) { return `chrome-extension://test/${path}`; },
       onInstalled: {
         addListener(listener) { calls.installedListeners.push(listener); },
+      },
+      // The chooser page's way back in. Absent from the harness, background.js
+      // throws while loading and every test here fails describing `addListener`
+      // rather than the worker.
+      onMessageExternal: {
+        addListener(listener) { calls.externalListeners.push(listener); },
       },
     },
     sidePanel: {

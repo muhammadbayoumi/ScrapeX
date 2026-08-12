@@ -370,3 +370,158 @@ def test_the_listing_names_the_version_being_submitted():
     assert MANIFEST["version"] in listing.splitlines()[0], (
         f"the listing is headed {listing.splitlines()[0]!r} and the manifest is "
         f"at {MANIFEST['version']}")
+
+
+# ---- the date is a claim like any other -------------------------------------
+
+def _stated_date(document: pathlib.Path) -> str:
+    """The `*Last updated: 6 August 2026*` line, as an ISO date."""
+    import datetime
+
+    text = document.read_text(encoding="utf-8")
+    found = re.search(r"\*Last updated:\s*(.+?)\s*\*", text)
+    assert found, f"{document.name} carries no 'Last updated' line"
+    return datetime.datetime.strptime(
+        found.group(1), "%d %B %Y").date().isoformat()
+
+
+def _last_changed(document: pathlib.Path) -> str | None:
+    """When git last recorded a change to this file, or None if unknowable."""
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%ad", "--date=short", "--",
+             str(document.relative_to(ROOT))],
+            cwd=ROOT, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    stamp = out.stdout.strip()
+    return stamp or None
+
+
+@pytest.mark.parametrize("name", ["privacy-policy.md", "support.md"])
+def test_the_last_updated_line_is_not_older_than_the_document(name):
+    """A DATE NOBODY MAINTAINS IS A CLAIM NOBODY CHECKS.
+
+    Found 2026-08-12. The policy was edited three times that day — the accounts
+    directory, three new hosts, the storage table — and its line still read
+    "6 August 2026". The PUBLISHED copy said the same, because publishing copies
+    the file including its stale date.
+
+    That is not a cosmetic slip. "Last updated" is the one line telling a reader
+    whether what follows describes the software they are running, and a policy
+    that has changed while claiming it has not is worse than one with no date at
+    all: it invites the reader to skip re-reading it.
+
+    Compared against git rather than against a hand-kept list, because the
+    question is "did this file change after the date it claims" and git is the
+    only thing that knows. A shallow checkout cannot answer, and that is a skip
+    rather than a pass — a check that cannot run must not report success.
+    """
+    document = ROOT / "docs" / name
+    changed = _last_changed(document)
+    if changed is None:
+        pytest.skip("no git history here — the comparison cannot be made")
+
+    stated = _stated_date(document)
+    assert stated >= changed, (
+        f"{name} says it was last updated {stated} and git records a change on "
+        f"{changed}. Set the line to the day of the change: a policy that has "
+        "moved while claiming it has not is the one a reader trusts and should "
+        "not.")
+
+
+@pytest.mark.parametrize("name", ["privacy-policy.md", "support.md"])
+def test_the_last_updated_line_is_not_in_the_future(name):
+    """The other direction, and the easier mistake: a date typed forward to
+    "cover" a change that has not happened yet describes a document nobody has
+    written."""
+    import datetime
+
+    stated = _stated_date(ROOT / "docs" / name)
+    today = datetime.date.today().isoformat()
+    assert stated <= today, (
+        f"{name} claims it was updated on {stated}, which has not happened yet")
+
+
+# ---- the chooser page, which is PUBLIC ---------------------------------------
+
+PICKER = ROOT / "docs" / "picker" / "scrapex-picker.html"
+
+
+def test_the_picker_page_carries_no_secret():
+    """THIS FILE IS SERVED FROM A PUBLIC WEBSITE. Anything in it is readable by
+    anyone, for ever, including after it is deleted.
+
+    The OAuth client id is public by design and lives in the manifest already.
+    A client SECRET, a refresh token, or an unrestricted key is not, and the
+    JSON Google hands over when a client is created carries the id and the
+    secret side by side — which is exactly how one ends up pasted into a page.
+    """
+    page = PICKER.read_text(encoding="utf-8")
+
+    assert "GOCSPX-" not in page, (
+        "a Google client SECRET is in a page served to the public internet")
+    assert "client_secret" not in page
+    assert "refresh_token" not in page
+    assert re.search(r"\bya29\.", page) is None, (
+        "an access token is written into the page rather than passed to it")
+
+
+def test_the_picker_answers_only_this_extension():
+    """`externally_connectable` says who may TALK TO the extension. It says
+    nothing about who this page may talk to, and a page that sent a chosen file
+    to any id in its query string would hand the owner's document to whatever
+    opened it."""
+    page = PICKER.read_text(encoding="utf-8")
+
+    assert "ALLOWED_EXTENSIONS" in page
+    assert "ekcgggphcfdbjgfkcmjagehfjhijeang" in page, (
+        "the page does not name the extension it is allowed to answer")
+    assert "indexOf(handed.extension) === -1" in page, (
+        "the extension id is read and not checked, so any id would be answered")
+
+
+def test_the_token_travels_in_the_fragment_and_is_erased():
+    """A query string reaches the server and its logs; a fragment does not. And
+    a fragment left in the address bar outlives the click that needed it."""
+    page = PICKER.read_text(encoding="utf-8")
+
+    assert "location.hash" in page, "the token is not read from the fragment"
+    assert "history.replaceState" in page, (
+        "the fragment is left in the address bar and the session history")
+    assert "?token=" not in page, "the token is put in a query string"
+
+
+def test_the_extension_admits_exactly_one_origin():
+    matches = MANIFEST.get("externally_connectable", {}).get("matches", [])
+    assert matches == ["https://muhammadbayoumi.github.io/*"], (
+        f"externally_connectable admits {matches}; it must name one origin, and "
+        "widening it opens the panel to every page on whatever it matches")
+
+
+def test_the_receiver_checks_the_origin_again():
+    """The manifest already restricts the sender, and the listener checks it
+    anyway. A match pattern is one character away from being widened, and this
+    listener is the last thing between a web page and the panel."""
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+
+    assert "onMessageExternal" in background
+    assert 'origin !== PICKER_ORIGIN' in background, (
+        "the external listener trusts whatever the manifest let through")
+    assert 'message.kind !== "scrapex-picked-spreadsheet"' in background, (
+        "any message shape from that origin is accepted")
+
+
+def test_the_choice_is_not_written_to_disk():
+    """A spreadsheet someone opened once is not a preference. `storage.session`
+    is gone when the browser closes; `storage.local` would keep a record of a
+    document nobody asked to be remembered."""
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+    listener = background[background.index("onMessageExternal"):]
+    listener = listener[:listener.index("\n});")]
+
+    assert "storage.session" in listener
+    assert "storage.local" not in listener, (
+        "the chosen file is kept on disk after the browser closes")

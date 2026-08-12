@@ -44,6 +44,7 @@ function workerHarness() {
     actionListeners: [],
     installedListeners: [],
     openedListeners: [],
+    externalListeners: [],
     configuration: [],
     open: [],
     tabs: [],
@@ -62,6 +63,13 @@ function workerHarness() {
       getURL: (path) => `chrome-extension://test/${path}`,
       onInstalled: {
         addListener(listener) { calls.installedListeners.push(listener); },
+      },
+      // The chooser page's only way back in. A harness without it does not
+      // merely skip a test — background.js throws on load and every test in
+      // this file fails with a message about `addListener` rather than about
+      // the panel.
+      onMessageExternal: {
+        addListener(listener) { calls.externalListeners.push(listener); },
       },
     },
     sidePanel: {
@@ -568,4 +576,142 @@ test("app.js starts even though DOMContentLoaded is long past when it arrives", 
     "app.js waits on DOMContentLoaded unconditionally at the top level. "
     + "boot-app.js appends it after `load`, so that event never fires again "
     + "and nothing in the panel ever starts");
+});
+
+// ---------------------------------------------------------------------------
+// The one door a web page has into this extension.
+//
+// `externally_connectable` in the manifest decides WHO may knock. These decide
+// what happens once someone has. Every one of them drives the real listener out
+// of background.js rather than a copy of its rules.
+// ---------------------------------------------------------------------------
+
+const PICKER_ORIGIN = "https://muhammadbayoumi.github.io";
+
+/** The listener the worker registered, with the harness's recorded writes. */
+async function externalListener(t) {
+  const {calls, chrome} = workerHarness();
+  await loadBackground(t, chrome);
+  assert.equal(calls.externalListeners.length, 1,
+    "background.js registers no external listener, so the chooser page can "
+    + "never hand anything back");
+  return {listen: calls.externalListeners[0], calls};
+}
+
+/**
+ * The last thing written under the picked-spreadsheet key.
+ *
+ * `.at(-1)` is wrong here: trace.mark() writes to the same session area, so the
+ * newest write is often the trace rather than the choice, and a test that read
+ * it would pass or fail on which promise settled first.
+ */
+function lastPicked(calls) {
+  const written = calls.storage
+    .filter((write) => "scrapexPickedSpreadsheet" in write);
+  return written.length ? written.at(-1).scrapexPickedSpreadsheet : undefined;
+}
+
+/** Every write that carried a choice — the count refusals must not raise. */
+function pickedWrites(calls) {
+  return calls.storage.filter((write) => "scrapexPickedSpreadsheet" in write).length;
+}
+
+/** Calls the listener and waits for whatever it promised to write. */
+async function knock(listen, message, origin) {
+  let answered;
+  const replied = new Promise((resolve) => { answered = resolve; });
+  listen(message, {origin, id: "whoever"}, answered);
+  const answer = await Promise.race([
+    replied,
+    new Promise((resolve) => setTimeout(() => resolve("never answered"), 50)),
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return answer;
+}
+
+test("a page on any other origin is refused, and nothing is written", async (t) => {
+  const {listen, calls} = await externalListener(t);
+  const before = pickedWrites(calls);
+
+  const answer = await knock(listen, {
+    kind: "scrapex-picked-spreadsheet",
+    fileId: "1AttackerSuppliedId",
+    name: "Payroll",
+  }, "https://muhammadbayoumi.github.io.example.com");
+
+  assert.deepEqual(answer, {ok: false});
+  assert.equal(pickedWrites(calls), before,
+    "a message from a look-alike origin reached storage. The manifest's match "
+    + "pattern is a prefix match on the host; a listener that trusts it is one "
+    + "typo away from taking a file id from any site");
+});
+
+test("an empty or absent origin is refused as firmly as a wrong one", async (t) => {
+  const {listen, calls} = await externalListener(t);
+  const before = pickedWrites(calls);
+
+  assert.deepEqual(await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: "1x"}, undefined), {ok: false});
+  assert.deepEqual(await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: "1x"}, ""), {ok: false});
+  assert.equal(pickedWrites(calls), before);
+});
+
+test("another kind of message from the right origin is still refused", async (t) => {
+  const {listen, calls} = await externalListener(t);
+  const before = pickedWrites(calls);
+
+  // The origin is correct here. Being allowed to speak is not being believed:
+  // one page on that site is compromised or one script is added to it, and this
+  // is what stands between that and the panel.
+  for (const message of [
+    null,
+    {},
+    {kind: "start-a-job", target: "http://127.0.0.1:8000"},
+    {kind: "scrapex-picked-spreadsheet ", fileId: "1x"},
+  ]) {
+    assert.deepEqual(await knock(listen, message, PICKER_ORIGIN), {ok: false},
+      `accepted ${JSON.stringify(message)}`);
+  }
+  assert.equal(pickedWrites(calls), before);
+});
+
+test("a chosen file arrives as an id and a name, and nothing else", async (t) => {
+  const {listen, calls} = await externalListener(t);
+
+  const answer = await knock(listen, {
+    kind: "scrapex-picked-spreadsheet",
+    fileId: "1RealFileId",
+    name: "Quarterly prices",
+    // Everything below was not asked for. A listener that spread the message
+    // would carry all of it into the panel's session storage.
+    token: "ya29.a-token-the-page-should-never-return",
+    url: "https://example.com/collect",
+    mimeType: "application/vnd.google-apps.spreadsheet",
+  }, PICKER_ORIGIN);
+
+  assert.deepEqual(answer, {ok: true});
+  const written = lastPicked(calls);
+  assert.deepEqual(written, {fileId: "1RealFileId", name: "Quarterly prices"},
+    "the panel received more than the id and the name it asked for");
+});
+
+test("a cancelled choice is recorded as a choice of nothing", async (t) => {
+  const {listen, calls} = await externalListener(t);
+
+  // Not silence: the panel is waiting, and a wait that ends only on a timeout
+  // makes cancelling feel like a fault.
+  assert.deepEqual(await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: null}, PICKER_ORIGIN), {ok: true});
+  assert.deepEqual(lastPicked(calls),
+    {fileId: null, name: ""});
+});
+
+test("a file id that is not a string becomes no file id", async (t) => {
+  const {listen, calls} = await externalListener(t);
+
+  await knock(listen, {kind: "scrapex-picked-spreadsheet",
+    fileId: {toString: "not a string"}, name: 42}, PICKER_ORIGIN);
+  assert.deepEqual(lastPicked(calls),
+    {fileId: null, name: ""});
 });

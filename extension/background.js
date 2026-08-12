@@ -158,6 +158,53 @@ chrome.sidePanel.onOpened?.addListener((info) => {
   trace.mark("side-panel-on-opened", info);
 });
 
+// ---- the spreadsheet the owner chose, arriving from a web page --------------
+//
+// Google Picker cannot run in this panel: it loads apis.google.com/js/api.js,
+// and MV3 forbids an extension executing code fetched from a server. So the
+// chooser lives on an ordinary web origin (docs/picker/scrapex-picker.html,
+// served from the owner's site) and hands back an id here.
+//
+// EVERYTHING FROM OUTSIDE IS UNTRUSTED, and `externally_connectable` narrows
+// WHO may speak, never WHAT they may say. The origin is checked again below
+// even though the manifest already restricts it — a match pattern is one
+// character from being widened, and this listener is the last thing standing
+// between a web page and the panel.
+//
+// It carries no token in either direction. The page was handed one to draw the
+// Picker with; what returns is a file id and a name, and the panel opens that
+// file with its own token exactly as it opens one it created.
+const PICKER_ORIGIN = "https://muhammadbayoumi.github.io";
+
+chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
+  const origin = (sender && sender.origin) || "";
+  if (origin !== PICKER_ORIGIN) {
+    trace.mark("picker-message-refused", {origin});
+    respond({ok: false});
+    return false;
+  }
+  if (!message || message.kind !== "scrapex-picked-spreadsheet") {
+    respond({ok: false});
+    return false;
+  }
+
+  // A FILE ID AND NOTHING ELSE. Whatever else the page sent is dropped here
+  // rather than forwarded, so a future field cannot arrive in the panel without
+  // someone adding it deliberately on this line.
+  const picked = {
+    fileId: typeof message.fileId === "string" ? message.fileId : null,
+    name: typeof message.name === "string" ? message.name : "",
+  };
+  trace.mark("picker-message", {picked: Boolean(picked.fileId)});
+
+  // chrome.storage.session, not local: a choice the owner made a moment ago is
+  // meaningless after the browser closes, and writing it to disk would keep a
+  // record of a document nobody asked us to remember.
+  chrome.storage.session.set({scrapexPickedSpreadsheet: picked})
+    .then(() => respond({ok: true}), () => respond({ok: false}));
+  return true;                       // the reply is asynchronous
+});
+
 // RETRIEVING THE TRACE. Run scrapexTrace() in the service worker's console
 // (chrome://extensions -> ScrapeX -> "service worker"). The two contexts write
 // to separate keys, so this is where they are merged back onto one clock — the

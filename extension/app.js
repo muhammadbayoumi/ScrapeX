@@ -22,7 +22,8 @@ import {
 } from "./drive.js";
 import { readPanelPack, datasetSummaries } from "./bundleview.js";
 import {
-  ensureFolder, ensureSpreadsheet, writeTab, DEFAULT_WORKBOOK, SHEET_FOLDER,
+  ensureFolder, ensureSpreadsheet, openChosen, writeTab,
+  DEFAULT_WORKBOOK, SHEET_FOLDER,
 } from "./sheets.js";
 import {
   afterIdle, afterNextPaint, deadlineForLocalRequest, fetchWithDeadline,
@@ -5602,6 +5603,73 @@ async function fetchFromDrive(token) {
          ` by engine ${pointer.engine_version || "unknown"}. It is not installed — this only checks it is there.`;
 }
 
+//: Where the chooser lives. It cannot be a page in this extension: Google
+//: Picker loads a remote script and MV3 forbids that, so it is served from the
+//: owner's own site and answers through background.js's onMessageExternal.
+const PICKER_PAGE = "https://muhammadbayoumi.github.io/mbiXsite/scrapex-picker.html";
+
+/**
+ * Let the owner point ScrapeX at a spreadsheet it did not create.
+ *
+ * `drive.file` reaches two kinds of file: ones this app made, and ones the
+ * owner hands it through the Picker. This is the second kind, and it is the
+ * only way to widen that scope without asking Google for a sensitive one.
+ *
+ * THE TOKEN GOES IN THE FRAGMENT. Browsers do not send a fragment to the
+ * server and do not log it, and the page erases it from the address bar on
+ * load. It is used to draw the Picker and for nothing else — what comes back
+ * is an id, and the panel opens the file with its own token.
+ */
+async function pickExistingSpreadsheet() {
+  if (!state.token) {
+    out("drive-msg", "Sign in with Google first — the Account button at the "
+                     + "top of the panel.", "err");
+    return;
+  }
+  await chrome.storage.session.remove("scrapexPickedSpreadsheet");
+  const url = `${PICKER_PAGE}#token=${encodeURIComponent(state.token)}`
+    + `&ext=${encodeURIComponent(chrome.runtime.id)}`;
+  chrome.tabs.create({url});
+  out("drive-msg", "Choose a spreadsheet in the tab that just opened, then come "
+                   + "back here.", "");
+
+  // POLLED, NOT PUSHED. A side panel can be closed and reopened while the owner
+  // is choosing, and a message sent to a panel that is not there is lost —
+  // which is why background.js writes the choice to session storage instead of
+  // forwarding it. This reads that, and stops after two minutes rather than
+  // polling for the life of the browser.
+  const deadline = Date.now() + 120000;
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const held = await chrome.storage.session.get("scrapexPickedSpreadsheet");
+    const picked = held.scrapexPickedSpreadsheet;
+    if (picked) {
+      await chrome.storage.session.remove("scrapexPickedSpreadsheet");
+      if (!picked.fileId) {
+        out("drive-msg", "Nothing was chosen.", "");
+        return;
+      }
+      try {
+        const sheet = await openChosen(state.token, picked.fileId);
+        const link = $("sheet-link");
+        if (link) {
+          link.innerHTML = `<a class="link" href="${esc(sheet.url)}" `
+            + `target="_blank" rel="noreferrer noopener">${esc(sheet.name)}</a>`;
+        }
+        out("drive-msg", `ScrapeX can now write to "${esc(sheet.name)}".`, "ok");
+      } catch (error) {
+        out("drive-msg", esc((error && error.message) || "That file could not be opened."), "err");
+      }
+      return;
+    }
+    if (Date.now() > deadline) {
+      out("drive-msg", "No spreadsheet was chosen. Press the button again when "
+                       + "you are ready.", "");
+      return;
+    }
+  }
+}
+
 async function createSpreadsheet(token) {
   const folder = await ensureFolder(token, SHEET_FOLDER);
   const sheet = await ensureSpreadsheet(token, DEFAULT_WORKBOOK, {folder});
@@ -5621,6 +5689,11 @@ function wireGoogleControls() {
     ["drive-restore", "Looking for the latest backup…", fetchFromDrive],
     ["sheet-create", "Creating the spreadsheet…", createSpreadsheet],
   ];
+  // Wired apart from the three above because it does NOT follow their shape:
+  // it opens a tab and waits on the owner rather than running a request, so it
+  // must not disable the row or claim to be working while nothing is.
+  const choose = $("sheet-choose");
+  if (choose) choose.addEventListener("click", () => pickExistingSpreadsheet());
   for (const [id, working, action] of actions) {
     const button = $(id);
     if (button) {

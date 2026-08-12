@@ -1,6 +1,6 @@
 # ScrapeX — Support
 
-*Last updated: 6 August 2026*
+*Last updated: 8 August 2026*
 
 ScrapeX is maintained by **Muhammad Bayoumi**.
 
