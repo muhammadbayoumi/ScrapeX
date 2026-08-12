@@ -887,6 +887,10 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
 
 
 HEARTBEAT_KEY = "runtime_heartbeat"
+#: When this runtime last finished sweeping jobs left behind by a dead one. It
+#: is the answer to "has the engine tidied up yet?", which /api/health cannot
+#: give: health is the HTTP thread's answer and the sweep is the worker's.
+RECLAIM_KEY = "orphans_reclaimed_at"
 HEARTBEAT_MAX_AGE_S = 30.0
 
 # A JOB may go quiet for far longer than a loop pass and still be healthy:
@@ -1076,8 +1080,27 @@ def reclaim_orphaned_jobs(conn: sqlite3.Connection) -> int:
             "WHERE status = ?",
             (target.value, JobControl.NONE.value, target.value, utc_now_iso(), stuck.value))
         reclaimed += cur.rowcount
-    if reclaimed:
-        conn.commit()
+    # THE SWEEP SAYS WHEN IT RAN, and it says so even when it reclaimed nothing.
+    #
+    # OP-19. `Engine.start()` in the chaos test waited for /api/health and then
+    # read crawl_job.status immediately — but health is answered by the HTTP
+    # thread the moment the server binds, while this sweep runs on the WORKER
+    # thread after it connects. Which of the two won was a coin toss: the test
+    # failed three runs in four on a loaded Windows machine and passed reliably
+    # on the Linux runner, so it read as "works in CI, broken locally" and
+    # invited exactly the wrong diagnosis.
+    #
+    # Nothing here needed fixing — the reclaim was always correct. What was
+    # missing is that the engine knew it had finished and nobody could ask.
+    #
+    # Written UNCONDITIONALLY, before the `if reclaimed` above would have
+    # returned early: "no orphans found" is a completed sweep, and a marker that
+    # only appears when there was damage cannot be waited on by anyone.
+    conn.execute(
+        "INSERT INTO scrapex_meta (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (RECLAIM_KEY, utc_now_iso()))
+    conn.commit()
     return reclaimed
 
 

@@ -1233,3 +1233,60 @@ def test_the_budget_bounds_how_many_sites_crawl_at_once(tmp_path):
     intervals = sorted(_intervals(events), key=lambda item: item[1])
     for (_, _prev_in, prev_out), (_, next_in, _next_out) in zip(intervals, intervals[1:]):
         assert prev_out <= next_in, f"budget 1 let two sites overlap: {events}"
+
+
+def test_the_sweep_records_that_it_ran_even_when_it_found_nothing(conn):
+    """OP-19's fix, guarded at its root rather than through the chaos test.
+
+    The chaos test above cannot prove this: it is a race whose outcome depends
+    on machine load, and removing the wait passed three runs in three on the
+    afternoon it was written while failing three in four that morning. A test
+    that cannot be made to fail on demand proves nothing when it passes.
+
+    So the property is asserted where it IS deterministic: the marker exists
+    after a sweep, and it exists even when the sweep found no orphans.
+
+    THE SECOND HALF IS THE LOAD-BEARING ONE. A marker written only when
+    something was reclaimed would be absent on every healthy start — and a
+    caller waiting for it would wait for ever on exactly the machines where
+    nothing had gone wrong.
+    """
+    from scrapex.jobs import RECLAIM_KEY, reclaim_orphaned_jobs
+
+    before = conn.execute(
+        "SELECT value FROM scrapex_meta WHERE key = ?", (RECLAIM_KEY,)).fetchone()
+    assert before is None, "the marker exists before any sweep has run"
+
+    reclaimed = reclaim_orphaned_jobs(conn)
+
+    after = conn.execute(
+        "SELECT value FROM scrapex_meta WHERE key = ?", (RECLAIM_KEY,)).fetchone()
+    assert reclaimed == 0, "the fixture warehouse had orphans to reclaim"
+    assert after is not None, (
+        "the sweep found nothing and recorded nothing, so anyone waiting "
+        "for it to finish waits for ever on a healthy engine")
+    assert after[0].endswith("Z")
+
+
+def test_a_second_sweep_moves_the_marker_forward(conn):
+    """A caller distinguishes "this runtime has swept" from "some runtime once
+    swept" by the value CHANGING. A marker written once and never updated would
+    let a restart look like a completed sweep it never performed."""
+    import sqlite3
+    import time
+
+    from scrapex.jobs import RECLAIM_KEY, reclaim_orphaned_jobs
+
+    reclaim_orphaned_jobs(conn)
+    first = conn.execute(
+        "SELECT value FROM scrapex_meta WHERE key = ?", (RECLAIM_KEY,)).fetchone()[0]
+    # The stamp is whole seconds, so a same-second second sweep is a
+    # real possibility and must not be mistaken for a stalled one.
+    time.sleep(1.1)
+    reclaim_orphaned_jobs(conn)
+    second = conn.execute(
+        "SELECT value FROM scrapex_meta WHERE key = ?", (RECLAIM_KEY,)).fetchone()[0]
+
+    assert second > first, (
+        f"the marker did not move: {first!r} then {second!r}. A caller "
+        "waiting for THIS runtime's sweep would accept a previous one's.")
