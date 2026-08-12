@@ -251,17 +251,25 @@ test("the sensitive spreadsheets scope is nowhere in the extension", async () =>
   //
   // Importing the array and comparing elements is exact, and it reads the same
   // constant chrome.identity is handed rather than the file it lives in.
+  //
+  // AND THE COMPARISON IS `===`, NOT `.includes`. The first fix kept .includes
+  // and CodeQL flagged it twice more, which was fair: .includes is Array
+  // membership on an array and SUBSTRING containment on a string, the two are
+  // written identically, and nothing at the call site says which one this is.
+  // On a value that came out of JSON.parse, a reader — human or analyser —
+  // cannot tell. Comparing elements with === has one meaning only.
   const {SCOPES} = await import("../identity.js");
   const manifest = JSON.parse(readFileSync(
     new URL("../manifest.json", import.meta.url), "utf8"));
+  const asked = (list, scope) => list.filter((held) => held === scope).length;
 
   const sensitive = "https://www.googleapis.com/auth/spreadsheets";
-  assert.equal(manifest.oauth2.scopes.includes(sensitive), false,
+  assert.equal(asked(manifest.oauth2.scopes, sensitive), 0,
     "the sensitive spreadsheets scope is back in the manifest");
-  assert.equal(SCOPES.includes(sensitive), false,
+  assert.equal(asked(SCOPES, sensitive), 0,
     "the sensitive spreadsheets scope is back in identity.js");
-  assert.ok(manifest.oauth2.scopes.includes(
-    "https://www.googleapis.com/auth/drive.file"),
+  assert.equal(asked(manifest.oauth2.scopes,
+                     "https://www.googleapis.com/auth/drive.file"), 1,
     "drive.file is gone, and nothing here can work without it");
 
   // The two lists are the same promise written twice — Chrome reads the
