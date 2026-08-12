@@ -9,8 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  SCOPES, accountFor, authUrl, authorize, readRedirect, registeredRedirect,
-  WEB_CLIENT_ID,
+  SCOPES, accountFor, authUrl, authorize, readRedirect, WEB_CLIENT_ID,
 } from "../identity.js";
 
 const DRIVE = "https://www.googleapis.com/auth/drive.file";
@@ -223,33 +222,28 @@ test("an account response without an id is still an account, with an empty one",
 });
 
 
-test("the redirect sent to Google matches what Google stored, slash and all", async () => {
-  // THE ONE-CHARACTER FAILURE. Chrome's getRedirectURL() ends in "/"; the
-  // Console strips it when the path is empty, so the client the owner created
-  // on 2026-08-12 records the bare host. Google compares the two literally and
-  // answers redirect_uri_mismatch — an error that names the redirect and not
-  // the slash, which is the whole reason this is asserted rather than trusted.
-  const chromeGives = "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org/";
-  const googleStores = "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org";
+test("the redirect goes to Google exactly as Chrome produced it", async () => {
+  // THE FIX THAT WAS WRONG, kept as a test so it is not re-attempted.
+  //
+  // The client Google created on 2026-08-12 recorded the bare host with no
+  // trailing slash, because the Console strips one when the path is empty. The
+  // first fix stripped the slash in code to match. Then the owner added the
+  // slashed form to the client — at which point stripping is the thing that
+  // breaks it.
+  //
+  // Chrome's value is canonical. Nothing normalises it, and a future tidy-up
+  // that "helpfully" trims it fails here.
+  const fromChrome = "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org/";
+  const identity = fakeIdentity(`${fromChrome}#access_token=ya29.T`
+    + `&scope=${encodeURIComponent(SCOPES.join(" "))}`);
+  identity.getRedirectURL = () => fromChrome;
 
-  assert.equal(registeredRedirect(chromeGives), googleStores);
-  assert.equal(registeredRedirect(googleStores), googleStores,
-               "normalising an already-normal value must not change it");
-  assert.equal(registeredRedirect(`${googleStores}//`), googleStores);
-  assert.equal(registeredRedirect(""), "");
-});
+  await authorize({ identity, runtime: RUNTIME, clientId: CLIENT, interactive: true });
 
-
-test("the auth URL carries the normalised redirect, not the raw one", async () => {
-  const url = new URL(authUrl({
-    clientId: "x.apps.googleusercontent.com",
-    redirectUri: registeredRedirect(
-      "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org/"),
-  }));
-
-  assert.equal(url.searchParams.get("redirect_uri"),
-               "https://ekcgggphcfdbjgfkcmjagehfjhijeang.chromiumapp.org",
-               "a trailing slash here is the mismatch Google refuses");
+  const asked = new URL(identity.calls[0].url);
+  assert.equal(asked.searchParams.get("redirect_uri"), fromChrome,
+    "the redirect was altered on the way to Google; it must be sent verbatim, "
+    + "and a mismatch is fixed in the Cloud Console rather than here");
 });
 
 
