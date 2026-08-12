@@ -16,6 +16,7 @@ import pathlib
 import re
 
 import pytest
+from urllib.parse import urlparse
 
 pytestmark = pytest.mark.extension
 
@@ -386,18 +387,54 @@ def _stated_date(document: pathlib.Path) -> str:
 
 
 def _last_changed(document: pathlib.Path) -> str | None:
-    """When git last recorded a change to this file, or None if unknowable."""
+    """When this document's CONTENT last changed, or None if unknowable.
+
+    Not `git log -1`. Correcting the date is itself a change to the file, so a
+    guard measured that way demands the date be moved again, and again after
+    that: the document would be perpetually one commit behind a line that exists
+    only to describe it. The first version of this helper did exactly that and
+    failed the moment its own correction was committed.
+
+    So commits whose only effect on this file is the `Last updated` line are
+    walked past. What remains answers the question actually being asked — has
+    anything a reader would care about changed since the date printed at the top.
+    """
     import subprocess
 
-    try:
-        out = subprocess.run(
-            ["git", "log", "-1", "--format=%ad", "--date=short", "--",
-             str(document.relative_to(ROOT))],
-            cwd=ROOT, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
+    relative = str(document.relative_to(ROOT))
+
+    def git(*arguments: str) -> str | None:
+        try:
+            out = subprocess.run(["git", *arguments], cwd=ROOT,
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return out.stdout if out.returncode == 0 else None
+
+    history = git("log", "--format=%H %ad", "--date=short", "--", relative)
+    if not history:
         return None
-    stamp = out.stdout.strip()
-    return stamp or None
+
+    for line in history.splitlines():
+        commit, _, stamp = line.partition(" ")
+        # --unified=0 so the surrounding unchanged lines are not mistaken for
+        # the change itself.
+        patch = git("show", "--format=", "--unified=0", commit, "--", relative)
+        if patch is None:
+            return stamp.strip() or None
+        touched = [
+            body for body in (
+                text[1:] for text in patch.splitlines()
+                if text[:1] in "+-" and not text.startswith(("+++", "---"))
+            )
+            if body.strip() and not body.lstrip().startswith("*Last updated:")
+        ]
+        if touched:
+            return stamp.strip() or None
+
+    # Every commit that ever touched it only moved the date. Nothing to be late
+    # for.
+    return None
 
 
 @pytest.mark.parametrize("name", ["privacy-policy.md", "support.md"])
@@ -525,3 +562,34 @@ def test_the_choice_is_not_written_to_disk():
     assert "storage.session" in listener
     assert "storage.local" not in listener, (
         "the chosen file is kept on disk after the browser closes")
+
+
+def test_the_three_places_that_name_the_chooser_agree():
+    """The panel opens an address; the manifest admits an origin; the listener
+    checks one. Three files naming the same host in three syntaxes is three
+    chances to move the page and leave the button opening nothing."""
+    app_js = (ROOT / "extension" / "app.js").read_text(encoding="utf-8")
+    background = (ROOT / "extension" / "background.js").read_text(encoding="utf-8")
+
+    page = re.search(r'PICKER_PAGE\s*=\s*"([^"]+)"', app_js)
+    assert page, "app.js no longer names a chooser page"
+    opened = urlparse(page.group(1))
+    origin = f"{opened.scheme}://{opened.netloc}"
+
+    checked = re.search(r'PICKER_ORIGIN\s*=\s*"([^"]+)"', background)
+    assert checked, "background.js no longer names an origin to check"
+    assert checked.group(1) == origin, (
+        f"the panel opens {origin} but the listener only answers "
+        f"{checked.group(1)}, so nothing chosen there can ever come back")
+
+    admitted = MANIFEST["externally_connectable"]["matches"][0]
+    assert admitted == f"{origin}/*", (
+        f"the manifest admits {admitted} while the chooser is served from "
+        f"{origin}")
+
+    # The path matters to nobody but the person publishing the file, which is
+    # exactly why it is written down.
+    readme = (ROOT / "docs" / "picker" / "README.md").read_text(encoding="utf-8")
+    assert page.group(1) in readme, (
+        "docs/picker/README.md does not state the address the panel actually "
+        "opens, so the file would be published to the wrong place")
