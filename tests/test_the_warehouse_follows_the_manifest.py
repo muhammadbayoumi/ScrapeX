@@ -21,6 +21,8 @@ is undeclared whatever flag its rows carry.
 """
 from __future__ import annotations
 
+import pathlib
+
 import os
 import sqlite3
 import subprocess
@@ -29,6 +31,8 @@ import sys
 import pytest
 
 from scrapex.storage import reconcile_active, undeclared_sources
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 TWO_SOURCES = """
 sources:
@@ -165,3 +169,67 @@ def test_reconciling_against_no_manifest_changes_nothing(tmp_path, monkeypatch):
         assert _stored(conn)["ANY"] == 1
     finally:
         conn.close()
+
+
+# ---- the warehouse follows the manifest, from every path -------------------
+
+def test_every_manifest_reload_reconciles_the_warehouse():
+    """N7 / OP-2, and the fix is the CALLERS rather than the reconciliation.
+
+    `reconcile_active` already existed and was already correct. It had exactly
+    one caller — the panel's active toggle — so the warehouse followed the
+    manifest only when the owner used that one control. Every other way the
+    manifest changes left the database claiming something else: an edit by hand,
+    an add, a rename, a remove, or a `git checkout`.
+
+    That last one is recorded rather than imagined. BACKLOG OP-2 measured a
+    manifest edit that lived on one machine, was reverted by a checkout, and
+    went unnoticed for eleven days.
+
+    Asserted over the SOURCE because the property is "no reload is missed", and
+    the way it gets broken is someone adding a sixth route that reloads the
+    manifest and forgets the line. A test that exercised the five known routes
+    would pass on the day the sixth arrives.
+    """
+    import re
+
+    source = (ROOT / "scrapex" / "webui" / "app.py").read_text(encoding="utf-8")
+    lines = source.splitlines()
+
+    reloads = [n for n, line in enumerate(lines)
+               if "app.state.manifest = load_manifest(" in line]
+    assert len(reloads) >= 5, (
+        f"only {len(reloads)} manifest reloads found; this test has lost track "
+        "of the thing it guards")
+
+    missing = []
+    for n in reloads:
+        # The definition line itself is the one inside create_app's body that
+        # precedes the helper; it is followed by the startup call a few lines
+        # down rather than immediately.
+        window = "\n".join(lines[n:n + 6])
+        if "_follow_the_manifest()" not in window:
+            missing.append(n + 1)
+
+    assert not missing, (
+        f"app.py reloads the manifest at line(s) {missing} without reconciling "
+        "the warehouse afterwards. The manifest is the definition and the "
+        "warehouse is the consequence — a reload that skips this leaves the "
+        "owner's own database saying something the manifest does not.")
+
+
+def test_the_reconciliation_is_not_reachable_only_through_one_button():
+    """The shape of the old defect, named so it cannot return quietly.
+
+    One caller is not a bug in itself; one caller for a rule that describes the
+    whole warehouse is. If this ever drops back to a single site, the rule has
+    silently become a feature of that one control again.
+    """
+    source = (ROOT / "scrapex" / "webui" / "app.py").read_text(encoding="utf-8")
+    calls = source.count("_follow_the_manifest()")
+
+    # One definition, one startup call, and one per reload path.
+    assert calls >= 6, (
+        f"the warehouse is reconciled from {calls} place(s). It needs to happen "
+        "wherever the manifest is reloaded, including at startup — that is the "
+        "only path that notices a manifest changed outside the panel.")

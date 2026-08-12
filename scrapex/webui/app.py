@@ -444,6 +444,41 @@ def create_app(
     # here, also means every later reload reads the same file this one did.
     app.state.manifest_path = str(resolve_manifest_path(manifest_path))
     app.state.manifest = load_manifest(app.state.manifest_path)
+
+    def _follow_the_manifest() -> list[str]:
+        """Write the manifest's `active` into the warehouse. Returns what moved.
+
+        THE MANIFEST IS THE DEFINITION; THE WAREHOUSE IS THE CONSEQUENCE. An
+        inactive source is never crawled, so its stored flag is never touched by
+        a crawl either — which is exactly how the database came to claim all
+        twelve sources were live while sources.yaml had five switched off.
+
+        CALLED FROM EVERY PATH THAT RELOADS THE MANIFEST, and that is the fix
+        rather than the reconciliation itself, which already existed. It had one
+        caller: the panel's active toggle. So the warehouse followed the manifest
+        only when the owner used that one control, and drifted silently whenever
+        sources.yaml changed any other way — an edit by hand, an add, a rename, a
+        remove, or a `git checkout`.
+
+        That last one is not hypothetical. BACKLOG OP-2 records a manifest edit
+        that existed on one machine, was reverted by a checkout, and went
+        unnoticed for eleven days.
+
+        Nothing reads the stored flag to decide a crawl — the scheduler reads the
+        manifest — so this repairs no behaviour. It repairs what the owner's own
+        database SAYS, which is what he queries, exports, and will read from the
+        Console.
+        """
+        conn = read_conn()
+        try:
+            return sorted(reconcile_active(conn))
+        except Exception:
+            # A warehouse that cannot be reconciled is a warehouse health
+            # already reports on. Refusing to start over it would be worse.
+            return []
+        finally:
+            conn.close()
+
     # The job worker owns ALL long-running crawls (spec 4). Tests drive the
     # synchronous seam instead, so the thread is opt-in.
     # The worker follows the warehouse: a move or a compaction changes
@@ -511,6 +546,16 @@ def create_app(
         if app.state.databases is not None:
             return app.state.databases.engine.connect()
         return dbmod.connect(app.state.db_path)
+
+    # AT STARTUP, and here rather than beside the manifest load thirty lines
+    # above: `_follow_the_manifest` closes over `read_conn`, which is defined on
+    # the line above this one. Calling it earlier raised
+    # "cannot access free variable 'read_conn'" — a closure reads its enclosing
+    # scope when it RUNS, and at that point the name was still unbound.
+    #
+    # This is the only path that notices a manifest changed outside the panel:
+    # an edit by hand, a restore, or a `git checkout` that reverts one.
+    _follow_the_manifest()
 
     def ensure_schema(conn) -> None:
         """Migrate ONLY a legacy single-file warehouse.
@@ -1458,17 +1503,7 @@ def create_app(
         except Exception as exc:  # pydantic refusals (e.g. a TBD-probe placeholder)
             raise HTTPException(status_code=400, detail=str(exc))
         app.state.manifest = load_manifest(app.state.manifest_path)
-        # THE WAREHOUSE FOLLOWS THE MANIFEST, here and not on the next crawl,
-        # because an inactive source is never crawled -- which is precisely why
-        # its stored flag stayed at 1 and the database claimed all twelve
-        # sources were live while five were switched off. Nothing reads the
-        # stored flag to decide a crawl (the scheduler reads the manifest), but
-        # the owner reads his own database, and so will the Console.
-        conn = read_conn()
-        try:
-            reconciled = reconcile_active(conn)
-        finally:
-            conn.close()
+        reconciled = _follow_the_manifest()
         return {"source_key": source_key, "active": wanted,
                 "warehouse_updated": sorted(reconciled)}
 
@@ -1483,6 +1518,7 @@ def create_app(
         except DuplicateSourceError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         app.state.manifest = load_manifest(app.state.manifest_path)  # reflect the new source
+        _follow_the_manifest()
         return {"ok": True, "source_key": entry.source_key,
                 "implemented": entry.family in _BUILDERS}
 
@@ -1637,6 +1673,7 @@ def create_app(
         except Exception as exc:  # pydantic refusals reach the panel as a message
             raise HTTPException(status_code=400, detail=str(exc))
         app.state.manifest = load_manifest(app.state.manifest_path)
+        _follow_the_manifest()
         return {"ok": True, "source_key": source_key}
 
     @app.post("/api/sources/{source_key}/rename")
@@ -1684,6 +1721,7 @@ def create_app(
                 detail=f"the rows moved to {new_key!r} but the manifest did not: "
                        f"{exc}. The warehouse is consistent; fix the manifest.")
         app.state.manifest = load_manifest(app.state.manifest_path)
+        _follow_the_manifest()
         return {"ok": True, "source_key": new_key, "moved": moved}
 
     @app.delete("/api/sources/{source_key}")
@@ -1699,6 +1737,7 @@ def create_app(
         if not remove_source(source_key, app.state.manifest_path):
             raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
         app.state.manifest = load_manifest(app.state.manifest_path)
+        _follow_the_manifest()
         return {"ok": True, "source_key": source_key, "data_kept": True}
 
     @app.post("/api/sources/{source_key}/wipe")
