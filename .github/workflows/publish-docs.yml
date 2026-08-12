@@ -108,6 +108,55 @@ jobs:
             echo "Nothing to publish. The website already carries these documents."
           fi
 
+      - name: The chooser owners are actually sent to must be the one tested here
+        # THIS WORKFLOW CANNOT FIX WHAT IT FINDS, AND MUST STILL LOOK.
+        #
+        # scrapex-picker.html is the only part of ScrapeX served from a web
+        # server, and it is the part that handles a Google access token. It
+        # lives in mbiXsite -- a different repository, published by hand -- so
+        # every test in this repository asserts against a copy that nobody has
+        # checked is the copy being served.
+        #
+        # It is in mbiXsite's public/ precisely so Vite copies it VERBATIM; a
+        # build that transformed it would make the served page differ from the
+        # tested one silently. This is what proves that held.
+        #
+        # A mismatch fails, loudly, because the alternative is a page handling
+        # the owner's token that nobody reviewed.
+        run: |
+          set -uo pipefail
+          PAGE=https://muhammadbayoumi.github.io/mbiXsite/scrapex-picker.html
+          mine=$(sha256sum docs/picker/scrapex-picker.html | cut -d' ' -f1)
+          served=$(curl -sL --max-time 20 "$PAGE" 2>/dev/null || true)
+          theirs=$(printf '%s' "$served" | sha256sum | cut -d' ' -f1)
+
+          if [ -z "$served" ]; then
+            echo "::error::$PAGE served nothing. The panel's Choose an existing"
+            echo "one button opens a page that does not exist."
+            exit 1
+          fi
+          if [ "$mine" != "$theirs" ]; then
+            echo "::error::the chooser served to owners is not the file this"
+            echo "repository tests."
+            echo "  repository: $mine"
+            echo "  served:     $theirs"
+            echo "Republish docs/picker/scrapex-picker.html to mbiXsite at"
+            echo "public/scrapex-picker.html -- see docs/picker/README.md."
+            exit 1
+          fi
+
+          # A hash proves sameness, not safety. These say what the sameness is
+          # worth, so a future edit that ships a secret fails HERE as well as in
+          # the unit tests -- the served copy is the one that can hurt anyone.
+          for secret in "GOCSPX-" "client_secret" "refresh_token"; do
+            if printf '%s' "$served" | grep -q "$secret"; then
+              echo "::error::the published chooser contains $secret."
+              echo "It is public. Revoke the credential, do not merely delete it."
+              exit 1
+            fi
+          done
+          echo "The chooser served to owners is byte-for-byte the tested file."
+
   publish:
     needs: drift
     # NO `if:` HERE, ON PURPOSE. It was on the job, and the comment beside it
