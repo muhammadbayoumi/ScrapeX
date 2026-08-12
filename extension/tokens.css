@@ -52,6 +52,16 @@
   --control-hover: var(--surface-subtle);
   --control-height: 2.5rem;
   --control-height-sm: 2rem;
+  /* The third notch, added 2026-08-11 by the owner's ruling on the Profile
+     top bar: «وضيف فى القاعدة العامة الاختيارين» — carry BOTH sizes in the
+     general rule rather than let one screen override it locally.
+     It is deliberately NOT re-declared in extension/app.css. The extension
+     shifts the other two notches up (see the :root block at the top of that
+     file) because a side panel is a pointer surface with a 48px floor; this
+     one exists for the quiet, secondary icon control the Profile design asks
+     for, and it is the same 32px on both surfaces. Anything a finger must hit
+     reliably still uses --control-height or --touch-target. */
+  --control-height-xs: 2rem;
   --touch-target: 3rem;
 
   /* Spacing — 4px base */

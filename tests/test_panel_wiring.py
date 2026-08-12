@@ -43,6 +43,32 @@ def test_every_element_the_script_reaches_for_exists():
     assert not missing, f"app.js reaches for ids that app.html does not define: {missing}"
 
 
+def test_the_dom_harness_inlines_every_module_the_panel_imports():
+    """tools/panel_harness.py flattens the module graph by hand, and a module
+    left off that list does not fail loudly.
+
+    MET ON 2026-08-11. extension/accounts.js was added and wired into app.js but
+    not into the harness, so the harness stripped app.js's imports and every
+    call into it raised ReferenceError at the call site. Those calls are wrapped
+    in try/catch on purpose — the panel has to survive a storage fault — so the
+    remembered-accounts directory was silently never written while every visible
+    part of the panel, and every existing test, kept passing.
+
+    A missing module can break a feature outright or, worse, half of one. This
+    check is static and cheap, and it is the only thing standing between the two.
+    """
+    harness = (Path(__file__).resolve().parent.parent
+               / "tools" / "panel_harness.py").read_text(encoding="utf-8")
+    imported = set(re.findall(r'^import[\s\S]*?from "\./([\w.-]+\.js)";', JS, flags=re.M))
+    assert imported, "app.js appears to import nothing, so this guard reads the wrong file"
+
+    inlined = set(re.findall(r'EXT / "([\w.-]+\.js)"', harness))
+    missing = sorted(imported - inlined)
+    assert not missing, (
+        "tools/panel_harness.py does not inline modules app.js imports, so every "
+        f"call into them is a ReferenceError inside the harness: {missing}")
+
+
 def _pages_and_what_their_scripts_reach_for():
     """Every page in the extension, paired with the ids it defines and the ids
     the scripts IT loads reach for. Ids a script renders itself count as defined,
