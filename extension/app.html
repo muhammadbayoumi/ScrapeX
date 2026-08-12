@@ -1513,6 +1513,35 @@
               <p class="muted hint">
                 Local destinations stay separate from external sync services.</p>
               <div id="outputs" class="output-groups"><div class="skeleton"></div></div>
+
+              <!-- GOOGLE, DONE HERE RATHER THAN HANDED TO THE ENGINE'S PAGE.
+                   The owner ruled on 2026-08-11 that the engine fetches and
+                   saves locally while the extension owns every Google
+                   operation, so these controls call Google directly with the
+                   token Chrome already holds. Nothing on this block is inside
+                   #outputs: loadOutputs() replaces that div's innerHTML on
+                   every render and would wipe a progress bar mid-upload. -->
+              <section class="output-group" aria-labelledby="google-heading">
+                <div class="output-group-head">
+                  <h3 id="google-heading">Google Drive</h3>
+                </div>
+                <p class="muted hint" id="google-account-hint">
+                  Sign in from the Account button to use these.</p>
+                <div class="row">
+                  <button id="drive-backup" class="button" type="button">
+                    Back up to Drive</button>
+                  <button id="drive-restore" class="button ghost" type="button">
+                    Fetch the latest backup</button>
+                  <button id="sheet-create" class="button ghost" type="button">
+                    Create a spreadsheet</button>
+                </div>
+                <div id="drive-progress" class="bar hidden" role="progressbar"
+                     aria-labelledby="google-heading" aria-valuemin="0"
+                     aria-valuemax="100"><div id="drive-progress-fill"
+                     class="bar-fill"></div></div>
+                <p id="drive-msg" class="hint" role="status" aria-live="polite"></p>
+                <p id="sheet-link" class="hint"></p>
+              </section>
             </div>
           </article>
           <!-- The crawl's pace and the engine itself. These existed only on the

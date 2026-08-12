@@ -36,6 +36,17 @@ export const SHEET_MIME = "application/vnd.google-apps.spreadsheet";
 // in quota for the attempt.
 export const MAX_EXPORT_ROWS = 40_000;
 
+//: Where spreadsheets go, and what the default one is called. These are the
+//: names gdrive.py used (`google_folder`, `google_workbook`), kept so an owner
+//: who already has that folder keeps using it rather than acquiring a second.
+//:
+//: DELIBERATELY NOT drive.js's FOLDER_NAME. That one holds backup archives —
+//: opaque .zip files under a retention rule that deletes all but the newest
+//: three. A spreadsheet the owner opens and edits must not live somewhere a
+//: prune runs.
+export const SHEET_FOLDER = "ScrapeX";
+export const DEFAULT_WORKBOOK = "ScrapeX Data";
+
 export class SheetsError extends Error {
   constructor(message, status = null, kind = "sheets") {
     super(message);

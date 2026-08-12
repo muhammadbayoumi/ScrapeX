@@ -13,6 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { latestEngineRelease } from "./releases.js";
 import { getToken, accountFor, forgetToken, revokeToken } from "./identity.js";
+import { backUp, fetchLatest } from "./drive.js";
+import { ensureFolder, ensureSpreadsheet, DEFAULT_WORKBOOK, SHEET_FOLDER } from "./sheets.js";
 import {
   afterIdle, afterNextPaint, deadlineForLocalRequest, fetchWithDeadline,
   isTimeoutError, markStartup,
@@ -329,6 +331,14 @@ function showView(name, animate = true) {
     ensureTimeZoneControl();
     loadSchedules();
     loadStorage();
+    // THE OUTPUTS LIST LIVES ON THIS SCREEN AND WAS LOADED FROM THE OTHER ONE.
+    // `loadOutputs` had exactly one caller — loadRunDestination — which returns
+    // early unless the current view is "run" AND the engine is up. So the
+    // destinations panel here showed its loading skeleton forever to anyone who
+    // opened Settings without first visiting Run, and there was nothing on the
+    // screen to say why. Found on 2026-08-11 while reading the panel to wire
+    // Drive into it; guarded by test_every_screen_loads_what_it_shows.
+    loadOutputs();
   }
   if (name === "run") {
     loadRunDestination();
@@ -2931,6 +2941,14 @@ function fmtCount(n) {
   return Number(n || 0).toLocaleString();
 }
 
+// Bytes as megabytes, for the same reason fmtCount exists: the Storage panel
+// had this as a local `mb` helper and the Drive controls needed the identical
+// thing, and two copies of one rounding rule is how "12.3 MB" and "12 MB" end
+// up on one screen describing the same file.
+function fmtMegabytes(n) {
+  return `${(Number(n || 0) / 1048576).toFixed(1)} MB`;
+}
+
 // A duration in seconds as human time. Shared by elapsed AND the finish
 // estimate, so the two can never format the same span two different ways.
 function fmtDuration(secs) {
@@ -3520,12 +3538,11 @@ async function loadOutputs() {
 async function loadStorage() {
   try {
     const s = await api("/api/storage");
-    const mb = (n) => `${(Number(n || 0) / 1048576).toFixed(1)} MB`;
     // Health is a WORD here too, never a colour: the panel has no room for a
     // legend, so the state has to be readable on its own.
     $("storage-info").innerHTML = `
       <div class="kv"><span>Database</span><span class="tech">${esc(s.path)}</span></div>
-      <div class="kv"><span>Size</span><span>${esc(mb(s.sizes.db_bytes))}</span></div>
+      <div class="kv"><span>Size</span><span>${esc(fmtMegabytes(s.sizes.db_bytes))}</span></div>
       <div class="kv"><span>Health</span><span>${esc(s.health.status)}</span></div>
       <div class="kv"><span>Backups</span><span>${esc(String(s.sizes.backup_count))}</span></div>`;
   } catch (_) {
@@ -4377,9 +4394,120 @@ function wireStartupShell() {
   markStartup("shell-interactive");
 }
 
+// ---- Google, driven from here -----------------------------------------------
+//
+// The owner's ruling of 2026-08-11: the engine fetches and saves locally, and
+// the extension owns every Google operation. drive.js and sheets.js do the
+// talking; this is the part that knows about buttons.
+//
+// THE TOKEN IS READ PER CLICK, NEVER CAPTURED. state.token is cleared from five
+// places — a refused profile read, a 401, sign-out — so a handler that closed
+// over it once would keep using a token the owner has already revoked. Reading
+// state.token at the moment of use is the same discipline drive.js applies by
+// taking it as an argument rather than holding it.
+
+function driveProgress(fraction) {
+  const bar = $("drive-progress");
+  const fill = $("drive-progress-fill");
+  if (!bar || !fill) return;
+  if (fraction === null) {
+    bar.classList.add("hidden");
+    return;
+  }
+  const percent = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+  bar.classList.remove("hidden");
+  bar.setAttribute("aria-valuenow", String(percent));
+  fill.style.width = percent + "%";
+}
+
+/** One shape for all three buttons: disable, run, report, re-enable. */
+async function runGoogleAction(button, working, action) {
+  if (!state.token) {
+    out("drive-msg", "Sign in with Google first — the Account button at the " +
+                     "top of the panel.", "err");
+    return;
+  }
+  const buttons = ["drive-backup", "drive-restore", "sheet-create"];
+  buttons.forEach((id) => { if ($(id)) $(id).disabled = true; });
+  out("drive-msg", esc(working), "");
+  try {
+    const said = await action(state.token);
+    out("drive-msg", esc(said), "ok");
+  } catch (error) {
+    // The message is the module's own sentence — "Sign in again from the
+    // panel", "ScrapeX can only open spreadsheets it created itself" — because
+    // those name the next action. Replacing them with a generic failure here
+    // would throw away the only part the owner can act on.
+    out("drive-msg", esc((error && error.message) || "Something went wrong."), "err");
+  } finally {
+    driveProgress(null);
+    buttons.forEach((id) => { if ($(id)) $(id).disabled = false; });
+  }
+}
+
+async function backUpToDrive(token) {
+  // The engine builds the bundle; the panel uploads it. Neither half sees the
+  // other's secret: the engine never gets the token, the panel never opens the
+  // database.
+  out("drive-msg", "Building the bundle…", "");
+  const built = await api("/api/bundle", { method: "POST" });
+  const archive = await (await fetch(
+    (await backendBase()) + "/api/bundle/archive")).blob();
+
+  const stored = await backUp(token, {
+    archive, name: built.name, manifest: built, bundleFormat: built.bundle_format,
+    onProgress: ({sent, total}) => driveProgress(total ? sent / total : 0),
+  });
+  const pruned = stored.pruned.length
+    ? ` ${stored.pruned.length} older backup${stored.pruned.length === 1 ? "" : "s"} removed.`
+    : "";
+  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}`;
+}
+
+async function fetchFromDrive(token) {
+  const {archive, pointer} = await fetchLatest(token, {
+    onProgress: ({received, total}) => driveProgress(total ? received / total : 0),
+  });
+  // DOWNLOADED, NOT RESTORED. Putting this archive over the warehouse is a
+  // destructive act on the owner's only copy, and it belongs behind its own
+  // confirmed control rather than at the end of a fetch they asked for. What
+  // this proves today is that the backup is real, complete and readable.
+  return `Fetched ${fmtMegabytes(archive.size)} written ${pointer.created_at || "at an unrecorded time"}` +
+         ` by engine ${pointer.engine_version || "unknown"}. It is not installed — this only checks it is there.`;
+}
+
+async function createSpreadsheet(token) {
+  const folder = await ensureFolder(token, SHEET_FOLDER);
+  const sheet = await ensureSpreadsheet(token, DEFAULT_WORKBOOK, {folder});
+  const link = $("sheet-link");
+  if (link) {
+    link.innerHTML = `<a class="link" href="${esc(sheet.url)}" target="_blank" ` +
+                     `rel="noreferrer noopener">${esc(sheet.name)}</a>`;
+  }
+  return sheet.created
+    ? `Created "${sheet.name}" in ${SHEET_FOLDER}.`
+    : `"${sheet.name}" already exists — the link is below.`;
+}
+
+function wireGoogleControls() {
+  const actions = [
+    ["drive-backup", "Backing up…", backUpToDrive],
+    ["drive-restore", "Looking for the latest backup…", fetchFromDrive],
+    ["sheet-create", "Creating the spreadsheet…", createSpreadsheet],
+  ];
+  for (const [id, working, action] of actions) {
+    const button = $(id);
+    if (button) {
+      button.addEventListener("click", () =>
+        runGoogleAction(button, working, action));
+    }
+  }
+}
+
 function wireDeferredControls() {
   if (deferredControlsWired) return;
   deferredControlsWired = true;
+  wireGoogleControls();
   // `[data-sect]` is load-bearing: other buttons borrow the `.sect` LOOK (the
   // Advanced-settings toggle does), and without the attribute filter they get
   // this handler too and blow up on a null target.

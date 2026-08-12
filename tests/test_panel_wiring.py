@@ -247,3 +247,96 @@ def test_every_panel_script_actually_parses():
         assert done.returncode == 0, (
             f"{script.name} does not parse: "
             + done.stderr.decode("utf-8", "replace")[:800])
+
+
+# ---- every screen loads what it shows --------------------------------------
+
+def _show_view_body() -> str:
+    """The body of showView, where a screen says what it needs loaded."""
+    start = JS.index("function showView(")
+    depth, index = 0, JS.index("{", start)
+    for position in range(index, len(JS)):
+        if JS[position] == "{":
+            depth += 1
+        elif JS[position] == "}":
+            depth -= 1
+            if depth == 0:
+                return JS[index:position + 1]
+    raise AssertionError("showView has no closing brace")
+
+
+#: The container each screen fills, and the function that fills it. A screen
+#: that paints a skeleton and never replaces it is indistinguishable from a slow
+#: engine, so this is asserted rather than left to a reader of two files.
+SCREEN_LOADERS = {
+    "settings": ["loadSchedules", "loadStorage", "loadOutputs"],
+    "data": ["loadDatasets"],
+    "sources": ["loadSources"],
+}
+
+
+@pytest.mark.parametrize("screen,loaders", sorted(SCREEN_LOADERS.items()))
+def test_every_screen_loads_what_it_shows(screen, loaders):
+    """FOUND ON 2026-08-11, and it had been true for a long time.
+
+    `loadOutputs` had exactly one caller: loadRunDestination, which returns
+    early unless the current view is "run" AND the engine is up. The
+    destinations list lives on the SETTINGS screen. So an owner who opened
+    Settings without first visiting Run saw the loading skeleton at
+    app.html's #outputs forever, with nothing on the screen to say why — and
+    every test passed, because no test asked who loads it.
+
+    This is the panel-wiring twin of the Add Site defect this file was written
+    for: two halves that must refer to each other, and nothing checking that
+    they do.
+    """
+    body = _show_view_body()
+    branch = re.search(
+        r'if\s*\(\s*name\s*===\s*"%s"\s*\)\s*\{(.*?)\n\s{2}\}' % screen,
+        body, re.S)
+    single = re.findall(r'if\s*\(\s*name\s*===\s*"%s"\s*\)\s*(\w+)\(' % screen, body)
+    called = set(re.findall(r"(\w+)\(", branch.group(1))) if branch else set(single)
+
+    missing = [name for name in loaders if name not in called]
+    assert not missing, (
+        f'showView("{screen}") never calls {", ".join(missing)}, so whatever '
+        "that function fills stays as its loading skeleton until some other "
+        "screen happens to load it. That is what happened to #outputs.")
+
+
+# ---- a module nobody imports is a module that does not exist ----------------
+
+#: Every ES module under extension/ that the panel is supposed to USE, not just
+#: ship. `bundleview.js` is the reason this list exists: it was written,
+#: reviewed, merged and covered by a cross-language test, and app.js never
+#: imported it — so the "read your data with no engine installed" feature was
+#: complete in every respect except being reachable. drive.js and sheets.js were
+#: one commit away from the same fate.
+PANEL_MODULES = ["engine.js", "transport.js", "version.js", "releases.js",
+                 "identity.js", "startup.js", "drive.js", "sheets.js"]
+
+
+@pytest.mark.parametrize("module", PANEL_MODULES)
+def test_the_panel_actually_imports_the_module(module):
+    """Written, tested and unreachable is the failure this repository keeps
+    making. It is not caught by any suite that tests the module itself: those
+    pass perfectly, which is exactly what makes it hard to notice."""
+    imported = set(re.findall(r'from\s+"\./([\w.-]+)"', JS))
+    assert module in imported, (
+        f"extension/{module} is not imported by app.js. Its own tests pass and "
+        "nothing it provides reaches the panel — the defect bundleview.js sat "
+        "in for months.")
+
+
+def test_bundleview_is_named_here_when_it_is_finally_wired():
+    """The one still unreachable, named so it cannot be quietly forgotten.
+
+    This asserts the CURRENT state rather than the desired one, and it fails the
+    day someone wires it — at which point the fix is one line: move
+    "bundleview.js" into PANEL_MODULES above. A todo that turns into a failing
+    test on completion is the only kind that does not rot.
+    """
+    imported = set(re.findall(r'from\s+"\./([\w.-]+)"', JS))
+    assert "bundleview.js" not in imported, (
+        "bundleview.js is imported now — good. Add it to PANEL_MODULES and "
+        "delete this test; the panel finally reads a bundle with no engine.")
