@@ -1,0 +1,147 @@
+// How mbiXaddin BEHAVES — the half no generator can find.
+//
+// Its sibling `addin-vocabulary.js` is generated from
+// contract/addin-contract.json and holds every enum: what values a column
+// accepts. That is mechanical, and it is guarded mechanically — edit it by hand
+// and a test fails.
+//
+// THIS FILE IS THE OTHER HALF, and it is hand-written on purpose. None of what
+// follows is in an enum:
+//
+//   - a blank IS_ACTIVE means the row is LIVE, not disabled
+//   - an unrecognised value means the same thing, and records nothing
+//   - the same column name means the opposite one sheet away
+//   - a mapping to a missing attribute is warned about and silently dropped;
+//     a source with no mappings hard-fails and empties its table
+//
+// All of it came from seven agents reading ~350 .cs files with file:line for
+// every answer (docs/reviews/mbiXaddin-config-contract-20260812.md). A
+// generator reflecting over types would find none of it.
+//
+// SO IT IS PINNED TO A NUMBER INSTEAD. `READ_AGAINST_BEHAVIOUR_VERSION` below
+// records which behaviour this reading describes. mbiXaddin raises its own
+// `behaviourVersion` whenever error handling or a default changes, and the test
+// that compares the two fails — deliberately — demanding a fresh reading before
+// anything ships. Behaviour cannot be automated, so instead it is made
+// impossible to change silently.
+
+export * from "./addin-vocabulary.js";
+
+import {
+  BEHAVIOUR_VERSION, TRUE_SPELLINGS, FALSE_SPELLINGS, CLICKABLE_ACTIONS,
+  MENU_ACTIONS, ENTITY_TYPES, STORAGE_STRATEGIES, LICENSE_TIERS, SEMANTIC_ROLES,
+  DATA_TYPES, SOURCE_TYPES, MATCH_MODES, SHEETS as CONTRACT_SHEETS,
+} from "./addin-vocabulary.js";
+
+/**
+ * The behaviour version this file's reading was taken against.
+ *
+ * WHEN THIS DIFFERS FROM THE CONTRACT'S, THE READING IS STALE. Raising it here
+ * without re-reading the add-in's code would defeat the only mechanism guarding
+ * the half that cannot be generated — so the test that compares them says, in
+ * its own words, what has to happen first.
+ */
+export const READ_AGAINST_BEHAVIOUR_VERSION = 1;
+
+/** Both halves of ACTION_CLASS, which the add-in routes differently. */
+export const ACTION_CLASSES = [...CLICKABLE_ACTIONS, ...MENU_ACTIONS];
+
+/**
+ * What the add-in makes of a cell, exactly as `SmartConverter.IsTrue` does.
+ *
+ * THE MOST DANGEROUS FIELD IN THE WORKBOOK, and it looks like the safest. For a
+ * spelling it does not know the converter returns null; the TSV parser assigns
+ * only when a conversion produced a value; so the property keeps its declared
+ * C# default — which for IS_ACTIVE and IS_VISIBLE is `true`.
+ *
+ * `Active`, `X`, `TRUE!` and an EMPTY CELL therefore all mean the same thing:
+ * the row is live, and nothing anywhere records that a value was not
+ * understood. The failure is OPEN. A typo switches a table on.
+ *
+ * That is why the Console offers a closed list and flags everything else, and
+ * why it must never present a blank as "off".
+ */
+export function readBoolean(cell, whenUnreadable) {
+  const value = String(cell ?? "").trim().toLowerCase();
+  if (TRUE_SPELLINGS.includes(value)) return true;
+  if (FALSE_SPELLINGS.includes(value)) return false;
+  return whenUnreadable;                       // blank AND unrecognised alike
+}
+
+/**
+ * The declared C# default behind every boolean column — what an unreadable cell
+ * falls back to. Split by sheet because they disagree, and the disagreement is
+ * the point: on TableDefinition and DataSource a blank means YES, on SchemaRule
+ * it means NO. One shared default would be wrong on one of them.
+ */
+export const BOOLEAN_DEFAULTS = {
+  "1.TableDefinition": {IS_ACTIVE: true, IS_VISIBLE: true},
+  "2.SchemaRule": {IS_PK: false, IS_MANDATORY: false, IS_VIRTUAL: false,
+                   IS_DERIVED: false, IS_VISIBLE: true},
+  "3.DataSource": {IS_ACTIVE: true},
+  "5.ExportViews": {IS_ACTIVE: true},
+  "6.RibbonControls": {IS_ACTIVE: true},
+};
+
+/**
+ * How the add-in reacts to each fault the Console can detect — read from its
+ * code, and the reason the two problems already measured in the live workbook
+ * are reported at different severities.
+ */
+export const CONSEQUENCES = {
+  sourceWithNoMappings: {
+    code: "ORPHAN_MAPPING",
+    what: "IngestionResult.Fail — the source never ingests and its table is empty",
+    severity: "broken",
+  },
+  mappingToMissingAttribute: {
+    code: "ERR_REF",
+    what: "warned, then silently dropped — \"its data will be lost\"",
+    severity: "broken",
+  },
+  profileNothingReferences: {
+    code: "ORPHAN_MAPPING",
+    what: "the mappings simply never run",
+    severity: "unused",
+  },
+};
+
+/**
+ * The add-in's own error codes. The Console uses THESE rather than inventing a
+ * parallel vocabulary, so one fault has one name on both surfaces and an owner
+ * searching for it finds both.
+ */
+export const ERROR_CODE = {
+  reference: "ERR_REF",
+  duplicate: "ERR_DUPLICATE",
+  orphanMapping: "ORPHAN_MAPPING",
+  missingKey: "PK_MISSING",
+  mandatoryUnmapped: "MANDATORY_UNMAPPED",
+  badJson: "INVALID_JSON",
+  unknownKey: "UNKNOWN_KEY",
+  badValue: "INVALID_VALUE",
+  required: "ERR_REQUIRED",
+  transform: "ERR_TRANSFORM",
+};
+
+/** The six gids, flattened for the check that a chosen workbook is the right one. */
+export const SHEET_GIDS = Object.fromEntries(
+  Object.entries(CONTRACT_SHEETS).map(([tab, spec]) => [tab, spec.gid]));
+
+/**
+ * Shaped for `vocabularies(workbook, known)` so the Console's drop-downs come
+ * from the add-in's code, and fall back to the workbook's own values only where
+ * the code has nothing to say.
+ */
+export const KNOWN_VOCABULARIES = {
+  entityTypes: ENTITY_TYPES,
+  storageStrategies: STORAGE_STRATEGIES,
+  licenseTiers: LICENSE_TIERS,
+  semanticRoles: SEMANTIC_ROLES,
+  dataTypes: DATA_TYPES,
+  sourceTypes: SOURCE_TYPES,
+  matchModes: MATCH_MODES,
+};
+
+/** Re-exported so a caller can pin its reading without importing both files. */
+export { BEHAVIOUR_VERSION };
