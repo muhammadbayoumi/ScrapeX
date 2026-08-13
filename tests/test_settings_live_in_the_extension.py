@@ -13,7 +13,9 @@ by the next person in a hurry; this one fails the build instead.
 from __future__ import annotations
 
 import re
+import tempfile
 from pathlib import Path
+
 import pytest
 
 # Guards the extension: this file reads extension/ sources, so a change to a
@@ -34,21 +36,135 @@ PANEL = ROOT / "extension" / "app.html"
 # and the test below reads it in the other direction too.
 RUNTIME_REPAIR_IDS = {"runtime-restart", "runtime-upgrade"}
 
+# THE NINE THE GUARD COULD NOT SEE UNTIL 2026-08-12, and the date matters: they
+# are not newly broken, they were newly VISIBLE. The guard read settings.html as
+# flat text, `{% include %}` is not expanded that way, and settings.html has no
+# controls of its own — so it asserted against an empty set and passed, while
+# these nine sat in the two partials it includes.
+#
+# They are the destructive half of Storage and Retention — move the database,
+# start fresh, restore from a backup, prune — and they drive thirteen write
+# routes the panel cannot reach at all. app.js opens `/settings#s-storage`
+# precisely because of that, which is the violation admitting itself.
+#
+# They are exempted rather than deleted because deleting them would take away
+# the only way to do those things, and moving them is B3 of the migration plan:
+# the typed confirmations and the disabled-until-valid interlocks are safety,
+# and safety moves WITH the control or not at all.
+#
+# THIS LIST MAY ONLY SHRINK. A tenth control fails the test below; an entry that
+# has been migrated and left here fails the one after it. Both directions,
+# because a debt list nobody prunes becomes a permission slip.
+MIGRATING_TO_THE_PANEL = {
+    # _storage.html
+    "backup_folder", "export-folder", "fresh-confirm", "move-folder",
+    "restore-pick",
+    # _retention.html
+    "ret-action", "ret-days", "ret-excluded", "ret-source",
+}
+
 
 def _control_ids(html: str) -> set[str]:
     return {m.group(1) for m in re.finditer(
         r'<(?:input|select|textarea)[^>]*\bid="([^"]+)"', html)}
 
 
+def _with_includes(template: Path, seen: set[Path] | None = None) -> str:
+    """The template AND everything it pulls in, as one string.
+
+    THE GUARD BELOW WAS BLIND FOR MONTHS AND SAID NOTHING, which is worse than
+    having been absent. It read settings.html as raw text — and Jinja's
+    `{% include %}` is not expanded when a file is read as text. settings.html
+    contains ZERO controls of its own, so the assertion passed against an empty
+    set, every time, while nine controls sat one line away in its partials:
+
+        settings.html:191  {% include "_storage.html" %}    5 controls
+        settings.html:350  {% include "_retention.html" %}  4 controls
+
+    A test that cannot see the thing it forbids is not a weaker test. It is a
+    licence, because everyone downstream reads its green as an answer.
+    """
+    seen = seen if seen is not None else set()
+    if template in seen or not template.exists():
+        return ""
+    seen.add(template)
+
+    text = template.read_text(encoding="utf-8")
+    for name in re.findall(r'{%-?\s*include\s+"([^"]+)"', text):
+        text += "\n" + _with_includes(template.parent / name, seen)
+    return text
+
+
 def test_the_web_page_offers_no_setting_to_change():
     """It shows what the engine holds. It does not change it."""
-    stray = _control_ids(WEB_SETTINGS.read_text(encoding="utf-8")) - RUNTIME_REPAIR_IDS
+    stray = (_control_ids(_with_includes(WEB_SETTINGS))
+             - RUNTIME_REPAIR_IDS - MIGRATING_TO_THE_PANEL)
 
     assert not stray, (
         "the engine's web page grew a control again: "
         f"{sorted(stray)}. Settings belong in extension/app.html — a setting "
         "the owner cannot reach from the side panel is a setting he does not "
-        "have.")
+        "have. If this is one of the Storage/Retention controls already being "
+        "moved, it belongs in MIGRATING_TO_THE_PANEL — but read that list's "
+        "comment first: it may only shrink.")
+
+
+def test_the_guard_above_can_actually_see_into_an_include():
+    """The guard's own eyesight, checked — because it had none.
+
+    Written against a synthetic pair rather than against settings.html, so it
+    keeps testing the MECHANISM after the real page is cleaned up and its
+    includes carry nothing left to find.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        here = Path(directory)
+        (here / "_partial.html").write_text(
+            '<input id="a-control-hiding-in-a-partial" type="text">',
+            encoding="utf-8")
+        (here / "page.html").write_text(
+            'no controls of my own\n{% include "_partial.html" %}\n',
+            encoding="utf-8")
+
+        found = _control_ids(_with_includes(here / "page.html"))
+
+    assert "a-control-hiding-in-a-partial" in found, (
+        "the guard reads the page as flat text again, so a control one "
+        "`{% include %}` away is invisible to it — which is exactly how nine "
+        "of them lived on the engine's Settings page while this file reported "
+        "green")
+
+
+def test_the_include_walk_survives_a_cycle():
+    """A partial that includes its own parent must not hang the suite. Cheap to
+    guard, and the failure mode is a run that never finishes rather than one
+    that fails."""
+    with tempfile.TemporaryDirectory() as directory:
+        here = Path(directory)
+        (here / "a.html").write_text('{% include "b.html" %}<input id="in-a">',
+                                     encoding="utf-8")
+        (here / "b.html").write_text('{% include "a.html" %}<input id="in-b">',
+                                     encoding="utf-8")
+
+        found = _control_ids(_with_includes(here / "a.html"))
+
+    assert found == {"in-a", "in-b"}
+
+
+def test_the_migration_list_has_no_entries_that_are_already_gone():
+    """THE LIST MUST SHRINK AS THE WORK LANDS.
+
+    An exemption that outlives the thing it exempts is how a debt list becomes
+    a permission slip: the next person reads nine names, assumes nine problems,
+    and stops looking. So a control that has left the page must leave this list
+    in the same commit.
+    """
+    still_there = _control_ids(_with_includes(WEB_SETTINGS))
+    stale = sorted(MIGRATING_TO_THE_PANEL - still_there)
+
+    assert not stale, (
+        f"{stale} are exempted here and no longer on the engine's Settings "
+        "page. Delete them from MIGRATING_TO_THE_PANEL — the list is a record "
+        "of what is left, not of what once was.")
 
 
 def test_the_panel_can_do_everything_the_web_page_can():
