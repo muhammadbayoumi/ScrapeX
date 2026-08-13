@@ -11,7 +11,23 @@
 // the rest of that row being checked — so the Console stops with it, or it
 // would print a cascade of complaints about a row the add-in never reaches.
 
-import { readBoolean, BOOLEAN_DEFAULTS, ERROR_CODE } from "./addin-contract.js";
+import { readBoolean, BOOLEAN_DEFAULTS, ERROR_CODE, CONTEXT_PROPS_KEYS }
+  from "./addin-contract.js";
+
+/**
+ * Settings the add-in ACCEPTS, DOCUMENTS, and then does not apply.
+ *
+ * Read from its own Info panel, which marks each one "NOT APPLIED" with a note
+ * explaining that presenting them as live settings "sent operators chasing a
+ * value that does nothing". That note is correct and it is in the wrong place:
+ * it is visible only to someone who already went looking. Here it arrives while
+ * the value is being typed.
+ */
+const IGNORED_CONTEXT_KEYS = {
+  Encoding: "the parser always reads UTF-8, with the BOM detected automatically.",
+  Delimiter: "the parser always splits on a tab, whatever this says.",
+  TimeoutSeconds: "the HTTP client uses its own timeout and never reads this.",
+};
 
 /** Severities in the order the add-in ranks them. */
 const RANK = {Info: 0, Warning: 1, Error: 2, Critical: 3};
@@ -54,15 +70,54 @@ export function checkSourceUri(uri) {
       + "bare filenames are not supported.")];
   }
 
+  //: The host, PARSED. Everything below that reasons about who is being talked
+  //: to uses this rather than a substring of the whole address.
+  let host = "";
   if (isHttp) {
-    const authority = value.slice(value.indexOf("//") + 2).split("/")[0];
-    if (!authority.includes(".")) {
+    try {
+      host = new URL(value).hostname.toLowerCase();
+    } catch {
+      return [finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
+        "This is not a well-formed web address.")];
+    }
+    if (!host.includes(".")) {
       found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badValue,
-        `"${authority}" has no dot in it, so it is probably not a real host.`));
+        `"${host}" has no dot in it, so it is probably not a real host.`));
     }
   }
 
-  // Case-insensitive substring, exactly as the add-in matches.
+  //: Is the address really Google's, rather than merely SAYING so?
+  const reallyGoogle = host === "docs.google.com" || host.endsWith(".google.com");
+
+  // A DEFECT IN THE ADD-IN, FOUND BY A SCANNER POINTED AT THIS FILE.
+  //
+  // `SourceUriValidator` decides "is this Google Sheets" with a case-insensitive
+  // SUBSTRING of the whole address, and this module mirrored it because the rule
+  // here is to mirror rather than invent. CodeQL flagged the mirror as
+  // js/incomplete-url-substring-sanitization, and it was right about the
+  // consequence even though the Console is not the thing at risk:
+  //
+  //     https://attacker.example/?x=docs.google.com&output=tsv
+  //
+  // satisfies every check the add-in makes, and the add-in then downloads it
+  // with NO AUTHENTICATION of any kind. Whatever comes back is parsed as the
+  // table's rows.
+  //
+  // The mirror stays, because a Console that warned differently from the add-in
+  // would be wrong about what the add-in does. What is added is the thing the
+  // add-in cannot tell you.
+  if (isHttp && lower.includes("docs.google.com") && !reallyGoogle) {
+    found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
+      `This address MENTIONS docs.google.com but is served by "${host}". The `
+      + "add-in decides an address is Google's by searching the whole string, "
+      + "so it accepts this one and downloads it with no authentication — and "
+      + "whatever comes back becomes the table's rows.",
+      "If this is meant to be a Google Sheet, the host itself must be "
+      + "docs.google.com."));
+  }
+
+  // Case-insensitive substring, exactly as the add-in matches — so the Console
+  // asks for output=tsv in precisely the cases the add-in does.
   if (lower.includes("docs.google.com")) {
     if (!lower.includes("output=tsv") && !lower.includes("format=tsv")) {
       found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
@@ -193,16 +248,39 @@ export function checkDataSourceRow(row, {entities = [], activeEntities = null,
   // 8 — the JSON bag.
   const bag = value("CONTEXT_PROPS");
   if (bag) {
+    let parsed = null;
     try {
-      const parsed = JSON.parse(bag);
+      parsed = JSON.parse(bag);
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
         found.push(finding("Error", "CONTEXT_PROPS", ERROR_CODE.badJson,
           "This is valid JSON but not an object, so no setting can be read out "
           + "of it."));
+        parsed = null;
       }
     } catch {
       found.push(finding("Error", "CONTEXT_PROPS", ERROR_CODE.badJson,
         "Not valid JSON, so every setting inside it is ignored."));
+    }
+
+    // THREE SETTINGS THE ADD-IN READS AND THEN IGNORES. Its own Info panel says
+    // so in prose — "sent operators chasing a value that does nothing" — and
+    // says it in a place nobody looks until after the chase. Said here, it is
+    // said at the moment someone types one.
+    if (parsed) {
+      for (const [key, why] of Object.entries(IGNORED_CONTEXT_KEYS)) {
+        if (key in parsed) {
+          found.push(finding("Warning", "CONTEXT_PROPS", ERROR_CODE.badValue,
+            `"${key}" is read and then ignored — ${why}`,
+            "Remove it, or keep it knowing it changes nothing."));
+        }
+      }
+      const unknown = Object.keys(parsed)
+        .filter((key) => !CONTEXT_PROPS_KEYS.includes(key));
+      if (unknown.length) {
+        found.push(finding("Warning", "CONTEXT_PROPS", ERROR_CODE.unknownKey,
+          `${unknown.join(", ")} — the add-in reads no such setting, so it does `
+          + "nothing at all."));
+      }
     }
   }
 

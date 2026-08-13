@@ -171,6 +171,33 @@ function renderSheets(workbook) {
   list.append(note);
 }
 
+
+// ---- navigation --------------------------------------------------------------
+//
+// THE PANEL'S OWN SHAPE, deliberately: a registry of screen names, sections
+// called `cv-<name>`, and rail buttons carrying `data-view`. A second navigation
+// idiom in the same product is a second thing to learn for no gain.
+//
+// `inspect` is in the registry and NOT in the rail: it is reached by choosing a
+// table, and a rail button for it would be a button with nothing to show.
+
+const VIEWS = ["overview", "scrapex", "tables", "inspect", "sources", "problems"];
+
+function showView(name) {
+  for (const view of VIEWS) {
+    $(`cv-${view}`)?.classList.toggle("hidden", view !== name);
+  }
+  // Inspect belongs to Tables, so the rail keeps Tables lit rather than going
+  // blank on a screen that is plainly still about a table.
+  const lit = name === "inspect" ? "tables" : name;
+  for (const button of document.querySelectorAll(".rail-link[data-view]")) {
+    const on = button.dataset.view === lit;
+    button.setAttribute("aria-selected", String(on));
+    button.tabIndex = on ? 0 : -1;
+  }
+  document.querySelector(".console-main")?.scrollTo({top: 0});
+}
+
 // ---- the source list and its editor ------------------------------------------
 
 /** The world a row is judged against, rebuilt from whatever is loaded now. */
@@ -234,6 +261,7 @@ function renderSources(workbook) {
       `${rows.length} sources. ${dead} produce nothing; ${noted} have something `
       + "worth reading. Choose one to edit.",
       dead ? "err" : "");
+  $("count-sources").textContent = rows.length || "";
 }
 
 /** Fill a `<select>`, keeping a value the sheet already holds even if unlisted. */
@@ -336,6 +364,7 @@ function edit(row) {
   $("f-VERSION_TAG").value = row.VERSION_TAG || "";
   $("f-CONTEXT_PROPS").value = row.CONTEXT_PROPS || "";
 
+  showView("sources");
   $("editor-card").classList.remove("hidden");
   judge();
   $("editor-card").scrollIntoView({behavior: "smooth", block: "start"});
@@ -383,12 +412,224 @@ async function save() {
   await show(state.fileId);
 }
 
+
+// ---- what this tool collects, and whether the add-in knows ------------------
+
+//: ScrapeX's own sources, as the add-in would have to name them. Read from the
+//: workbook rather than typed here: the three that exist are already named
+//: ScrapeX_*, and the convention is the only thing that ties the two products
+//: together. A hard-coded list would be wrong the first time a source is added.
+const SCRAPEX_MARK = /^(ScrapeX|Agent)_/i;
+
+function renderScrapeX(workbook) {
+  const list = $("scrapex-list");
+  list.textContent = "";
+  const sources = workbook.sheets[SOURCES]?.rows || [];
+  const mine = sources.filter((r) => SCRAPEX_MARK.test(r.SOURCE_KEY || ""));
+  const entities = new Set((workbook.sheets["1.TableDefinition"]?.rows || [])
+    .map((r) => r.ENTITY_KEY).filter(Boolean));
+
+  for (const row of mine) {
+    const table = row.TARGET_ENTITY_KEY || "";
+    const known = entities.has(table);
+    list.append(pairRow(row.SOURCE_KEY, table || "—",
+                        known ? "registered" : "no such table",
+                        known ? "" : "pair-missing",
+                        known ? () => showTable(table) : null));
+  }
+
+  if (!mine.length) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent =
+      "No source in this workbook is named ScrapeX_… or Agent_…, so nothing "
+      + "here is recognisably this tool's.";
+    list.append(empty);
+  }
+
+  say("scrapex-summary",
+      `${mine.length} of this workbook's ${sources.length} sources come from `
+      + "ScrapeX. Choosing one opens the table it feeds.");
+  $("count-scrapex").textContent = mine.length || "";
+}
+
+/** One row of a two-column list, optionally a button. */
+function pairRow(left, right, note, extra = "", onClick = null) {
+  const row = document.createElement(onClick ? "button" : "div");
+  if (onClick) { row.type = "button"; row.addEventListener("click", onClick); }
+  row.className = `pair-row ${extra}`.trim();
+
+  const a = document.createElement("span");
+  a.className = "pair-key";
+  a.textContent = left;
+  const b = document.createElement("span");
+  b.className = "pair-into";
+  b.textContent = right;
+  const c = document.createElement("span");
+  c.className = "pair-note";
+  c.textContent = note;
+
+  row.append(a, b, c);
+  return row;
+}
+
+// ---- every table, and one table across every sheet --------------------------
+
+function renderTables(workbook) {
+  const list = $("tables-list");
+  list.textContent = "";
+  const tables = workbook.sheets["1.TableDefinition"]?.rows || [];
+
+  for (const row of tables) {
+    const key = row.ENTITY_KEY;
+    if (!key) continue;
+    const active = readBoolean(row.IS_ACTIVE,
+                               BOOLEAN_DEFAULTS["1.TableDefinition"].IS_ACTIVE);
+    const fields = (workbook.sheets["2.SchemaRule"]?.rows || [])
+      .filter((r) => (r.ENTITY_KEY || "").toLowerCase() === key.toLowerCase()).length;
+    list.append(pairRow(key, row.DISPLAY_NAME || "—",
+                        `${fields} field${fields === 1 ? "" : "s"}`
+                        + (active ? "" : " · off"),
+                        active ? "" : "pair-off",
+                        () => showTable(key)));
+  }
+  $("count-tables").textContent = tables.length || "";
+}
+
+/** A titled block of rows inside the inspect screen. */
+function block(title, rows, empty) {
+  const card = document.createElement("section");
+  card.className = "card";
+  const heading = document.createElement("h2");
+  heading.textContent = title;
+  card.append(heading);
+
+  if (!rows.length) {
+    const none = document.createElement("p");
+    none.className = "hint";
+    none.textContent = empty;
+    card.append(none);
+    return card;
+  }
+  const holder = document.createElement("div");
+  holder.className = "pair-rows";
+  for (const row of rows) holder.append(row);
+  card.append(holder);
+  return card;
+}
+
+/**
+ * ONE TABLE, EVERYWHERE IT APPEARS.
+ *
+ * The reason this screen exists: the six sheets are a database whose foreign
+ * keys are strings, and answering "what is T_BITUMEN made of" by hand means
+ * filtering five sheets by the same word and holding the answers in your head.
+ */
+function showTable(key) {
+  const workbook = state.workbook;
+  const same = (a) => (a || "").toLowerCase() === key.toLowerCase();
+  const rows = (tab) => workbook.sheets[tab]?.rows || [];
+
+  const definition = rows("1.TableDefinition").find((r) => same(r.ENTITY_KEY));
+  const fields = rows("2.SchemaRule").filter((r) => same(r.ENTITY_KEY));
+  const sources = rows(SOURCES).filter((r) => same(r.TARGET_ENTITY_KEY));
+  const profiles = new Set(sources.map((r) => {
+    const named = (r.PROFILE_KEY || "").trim();
+    return (!named || named.toUpperCase() === "DEFAULT") ? key : named;
+  }));
+  const maps = rows("4.DataMap").filter((r) => profiles.has(r.PROFILE_KEY));
+  const views = rows("5.ExportViews").filter((r) => same(r.ENTITY_KEY));
+
+  $("inspect-name").textContent = key;
+  $("inspect-lede").textContent = definition
+    ? `${definition.DISPLAY_NAME || "no display name"} · `
+      + `${definition.ENTITY_TYPE || "no type"} · `
+      + `${definition.STORAGE_STRATEGY || "no storage strategy"}`
+    : "This name is used elsewhere in the workbook and no table defines it.";
+
+  const body = $("inspect-body");
+  body.textContent = "";
+
+  body.append(block("Fields", fields.map((r) => pairRow(
+    r.ATTRIBUTE_KEY, r.DATA_TYPE || "TEXT",
+    [r.SEMANTIC_ROLE, readBoolean(r.IS_PK, false) ? "key" : "",
+     readBoolean(r.IS_MANDATORY, false) ? "required" : ""].filter(Boolean).join(" · "))),
+    "No fields, so this table has no columns — the add-in refuses to sync it."));
+
+  body.append(block("Sources", sources.map((r) => pairRow(
+    r.SOURCE_KEY, r.PROFILE_KEY || "(the table's own key)",
+    r.SOURCE_REGION || "")),
+    "Nothing loads this table."));
+
+  body.append(block("Mappings", maps.map((r) => pairRow(
+    r.SOURCE_EXPRESSION || "(no expression)", `→ ${r.TARGET_ATTRIBUTE_KEY}`,
+    [r.SOURCE_TYPE, r.TRANSFORM_CHAIN].filter(Boolean).join(" · "))),
+    "No mapping tells the add-in how to read this table's source."));
+
+  body.append(block("Export views", views.map((r) => pairRow(
+    r.VIEW_KEY, r.LABEL || "—", r.COLUMNS ? `${r.COLUMNS.split(",").length} columns` : "")),
+    "No export view offers this table."));
+
+  // THE RIBBON, WHICH NEITHER OF THE ADD-IN'S OWN SURFACES SHOWS. Its Console
+  // never reads 6.RibbonControls, and its Info tab's "RIBBON_CONFIG" section is
+  // a different thing — the JSON bag on the definition, not these rows. So the
+  // buttons a person actually presses are invisible in the tool built to
+  // explain the configuration.
+  //
+  // ACTION_TAG carries the entity, sometimes with a region after a pipe
+  // (`T_BITUMEN|EG`), which is why this matches on the part before it.
+  const ribbon = rows("6.RibbonControls").filter((r) => {
+    const tag = (r.ACTION_TAG || "").split("|")[0].trim();
+    return same(tag);
+  });
+  body.append(block("Ribbon", ribbon.map((r) => pairRow(
+    r.LABEL || r.ITEM_KEY, r.ACTION_TAG || "—",
+    [r.ACTION_CLASS, r.REGION].filter(Boolean).join(" · "))),
+    "No ribbon entry points at this table, so nothing in Excel opens it."));
+
+  // ---- the two warnings the add-in's Info panel gets right --------------------
+  const notes = [];
+  const strategy = (definition?.STORAGE_STRATEGY || "").toLowerCase();
+  if (strategy === "replaceall") {
+    notes.push(["ReplaceAll", "Every sync DELETES all rows in this table before "
+      + "writing. Nothing accumulates, and nothing survives a source that comes "
+      + "back empty."]);
+  }
+  const keys = fields.filter((r) => readBoolean(r.IS_PK, false));
+  if (strategy === "mergeupsert" && !keys.length) {
+    notes.push(["MergeUpsert with no key", "There is no IS_PK column to match "
+      + "on, so every sync APPENDS the same rows again. The table grows a "
+      + "duplicate set each time."]);
+  }
+  if (keys.length > 1) {
+    notes.push(["Composite key", `${keys.length} columns are marked IS_PK and the `
+      + `add-in uses only the first (${keys[0].ATTRIBUTE_KEY}). Composite keys are `
+      + "not supported."]);
+  }
+  if (notes.length) {
+    const card = document.createElement("section");
+    card.className = "card";
+    const heading = document.createElement("h2");
+    heading.textContent = "How this table is written";
+    card.append(heading);
+    for (const [title, detail] of notes) {
+      const line = document.createElement("p");
+      line.className = "hint err";
+      const strong = document.createElement("b");
+      strong.textContent = `${title}. `;
+      line.append(strong, document.createTextNode(detail));
+      card.append(line);
+    }
+    body.append(card);
+  }
+
+  showView("inspect");
+}
+
 // ---- the flow ---------------------------------------------------------------
 
 async function show(fileId) {
   say("workbook-state", "Reading the workbook…");
-  $("findings-card").classList.add("hidden");
-  $("sources-card").classList.add("hidden");
   $("sheets-card").classList.add("hidden");
   $("editor-card").classList.add("hidden");
 
@@ -438,12 +679,15 @@ async function show(fileId) {
   $("workbook-choose").hidden = false;
   $("workbook-recheck").hidden = false;
 
-  renderFindings(inspect(workbook));
+  const found = inspect(workbook);
+  renderFindings(found);
   renderSources(workbook);
+  renderScrapeX(workbook);
+  renderTables(workbook);
   renderSheets(workbook);
-  $("findings-card").classList.remove("hidden");
-  $("sources-card").classList.remove("hidden");
   $("sheets-card").classList.remove("hidden");
+  $("count-problems").textContent = found.length || "";
+  $("rail-book").textContent = identity.title;
 }
 
 async function pick() {
@@ -489,6 +733,13 @@ async function start() {
       + "other file rather than check the wrong one.");
 }
 
+for (const button of document.querySelectorAll(".rail-link[data-view]")) {
+  button.addEventListener("click", () => showView(button.dataset.view));
+}
+$("inspect-back").addEventListener("click", () => showView("tables"));
+$("workbook-recheck").addEventListener("click", () => {
+  if (state.fileId) show(state.fileId);
+});
 $("workbook-choose").addEventListener("click", () => pick());
 $("source-add").addEventListener("click", () => edit({}));
 $("editor-cancel").addEventListener("click", () => {

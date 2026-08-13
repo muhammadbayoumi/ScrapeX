@@ -380,3 +380,59 @@ test("every finding names the field it is about", () => {
   }
   assert.ok(fields(found).includes("SOURCE_URI"));
 });
+
+// ---------------------------------------------------------------------------
+// A defect in the ADD-IN, found by a scanner pointed at this file.
+//
+// CodeQL flagged `lower.includes("docs.google.com")` as
+// js/incomplete-url-substring-sanitization. The mirror is deliberate — the
+// add-in matches exactly that way and this module's rule is to mirror rather
+// than invent — but the consequence CodeQL named is real, and it belongs to the
+// add-in: an address that merely MENTIONS docs.google.com passes every check it
+// makes, and is then downloaded with no authentication.
+// ---------------------------------------------------------------------------
+
+test("an address that only MENTIONS Google is refused, and says who serves it", () => {
+  const found = checkSourceUri(
+    "https://attacker.example/collect?x=docs.google.com&output=tsv");
+
+  const impostor = found.filter((f) => /MENTIONS/.test(f.detail));
+  assert.equal(impostor.length, 1);
+  assert.equal(impostor[0].severity, "Error");
+  assert.match(impostor[0].detail, /attacker\.example/,
+    "the message does not name the host actually being talked to, which is the "
+    + "one fact that settles it");
+  assert.match(impostor[0].detail, /no authentication/);
+});
+
+test("a look-alike host is refused too", () => {
+  // The other half of the same trick, and the one a reader is likeliest to miss.
+  const found = checkSourceUri(
+    "https://docs.google.com.attacker.example/pub?gid=1&output=tsv");
+  assert.ok(found.some((f) => /MENTIONS/.test(f.detail)),
+    "docs.google.com.attacker.example was accepted as Google's own host");
+});
+
+test("the real thing is not refused, on either Google host shape", () => {
+  for (const uri of [PUBLISHED,
+                     "https://spreadsheets.google.com/pub?gid=1&output=tsv"]) {
+    assert.deepEqual(checkSourceUri(uri).filter((f) => /MENTIONS/.test(f.detail)),
+      [], `${uri} was treated as an impostor`);
+  }
+});
+
+test("the TSV rule still mirrors the add-in's substring match exactly", () => {
+  // Deliberately NOT narrowed to the real host: the Console must ask for
+  // output=tsv in precisely the cases the add-in does, or it is describing a
+  // different program.
+  const found = checkSourceUri("https://attacker.example/?x=docs.google.com");
+  assert.ok(found.some((f) => /output=tsv/.test(f.fix)),
+    "the TSV warning stopped firing for an address the add-in would still "
+    + "treat as a Google Sheet");
+});
+
+test("a malformed address is refused rather than parsed by guesswork", () => {
+  const found = checkSourceUri("https://exa mple.com/x.tsv");
+  assert.equal(found.length, 1);
+  assert.match(found[0].detail, /not a well-formed/);
+});
