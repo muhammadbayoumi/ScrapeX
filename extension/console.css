@@ -1,0 +1,143 @@
+/* The Console's own page.
+ *
+ * NOT app.css. That file makes `body` a two-column grid with a column reserved
+ * for the side rail — "Nothing may widen the panel", in its own words. A
+ * full-width tab page that loaded it would inherit a rail that is not there.
+ * tokens.css and components.css carry everything shared; this carries only what
+ * a wide page needs and the panel does not. */
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+}
+
+/* A reading measure, not the whole window. A findings list stretched across a
+   27-inch monitor is a list nobody finishes a line of. */
+.console-head,
+.console-body {
+  max-width: 60rem;
+  margin-inline: auto;
+  padding-inline: var(--sp-5);
+}
+
+.console-head {
+  padding-block: var(--sp-6) var(--sp-4);
+}
+
+.console-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.console-title h1 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+}
+
+.console-title .sx-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--accent);
+}
+
+.console-lede {
+  margin: var(--sp-2) 0 0;
+  color: var(--muted);
+}
+
+.console-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-block-end: var(--sp-6);
+}
+
+/* ---- findings -------------------------------------------------------------
+   The severity is carried by a border rather than a background, so a long list
+   stays readable: fifteen tinted blocks in a column is a wall, and the eye
+   stops separating them. */
+
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-block-start: var(--sp-3);
+}
+
+.finding {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  padding: var(--sp-3);
+  border-inline-start: 3px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+
+.finding-broken { border-inline-start-color: var(--red); }
+.finding-unused { border-inline-start-color: var(--amber); }
+
+.finding-where {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.finding-kind {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  text-transform: lowercase;
+}
+
+.finding-detail {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+/* ---- the six sheets -------------------------------------------------------- */
+
+.sheet-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-block-start: var(--sp-3);
+}
+
+.sheet-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding-block: var(--sp-2);
+  border-block-end: 1px solid var(--line);
+}
+
+.sheet-row:last-of-type { border-block-end: 0; }
+
+.sheet-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.sheet-count {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* A narrow window is a real case here — the owner may keep this tab beside the
+   panel rather than full width. */
+@media (max-width: 40rem) {
+  .console-head,
+  .console-body { padding-inline: var(--sp-3); }
+
+  .finding { grid-template-columns: 1fr; }
+  .finding-where { white-space: normal; }
+}

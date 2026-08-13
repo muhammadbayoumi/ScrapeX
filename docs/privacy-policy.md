@@ -34,6 +34,7 @@ your email address. The extension contains no telemetry of any kind.
 | The time zone dates are shown in | The same | You |
 | The address of your local engine — `127.0.0.1:8000` unless you change it | The same | You |
 | The spreadsheet you chose for exports — its name, its link, and Google's id for it | The same | You |
+| The spreadsheet holding your Excel add-in's configuration, if you open the Console — its name and id | The same | You |
 
 Nothing in that table leaves your computer unless you press a button that says
 it will.

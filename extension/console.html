@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Console — ScrapeX</title>
+<!--
+  THE CONSOLE. An extension page, opened in a TAB from the side rail.
+
+  Not a page on a website, and not a view in the panel. Not a website because
+  the token would then have to leave the extension, and the widening in
+  `externally_connectable` that the Picker needs is not something to repeat for
+  a surface that does not need it — the Sheets API is a plain fetch that
+  `host_permissions` already covers. Not a panel view because this is a table
+  editor and the panel is 360px wide.
+
+  It edits the mbiXaddin CONFIGURATION WORKBOOK: six tabs that describe an Excel
+  add-in entirely. Editing them by hand in Google Sheets is editing a database
+  through a text box, and a mistake surfaces as a table that fails to load in
+  front of whoever is using Excel that morning.
+
+  THE ENGINE IS NOT INVOLVED. No route, no Python, no 127.0.0.1 anywhere in this
+  page's path. The owner's ruling, restated 2026-08-12.
+-->
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+  <header class="console-head">
+    <div class="console-title">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#file-upload"></use>
+      </svg>
+      <h1>Console</h1>
+    </div>
+    <p class="console-lede">
+      The configuration the Excel add-in reads — checked before it is changed.
+    </p>
+  </header>
+
+  <main class="console-body">
+
+    <!-- STEP ONE, AND IT IS A REAL STEP. The add-in reads one specific
+         spreadsheet, identified by six tab ids compiled into its own build. A
+         Console pointed at a different file would check it happily and report
+         that everything is fine about a workbook nobody reads. -->
+    <section class="card" aria-labelledby="workbook-title">
+      <h2 id="workbook-title">The workbook</h2>
+      <p id="workbook-state" class="hint" role="status" aria-live="polite">
+        Checking your Google account…
+      </p>
+      <div class="row">
+        <button id="workbook-choose" class="button" type="button" hidden>
+          Choose the configuration workbook</button>
+        <button id="workbook-recheck" class="button ghost" type="button" hidden>
+          Check it again</button>
+      </div>
+      <p id="workbook-identity" class="hint"></p>
+    </section>
+
+    <!-- WHAT IS WRONG, BEFORE ANYTHING IS EDITED. The order is deliberate: a
+         Console that opened on an editor would invite a change while the file
+         already had faults nobody had been shown. -->
+    <section class="card hidden" id="findings-card" aria-labelledby="findings-title">
+      <h2 id="findings-title">What the add-in would make of this</h2>
+      <p id="findings-summary" class="hint" role="status" aria-live="polite"></p>
+      <div id="findings-list" class="findings"></div>
+    </section>
+
+    <section class="card hidden" id="sheets-card" aria-labelledby="sheets-title">
+      <h2 id="sheets-title">The six sheets</h2>
+      <div id="sheets-list" class="sheet-rows"></div>
+      <p class="hint">
+        Editing arrives one sheet at a time, beginning with Data sources. Until
+        then this page reads and checks; it writes nothing.
+      </p>
+    </section>
+
+  </main>
+
+  <!-- appearance.js FIRST, and as a classic script. It is what puts
+       `data-theme` on the document, and a module would run after first paint —
+       the onboarding page shipped that way once and ignored the owner's palette
+       entirely. -->
+  <script src="appearance.js"></script>
+  <script type="module" src="console.js"></script>
+</body>
+</html>

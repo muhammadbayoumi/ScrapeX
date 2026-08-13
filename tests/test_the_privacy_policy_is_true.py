@@ -277,6 +277,11 @@ def test_every_place_the_extension_persists_data_is_in_the_policy():
         # where a business's data lands is not a decision to re-make daily —
         # and outliving the panel is exactly what puts it in this table.
         "app.js": "spreadsheet",
+        # The Console remembers WHICH workbook holds the Excel add-in's
+        # configuration, so the owner does not hunt for it every morning. Same
+        # reasoning, different file — and the same row covers both, because a
+        # reader asking "what does this keep about my Drive" wants one answer.
+        "console.js": "spreadsheet",
     }
     missing = [name for name in writers
                if name in described and described[name].lower() not in storage_table.lower()]

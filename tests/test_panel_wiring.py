@@ -145,11 +145,24 @@ def test_the_unbuilt_file_source_is_disabled_not_silent():
             f"the {action} button is enabled but nothing implements it"
 
 
-def test_the_interface_stays_english():
-    """Spec 1: Arabic is data, never interface. The panel's own markup carries
-    no Arabic — the stress fixtures that do live in the screenshot harness."""
-    arabic = re.findall(r"[؀-ۿ]+", HTML)
-    assert not arabic, f"Arabic leaked into the panel markup: {arabic[:3]}"
+@pytest.mark.parametrize(
+    "page", sorted(EXT.glob("*.html")), ids=lambda p: p.name)
+def test_the_interface_stays_english(page):
+    """Spec 1: Arabic is data, never interface. The stress fixtures that do
+    carry Arabic live in the screenshot harness.
+
+    EVERY SHIPPED PAGE, not just the panel. This read only app.html until
+    2026-08-12, so onboarding.html was never checked and neither would the
+    Console have been — and the Console is the page most likely to grow an
+    Arabic label, because it edits a workbook whose own DATA is bilingual.
+
+    The panel's own markup is the strictest case and the others follow it, so
+    one rule covers all of them rather than a list somebody has to remember to
+    extend.
+    """
+    arabic = re.findall(r"[؀-ۿ]+", page.read_text(encoding="utf-8"))
+    assert not arabic, (
+        f"Arabic leaked into {page.name}: {arabic[:3]}")
 
 
 # ---- run modes are offered according to the DATA -----------------------------

@@ -5997,6 +5997,11 @@ function wireDeferredControls() {
   });
   $("how").addEventListener("click", () =>
     chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") }));
+  // chrome.runtime.getURL, not openTab: openTab prefixes the ENGINE's address,
+  // and the Console has nothing to do with the engine. This one opens a page
+  // that ships inside the extension, so it works with the engine stopped.
+  $("console-open").addEventListener("click", () =>
+    chrome.tabs.create({ url: chrome.runtime.getURL("console.html") }));
   $("open-browse").addEventListener("click", () => openTab("/"));
   // The workspace opens with the Storage section already expanded, so the link
   // lands on what it promised rather than on a wall of closed rows.

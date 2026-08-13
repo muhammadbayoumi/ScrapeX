@@ -2863,47 +2863,61 @@ def test_a_business_date_is_never_shifted_by_the_display_zone(open_panel):
     assert not page.js_errors
 
 
-def test_a_page_that_is_only_a_shape_says_so_on_itself(open_panel):
-    """Profile, Engine and Console exist so their shape can be agreed before
-    they are written. Every one of them is empty behind the glass.
+def test_anything_that_says_it_is_unbuilt_is_actually_inert(open_panel):
+    """A card that looks finished and does nothing is worse than no card: the
+    owner presses a button, nothing happens, and the product reads as broken
+    rather than unbuilt.
 
-    A page that looks finished and does nothing is worse than no page: the owner
-    presses Install, nothing happens, and the product looks broken rather than
-    unbuilt. So each carries a note naming the milestone it is waiting for, and
-    every control on it is disabled.
+    THIS USED TO BE A LIST OF PAGES, and the list could not survive a page being
+    HALF built — which is what Console became the day it grew a working "Open
+    the Console" button beside an unbuilt Datasets card. Under the old rule the
+    page had to be entirely a shape or entirely real; the honest state was
+    neither, and the test failed for the wrong reason.
 
-    The project's own rule, from the brief: "Clearly identify mock and production
-    integrations." This is the mechanical form of it."""
+    So the rule moved onto the CLASS. Every `.planned-note`, wherever it is,
+    must name its milestone and must sit inside the card whose controls it
+    excuses — and every control in that card must be dead. A note beside a
+    working button is the lie this exists to prevent, and it is now caught
+    wherever it appears rather than only on pages somebody remembered to list.
+
+    The project's own rule, from the brief: "Clearly identify mock and
+    production integrations." This is the mechanical form of it.
+    """
     page = open_panel()
 
-    # PAGES LEAVE THIS LIST AS THEY ARE BUILT, and each has to be taken out by
-    # hand. `engines` went when its rows became real (M1b); `profile` went when
-    # its button started signing people in (M1c). Both would have passed here
-    # afterwards — a note and a disabled control are easy to keep — which is
-    # exactly why the removal is deliberate: a page reporting true facts under
-    # "Not built yet" is lying in the safe direction, and the next reader
-    # trusts neither line.
-    shapes = (("console", "M7"),)
-    assert shapes, (
-        "every page is built, so this test now passes by checking nothing — "
-        "delete it rather than leaving it green over an empty list")
+    notes = page.locator(".planned-note")
+    assert notes.count(), (
+        "nothing declares itself unbuilt anywhere. Either every shape is now "
+        "real — in which case delete this test deliberately rather than leave "
+        "it green over an empty page — or a note was removed from something "
+        "that still does nothing.")
 
-    for view, milestone in shapes:
-        page.click(f"#tab-{view}")
-        panel = page.locator(f"#view-{view}")
-        assert panel.is_visible(), f"the {view} page does not open"
+    for i in range(notes.count()):
+        note = notes.nth(i)
 
-        note = panel.locator(".planned-note")
-        assert note.count() == 1, f"the {view} page does not say it is unbuilt"
-        assert note.get_attribute("data-planned") == milestone, (
-            f"the {view} page does not name the milestone it waits for")
-        assert "Not built yet" in note.inner_text()
+        # Its view has to be open for the DOM to be measurable at all.
+        view = note.evaluate("n => n.closest('[role=tabpanel]')?.id || ''")
+        assert view.startswith("view-"), (
+            "a planned note sits outside every view, so nothing can say what it "
+            "is excusing")
+        page.click(f"#tab-{view[len('view-'):]}")
 
-        buttons = panel.locator("button")
-        for i in range(buttons.count()):
-            assert buttons.nth(i).is_disabled(), (
-                f"a control on the {view} page is pressable while the page does "
-                "nothing — that reads as broken, not as unbuilt")
+        assert note.get_attribute("data-planned"), (
+            f"the note in {view} does not name the milestone it waits for")
+        assert "Not built yet" in note.inner_text(), (
+            f"the note in {view} does not say plainly that it is unbuilt: "
+            f"{note.inner_text()[:60]!r}")
+
+        card = note.locator("xpath=ancestor::section[contains(@class,'card')][1]")
+        assert card.count() == 1, (
+            f"the note in {view} is not inside a card, so which controls it "
+            "excuses is a matter of opinion")
+
+        buttons = card.locator("button")
+        for b in range(buttons.count()):
+            assert buttons.nth(b).is_disabled(), (
+                f"a control in {view} is pressable inside a card that says it is "
+                "not built — that reads as broken, not as unbuilt")
 
 
 def test_the_shape_opens_on_who_you_are_and_what_is_installed(open_panel):
