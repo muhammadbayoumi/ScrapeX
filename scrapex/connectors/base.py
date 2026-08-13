@@ -702,9 +702,30 @@ def resolve_fetcher(source: SourceEntry,
     # to ignore a site's asked-for pace — the safe reading of silence is the
     # polite one.
     honour = chosen.get("honour_crawl_delay")
+    # ONE PLACE DECIDES THE PACE, AND IT TAKES THE SLOWEST OPINION.
+    #
+    # There were three of these and only one was connected. The owner's setting
+    # reached the fetcher; a site's own robots Crawl-delay is applied later in
+    # `_robots_for`; and `robots_custom.crawl_delay_s` — declared in the
+    # manifest, documented, shown in the web UI, computed all the way into
+    # `Decision.delay_s` — was read by nobody. `decide()`'s verdict is consulted
+    # only for `may_fetch`, and only on a path robots.txt DISALLOWS, so an owner
+    # who set a per-source delay saw it in the interface and it did nothing.
+    #
+    # Slowest wins, which is the rule `_robots_for` already follows in its own
+    # words: "slowing down is never the wrong direction". So a per-source pace
+    # can hold a site back and can never push one forward past the owner's
+    # setting — including a `crawl_pace_s` typed too small by accident.
+    paces = [1.0 if interval is None else float(interval)]
+    if source.crawl_pace_s:
+        paces.append(float(source.crawl_pace_s))
+    custom_delay = (source.robots_custom or {}).get("crawl_delay_s")
+    if custom_delay:
+        paces.append(float(custom_delay))
+
     return HttpFetcher(
         user_agent=source.user_agent or chosen.get("user_agent") or DEFAULT_USER_AGENT,
-        min_interval_s=1.0 if interval is None else float(interval),
+        min_interval_s=max(paces),
         timeout_s=30.0 if timeout is None else float(timeout),
         honour_crawl_delay=True if honour is None else bool(honour),
         # The source's own answer, and what it means when the source did not

@@ -235,6 +235,23 @@ sources:
     active: true
     currency: SAR
     default_region: SA
+    # THIS SITE REFUSES AT ONE REQUEST A SECOND, and never says so in robots.txt.
+    #
+    # Measured 2026-08-13 against the live warehouse: five jobs aborted on
+    # "5 refusals in a row (last: HTTP 429)" — 84 and 85 on 1 Aug, 98 on 2 Aug,
+    # 120 and 121 on 11 Aug. Each of those runs collected nothing at all.
+    #
+    # alsweed.sa/robots.txt publishes a Sitemap, one Disallow and NO Crawl-delay,
+    # so `crawl_honour_delay` has nothing here to honour and turning it back on
+    # would have changed nothing. The tool-wide pace was the only other lever,
+    # and raising it would have slowed elburoj's 6,720 products — which already
+    # asks for 10 seconds — to spare this one shop.
+    #
+    # 3 seconds is a first estimate, not a measurement: nobody knows this site's
+    # real limit, and finding it by probing is the behaviour that got us refused.
+    # At ~1,200 products it costs about an hour instead of twenty minutes. Raise
+    # it if the 429s come back; lower it only with a run that proves they do not.
+    crawl_pace_s: 3.0
     vat_mode: incl
     extract:
       - kind: product_prices
