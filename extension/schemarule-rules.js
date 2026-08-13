@@ -10,7 +10,8 @@
 // Every rule below was read out of the C# with file:line
 // (docs/reviews/mbiXaddin-config-contract-*.md).
 
-import { readBoolean, BOOLEAN_DEFAULTS, ERROR_CODE, LOG_TAG, CONSOLE_ONLY_CODE,
+import { readBoolean, readConfigBag, BOOLEAN_DEFAULTS, ERROR_CODE, LOG_TAG,
+  CONSOLE_ONLY_CODE,
   SEMANTIC_ROLES, REPEATABLE_ROLES, DATA_TYPES, LICENSE_TIERS, UX_CONFIG_KEYS,
   LOGIC_CONFIG_KEYS } from "./addin-contract.js";
 
@@ -50,19 +51,18 @@ const BAGS = {
 function checkBag(row, name, found) {
   const raw = text(row, name);
   if (!raw) return;
-  let parsed = null;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  const {value: parsed, tolerated, unreadable} = readConfigBag(raw);
+  if (unreadable) {
     found.push(finding("Error", name, ERROR_CODE.badJson,
-      "Not valid JSON, so the whole bag is dropped and every setting in it "
-      + "stops applying."));
+      "Nothing here can be read as a settings object, so the whole bag is "
+      + "dropped and every setting in it stops applying."));
     return;
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    found.push(finding("Error", name, ERROR_CODE.badJson,
-      "Valid JSON, but not an object — nothing can be read out of it."));
-    return;
+  if (!parsed) return;
+  if (tolerated) {
+    found.push(finding("Info", name, ERROR_CODE.badJson,
+      "Not strict JSON — a trailing comma or a comment. The add-in's parser "
+      + "accepts it, so nothing is broken."));
   }
   for (const key of Object.keys(parsed)) {
     if (!BAGS[name].includes(key)) {
@@ -226,7 +226,15 @@ export function checkSchemaRuleRow(row, others = [], definitions = []) {
 
   // 10 — repeated roles. Three roles are repeatable by design; of the rest,
   // ten warn and the engine roles do not warn at all.
-  if (role && !REPEATABLE_ROLES.some((r) => same(r, role))
+  //
+  // NONE IS NOT A ROLE, and excluding it is not a nicety. It is the default for
+  // every ordinary column — "no engine meaning" — so a rule that counted it
+  // would fire on nearly every table in the workbook. Measured against the
+  // owner's real sheet before this line existed: 23 warnings, every one of them
+  // wrong. A blank cell reads as NONE too, which is why both are excluded here
+  // rather than only the blank.
+  if (role && !same(role, "NONE")
+      && !REPEATABLE_ROLES.some((r) => same(r, role))
       && siblings.some((other) => same(text(other, "SEMANTIC_ROLE"), role))) {
     const upper = role.toUpperCase();
     const quiet = !WARNED_SINGULAR_ROLES.includes(upper);

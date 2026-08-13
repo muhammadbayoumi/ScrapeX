@@ -11,7 +11,8 @@
 // missing, none of that runs — so several of the rules below are about what
 // OTHER sheets contain, and take them as arguments rather than guessing.
 
-import { readBoolean, BOOLEAN_DEFAULTS, ERROR_CODE, LOG_TAG, CONSOLE_ONLY_CODE,
+import { readBoolean, readConfigBag, BOOLEAN_DEFAULTS, ERROR_CODE, LOG_TAG,
+  CONSOLE_ONLY_CODE,
   ENTITY_TYPES, STORAGE_STRATEGIES, STORAGE_STRATEGY_ALIASES, LICENSE_TIERS,
   VIEW_MODES, BUSINESS_DOMAINS, TABLE_UX_CONFIG_KEYS, TABLE_SYS_CONFIG_KEYS,
   RIBBON_CONFIG_KEYS, EXPORT_CONFIG_KEYS, DIRECTIONS, CONTROL_SIZES,
@@ -62,20 +63,21 @@ function checkBag(row, name, found) {
   const raw = text(row, name);
   if (!raw) return;                          // blank is a default object, never a fault
 
-  let parsed = null;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
+  const {value: parsed, tolerated, unreadable} = readConfigBag(raw);
+  if (unreadable) {
     found.push(finding("Error", name, ERROR_CODE.badJson,
-      "Not valid JSON. The whole bag is dropped at runtime, not just the broken "
-      + "part, so EVERY setting in it stops applying.",
-      "Check the quotes and commas, or empty the cell."));
+      "Nothing here can be read as a settings object — not even allowing for "
+      + "the add-in's own leniency. The whole bag is dropped at runtime, not "
+      + "just the broken part, so EVERY setting in it stops applying.",
+      "Check the brackets and quotes, or empty the cell."));
     return;
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    found.push(finding("Error", name, ERROR_CODE.badJson,
-      "This is valid JSON but not an object, so no setting can be read out of it."));
-    return;
+  if (!parsed) return;
+  if (tolerated) {
+    found.push(finding("Info", name, ERROR_CODE.badJson,
+      "Not strict JSON — a trailing comma or a comment. The add-in's parser "
+      + "accepts it and always has, so nothing is broken; anything else reading "
+      + "this cell would refuse it."));
   }
 
   const {keys, closed} = BAGS[name];

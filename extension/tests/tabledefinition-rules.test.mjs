@@ -197,11 +197,49 @@ test("hidden is not the same as off", () => {
 
 test("a broken bag loses ALL of its settings, not the broken part", () => {
   const found = checkTableDefinitionRow(
-    sound({UX_CONFIG: '{"TabColor": "#FF0000",}'}), [], withKey);
+    sound({UX_CONFIG: '{"TabColor": '}), [], withKey);
   const bad = found.filter((f) => f.field === "UX_CONFIG");
   assert.equal(bad.length, 1);
   assert.equal(bad[0].severity, "Error");
   assert.match(bad[0].detail, /EVERY setting in it/);
+});
+
+test("but a trailing comma is NOT broken — the add-in's parser accepts it", () => {
+  // Found by running these rules against the owner's real workbook: three cells
+  // came back as errors and all three were fine. Every bag in the product is
+  // parsed by Newtonsoft, which takes a trailing comma; JSON.parse does not.
+  // This is the exact text of one of those cells.
+  const real = `{
+"HeaderText":"الهيئة العامة للطرق والكباري",
+"HeaderStyle":"TableHeader",
+}`;
+  const found = checkTableDefinitionRow(
+    sound({EXPORT_CONFIG: real}), [], withKey);
+
+  assert.equal(found.length, 1, "the tolerated cell produced more than a note");
+  assert.equal(found[0].severity, "Info",
+    "a cell the add-in reads every day is being reported as a fault");
+  assert.match(found[0].detail, /trailing comma/);
+  // And the settings inside it are still read, so HeaderStyle is still checked.
+  const wrongStyle = checkTableDefinitionRow(
+    sound({EXPORT_CONFIG: '{"HeaderStyle":"Fancy",}'}), [], withKey);
+  assert.ok(wrongStyle.some((f) => f.severity === "Error"),
+    "tolerating the comma stopped the values inside being checked");
+});
+
+test("a comment is tolerated too, and a URL inside a string is not a comment", () => {
+  const commented = checkTableDefinitionRow(
+    sound({SYS_CONFIG: `{ // how many rows the teaser shows
+"TeaserRowCount": 5 }`}),
+    [], withKey);
+  assert.equal(commented.length, 1);
+  assert.equal(commented[0].severity, "Info");
+
+  // The relaxation strips `//`, and a value like "https://x" contains one. If
+  // that were cut, a perfectly good bag would become unreadable.
+  const url = checkTableDefinitionRow(
+    sound({SYS_CONFIG: '{"TeaserText": "see https://example.com/x"}'}), [], withKey);
+  assert.deepEqual(url, [], "a URL in a string was mistaken for a comment");
 });
 
 test("a misspelt key is kept and ignored, and the accepted set is offered", () => {

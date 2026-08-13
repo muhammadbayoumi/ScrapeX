@@ -164,6 +164,54 @@ export const ERROR_CODE = {
 };
 
 /**
+ * How the add-in reads a JSON config bag — which is NOT how `JSON.parse` does.
+ *
+ * FOUND BY RUNNING THE RULES AGAINST THE OWNER'S REAL WORKBOOK. Three cells came
+ * back as errors and all three were fine: they end in a trailing comma, and
+ * every bag in this product is parsed by Newtonsoft (`using Newtonsoft.Json` in
+ * ConfigResolver.cs:36 and ConfigValidator.cs:22), which accepts one. A Console
+ * that refused them would be refusing what the add-in reads every day, and the
+ * owner would learn to ignore it.
+ *
+ * Returns `{value, tolerated, unreadable}`:
+ *   value       the object, or null
+ *   tolerated   true when strict JSON refused it and the relaxations below did
+ *               not — worth saying, because it is not portable, but it works
+ *   unreadable  true when nothing could read it; the add-in drops the bag WHOLE
+ *
+ * THE RELAXATIONS ARE NOT ALL OF NEWTONSOFT'S. It also accepts single-quoted
+ * strings and unquoted property names, which are not handled here, so a bag
+ * written that way is reported as unreadable when the add-in would read it. That
+ * is a known and narrow gap; the two below are what hand-edited JSON actually
+ * contains, and both appear in the live workbook.
+ */
+export function readConfigBag(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return {value: null, tolerated: false, unreadable: false};
+
+  const object = (parsed) =>
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
+
+  try {
+    const parsed = JSON.parse(text);
+    return {value: object(parsed) ? parsed : null, tolerated: false,
+      unreadable: !object(parsed)};
+  } catch { /* fall through to the relaxations */ }
+
+  const relaxed = text
+    .replace(/\/\*[\s\S]*?\*\//g, "")            // /* block comments */
+    .replace(/(^|[^:"'\\])\/\/[^\n\r]*/g, "$1")  // // line comments, not in a URL
+    .replace(/,(\s*[}\]])/g, "$1");              // one or more trailing commas
+  try {
+    const parsed = JSON.parse(relaxed);
+    return {value: object(parsed) ? parsed : null, tolerated: true,
+      unreadable: !object(parsed)};
+  } catch {
+    return {value: null, tolerated: false, unreadable: true};
+  }
+}
+
+/**
  * Faults the add-in reports ONLY as a bracketed tag on a log line.
  *
  * There is no `ValidationResult` behind these, so there is no error code and no

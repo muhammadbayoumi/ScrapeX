@@ -163,6 +163,13 @@ test("repeatable roles repeat; singular ones do not", () => {
     "MENU_GROUP is the one repeatable menu role and was refused");
   assert.deepEqual(twice("EXPORT_GROUP"), []);
 
+  // NONE is not a role. It is what every ordinary column carries, so counting
+  // it as singular fires on nearly every table there is — measured at 23 false
+  // warnings against the owner's real workbook before this was excluded.
+  assert.deepEqual(twice("NONE"), [],
+    "NONE is being counted as a repeated role");
+  assert.deepEqual(twice("none"), [], "and the check is case-sensitive again");
+
   const menu = twice("MENU_LABEL");
   assert.equal(menu.length, 1);
   assert.equal(menu[0].code, "ERR_DUPLICATE",
