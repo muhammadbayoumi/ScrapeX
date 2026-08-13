@@ -103,10 +103,26 @@ export function checkSourceUri(uri) {
   // with NO AUTHENTICATION of any kind. Whatever comes back is parsed as the
   // table's rows.
   //
+  // THE SUPPRESSION BELOW, AND WHY IT IS NOT A DISMISSAL.
+  //
+  // This one line is the add-in's own test, reproduced deliberately, and it is
+  // the only place in this module the substring is taken. Nothing is decided by
+  // it: it answers "what will the add-in conclude", and every judgement about
+  // who is really being talked to is made against `reallyGoogle`, which parses.
+  // Deleting it would not close a hole — the hole is in the add-in, on a machine
+  // this code cannot reach — it would only make the Console describe a program
+  // other than the one the owner runs.
+  //
+  // The scanner's real finding is answered on the next line but one, where the
+  // parsed host is compared and the impostor is reported as an Error. Break that
+  // check and `datasource-rules.test.mjs` fails on two named addresses.
+  // codeql[js/incomplete-url-substring-sanitization]
+  const addinReadsThisAsGoogleSheets = lower.includes("docs.google.com");
+
   // The mirror stays, because a Console that warned differently from the add-in
   // would be wrong about what the add-in does. What is added is the thing the
   // add-in cannot tell you.
-  if (isHttp && lower.includes("docs.google.com") && !reallyGoogle) {
+  if (isHttp && addinReadsThisAsGoogleSheets && !reallyGoogle) {
     found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
       `This address MENTIONS docs.google.com but is served by "${host}". The `
       + "add-in decides an address is Google's by searching the whole string, "
@@ -116,9 +132,10 @@ export function checkSourceUri(uri) {
       + "docs.google.com."));
   }
 
-  // Case-insensitive substring, exactly as the add-in matches — so the Console
-  // asks for output=tsv in precisely the cases the add-in does.
-  if (lower.includes("docs.google.com")) {
+  // The same answer, not a second reading of it — so the Console asks for
+  // output=tsv in precisely the cases the add-in does, including the impostor
+  // above, which the add-in also demands a TSV format from.
+  if (addinReadsThisAsGoogleSheets) {
     if (!lower.includes("output=tsv") && !lower.includes("format=tsv")) {
       found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
         "A Google Sheets address without a TSV format serves a WEB PAGE. The "
