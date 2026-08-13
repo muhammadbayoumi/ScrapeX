@@ -153,6 +153,21 @@ export function checkTableDefinitionRow(row, others = [], schemaRules = []) {
     }
   }
 
+  // 3b — a blank ENTITY_TYPE is inherited before it is judged. The add-in warns
+  // only when it is still null AFTER MergeWithParent, so a child of a typed
+  // parent is silent and a root with no type is not. Found by opening the real
+  // T_BITUMEN, whose type is blank and whose parent is nothing.
+  if (!text(row, "ENTITY_TYPE")) {
+    const parentRow = others.find(
+      (other) => same(text(other, "ENTITY_KEY"), text(row, "PARENT_KEY")));
+    if (!text(parentRow || {}, "ENTITY_TYPE")) {
+      found.push(finding("Warning", "ENTITY_TYPE", ERROR_CODE.required,
+        "No kind, and nothing to inherit one from. The table still syncs, but "
+        + "every rule that turns on the kind — a CONVERSION's three columns, a "
+        + "COST table's price, a LIBRARY's menu — is skipped without comment."));
+    }
+  }
+
   // 4 — STORAGE_STRATEGY, and the fault that costs the most.
   const strategyText = text(row, "STORAGE_STRATEGY");
   const knownStrategy = STORAGE_STRATEGIES.find((s) => same(s, strategyText))

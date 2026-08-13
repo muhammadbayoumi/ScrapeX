@@ -268,3 +268,28 @@ test("every finding carries a code the add-in would print", () => {
   assert.ok(!worst(messy).includes(undefined));
   for (const found of messy) assert.ok(found.code, `${found.field} has no code`);
 });
+
+test("a table with no kind and nothing to inherit one from is warned", () => {
+  // Found by opening the real T_BITUMEN, whose ENTITY_TYPE is blank and whose
+  // PARENT_KEY is nothing. The add-in warns only when it is STILL null after
+  // inheritance, so the check has to look at the parent, not just the cell.
+  const rootless = checkTableDefinitionRow(
+    sound({ENTITY_TYPE: ""}), [], withKey);
+  const said = rootless.filter((f) => f.field === "ENTITY_TYPE");
+  assert.equal(said.length, 1);
+  assert.equal(said[0].severity, "Warning");
+  assert.match(said[0].detail, /nothing to inherit one from/);
+
+  // A child of a typed parent inherits one, and the add-in stays silent.
+  const inherited = checkTableDefinitionRow(
+    sound({ENTITY_TYPE: "", PARENT_KEY: "T_BASE"}),
+    [sound({ENTITY_KEY: "T_BASE", ENTITY_TYPE: "COST"})], withKey);
+  assert.deepEqual(inherited.filter((f) => f.field === "ENTITY_TYPE"), [],
+    "a child that inherits a kind was made to declare one");
+
+  // And a parent with no kind either leaves the child with nothing.
+  const neither = checkTableDefinitionRow(
+    sound({ENTITY_TYPE: "", PARENT_KEY: "T_BASE"}),
+    [sound({ENTITY_KEY: "T_BASE", ENTITY_TYPE: ""})], withKey);
+  assert.equal(neither.filter((f) => f.field === "ENTITY_TYPE").length, 1);
+});

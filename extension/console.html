@@ -140,7 +140,200 @@
       <button class="link-back" id="inspect-back" type="button">← Tables</button>
       <h1 id="inspect-name">—</h1>
       <p id="inspect-lede"></p>
+      <div class="row">
+        <button id="inspect-edit" class="button ghost" type="button">
+          Edit this table</button>
+        <button id="column-add" class="button ghost" type="button">
+          Add a column</button>
+      </div>
     </header>
+
+    <!-- 1.TableDefinition ────────────────────────────────────────────────────
+         THE FIELDS ARE WRITTEN OUT, not generated. `test_panel_wiring.py` reads
+         both the ids a page defines and the ids its scripts reach for — and it
+         matches literal text, so a form built from `id="f-${name}"` would leave
+         the guard reading nothing on either side. Verbose, and still checked. -->
+    <section class="card hidden" id="td-editor-card" aria-labelledby="td-editor-title">
+      <h2 id="td-editor-title">Editing the table</h2>
+      <p class="hint" id="td-editor-where"></p>
+
+      <div class="field">
+        <label for="td-f-ENTITY_KEY">Key</label>
+        <input id="td-f-ENTITY_KEY" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="td-n-ENTITY_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-DISPLAY_NAME">Name shown in Excel</label>
+        <input id="td-f-DISPLAY_NAME" type="text" autocomplete="off">
+        <p class="field-note" id="td-n-DISPLAY_NAME"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-ENTITY_TYPE">Kind of table</label>
+        <select id="td-f-ENTITY_TYPE"></select>
+        <p class="field-note" id="td-n-ENTITY_TYPE"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-STORAGE_STRATEGY">How each sync writes</label>
+        <select id="td-f-STORAGE_STRATEGY"></select>
+        <p class="field-note" id="td-n-STORAGE_STRATEGY"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-PARENT_KEY">Inherits from</label>
+        <select id="td-f-PARENT_KEY"></select>
+        <p class="field-note" id="td-n-PARENT_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-LICENSE_TIER">Licence</label>
+        <select id="td-f-LICENSE_TIER"></select>
+        <p class="field-note" id="td-n-LICENSE_TIER"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-BUSINESS_DOMAIN">Domain</label>
+        <select id="td-f-BUSINESS_DOMAIN"></select>
+        <p class="field-note" id="td-n-BUSINESS_DOMAIN"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-VIEW_MODE">View</label>
+        <select id="td-f-VIEW_MODE"></select>
+        <p class="field-note" id="td-n-VIEW_MODE"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-IS_ACTIVE">Active</label>
+        <select id="td-f-IS_ACTIVE">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="td-n-IS_ACTIVE"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-IS_VISIBLE">Visible in the ribbon</label>
+        <select id="td-f-IS_VISIBLE">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="td-n-IS_VISIBLE"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-UX_CONFIG">Appearance (JSON)</label>
+        <input id="td-f-UX_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="td-n-UX_CONFIG"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-SYS_CONFIG">Behaviour (JSON)</label>
+        <input id="td-f-SYS_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="td-n-SYS_CONFIG"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-RIBBON_CONFIG">Ribbon button (JSON)</label>
+        <input id="td-f-RIBBON_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="td-n-RIBBON_CONFIG"></p>
+      </div>
+      <div class="field">
+        <label for="td-f-EXPORT_CONFIG">Export (JSON)</label>
+        <input id="td-f-EXPORT_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="td-n-EXPORT_CONFIG"></p>
+      </div>
+
+      <p id="td-editor-verdict" class="hint" role="status" aria-live="polite"></p>
+      <div class="row">
+        <button id="td-editor-save" class="button" type="button">Save to the sheet</button>
+        <button id="td-editor-cancel" class="button ghost" type="button">Cancel</button>
+      </div>
+    </section>
+
+    <!-- 2.SchemaRule ──────────────────────────────────────────────────────── -->
+    <section class="card hidden" id="sr-editor-card" aria-labelledby="sr-editor-title">
+      <h2 id="sr-editor-title">Editing a column</h2>
+      <p class="hint" id="sr-editor-where"></p>
+
+      <div class="field">
+        <label for="sr-f-ATTRIBUTE_KEY">Column name</label>
+        <input id="sr-f-ATTRIBUTE_KEY" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="sr-n-ATTRIBUTE_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-DISPLAY_HEADER">Header shown in Excel</label>
+        <input id="sr-f-DISPLAY_HEADER" type="text" autocomplete="off">
+        <p class="field-note" id="sr-n-DISPLAY_HEADER"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-DATA_TYPE">Type</label>
+        <select id="sr-f-DATA_TYPE"></select>
+        <p class="field-note" id="sr-n-DATA_TYPE"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-SEMANTIC_ROLE">Meaning to the engine</label>
+        <select id="sr-f-SEMANTIC_ROLE"></select>
+        <p class="field-note" id="sr-n-SEMANTIC_ROLE"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-ORDINAL_POS">Position</label>
+        <input id="sr-f-ORDINAL_POS" type="text" inputmode="numeric" autocomplete="off">
+        <p class="field-note" id="sr-n-ORDINAL_POS"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-LICENSE_TIER">Licence</label>
+        <select id="sr-f-LICENSE_TIER"></select>
+        <p class="field-note" id="sr-n-LICENSE_TIER"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-IS_PK">Primary key</label>
+        <select id="sr-f-IS_PK">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="sr-n-IS_PK"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-IS_MANDATORY">Required</label>
+        <select id="sr-f-IS_MANDATORY">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="sr-n-IS_MANDATORY"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-IS_VIRTUAL">Virtual (not stored)</label>
+        <select id="sr-f-IS_VIRTUAL">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="sr-n-IS_VIRTUAL"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-IS_DERIVED">Derived from a formula</label>
+        <select id="sr-f-IS_DERIVED">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="sr-n-IS_DERIVED"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-IS_VISIBLE">Visible</label>
+        <select id="sr-f-IS_VISIBLE">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="sr-n-IS_VISIBLE"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-UX_CONFIG">Appearance (JSON)</label>
+        <input id="sr-f-UX_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="sr-n-UX_CONFIG"></p>
+      </div>
+      <div class="field">
+        <label for="sr-f-LOGIC_CONFIG">Rules (JSON)</label>
+        <input id="sr-f-LOGIC_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="sr-n-LOGIC_CONFIG"></p>
+      </div>
+
+      <p id="sr-editor-verdict" class="hint" role="status" aria-live="polite"></p>
+      <div class="row">
+        <button id="sr-editor-save" class="button" type="button">Save to the sheet</button>
+        <button id="sr-editor-cancel" class="button ghost" type="button">Cancel</button>
+      </div>
+    </section>
+
     <div id="inspect-body" class="inspect-body"></div>
   </section>
 
