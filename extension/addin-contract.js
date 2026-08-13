@@ -159,6 +159,21 @@ export const ERROR_CODE = {
   badValue: "INVALID_VALUE",        // ConfigValidator.cs:106,129 — bags only
   required: "ERR_REQUIRED",
   transform: "ERR_TRANSFORM",
+  tooLong: "ERR_LENGTH",            // SystemConstants.cs:358 — the 100-char keys
+  circular: "ERR_CIRCULAR",         // TableDefinitionEntity.cs:461 — PARENT_KEY = itself
+};
+
+/**
+ * Faults the add-in reports ONLY as a bracketed tag on a log line.
+ *
+ * There is no `ValidationResult` behind these, so there is no error code and no
+ * severity — and that is exactly why they matter to the Console: nothing in the
+ * add-in's own report will mention them. The tag is still the string an owner
+ * would search its log for, so it is what gets printed.
+ */
+export const LOG_TAG = {
+  duplicateEntity: "DUPLICATE",     // MetadataOrchestrator.cs:538
+  orphanColumns: "ORPHAN_COLS",     // MetadataOrchestrator.cs:591
 };
 
 /**
@@ -172,6 +187,17 @@ export const ERROR_CODE = {
  */
 export const CONSOLE_ONLY_CODE = {
   notApplied: "NOT_APPLIED",        // accepted, documented, and then ignored
+  // A duplicate (ENTITY_KEY, ATTRIBUTE_KEY) on 2.SchemaRule. The add-in resolves
+  // it by dictionary assignment — LAST WINS — and says NOTHING: no log line, no
+  // ValidationResult, unlike the duplicate on 1.TableDefinition which at least
+  // logs. So one of two column definitions is discarded in silence, and the
+  // Console is the only place it can be seen. MetadataOrchestrator.cs:679-703.
+  silentOverride: "SILENT_OVERRIDE",
+  // MergeUpsert on a table with no IS_PK column anywhere. No PRIMARY KEY is
+  // emitted, so INSERT OR REPLACE has nothing to conflict on and every sync
+  // appends the whole file again. Nothing checks it, because the fatal check
+  // that would have runs only `if (pkCol != null)`. DataIngestionService.cs:1484.
+  duplicatesForever: "NO_CONFLICT_TARGET",
 };
 
 /** The six gids, flattened for the check that a chosen workbook is the right one. */

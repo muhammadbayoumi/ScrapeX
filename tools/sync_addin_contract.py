@@ -42,12 +42,22 @@ ORDER = [
                       "UX_CONFIG_KEYS", "LOGIC_CONFIG_KEYS"]),
     ("1.TableDefinition and 3.DataSource",
      ["ENTITY_TYPES", "STORAGE_STRATEGIES", "STORAGE_STRATEGY_ALIASES",
-      "LICENSE_TIERS", "VIEW_MODES", "BUSINESS_DOMAINS", "CONTEXT_PROPS_KEYS",
+      "LICENSE_TIERS", "VIEW_MODES", "BUSINESS_DOMAINS", "TABLE_UX_CONFIG_KEYS",
+      "TABLE_SYS_CONFIG_KEYS", "RIBBON_CONFIG_KEYS", "EXPORT_CONFIG_KEYS",
+      "DIRECTIONS", "CONTROL_SIZES", "BANNER_STYLES", "CONTEXT_PROPS_KEYS",
       "CONTEXT_SOURCE_TYPES", "SYNC_FREQUENCIES"]),
     ("6.RibbonControls", ["MENU_LAYOUTS", "CLICKABLE_ACTIONS", "MENU_ACTIONS"]),
     ("booleans, severities and the add-in's own error codes",
-     ["TRUE_SPELLINGS", "FALSE_SPELLINGS", "SEVERITIES", "ERROR_CODES"]),
+     ["TRUE_SPELLINGS", "FALSE_SPELLINGS", "SEVERITIES", "ERROR_CODES",
+      "LOG_TAGS"]),
 ]
+
+
+def _emit_comment(lines: list[str], value: list[str]) -> None:
+    """A `_comment` key carries the reason an entry exists, and the reason is
+    worth more in the generated file than in the JSON nobody opens."""
+    lines.append("")
+    lines.extend(f"// {line}" for line in value)
 
 
 def _js(value: object) -> str:
@@ -58,7 +68,8 @@ def _js(value: object) -> str:
 
 def render(contract: dict) -> str:
     vocabularies = contract["vocabularies"]
-    unknown = sorted(set(vocabularies) - {n for _, names in ORDER for n in names})
+    unknown = sorted(set(vocabularies) - {n for _, names in ORDER for n in names}
+                     - {n for n in vocabularies if n.startswith("_")})
 
     lines = [
         "// GENERATED — do not edit. Run `python tools/sync_addin_contract.py`.",
@@ -82,6 +93,9 @@ def render(contract: dict) -> str:
         for name in names:
             if name not in vocabularies:
                 continue
+            comment = vocabularies.get(f"_comment_{name}")
+            if comment:
+                _emit_comment(lines, comment)
             lines.append(f"export const {name} = {_js(vocabularies[name])};")
         lines.append("")
 
@@ -111,8 +125,7 @@ def render(contract: dict) -> str:
         # A `_comment` key carries the reason a constant exists, and the reason
         # is worth more in the generated file than in the JSON nobody opens.
         if name.startswith("_"):
-            lines.append("")
-            lines.extend(f"// {line}" for line in value)
+            _emit_comment(lines, value)
             continue
         lines.append(f"export const {name} = {_js(value)};")
     lines.append("")

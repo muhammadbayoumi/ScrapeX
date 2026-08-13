@@ -33,6 +33,19 @@ export const STORAGE_STRATEGY_ALIASES = ["REPLACE", "UPSERT", "MERGE", "INSERT"]
 export const LICENSE_TIERS = ["Free", "Standard", "Premium", "Admin"];
 export const VIEW_MODES = ["Table", "Card", "Chart"];
 export const BUSINESS_DOMAINS = ["MATERIAL", "LABOR", "EQUIPMENT", "VENDOR", "PROJECT", "FINANCE", "SYSTEM", "GARB"];
+
+// The four JSON bags on 1.TableDefinition, read from the C# classes that
+// back them. A key outside these sets is accepted, kept, and never read —
+// the add-in warns with a Levenshtein "did you mean", so the Console can
+// say the same thing while the key is still being typed.
+// TableDefinitionEntity.cs:505-575; DisplayModels.cs (Ribbon/Export).
+export const TABLE_UX_CONFIG_KEYS = ["TabColor", "Direction", "FreezePanes", "ZoomLevel", "ShowGridlines", "AutoFitColumns"];
+export const TABLE_SYS_CONFIG_KEYS = ["AllowEdit", "TeaserRowCount", "TeaserText"];
+export const RIBBON_CONFIG_KEYS = ["Label", "ScreenTip", "SuperTip", "Description", "Icon", "Group", "Order", "IsVisible", "IsEnabled", "ControlSize", "ActionClass"];
+export const EXPORT_CONFIG_KEYS = ["LinkedEntities", "FooterText", "FooterStyle", "HeaderText", "HeaderStyle"];
+export const DIRECTIONS = ["LTR", "RTL"];
+export const CONTROL_SIZES = ["Large", "Regular"];
+export const BANNER_STYLES = ["Note", "Source", "Warning", "Marketing", "TableHeader"];
 export const CONTEXT_PROPS_KEYS = ["SourceType", "SyncFreq", "SkipRows", "Encoding", "Delimiter", "TimeoutSeconds", "ActionUrl"];
 export const CONTEXT_SOURCE_TYPES = ["GoogleSheetTsv", "LocalCsv", "RestApi", "LocalSqlite", "Manual"];
 export const SYNC_FREQUENCIES = ["Hourly", "Daily", "Weekly", "Monthly"];
@@ -46,7 +59,13 @@ export const MENU_ACTIONS = ["Menu", "Library", "ExportTree", "ViewList"];
 export const TRUE_SPELLINGS = ["1", "true", "yes", "y", "on", "نعم", "صح", "صحيح"];
 export const FALSE_SPELLINGS = ["0", "false", "no", "n", "off", "لا", "خطأ", "غلط"];
 export const SEVERITIES = ["Info", "Warning", "Error", "Critical"];
-export const ERROR_CODES = ["ERR_REF", "ERR_DUPLICATE", "ORPHAN_MAPPING", "PK_MISSING", "MANDATORY_UNMAPPED", "INVALID_JSON", "UNKNOWN_KEY", "INVALID_VALUE", "ERR_REQUIRED", "ERR_TRANSFORM", "ERR_FORMAT"];
+export const ERROR_CODES = ["ERR_FORMAT", "ERR_NULL", "ERR_LENGTH", "ERR_REF", "ERR_DUPLICATE", "ERR_TIER", "ERR_CIRCULAR", "ERR_REQUIRED", "ERR_PRESET", "ERR_FORMULA", "ERR_TRANSFORM", "ERR_DB_WRITE", "ERR_DB_READ", "ERR_SCHEMA", "ERR_NO_RATE", "ERR_NO_UNIT", "ERR_OVERFLOW", "ERR_NO_COST", "INVALID_JSON", "UNKNOWN_KEY", "INVALID_VALUE", "INVALID_COLOR", "BROKEN_LINK", "ORPHAN_MAPPING", "PK_MISSING", "MANDATORY_UNMAPPED"];
+
+// Faults the add-in reports ONLY as a bracketed tag on a log line — there is
+// no ValidationResult and so no error code. The tag is still the string an
+// owner greps for, so the Console prints it rather than inventing a name.
+// MetadataOrchestrator.cs:538 (DUPLICATE), :591 (ORPHAN_COLS), :666 (ERR_REF).
+export const LOG_TAGS = ["DUPLICATE", "ORPHAN_COLS"];
 
 // ---- the sheets, and the gids compiled into the add-in ----------------------
 export const SHEETS = {
