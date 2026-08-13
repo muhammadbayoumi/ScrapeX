@@ -12,7 +12,7 @@
 // would print a cascade of complaints about a row the add-in never reaches.
 
 import { readBoolean, readsUriAsGoogleSheets, BOOLEAN_DEFAULTS, ERROR_CODE,
-  CONTEXT_PROPS_KEYS, URI_TSV_MARKERS, URI_TAB_MARKER }
+  CONSOLE_ONLY_CODE, CONTEXT_PROPS_KEYS, URI_TSV_MARKERS, URI_TAB_MARKER }
   from "./addin-contract.js";
 
 /**
@@ -66,7 +66,7 @@ export function checkSourceUri(uri) {
   if (!isHttp && !isLocal) {
     // Stops here in the add-in as well — every later rule assumes one of the
     // two shapes.
-    return [finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
+    return [finding("Error", "SOURCE_URI", ERROR_CODE.badFormat,
       "This is neither a web address nor a file path. FTP, relative paths and "
       + "bare filenames are not supported.")];
   }
@@ -78,11 +78,11 @@ export function checkSourceUri(uri) {
     try {
       host = new URL(value).hostname.toLowerCase();
     } catch {
-      return [finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
+      return [finding("Error", "SOURCE_URI", ERROR_CODE.badFormat,
         "This is not a well-formed web address.")];
     }
     if (!host.includes(".")) {
-      found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badValue,
+      found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badFormat,
         `"${host}" has no dot in it, so it is probably not a real host.`));
     }
   }
@@ -111,7 +111,7 @@ export function checkSourceUri(uri) {
   const addinReadsThisAsGoogleSheets = readsUriAsGoogleSheets(value);
 
   if (isHttp && addinReadsThisAsGoogleSheets && !reallyGoogle) {
-    found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
+    found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badFormat,
       `This address MENTIONS docs.google.com but is served by "${host}". The `
       + "add-in decides an address is Google's by searching the whole string, "
       + "so it accepts this one and downloads it with no authentication — and "
@@ -125,7 +125,7 @@ export function checkSourceUri(uri) {
   // above, which the add-in also demands a TSV format from.
   if (addinReadsThisAsGoogleSheets) {
     if (!URI_TSV_MARKERS.some((marker) => lower.includes(marker))) {
-      found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
+      found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badFormat,
         "A Google Sheets address without a TSV format serves a WEB PAGE. The "
         + "add-in downloads it, sees markup where rows should be, and reports a "
         + "parse failure — which reads as a problem with the data rather than "
@@ -133,14 +133,14 @@ export function checkSourceUri(uri) {
         "Add output=tsv to the end of the address."));
     }
     if (!lower.includes(URI_TAB_MARKER)) {
-      found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badValue,
+      found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badFormat,
         "No gid, so this always reads the FIRST tab of that spreadsheet — "
         + "whichever one that happens to be today.",
         "Add gid=… naming the tab you mean."));
     }
   } else if (isLocal
              && !/\.(csv|tsv|txt)/i.test(value)) {
-    found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badValue,
+    found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badFormat,
       "A local path with no .csv, .tsv or .txt in it."));
   }
 
@@ -229,7 +229,7 @@ export function checkDataSourceRow(row, {entities = [], activeEntities = null,
   // 5 — SOURCE_REGION. The consequence is out of all proportion to the typo.
   const region = value("SOURCE_REGION");
   if (region && region.toUpperCase() !== "GLOBAL" && !/^[A-Za-z]{2}$/.test(region)) {
-    found.push(finding("Warning", "SOURCE_REGION", ERROR_CODE.badValue,
+    found.push(finding("Warning", "SOURCE_REGION", ERROR_CODE.badFormat,
       `"${region}" is neither GLOBAL nor a two-letter code, and an unrecognised `
       + "region BLOCKS EVERY USER from syncing this source.",
       "Use GLOBAL, or a two-letter country code such as SA or EG."));
@@ -243,9 +243,18 @@ export function checkDataSourceRow(row, {entities = [], activeEntities = null,
 
   // 7 — switched off. Not a fault; said because a table that is empty on
   // purpose looks exactly like a table that is empty by accident.
+  //
+  // THE ADD-IN DISAGREES WITH ITSELF HERE, and the Console follows one half
+  // deliberately. `DataSourceEntity.cs:379-387` yields a `ValidationResult.Warn`
+  // — but writes `[INFO]` at the front of its own message and says in the
+  // comment above it "Not an error". The code it carries is ERR_FORMAT, which is
+  // the code taken below so a search matches; the severity is the one the
+  // message means rather than the one the call says, because a source switched
+  // off on purpose ranked amber would sit among real faults for as long as it
+  // stayed off. Neither choice blocks a sync: only Error and above do.
   const active = readBoolean(row?.IS_ACTIVE, BOOLEAN_DEFAULTS["3.DataSource"].IS_ACTIVE);
   if (!active) {
-    found.push(finding("Info", "IS_ACTIVE", ERROR_CODE.badValue,
+    found.push(finding("Info", "IS_ACTIVE", ERROR_CODE.badFormat,
       "Switched off — the add-in skips this source entirely, and its table "
       + "stays as it was."));
   }
@@ -274,7 +283,11 @@ export function checkDataSourceRow(row, {entities = [], activeEntities = null,
     if (parsed) {
       for (const [key, why] of Object.entries(IGNORED_CONTEXT_KEYS)) {
         if (key in parsed) {
-          found.push(finding("Warning", "CONTEXT_PROPS", ERROR_CODE.badValue,
+          // CONSOLE-ONLY. The add-in has no rule for this at all: the key is
+          // known, its value is valid, and it is simply never applied. There is
+          // therefore no add-in code to share, and borrowing one would send an
+          // owner searching its log for something it cannot emit.
+          found.push(finding("Warning", "CONTEXT_PROPS", CONSOLE_ONLY_CODE.notApplied,
             `"${key}" is read and then ignored — ${why}`,
             "Remove it, or keep it knowing it changes nothing."));
         }

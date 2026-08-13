@@ -46,7 +46,7 @@ export const MENU_ACTIONS = ["Menu", "Library", "ExportTree", "ViewList"];
 export const TRUE_SPELLINGS = ["1", "true", "yes", "y", "on", "نعم", "صح", "صحيح"];
 export const FALSE_SPELLINGS = ["0", "false", "no", "n", "off", "لا", "خطأ", "غلط"];
 export const SEVERITIES = ["Info", "Warning", "Error", "Critical"];
-export const ERROR_CODES = ["ERR_REF", "ERR_DUPLICATE", "ORPHAN_MAPPING", "PK_MISSING", "MANDATORY_UNMAPPED", "INVALID_JSON", "UNKNOWN_KEY", "INVALID_VALUE", "ERR_REQUIRED", "ERR_TRANSFORM"];
+export const ERROR_CODES = ["ERR_REF", "ERR_DUPLICATE", "ORPHAN_MAPPING", "PK_MISSING", "MANDATORY_UNMAPPED", "INVALID_JSON", "UNKNOWN_KEY", "INVALID_VALUE", "ERR_REQUIRED", "ERR_TRANSFORM", "ERR_FORMAT"];
 
 // ---- the sheets, and the gids compiled into the add-in ----------------------
 export const SHEETS = {

@@ -133,7 +133,8 @@
     "SEVERITIES": ["Info", "Warning", "Error", "Critical"],
     "ERROR_CODES": ["ERR_REF", "ERR_DUPLICATE", "ORPHAN_MAPPING", "PK_MISSING",
                     "MANDATORY_UNMAPPED", "INVALID_JSON", "UNKNOWN_KEY",
-                    "INVALID_VALUE", "ERR_REQUIRED", "ERR_TRANSFORM"]
+                    "INVALID_VALUE", "ERR_REQUIRED", "ERR_TRANSFORM",
+                    "ERR_FORMAT"]
   },
 
   "constants": {
