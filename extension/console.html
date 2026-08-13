@@ -65,6 +65,13 @@
       <span>Sources</span>
       <span class="rail-count" id="count-sources"></span>
     </button>
+    <button class="rail-link" id="cv-tab-build" role="tab" data-view="build"
+            aria-controls="cv-build" aria-selected="false" tabindex="-1">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#account-tree"></use>
+      </svg>
+      <span>Build</span>
+    </button>
     <button class="rail-link" id="cv-tab-problems" role="tab" data-view="problems"
             aria-controls="cv-problems" aria-selected="false" tabindex="-1">
       <svg class="sx-icon" aria-hidden="true">
@@ -334,7 +341,90 @@
       </div>
     </section>
 
+    <!-- 4.DataMap ─────────────────────────────────────────────────────────── -->
+    <section class="card hidden" id="dm-editor-card" aria-labelledby="dm-editor-title">
+      <h2 id="dm-editor-title">Editing a mapping</h2>
+      <p class="hint" id="dm-editor-where"></p>
+
+      <div class="field">
+        <label for="dm-f-PROFILE_KEY">Profile</label>
+        <select id="dm-f-PROFILE_KEY"></select>
+        <p class="field-note" id="dm-n-PROFILE_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="dm-f-TARGET_ATTRIBUTE_KEY">Column it fills</label>
+        <select id="dm-f-TARGET_ATTRIBUTE_KEY"></select>
+        <p class="field-note" id="dm-n-TARGET_ATTRIBUTE_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="dm-f-SOURCE_TYPE">Where the value comes from</label>
+        <select id="dm-f-SOURCE_TYPE"></select>
+        <p class="field-note" id="dm-n-SOURCE_TYPE"></p>
+      </div>
+      <div class="field">
+        <label for="dm-f-SOURCE_EXPRESSION">Which one</label>
+        <input id="dm-f-SOURCE_EXPRESSION" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="dm-n-SOURCE_EXPRESSION"></p>
+      </div>
+      <div class="field">
+        <label for="dm-f-MATCH_MODE">How the heading is matched</label>
+        <select id="dm-f-MATCH_MODE"></select>
+        <p class="field-note" id="dm-n-MATCH_MODE"></p>
+      </div>
+      <div class="field">
+        <label for="dm-f-TRANSFORM_CHAIN">Transforms, left to right</label>
+        <input id="dm-f-TRANSFORM_CHAIN" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="dm-n-TRANSFORM_CHAIN"></p>
+      </div>
+      <div class="field">
+        <label for="dm-f-PROCESS_CONFIG">Handling (JSON)</label>
+        <input id="dm-f-PROCESS_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="dm-n-PROCESS_CONFIG"></p>
+      </div>
+
+      <p id="dm-editor-verdict" class="hint" role="status" aria-live="polite"></p>
+      <div class="row">
+        <button id="dm-editor-save" class="button" type="button">Save to the sheet</button>
+        <button id="dm-editor-cancel" class="button ghost" type="button">Cancel</button>
+      </div>
+    </section>
+
     <div id="inspect-body" class="inspect-body"></div>
+  </section>
+
+  <!-- ── Build: the guided order ──────────────────────────────────────────────
+       FOUR SHEETS HAVE TO AGREE BEFORE ONE TABLE LOADS, and the order they have
+       to be filled in is not written anywhere in the add-in. This screen states
+       it and refuses to let a step be taken before the one it depends on.
+
+       Its state is DERIVED, never stored. It asks the workbook where you are —
+       so a table half-built by hand in Google Sheets is picked up exactly where
+       it stands, and a wizard that thought it was on step 3 while the sheet said
+       otherwise cannot happen. -->
+  <section id="cv-build" class="cv hidden" role="tabpanel" aria-labelledby="cv-tab-build">
+    <header class="cv-head">
+      <h1>Build a table</h1>
+      <p>Four sheets have to agree before a table loads. This is the order.</p>
+    </header>
+
+    <section class="card" aria-labelledby="build-pick-title">
+      <h2 id="build-pick-title">Which table</h2>
+      <div class="field">
+        <label for="build-entity">Table</label>
+        <select id="build-entity"></select>
+        <p class="field-note" id="build-entity-note"></p>
+      </div>
+      <div class="field">
+        <label for="build-new">…or start a new one</label>
+        <input id="build-new" type="text" autocomplete="off" spellcheck="false"
+               placeholder="T_SOMETHING">
+        <p class="field-note">
+          A key of your own. Nothing is written until you fill in the first step.
+        </p>
+      </div>
+    </section>
+
+    <div id="build-steps" class="build-steps"></div>
   </section>
 
   <!-- ── Sources ──────────────────────────────────────────────────────────── -->
