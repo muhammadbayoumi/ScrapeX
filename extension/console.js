@@ -10,12 +10,15 @@ import { chooseSpreadsheet } from "./picker.js";
 import { TAB_NAMES, parseWorkbook, inspect, vocabularies, SHEETS } from "./workbook.js";
 import { KNOWN_VOCABULARIES, SHEET_GIDS, LICENSE_TIERS, ENTITY_TYPES,
          STORAGE_STRATEGIES, BUSINESS_DOMAINS, VIEW_MODES, DATA_TYPES,
-         SEMANTIC_ROLES, readBoolean, BOOLEAN_DEFAULTS } from "./addin-contract.js";
+         SEMANTIC_ROLES, SOURCE_TYPES, MATCH_MODES, readBoolean,
+         BOOLEAN_DEFAULTS } from "./addin-contract.js";
 import { checkDataSourceRow, stopsThisSource, switchedOff, suggestedKey }
   from "./datasource-rules.js";
 import { checkTableDefinitionRow, tableProducesNothing }
   from "./tabledefinition-rules.js";
 import { checkSchemaRuleRow, checkEntityRoles } from "./schemarule-rules.js";
+import { checkDataMapRow, checkProfileCoverage, resolvedProfiles, attributesFor }
+  from "./datamap-rules.js";
 
 const $ = (id) => document.getElementById(id);
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
@@ -185,7 +188,8 @@ function renderSheets(workbook) {
 // `inspect` is in the registry and NOT in the rail: it is reached by choosing a
 // table, and a rail button for it would be a button with nothing to show.
 
-const VIEWS = ["overview", "scrapex", "tables", "inspect", "sources", "problems"];
+const VIEWS = ["overview", "scrapex", "tables", "inspect", "sources", "build",
+               "problems"];
 
 function showView(name) {
   for (const view of VIEWS) {
@@ -392,6 +396,39 @@ const EDITORS = {
     refused: "As it stands this row defines no column. Saving is refused.",
     where: (row) => row._row ? `2.SchemaRule, row ${row._row}`
       : "2.SchemaRule, a new row at the end",
+  },
+  mapping: {
+    tab: "4.DataMap",
+    card: "dm-editor-card", prefix: "dm-",
+    fields: ["PROFILE_KEY", "TARGET_ATTRIBUTE_KEY", "SOURCE_TYPE",
+             "SOURCE_EXPRESSION", "MATCH_MODE", "TRANSFORM_CHAIN",
+             "PROCESS_CONFIG"],
+    booleans: [],
+    view: "inspect",
+    lists(workbook, row) {
+      const sources = rowsOf(workbook, SOURCES);
+      const profile = String(row.PROFILE_KEY ?? "").trim();
+      return {
+        // THE RESOLVED profiles, not the raw PROFILE_KEY column. A source with
+        // a blank profile resolves to its table's key, so the raw column would
+        // offer "DEFAULT" — which is a dead row on this sheet.
+        PROFILE_KEY: {values: resolvedProfiles(sources), blank: "— choose —"},
+        TARGET_ATTRIBUTE_KEY: {
+          values: attributesFor(profile, sources, rowsOf(workbook, "2.SchemaRule")),
+          blank: "— choose a column —"},
+        SOURCE_TYPE: {values: SOURCE_TYPES, blank: "— blank: Header —"},
+        MATCH_MODE: {values: MATCH_MODES, blank: "— blank: Exact —"},
+      };
+    },
+    check: (row, workbook, editing) => checkDataMapRow(
+      row,
+      rowsOf(workbook, "4.DataMap").filter((r) => r !== editing),
+      rowsOf(workbook, SOURCES),
+      rowsOf(workbook, "2.SchemaRule")),
+    refuse: (found) => found.some((f) => f.severity === "Critical"),
+    refused: "As it stands this row maps nothing. Saving is refused.",
+    where: (row) => row._row ? `4.DataMap, row ${row._row}`
+      : "4.DataMap, a new row at the end",
   },
 };
 
@@ -758,6 +795,185 @@ function showTable(key) {
   showView("inspect");
 }
 
+// ---- the guided order --------------------------------------------------------
+//
+// FOUR SHEETS HAVE TO AGREE BEFORE ONE TABLE LOADS, and the order they must be
+// filled in is written down nowhere in the add-in. A table with no columns is
+// refused; a source whose profile has no mappings FAILS OUTRIGHT; a mandatory
+// column with no mapping rejects the source before any write. So the order is
+// not a preference — it is the dependency graph, and getting it wrong produces
+// a table that looks configured and loads nothing.
+//
+// NOTHING HERE IS STORED. Each step asks the workbook whether it is done, so a
+// table half-built by hand in Google Sheets is picked up exactly where it
+// stands — and a wizard that believed it was on step three while the sheet said
+// otherwise cannot happen, because there is no belief to be wrong.
+
+function buildSteps(workbook, entity) {
+  const definitions = rowsOf(workbook, "1.TableDefinition");
+  const schema = rowsOf(workbook, "2.SchemaRule");
+  const sources = rowsOf(workbook, SOURCES);
+  const maps = rowsOf(workbook, "4.DataMap");
+  const mine = (key) => (row) =>
+    (row[key] || "").toLowerCase() === entity.toLowerCase();
+
+  const definition = definitions.find(mine("ENTITY_KEY"));
+  const columns = schema.filter(mine("ENTITY_KEY"));
+  const feeds = sources.filter(mine("TARGET_ENTITY_KEY"));
+
+  const steps = [];
+
+  // 1 — the table itself.
+  const tableFound = definition
+    ? checkTableDefinitionRow(
+      definition, definitions.filter((r) => r !== definition), schema)
+    : [];
+  steps.push({
+    title: "The table",
+    sheet: "1.TableDefinition",
+    done: Boolean(definition) && !tableProducesNothing(tableFound),
+    why: definition
+      ? "Defined."
+      : `Nothing on 1.TableDefinition is called ${entity}. Until there is, `
+        + "every column and every source pointing at it is orphaned.",
+    act: definition ? "Edit it" : "Define it",
+    open: () => edit(EDITORS.table, definition || {ENTITY_KEY: entity}),
+    notes: tableFound.filter((f) => f.severity !== "Info"),
+  });
+
+  // 2 — its columns, and the key that MergeUpsert cannot work without.
+  const keys = columns.filter(
+    (r) => readBoolean(r.IS_PK, BOOLEAN_DEFAULTS["2.SchemaRule"].IS_PK));
+  const strategy = (definition?.STORAGE_STRATEGY || "").trim().toLowerCase();
+  const needsKey = !strategy || strategy === "mergeupsert" || strategy === "upsert"
+    || strategy === "merge";
+  steps.push({
+    title: "Its columns",
+    sheet: "2.SchemaRule",
+    done: columns.length > 0 && (!needsKey || keys.length > 0),
+    why: !columns.length
+      ? "No columns, so there is no table to create and nothing to write into."
+      : needsKey && !keys.length
+        ? `${columns.length} columns and no key. This table merges on every `
+          + "sync, and with no key to match on it appends the whole file again "
+          + "each time — silently, for ever."
+        : keys.length
+          ? `${columns.length} columns, ${keys.length} of them the key.`
+          : `${columns.length} columns and no key — which is right here, because `
+            + "this table replaces its rows rather than merging them.",
+    act: columns.length ? "Add another column" : "Add the first column",
+    open: () => edit(EDITORS.column, {ENTITY_KEY: entity}, entity),
+    notes: [],
+  });
+
+  // 3 — where the rows come from.
+  const liveFeeds = feeds.filter(
+    (row) => !stopsThisSource(checkDataSourceRow(row, worldFor(workbook, row))));
+  steps.push({
+    title: "A source",
+    sheet: SOURCES,
+    done: liveFeeds.length > 0,
+    why: !feeds.length
+      ? "Nothing loads this table, so it will be created and stay empty."
+      : liveFeeds.length
+        ? `${liveFeeds.length} of ${feeds.length} can produce rows.`
+        : `${feeds.length} attached, and none of them produces anything.`,
+    act: feeds.length ? "Add another source" : "Add the source",
+    open: () => edit(EDITORS.source, {TARGET_ENTITY_KEY: entity}),
+    notes: [],
+  });
+
+  // 4 — the mappings, per profile, which is where the add-in stops rather than
+  // warns. A profile with no mappings does not degrade — it fails.
+  const profiles = resolvedProfiles(liveFeeds.length ? liveFeeds : feeds);
+  const gaps = profiles.flatMap(
+    (profile) => checkProfileCoverage(profile, maps, sources, schema)
+      .map((f) => ({...f, profile})));
+  steps.push({
+    title: "The mappings",
+    sheet: "4.DataMap",
+    done: profiles.length > 0 && !gaps.length,
+    why: !profiles.length
+      ? "No profile to map yet — a source has to exist first."
+      : gaps.length
+        ? gaps.map((f) => `${f.profile}: ${f.detail}`).join(" ")
+        : `${profiles.length} ${profiles.length === 1 ? "profile" : "profiles"}, `
+          + "each mapping its key and every required column.",
+    act: "Add a mapping",
+    open: () => edit(EDITORS.mapping,
+                     {PROFILE_KEY: profiles[0] || entity}, entity),
+    notes: [],
+  });
+
+  return steps;
+}
+
+function renderBuild() {
+  const holder = $("build-steps");
+  holder.textContent = "";
+  const entity = ($("build-new").value.trim() || $("build-entity").value || "").trim();
+  if (!entity) {
+    say("build-entity-note", "Choose a table, or type a new key above.");
+    return;
+  }
+  say("build-entity-note", "");
+
+  const steps = buildSteps(state.workbook, entity);
+  let blocked = false;
+
+  steps.forEach((step, index) => {
+    const card = document.createElement("section");
+    card.className = "card build-step" + (step.done ? " build-done" : "")
+      + (blocked ? " build-blocked" : "");
+
+    const heading = document.createElement("h2");
+    heading.textContent = `${index + 1}. ${step.title}`;
+    const sheet = document.createElement("span");
+    sheet.className = "build-sheet";
+    sheet.textContent = step.sheet;
+    heading.append(sheet);
+    card.append(heading);
+
+    const why = document.createElement("p");
+    why.className = "hint" + (step.done ? " ok" : blocked ? "" : " err");
+    why.textContent = blocked
+      ? `Waiting for step ${index}. ${steps[index - 1].title.toLowerCase()}.`
+      : step.why;
+    card.append(why);
+
+    for (const note of step.notes) {
+      const line = document.createElement("p");
+      line.className = "hint";
+      line.textContent = `${note.field}: ${note.detail}`;
+      card.append(line);
+    }
+
+    const row = document.createElement("div");
+    row.className = "row";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = step.done ? "button ghost" : "button";
+    button.textContent = step.act;
+    // THE REFUSAL, and the whole point of the screen. A step cannot be taken
+    // before the one it depends on, because taking it out of order is how a
+    // table ends up looking configured and loading nothing.
+    button.disabled = blocked;
+    button.addEventListener("click", step.open);
+    row.append(button);
+    card.append(row);
+
+    holder.append(card);
+    if (!step.done) blocked = true;
+  });
+}
+
+function renderBuildPicker(workbook) {
+  const keys = rowsOf(workbook, "1.TableDefinition")
+    .map((r) => r.ENTITY_KEY).filter(Boolean).sort();
+  options("build-entity", keys, $("build-entity").value || "",
+          {blank: "— choose a table —"});
+}
+
 // ---- the flow ---------------------------------------------------------------
 
 async function show(fileId) {
@@ -816,6 +1032,8 @@ async function show(fileId) {
   renderSources(workbook);
   renderScrapeX(workbook);
   renderTables(workbook);
+  renderBuildPicker(workbook);
+  renderBuild();
   renderSheets(workbook);
   $("sheets-card").classList.remove("hidden");
   $("count-problems").textContent = found.length || "";
@@ -874,6 +1092,14 @@ $("workbook-recheck").addEventListener("click", () => {
 });
 $("workbook-choose").addEventListener("click", () => pick());
 $("source-add").addEventListener("click", () => edit(EDITORS.source, {}));
+
+// The build screen re-derives on every change, because its answer is a question
+// about the workbook and not a position it is holding.
+$("build-entity").addEventListener("change", () => {
+  $("build-new").value = "";
+  renderBuild();
+});
+$("build-new").addEventListener("input", () => renderBuild());
 
 // Both buttons on the inspect screen act on the table currently open, which is
 // the one fact neither form asks for.

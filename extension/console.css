@@ -379,3 +379,38 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
 .field-note:empty { display: none; }
 .note-error { color: var(--red); }
 .note-warn { color: var(--amber); }
+
+/* ---- the guided order --------------------------------------------------------
+   A step that is waiting is not hidden and not greyed into illegibility: the
+   owner has to be able to read what is coming, or the order looks arbitrary. It
+   is dimmed, and only its button is disabled. */
+
+.build-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-block-start: var(--sp-4);
+}
+
+.build-step h2 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+
+.build-sheet {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--muted);
+}
+
+/* The state is carried on the left edge, the same vocabulary the findings list
+   and the source list already use. A fourth way of saying "this one" would have
+   to be learned separately. */
+.build-step { border-inline-start: 3px solid var(--amber); }
+.build-done { border-inline-start-color: var(--green); }
+.build-blocked {
+  border-inline-start-color: var(--line);
+  opacity: .6;
+}
