@@ -232,9 +232,9 @@
     background: var(--muted);
     background-clip: padding-box;
   }
-  /* Run, Finance and Settings have a fixed page introduction followed by one
-     independent scrollport. The scrollbar therefore starts exactly where the
-     moving content starts, rather than beside the fixed heading. */
+  /* Run, Finance, Settings and Engine have a fixed page introduction followed
+     by one independent scrollport. The scrollbar therefore starts exactly where
+     the moving content starts, rather than beside the fixed heading. */
   :is(#view-run, #view-finance, #view-settings, #view-engines) {
     padding-inline-end: 0;
     overflow: hidden;
