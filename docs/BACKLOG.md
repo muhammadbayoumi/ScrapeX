@@ -10,15 +10,24 @@ carries its evidence — a commit hash, a `file:line`, a number measured against
 warehouse, or the owner's own words. Anything I inferred rather than verified is marked
 **(inferred)**.
 
-**Repository state at the moment of writing**
+**Repository state — re-measured 2026-08-12**
 
 | | |
 |---|---|
-| `origin/main` = `main` | `2253308` — *feat(panel): the crawl pace moves to where the owner actually works* |
-| checked-out branch | `feat/crawl-several-sites-at-once` @ `1deff23`, **1 commit ahead of main, no PR** |
-| working tree | `M sources.yaml` (uncommitted — see **OP-2**) |
-| suite, as last reported by a commit | 1494 passed · 1 xfailed · contract parity 3/3 (`1deff23`) |
-| live warehouse | `~/.scrapex/engine/scrapex-engine.db`, 75.4 MB · 73,162 price observations · 7,332 offers · 3,799 products · 9 sources · 53 migrations applied |
+| `origin/main` | `4fcc14f` — *Check the chooser owners are actually sent to, every day (#179)* |
+| working tree | clean |
+| suite | 1,830 engine · 570 extension · 181 node · 2 skipped · 1 xfailed · ruff and eslint clean |
+| branches | **148 local / 128 remote** — see **DEC-7**, and note the number keeps being quoted stale |
+| live warehouse | `~/.scrapex/engine/scrapex-engine.db`, **119.2 MB** · **90,013** price observations · **17,471** offers · **12** sources, 7 active · **59** migrations applied · 122 crawl jobs |
+
+> **The numbers above were wrong for two weeks.** This block described 2026-07-29
+> until today: a branch that no longer exists, a 75 MB warehouse that is now 119,
+> nine sources that are twelve. Every figure in this file was re-measured on
+> 2026-08-12 by six agents reading the code and the live database rather than
+> reading this file; what they found is in **§6d**. Where an entry's own numbers
+> were wrong they are corrected in place and the old figure is kept beside them,
+> because a number that drifted once will drift again and the drift is the
+> evidence.
 
 **How to read an entry.** Every entry has a stable ID (`SR-`, `OP-`, `DEC-`, `BV-`,
 `DEBT-`, `Q-`). IDs are never reused; when something is finished, move it to §7 and keep
@@ -105,10 +114,32 @@ byte-identical to `main`: six sources active of twelve. Nobody decided that; a
 answers now rather than three, and the warehouse is still the one that disagrees —
 which makes the second half of this entry the whole of it.
 
-**Next action:** decide the intended set with the owner (**Q-11**), commit it, and settle
-what `source_site.active` is *for* — right now it is a column nobody reads and nobody
-maintains. *(That last clause is **inferred** from the mismatch, not from reading the write
-path.)*
+**RE-MEASURED 2026-08-12 — the three answers are now ONE, and the disagreement
+this entry exists for is gone.** Measured, not inferred:
+
+| | |
+|---|---|
+| manifest (`sources.yaml` at the repo **root**, not `config/`) | 12 sources, **7 active** — ALSWEED, ADVANCEDCASTLE, ELSEWEDYSHOP, MASDAR, SAMEHGABRIEL, GPP_ENERGY, ARAMCO_FUEL_SA |
+| `main` vs working tree | byte-identical (`50ff470`), nothing uncommitted |
+| live `source_site.active` | the **same seven**, set for set |
+
+So "six of twelve" (2026-08-09) is stale too: it is **seven**. What fixed it is
+`80c7258` (#177) — `reconcile_active` already existed and was already correct;
+the commit gave it a caller at startup and on every manifest-reload route.
+
+**But the fix is not guarded, and that is my own failure to record.** The two
+tests that cover what the commit actually CHANGED are **string greps over
+`app.py`'s source text** — `source.count("_follow_the_manifest()") >= 6`. Neither
+builds an app, hits a route, or reads a row. The five behavioural tests call
+`reconcile_active(conn)` directly — the function that was already correct. Seven
+tests pass, and they pass for the wrong reason. The route's new
+`warehouse_updated` field is read by nothing: one occurrence repo-wide, its own
+definition.
+
+**Next action:** a test that drives a reload route through `TestClient` and
+asserts a warehouse row changed. Then this entry can close. The remaining
+question — whether **seven of twelve** is the set the owner *intends* — is
+**Q-11**, and it is a decision, not a discrepancy.
 
 ### OP-3 · ~~Five currencies have no exchange rate~~ — CLOSED 2026-08-11, and it was never five
 
@@ -131,25 +162,62 @@ currencies, so those countries' converted column is blank.
 **Next action:** open one of those quote URLs by hand. If the pair is gone, drop it from
 the fetch list with the reason recorded; if the pair is there, the parser is what broke.
 
-### OP-4 · `webui/app.py` grew 660 lines in one day and is now 2,480 lines / 89 routes
-**Status: open, and it has grown at every measurement.** `REVIEW-2026-07-28` §3 #10
-measured 1,820 lines and 82 routes. Measured 2026-07-29: **2,480** lines, **89**
-routes. **Re-measured 2026-08-09: 2,955 lines, 95 routes** — another 475 lines in
-eleven days, while `catalog_api.py` (122 lines) and `database_api.py` (82) were
-extracted out of it and did not slow it down. The router-factory
-pattern that fixes it is already applied inside the same file to four fragments, and a test
-has to scrape the file with a regex to learn its own routes.
-**Next action:** either continue the extraction the file already started, or state plainly
-that the file is allowed to be this size and delete the half-done pattern so it stops
-implying a plan. *"Keep extracting when there is time" is not a third option — that is
-what has been happening.*
+### OP-4 · `scrapex/webui/app.py` is 3,347 lines / 95 routes, and the extraction it started stopped
+**Status: open. Re-measured 2026-08-12.**
+
+| when | lines | routes |
+|---|---|---|
+| `REVIEW-2026-07-28` | 1,820 | 82 |
+| 2026-07-29 | 2,480 | 89 |
+| 2026-08-09 | 2,955 | 95 |
+| 2026-08-11 | 3,246 | 98 |
+| 2026-08-12 (*Sheets moves into the panel*) | 3,198 | 93 |
+| **2026-08-12 `4fcc14f`** | **3,347** | **95** |
+
+**Two things this entry said are wrong, and both make the work easier, not harder.**
+
+*"It has grown at every measurement"* — it has not. One PR reduced it by 48 lines
+and 5 routes. The trend is still upward, but the sentence was rhetoric, and
+rhetoric in a measurement file is how a number stops being checked.
+
+*"The router-factory pattern is already applied inside the same file to four
+fragments"* — it is not inside the file. `grep -nE 'def [a-z_]*(router|_api)\w*\(' scrapex/webui/app.py`
+returns nothing. All four factories live in **sibling modules** and are imported
+(`app.py:47`, `:161`, `:162`):
+
+| module | lines | routes |
+|---|---|---|
+| `scrapex/webui/catalog_api.py:21` `create_catalog_router` | 122 | 8 |
+| `scrapex/webui/database_api.py:11` `create_database_router` | 82 | 3 |
+| `scrapex/webui/database_api.py:65` `create_domain_health_router` | *(same file)* | |
+| `scrapex/extract/api.py:42` `create_extraction_router` | 134 | 6 |
+
+338 lines and 17 routes are out; 3,347 lines and 95 routes are still in. The
+pattern is *extraction to a module*, already proven three times — so the next
+action is smaller than the entry implied. `catalog_api.py` and `database_api.py`
+are byte-for-byte the same size as on 2026-08-09: no extraction has happened in
+three days.
+
+The regex-scraping test is real and still there: `tests/test_ui_manifest.py:25`.
+
+**Next action:** continue the extraction. The alternative branch — declare the
+size acceptable and delete the pattern — is contradicted by the file itself,
+which added 392 lines in three days. *"Keep extracting when there is time" is not
+a third option; that is what has been happening.*
 
 ### OP-5 · `reports.py` computes the six history statistics twice, and the price has already been paid once
-**Status: open.** `export_source_table` (`scrapex/reports.py:982`) and `table_payload`
-(`:1664`) each carry their own copy. This was a maintenance argument until the review found
-the owner's own comment in the code recording that adding one column shifted
-`observations` / `min` / `max` / `previous` by one during the brand work.
-**Next action:** one expression source read by both.
+**Status: open. Line numbers corrected 2026-08-12.** `export_source_table`
+(`scrapex/reports.py:1214`, was cited as `:982`) and `table_payload` (`:1997`, was
+`:1664`) each carry their own copy; the file is now 2,795 lines. This was a
+maintenance argument until the review found the owner's own comment in the code
+recording that adding one column shifted `observations` / `min` / `max` /
+`previous` by one during the brand work.
+
+The duplication is between the `_EXPORT_SELECT` dict (`:1016`, entries at
+`:1064-1078`) and `table_payload`'s own restated subqueries.
+**Next action:** one expression source read by both — and have `table_payload`
+read its results **by alias** rather than by `r[19]..r[22]`, so the shift-by-one
+class of defect dies with the duplication instead of merely moving.
 
 ### OP-6 · Four review findings were never refuted, and one of them is about test coverage
 **Status: partly closed, partly unknown.** `REVIEW-2026-07-28` §5 warns that the
@@ -163,13 +231,39 @@ treat them as facts.
 | ت5 `LocalSink` reloads the whole workbook per tab | **fixed** `0a2209c` |
 | ت6 the panel rebuilds the log every 1.5s and steals the selection | **fixed** `f901638` |
 | ت7 the whole 45-test panel suite silently skipped in CI | **fixed** `48ec48b` + the ≥40 collection floor in `ci.yml` |
-| ت1 restore / start-fresh always broken while the worker thread runs | **unknown** — both routes now call `app.state.runner.release_database()` (`app.py:1966`, `:1998`), which may already be the answer |
-| ت2 the heartbeat is written between jobs only, so the engine declares itself dead mid-crawl | **unknown** — `2d82be8` *"a busy worker is alive, and says what it is busy with"* may cover it |
-| ت3 every run rebuilds the full derived timeline of every touched offer | **still present by design** — see **DEBT-4** |
-| ت8 the `grid.js` XSS guard scopes itself by splitting on two comments and leaves a gap | **unknown** — grepping `tests/test_vendor.py` for `xss` returns nothing, so the guard has been renamed, moved or removed |
+| ت1 restore / start-fresh always broken while the worker thread runs | **HALF closed, re-measured 2026-08-12** — *start-fresh* is guarded and tested; `/api/storage/restore` has **no** active-job 409. Refusing is the correct behaviour, and only one of the two routes does it |
+| ت2 the heartbeat is written between jobs only, so the engine declares itself dead mid-crawl | **OPEN — and its stated cause is now wrong.** See below |
+| ت3 every run rebuilds the full derived timeline of every touched offer | **open** — the entry pointed at DEBT-4; it means **DEBT-3** |
+| ت8 the `grid.js` XSS guard scopes itself by splitting on two comments and leaves a gap | **changed** — that guard is gone. Its replacement scopes by line-suffix and by a 14-word `_TEXT_BEARING_FIELDS` allowlist, which leaves two nested markup builders unchecked |
 
-**Next action:** refute ت1, ت2 and ت8 against running code (the review's own method: run it,
-don't read it). Two of them may already be closed and are costing us attention for nothing.
+**ت2, measured rather than read (2026-08-12).** Two probes driving a real
+`JobRunner`:
+
+- The docstring's stated root cause — *"the loop hands its whole pass to
+  `run_job_once`"* — **is stale**. Jobs run on their own threads
+  (`jobs.py:1450`) and `touch_runtime_heartbeat` fires every poll
+  (`jobs.py:1334`): 6 distinct heartbeats in 12 s.
+- The real cause: when a job **holds an open write transaction** — which a long
+  ingest does — `touch_runtime_heartbeat` raises
+  `sqlite3.OperationalError: database is locked` from `jobs.py:1035` and the
+  runtime heartbeat **freezes** (1 distinct value across 45 s).
+
+And only one of the **two** `worker_alive` computations was fixed:
+
+| where | what it calls | verdict |
+|---|---|---|
+| `scrapex/webui/app.py:1366` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2363` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+
+`_about` renders the engine's own `/settings` page
+(`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
+"Not running" while it is crawling**, and advises the owner to check whether the
+engine is started at all.
+
+**Next action:** three separate things — the second `worker_alive` at
+`app.py:2363`; the heartbeat's behaviour under a held write lock; and the 409 on
+`/api/storage/restore` with a mirror of
+`test_start_fresh_is_refused_while_a_crawl_runs`.
 
 ### OP-7 · `/api/native-host/register` takes no authentication and REPLACES the allowlist
 **Status: open, needs an owner decision (**Q-8**).** `REVIEW-2026-07-28` §2 #2. Since the
@@ -223,21 +317,41 @@ back-filling, or the backfill will be undone by the next crawl.
 > GATE is deliberately not added: 60 of the 72 are annotations and that churn
 > buys no defect. Widening ruff to `tests/` and `tools/` is still open.
 
-**Status: open.** No `ruff`, no `mypy`, no `eslint` anywhere (`REVIEW-2026-07-28` §9).
-Every style and type rule in `ENGINEERING.md` §2 (Q5: "type hints everywhere") is enforced
-by attention alone.
+**Status: open, but NOT as the line below said.** ~~No `ruff`, no `mypy`, no
+`eslint` anywhere~~ — that sentence was false when it was written down and is kept
+struck through rather than deleted, because it is the clearest example in this
+file of a status line surviving the thing it described.
 
-### OP-13 · There are no end-to-end or chaos tests
-**Status: open.** Killing the engine mid-job, corrupting a checkpoint, force-closing the
-browser — all named in the project's own test matrix (ENGINEERING T7), none implemented
-(`REVIEW-2026-07-28` §9). This is the class of fault that produced OP-1.
+Measured 2026-08-12 from `.github/workflows/ci.yml`:
 
-### OP-14 · The Native Messaging size ceiling is documented in the wrong direction (probably)
-**Status: open, unverified.** `scrapex/native.py:5` says the megabyte cap applies
-extension→host. The reviewer believes it is host→extension, which is exactly the direction
-`GET_RECORDS` results travel. He tried to fetch the documentation twice, failed, and
-refused to assert it from memory (`REVIEW-2026-07-28` §9). Worth settling because it
-decides whether a large record set can be returned at all.
+| gate | what it covers |
+|---|---|
+| `ruff==0.16.2` (`ci.yml:30`) | `scrapex/` **only** |
+| `eslint@9.39.0` (`ci.yml:38`) | `extension`, `scrapex/webui/static`, `contract`, `apps_script` |
+| mypy | **nowhere.** No CI step, no `pyproject` section, no `mypy.ini`, no pre-commit |
+
+`python -m ruff check tests/ tools/` → **395 errors, 233 auto-fixable** (378 of
+them in `tests/` alone). mypy 2.3.0 is already installed on the owner's machine,
+so nothing but a missing CI step stands between here and a gate.
+
+**Next action:** widen ruff to `tests/` and `tools/` (fix the 233, decide the
+rest), and either add the mypy gate or move it to §5 as a declared debt with its
+reason — the current state is neither.
+
+### OP-13 · ~~There are no end-to-end or chaos tests~~ — CLOSED 2026-08-11
+Killing the engine mid-job, corrupting a checkpoint, force-closing the browser
+were all named in ENGINEERING T7 and none was implemented. They exist now:
+`tests/test_the_engine_survives_being_killed.py` and the end-to-end test added in
+the same PR. **The chaos test's own reliability is the live problem — see OP-19.**
+
+### OP-14 · The Native Messaging size ceiling — the backwards sentence is already gone
+**Status: changed, minutes of work left.** `scrapex/native.py` no longer carries
+the reversed claim the entry describes, so the thing to settle is settled. What
+remains is that the comment still does not state the two limits plainly.
+
+**Next action:** one comment edit — a host→extension message is capped at 1 MB;
+extension→host is 64 MiB — and drop the "decides whether a large record set can
+be returned at all" clause, which was the reason for urgency and no longer holds.
 
 ---
 
@@ -269,20 +383,23 @@ belongs to the extension where it is, and tie everything else to the engine.*
 
 `extension/app.js` opens by stating that the panel is a remote control, that
 closing it never stops a run, and that reopening reconnects to whatever is in
-flight. **No test exercises any of it** — every panel test opens the panel,
-drives it, and ends. Issue #161.
+flight. **No test exercised any of it** — every panel test opened the panel, drove
+it, and ended. Issue #161.
 
-Two halves, failing differently. *Closing never stops a run* is probably true —
-the engine owns execution — but the panel holds a poll loop and, since #152, work
-that begins on `load`; if the close path aborts a request the engine reads as a
-cancel, a long crawl dies because the owner closed a side panel to read a page,
-and they would never connect the two. *Reopening reconnects* is the fragile half:
-a reopened panel is a **fresh document** that must find the running job and
-re-attach to its progress. If it shows idle, the owner sees a crawl vanish while
-it is still running, and starts it again.
+**Half of this is now closed. Re-measured 2026-08-12.** *Reopening reconnects* was
+the fragile half and it was also **false**: a reopened panel showed a live crawl
+as idle. `reattachToRunningJob` and the panel-visibility handling fixed it and
+tests drive it.
 
-Five minutes by hand settles it: start a long crawl, close the panel, wait 30
-seconds, reopen.
+*Closing never stops a run* is **still asserted and still checked by nothing.**
+It is probably true — the engine owns execution — but the panel holds a poll loop
+and, since #152, work that begins on `load`; if the close path aborts a request
+the engine reads as a cancel, a long crawl dies because the owner closed a side
+panel to read a page, and they would never connect the two.
+
+**Next action:** restate this item as the first half only, and pin it with a test
+that fires `pagehide` on a panel with a job in flight and asserts the job row is
+still queued or running afterwards.
 
 ### OP-17 · `carry_over` cannot merge a table that lives in both old databases
 
@@ -372,7 +489,15 @@ per-branch availability. All three need an extension session capture, not a conn
 change. `sources.yaml:131`, `:112`, memory `sika-trade-tier-price.md`.
 
 ### DEC-7 · Branch cleanup, which the owner asked to be reminded of
-**RE-MEASURED 2026-08-09: 117 local branches, 106 remote, 21 worktrees.**
+**RE-MEASURED 2026-08-12: 148 local branches, 128 remote.** It has GROWN by 31
+local and 22 remote in three days — every session that opens a branch adds one,
+and nothing removes any. The 2026-08-09 figures (117 / 106) are kept below with
+the analysis that was done against them, because the *method* is the valuable
+part and it does not need re-running to stay true.
+
+Three `.codex` worktrees now, not two: `git worktree remove` still comes first.
+
+**Previous measurement, 2026-08-09: 117 local, 106 remote, 21 worktrees.**
 
 And the measurement below was made the wrong way, which matters more than the count.
 `git branch --merged` reports 11, and it is **meaningless here**: this repository
@@ -409,14 +534,29 @@ than missing **(inferred from the titles; the check is a diff, not a title match
 
 ## 4. Built, not yet verified
 
-### BV-1 · Crawling several sites at once
-`1deff23`. 1494 tests green including a three-way barrier proving three sources are inside
-`capture` simultaneously. But it is **off by default** (`crawl_parallel_sources = 1`), it
-has never been run at width > 1 on the owner's machine. It is **merged** now — that half
-of this entry closed with **OP-1** — so the only thing left here is the run.
-**The check that would settle it:** merge, set the width to 3, run three sources on three
-hosts, and confirm from `crawl_job` that they overlap and that a pause still stops all of
-them.
+### BV-1 · Crawling several sites at once — IT HAS RUN, and the entry was wrong twice
+**Re-measured 2026-08-12 against the live warehouse and the job log.**
+
+Both facts this entry rested on are stale:
+
+- **Not off by default on his machine.** `scrapex_meta` holds
+  `setting:crawl_parallel_sources = '3'`. The entry says 1.
+- **It has run at width 3, at least twice.** `job_log_entry`, job 120:
+  *"2026-08-11T13:12:59Z crawling 12 site(s), up to 3 at a time"*, then MADAR
+  13:13:50, ALSWEED 13:13:52, ELBUROJ 13:13:59 all *"fetching — 50 requests so
+  far"*, interleaving for minutes. Again at job 112 on 2026-08-05.
+
+**And this entry's own proposed check was wrong and would have misled whoever ran
+it.** *"Confirm from `crawl_job` that they overlap"* — `crawl_run` brackets the
+**ingest**, not the fetch: run 134 records 3,879 requests between 14:50:00Z and
+14:50:02Z. A self-join over all 135 runs finds **zero** overlapping pairs at width
+3. Use `job_log_entry` timestamps, not `crawl_run` intervals.
+
+**What is actually unverified is the other half of the sentence — the pause.**
+The pause handler clears `crawl_job.control` while other lanes are still in
+flight (`scrapex/jobs.py:723-724`, and the twin at `:595`).
+**Next action:** stop the pause handler clearing `control` until every lane has
+observed it, or have the other lanes read their own copy.
 
 ### BV-2 · The WAL / sealed-archive cluster
 `234cdc1`, `4103e48`, `4dfb9e8` (plus the integration PR #10). Three of the four faults are
@@ -427,25 +567,47 @@ the fault bites."*
 **The check that would settle it:** a green CI run on `ubuntu-24.04` for those tests. Look
 at the run, don't assume it.
 
-### BV-3 · Settings moved into the extension panel
-`2253308`. Five Playwright tests, and a guard that fails the build if the web page grows an
-input again. Not yet confirmed by the owner actually using it. Worth telling him: the live
-setting is `crawl_honour_delay = '0'` — **the delay is currently NOT being honoured**, which
-is a real choice with real consequences (SR-9) and may have been made by accident while
-testing the new control.
+### BV-3 · Settings moved into the extension panel — CONFIRMED, and its warning has come true
+**Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
+warehouse**, which shows the whole chain working on the owner's machine in a real
+crawl: `extension/app.js:885` posts `crawl_honour_delay` → `scrapex/capture.py:95`
+reads it → `scrapex/connectors/base.py:485` emits the sentence → `job_log_entry`
+for job 120 carries it. Two settings hold non-default values, so something wrote
+them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.
+
+**THE WARNING IN THIS ENTRY HAS NOW MATERIALISED, and this is the most
+consequential thing in this file.** The log line predicted it:
+
+> *"ELBUROJ: robots.txt asks for a 10s crawl delay — IGNORED at your request;
+> this run paces itself at 1.0s and may be rate-limited or blocked by the site"*
+
+And then, five times: `failed: 5 refusals in a row (last: HTTP 429 on
+https://alsweed.sa/...)` — 2026-08-11 at 13:30:07Z, 13:39:32Z and after. **A
+whole source is failing because the delay is switched off.**
+
+**Next action, and it is the owner's:** `crawl_honour_delay` is still `'0'`. He
+chose that (SR-9 says turning it off announces the number it overrides, and it
+did). He may not know it has cost him ALSWEED. Show him the 429s.
 
 ### BV-4 · Sika's trade tier reaching the warehouse
-`436105c` reported 0 of 73,084 observations carrying a trade price. Measured today: **78**
-observations carry `price_trade`. The fix works. But `059820d` recorded that `price_trade`
-reaches `BROWSE_COLUMNS` with **no formatter and no alignment** in the grid — latent then
-because no source published one; those 78 rows make it live now.
+`436105c` reported 0 of 73,084 observations carrying a trade price. **Re-measured
+2026-08-12: 185** observations carry `price_trade` (was recorded as 78). The fix
+works and keeps working. ~~`price_trade` reaches `BROWSE_COLUMNS` with no
+formatter and no alignment~~ — `059820d` closed that; the clause is struck rather
+than deleted so it is not re-raised from the old text.
 **The check that would settle it:** open a sikaegshop record in the Data page and look at
 the Trade price cell.
 
 ### BV-5 · Sources re-activated, then partly switched off
-`df34761` activated four connectors that had been built and left off. The uncommitted
-manifest edit has since switched five sources off (**OP-2**). Nobody has confirmed the
-intended end state.
+`df34761` activated four connectors that had been built and left off. ~~The
+uncommitted manifest edit has since switched five sources off~~ — **re-measured
+2026-08-12: that edit is long gone**, the four held, and the manifest and the
+warehouse agree exactly (see **OP-2**). Twelve sources, seven active.
+
+What is left is only the last sentence, and it is the owner's: **is seven of
+twelve the intended set?** That is **Q-11**. Worth putting in front of him
+together with **BV-3** — one of the seven, ALSWEED, is currently being refused
+with HTTP 429.
 
 ---
 
@@ -455,11 +617,11 @@ intended end state.
 |---|---|---|
 | **DEBT-1** | **Migration `0047`'s coverage guard runs *after* the MADAR upgrade that fills its NULLs**, so it checks a narrower condition than its comment claims. | `0047`'s sha256 is verified on every connection and there is no re-stamp path; replaying it over the real pre-0047 warehouse gives an identical result with or without the fix. Recorded as a **strict xfail** at `tests/test_db.py:194` — this is the "1 xfailed" in every suite line, and it should stay visible. (`c7fa4ea`) |
 | **DEBT-2** | **ETag / Last-Modified persistence across runs.** In-memory validators exist in `HttpFetcher`; they are not persisted. | Naive 304-skipping breaks price *confirmations* (`last_confirmed_at`) and the volume canary. It needs a content-cache design, not a flag. Owner approved the deferral 2026-07-22. |
-| **DEBT-3** | **`_derive_seen` rebuilds the whole derived timeline of every offer a run touched, unconditionally** (`scrapex/ingest.py:1029-1043`). | Gating it on success *was* the incident: one contained error left every offer with an appended observation but no `offer_state` and no `price_period`, and the same-day dedupe then blocked the re-append that would have repaired it. The cost is accepted; ت3's claim that it is ~396,000 operations was never refuted (**OP-6**). |
-| **DEBT-4** | **advancedcastle's Egyptian price is deliberately not crawled.** | It is a *conversion*, not a price the merchant set — the EGP/SAR ratio is constant at 11.768 across five probed products. `price_basis` / `original_price` live on `COMMODITY_PRICE`, not `PRODUCT_PRICES`, so recording it honestly is a schema migration and therefore the owner's call. He took it: capture the published **rate**, never the converted price. Note the warehouse *would* keep the two countries apart correctly (`source_offer` is keyed on `country_code_alpha2`) — the reason is the derivation, not a modelling limit. (`e639310`, `b43405c`) |
+| **DEBT-3** | **`_derive_seen` rebuilds the whole derived timeline of every offer a run touched, unconditionally** (`scrapex/ingest.py:1349-1363` — cited as `:1029-1043` until 2026-08-12). | Gating it on success *was* the incident: one contained error left every offer with an appended observation but no `offer_state` and no `price_period`, and the same-day dedupe then blocked the re-append that would have repaired it. The cost is accepted; ت3's claim that it is ~396,000 operations was never refuted (**OP-6** — and OP-6's row for ت3 pointed at DEBT-4 by mistake; it means this entry). |
+| **DEBT-4** | **advancedcastle's Egyptian price is deliberately not crawled.** *(Discharged as intended — re-measured 2026-08-12: the 14 ADVANCEDCASTLE rate rows are there and no converted price is.)* | It is a *conversion*, not a price the merchant set — the EGP/SAR ratio is constant at 11.768 across five probed products. `price_basis` / `original_price` live on `COMMODITY_PRICE`, not `PRODUCT_PRICES`, so recording it honestly is a schema migration and therefore the owner's call. He took it: capture the published **rate**, never the converted price. Note the warehouse *would* keep the two countries apart correctly (`source_offer` is keyed on `country_code_alpha2`) — the reason is the derivation, not a modelling limit. (`e639310`, `b43405c`) |
 | **DEBT-5** | **`region` keeps its name in three places on purpose** — the manifest's `default_region` / `extract.regions`, `tax_rule.region`, and `pricekey`'s own field. | They *scope* a row rather than describe it. The column itself did move (`0042`). |
-| **DEBT-6** | **`origin` and `spec` are hashed into the price key but no connector supplies them** (`scrapex/ingest.py:597-599`, its own comment: "Not collected by any connector yet"). | Wired and unreachable. Harmless today; it matters the day a connector starts publishing one, because the field set changing is `fields_changed`, not `price_change`. |
-| **DEBT-7** | **Named in the UI as not built:** funnel HMAC signing, adaptive batching, two-way Sheet sync, proxy / anti-bot, connector-drift repair, OTA updater. | Post-release, demand-driven. Saying so in the interface is what keeps it honest. (memory `scrapex-phase5-integrations.md`) |
+| **DEBT-6** | **`origin` and `spec` are hashed into the price key but no connector supplies them** (`scrapex/ingest.py:898-902` — cited as `:597-599` until 2026-08-12 — its own comment: "Not collected by any connector yet"). | Wired and unreachable. Harmless today; it matters the day a connector starts publishing one, because the field set changing is `fields_changed`, not `price_change`. |
+| **DEBT-7** | **Named in the UI as not built:** ~~funnel HMAC signing, adaptive batching,~~ two-way Sheet sync, proxy / anti-bot, connector-drift repair, OTA updater. **Re-measured 2026-08-12: funnel HMAC signing and adaptive batching are BUILT and shipping** — four items remain, not six, and the interface should stop naming two things it has. | Post-release, demand-driven. Saying so in the interface is what keeps it honest. (memory `scrapex-phase5-integrations.md`) |
 | **DEBT-8** | **GPP electricity stays on the rank table as converted USD.** | Electricity country pages are a different page type and the site's own JSON-LD there is broken (`EGP 0.000`). It needs its own parser; the rows are honestly marked `price_basis=converted`. Measured: 333 of GPP's 695 offers are still priced in USD. |
 
 ---
@@ -478,7 +640,10 @@ stop measuring ourselves against a roadmap we are not on.
 **(c)** Reverse to B — the study's own recommendation, which is now almost entirely built.
 *Recommended: (b) or (c). Either way MASTER-PLAN.md gets corrected in the same session.*
 
-**Q-1 · Heidelberg Materials Egypt: how should the price matrix be modelled?**
+**Q-1 · ANSWERED — Heidelberg Materials Egypt: how should the price matrix be modelled?**
+*(Closed 2026-08-12 by re-measurement, and the closure survived a sceptic. Kept
+for the reasoning, which is the only place the modelling trade-off is written
+down.)*
 Their price is a function of product × city(46) × segment(5) × plant(3) × tier(2) and
 `PRODUCT_PRICES` has a column for none of the four (`docs/recon/heidelberg-materials-eg.md`
 §4.1). Options: **(a)** public price only — one row per product, zero schema change, loses
@@ -489,28 +654,48 @@ will present them as choices; **(c)** widen the contract with real `city` / `seg
 *Built naively, one product's ~276 prices would read as the same offer changing price
 repeatedly inside a single crawl.*
 
-**Q-2 · Heidelberg: `maxPrice` (1,950) is never displayed; the site shows `salePrice30*`
-(3,950.02).** Record only the displayed one, or both with the unshown one flagged?
+**Q-2 · STILL OPEN — Heidelberg: `maxPrice` (1,950) is never displayed; the site
+shows `salePrice30*` (3,950.02).** Record only the displayed one, or both with the
+unshown one flagged? *(A 2026-08-12 pass called this closed; the sceptic refuted
+it — what exists is declared, not driven, and only part of what the question asks
+was settled.)*
 
-**Q-3 · Heidelberg: which customer segments?** `Y6` is what the public sees; `YM`/`YT`
-publish 5 prices each; `YO`/`YR` publish none. All five, or the public one?
+**Q-3 · ANSWERED — Heidelberg: which customer segments?** `Y6` is what the public
+sees; `YM`/`YT` publish 5 prices each; `YO`/`YR` publish none. *(Closed 2026-08-12
+by re-measurement.)*
 
-**Q-4 · Heidelberg: VAT.** Record `evidence: stated, rate_pct: 14` scoped to the order
-total, or `unknown` for the listing price? *(My reading: the site makes no VAT claim about
-the per-tonne price, so `unknown` is the honest answer.)*
+**Q-4 · STILL OPEN — Heidelberg: VAT.** Record `evidence: stated, rate_pct: 14`
+scoped to the order total, or `unknown` for the listing price? ~~*My reading: the
+site makes no VAT claim about the per-tonne price, so `unknown` is the honest
+answer.*~~ **Struck 2026-08-12:** a `tax:` block is real and on `main`, so that
+suggested answer is now wrong and must not be re-proposed from the old text. The
+closure was refuted by mutation — the test that would prove the behaviour does
+not drive it.
 
-**Q-5 · Heidelberg: is a 9-product source worth a bespoke connector at all?** Two requests
-for ~211 real Egyptian cement price points — cheap to run, but it is a new connector class
-and possibly a contract change.
+**Q-5 · STILL OPEN — Heidelberg: is a 9-product source worth a bespoke connector
+at all?** Two requests for ~211 real Egyptian cement price points — cheap to run,
+but it is a new connector class and possibly a contract change.
+**Re-measured 2026-08-12:** the connector is **built**, and `sources.yaml` has
+`HEIDELBERG_EG` **`active: false`** — so it exists and has never crawled. The
+question is now smaller and more concrete: switch it on, or delete it.
 
-**Q-11 · Which sources should actually be running?** See the table in **OP-2**. Right now
-the manifest on disk, the manifest on `main`, and the warehouse give three different
-answers, and the on-disk one is uncommitted so it will vanish.
+**Q-11 · Which sources should actually be running?** ~~Right now the manifest on
+disk, the manifest on `main`, and the warehouse give three different answers~~ —
+**re-measured 2026-08-12: they now give ONE answer**, twelve sources with seven
+active (see **OP-2**). The disagreement is gone; the decision is not.
 
-**Q-9 · Exchange-rate cadence.** Refreshing every currency GPP prices in is ~93 fetches per
-refresh, ~372 Google Finance requests a day (raised in `c63ec21` rather than quietly
-changed, because Google Finance being the rate authority is your ruling). Options: keep it;
-reduce the cadence; or fetch only the currencies the *active* sources actually price in.
+The question is purely yours now: **is seven of twelve the set you want?** The
+five that are off are MADAR, ELBUROJ, SIKAEGSHOP, HEIDELBERG_EG, SPARK_ESHOP.
+Worth answering beside **BV-3**: one of the seven that IS on, ALSWEED, is being
+refused with HTTP 429 because the crawl delay is switched off.
+
+**Q-9 · Exchange-rate cadence.** ~~~93 fetches per refresh, ~372 requests a day~~
+— **re-measured 2026-08-12: 119 currencies, ~476 Google Finance requests a day**
+at the 6-hour default. Raised in `c63ec21` rather than quietly changed, because
+Google Finance being the rate authority is your ruling.
+Options: keep it, or reduce the cadence. ~~Or fetch only the currencies the
+*active* sources actually price in~~ — **struck**: it saves nothing while
+GPP_ENERGY is active, which it is.
 
 **Q-10 · GPP's country/material pairs with no local price.** ~92 pairs publish a USD figure
 and no local price, and your rule is that the local price is the record — so today they are
@@ -564,10 +749,37 @@ that line is deleted — **including a real `fetch(` on the same line**. Proved
 with a probe: `fetch("https://example.invalid/probe")` passed the guard silently
 on the old strip and fails loudly on the new one.
 
-The strip is now line-by-line: a whole-line comment is dropped, a line
-containing any quote is kept verbatim, otherwise a trailing `//` goes. The trade
-is stated in the comment — a comment mentioning `fetch(` beside a string now
-causes a loud false failure instead of a real one being swallowed.
+~~The strip is now line-by-line: a whole-line comment is dropped, a line
+containing any quote is kept verbatim, otherwise a trailing `//` goes.~~
+
+**THAT NEVER LANDED. Re-measured 2026-08-12, and this is the worst error in this
+file** — a notebook recording a fix that does not exist is worse than one
+recording nothing, because it closes the question.
+
+`extension/tests/side-panel-startup.test.mjs:562-563` on `4fcc14f`:
+
+```js
+  const script = read("tests/diagnostic-panel.js")
+    .replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(!/\bfetch\s*\(/.test(script), "the diagnostic page makes a request");
+```
+
+That first `replace` is verbatim the blind expression the paragraph above claims
+was replaced. Re-run of the entry's own probe — the real
+`extension/tests/diagnostic-panel.js` with
+`const u = "https://example.invalid/probe"; fetch(u);` appended:
+
+```
+guard sees a fetch(  -> false
+probe line after strip -> "  const u = \"https:"
+```
+
+The `//` inside `https://` eats the rest of the line, `fetch(` never reaches the
+assertion, and the suite is green for a page that plainly fetches.
+
+**Next action:** apply the hardening this entry already describes. It is one hunk
+in one file, and the description of what it should do is above — the work was
+done once and lost, not designed and abandoned.
 
 **And a suggestion of mine was refuted in the same reply, correctly.** I proposed
 a fixpoint loop by analogy with the `<!--` strip beside it. Removing an inner
@@ -791,6 +1003,51 @@ The only Python that reads that manifest is `tools/panel_harness.py:119`, a
 development harness that never ships. There is no reversed runtime dependency.
 Recorded here so the note is not raised a second time by someone reading the
 same docstring.
+
+## 6d. The whole file re-measured — 2026-08-12
+
+Six agents read the code, the git history and the live warehouse, one entry at a
+time, and were told explicitly never to verify a claim against this file's own
+prose. A sceptic then tried to refute every closure, because striking an item off
+is the only irreversible move here: an item wrongly left open costs a second
+look, an item wrongly closed is forgotten.
+
+| | |
+|---|---|
+| items measured | 47 |
+| still open (or *changed* — real, but not the problem described) | **45** |
+| genuinely closed | **2** — Q-1, Q-3 |
+| closures claimed and **refuted** | **6** — OP-2, ت2, Q-2, Q-4, Q-5, Q-11 |
+
+**What this file got wrong, as a class.** Not the judgements — the *numbers*, and
+the *statuses of things fixed elsewhere*. Almost every figure quoted more than
+once had drifted: `app.py` 2,955 → 3,347 lines; Sika 78 → 185 observations;
+branches 117 → 148; currencies 93 → 119 requests; sources "six of twelve" →
+seven. Two entries described fixes that exist (OP-13, OP-14) and one described a
+fix that **does not** (OP-18). The lesson is mechanical, not moral: a number
+written down once is a number nobody re-counts, so every figure now carries the
+date it was measured.
+
+**Three things are broken on the owner's machine right now** — not paperwork:
+
+1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
+   `crawl_honour_delay` is `'0'`. **BV-3**.
+2. **The engine's own Settings page says "Not running" while it crawls** — a
+   second `worker_alive` computation at `app.py:2363` that the fix never reached
+   — and the runtime heartbeat freezes under `database is locked` when a job
+   holds a write transaction. **OP-6 · ت2**.
+3. **The diagnostic-page guard is still blind**, and this file said it had been
+   fixed. **OP-18**.
+
+**And two failures of mine, recorded because they are the same failure twice.**
+#177's guards are string greps over `app.py`'s text — the code the commit changed
+has no executing coverage (**OP-2**). The same day, a test I wrote for the
+spreadsheet chooser passed against the mutation because it drove the helper
+rather than the feature; that one was caught before merging, by attacking my own
+branch. The rule that follows: **a guard must fail when the behaviour is broken,
+which is only demonstrable by breaking it.**
+
+---
 
 ## 7. Done — newest first, so it is not re-proposed
 
