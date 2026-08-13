@@ -13,6 +13,44 @@ import { checkSourceUri, checkDataSourceRow, stopsThisSource, switchedOff,
          suggestedKey } from "../datasource-rules.js";
 import { readsUriAsGoogleSheets } from "../addin-contract.js";
 
+// ---------------------------------------------------------------------------
+// THE CODE ON A FINDING IS THE HANDLE AN OWNER SEARCHES BOTH SURFACES BY, so it
+// has to be the one the add-in would print. The Console had INVALID_VALUE on
+// every DataSource field; `DataSourceEntity.Validate()` and
+// `SourceUriValidator` emit ERR_FORMAT and never INVALID_VALUE, which lives in
+// `ConfigValidator` and is reached only through a JSON bag.
+// ---------------------------------------------------------------------------
+
+test("every DataSource finding carries a code the add-in would print", () => {
+  // Driven through the whole row, not through one rule, so a new rule added
+  // later with a borrowed code is caught by a test nobody had to remember.
+  const wrong = checkDataSourceRow(sound({
+    SOURCE_URI: "https://docs.google.com/spreadsheets/d/e/2PACX-1vAAA/pub",
+    SOURCE_REGION: "SAUDI",
+    IS_ACTIVE: "FALSE",
+  }), []);
+
+  assert.ok(wrong.length >= 3, "the row under test stopped producing findings");
+  for (const found of wrong) {
+    if (found.field === "CONTEXT_PROPS") continue;   // the bag has its own codes
+    assert.notEqual(found.code, "INVALID_VALUE",
+      `${found.field} is tagged INVALID_VALUE, which no DataSource rule emits`);
+  }
+
+  const byField = (name) => wrong.filter((f) => f.field === name).map((f) => f.code);
+  assert.deepEqual([...new Set(byField("SOURCE_URI"))], ["ERR_FORMAT"]);
+  assert.deepEqual(byField("SOURCE_REGION"), ["ERR_FORMAT"]);
+  assert.deepEqual(byField("IS_ACTIVE"), ["ERR_FORMAT"]);
+});
+
+test("a blank address is ERR_REQUIRED, not ERR_FORMAT", () => {
+  // The one place SourceUriValidator reaches for a different code
+  // (SourceUriValidator.cs:33-39), and the retagging must not have flattened it.
+  const [found] = checkSourceUri("");
+  assert.equal(found.code, "ERR_REQUIRED");
+  assert.equal(found.severity, "Critical");
+});
+
 const PUBLISHED =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vAAA/pub?gid=223498986&single=true&output=tsv";
 

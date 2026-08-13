@@ -183,6 +183,47 @@ def test_the_address_markers_are_the_add_ins_own_literals():
         assert marker == marker.lower()
 
 
+def _js_object(source: str, name: str) -> dict[str, str]:
+    """The string values of a flat `export const NAME = {...}` literal.
+
+    Deliberately crude — it reads the declaration as text rather than running it.
+    Comments inside the object are skipped, which is why the values are matched
+    rather than the whole body scanned."""
+    body = re.search(rf"export const {name} = {{(.*?)\n}};", source, re.S)
+    assert body, f"{name} is no longer a flat object literal, and this test read it as one"
+    return dict(re.findall(r'(\w+):\s*"([^"]+)"', body.group(1)))
+
+
+def test_every_code_the_console_reports_is_one_the_add_in_can_emit():
+    """The Console prints a code so an owner can search BOTH surfaces for it. A
+    code the add-in never emits sends them looking through its log for a string
+    that is not in it — which is worse than printing no code at all.
+
+    This was wrong on nine DataSource findings: the Console said INVALID_VALUE
+    where `DataSourceEntity.Validate()` and `SourceUriValidator` both emit
+    ERR_FORMAT. INVALID_VALUE is real, but it lives in `ConfigValidator` and is
+    reached only through a JSON config bag."""
+    hand_written = HAND_WRITTEN.read_text(encoding="utf-8")
+    known = set(_contract()["vocabularies"]["ERROR_CODES"])
+
+    borrowed = _js_object(hand_written, "ERROR_CODE")
+    unknown = sorted({code for code in borrowed.values() if code not in known})
+    assert not unknown, (
+        f"{unknown} are reported by the Console and are not in the add-in's "
+        "vocabulary. Either the add-in gained a code and the contract has not "
+        "been re-read, or the Console invented one")
+
+    # And the other direction, which is the half that actually went wrong: a
+    # finding with no add-in rule must NOT be dressed in one of its codes.
+    console_only = _js_object(hand_written, "CONSOLE_ONLY_CODE")
+    assert console_only, "CONSOLE_ONLY_CODE is empty; it is the escape hatch this test depends on"
+    borrowed_by_mistake = sorted({code for code in console_only.values() if code in known})
+    assert not borrowed_by_mistake, (
+        f"{borrowed_by_mistake} claim to be Console-only and are the add-in's "
+        "own codes. If the add-in now has a rule for that fault, the code "
+        "belongs in ERROR_CODE instead")
+
+
 def test_the_hand_written_half_does_not_redeclare_the_generated_half():
     """Two sources for one list is the defect this whole file exists to prevent,
     and the tidiest place for it to reappear is the module that re-exports the

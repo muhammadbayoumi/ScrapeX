@@ -148,9 +148,30 @@ export const ERROR_CODE = {
   mandatoryUnmapped: "MANDATORY_UNMAPPED",
   badJson: "INVALID_JSON",
   unknownKey: "UNKNOWN_KEY",
-  badValue: "INVALID_VALUE",
+  // THE TWO ARE NOT INTERCHANGEABLE, and the Console had them the wrong way
+  // round on every DataSource field. `DataSourceEntity.Validate()` and
+  // `SourceUriValidator` emit only ERR_REQUIRED and ERR_FORMAT — never
+  // INVALID_VALUE, which lives one layer down in `ConfigValidator` and is
+  // reached only through a JSON config bag. A Console code the add-in does not
+  // emit for that fault sends an owner searching the add-in's log for a string
+  // that is not in it, which is the exact failure this map exists to prevent.
+  badFormat: "ERR_FORMAT",          // DataSourceEntity.cs:355, SourceUriValidator.cs:59
+  badValue: "INVALID_VALUE",        // ConfigValidator.cs:106,129 — bags only
   required: "ERR_REQUIRED",
   transform: "ERR_TRANSFORM",
+};
+
+/**
+ * Faults the Console reports that the add-in HAS NO RULE FOR.
+ *
+ * Kept apart from `ERROR_CODE` on purpose, and enforced apart by a test: every
+ * code above must appear in the add-in's vocabulary, and every code here must
+ * appear in none of it. Borrowing one of the add-in's names for a finding it
+ * never makes would claim a parity that does not exist — and the owner would
+ * search its log for a code it cannot produce.
+ */
+export const CONSOLE_ONLY_CODE = {
+  notApplied: "NOT_APPLIED",        // accepted, documented, and then ignored
 };
 
 /** The six gids, flattened for the check that a chosen workbook is the right one. */
