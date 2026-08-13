@@ -18,6 +18,37 @@ const require = createRequire(import.meta.url);
 const DOCUMENT_KEY = "scrapexStartupTraceDocument";
 const HOST_KEY = "scrapexStartupTraceHost";
 
+/**
+ * Remove comments from a script BEFORE searching it for things it must not do.
+ *
+ * THE PREVIOUS VERSION WAS BLIND, AND BLIND IN THE DIRECTION THAT MATTERS.
+ * It was a single global regex meaning "a double slash, then everything up to
+ * the newline", replaced with nothing. The `//` in `https://` is a double
+ * slash, so everything after it went too, INCLUDING a real `fetch(` on the same
+ * line:
+ *
+ *     const u = "https://example.invalid/probe"; fetch(u);
+ *     -> "  const u = \"https:"          and the guard saw no fetch
+ *
+ * A guard cannot be trusted to find what it was written to find unless it fails
+ * when the thing is there. That is what `withoutComments is not blinded by a
+ * URL` below does, and it is the only reason this function is separate from its
+ * caller: a strip embedded in an assertion cannot be driven with a hostile
+ * input.
+ *
+ * WHOLE LINES ONLY. Every comment in diagnostic-panel.js occupies its own line,
+ * and the caller refuses a block comment outright. A trailing `// note` after
+ * code is therefore NOT stripped — which makes the guard stricter (a comment
+ * mentioning `fetch(` beside code would fail loudly) rather than blinder. That
+ * is the correct direction for the trade.
+ */
+function withoutComments(source) {
+  return source
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("//"))
+    .join("\n");
+}
+
 function loadTraceFactory() {
   delete require.cache[require.resolve("../startup-trace.js")];
   return require("../startup-trace.js");
@@ -559,8 +590,19 @@ test("the minimal diagnostic page stays minimal", () => {
   assert.ok(!/\bhidden\b|display:\s*none|visibility:\s*hidden|opacity:\s*0/.test(markup),
     "the diagnostic page hides something");
 
-  const script = read("tests/diagnostic-panel.js")
-    .replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const source = read("tests/diagnostic-panel.js");
+
+  // A BLOCK COMMENT WOULD MAKE THIS STRIP WRONG, so it is refused rather than
+  // handled. `/* */` stripping has the same hazard the line strip had — a `/*`
+  // inside a string deletes forward to the next `*/` — and the file has never
+  // contained one. Refusing is cheaper than being clever, and it fails LOUDLY
+  // on the day someone adds one instead of quietly stripping too much.
+  assert.ok(!source.includes("/*"),
+    "diagnostic-panel.js grew a block comment; withoutComments() does not "
+    + "handle one, and stripping it with a regex would delete forward past a "
+    + "`*/` inside a string");
+
+  const script = withoutComments(source);
   assert.ok(!/\bfetch\s*\(/.test(script), "the diagnostic page makes a request");
   assert.ok(!/loadAccount|engine|appearance/i.test(script),
     "the diagnostic page runs product startup work");
@@ -843,3 +885,59 @@ test("choosing a file ends the handoff — picking is the last thing it is for",
     assert.deepEqual(calls.held.get("scrapexPickedSpreadsheet"),
       {fileId: "1Real", name: ""});
   });
+
+// ---------------------------------------------------------------------------
+// The guard that guards the guard.
+//
+// `the minimal diagnostic page stays minimal` is the only thing standing between
+// the diagnostic page and quietly regrowing the startup work it exists to
+// exclude. It searches the script for `fetch(` — and for eleven days it could
+// not see one, because its comment strip ate the rest of any line containing a
+// URL. Nothing failed. The suite was green for a page that plainly fetched.
+//
+// So the strip is now driven with the exact input that defeated it.
+// ---------------------------------------------------------------------------
+
+test("withoutComments is not blinded by a URL on the same line", () => {
+  const hostile = [
+    'const u = "https://example.invalid/probe"; fetch(u);',
+    'const v = "http://a/b"; fetch(v);',
+  ].join("\n");
+
+  const stripped = withoutComments(hostile);
+
+  assert.match(stripped, /\bfetch\s*\(/,
+    "a URL's `//` swallowed the rest of the line, so a real fetch( on that line "
+    + "is invisible to every assertion downstream — which is exactly the defect "
+    + "this function was rewritten to remove");
+  assert.equal(stripped.split("\n").length, 2, "lines were lost");
+});
+
+test("withoutComments still removes what it is for", () => {
+  const source = [
+    "// a whole-line comment mentioning fetch( and https://example.com",
+    "   // an indented one too",
+    "const kept = 1;",
+  ].join("\n");
+
+  const stripped = withoutComments(source);
+
+  assert.ok(!/\bfetch\s*\(/.test(stripped),
+    "a comment is being searched as if it were code, which produces the false "
+    + "failures that get a guard deleted");
+  assert.match(stripped, /const kept = 1;/);
+});
+
+test("the diagnostic page's own comments are all whole lines", () => {
+  // The strip's one assumption, checked against the real file rather than
+  // assumed. A trailing `// note` after code would not be stripped, and the
+  // guard would fail loudly on the word `fetch(` in a comment — recoverable,
+  // but the person hitting it deserves to find this test rather than guess.
+  const source = read("tests/diagnostic-panel.js");
+  const trailing = source.split("\n").filter((line) => {
+    const at = line.indexOf("//");
+    return at > 0 && line.slice(0, at).trim() !== "";
+  });
+  assert.deepEqual(trailing, [],
+    "diagnostic-panel.js grew a comment after code on the same line");
+});
