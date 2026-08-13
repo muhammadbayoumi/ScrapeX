@@ -213,11 +213,27 @@ export function inspect(workbook) {
 
   // A map's target attribute must exist in the schema OF THE ENTITY that map
   // feeds — which is reached through the source that names the profile.
+  // A BLANK PROFILE IS NOT AN ABSENT ONE. The add-in resolves an empty
+  // PROFILE_KEY — and the literal "DEFAULT", case-insensitively — to the row's
+  // TARGET_ENTITY_KEY, then looks up DataMap under that name.
+  //
+  // The first version of this file did not know that and reported FIFTEEN
+  // orphan profiles in the owner's workbook. Thirteen of them were mine: every
+  // source that leaves PROFILE_KEY blank still names a profile, it just names
+  // it by the entity. Two are real — GARB and GARB2. Reporting thirteen
+  // problems that are not problems is how a checker teaches its owner to stop
+  // reading it, which costs more than the two it would have found.
+  const profileOf = (row) => {
+    const named = (row.PROFILE_KEY || "").trim();
+    return (!named || named.toUpperCase() === "DEFAULT")
+      ? (row.TARGET_ENTITY_KEY || "")
+      : named;
+  };
+
   const entityOfProfile = new Map();
   for (const r of rows("3.DataSource")) {
-    if (r.PROFILE_KEY && r.TARGET_ENTITY_KEY) {
-      entityOfProfile.set(r.PROFILE_KEY, r.TARGET_ENTITY_KEY);
-    }
+    const profile = profileOf(r);
+    if (profile && r.TARGET_ENTITY_KEY) entityOfProfile.set(profile, r.TARGET_ENTITY_KEY);
   }
   const attributes = new Map();
   for (const r of rows("2.SchemaRule")) {
@@ -255,7 +271,9 @@ export function inspect(workbook) {
   }
 
   // ---- things nothing consumes --------------------------------------------
-  const referenced = new Set(rows("3.DataSource").map((r) => r.PROFILE_KEY).filter(Boolean));
+  // Through the SAME resolution the add-in uses, or a blank PROFILE_KEY looks
+  // like a source that references nothing while the add-in reads it happily.
+  const referenced = new Set(rows("3.DataSource").map(profileOf).filter(Boolean));
   const defined = new Map();
   for (const r of rows("4.DataMap")) {
     if (r.PROFILE_KEY) defined.set(r.PROFILE_KEY, (defined.get(r.PROFILE_KEY) || 0) + 1);

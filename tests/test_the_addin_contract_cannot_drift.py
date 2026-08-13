@@ -160,6 +160,29 @@ def test_the_arabic_spellings_survived_the_json_round_trip():
         "nobody can review them")
 
 
+def test_the_address_markers_are_the_add_ins_own_literals():
+    """`SourceUriValidator` searches the whole address for these three, and every
+    Console warning about an address is keyed on them. Inline, they drifted
+    silently; here, a change to the add-in has to be typed on purpose.
+
+    The lower case matters and is not cosmetic: the add-in lower-cases the
+    address before searching, so a marker carrying a capital would never match
+    and the Console would fall silent about the mistake its own file header calls
+    the commonest one there is."""
+    constants = _contract()["constants"]
+
+    assert constants["URI_GOOGLE_SHEETS_MARKER"] == "docs.google.com"
+    assert constants["URI_TSV_MARKERS"] == ["output=tsv", "format=tsv"]
+    assert constants["URI_TAB_MARKER"] == "gid="
+
+    for name in ("URI_GOOGLE_SHEETS_MARKER", "URI_TAB_MARKER"):
+        assert constants[name] == constants[name].lower(), (
+            f"{name} is compared against a lower-cased address and would never "
+            "match")
+    for marker in constants["URI_TSV_MARKERS"]:
+        assert marker == marker.lower()
+
+
 def test_the_hand_written_half_does_not_redeclare_the_generated_half():
     """Two sources for one list is the defect this whole file exists to prevent,
     and the tidiest place for it to reappear is the module that re-exports the

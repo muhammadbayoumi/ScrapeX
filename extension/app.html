@@ -1529,13 +1529,35 @@
       </header>
 
       <div class="view-scroll">
-        <p class="planned-note" data-planned="M7">
-          Not built yet, and not part of the published build — this page exists in
-          the owner build only.
-        </p>
+        <!-- THE PANEL IS THE LAUNCHER, NOT THE CONSOLE. Six sheets of
+             configuration are a table editor, and this column is 360px. The
+             Console is an extension page in a tab — same extension, same token,
+             same account, and room to read a row. -->
+        <section class="card" aria-labelledby="console-open-title">
+          <h2 id="console-open-title">The add-in's configuration</h2>
+          <p>
+            Six sheets describe the Excel add-in: its tables, their fields, where
+            each one's data comes from, and how a source column becomes a field.
+            The Console reads them, says what the add-in would make of them, and
+            refuses any workbook that is not the one it actually reads.
+          </p>
+          <div class="row">
+            <button id="console-open" class="button" type="button">
+              Open the Console</button>
+          </div>
+        </section>
 
         <section class="card" aria-labelledby="console-datasets-title">
           <h2 id="console-datasets-title">Datasets</h2>
+          <!-- INSIDE the card it governs, not floating beside three of them.
+               The Console page above reads the add-in's configuration today;
+               publishing a collected dataset OUT to it is not built, and a page
+               where half is real needs the note attached to the half that is
+               not. -->
+          <p class="planned-note" data-planned="M7">
+            Not built yet — this card is a shape. The Console reads the add-in's
+            configuration and reports on it; nothing here writes a dataset out.
+          </p>
           <p>Everything collected, and whether Excel already knows about it.</p>
           <div class="kv"><span>Registered</span><span class="tech">—</span></div>
           <div class="kv"><span>Not registered</span><span class="tech">—</span></div>

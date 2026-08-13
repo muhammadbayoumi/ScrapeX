@@ -343,3 +343,79 @@ test("the transform list is the add-in's, and it is chained with a pipe", () => 
   // as one unknown transform and is dropped whole.
   assert.ok(!TRANSFORMS.some((t) => t.includes("|")));
 });
+
+// ---------------------------------------------------------------------------
+// A blank PROFILE_KEY is not an absent one.
+//
+// THIRTEEN OF THE FIFTEEN ORPHANS I FIRST REPORTED WERE MINE. The add-in
+// resolves an empty PROFILE_KEY — and the literal "DEFAULT" — to the row's
+// TARGET_ENTITY_KEY, then looks up DataMap under that name. My checker did not
+// know, so every source that leaves the column blank looked like a source
+// referencing nothing, and every profile named after an entity looked orphaned.
+//
+// Reporting thirteen problems that are not problems is how a checker teaches
+// its owner to stop reading it — which costs more than the two it found.
+// ---------------------------------------------------------------------------
+
+test("a source with a BLANK profile still names one — its entity", () => {
+  const ranges = sound();
+  // The shape the live workbook uses more than any other: no profile column.
+  ranges[2].values[1][2] = "";
+  // values[1] and [2]; values[0] is the header row, and writing over it makes
+  // the whole sheet unparseable — which is how the first draft of this test
+  // passed while asserting nothing.
+  ranges[3].values[1][0] = "T_DIESEL";
+  ranges[3].values[2][0] = "T_DIESEL";
+
+  const orphans = problems(ranges).filter(
+    (p) => p.kind === "profile nothing references");
+  assert.deepEqual(orphans, [],
+    "a profile named after the entity was reported as orphaned, because the "
+    + "blank PROFILE_KEY beside it was read as 'no profile' rather than as "
+    + "'the default one'");
+});
+
+test('the literal "DEFAULT" resolves the same way, in any case', () => {
+  for (const spelling of ["DEFAULT", "default", "Default"]) {
+    const ranges = sound();
+    ranges[2].values[1][2] = spelling;
+    ranges[3].values[1][0] = "T_DIESEL";
+    ranges[3].values[2][0] = "T_DIESEL";
+
+    assert.deepEqual(
+      problems(ranges).filter((p) => p.kind === "profile nothing references"), [],
+      `"${spelling}" was not treated as the default profile`);
+  }
+});
+
+test("and the mapping's target is still judged against the right entity", () => {
+  // The resolution must reach BOTH readings of PROFILE_KEY. If only the orphan
+  // check learned it, a blank-profile source would stop reporting orphans and
+  // start missing attributes that do not exist.
+  const ranges = sound();
+  ranges[2].values[1][2] = "";
+  // values[1] and [2]; values[0] is the header row, and writing over it makes
+  // the whole sheet unparseable — which is how the first draft of this test
+  // passed while asserting nothing.
+  ranges[3].values[1][0] = "T_DIESEL";
+  ranges[3].values[2][0] = "T_DIESEL";
+  ranges[3].values.push(["T_DIESEL", "NotAColumn", "Header", "Exact", "x"]);
+
+  const found = problems(ranges).filter(
+    (p) => p.kind === "attribute not in schema");
+  assert.equal(found.length, 1,
+    "a mapping under a defaulted profile is no longer checked at all");
+  assert.match(found[0].detail, /NotAColumn/);
+});
+
+test("a profile named after nothing at all is STILL an orphan", () => {
+  // The correction must not swallow the two real ones. GARB and GARB2 in the
+  // owner's file match no entity and no source names them.
+  const ranges = sound();
+  ranges[3].values.push(["GARB", "Price", "Header", "Exact", "x"]);
+
+  const orphans = problems(ranges).filter(
+    (p) => p.kind === "profile nothing references");
+  assert.equal(orphans.length, 1);
+  assert.match(orphans[0].detail, /GARB/);
+});

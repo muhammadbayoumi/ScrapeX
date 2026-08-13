@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Console — ScrapeX</title>
+<!--
+  THE CONSOLE. An extension page, opened in a TAB from the side rail.
+
+  Not a page on a website, because the token would then have to leave the
+  extension. Not a view in the panel, because six sheets of configuration are a
+  table editor and the panel is 360px.
+
+  IT IS AN APPLICATION, NOT A PAGE. A rail on the left, one screen at a time,
+  and the workbook read ONCE and shared between them. The shape is deliberately
+  the panel's own — `showView`, a registry of screen names, a rail whose buttons
+  carry `data-view` — because a second navigation idiom in the same product is a
+  second thing to learn for no gain.
+
+  THE ENGINE IS NOT INVOLVED. No route, no Python, no 127.0.0.1 anywhere in this
+  page's path. The owner's ruling, restated 2026-08-12.
+-->
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+
+<nav class="console-rail" aria-label="Console sections">
+  <div class="rail-brand">
+    <svg class="sx-icon" aria-hidden="true">
+      <use href="icons/material-icons.svg#file-upload"></use>
+    </svg>
+    <span>Console</span>
+  </div>
+
+  <div class="rail-group" role="tablist" aria-label="Sections">
+    <button class="rail-link" id="cv-tab-overview" role="tab" data-view="overview"
+            aria-controls="cv-overview" aria-selected="true">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#dashboard"></use>
+      </svg>
+      <span>Overview</span>
+    </button>
+    <button class="rail-link" id="cv-tab-scrapex" role="tab" data-view="scrapex"
+            aria-controls="cv-scrapex" aria-selected="false" tabindex="-1">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#storage"></use>
+      </svg>
+      <span>ScrapeX</span>
+      <span class="rail-count" id="count-scrapex"></span>
+    </button>
+    <button class="rail-link" id="cv-tab-tables" role="tab" data-view="tables"
+            aria-controls="cv-tables" aria-selected="false" tabindex="-1">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#view-column"></use>
+      </svg>
+      <span>Tables</span>
+      <span class="rail-count" id="count-tables"></span>
+    </button>
+    <button class="rail-link" id="cv-tab-sources" role="tab" data-view="sources"
+            aria-controls="cv-sources" aria-selected="false" tabindex="-1">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#link"></use>
+      </svg>
+      <span>Sources</span>
+      <span class="rail-count" id="count-sources"></span>
+    </button>
+    <button class="rail-link" id="cv-tab-problems" role="tab" data-view="problems"
+            aria-controls="cv-problems" aria-selected="false" tabindex="-1">
+      <svg class="sx-icon" aria-hidden="true">
+        <use href="icons/material-icons.svg#info"></use>
+      </svg>
+      <span>Problems</span>
+      <span class="rail-count" id="count-problems"></span>
+    </button>
+  </div>
+
+  <div class="rail-foot">
+    <p class="rail-book" id="rail-book"></p>
+    <button class="button ghost" id="workbook-recheck" type="button" hidden>
+      Re-read</button>
+  </div>
+</nav>
+
+<main class="console-main">
+
+  <!-- ── Overview ─────────────────────────────────────────────────────────── -->
+  <section id="cv-overview" class="cv" role="tabpanel" aria-labelledby="cv-tab-overview">
+    <header class="cv-head">
+      <h1>Overview</h1>
+      <p>The configuration the Excel add-in reads — checked before it is changed.</p>
+    </header>
+
+    <section class="card" aria-labelledby="workbook-title">
+      <h2 id="workbook-title">The workbook</h2>
+      <p id="workbook-state" class="hint" role="status" aria-live="polite">
+        Checking your Google account…
+      </p>
+      <div class="row">
+        <button id="workbook-choose" class="button" type="button" hidden>
+          Choose the configuration workbook</button>
+      </div>
+      <p id="workbook-identity" class="hint"></p>
+    </section>
+
+    <section class="card hidden" id="sheets-card" aria-labelledby="sheets-title">
+      <h2 id="sheets-title">The six sheets</h2>
+      <div id="sheets-list" class="sheet-rows"></div>
+    </section>
+  </section>
+
+  <!-- ── ScrapeX ──────────────────────────────────────────────────────────── -->
+  <section id="cv-scrapex" class="cv hidden" role="tabpanel" aria-labelledby="cv-tab-scrapex">
+    <header class="cv-head">
+      <h1>ScrapeX</h1>
+      <p>What this tool collects, and whether the add-in knows about it.</p>
+    </header>
+    <section class="card" aria-labelledby="scrapex-title">
+      <h2 id="scrapex-title">Collected sources</h2>
+      <p class="hint" id="scrapex-summary" role="status" aria-live="polite"></p>
+      <div id="scrapex-list" class="pair-rows"></div>
+    </section>
+  </section>
+
+  <!-- ── Tables ───────────────────────────────────────────────────────────── -->
+  <section id="cv-tables" class="cv hidden" role="tabpanel" aria-labelledby="cv-tab-tables">
+    <header class="cv-head">
+      <h1>Tables</h1>
+      <p>Every table the add-in defines. Choose one to see it across all six sheets.</p>
+    </header>
+    <section class="card" aria-labelledby="tables-title">
+      <h2 id="tables-title">Defined</h2>
+      <div id="tables-list" class="pair-rows"></div>
+    </section>
+  </section>
+
+  <!-- ── One table, across every sheet ────────────────────────────────────── -->
+  <section id="cv-inspect" class="cv hidden" role="tabpanel" aria-labelledby="cv-tab-tables">
+    <header class="cv-head">
+      <button class="link-back" id="inspect-back" type="button">← Tables</button>
+      <h1 id="inspect-name">—</h1>
+      <p id="inspect-lede"></p>
+    </header>
+    <div id="inspect-body" class="inspect-body"></div>
+  </section>
+
+  <!-- ── Sources ──────────────────────────────────────────────────────────── -->
+  <section id="cv-sources" class="cv hidden" role="tabpanel" aria-labelledby="cv-tab-sources">
+    <header class="cv-head">
+      <h1>Sources</h1>
+      <p>Where each table's rows come from. This is the sheet that can be edited.</p>
+    </header>
+
+    <section class="card" aria-labelledby="sources-title">
+      <h2 id="sources-title">Data sources</h2>
+      <p class="hint" id="sources-summary" role="status" aria-live="polite"></p>
+      <div id="sources-list" class="source-rows"></div>
+      <div class="row">
+        <button id="source-add" class="button ghost" type="button">Add a source</button>
+      </div>
+    </section>
+
+    <section class="card hidden" id="editor-card" aria-labelledby="editor-title">
+      <h2 id="editor-title">Editing</h2>
+      <p class="hint" id="editor-where"></p>
+
+      <div class="field">
+        <label for="f-SOURCE_KEY">Source key</label>
+        <input id="f-SOURCE_KEY" type="text" autocomplete="off">
+        <p class="field-note" id="n-SOURCE_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="f-TARGET_ENTITY_KEY">Table it loads into</label>
+        <select id="f-TARGET_ENTITY_KEY"></select>
+        <p class="field-note" id="n-TARGET_ENTITY_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="f-PROFILE_KEY">Mapping profile</label>
+        <select id="f-PROFILE_KEY"></select>
+        <p class="field-note" id="n-PROFILE_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="f-SOURCE_URI">Address</label>
+        <input id="f-SOURCE_URI" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="n-SOURCE_URI"></p>
+      </div>
+      <div class="field">
+        <label for="f-DISPLAY_LABEL">Label</label>
+        <input id="f-DISPLAY_LABEL" type="text" autocomplete="off">
+        <p class="field-note" id="n-DISPLAY_LABEL"></p>
+      </div>
+      <div class="field">
+        <label for="f-SOURCE_REGION">Region</label>
+        <select id="f-SOURCE_REGION"></select>
+        <p class="field-note" id="n-SOURCE_REGION"></p>
+      </div>
+      <div class="field">
+        <label for="f-IS_ACTIVE">Active</label>
+        <!-- A CLOSED LIST, and this is the one field where that matters most:
+             the add-in accepts sixteen spellings and treats a seventeenth as
+             TRUE without recording anything. A typo here switches a table on. -->
+        <select id="f-IS_ACTIVE">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="n-IS_ACTIVE"></p>
+      </div>
+      <div class="field">
+        <label for="f-MIN_LICENSE_REQ">Minimum licence</label>
+        <select id="f-MIN_LICENSE_REQ"></select>
+        <p class="field-note" id="n-MIN_LICENSE_REQ"></p>
+      </div>
+      <div class="field">
+        <label for="f-VERSION_TAG">Version tag</label>
+        <input id="f-VERSION_TAG" type="text" autocomplete="off">
+        <p class="field-note">
+          Nothing validates this. It is one input to the add-in's own
+          change-detection hash, so moving it forces a re-download.
+        </p>
+      </div>
+      <div class="field">
+        <label for="f-CONTEXT_PROPS">Context properties (JSON)</label>
+        <input id="f-CONTEXT_PROPS" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="n-CONTEXT_PROPS"></p>
+      </div>
+
+      <p id="editor-verdict" class="hint" role="status" aria-live="polite"></p>
+      <div class="row">
+        <button id="editor-save" class="button" type="button">Save to the sheet</button>
+        <button id="editor-cancel" class="button ghost" type="button">Cancel</button>
+      </div>
+    </section>
+  </section>
+
+  <!-- ── Problems ─────────────────────────────────────────────────────────── -->
+  <section id="cv-problems" class="cv hidden" role="tabpanel" aria-labelledby="cv-tab-problems">
+    <header class="cv-head">
+      <h1>Problems</h1>
+      <p>What the add-in would make of this workbook, in the order it matters.</p>
+    </header>
+    <section class="card" aria-labelledby="findings-title">
+      <h2 id="findings-title">Findings</h2>
+      <p id="findings-summary" class="hint" role="status" aria-live="polite"></p>
+      <div id="findings-list" class="findings"></div>
+    </section>
+  </section>
+
+</main>
+
+<!-- appearance.js FIRST, and as a classic script. It is what puts `data-theme`
+     on the document, and a module would run after first paint — the onboarding
+     page shipped that way once and ignored the owner's palette entirely. -->
+<script src="appearance.js"></script>
+<script type="module" src="console.js"></script>
+</body>
+</html>

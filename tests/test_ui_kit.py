@@ -51,7 +51,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: `scrapex/webui/static/` are byte-equal to the canon (tests/test_vendor.py),
 #: so reading the canon is reading both.
 CANONICAL = ("design/components.css", "design/tokens.css")
-SURFACE_SHEETS = ("extension/app.css", "extension/onboarding.css")
+SURFACE_SHEETS = ("extension/app.css", "extension/onboarding.css",
+                  "extension/console.css")
 
 #: Class attributes a template computes cannot be resolved by reading the file.
 JINJA = re.compile(r"\{\%.*?\%\}|\{\{.*?\}\}", re.S)
@@ -98,8 +99,19 @@ def defined() -> set[str]:
 
 
 def _markup() -> list[pathlib.Path]:
-    return ([ROOT / "extension" / "app.html"]
-            + sorted((ROOT / "scrapex" / "webui" / "templates").rglob("*.html")))
+    """EVERY page the extension ships, not just the panel.
+
+    This globbed nothing but app.html until 2026-08-12, so onboarding.html's
+    classes were never resolved and neither would any new page's have been —
+    a gate that grows blind spots as the product grows is worse than one that
+    fails, because its green keeps meaning what it used to mean.
+
+    tests/ is excluded: the diagnostic twin exists to be minimal, and holding
+    it to the shared vocabulary would be holding it to the opposite of its
+    purpose.
+    """
+    pages = sorted(page for page in (ROOT / "extension").glob("*.html"))
+    return pages + sorted((ROOT / "scrapex" / "webui" / "templates").rglob("*.html"))
 
 
 def _used() -> dict[str, set[str]]:
