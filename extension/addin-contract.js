@@ -31,6 +31,7 @@ import {
   BEHAVIOUR_VERSION, TRUE_SPELLINGS, FALSE_SPELLINGS, CLICKABLE_ACTIONS,
   MENU_ACTIONS, ENTITY_TYPES, STORAGE_STRATEGIES, LICENSE_TIERS, SEMANTIC_ROLES,
   DATA_TYPES, SOURCE_TYPES, MATCH_MODES, SHEETS as CONTRACT_SHEETS,
+  URI_GOOGLE_SHEETS_MARKER,
 } from "./addin-vocabulary.js";
 
 /**
@@ -66,6 +67,34 @@ export function readBoolean(cell, whenUnreadable) {
   if (TRUE_SPELLINGS.includes(value)) return true;
   if (FALSE_SPELLINGS.includes(value)) return false;
   return whenUnreadable;                       // blank AND unrecognised alike
+}
+
+/**
+ * What the add-in makes of an ADDRESS — `SourceUriValidator`'s own test, and a
+ * companion to `readBoolean` above in every sense: a quirk of the add-in
+ * reproduced here so the Console can report it, with the literals read from the
+ * contract rather than written into this line.
+ *
+ * IT IS A SUBSTRING OF THE WHOLE ADDRESS, and that is a defect. The host is
+ * never parsed, so
+ *
+ *     https://attacker.example/?x=docs.google.com&output=tsv
+ *
+ * is "a Google Sheet" as far as the add-in is concerned. It then fetches it
+ * over plain HTTP with NO AUTHENTICATION, following up to five redirects, and
+ * parses whatever returns as the table's rows.
+ *
+ * THIS FUNCTION IS NOT A SECURITY CHECK AND MUST NEVER BE USED AS ONE. It
+ * answers exactly one question — "what will the add-in conclude?" — so the
+ * Console's advice about a TSV format and a gid lands in precisely the cases
+ * the add-in's does. Whether an address IS Google's is decided by parsing the
+ * host, in `checkSourceUri`, which is also where the impostor above is reported.
+ *
+ * The real repair belongs in the add-in's C#; until it lands, the Console is
+ * the only surface that says this out loud.
+ */
+export function readsUriAsGoogleSheets(uri) {
+  return String(uri ?? "").toLowerCase().includes(URI_GOOGLE_SHEETS_MARKER);
 }
 
 /**

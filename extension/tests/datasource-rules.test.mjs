@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import { checkSourceUri, checkDataSourceRow, stopsThisSource, switchedOff,
          suggestedKey } from "../datasource-rules.js";
+import { readsUriAsGoogleSheets } from "../addin-contract.js";
 
 const PUBLISHED =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vAAA/pub?gid=223498986&single=true&output=tsv";
@@ -390,7 +391,38 @@ test("every finding names the field it is about", () => {
 // than invent — but the consequence CodeQL named is real, and it belongs to the
 // add-in: an address that merely MENTIONS docs.google.com passes every check it
 // makes, and is then downloaded with no authentication.
+//
+// So the mirror was not deleted and was not silenced. It was SEPARATED. The
+// add-in's substring test is `readsUriAsGoogleSheets` in the contract module,
+// beside the other quirks it reproduces, and it decides nothing. What decides is
+// the parsed host, here. The two tests below hold that separation in place: one
+// proves the mirror still agrees with the add-in even where the add-in is wrong,
+// the other proves the Console refuses anyway.
 // ---------------------------------------------------------------------------
+
+test("the mirror still agrees with the add-in, INCLUDING where it is wrong", () => {
+  // If this ever goes false, the add-in has been repaired — and then the
+  // impostor Error below becomes unreachable and should be reconsidered, not
+  // deleted on the grounds that nothing hits it.
+  assert.equal(
+    readsUriAsGoogleSheets("https://attacker.example/?x=docs.google.com"), true,
+    "the mirror no longer reproduces SourceUriValidator's substring match");
+  assert.equal(readsUriAsGoogleSheets("https://DOCS.GOOGLE.COM/pub"), true,
+    "the add-in matches case-insensitively and this no longer does");
+  assert.equal(readsUriAsGoogleSheets(""), false);
+  assert.equal(readsUriAsGoogleSheets(null), false);
+});
+
+test("and deciding by the mirror alone would accept the attack", () => {
+  // Stated as an assertion rather than a comment, because this is the whole
+  // reason the two live apart: agreeing with the add-in is NOT a safety verdict.
+  const attack = "https://attacker.example/collect?x=docs.google.com&output=tsv";
+
+  assert.equal(readsUriAsGoogleSheets(attack), true,
+    "the add-in would call this a Google Sheet");
+  assert.ok(checkSourceUri(attack).some((f) => f.severity === "Error"),
+    "and the Console let it through, which means the host check has gone");
+});
 
 test("an address that only MENTIONS Google is refused, and says who serves it", () => {
   const found = checkSourceUri(

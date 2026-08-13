@@ -11,7 +11,8 @@
 // the rest of that row being checked — so the Console stops with it, or it
 // would print a cascade of complaints about a row the add-in never reaches.
 
-import { readBoolean, BOOLEAN_DEFAULTS, ERROR_CODE, CONTEXT_PROPS_KEYS }
+import { readBoolean, readsUriAsGoogleSheets, BOOLEAN_DEFAULTS, ERROR_CODE,
+  CONTEXT_PROPS_KEYS, URI_TSV_MARKERS, URI_TAB_MARKER }
   from "./addin-contract.js";
 
 /**
@@ -92,36 +93,23 @@ export function checkSourceUri(uri) {
   // A DEFECT IN THE ADD-IN, FOUND BY A SCANNER POINTED AT THIS FILE.
   //
   // `SourceUriValidator` decides "is this Google Sheets" with a case-insensitive
-  // SUBSTRING of the whole address, and this module mirrored it because the rule
-  // here is to mirror rather than invent. CodeQL flagged the mirror as
-  // js/incomplete-url-substring-sanitization, and it was right about the
-  // consequence even though the Console is not the thing at risk:
+  // SUBSTRING of the whole address — the host is never parsed. This module used
+  // to reproduce that substring inline, and CodeQL was right to object to the
+  // shape of it. The rule here is still to mirror rather than invent, so the
+  // mirror did not move out of the product: it moved to where the add-in's other
+  // quirks live, beside `readBoolean`, and it says on itself that it decides
+  // nothing. What is left below is this module's own reasoning, on a PARSED host.
+  //
+  // The consequence CodeQL named is real, and it is the add-in's:
   //
   //     https://attacker.example/?x=docs.google.com&output=tsv
   //
   // satisfies every check the add-in makes, and the add-in then downloads it
-  // with NO AUTHENTICATION of any kind. Whatever comes back is parsed as the
-  // table's rows.
-  //
-  // THE SUPPRESSION BELOW, AND WHY IT IS NOT A DISMISSAL.
-  //
-  // This one line is the add-in's own test, reproduced deliberately, and it is
-  // the only place in this module the substring is taken. Nothing is decided by
-  // it: it answers "what will the add-in conclude", and every judgement about
-  // who is really being talked to is made against `reallyGoogle`, which parses.
-  // Deleting it would not close a hole — the hole is in the add-in, on a machine
-  // this code cannot reach — it would only make the Console describe a program
-  // other than the one the owner runs.
-  //
-  // The scanner's real finding is answered on the next line but one, where the
-  // parsed host is compared and the impostor is reported as an Error. Break that
-  // check and `datasource-rules.test.mjs` fails on two named addresses.
-  // codeql[js/incomplete-url-substring-sanitization]
-  const addinReadsThisAsGoogleSheets = lower.includes("docs.google.com");
+  // with no authentication of any kind, following up to five redirects.
+  // Whatever comes back is parsed as the table's rows. The Console cannot fix
+  // that from here — it can only refuse to stay quiet about it.
+  const addinReadsThisAsGoogleSheets = readsUriAsGoogleSheets(value);
 
-  // The mirror stays, because a Console that warned differently from the add-in
-  // would be wrong about what the add-in does. What is added is the thing the
-  // add-in cannot tell you.
   if (isHttp && addinReadsThisAsGoogleSheets && !reallyGoogle) {
     found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
       `This address MENTIONS docs.google.com but is served by "${host}". The `
@@ -136,7 +124,7 @@ export function checkSourceUri(uri) {
   // output=tsv in precisely the cases the add-in does, including the impostor
   // above, which the add-in also demands a TSV format from.
   if (addinReadsThisAsGoogleSheets) {
-    if (!lower.includes("output=tsv") && !lower.includes("format=tsv")) {
+    if (!URI_TSV_MARKERS.some((marker) => lower.includes(marker))) {
       found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badValue,
         "A Google Sheets address without a TSV format serves a WEB PAGE. The "
         + "add-in downloads it, sees markup where rows should be, and reports a "
@@ -144,7 +132,7 @@ export function checkSourceUri(uri) {
         + "with this address.",
         "Add output=tsv to the end of the address."));
     }
-    if (!lower.includes("gid=")) {
+    if (!lower.includes(URI_TAB_MARKER)) {
       found.push(finding("Warning", "SOURCE_URI", ERROR_CODE.badValue,
         "No gid, so this always reads the FIRST tab of that spreadsheet — "
         + "whichever one that happens to be today.",

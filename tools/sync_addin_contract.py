@@ -108,6 +108,12 @@ def render(contract: dict) -> str:
 
     lines.append("// ---- constants " + "-" * 61)
     for name, value in contract["constants"].items():
+        # A `_comment` key carries the reason a constant exists, and the reason
+        # is worth more in the generated file than in the JSON nobody opens.
+        if name.startswith("_"):
+            lines.append("")
+            lines.extend(f"// {line}" for line in value)
+            continue
         lines.append(f"export const {name} = {_js(value)};")
     lines.append("")
 

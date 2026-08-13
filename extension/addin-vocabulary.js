@@ -92,3 +92,13 @@ export const SHEETS = {
 export const TRANSFORM_SEPARATOR = "|";
 export const TRANSFORM_ARGUMENT_SEPARATOR = ":";
 export const BLOCKS_SYNC_FROM = "Error";
+
+// The three literals SourceUriValidator searches for inside the WHOLE
+// address, case-insensitively (SourceUriValidator.cs:80-118). They are
+// contract facts exactly like the transform separator above: change one in
+// the add-in and every Console warning about an address becomes wrong.
+// They live here rather than inline for the same reason the boolean
+// spellings do — so a change to the add-in has one place to land.
+export const URI_GOOGLE_SHEETS_MARKER = "docs.google.com";
+export const URI_TSV_MARKERS = ["output=tsv", "format=tsv"];
+export const URI_TAB_MARKER = "gid=";
