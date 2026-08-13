@@ -360,6 +360,18 @@ class SourceEntry(BaseModel):
     #: Only read when `robots` is "custom": {enforce_disallow: bool,
     #: crawl_delay_s: float | null}. A null delay means the site's own.
     robots_custom: dict | None = None
+    # THE PACE THIS SITE NEEDS, when it needs one it never asked for.
+    #
+    # A site that publishes a Crawl-delay is already honoured. This is for the
+    # other kind: alsweed.sa publishes NO delay and then answers 429 anyway, and
+    # the only lever before this was the tool-wide `crawl_min_interval_s` —
+    # which would have slowed elburoj's 6,720 products to spare one site.
+    #
+    # Seconds between requests, for this source alone. Null means it has no
+    # opinion and the tool-wide pace stands. It can only ever SLOW a crawl:
+    # `resolve_fetcher` takes the slowest of every opinion, so naming 0.1 here
+    # cannot make a source faster than the owner's own setting.
+    crawl_pace_s: float | None = Field(default=None, gt=0)
     # Ordered families to try if `family` fails (spec 32). Recorded per source so
     # the choice is visible in the manifest rather than hidden in code.
     fallback_families: list[ConnectorFamily] = Field(default_factory=list)

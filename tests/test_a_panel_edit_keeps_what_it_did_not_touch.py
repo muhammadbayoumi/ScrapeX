@@ -56,6 +56,7 @@ sources:
     robots_custom:
       enforce_disallow: true
       crawl_delay_s: 9.0
+    crawl_pace_s: 7.0
     extract:
       - kind: product_prices
         scope: census
