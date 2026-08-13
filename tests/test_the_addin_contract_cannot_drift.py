@@ -204,9 +204,13 @@ def test_every_code_the_console_reports_is_one_the_add_in_can_emit():
     ERR_FORMAT. INVALID_VALUE is real, but it lives in `ConfigValidator` and is
     reached only through a JSON config bag."""
     hand_written = HAND_WRITTEN.read_text(encoding="utf-8")
-    known = set(_contract()["vocabularies"]["ERROR_CODES"])
+    vocabularies = _contract()["vocabularies"]
+    # A LOG_TAG is not an error code — there is no ValidationResult behind it —
+    # but it IS a string the add-in prints, which is the only property that
+    # matters here: an owner can search its log for it and find something.
+    known = set(vocabularies["ERROR_CODES"]) | set(vocabularies["LOG_TAGS"])
 
-    borrowed = _js_object(hand_written, "ERROR_CODE")
+    borrowed = _js_object(hand_written, "ERROR_CODE") | _js_object(hand_written, "LOG_TAG")
     unknown = sorted({code for code in borrowed.values() if code not in known})
     assert not unknown, (
         f"{unknown} are reported by the Console and are not in the add-in's "

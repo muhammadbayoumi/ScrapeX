@@ -111,6 +111,24 @@
                        "AutoFit"],
     "LOGIC_CONFIG_KEYS": ["Min", "Max", "Formula", "LookupRef", "DefaultVal",
                           "ListSource", "ListItems", "ListStrict"],
+    "_comment_TABLE_UX_CONFIG_KEYS": [
+      "The four JSON bags on 1.TableDefinition, read from the C# classes that",
+      "back them. A key outside these sets is accepted, kept, and never read —",
+      "the add-in warns with a Levenshtein \"did you mean\", so the Console can",
+      "say the same thing while the key is still being typed.",
+      "TableDefinitionEntity.cs:505-575; DisplayModels.cs (Ribbon/Export)."
+    ],
+    "TABLE_UX_CONFIG_KEYS": ["TabColor", "Direction", "FreezePanes", "ZoomLevel",
+                             "ShowGridlines", "AutoFitColumns"],
+    "TABLE_SYS_CONFIG_KEYS": ["AllowEdit", "TeaserRowCount", "TeaserText"],
+    "RIBBON_CONFIG_KEYS": ["Label", "ScreenTip", "SuperTip", "Description", "Icon",
+                           "Group", "Order", "IsVisible", "IsEnabled", "ControlSize",
+                           "ActionClass"],
+    "EXPORT_CONFIG_KEYS": ["LinkedEntities", "FooterText", "FooterStyle",
+                           "HeaderText", "HeaderStyle"],
+    "DIRECTIONS": ["LTR", "RTL"],
+    "CONTROL_SIZES": ["Large", "Regular"],
+    "BANNER_STYLES": ["Note", "Source", "Warning", "Marketing", "TableHeader"],
     "ENTITY_TYPES": ["COST", "PERF", "REF", "COMP", "CONVERSION", "COST_ENG",
                      "AUDIT", "ASSEMBLY", "LIBRARY", "SYSTEM"],
     "STORAGE_STRATEGIES": ["ReplaceAll", "MergeUpsert", "Append"],
@@ -131,10 +149,15 @@
     "TRUE_SPELLINGS": ["1", "true", "yes", "y", "on", "نعم", "صح", "صحيح"],
     "FALSE_SPELLINGS": ["0", "false", "no", "n", "off", "لا", "خطأ", "غلط"],
     "SEVERITIES": ["Info", "Warning", "Error", "Critical"],
-    "ERROR_CODES": ["ERR_REF", "ERR_DUPLICATE", "ORPHAN_MAPPING", "PK_MISSING",
-                    "MANDATORY_UNMAPPED", "INVALID_JSON", "UNKNOWN_KEY",
-                    "INVALID_VALUE", "ERR_REQUIRED", "ERR_TRANSFORM",
-                    "ERR_FORMAT"]
+    "ERROR_CODES": ["ERR_FORMAT", "ERR_NULL", "ERR_LENGTH", "ERR_REF", "ERR_DUPLICATE", "ERR_TIER", "ERR_CIRCULAR", "ERR_REQUIRED", "ERR_PRESET", "ERR_FORMULA", "ERR_TRANSFORM", "ERR_DB_WRITE", "ERR_DB_READ", "ERR_SCHEMA", "ERR_NO_RATE", "ERR_NO_UNIT", "ERR_OVERFLOW", "ERR_NO_COST", "INVALID_JSON", "UNKNOWN_KEY", "INVALID_VALUE", "INVALID_COLOR", "BROKEN_LINK", "ORPHAN_MAPPING", "PK_MISSING", "MANDATORY_UNMAPPED"],
+
+    "_comment_LOG_TAGS": [
+      "Faults the add-in reports ONLY as a bracketed tag on a log line — there is",
+      "no ValidationResult and so no error code. The tag is still the string an",
+      "owner greps for, so the Console prints it rather than inventing a name.",
+      "MetadataOrchestrator.cs:538 (DUPLICATE), :591 (ORPHAN_COLS), :666 (ERR_REF)."
+    ],
+    "LOG_TAGS": ["DUPLICATE", "ORPHAN_COLS"]
   },
 
   "constants": {

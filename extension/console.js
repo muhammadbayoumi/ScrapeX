@@ -8,10 +8,14 @@
 import { getToken } from "./identity.js";
 import { chooseSpreadsheet } from "./picker.js";
 import { TAB_NAMES, parseWorkbook, inspect, vocabularies, SHEETS } from "./workbook.js";
-import { KNOWN_VOCABULARIES, SHEET_GIDS, LICENSE_TIERS, readBoolean,
-         BOOLEAN_DEFAULTS } from "./addin-contract.js";
+import { KNOWN_VOCABULARIES, SHEET_GIDS, LICENSE_TIERS, ENTITY_TYPES,
+         STORAGE_STRATEGIES, BUSINESS_DOMAINS, VIEW_MODES, DATA_TYPES,
+         SEMANTIC_ROLES, readBoolean, BOOLEAN_DEFAULTS } from "./addin-contract.js";
 import { checkDataSourceRow, stopsThisSource, switchedOff, suggestedKey }
   from "./datasource-rules.js";
+import { checkTableDefinitionRow, tableProducesNothing }
+  from "./tabledefinition-rules.js";
+import { checkSchemaRuleRow, checkEntityRoles } from "./schemarule-rules.js";
 
 const $ = (id) => document.getElementById(id);
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
@@ -234,7 +238,7 @@ function renderSources(workbook) {
     item.type = "button";
     item.className = "source-row"
       + (stops ? " source-stopped" : found.length ? " source-noted" : "");
-    item.addEventListener("click", () => edit(row));
+    item.addEventListener("click", () => edit(EDITORS.source, row));
 
     const key = document.createElement("span");
     key.className = "source-key";
@@ -290,24 +294,133 @@ function options(id, values, current, {blank = ""} = {}) {
   select.value = current ?? "";
 }
 
-const FIELDS = ["SOURCE_KEY", "TARGET_ENTITY_KEY", "PROFILE_KEY", "SOURCE_URI",
-                "DISPLAY_LABEL", "SOURCE_REGION", "IS_ACTIVE", "MIN_LICENSE_REQ",
-                "VERSION_TAG", "CONTEXT_PROPS"];
+// ---- one editor, three sheets -----------------------------------------------
+//
+// THE THREE FORMS SHARE EVERYTHING EXCEPT THEIR SPEC. Reading the controls,
+// putting each finding under its own field, deciding whether Save is allowed,
+// and writing one row's own span are the same problem on every sheet, and three
+// copies of them would drift apart at the first correction — which is the exact
+// failure this page exists to catch in the workbook.
+//
+// What differs is declared below and nothing else: which tab, which controls,
+// where the drop-down values come from, and what makes a row so broken that
+// saving it would be pointless.
 
-function readForm() {
+const EDITORS = {
+  source: {
+    tab: SOURCES,
+    card: "editor-card", prefix: "",
+    fields: ["SOURCE_KEY", "TARGET_ENTITY_KEY", "PROFILE_KEY", "SOURCE_URI",
+             "DISPLAY_LABEL", "SOURCE_REGION", "IS_ACTIVE", "MIN_LICENSE_REQ",
+             "VERSION_TAG", "CONTEXT_PROPS"],
+    booleans: ["IS_ACTIVE"],
+    view: "sources",
+    lists(workbook) {
+      const known = vocabularies(workbook, KNOWN_VOCABULARIES);
+      return {
+        TARGET_ENTITY_KEY: {values: known.entityKeys, blank: "— choose a table —"},
+        PROFILE_KEY: {values: [...new Set([...known.profileKeys, "DEFAULT"])].sort(),
+          blank: "— blank: use the table's own key —"},
+        SOURCE_REGION: {values: ["GLOBAL", ...known.regions], blank: "— none —"},
+        MIN_LICENSE_REQ: {values: LICENSE_TIERS, blank: "— none —"},
+      };
+    },
+    check: (row, workbook, editing) =>
+      checkDataSourceRow(row, worldFor(workbook, editing)),
+    refuse: (found) => stopsThisSource(found),
+    refused: "As it stands this source produces nothing. Saving is refused.",
+    where: (row) => row._row ? `${SOURCES}, row ${row._row}`
+      : `${SOURCES}, a new row at the end`,
+  },
+
+  table: {
+    tab: "1.TableDefinition",
+    card: "td-editor-card", prefix: "td-",
+    fields: ["ENTITY_KEY", "DISPLAY_NAME", "ENTITY_TYPE", "STORAGE_STRATEGY",
+             "PARENT_KEY", "LICENSE_TIER", "BUSINESS_DOMAIN", "VIEW_MODE",
+             "IS_ACTIVE", "IS_VISIBLE", "UX_CONFIG", "SYS_CONFIG",
+             "RIBBON_CONFIG", "EXPORT_CONFIG"],
+    booleans: ["IS_ACTIVE", "IS_VISIBLE"],
+    view: "inspect",
+    lists(workbook, row) {
+      const others = rowsOf(workbook, "1.TableDefinition")
+        .map((r) => r.ENTITY_KEY).filter(Boolean)
+        // A table may not be its own parent, so it is not offered as one. The
+        // rule still exists and still fires — this only keeps the list honest.
+        .filter((k) => k.toUpperCase() !== (row.ENTITY_KEY || "").toUpperCase());
+      return {
+        ENTITY_TYPE: {values: ENTITY_TYPES, blank: "— none —"},
+        STORAGE_STRATEGY: {values: STORAGE_STRATEGIES,
+          blank: "— blank: MergeUpsert —"},
+        PARENT_KEY: {values: others.sort(), blank: "— none: a root table —"},
+        LICENSE_TIER: {values: LICENSE_TIERS, blank: "— blank: Free —"},
+        BUSINESS_DOMAIN: {values: BUSINESS_DOMAINS, blank: "— none —"},
+        VIEW_MODE: {values: VIEW_MODES, blank: "— blank: Table —"},
+      };
+    },
+    check: (row, workbook, editing) => checkTableDefinitionRow(
+      row,
+      rowsOf(workbook, "1.TableDefinition").filter((r) => r !== editing),
+      rowsOf(workbook, "2.SchemaRule")),
+    refuse: (found) => tableProducesNothing(found),
+    refused: "As it stands this row defines no table. Saving is refused.",
+    where: (row) => row._row ? `1.TableDefinition, row ${row._row}`
+      : "1.TableDefinition, a new row at the end",
+  },
+
+  column: {
+    tab: "2.SchemaRule",
+    card: "sr-editor-card", prefix: "sr-",
+    // ENTITY_KEY IS NOT A CONTROL. Which table a column belongs to is settled by
+    // the screen you opened it from, and a free field for it is how a column
+    // ends up orphaned — the fault this sheet reports most often.
+    fields: ["ATTRIBUTE_KEY", "DISPLAY_HEADER", "DATA_TYPE", "SEMANTIC_ROLE",
+             "ORDINAL_POS", "LICENSE_TIER", "IS_PK", "IS_MANDATORY", "IS_VIRTUAL",
+             "IS_DERIVED", "IS_VISIBLE", "UX_CONFIG", "LOGIC_CONFIG"],
+    booleans: ["IS_PK", "IS_MANDATORY", "IS_VIRTUAL", "IS_DERIVED", "IS_VISIBLE"],
+    view: "inspect",
+    lists: () => ({
+      DATA_TYPE: {values: DATA_TYPES, blank: "— blank: TEXT —"},
+      SEMANTIC_ROLE: {values: SEMANTIC_ROLES, blank: "— none: an ordinary column —"},
+      LICENSE_TIER: {values: LICENSE_TIERS, blank: "— blank: Free —"},
+    }),
+    check: (row, workbook, editing) => checkSchemaRuleRow(
+      row,
+      rowsOf(workbook, "2.SchemaRule").filter((r) => r !== editing),
+      rowsOf(workbook, "1.TableDefinition")),
+    refuse: (found) => found.some((f) => f.severity === "Critical"),
+    refused: "As it stands this row defines no column. Saving is refused.",
+    where: (row) => row._row ? `2.SchemaRule, row ${row._row}`
+      : "2.SchemaRule, a new row at the end",
+  },
+};
+
+const rowsOf = (workbook, tab) => workbook?.sheets?.[tab]?.rows || [];
+
+/** The control ids a spec owns. Written out so a typo is a missing element. */
+const control = (spec, name) => `${spec.prefix}f-${name}`;
+const noteId = (spec, name) => `${spec.prefix}n-${name}`;
+
+function readForm(spec) {
   const row = {};
-  for (const name of FIELDS) row[name] = $(`f-${name}`).value.trim();
-  if (state.editing?._row) row._row = state.editing._row;
+  for (const name of spec.fields) {
+    const node = $(control(spec, name));
+    if (node) row[name] = node.value.trim();
+  }
+  // Carried rather than typed: the row's line on the sheet, and for a column the
+  // table it belongs to.
+  if (state.editing?.row?._row) row._row = state.editing.row._row;
+  if (state.editing?.entity) row.ENTITY_KEY = state.editing.entity;
   return row;
 }
 
 /** Re-judge the form as it stands and put each finding beside its own field. */
-function judge() {
-  const row = readForm();
-  const found = checkDataSourceRow(row, worldFor(state.workbook, state.editing));
+function judge(spec) {
+  const row = readForm(spec);
+  const found = spec.check(row, state.workbook, state.editing?.row);
 
-  for (const name of FIELDS) {
-    const note = $(`n-${name}`);
+  for (const name of spec.fields) {
+    const note = $(noteId(spec, name));
     if (!note) continue;
     const mine = found.filter((f) => f.field === name);
     note.textContent = mine
@@ -318,7 +431,11 @@ function judge() {
          : mine.length ? " note-warn" : "");
   }
 
-  const stops = stopsThisSource(found);
+  // A finding about a field this form has no control for still has to be seen —
+  // ENTITY_KEY on a column, for one, which is decided by the screen. It goes to
+  // the verdict line rather than nowhere.
+  const homeless = found.filter((f) => !spec.fields.includes(f.field));
+  const stops = spec.refuse(found);
   const blocking = found.filter(
     (f) => f.severity === "Critical" || f.severity === "Error");
 
@@ -326,65 +443,78 @@ function judge() {
   // merely complains about is a row the add-in still runs, and a Console that
   // refused it would be stricter than the thing it configures — which teaches
   // an owner to edit the sheet directly and never come back.
-  $("editor-save").disabled = stops;
-  say("editor-verdict",
+  $(`${spec.prefix}editor-save`).disabled = stops;
+  say(`${spec.prefix}editor-verdict`,
       stops
-        ? "As it stands this source produces nothing. Saving is refused."
-        : blocking.length
-          ? `Saveable. The add-in will record ${blocking.length} `
-            + `${blocking.length === 1 ? "complaint" : "complaints"} about it and sync it anyway.`
-          : "Nothing to report.",
-      stops ? "err" : blocking.length ? "" : "ok");
+        ? spec.refused
+        : homeless.length
+          ? homeless.map((f) => f.detail).join(" ")
+          : blocking.length
+            ? `Saveable. The add-in will record ${blocking.length} `
+              + `${blocking.length === 1 ? "complaint" : "complaints"} about it `
+              + "and sync it anyway."
+            // COUNTED, NOT IGNORED. This line said "Nothing to report" beside
+            // two amber notes, because it counted only what blocks. A verdict
+            // that disagrees with the fields above it teaches the owner to
+            // trust neither.
+            : found.length
+              ? `Saveable. ${found.length} ${found.length === 1 ? "note" : "notes"} `
+                + "above, none of which stops the add-in."
+              : "Nothing to report.",
+      stops ? "err" : blocking.length || homeless.length || found.length ? "" : "ok");
   return found;
 }
 
-function edit(row) {
-  state.editing = row;
-  const workbook = state.workbook;
-  const lists = vocabularies(workbook, KNOWN_VOCABULARIES);
-  const profiles = [...new Set([...lists.profileKeys, "DEFAULT"])].sort();
+/**
+ * Open one form on one row.
+ *
+ * `entity` is passed for a column and settles its ENTITY_KEY without a control.
+ */
+function edit(spec, row, entity = "") {
+  state.editing = {spec, row, entity};
+  const lists = spec.lists(state.workbook, row);
 
-  $("editor-where").textContent = row._row
-    ? `${SOURCES}, row ${row._row}`
-    : `${SOURCES}, a new row at the end`;
+  $(`${spec.prefix}editor-where`).textContent = spec.where(row);
 
-  $("f-SOURCE_KEY").value = row.SOURCE_KEY || "";
-  options("f-TARGET_ENTITY_KEY", lists.entityKeys, row.TARGET_ENTITY_KEY || "",
-          {blank: "— choose a table —"});
-  options("f-PROFILE_KEY", profiles, row.PROFILE_KEY || "",
-          {blank: "— blank: use the table's own key —"});
-  $("f-SOURCE_URI").value = row.SOURCE_URI || "";
-  $("f-DISPLAY_LABEL").value = row.DISPLAY_LABEL || "";
-  options("f-SOURCE_REGION", ["GLOBAL", ...lists.regions], row.SOURCE_REGION || "",
-          {blank: "— none —"});
-  $("f-IS_ACTIVE").value =
-    readBoolean(row.IS_ACTIVE, BOOLEAN_DEFAULTS[SOURCES].IS_ACTIVE) ? "TRUE" : "FALSE";
-  options("f-MIN_LICENSE_REQ", LICENSE_TIERS, row.MIN_LICENSE_REQ || "",
-          {blank: "— none —"});
-  $("f-VERSION_TAG").value = row.VERSION_TAG || "";
-  $("f-CONTEXT_PROPS").value = row.CONTEXT_PROPS || "";
+  for (const name of spec.fields) {
+    const node = $(control(spec, name));
+    if (!node) continue;
+    const value = row[name] ?? "";
+    if (spec.booleans.includes(name)) {
+      node.value = readBoolean(value, BOOLEAN_DEFAULTS[spec.tab][name])
+        ? "TRUE" : "FALSE";
+    } else if (lists[name]) {
+      options(control(spec, name), lists[name].values, String(value),
+              {blank: lists[name].blank});
+    } else {
+      node.value = value;
+    }
+  }
 
-  showView("sources");
-  $("editor-card").classList.remove("hidden");
-  judge();
-  $("editor-card").scrollIntoView({behavior: "smooth", block: "start"});
+  // Only one form at a time, or two verdicts disagree on the same screen.
+  for (const other of Object.values(EDITORS)) {
+    $(other.card).classList.toggle("hidden", other !== spec);
+  }
+  showView(spec.view);
+  judge(spec);
+  $(spec.card).scrollIntoView({behavior: "smooth", block: "start"});
 }
 
 /** Write the row back, and only that row. */
-async function save() {
-  const row = readForm();
-  const columns = SHEETS.find((s) => s.tab === SOURCES).columns;
+async function save(spec) {
+  const row = readForm(spec);
+  const columns = SHEETS.find((s) => s.tab === spec.tab).columns;
   const values = [columns.map((name) => row[name] ?? "")];
 
   // A1 for the row's OWN span, so a save cannot touch a neighbour. A new row
   // goes to the first line after the last one read.
-  const last = state.workbook.sheets[SOURCES].rows.at(-1);
+  const last = rowsOf(state.workbook, spec.tab).at(-1);
   const line = row._row || ((last?._row || 1) + 1);
   const end = String.fromCharCode("A".charCodeAt(0) + columns.length - 1);
-  const range = `'${SOURCES}'!A${line}:${end}${line}`;
+  const range = `'${spec.tab}'!A${line}:${end}${line}`;
 
-  $("editor-save").disabled = true;
-  say("editor-verdict", "Saving…");
+  $(`${spec.prefix}editor-save`).disabled = true;
+  say(`${spec.prefix}editor-verdict`, "Saving…");
   try {
     const answer = await fetch(
       `${SHEETS_API}/${encodeURIComponent(state.fileId)}/values/`
@@ -399,17 +529,20 @@ async function save() {
       throw new Error(detail);
     }
   } catch (error) {
-    say("editor-verdict", `Not saved: ${error.message}`, "err");
-    $("editor-save").disabled = false;
+    say(`${spec.prefix}editor-verdict`, `Not saved: ${error.message}`, "err");
+    $(`${spec.prefix}editor-save`).disabled = false;
     return;
   }
 
   // RE-READ RATHER THAN PATCH IN MEMORY. The sheet is the truth, another editor
   // may have moved something, and a Console showing its own optimistic copy is
   // the beginning of the drift this page exists to prevent.
-  $("editor-card").classList.add("hidden");
+  const returning = state.editing;
+  $(spec.card).classList.add("hidden");
   state.editing = null;
   await show(state.fileId);
+  // A column was opened from a table's screen, so put that screen back.
+  if (returning?.entity) showTable(returning.entity);
 }
 
 
@@ -553,7 +686,8 @@ function showTable(key) {
   body.append(block("Fields", fields.map((r) => pairRow(
     r.ATTRIBUTE_KEY, r.DATA_TYPE || "TEXT",
     [r.SEMANTIC_ROLE, readBoolean(r.IS_PK, false) ? "key" : "",
-     readBoolean(r.IS_MANDATORY, false) ? "required" : ""].filter(Boolean).join(" · "))),
+     readBoolean(r.IS_MANDATORY, false) ? "required" : ""].filter(Boolean).join(" · "),
+    "", () => edit(EDITORS.column, r, key))),
     "No fields, so this table has no columns — the add-in refuses to sync it."));
 
   body.append(block("Sources", sources.map((r) => pairRow(
@@ -587,37 +721,35 @@ function showTable(key) {
     [r.ACTION_CLASS, r.REGION].filter(Boolean).join(" · "))),
     "No ribbon entry points at this table, so nothing in Excel opens it."));
 
-  // ---- the two warnings the add-in's Info panel gets right --------------------
-  const notes = [];
-  const strategy = (definition?.STORAGE_STRATEGY || "").toLowerCase();
-  if (strategy === "replaceall") {
-    notes.push(["ReplaceAll", "Every sync DELETES all rows in this table before "
-      + "writing. Nothing accumulates, and nothing survives a source that comes "
-      + "back empty."]);
-  }
-  const keys = fields.filter((r) => readBoolean(r.IS_PK, false));
-  if (strategy === "mergeupsert" && !keys.length) {
-    notes.push(["MergeUpsert with no key", "There is no IS_PK column to match "
-      + "on, so every sync APPENDS the same rows again. The table grows a "
-      + "duplicate set each time."]);
-  }
-  if (keys.length > 1) {
-    notes.push(["Composite key", `${keys.length} columns are marked IS_PK and the `
-      + `add-in uses only the first (${keys[0].ATTRIBUTE_KEY}). Composite keys are `
-      + "not supported."]);
-  }
+  // ---- what the add-in would make of this table ------------------------------
+  //
+  // READ FROM THE RULES, not written again here. These three notes existed
+  // before `tabledefinition-rules.js` did, and one of them was already wrong —
+  // it repeated the add-in's own claim that a composite key is unsupported,
+  // which is true of three call sites and false of the database that builds a
+  // real compound key. Two statements of one fact is how that happens.
+  const about = definition
+    ? checkTableDefinitionRow(
+      definition,
+      rows("1.TableDefinition").filter((r) => r !== definition),
+      rows("2.SchemaRule"))
+    : [];
+  const roles = definition ? checkEntityRoles(key, fields, definition) : [];
+  const notes = [...about, ...roles].filter((f) => f.severity !== "Info");
+
   if (notes.length) {
     const card = document.createElement("section");
     card.className = "card";
     const heading = document.createElement("h2");
     heading.textContent = "How this table is written";
     card.append(heading);
-    for (const [title, detail] of notes) {
+    for (const found of notes) {
       const line = document.createElement("p");
-      line.className = "hint err";
+      line.className = found.severity === "Warning" ? "hint" : "hint err";
       const strong = document.createElement("b");
-      strong.textContent = `${title}. `;
-      line.append(strong, document.createTextNode(detail));
+      strong.textContent = `${found.field}. `;
+      line.append(strong, document.createTextNode(
+        found.fix ? `${found.detail} ${found.fix}` : found.detail));
       card.append(line);
     }
     body.append(card);
@@ -741,26 +873,48 @@ $("workbook-recheck").addEventListener("click", () => {
   if (state.fileId) show(state.fileId);
 });
 $("workbook-choose").addEventListener("click", () => pick());
-$("source-add").addEventListener("click", () => edit({}));
-$("editor-cancel").addEventListener("click", () => {
-  state.editing = null;
-  $("editor-card").classList.add("hidden");
+$("source-add").addEventListener("click", () => edit(EDITORS.source, {}));
+
+// Both buttons on the inspect screen act on the table currently open, which is
+// the one fact neither form asks for.
+$("inspect-edit").addEventListener("click", () => {
+  const key = $("inspect-name").textContent;
+  const row = rowsOf(state.workbook, "1.TableDefinition")
+    .find((r) => (r.ENTITY_KEY || "").toLowerCase() === key.toLowerCase());
+  // A name used elsewhere in the workbook with no definition behind it is a real
+  // state of this screen, and the answer to it is to write the definition.
+  edit(EDITORS.table, row || {ENTITY_KEY: key});
 });
-$("editor-save").addEventListener("click", () => save());
-// Judged on every keystroke and every choice, because a rule the owner meets
-// only when he presses Save is a rule that arrives after the work.
-for (const name of FIELDS) {
-  const control = $(`f-${name}`);
-  control.addEventListener("input", () => judge());
-  control.addEventListener("change", () => judge());
+$("column-add").addEventListener("click", () => {
+  const key = $("inspect-name").textContent;
+  edit(EDITORS.column, {ENTITY_KEY: key}, key);
+});
+
+// Wiring is per editor and identical for each, which is the point of the spec.
+for (const spec of Object.values(EDITORS)) {
+  $(`${spec.prefix}editor-cancel`).addEventListener("click", () => {
+    state.editing = null;
+    $(spec.card).classList.add("hidden");
+  });
+  $(`${spec.prefix}editor-save`).addEventListener("click", () => save(spec));
+  // Judged on every keystroke and every choice, because a rule the owner meets
+  // only when he presses Save is a rule that arrives after the work.
+  for (const name of spec.fields) {
+    const node = $(control(spec, name));
+    if (!node) continue;
+    node.addEventListener("input", () => judge(spec));
+    node.addEventListener("change", () => judge(spec));
+  }
 }
-// The key has a stated convention; offer it rather than making him retype it.
+
+// The source key has a stated convention; offer it rather than making him
+// retype it. Only this sheet has one.
 for (const name of ["TARGET_ENTITY_KEY", "PROFILE_KEY"]) {
   $(`f-${name}`).addEventListener("change", () => {
     const key = $("f-SOURCE_KEY");
     if (!key.value.trim()) {
-      key.value = suggestedKey(readForm());
-      judge();
+      key.value = suggestedKey(readForm(EDITORS.source));
+      judge(EDITORS.source);
     }
   });
 }
