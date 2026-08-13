@@ -141,3 +141,100 @@ body {
   .finding { grid-template-columns: 1fr; }
   .finding-where { white-space: normal; }
 }
+
+/* ---- the source list --------------------------------------------------------
+   Buttons, not rows with a click handler: this is a list you navigate with a
+   keyboard as much as with a mouse, and a div that listens for clicks is
+   reachable by neither Tab nor Enter. */
+
+.source-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-block-start: var(--sp-3);
+}
+
+.source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: center;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-inline-start: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.source-row:hover,
+.source-row:focus-visible { background: var(--surface-subtle); }
+
+/* The same two colours the findings list uses, and for the same two meanings —
+   a third vocabulary for the same distinction would have to be learned twice. */
+.source-stopped { border-inline-start-color: var(--red); }
+.source-noted { border-inline-start-color: var(--amber); }
+
+.source-key {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-into,
+.source-verdict {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.source-verdict { justify-self: end; }
+
+/* ---- the editor ------------------------------------------------------------ */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-block-start: var(--sp-3);
+}
+
+.field label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
+.field input,
+.field select {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.field input:focus-visible,
+.field select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* The note sits UNDER its own control, not in a summary at the bottom. A list
+   of faults away from the fields they belong to is a list you read once and
+   then hunt through. */
+.field-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.field-note:empty { display: none; }
+.note-error { color: var(--red); }
+.note-warn { color: var(--amber); }

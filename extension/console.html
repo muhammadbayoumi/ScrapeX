@@ -67,12 +67,108 @@
       <div id="findings-list" class="findings"></div>
     </section>
 
+    <!-- THE FIRST SHEET THAT CAN BE EDITED. Data sources first because it is
+         where a new source is added and where the commonest mistake lives — an
+         address with no TSV format, which the add-in reports as a problem with
+         the DATA rather than with the address. -->
+    <section class="card hidden" id="sources-card" aria-labelledby="sources-title">
+      <h2 id="sources-title">Data sources</h2>
+      <p class="hint" id="sources-summary" role="status" aria-live="polite"></p>
+      <div id="sources-list" class="source-rows"></div>
+      <div class="row">
+        <button id="source-add" class="button ghost" type="button">
+          Add a source</button>
+      </div>
+    </section>
+
+    <!-- The editor. One row at a time: a grid of every source at once would be
+         the Google Sheets this page exists to replace. -->
+    <section class="card hidden" id="editor-card" aria-labelledby="editor-title">
+      <h2 id="editor-title">Editing</h2>
+      <p class="hint" id="editor-where"></p>
+
+      <div class="field">
+        <label for="f-SOURCE_KEY">Source key</label>
+        <input id="f-SOURCE_KEY" type="text" autocomplete="off">
+        <p class="field-note" id="n-SOURCE_KEY"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-TARGET_ENTITY_KEY">Table it loads into</label>
+        <select id="f-TARGET_ENTITY_KEY"></select>
+        <p class="field-note" id="n-TARGET_ENTITY_KEY"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-PROFILE_KEY">Mapping profile</label>
+        <select id="f-PROFILE_KEY"></select>
+        <p class="field-note" id="n-PROFILE_KEY"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-SOURCE_URI">Address</label>
+        <input id="f-SOURCE_URI" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="n-SOURCE_URI"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-DISPLAY_LABEL">Label</label>
+        <input id="f-DISPLAY_LABEL" type="text" autocomplete="off">
+        <p class="field-note" id="n-DISPLAY_LABEL"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-SOURCE_REGION">Region</label>
+        <select id="f-SOURCE_REGION"></select>
+        <p class="field-note" id="n-SOURCE_REGION"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-IS_ACTIVE">Active</label>
+        <!-- A CLOSED LIST, and this is the one field where that matters most:
+             the add-in accepts sixteen spellings and treats a seventeenth as
+             TRUE without recording anything. A typo here switches a table on. -->
+        <select id="f-IS_ACTIVE">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="n-IS_ACTIVE"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-MIN_LICENSE_REQ">Minimum licence</label>
+        <select id="f-MIN_LICENSE_REQ"></select>
+        <p class="field-note" id="n-MIN_LICENSE_REQ"></p>
+      </div>
+
+      <div class="field">
+        <label for="f-VERSION_TAG">Version tag</label>
+        <input id="f-VERSION_TAG" type="text" autocomplete="off">
+        <p class="field-note">
+          Nothing validates this. It is one input to the add-in's own
+          change-detection hash, so moving it forces a re-download.
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="f-CONTEXT_PROPS">Context properties (JSON)</label>
+        <input id="f-CONTEXT_PROPS" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="n-CONTEXT_PROPS"></p>
+      </div>
+
+      <p id="editor-verdict" class="hint" role="status" aria-live="polite"></p>
+      <div class="row">
+        <button id="editor-save" class="button" type="button">Save to the sheet</button>
+        <button id="editor-cancel" class="button ghost" type="button">Cancel</button>
+      </div>
+    </section>
+
     <section class="card hidden" id="sheets-card" aria-labelledby="sheets-title">
       <h2 id="sheets-title">The six sheets</h2>
       <div id="sheets-list" class="sheet-rows"></div>
       <p class="hint">
-        Editing arrives one sheet at a time, beginning with Data sources. Until
-        then this page reads and checks; it writes nothing.
+        Data sources can be edited above. The other five are read and checked
+        here; editing them arrives one sheet at a time.
       </p>
     </section>
 

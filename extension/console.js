@@ -7,8 +7,11 @@
 
 import { getToken } from "./identity.js";
 import { chooseSpreadsheet } from "./picker.js";
-import { TAB_NAMES, parseWorkbook, inspect, vocabularies } from "./workbook.js";
-import { KNOWN_VOCABULARIES, SHEET_GIDS } from "./addin-contract.js";
+import { TAB_NAMES, parseWorkbook, inspect, vocabularies, SHEETS } from "./workbook.js";
+import { KNOWN_VOCABULARIES, SHEET_GIDS, LICENSE_TIERS, readBoolean,
+         BOOLEAN_DEFAULTS } from "./addin-contract.js";
+import { checkDataSourceRow, stopsThisSource, switchedOff, suggestedKey }
+  from "./datasource-rules.js";
 
 const $ = (id) => document.getElementById(id);
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
@@ -18,7 +21,8 @@ const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
 //: making the owner find it again every morning would be its own defect.
 const REMEMBERED = "scrapexConfigWorkbook";
 
-const state = {token: "", fileId: "", name: ""};
+const SOURCES = "3.DataSource";
+const state = {token: "", fileId: "", name: "", workbook: null, editing: null};
 
 function say(id, text, tone = "") {
   const node = $(id);
@@ -167,12 +171,226 @@ function renderSheets(workbook) {
   list.append(note);
 }
 
+// ---- the source list and its editor ------------------------------------------
+
+/** The world a row is judged against, rebuilt from whatever is loaded now. */
+function worldFor(workbook, exceptRow = null) {
+  const rows = (tab) => (workbook.sheets[tab]?.rows) || [];
+  const tables = rows("1.TableDefinition");
+  return {
+    entities: tables.map((r) => r.ENTITY_KEY).filter(Boolean),
+    activeEntities: tables
+      .filter((r) => readBoolean(r.IS_ACTIVE,
+                                 BOOLEAN_DEFAULTS["1.TableDefinition"].IS_ACTIVE))
+      .map((r) => r.ENTITY_KEY).filter(Boolean),
+    profilesDefined: [...new Set(rows("4.DataMap")
+      .map((r) => r.PROFILE_KEY).filter(Boolean))],
+    others: rows(SOURCES).filter((r) => r !== exceptRow),
+  };
+}
+
+function renderSources(workbook) {
+  const list = $("sources-list");
+  list.textContent = "";
+  const rows = workbook.sheets[SOURCES]?.rows || [];
+
+  let dead = 0;
+  let noted = 0;
+  for (const row of rows) {
+    const found = checkDataSourceRow(row, worldFor(workbook, row));
+    const stops = stopsThisSource(found);
+    const off = switchedOff(found);
+    if (stops) dead += 1;
+    if (found.length && !stops) noted += 1;
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "source-row"
+      + (stops ? " source-stopped" : found.length ? " source-noted" : "");
+    item.addEventListener("click", () => edit(row));
+
+    const key = document.createElement("span");
+    key.className = "source-key";
+    key.textContent = row.SOURCE_KEY || "(no key)";
+
+    const into = document.createElement("span");
+    into.className = "source-into";
+    into.textContent = row.TARGET_ENTITY_KEY || "—";
+
+    const verdict = document.createElement("span");
+    verdict.className = "source-verdict";
+    // THREE DIFFERENT THINGS, said differently. "Nothing comes out" is a
+    // failure; "switched off" is a decision; a note is neither.
+    verdict.textContent = stops ? "produces nothing"
+      : off ? "switched off"
+      : found.length ? `${found.length} note${found.length === 1 ? "" : "s"}`
+      : "";
+
+    item.append(key, into, verdict);
+    list.append(item);
+  }
+
+  say("sources-summary",
+      `${rows.length} sources. ${dead} produce nothing; ${noted} have something `
+      + "worth reading. Choose one to edit.",
+      dead ? "err" : "");
+}
+
+/** Fill a `<select>`, keeping a value the sheet already holds even if unlisted. */
+function options(id, values, current, {blank = ""} = {}) {
+  const select = $(id);
+  select.textContent = "";
+  const all = [...values];
+  if (current && !all.some((v) => String(v).toLowerCase() === current.toLowerCase())) {
+    // NEVER SILENTLY REPLACE WHAT IS IN THE SHEET. An unknown value is a fact
+    // about the workbook, and a drop-down that quietly dropped it would change
+    // the row the moment it was opened.
+    all.unshift(current);
+  }
+  if (blank !== null) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = blank;
+    select.append(empty);
+  }
+  for (const value of all) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.append(option);
+  }
+  select.value = current ?? "";
+}
+
+const FIELDS = ["SOURCE_KEY", "TARGET_ENTITY_KEY", "PROFILE_KEY", "SOURCE_URI",
+                "DISPLAY_LABEL", "SOURCE_REGION", "IS_ACTIVE", "MIN_LICENSE_REQ",
+                "VERSION_TAG", "CONTEXT_PROPS"];
+
+function readForm() {
+  const row = {};
+  for (const name of FIELDS) row[name] = $(`f-${name}`).value.trim();
+  if (state.editing?._row) row._row = state.editing._row;
+  return row;
+}
+
+/** Re-judge the form as it stands and put each finding beside its own field. */
+function judge() {
+  const row = readForm();
+  const found = checkDataSourceRow(row, worldFor(state.workbook, state.editing));
+
+  for (const name of FIELDS) {
+    const note = $(`n-${name}`);
+    if (!note) continue;
+    const mine = found.filter((f) => f.field === name);
+    note.textContent = mine
+      .map((f) => f.fix ? `${f.detail} ${f.fix}` : f.detail).join(" ");
+    note.className = "field-note"
+      + (mine.some((f) => f.severity === "Critical" || f.severity === "Error")
+         ? " note-error"
+         : mine.length ? " note-warn" : "");
+  }
+
+  const stops = stopsThisSource(found);
+  const blocking = found.filter(
+    (f) => f.severity === "Critical" || f.severity === "Error");
+
+  // SAVING IS REFUSED ONLY WHEN THE ROW WOULD PRODUCE NOTHING. A row the add-in
+  // merely complains about is a row the add-in still runs, and a Console that
+  // refused it would be stricter than the thing it configures — which teaches
+  // an owner to edit the sheet directly and never come back.
+  $("editor-save").disabled = stops;
+  say("editor-verdict",
+      stops
+        ? "As it stands this source produces nothing. Saving is refused."
+        : blocking.length
+          ? `Saveable. The add-in will record ${blocking.length} `
+            + `${blocking.length === 1 ? "complaint" : "complaints"} about it and sync it anyway.`
+          : "Nothing to report.",
+      stops ? "err" : blocking.length ? "" : "ok");
+  return found;
+}
+
+function edit(row) {
+  state.editing = row;
+  const workbook = state.workbook;
+  const lists = vocabularies(workbook, KNOWN_VOCABULARIES);
+  const profiles = [...new Set([...lists.profileKeys, "DEFAULT"])].sort();
+
+  $("editor-where").textContent = row._row
+    ? `${SOURCES}, row ${row._row}`
+    : `${SOURCES}, a new row at the end`;
+
+  $("f-SOURCE_KEY").value = row.SOURCE_KEY || "";
+  options("f-TARGET_ENTITY_KEY", lists.entityKeys, row.TARGET_ENTITY_KEY || "",
+          {blank: "— choose a table —"});
+  options("f-PROFILE_KEY", profiles, row.PROFILE_KEY || "",
+          {blank: "— blank: use the table's own key —"});
+  $("f-SOURCE_URI").value = row.SOURCE_URI || "";
+  $("f-DISPLAY_LABEL").value = row.DISPLAY_LABEL || "";
+  options("f-SOURCE_REGION", ["GLOBAL", ...lists.regions], row.SOURCE_REGION || "",
+          {blank: "— none —"});
+  $("f-IS_ACTIVE").value =
+    readBoolean(row.IS_ACTIVE, BOOLEAN_DEFAULTS[SOURCES].IS_ACTIVE) ? "TRUE" : "FALSE";
+  options("f-MIN_LICENSE_REQ", LICENSE_TIERS, row.MIN_LICENSE_REQ || "",
+          {blank: "— none —"});
+  $("f-VERSION_TAG").value = row.VERSION_TAG || "";
+  $("f-CONTEXT_PROPS").value = row.CONTEXT_PROPS || "";
+
+  $("editor-card").classList.remove("hidden");
+  judge();
+  $("editor-card").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+/** Write the row back, and only that row. */
+async function save() {
+  const row = readForm();
+  const columns = SHEETS.find((s) => s.tab === SOURCES).columns;
+  const values = [columns.map((name) => row[name] ?? "")];
+
+  // A1 for the row's OWN span, so a save cannot touch a neighbour. A new row
+  // goes to the first line after the last one read.
+  const last = state.workbook.sheets[SOURCES].rows.at(-1);
+  const line = row._row || ((last?._row || 1) + 1);
+  const end = String.fromCharCode("A".charCodeAt(0) + columns.length - 1);
+  const range = `'${SOURCES}'!A${line}:${end}${line}`;
+
+  $("editor-save").disabled = true;
+  say("editor-verdict", "Saving…");
+  try {
+    const answer = await fetch(
+      `${SHEETS_API}/${encodeURIComponent(state.fileId)}/values/`
+      + `${encodeURIComponent(range)}?valueInputOption=RAW`,
+      {method: "PUT",
+       headers: {Authorization: `Bearer ${state.token}`,
+                 "Content-Type": "application/json"},
+       body: JSON.stringify({values})});
+    if (!answer.ok) {
+      let detail = `${answer.status}`;
+      try { detail = (await answer.json())?.error?.message || detail; } catch { /* */ }
+      throw new Error(detail);
+    }
+  } catch (error) {
+    say("editor-verdict", `Not saved: ${error.message}`, "err");
+    $("editor-save").disabled = false;
+    return;
+  }
+
+  // RE-READ RATHER THAN PATCH IN MEMORY. The sheet is the truth, another editor
+  // may have moved something, and a Console showing its own optimistic copy is
+  // the beginning of the drift this page exists to prevent.
+  $("editor-card").classList.add("hidden");
+  state.editing = null;
+  await show(state.fileId);
+}
+
 // ---- the flow ---------------------------------------------------------------
 
 async function show(fileId) {
   say("workbook-state", "Reading the workbook…");
   $("findings-card").classList.add("hidden");
+  $("sources-card").classList.add("hidden");
   $("sheets-card").classList.add("hidden");
+  $("editor-card").classList.add("hidden");
 
   let identity;
   try {
@@ -214,14 +432,17 @@ async function show(fileId) {
   }
 
   await chrome.storage.local.set({[REMEMBERED]: {fileId, name: identity.title}});
+  state.workbook = workbook;
   say("workbook-state",
       "This is the workbook the add-in reads — all six tabs match.", "ok");
   $("workbook-choose").hidden = false;
   $("workbook-recheck").hidden = false;
 
   renderFindings(inspect(workbook));
+  renderSources(workbook);
   renderSheets(workbook);
   $("findings-card").classList.remove("hidden");
+  $("sources-card").classList.remove("hidden");
   $("sheets-card").classList.remove("hidden");
 }
 
@@ -269,6 +490,29 @@ async function start() {
 }
 
 $("workbook-choose").addEventListener("click", () => pick());
+$("source-add").addEventListener("click", () => edit({}));
+$("editor-cancel").addEventListener("click", () => {
+  state.editing = null;
+  $("editor-card").classList.add("hidden");
+});
+$("editor-save").addEventListener("click", () => save());
+// Judged on every keystroke and every choice, because a rule the owner meets
+// only when he presses Save is a rule that arrives after the work.
+for (const name of FIELDS) {
+  const control = $(`f-${name}`);
+  control.addEventListener("input", () => judge());
+  control.addEventListener("change", () => judge());
+}
+// The key has a stated convention; offer it rather than making him retype it.
+for (const name of ["TARGET_ENTITY_KEY", "PROFILE_KEY"]) {
+  $(`f-${name}`).addEventListener("change", () => {
+    const key = $("f-SOURCE_KEY");
+    if (!key.value.trim()) {
+      key.value = suggestedKey(readForm());
+      judge();
+    }
+  });
+}
 $("workbook-recheck").addEventListener("click", () => {
   if (state.fileId) show(state.fileId);
 });

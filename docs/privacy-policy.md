@@ -1,6 +1,6 @@
 # ScrapeX — Privacy Policy
 
-*Last updated: 12 August 2026*
+*Last updated: 13 August 2026*
 
 ScrapeX is a Chrome extension and a companion program, **ScrapeX-Engine**, that
 run on your own computer. This policy describes every piece of data either of
