@@ -22,6 +22,10 @@ pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parent.parent
 VENDOR = ROOT / "scrapex" / "webui" / "static" / "vendor"
+# The second copy. MV3 will not load a script from outside the extension, so the
+# grid the Data page uses cannot be the engine's file over http — it has to be
+# bytes that ship in the extension. See the divergence guard below.
+EXTENSION_VENDOR = ROOT / "extension" / "vendor"
 TEMPLATES = ROOT / "scrapex" / "webui" / "templates"
 MATERIAL_ICONS = VENDOR.parent / "material-icons"
 CANONICAL_ICON_SPRITE = ROOT / "design" / "material-icons.svg"
@@ -53,6 +57,70 @@ def test_the_licence_travels_with_the_code():
     licence = (VENDOR / "tabulator.LICENSE.txt").read_text(encoding="utf-8")
     assert "MIT" in licence
     assert "Copyright" in licence
+
+
+def _normalised(path: Path) -> bytes:
+    """The file's bytes with line endings settled.
+
+    This repository stores LF and Windows checks out CRLF, so comparing raw
+    bytes across two copies reports a difference that is not one — and would
+    make the guard below cry wolf on every Windows machine.
+    """
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_the_extension_carries_the_same_vendored_bytes(name):
+    """TWO COPIES NOW, and this is what stops them becoming two libraries.
+
+    The Data page moved out of the engine (plan B2) and MV3 forbids loading a
+    script from anywhere but the extension, so the grid had to be vendored a
+    second time under extension/vendor/. Two copies that drift are worse than
+    one: the engine's page and the panel's would render the same table through
+    different code, and the difference would show up as a bug in the data.
+
+    Upgrading Tabulator therefore means copying BOTH, and this fails until it
+    is done.
+    """
+    ours = EXTENSION_VENDOR / name
+    assert ours.is_file(), (
+        f"{name} is not vendored for the extension — the Data page cannot load "
+        "its grid, and MV3 will not let it fall back to a CDN")
+    minimum, marker = EXPECTED[name]
+    data = ours.read_bytes()
+    assert len(data) >= minimum, f"{name} is {len(data)} bytes — truncated?"
+    assert marker.encode() in data or marker.lower().encode() in data.lower()
+    assert _normalised(ours) == _normalised(VENDOR / name), (
+        f"the engine's {name} and the extension's have diverged. One of them "
+        "was upgraded and the other was not, so the same table now renders "
+        "through two different libraries")
+
+
+def test_the_extensions_copy_keeps_its_licence_too():
+    """MIT requires the notice to travel with the software — with EVERY copy of
+    it. Shipping the extension without it is the same violation as shipping the
+    engine without it, and it is easier to forget on the second copy."""
+    licence = (EXTENSION_VENDOR / "tabulator.LICENSE.txt").read_text(encoding="utf-8")
+    assert "MIT" in licence
+    assert "Copyright" in licence
+
+
+def test_no_extension_page_loads_code_from_the_internet():
+    """The same promise as the test below, for the pages that had no guard.
+
+    MV3's default CSP already refuses a remote script, so this is not the only
+    thing standing between the owner and third-party code. It is the thing that
+    says so OUT LOUD: a CDN reference that the platform silently blocks is a
+    page that quietly does not work, and "it failed silently in production"
+    reads exactly like "the library is broken".
+    """
+    offenders = []
+    for page in (ROOT / "extension").glob("*.html"):
+        text = page.read_text(encoding="utf-8")
+        for host in ("cdn.", "unpkg.com", "jsdelivr", "cdnjs", "googleapis.com/ajax"):
+            if host in text:
+                offenders.append(f"{page.name}: {host}")
+    assert offenders == [], f"remote code referenced: {offenders}"
 
 
 def test_nothing_in_the_ui_loads_code_from_the_internet():

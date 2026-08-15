@@ -1,0 +1,111 @@
+/* The Data page — a full-width tab, not the panel.
+ *
+ * NOT app.css, for the same reason console.css is not: that file makes `body` a
+ * two-column grid with a column reserved for the side rail, and a full-width
+ * page that loaded it would inherit a rail that is not there.
+ *
+ * The grid's own stylesheet is Tabulator's, vendored beside it. Everything below
+ * is either the page around the grid, or the few places the library's defaults
+ * have to be told about this product's tokens — never a colour literal. */
+
+body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  height: 100vh;
+  margin: 0;
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+}
+
+.data-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.data-title h1 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+}
+
+.data-title p { margin: var(--sp-1) 0 0; }
+
+.data-actions { align-items: center; gap: var(--sp-3); }
+
+.data-fold {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.data-fold input:disabled + span { opacity: .55; }
+
+/* The grid takes whatever is left. A fixed height would either waste a tall
+   screen or clip a short one, and this page is nothing but the table. */
+.data-grid {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- Tabulator, told about this product's tokens --------------------------
+   The library ships its own palette. Left alone it renders a light-grey table
+   on a dark page — legible to nobody and, in the owner's own theme, wrong. */
+
+.tabulator {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.tabulator .tabulator-header,
+.tabulator .tabulator-header .tabulator-col {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+
+.tabulator-row,
+.tabulator-row.tabulator-row-even {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tabulator-row:hover { background: var(--surface-subtle); }
+
+/* SCRAPED TEXT DECIDES ITS OWN DIRECTION. An Arabic product name inside a
+   left-to-right table drags the punctuation and the numbers around it unless
+   the cell is isolated — the same rule the panel states for every content
+   span. */
+.tabulator-cell {
+  border-color: var(--line);
+  unicode-bidi: plaintext;
+}
+
+.tabulator .tabulator-footer {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.tabulator .tabulator-footer .tabulator-page {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tabulator .tabulator-footer .tabulator-page.active { color: var(--accent-ink); }

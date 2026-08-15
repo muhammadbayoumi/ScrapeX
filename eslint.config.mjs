@@ -113,6 +113,11 @@ const RULES = {
 };
 
 export default [
+  // GLOBAL, and it has to be: an `ignores` beside a `files` key only narrows
+  // that one block. Vendored bytes are not ours to lint — holding a minified
+  // third-party bundle to this project's rules reports a thousand findings
+  // nobody can act on, which is how a linter gets turned off.
+  { ignores: ["scrapex/webui/static/vendor/**", "extension/vendor/**"] },
   {
     files: ["extension/**/*.js", "extension/**/*.mjs"],
     languageOptions: { ecmaVersion: 2023, sourceType: "module", globals: EXTENSION },
@@ -146,7 +151,7 @@ export default [
   },
   {
     files: ["scrapex/webui/static/**/*.js"],
-    ignores: ["scrapex/webui/static/vendor/**"],
+    ignores: ["scrapex/webui/static/vendor/**", "extension/vendor/**"],
     languageOptions: { ecmaVersion: 2023, sourceType: "script", globals: BROWSER },
     rules: RULES,
   },

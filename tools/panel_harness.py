@@ -529,6 +529,10 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     # it out made the directory silently never written while every visible part
     # of the panel kept working.
     accounts_js = (EXT / "accounts.js").read_text(encoding="utf-8")
+    # backend.js is where the engine's address and the request policy went when
+    # the Data page needed them too (plan B2). Inlined AFTER engine.js, whose
+    # getBackend it calls, and before app.js, which calls all of it.
+    backend_js = (EXT / "backend.js").read_text(encoding="utf-8")
 
     # Flatten the ES-module graph. engine.js imports the protocol version from
     # transport.js, while app.js imports both modules; leaving even that
@@ -562,6 +566,7 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
     releases_js = flatten(releases_js)
     identity_js = flatten(identity_js)
     accounts_js = flatten(accounts_js)
+    backend_js = flatten(backend_js)
     drive_js = flatten((EXT / "drive.js").read_text(encoding="utf-8"))
     sheets_js = flatten((EXT / "sheets.js").read_text(encoding="utf-8"))
     bundleview_js = flatten((EXT / "bundleview.js").read_text(encoding="utf-8"))
@@ -603,6 +608,6 @@ def build_page(tmp: Path, stub_js: str, name: str = "panel.html") -> Path:
         # then toggle twice and appear to do nothing at all.
         f"<script>{startup_js}\n{transport_js}\n{version_js}\n{releases_js}\n{identity_js}\n"
         f"{accounts_js}\n{drive_js}\n{sheets_js}\n{bundleview_js}\n"
-        f"{engine_js}\n{app_js}</script></body></html>",
+        f"{engine_js}\n{backend_js}\n{app_js}</script></body></html>",
         encoding="utf-8")
     return page

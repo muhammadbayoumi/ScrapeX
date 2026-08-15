@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Data — ScrapeX</title>
+<!--
+  THE DATA PAGE. An extension page, opened in a TAB. Plan B2.
+
+  Not a view in the panel: this is the widest surface in the product — forty-odd
+  columns of one source — and the panel is 360px. Not a page on the engine's web
+  UI any more either, which is the whole point of the migration: the engine
+  keeps fetching and writing SQLite, and everything anyone LOOKS at lives here.
+
+  THE ENGINE IS STILL INVOLVED, and that is the difference from the Console. The
+  rows come from `GET /api/table/{source_key}` over 127.0.0.1, because nothing
+  else can read a 119 MB local database yet. Removing that is Phase C, not this.
+
+  THE GRID IS OURS, VENDORED. MV3 will not load a script from anywhere but the
+  extension, so Tabulator ships in vendor/ — the same bytes the engine serves,
+  held identical by tests/test_vendor.py. A CDN would break the offline promise
+  and hand a third party the ability to change what runs on the owner's machine.
+-->
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="vendor/tabulator.min.css">
+<link rel="stylesheet" href="data.css">
+</head>
+<body>
+
+<header class="data-head">
+  <div class="data-title">
+    <h1 id="data-source">Data</h1>
+    <p class="hint" id="data-summary" role="status" aria-live="polite"></p>
+  </div>
+  <div class="row data-actions">
+    <label class="data-fold" for="data-fold">
+      <input id="data-fold" type="checkbox">
+      <span id="data-fold-label">Fold variants that share a price</span>
+    </label>
+    <button id="data-reload" class="button ghost" type="button">Reload</button>
+  </div>
+</header>
+
+<!-- SAID, NOT INFERRED. A table bounded at 20,000 rows that shows a prefix as
+     if it were the whole is the failure the bound exists to prevent. -->
+<p id="data-truncated" class="hint err hidden" role="status"></p>
+<p id="data-blocked" class="hint err hidden" role="status" aria-live="polite"></p>
+
+<div id="data-grid" class="data-grid"></div>
+
+<!-- appearance.js FIRST, and as a classic script. It is what puts `data-theme`
+     on the document, and a module would run after the first paint — the
+     onboarding incident, recorded at onboarding.html:73-75. -->
+<script src="appearance.js"></script>
+<script src="vendor/tabulator.min.js"></script>
+<script type="module" src="data.js"></script>
+</body>
+</html>
