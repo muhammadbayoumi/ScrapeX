@@ -21,7 +21,7 @@
 // Building this on the card endpoint would have shipped cards and called it the
 // migration.
 
-import { api, backendGeneration } from "./backend.js";
+import { api, backendBase, backendGeneration } from "./backend.js";
 // The reading of a payload lives apart from this page BECAUSE this page cannot
 // be imported under `node --test` — it reads window.location and starts loading
 // the moment it is imported. Everything a wrong number could come from is in
@@ -49,6 +49,17 @@ async function load() {
       + "add ?source=SOURCE_KEY to the address.");
     return;
   }
+  // RESOLVE THE ADDRESS BEFORE READING ITS GENERATION, and the order is the
+  // whole of it. `backendBase()` ACTIVATES the backend the first time it is
+  // called, and activating bumps the generation. Capturing the number first
+  // meant capturing 0, asking, and then finding 1 — so the guard below decided
+  // a different engine was authoritative and returned WITHOUT PAINTING.
+  //
+  // Every first load did that. The page said "Reading…" for ever, in
+  // production, for everyone, and no test saw it: 2,460 engine tests and 398
+  // extension tests all pass on a page nobody had ever rendered. It was found
+  // by opening it in a browser, which is the only thing that could have.
+  await backendBase();
   const generation = backendGeneration();
   show("data-blocked", "");
   $("data-source").textContent = SOURCE_KEY;

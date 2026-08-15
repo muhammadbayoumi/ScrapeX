@@ -119,20 +119,42 @@ jobs:
       - name: Validate the manifest (S5 gate — a broken contract can't merge)
         run: python -m scrapex.cli validate-manifest
 
-      - name: The panel suite must RUN, not skip
-        # tests/test_panel_dom.py opens with pytest.importorskip("playwright"),
-        # so before this job installed the browser it skipped in CI on every
-        # run — 48 behavioural tests, including the panel's only XSS guard,
-        # reported as a green suite for months. A guard that can vanish quietly
-        # is the defect; this is what makes the vanishing loud.
+      - name: Every browser-driven suite must RUN, not skip
+        # A suite that opens with pytest.importorskip("playwright") collects
+        # NOTHING when the browser is absent, and pytest reports that as a
+        # skip — not a failure. It happened: 48 behavioural tests, including the
+        # panel's only XSS guard, were reported as a green suite for months.
+        #
+        # THE FILES ARE DISCOVERED, NOT NAMED. This step named test_panel_dom.py
+        # alone until 2026-08-15, and tests/test_tab_page_dom.py — written that
+        # day, to catch a defect no static test could — would have vanished the
+        # same silent way. A guard that lists its subjects fails on the one
+        # nobody added to the list.
         run: |
           # `-q --collect-only` prints one summary line per file:
           #   tests/test_panel_dom.py: 53
           # so the count is the trailing number. tr strips the CR a
           # Windows checkout leaves there, which would eat the match.
-          count=$(python -m pytest tests/test_panel_dom.py --collect-only -q | tr -d '\r' | grep -oE ': [0-9]+$' | grep -oE '[0-9]+' | tail -1)
-          echo "panel tests collected: ${count:-0}"
-          test "${count:-0}" -ge 40
+          collected() {
+            python -m pytest "$1" --collect-only -q | tr -d '\r' \
+              | grep -oE ': [0-9]+$' | grep -oE '[0-9]+' | tail -1
+          }
+          # tests/*.py, NOT -r: a recursive grep also matches the compiled
+          # copies under __pycache__, whose names collect nothing and would fail
+          # this step for a reason that has nothing to do with the browser.
+          suites=$(grep -l 'importorskip("playwright"' tests/*.py | tr -d '\r' | sort)
+          echo "browser suites found:"; echo "$suites"
+          test -n "$suites"
+          for suite in $suites; do
+            count=$(collected "$suite")
+            echo "  $suite: ${count:-0}"
+            # Any zero means the browser is missing and the suite skipped.
+            test "${count:-0}" -ge 1
+          done
+          # The panel's own floor stays a NUMBER, because the count is the thing
+          # that regressed before and a per-file "at least one" would not have
+          # noticed 48 becoming 1.
+          test "$(collected tests/test_panel_dom.py)" -ge 40
 
       - name: The extension gate must not have emptied
         # The same reasoning as the line above, for the set the split depends

@@ -4200,6 +4200,13 @@ function freshnessLine(s) {
 const SOURCE_ACTIONS = [
   {action: "update", label: "Update now",
    why: "Crawl this source once, immediately."},
+  // THE DATA PAGE, WHICH NOW SHIPS INSIDE THE EXTENSION (plan B2). It sits
+  // beside the workbook link rather than replacing it: the engine's page still
+  // has the details drawer, saved views and Choose-Columns, and taking those
+  // away before the replacement carries them would be a downgrade wearing the
+  // word "migration". The workbook entry goes when this one has them.
+  {action: "table", label: "Open the data table",
+   why: "This source's rows, in a page that ships with the extension."},
   {action: "changes", label: "Recent changes",
    why: "What moved since the last crawl."},
   {action: "settings", label: "Source settings",
@@ -4235,6 +4242,13 @@ function sourceMenu(source) {
 
 /** Everything a source menu can do, in one place so the card stays a template. */
 async function runSourceAction(action, key) {
+  // chrome.runtime.getURL, NOT openTab: openTab prefixes the engine's address,
+  // and this page ships in the extension. It still reads the engine for its
+  // rows — the difference is that the PAGE is ours.
+  if (action === "table") {
+    return chrome.tabs.create({url: chrome.runtime.getURL(
+      "data.html?source=" + encodeURIComponent(key))});
+  }
   if (action === "changes") return openTab(`/source/${key}#changes`);
   if (action === "settings") return openTab(`/sources/${key}`);
   if (action === "update") {
@@ -5943,27 +5957,6 @@ function wireDeferredControls() {
   $("console-open").addEventListener("click", () =>
     chrome.tabs.create({ url: chrome.runtime.getURL("console.html") }));
   $("open-browse").addEventListener("click", () => openTab("/"));
-  // chrome.runtime.getURL like the Console, NOT openTab: the page ships in the
-  // extension now. It still reads the engine for its rows, but the PAGE is ours
-  // — which is the whole of what B2 moved.
-  //
-  // It acts on the selection because a data table is per source, and it SAYS SO
-  // rather than opening on an arbitrary one: picking the first of three would
-  // put the wrong shop's prices in front of the owner under a title he did not
-  // choose.
-  $("open-data-table").addEventListener("click", () => {
-    const chosen = [...state.selected];
-    if (chosen.length !== 1) {
-      $("open-data-note").textContent = chosen.length
-        ? `${chosen.length} sources are selected. A data table is one source — `
-          + "select just the one you want to read."
-        : "Select a source first: a data table is one source's rows.";
-      return;
-    }
-    $("open-data-note").textContent = "";
-    chrome.tabs.create({url: chrome.runtime.getURL(
-      "data.html?source=" + encodeURIComponent(chosen[0]))});
-  });
   // The workspace opens with the Storage section already expanded, so the link
   // lands on what it promised rather than on a wall of closed rows.
   $("open-storage").addEventListener("click", () => openTab("/settings#s-storage"));
