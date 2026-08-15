@@ -20,6 +20,8 @@ import { checkTableDefinitionRow, tableProducesNothing }
 import { checkSchemaRuleRow, checkEntityRoles } from "./schemarule-rules.js";
 import { checkDataMapRow, checkProfileCoverage, resolvedProfiles, attributesFor }
   from "./datamap-rules.js";
+import { effectiveSourceType, headerMatch, mappingSentence, mappingGroups }
+  from "./datamap-view.js";
 import { checkExportViewRow, exportsNothing } from "./exportviews-rules.js";
 import { checkRibbonControlRow, rendersNowhere, buildsAMenu,
   effectiveActionClass } from "./ribboncontrols-rules.js";
@@ -859,6 +861,182 @@ function block(title, rows, empty) {
   return card;
 }
 
+// ---- the Mappings card --------------------------------------------------------
+//
+// ONE CARD PER PROFILE. `PROFILE_KEY` is lifted out of the rows into a strip
+// above them because it is one value for the whole set — so a table fed by two
+// sources on two different profiles gets two cards, rather than one strip
+// standing over rows that do not all belong to it.
+//
+// THERE IS NO ARROW COLUMN. Column order carries the direction: what the file
+// holds on the left, what the add-in stores on the right. The list this
+// replaces centred an arrow between three columns, so source and target never
+// lined up and the transform text sat detached from the row it described.
+
+const MAP_COLUMNS = ["Source value", "Source type", "Header match",
+                     "Target attribute", "Transform"];
+
+/** A `<span>`, with a class when it needs one and a direction when it is data. */
+function cell(className, content, {auto = false} = {}) {
+  const node = document.createElement("span");
+  if (className) node.className = className;
+  node.textContent = content;
+  // ENGLISH CHROME, ANY-LANGUAGE DATA. A heading read out of an Arabic sheet is
+  // laid out by the browser rather than guessed at here, and `dir` goes on the
+  // value alone — never on the words around it, which are ours and are English.
+  if (auto) node.dir = "auto";
+  return node;
+}
+
+/** The one value the whole card belongs to, and how many rows that is. */
+function profileStrip(profile, count) {
+  const strip = document.createElement("div");
+  strip.className = "map-profile";
+
+  const facts = document.createElement("span");
+  facts.className = "map-profile-facts";
+  facts.append(
+    cell("map-profile-label", "PROFILE_KEY"),
+    cell("map-profile-key", profile),
+    cell("map-profile-note",
+         "The set every row below belongs to — one value for the whole "
+         + "profile."));
+
+  // DERIVED FROM THE ROWS RENDERED, never a number written beside them: a count
+  // that is typed goes stale the moment a mapping is added, and it goes stale
+  // in silence.
+  strip.append(facts,
+               cell("chip map-count",
+                    `${count} ${count === 1 ? "row" : "rows"}`));
+  return strip;
+}
+
+/**
+ * ONE ROW OPEN AT A TIME, within one card.
+ *
+ * Opening another closes the first, and pressing the open one closes it. A
+ * `null` closes every row, which is what Escape does.
+ */
+function openMapping(card, wanted) {
+  for (const button of card.querySelectorAll(".map-cells")) {
+    const open = button === wanted
+      && button.getAttribute("aria-expanded") !== "true";
+    button.setAttribute("aria-expanded", String(open));
+    button.nextElementSibling.hidden = !open;
+  }
+}
+
+/**
+ * THE ROW, RESTATED IN WORDS.
+ *
+ * Assembled from spans rather than formatted into one string, so the target
+ * keeps its colour and the source its weight — the two halves of the mapping
+ * stay distinguishable inside the sentence exactly as they are in the row.
+ */
+function mappingLine(said) {
+  const line = document.createElement("p");
+  line.className = "map-sentence";
+  line.append(
+    cell("map-said-target", said.target || "(no column)"),
+    cell("", said.verb),
+    cell("map-said-source", said.source || "(no expression)", {auto: true}));
+
+  // Both clauses are appended or omitted, never printed empty. `matched —` and
+  // `, then —` are sentences about nothing.
+  if (said.match) {
+    line.append(cell("", "matched"),
+                cell("map-said-mode", said.match.toLowerCase()));
+  }
+  if (said.steps.length) {
+    line.append(cell("map-then", ", then"));
+    for (const step of said.steps) line.append(cell("map-step", step));
+  }
+  return line;
+}
+
+/** One mapping: five cells that open onto the sentence they mean. */
+function mappingRow(card, row) {
+  const kind = effectiveSourceType(row);
+  const said = mappingSentence(row);
+  const match = headerMatch(row);
+
+  const holder = document.createElement("div");
+  holder.className = "map-row" + (kind === "Header" ? "" : " map-derived");
+
+  // A REAL BUTTON, not a div that listens. It is the only way this row is
+  // reachable by Tab, operable with Enter and Space, and announced with the
+  // state it is actually in — and `:focus-visible` then comes from the shared
+  // sheet rather than being declared again here.
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "map-cells map-grid";
+  button.setAttribute("aria-expanded", "false");
+  button.append(
+    cell("map-source", said.source || "(no expression)", {auto: true}),
+    // The chip says what the SHEET holds and is coloured by what the add-in
+    // will DO with it, so a misspelt type still reads as the Header it will be
+    // treated as without the misspelling being hidden.
+    cell(`chip map-kind${kind === "Header" ? " accent" : ""}`,
+         String(row.SOURCE_TYPE ?? "").trim() || kind),
+    cell("map-match" + (match ? "" : " map-inert"), match || "—"),
+    cell("map-target", said.target || "(no column)"),
+    cell("map-chain", String(row.TRANSFORM_CHAIN ?? "").trim() || "—"));
+
+  const panel = document.createElement("div");
+  panel.className = "map-said";
+  panel.hidden = true;
+  panel.append(mappingLine(said));
+
+  button.addEventListener("click", () => openMapping(card, button));
+  holder.append(button, panel);
+  return holder;
+}
+
+/** One mapping profile, as a card. */
+function mappingsCard(profile, rows) {
+  const card = document.createElement("section");
+  card.className = "card map-card";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Mappings";
+  card.append(heading, profileStrip(profile, rows.length));
+
+  const head = document.createElement("div");
+  head.className = "map-head map-grid";
+  for (const name of MAP_COLUMNS) head.append(cell("", name));
+  card.append(head);
+
+  for (const group of mappingGroups(rows)) {
+    const holder = document.createElement("div");
+    holder.className = "map-group";
+    holder.append(cell("map-group-label", group.label));
+    for (const row of group.rows) holder.append(mappingRow(card, row));
+    card.append(holder);
+  }
+
+  const foot = document.createElement("p");
+  foot.className = "map-foot";
+  foot.textContent =
+    "Header match only means something when the source type is Header — a "
+    + "constant, an index or a formula has no name to look for.";
+  card.append(foot);
+
+  card.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const open = card.querySelector('.map-cells[aria-expanded="true"]');
+    if (!open) return;
+    openMapping(card, null);
+    // Back to the row that was open, and not to the top of the document: a key
+    // that closes something should not also lose the reader's place.
+    open.focus();
+  });
+
+  // THE FIRST ROW IS OPEN. A table where every row is shut looks inert, and the
+  // sentence under a row is the thing this card was redrawn to show.
+  openMapping(card, card.querySelector(".map-cells"));
+  return card;
+}
+
 /**
  * ONE TABLE, EVERYWHERE IT APPEARS.
  *
@@ -903,10 +1081,19 @@ function showTable(key) {
     r.SOURCE_REGION || "")),
     "Nothing loads this table."));
 
-  body.append(block("Mappings", maps.map((r) => pairRow(
-    r.SOURCE_EXPRESSION || "(no expression)", `→ ${r.TARGET_ATTRIBUTE_KEY}`,
-    [r.SOURCE_TYPE, r.TRANSFORM_CHAIN].filter(Boolean).join(" · "))),
-    "No mapping tells the add-in how to read this table's source."));
+  // ONE CARD PER PROFILE, because the strip above the rows carries the profile
+  // and that is one value for the whole set. A table fed by two sources on two
+  // profiles is a real shape here, and one card would have to either drop the
+  // strip or put a key over rows that do not all carry it.
+  if (!maps.length) {
+    body.append(block("Mappings", [],
+      "No mapping tells the add-in how to read this table's source."));
+  } else {
+    for (const profile of [...profiles].sort()) {
+      const mine = maps.filter((r) => r.PROFILE_KEY === profile);
+      if (mine.length) body.append(mappingsCard(profile, mine));
+    }
+  }
 
   body.append(block("Export views", views.map((r) => pairRow(
     r.VIEW_KEY, r.LABEL || "—", r.COLUMNS ? `${r.COLUMNS.split(",").length} columns` : "")),
