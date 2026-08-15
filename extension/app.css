@@ -2675,7 +2675,7 @@
     background-color: transparent;
     box-shadow: none;
     color: var(--text);
-    font-family: var(--font-sans);
+    font-family: var(--font);
     font-size: var(--fs-sm);
   }
   .finance-converter-row input,
@@ -2813,7 +2813,7 @@
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--text);
-    font-family: var(--font-sans);
+    font-family: var(--font);
     font-size: var(--fs-sm);
     font-weight: var(--fw-regular);
     text-align: start;
@@ -2853,7 +2853,7 @@
     border-radius: 0;
     background: transparent;
     color: var(--accent-ink);
-    font-family: var(--font-sans);
+    font-family: var(--font);
     font-size: var(--fs-xs);
     font-weight: var(--fw-medium);
     line-height: 1.2;
@@ -3340,7 +3340,7 @@
     background: var(--surface);
     border: 1px solid var(--outline-variant);
     border-radius: var(--radius);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-lg);
   }
   .engine-overflow-menu.hidden { display: none; }
   .engine-overflow-menu-item {

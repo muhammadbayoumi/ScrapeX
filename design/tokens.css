@@ -36,6 +36,14 @@
   --accent-ink: light-dark(#006b70, #69e1e5);
   --accent-contrast: light-dark(#062b2d, #071f20);
   --accent-weak: light-dark(#d8f4f5, #073a3d);
+  /* The state triad, in the order the left-edge vocabulary reads it: green
+     done, amber working, red broken. `--green` is a token and NOT `--accent`
+     because the accent is a colour the user chooses — device mode resolves it
+     to the operating system's `AccentColor`, and a warm system accent would
+     make a COMPLETED step the same colour as the running one beside it, which
+     is the exact fault this token was added to fix. Amber and red are fixed
+     hues for the same reason; the third state had to be one too. */
+  --green: #12793a;
   --amber: #9a5c0a;
   --amber-weak: #fff4d6;
   --red: #b8322a;
@@ -59,6 +67,11 @@
   --button-hover-text: var(--button-text);
   --control-bg: var(--surface);
   --control-hover: var(--surface-subtle);
+  /* The pressed notch under --control-hover. Derived from --chip rather than
+     given its own hex so it follows every palette and the device tones for
+     free: --chip is themed, and this needs to be one step deeper than hover in
+     both schemes, which --chip already is. */
+  --control-active: var(--chip);
   --control-height: 2.5rem;
   --control-height-sm: 2rem;
   /* The third notch, added 2026-08-11 by the owner's ruling on the Profile
@@ -197,6 +210,7 @@
   --text-subtle: #8994a3;
   --chip: #242b34;
 
+  --green: #6ad693;
   --amber: #f0bc63;
   --amber-weak: #302610;
   --red: #ef8278;
@@ -234,6 +248,7 @@
     --text-subtle: #8994a3;
     --chip: #242b34;
 
+    --green: #6ad693;
     --amber: #f0bc63;
     --amber-weak: #302610;
     --red: #ef8278;
