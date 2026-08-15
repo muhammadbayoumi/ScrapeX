@@ -8,7 +8,7 @@
     .settings-hero p{max-width:40.625rem;margin:0;color:var(--muted)}
     .settings-shell{display:grid;grid-template-columns:14.375rem minmax(0,1fr);gap:var(--sp-5);
       align-items:start;margin-top:var(--sp-5)}
-    .settings-sidebar{position:sticky;top:calc(var(--sticky-tabs) + var(--sp-4));padding:var(--sp-3);
+    .settings-sidebar{position:sticky;top:var(--sp-4);padding:var(--sp-3);
       border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface);box-shadow:var(--shadow-sm)}
     .settings-sidebar-title{padding:.35rem .45rem .65rem}
     .settings-sidebar-title strong{display:block;font-size:.9rem}

@@ -100,7 +100,7 @@
 
 .sync-section-nav {
   position: sticky;
-  top: calc(var(--sticky-tabs) + var(--sp-2));
+  top: var(--sp-2);
   z-index: 3;
   display: flex;
   align-items: center;
@@ -138,7 +138,7 @@
 }
 
 .sync-route {
-  scroll-margin-top: calc(var(--sticky-tabs) + 5rem);
+  scroll-margin-top: 5rem;
   margin-top: var(--sp-8);
   padding: clamp(var(--sp-4), 3vw, var(--sp-6));
   border: 1px solid var(--line);

@@ -240,10 +240,10 @@ a.data-source-status:hover{border-color:var(--accent);background:var(--accent-we
   .data-source-overview-panel+.data-source-overview-panel{border-inline-start:0;border-top:1px solid var(--line)}
 }
 @media(max-width:600px){
-  .dataset-menu-popover{position:fixed;inset:calc(var(--sticky-tabs) + .75rem) .75rem auto;
-    width:auto;max-height:calc(100vh - var(--sticky-tabs) - 1.5rem)}
-  .dataset-popover{position:fixed;inset:calc(var(--sticky-tabs) + .75rem) .75rem auto;
-    width:auto;max-height:calc(100vh - var(--sticky-tabs) - 1.5rem)}
+  .dataset-menu-popover{position:fixed;inset:.75rem .75rem auto;
+    width:auto;max-height:calc(100vh - 1.5rem)}
+  .dataset-popover{position:fixed;inset:.75rem .75rem auto;
+    width:auto;max-height:calc(100vh - 1.5rem)}
   .data-source-overview-trigger-meta>span{display:none}
   .data-source-overview-identity{align-items:flex-start;flex-direction:column}
   .data-source-overview .dataset-site-link{align-self:flex-start}

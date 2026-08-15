@@ -79,7 +79,7 @@ h3 {
     .sidebar-toggle svg{width:1.5rem;height:1.5rem;fill:currentColor}
     .workspace-menu-button{position:fixed;inset-block-start:var(--sp-3);
       inset-inline-start:var(--sp-3);z-index:10;background:var(--surface);
-      color:var(--text);box-shadow:var(--shadow-md)}
+      color:var(--text);box-shadow:var(--shadow-sm)}
     .wstabs{display:flex;flex:1;flex-direction:column;gap:1rem;
       padding:var(--sp-3) var(--sp-3) var(--sp-4)}
     .wsnav-group{min-width:0}

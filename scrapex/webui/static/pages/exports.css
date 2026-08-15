@@ -30,7 +30,7 @@
 .exports-blocker p{margin:var(--sp-1) 0 0;color:var(--muted);font-size:var(--fs-sm)}
 .exports-workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(19rem,.38fr);
   gap:var(--sp-4);align-items:start;margin-top:var(--sp-5);
-  scroll-margin-top:calc(var(--sticky-tabs) + var(--sp-4))}
+  scroll-margin-top:var(--sp-4)}
 .exports-main{display:flex;min-width:0;flex-direction:column;gap:var(--sp-4)}
 .exports-step,.exports-run-card,.exports-last-card,.exports-advanced{min-width:0;
   border:1px solid var(--line);border-radius:var(--radius-xl);background:var(--surface);
@@ -106,7 +106,7 @@
   padding-inline:var(--sp-3);border-inline-start:1px solid var(--line);background:var(--chip);
   color:var(--muted);font-family:var(--font-mono);font-size:var(--fs-xs)}
 .exports-settings-actions{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
-.exports-sidebar{position:sticky;top:calc(var(--sticky-tabs) + var(--sp-4));display:flex;
+.exports-sidebar{position:sticky;top:var(--sp-4);display:flex;
   min-width:0;flex-direction:column;gap:var(--sp-4)}
 .exports-run-card,.exports-last-card{padding:var(--sp-5)}
 .exports-run-card{border-color:color-mix(in srgb,var(--accent) 36%,var(--line));
