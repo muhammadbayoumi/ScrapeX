@@ -98,6 +98,17 @@ const state = {
   // one menu open" is a property of the state instead of a rule the handlers
   // have to remember to keep.
   accountsExpanded: true, openAccountMenu: null, pendingRemove: null,
+  // ACCOUNTS KNOWN TO BE SIGNED OUT — not "accounts that are not the current
+  // one". Signing in to a second account does not sign the first out of Google;
+  // it only stops the panel ACTING as it, and a silent mint brings it straight
+  // back. So an account is switchable until something proves otherwise: the
+  // owner signed out of it, or a silent mint for it was refused.
+  //
+  // A SET IN MEMORY, NOT A FIELD ON DISK. accounts.js says adding to
+  // REMEMBERED_FIELDS is a decision about what lands on storage, and this is
+  // not a fact about the account — it is a fact about Google's session in this
+  // browser right now, which is exactly as long as this panel lives.
+  signedOutAccounts: new Set(),
   installedVersion: "", engineVersion: "", versionReport: null,
   versionStatus: "pending",
   // null means the engine never said, which is a THIRD state and not a
@@ -2279,7 +2290,13 @@ async function rememberSignedInAccount(account) {
  */
 async function endCurrentAccountSession() {
   try {
+    // SIGNING OUT IS THE ONE THING THAT REALLY MAKES A ROW SIGNED OUT, and it
+    // is the case the owner confirmed the design already draws correctly. Read
+    // BEFORE the clear, because `clearCurrentAccount` reports the directory
+    // after the change and does not name who was in it.
+    const leaving = state.currentAccountId;
     const held = await clearCurrentAccount();
+    if (leaving) state.signedOutAccounts.add(leaving);
     state.accounts = held.accounts;
     state.currentAccountId = held.currentId;
   } catch (_) { /* the panel works without the directory */ }
@@ -2735,7 +2752,14 @@ function renderAccountsCard() {
     // See the note at the top of this section: without the Web OAuth client
     // nothing can be authorised silently, so no other row can be shown as
     // signed in without saying something this build cannot know.
-    list.append(accountRow(account, { signedIn: false }));
+    // THE ONE LINE THIS WHOLE DEFECT WAS. It read `signedIn: false`, so every
+    // other account was drawn signed-out and `accountRow`'s switch branch —
+    // which was written, tested and correct — could never be reached. Signing
+    // in to a second account made the first look signed out two inches below
+    // the one that had replaced it.
+    list.append(accountRow(account, {
+      signedIn: !state.signedOutAccounts.has(account.id),
+    }));
   }
   card.append(list);
 
@@ -2873,9 +2897,16 @@ async function switchToAccount(id) {
   closeAccountMenu();
   const result = await authorize({ email: account.email, interactive: false });
   if (result.state !== "ok" && result.state !== "partial") {
+    // GOOGLE REFUSED TO ANSWER SILENTLY, which is what "signed out" MEANS here
+    // — the session this account needed is gone. Recording it turns the row
+    // into the one the design already draws, with Sign in on it, instead of
+    // leaving a switch that fails the same way every time it is pressed.
+    state.signedOutAccounts.add(id);
     setAccountsStatus(result.detail);
+    renderAccountsCard();
     return;
   }
+  state.signedOutAccounts.delete(id);
   await adoptAuthorizedAccount(result.token);
 }
 
@@ -2888,6 +2919,7 @@ async function signInToAccount(id) {
     setAccountsStatus(result.detail);
     return;
   }
+  state.signedOutAccounts.delete(id);
   await adoptAuthorizedAccount(result.token);
 }
 
