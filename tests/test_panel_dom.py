@@ -3009,6 +3009,48 @@ def test_the_profile_states_live_in_one_persistent_centered_card(open_panel):
     assert card.get_attribute("aria-modal") is None
 
 
+@pytest.mark.parametrize("width,height", [(400, 800), (400, 520), (320, 440)])
+def test_the_signed_in_profile_starts_at_the_top_and_still_fits(
+        open_panel, width, height):
+    """The account belongs under the sign-out row, not floating in the middle.
+
+    TWO AUTO MARGINS FACING EACH OTHER is what put it there: `margin-bottom:
+    auto` on .profile-topbar and `margin-top: auto` on .profile-legal SPLIT the
+    free space between them, which centres everything in between. Measured at
+    400x800 before the fix: the topbar ended at 48 and the summary began at 240
+    — a 192px hole above the avatar, with the accounts list pushed down behind
+    it. Owner-reported from the running panel, 2026-08-15.
+
+    THE SECOND HALF OF THIS TEST IS THE PART THAT MATTERS LATER. The rules
+    around here have been repaired three times for CLIPPING — 75px at 400x520
+    under Chrome's very large font, 67px at 400x700, 22px at 320x440 — so a
+    later change that pulls the content up must not push the legal line off the
+    bottom. The sizes are the ones those repairs name.
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.set_viewport_size({"width": width, "height": height})
+    page.wait_for_timeout(200)
+
+    box = page.evaluate("""() => {
+      const r = (s) => { const n = document.querySelector(s); if (!n) return null;
+        const b = n.getBoundingClientRect();
+        return {top: Math.round(b.top), bottom: Math.round(b.bottom)}; };
+      return {bar: r('.profile-topbar'), summary: r('#welcome-summary'),
+              legal: r('.profile-legal'), viewport: window.innerHeight};
+    }""")
+
+    gap = box["summary"]["top"] - box["bar"]["bottom"]
+    assert gap < 80, (
+        f"{gap}px between the sign-out row and the account at {width}x{height}. "
+        "The summary is being centred again — check for a second auto margin "
+        "above it")
+    assert box["legal"]["bottom"] <= box["viewport"], (
+        f"the legal line ends {box['legal']['bottom'] - box['viewport']}px past "
+        f"the bottom at {width}x{height}, which is the clipping this area has "
+        "already been repaired for three times")
+
+
 def test_the_profile_card_shows_checking_while_chrome_answers(open_panel):
     """While the token is in flight the card announces busy, keeps the product
     greeting as the stable heading, and shows the status as a separate line."""
