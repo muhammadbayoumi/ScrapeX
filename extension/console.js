@@ -11,7 +11,8 @@ import { TAB_NAMES, parseWorkbook, inspect, vocabularies, SHEETS } from "./workb
 import { KNOWN_VOCABULARIES, SHEET_GIDS, LICENSE_TIERS, ENTITY_TYPES,
          STORAGE_STRATEGIES, BUSINESS_DOMAINS, VIEW_MODES, DATA_TYPES,
          SEMANTIC_ROLES, SOURCE_TYPES, MATCH_MODES, readBoolean,
-         BOOLEAN_DEFAULTS } from "./addin-contract.js";
+         BOOLEAN_DEFAULTS, ACTION_CLASSES, MENU_LAYOUTS, RIBBON_CONTROL_KEYS }
+         from "./addin-contract.js";
 import { checkDataSourceRow, stopsThisSource, switchedOff, suggestedKey }
   from "./datasource-rules.js";
 import { checkTableDefinitionRow, tableProducesNothing }
@@ -19,6 +20,9 @@ import { checkTableDefinitionRow, tableProducesNothing }
 import { checkSchemaRuleRow, checkEntityRoles } from "./schemarule-rules.js";
 import { checkDataMapRow, checkProfileCoverage, resolvedProfiles, attributesFor }
   from "./datamap-rules.js";
+import { checkExportViewRow, exportsNothing } from "./exportviews-rules.js";
+import { checkRibbonControlRow, rendersNowhere, buildsAMenu,
+  effectiveActionClass } from "./ribboncontrols-rules.js";
 
 const $ = (id) => document.getElementById(id);
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
@@ -148,6 +152,81 @@ function renderFindings(found) {
   }
 }
 
+/**
+ * The last two sheets, read by the same rules as the first four.
+ *
+ * They have no editor card yet, so this is the only surface that reports them —
+ * and reporting is the half that matters first: a view whose COLUMNS all miss
+ * produces a BLANK SHEET with no dialog, and a ribbon row with a blank
+ * CONTROL_KEY renders nowhere at all. Both are invisible in Excel and both are
+ * one glance here.
+ */
+const LATE_SHEETS = {
+  "5.ExportViews": {
+    editor: "exportView",
+    check: (row, rows) => checkExportViewRow(
+      row, rows("5.ExportViews").filter((r) => r !== row),
+      rows("1.TableDefinition"), rows("2.SchemaRule")),
+    broken: exportsNothing,
+  },
+  "6.RibbonControls": {
+    editor: "ribbonControl",
+    check: (row, rows) => checkRibbonControlRow(
+      row, rows("6.RibbonControls").filter((r) => r !== row),
+      rows("5.ExportViews"), rows("1.TableDefinition")),
+    broken: rendersNowhere,
+  },
+};
+
+/** How many rows of a late sheet are broken, and how many merely noted. */
+function lateSheetVerdict(tab, workbook) {
+  const spec = LATE_SHEETS[tab];
+  const rows = (name) => workbook?.sheets?.[name]?.rows || [];
+  if (!spec || !workbook.sheets[tab]) return null;
+
+  let broken = 0;
+  let noted = 0;
+  for (const row of rows(tab)) {
+    const found = spec.check(row, rows);
+    if (!found.length) continue;
+    // "Broken" is the outcome an owner can SEE going wrong, not the severity.
+    // A blank export and a control that renders nowhere are both silent in
+    // Excel, which is exactly why they are counted apart from the rest.
+    if (found.some((f) => f.severity === "Critical") || spec.broken(found)) {
+      broken += 1;
+    } else {
+      noted += 1;
+    }
+  }
+  return {broken, noted};
+}
+
+/**
+ * Open a row of one of the two late sheets, worst first.
+ *
+ * WORST FIRST IS THE WHOLE BEHAVIOUR. These two sheets have no list screen of
+ * their own, so an owner who presses Open has said "show me this sheet" and not
+ * "show me row 1". A view that exports a blank sheet and a ribbon item that
+ * renders nowhere are both invisible in Excel; putting either in front of them
+ * is the only moment they are ever seen.
+ */
+function pickLateRow(tab, workbook) {
+  const spec = LATE_SHEETS[tab];
+  const rows = (name) => workbook?.sheets?.[name]?.rows || [];
+  const all = rows(tab);
+  if (!spec || !all.length) return;
+
+  const rank = (row) => {
+    const found = spec.check(row, rows);
+    if (found.some((f) => f.severity === "Critical") || spec.broken(found)) return 0;
+    if (found.length) return 1;
+    return 2;
+  };
+  const worst = all.reduce(
+    (best, row) => (rank(row) < rank(best) ? row : best), all[0]);
+  edit(EDITORS[spec.editor], worst);
+}
+
 function renderSheets(workbook) {
   const list = $("sheets-list");
   list.textContent = "";
@@ -167,6 +246,31 @@ function renderSheets(workbook) {
     count.textContent = sheet ? `${sheet.rows.length} rows` : "not found";
 
     row.append(name, count);
+
+    const verdict = lateSheetVerdict(tab, workbook);
+    if (verdict && (verdict.broken || verdict.noted)) {
+      const said = document.createElement("span");
+      said.className = "sheet-verdict"
+        + (verdict.broken ? " sheet-stopped" : " sheet-noted");
+      said.textContent = verdict.broken
+        ? `${verdict.broken} row${verdict.broken === 1 ? "" : "s"} produce nothing`
+        : `${verdict.noted} note${verdict.noted === 1 ? "" : "s"}`;
+      row.append(said);
+    }
+
+    // The two sheets with no screen of their own open their rows from here.
+    // A DIV that listens for a click is not a control — this is a real button,
+    // so it is reachable by keyboard and announced as one.
+    if (LATE_SHEETS[tab] && sheet?.rows.length) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "button ghost sheet-open";
+      open.textContent = "Open";
+      open.setAttribute("aria-label", `Open ${tab}`);
+      open.addEventListener("click", () => pickLateRow(tab, workbook));
+      row.append(open);
+    }
+
     list.append(row);
   }
 
@@ -429,6 +533,73 @@ const EDITORS = {
     refused: "As it stands this row maps nothing. Saving is refused.",
     where: (row) => row._row ? `4.DataMap, row ${row._row}`
       : "4.DataMap, a new row at the end",
+  },
+
+  exportView: {
+    tab: "5.ExportViews",
+    card: "ev-editor-card", prefix: "ev-",
+    fields: ["VIEW_KEY", "ENTITY_KEY", "LABEL", "COLUMNS", "ALIASES",
+             "WHERE_FILTER", "SORT_BY", "ICON", "SCREEN_TIP", "SUPER_TIP",
+             "IS_ACTIVE", "VIEW_CONFIG"],
+    booleans: ["IS_ACTIVE"],
+    view: "inspect",
+    lists(workbook) {
+      return {
+        ENTITY_KEY: {values: rowsOf(workbook, "1.TableDefinition")
+          .map((r) => String(r.ENTITY_KEY ?? "").trim()).filter(Boolean).sort(),
+        blank: "— choose a table —"},
+      };
+    },
+    check: (row, workbook, editing) => checkExportViewRow(
+      row,
+      rowsOf(workbook, "5.ExportViews").filter((r) => r !== editing),
+      rowsOf(workbook, "1.TableDefinition"),
+      rowsOf(workbook, "2.SchemaRule")),
+    // REFUSED ON THE BLANK SHEET, not only on a Critical. A view whose COLUMNS
+    // all miss saves cleanly, syncs cleanly, and hands the owner an empty
+    // worksheet with no dialog — the one outcome this card exists to stop.
+    refuse: (found) => found.some((f) => f.severity === "Critical")
+                    || exportsNothing(found),
+    refused: "As it stands this view exports a blank sheet. Saving is refused.",
+    where: (row) => row._row ? `5.ExportViews, row ${row._row}`
+      : "5.ExportViews, a new row at the end",
+  },
+
+  ribbonControl: {
+    tab: "6.RibbonControls",
+    card: "rc-editor-card", prefix: "rc-",
+    fields: ["ITEM_KEY", "CONTROL_KEY", "LABEL", "ACTION_CLASS", "ACTION_TAG",
+             "PARENT_KEY", "ORDER", "REGION", "MENU_LAYOUT", "ICON",
+             "SCREEN_TIP", "SUPER_TIP", "IS_ACTIVE"],
+    booleans: ["IS_ACTIVE"],
+    view: "inspect",
+    lists(workbook, row) {
+      const siblings = rowsOf(workbook, "6.RibbonControls")
+        .filter((r) => r !== row && buildsAMenu(effectiveActionClass(r)))
+        .map((r) => String(r.ITEM_KEY ?? "").trim()).filter(Boolean);
+      return {
+        // NOT a text box. A key that misses renders nowhere and reports
+        // nothing, and the blank default is itself a control that does not
+        // exist — so the only safe control is one that cannot be typed wrong.
+        CONTROL_KEY: {values: [...RIBBON_CONTROL_KEYS],
+          blank: "— blank: mnuDynamic, which renders nowhere —"},
+        ACTION_CLASS: {values: [...ACTION_CLASSES], blank: "— blank: Export —"},
+        MENU_LAYOUT: {values: [...MENU_LAYOUTS], blank: "— blank: Nested —"},
+        // Only containers, because children of a leaf are never enumerated.
+        PARENT_KEY: {values: [...new Set(siblings)].sort(),
+          blank: "— none: a top-level item —"},
+      };
+    },
+    check: (row, workbook, editing) => checkRibbonControlRow(
+      row,
+      rowsOf(workbook, "6.RibbonControls").filter((r) => r !== editing),
+      rowsOf(workbook, "5.ExportViews"),
+      rowsOf(workbook, "1.TableDefinition")),
+    refuse: (found) => found.some((f) => f.severity === "Critical")
+                    || rendersNowhere(found),
+    refused: "As it stands this item renders nowhere. Saving is refused.",
+    where: (row) => row._row ? `6.RibbonControls, row ${row._row}`
+      : "6.RibbonControls, a new row at the end",
   },
 };
 

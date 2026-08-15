@@ -267,6 +267,25 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   color: var(--muted);
 }
 
+/* The verdict on a sheet, beside its row. Colour is not the only carrier — the
+   words say which of the two it is — because a verdict only a colour
+   distinguishes is one a colour-blind reader cannot read. */
+.sheet-verdict {
+  margin-inline-start: auto;
+  font-size: var(--fs-sm);
+}
+
+.sheet-stopped { color: var(--red); }
+.sheet-noted { color: var(--amber); }
+
+/* 5.ExportViews and 6.RibbonControls have no list screen of their own, so their
+   row in this list is where they are opened from. After the verdict, because
+   the verdict is what the reader came for. */
+.sheet-open {
+  padding-block: var(--sp-1);
+  margin-inline-start: var(--sp-2);
+}
+
 /* A narrow window is a real case here — the owner may keep this tab beside the
    panel rather than full width. */
 /* A narrow window is a real case: the owner may keep this tab beside the panel
@@ -414,3 +433,4 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   border-inline-start-color: var(--line);
   opacity: .6;
 }
+

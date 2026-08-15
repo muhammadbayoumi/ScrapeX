@@ -249,6 +249,23 @@ export const CONSOLE_ONLY_CODE = {
   // appends the whole file again. Nothing checks it, because the fatal check
   // that would have runs only `if (pkCol != null)`. DataIngestionService.cs:1484.
   duplicatesForever: "NO_CONFLICT_TARGET",
+  // A 5.ExportViews row naming an ENTITY_KEY no table defines. The orphan pass
+  // that warns about columns and sources does NOT cover views, so the view is
+  // simply never built into any context and never appears on any ribbon. No
+  // warning, no log line, nothing missing that anyone can see.
+  orphanView: "ORPHAN_VIEW",
+  // Every name in COLUMNS misses, so the intersection with the visible columns
+  // is empty. The worksheet is created BEFORE the render decides that
+  // (ExportEngine.cs:112, then :258-262 returns on "No visible columns for
+  // current user tier"), so the owner gets a brand-new blank sheet named after
+  // the view and no dialog at all.
+  blankExport: "BLANK_EXPORT",
+  // A name that is looked up and found to be nothing: an unknown COLUMNS entry,
+  // an ALIASES key whose casing does not match, an ACTION_TAG naming a view
+  // that does not exist. In every case the add-in carries on with a smaller
+  // answer and reports nothing — the export just quietly lacks what was asked
+  // for.
+  silentDrop: "SILENT_DROP",
 };
 
 /** The six gids, flattened for the check that a chosen workbook is the right one. */
