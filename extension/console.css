@@ -194,6 +194,239 @@ button.pair-row:focus-visible { background: var(--surface-subtle); }
   color: var(--muted);
 }
 
+/* ---- the Mappings card ------------------------------------------------------
+   One mapping profile: which source value becomes which add-in attribute, how
+   the source is located, and what runs on the way. Five columns and NO ARROW —
+   the order carries the direction, and a centred arrow column made every row a
+   different width of empty space.
+
+   THE GRID IS DECLARED ONCE, in `--map-columns`, and read by the header row and
+   by every data row. They are separate elements, so two copies of the template
+   would silently misalign the whole table the first time one was widened and
+   the other was not.
+
+   Every fixed track has to fit its longest real value — `StartsWith` is the
+   widest match mode, `TRIM|TO_DECIMAL` the widest transform. Widen the track
+   rather than let either clip: a truncated machine identifier is a value the
+   reader cannot reconstruct. */
+
+/* THE CARD ANSWERS FOR ITS OWN WIDTH, and it has to: the width it gets does not
+   follow the window's. Just above the rail's 56rem breakpoint the rail expands
+   from 3.25rem to 15rem, so a window ONE PIXEL WIDER hands this card 200px
+   less. A width media query switched the table at the wrong moment in both
+   directions; the container asks the only question that matters. */
+.map-card { container: mappings / inline-size; }
+
+/* Declared once, on the one class the header row and every data row share.
+   They are separate elements, and two copies of the template would silently
+   misalign the whole table the first time one was widened and the other not. */
+.map-grid {
+  --map-columns: minmax(0, 1.1fr) 6.5rem 7.25rem minmax(0, 1fr) 10.5rem;
+  display: grid;
+  grid-template-columns: var(--map-columns);
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.map-head {
+  padding: 0 var(--sp-3) var(--sp-2);
+  border-block-end: 1px solid var(--line);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The profile, lifted out of the rows: it is one value for the whole card, and
+   repeating it down a column said nothing new nine times. */
+.map-profile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-3);
+  align-items: center;
+  margin-block: var(--sp-3) var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+}
+
+.map-profile-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.map-profile-label,
+.map-group-label {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.map-profile-key {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-profile-note {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.map-count { justify-self: end; }
+
+.map-group-label {
+  display: block;
+  padding: var(--sp-3) var(--sp-3) var(--sp-1);
+}
+
+/* The separator is the lighter --chip and not --line. The card already carries
+   a border and a header rule, and a third weight of line at every row makes the
+   table read as a grid of boxes instead of a list. */
+.map-row { border-block-end: 1px solid var(--chip); }
+
+/* A value that comes from anywhere but a header sits on the page tone, so the
+   group reads as a different kind of thing without leaning on its label alone. */
+.map-derived { background: var(--bg); }
+
+.map-cells {
+  width: 100%;
+  min-height: var(--control-height-sm);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* Hover only. :focus-visible is the shared sheet's, and re-declaring it here is
+   how one surface ends up with a focus ring nobody else has. */
+.map-cells:hover { background: var(--control-hover); }
+
+.map-source,
+.map-match,
+.map-target,
+.map-chain {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-source { font-size: var(--fs-sm); }
+
+/* THE ONLY ACCENT ON THE CARD, so the eye finds the add-in's side of every row
+   without having to read it. */
+.map-target {
+  font-size: var(--fs-sm);
+  color: var(--accent-ink);
+}
+
+.map-match,
+.map-chain {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+/* A match mode on a row that cannot have one. Quieter than --muted, because it
+   is not a value left out — there is nothing there to state. */
+.map-inert { color: var(--line-strong); }
+
+/* The shared chip, squared off: a pill beside four mono columns reads as a
+   control rather than a label. */
+.map-kind {
+  justify-self: start;
+  border-radius: var(--radius-sm);
+  font-weight: var(--fw-medium);
+}
+
+/* ---- the row, restated in words --------------------------------------------
+   Under the row and inside it — not a popover and not a dialog. The sentence is
+   what the five cells mean, and it is only worth showing where the cells are. */
+
+.map-said { padding: 0 var(--sp-3) var(--sp-3); }
+
+.map-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+  color: var(--muted);
+}
+
+.map-said-target,
+.map-said-source {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.map-said-target { color: var(--accent-ink); }
+.map-said-source { color: var(--text); }
+
+.map-said-mode {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+/* The flex gap would otherwise put a space in front of the comma. */
+.map-then { margin-inline-start: calc(var(--sp-1) * -1); }
+
+.map-step {
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.map-foot {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+/* WHERE THE TABLE STOPS BEING ONE, rather than being truncated into one.
+   The three fixed tracks and the gaps take 444px whatever the card's width, so
+   below about 47rem of card the two names are squeezed to nothing while
+   `StartsWith` and `TRIM|TO_DECIMAL` keep their full width — the wrong two
+   columns surviving. Widening those is not open: a clipped machine identifier
+   is a value the reader cannot reconstruct. So the row becomes two lines
+   instead: the two names first, their meta underneath. */
+@container mappings (max-width: 47rem) {
+  .map-grid { --map-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .map-head { display: none; }
+  .map-profile { grid-template-columns: minmax(0, 1fr); }
+  .map-count { justify-self: start; }
+  .map-cells { row-gap: var(--sp-1); }
+  .map-source { grid-area: 1 / 1; }
+  .map-target { grid-area: 1 / 2; }
+  .map-kind { grid-area: 2 / 1; }
+  .map-match { grid-area: 2 / 2; }
+  .map-chain { grid-area: 3 / 1 / auto / -1; }
+}
+
 /* ---- findings -------------------------------------------------------------
    The severity is carried by a border rather than a background, so a long list
    stays readable: fifteen tinted blocks in a column is a wall, and the eye
