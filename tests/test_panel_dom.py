@@ -3051,6 +3051,37 @@ def test_the_signed_in_profile_starts_at_the_top_and_still_fits(
         "already been repaired for three times")
 
 
+def test_another_account_is_offered_as_a_switch_not_as_a_signed_out_row(open_panel):
+    """Signing in to a second account does not sign the first out of Google.
+
+    THE DEFECT, owner-reported 2026-08-15 with a screenshot: every other account
+    was drawn with a "Signed out" badge and a Sign in button, so switching meant
+    re-authorising something that had never left. The cause was one argument —
+    `accountRow(account, {signedIn: false})` — hard-coded, which made the row's
+    OWN switch branch unreachable. That branch was written, correct, and dead.
+
+    The badge now means what it says: an account is switchable until something
+    proves it is not — the owner signed out of it, or a silent mint was refused.
+    """
+    page = open_panel(signed_in=ACCOUNT, remembered_accounts={
+        "accounts": [{"id": "2", "email": "mbigroupcloud@gmail.com",
+                      "name": "MBi", "picture": ""}],
+        "currentId": ""})
+    page.wait_for_selector("#welcome-signed-in:visible")
+    row = page.locator("#accounts-card .account-row").first
+    row.wait_for()
+
+    assert row.locator(".account-badge").count() == 0, (
+        "the other account is labelled Signed out while its Google session is "
+        "alive — this is the hard-coded `signedIn: false`")
+    assert row.locator(".account-switch").count() == 1, (
+        "the row cannot be switched to, so reaching that account still means "
+        "signing in again")
+    assert row.locator(".account-action").count() == 0, (
+        "Sign in / Remove are offered for an account that has not signed out")
+    assert "is-signed-out" not in (row.get_attribute("class") or "")
+
+
 def test_the_profile_card_shows_checking_while_chrome_answers(open_panel):
     """While the token is in flight the card announces busy, keeps the product
     greeting as the stable heading, and shows the status as a separate line."""
