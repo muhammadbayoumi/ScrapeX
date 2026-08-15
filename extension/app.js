@@ -25,10 +25,18 @@ import {
   ensureFolder, ensureSpreadsheet, openChosen, writeTab,
   DEFAULT_WORKBOOK, SHEET_FOLDER,
 } from "./sheets.js";
+// `deadlineForLocalRequest` and `fetchWithDeadline` left with the request path
+// they belonged to; backend.js is their only caller now.
+import { afterIdle, afterNextPaint, isTimeoutError, markStartup }
+  from "./startup.js";
+// Where the engine is, and how this page asks it — shared with the Console and
+// the Data page rather than private to the panel. The panel calls it by the
+// shared name: an import alias would read differently in the DOM harness, which
+// flattens modules by stripping imports and relies on the names matching.
 import {
-  afterIdle, afterNextPaint, deadlineForLocalRequest, fetchWithDeadline,
-  isTimeoutError, markStartup,
-} from "./startup.js";
+  abortBackend, activateBackend, api, backendBase, backendGeneration,
+  backendSignal, del, pageController, post, whenBackendChanges,
+} from "./backend.js";
 
 const $ = (id) => document.getElementById(id);
 // Called by renderSchemaLag since c4ea06b and DEFINED NOWHERE until now, so the
@@ -49,91 +57,23 @@ const icon = (name, className = "") =>
   `<svg class="sx-icon ${className}" aria-hidden="true">` +
   `<use href="${ICON_SPRITE}#${name}"></use></svg>`;
 
-const nativeFetch = window.fetch.bind(window);
-const panelController = new AbortController();
-let backendController = new AbortController();
-let activeBackend = "";
-let backendGeneration = 0;
+// These two count the PANEL's own in-flight work — an engine check it is
+// waiting on, an account lookup it is waiting on — so they stayed here when the
+// backend's address and lifetime moved to backend.js. A second page has its own.
 let accountGeneration = 0;
 let engineGeneration = 0;
-let firstDestinationDataMarked = false;
 
-function activateBackend(url) {
-  const clean = String(url || "").replace(/\/+$/, "");
-  if (clean === activeBackend) return clean;
-  backendController.abort();
-  backendController = new AbortController();
-  activeBackend = clean;
-  backendGeneration += 1;
-  engineGeneration += 1;
-  return clean;
-}
-
-async function backendBase() {
-  if (activeBackend) return activeBackend;
-  return activateBackend(await getBackend());
-}
-
-function localApiPath(input) {
-  try {
-    const url = new URL(String(input), window.location.href);
-    if (!url.pathname.startsWith("/api/")) return null;
-    if (activeBackend && !String(input).startsWith(activeBackend)) return null;
-    return url.pathname + url.search;
-  } catch (_) {
-    return null;
-  }
-}
-
-// The shared appearance/timezone modules use fetch directly. Install the same
-// endpoint policy beneath them without changing the byte-identical Web UI
-// copies of those modules. Calls that already declare a signal keep it.
-window.fetch = (input, options = {}) => {
-  const path = localApiPath(input);
-  if (!path || options.signal) return nativeFetch(input, options);
-  const deadline = deadlineForLocalRequest(path, options.method || "GET");
-  return fetchWithDeadline(
-    nativeFetch, input, options, deadline,
-    [panelController.signal, backendController.signal],
-  );
-};
-
-const DESTINATION_DATA_PATH =
-  /^\/api\/(?:sources|outputs|jobs|resolve|records|changes|schedules|storage|settings|fields|rates)(?:[/?]|$)/;
-
-async function api(path, options = {}) {
-  const backend = await backendBase();
-  const method = options.method || "GET";
-  const deadlineMs = options.deadlineMs || deadlineForLocalRequest(path, method);
-  const requestOptions = {...options};
-  delete requestOptions.deadlineMs;
-  if (!firstDestinationDataMarked && DESTINATION_DATA_PATH.test(path)) {
-    firstDestinationDataMarked = true;
-    markStartup("first-destination-data-request", {path});
-  }
-  const res = await fetchWithDeadline(
-    window.fetch, backend + path, requestOptions, deadlineMs,
-    [panelController.signal, backendController.signal],
-  );
-  if (!res.ok) {
-    let detail = res.statusText;
-    try { detail = (await res.json()).detail || detail; } catch (_) {}
-    throw Object.assign(new Error(detail), {status: res.status, kind: "http"});
-  }
-  return res.json();
-}
-const post = (path, body) => api(path, {
-  method: "POST", headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(body || {}),
-});
-const del = (path) => api(path, { method: "DELETE" });
+// The engine check in flight cannot outlive the backend it was asked of. This
+// bump used to sit inside `activateBackend`; it is registered from here now, so
+// backend.js does not have to know about a counter that is none of its business.
+whenBackendChanges(() => { engineGeneration += 1; });
 
 function out(id, html, cls) {
   $(id).innerHTML = html ? `<span class="${cls || ""}">${html}</span>` : "";
 }
 async function openTab(path) { chrome.tabs.create({ url: (await backendBase()) + path }); }
 async function probeEngine() {
-  return checkEngine({backend: await backendBase(), signal: backendController.signal});
+  return checkEngine({backend: await backendBase(), signal: backendSignal()});
 }
 
 // ---- state ----------------------------------------------------------------
@@ -761,13 +701,13 @@ function renderVersionNotice(engine) {
 async function updateEngineState() {
   const backend = await backendBase();
   const request = ++engineGeneration;
-  const backendAtStart = backendGeneration;
+  const backendAtStart = backendGeneration();
   const current = () => request === engineGeneration
-    && backendAtStart === backendGeneration
-    && !panelController.signal.aborted;
+    && backendAtStart === backendGeneration()
+    && !pageController.signal.aborted;
   setEngineChecking();
   markStartup("engine-check-start", {backend});
-  const engine = await checkEngine({backend, signal: backendController.signal});
+  const engine = await checkEngine({backend, signal: backendSignal()});
   if (!current() || engine.cancelled) return {cancelled: true};
   setStatus(engine);
   await loadVersions(engine, current);
@@ -2347,14 +2287,14 @@ async function endCurrentAccountSession() {
 
 async function loadAccount({ interactive = false } = {}) {
   const generation = ++accountGeneration;
-  const current = () => generation === accountGeneration && !panelController.signal.aborted;
+  const current = () => generation === accountGeneration && !pageController.signal.aborted;
   markStartup("account-check-start", {interactive});
   setChecking(true);
   // Read before asking Chrome: the directory is what the switcher paints, and
   // it is known from storage alone — it must not wait on a network round trip.
   await loadAccountDirectory();
   try {
-    const result = await getToken({interactive, signal: panelController.signal});
+    const result = await getToken({interactive, signal: pageController.signal});
     if (!current()) return {state: "stale"};
     if (result.state !== "ok") {
       state.account = null;
@@ -2367,7 +2307,7 @@ async function loadAccount({ interactive = false } = {}) {
     }
 
     const accountResult = await accountFor(
-      result.token, window.fetch, {signal: panelController.signal},
+      result.token, window.fetch, {signal: pageController.signal},
     );
     if (!current()) return {state: "stale"};
     if (accountResult.state === "ok") {
@@ -2438,11 +2378,11 @@ async function loadAccountDetails() {
   const token = state.token;
   if (!token) return;
   const generation = ++accountGeneration;
-  const current = () => generation === accountGeneration && !panelController.signal.aborted;
+  const current = () => generation === accountGeneration && !pageController.signal.aborted;
   const retry = $("retry-account");
   if (retry) retry.disabled = true;
   try {
-    const result = await accountFor(token, window.fetch, {signal: panelController.signal});
+    const result = await accountFor(token, window.fetch, {signal: pageController.signal});
     if (!current()) return;
     if (result.state === "ok") {
       state.account = result.account;
@@ -2964,7 +2904,7 @@ async function addAnotherAccount() {
 /** Take a freshly authorised token as the panel's current identity. */
 async function adoptAuthorizedAccount(token) {
   setAccountsStatus("");
-  const lookup = await accountFor(token, window.fetch, {signal: panelController.signal});
+  const lookup = await accountFor(token, window.fetch, {signal: pageController.signal});
   if (lookup.state !== "ok") {
     setAccountsStatus(lookup.detail);
     return;
@@ -3145,7 +3085,7 @@ async function loadManageAccount() {
   // starts a second read, and the slower answer must not paint over the newer.
   const generation = ++manageAccountGeneration;
   const current = () => generation === manageAccountGeneration
-    && !panelController.signal.aborted;
+    && !pageController.signal.aborted;
   renderDriveFacts({ state: "loading" });
   try {
     const folder = await folderId(state.token);
@@ -5146,16 +5086,16 @@ let runDestinationLoadedFor = -1;
 
 async function loadRunDestination() {
   if (currentViewName() !== "run" || !state.engineUp) return null;
-  if (runDestinationLoadedFor === backendGeneration) return runDestinationPromise;
+  if (runDestinationLoadedFor === backendGeneration()) return runDestinationPromise;
   if (runDestinationPromise) return runDestinationPromise;
-  const generation = backendGeneration;
+  const generation = backendGeneration();
   runDestinationPromise = Promise.all([
     loadCurrentSite(), loadSources(), loadOutputs(), pollJob(),
   ]).then((result) => {
-    if (generation === backendGeneration) runDestinationLoadedFor = generation;
+    if (generation === backendGeneration()) runDestinationLoadedFor = generation;
     return result;
   }).catch((error) => {
-    if (!panelController.signal.aborted && generation === backendGeneration) {
+    if (!pageController.signal.aborted && generation === backendGeneration()) {
       const message = $("run-blocked");
       if (message) message.textContent = error && error.message
         || "Run data could not be loaded.";
@@ -6003,6 +5943,27 @@ function wireDeferredControls() {
   $("console-open").addEventListener("click", () =>
     chrome.tabs.create({ url: chrome.runtime.getURL("console.html") }));
   $("open-browse").addEventListener("click", () => openTab("/"));
+  // chrome.runtime.getURL like the Console, NOT openTab: the page ships in the
+  // extension now. It still reads the engine for its rows, but the PAGE is ours
+  // — which is the whole of what B2 moved.
+  //
+  // It acts on the selection because a data table is per source, and it SAYS SO
+  // rather than opening on an arbitrary one: picking the first of three would
+  // put the wrong shop's prices in front of the owner under a title he did not
+  // choose.
+  $("open-data-table").addEventListener("click", () => {
+    const chosen = [...state.selected];
+    if (chosen.length !== 1) {
+      $("open-data-note").textContent = chosen.length
+        ? `${chosen.length} sources are selected. A data table is one source — `
+          + "select just the one you want to read."
+        : "Select a source first: a data table is one source's rows.";
+      return;
+    }
+    $("open-data-note").textContent = "";
+    chrome.tabs.create({url: chrome.runtime.getURL(
+      "data.html?source=" + encodeURIComponent(chosen[0]))});
+  });
   // The workspace opens with the Storage section already expanded, so the link
   // lands on what it promised rather than on a wall of closed rows.
   $("open-storage").addEventListener("click", () => openTab("/settings#s-storage"));
@@ -6075,8 +6036,8 @@ function scheduleNonCriticalStartup(backendPromise) {
 
 async function init() {
   wireStartupShell();
-  const paintOpportunity = await afterNextPaint({signal: panelController.signal});
-  if (paintOpportunity.source === "cancelled" || panelController.signal.aborted) return;
+  const paintOpportunity = await afterNextPaint({signal: pageController.signal});
+  if (paintOpportunity.source === "cancelled" || pageController.signal.aborted) return;
   // FCP remains the authoritative browser paint measurement. This mark records
   // that startup yielded a bounded renderer opportunity before remote work.
   markStartup("shell-post-opportunity", {
@@ -6111,8 +6072,8 @@ function closePanelWork() {
   engineGeneration += 1;
   clearTimeout(pollTimer);
   pollTimer = null;
-  panelController.abort();
-  backendController.abort();
+  pageController.abort();
+  abortBackend();
 }
 
 window.addEventListener("pagehide", closePanelWork, {once: true});

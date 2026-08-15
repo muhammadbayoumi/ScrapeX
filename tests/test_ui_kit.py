@@ -51,8 +51,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: `scrapex/webui/static/` are byte-equal to the canon (tests/test_vendor.py),
 #: so reading the canon is reading both.
 CANONICAL = ("design/components.css", "design/tokens.css")
-SURFACE_SHEETS = ("extension/app.css", "extension/onboarding.css",
-                  "extension/console.css")
+#: DERIVED, not typed. This was a hand-written tuple until 2026-08-15, and the
+#: Data page's stylesheet was missing from it the moment the page was written —
+#: so every class on that page read as undefined. A list of surfaces that a
+#: human has to remember to extend is the same shape of blindness the panel
+#: wiring guard was fixed for: it fails on the ONE page nobody added.
+#:
+#: The shared sheets are excluded because they are the canon above, and the
+#: vendored ones because they are not ours to hold to this vocabulary.
+SURFACE_SHEETS = tuple(
+    f"extension/{path.name}"
+    for path in sorted((ROOT / "extension").glob("*.css"))
+    if path.name not in ("components.css", "tokens.css"))
 
 #: Class attributes a template computes cannot be resolved by reading the file.
 JINJA = re.compile(r"\{\%.*?\%\}|\{\{.*?\}\}", re.S)
