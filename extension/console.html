@@ -443,6 +443,169 @@
       </div>
     </section>
 
+    <!-- 5.ExportViews ─────────────────────────────────────────────────────
+         COLUMNS is the field this card exists for. A view whose names all miss
+         produces a BLANK SHEET in Excel with no dialog at all, so the note
+         under it is the only place that fault is ever said out loud. -->
+    <section class="card hidden" id="ev-editor-card" aria-labelledby="ev-editor-title">
+      <h2 id="ev-editor-title">Editing the view</h2>
+      <p class="hint" id="ev-editor-where"></p>
+
+      <div class="field">
+        <label for="ev-f-VIEW_KEY">Key</label>
+        <input id="ev-f-VIEW_KEY" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="ev-n-VIEW_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-ENTITY_KEY">Table it exports</label>
+        <select id="ev-f-ENTITY_KEY"></select>
+        <p class="field-note" id="ev-n-ENTITY_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-LABEL">Words on the button</label>
+        <input id="ev-f-LABEL" type="text" autocomplete="off">
+        <p class="field-note" id="ev-n-LABEL"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-COLUMNS">Columns (comma separated, blank = all)</label>
+        <input id="ev-f-COLUMNS" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="ev-n-COLUMNS"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-ALIASES">Renamed headers (JSON)</label>
+        <input id="ev-f-ALIASES" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="ev-n-ALIASES"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-WHERE_FILTER">Rows to keep (SQLite condition)</label>
+        <input id="ev-f-WHERE_FILTER" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="ev-n-WHERE_FILTER"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-SORT_BY">Order (SQLite sort)</label>
+        <input id="ev-f-SORT_BY" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="ev-n-SORT_BY"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-ICON">Icon</label>
+        <input id="ev-f-ICON" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="ev-n-ICON"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-SCREEN_TIP">Tooltip</label>
+        <input id="ev-f-SCREEN_TIP" type="text" autocomplete="off">
+        <p class="field-note" id="ev-n-SCREEN_TIP"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-SUPER_TIP">Longer tooltip</label>
+        <input id="ev-f-SUPER_TIP" type="text" autocomplete="off">
+        <p class="field-note" id="ev-n-SUPER_TIP"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-IS_ACTIVE">Active</label>
+        <select id="ev-f-IS_ACTIVE">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="ev-n-IS_ACTIVE"></p>
+      </div>
+      <div class="field">
+        <label for="ev-f-VIEW_CONFIG">Banner and links (JSON)</label>
+        <input id="ev-f-VIEW_CONFIG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="ev-n-VIEW_CONFIG"></p>
+      </div>
+
+      <p id="ev-editor-verdict" class="hint" role="status" aria-live="polite"></p>
+      <div class="row">
+        <button id="ev-editor-save" class="button" type="button">Save to the sheet</button>
+        <button id="ev-editor-cancel" class="button ghost" type="button">Cancel</button>
+      </div>
+    </section>
+
+    <!-- 6.RibbonControls ──────────────────────────────────────────────────
+         CONTROL_KEY is a drop-down and not a text box on purpose: its blank
+         default is "mnuDynamic", a control that does not exist in the shipped
+         ribbon, so a typed key that misses renders nowhere and says nothing. -->
+    <section class="card hidden" id="rc-editor-card" aria-labelledby="rc-editor-title">
+      <h2 id="rc-editor-title">Editing the ribbon item</h2>
+      <p class="hint" id="rc-editor-where"></p>
+
+      <div class="field">
+        <label for="rc-f-ITEM_KEY">Key</label>
+        <input id="rc-f-ITEM_KEY" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="rc-n-ITEM_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-CONTROL_KEY">Menu or button it lives in</label>
+        <select id="rc-f-CONTROL_KEY"></select>
+        <p class="field-note" id="rc-n-CONTROL_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-LABEL">Words on the item</label>
+        <input id="rc-f-LABEL" type="text" autocomplete="off">
+        <p class="field-note" id="rc-n-LABEL"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-ACTION_CLASS">What pressing it does</label>
+        <select id="rc-f-ACTION_CLASS"></select>
+        <p class="field-note" id="rc-n-ACTION_CLASS"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-ACTION_TAG">What it acts on (TABLE or TABLE|VIEW)</label>
+        <input id="rc-f-ACTION_TAG" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="rc-n-ACTION_TAG"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-PARENT_KEY">Sits under</label>
+        <select id="rc-f-PARENT_KEY"></select>
+        <p class="field-note" id="rc-n-PARENT_KEY"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-ORDER">Order</label>
+        <input id="rc-f-ORDER" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="rc-n-ORDER"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-REGION">Region</label>
+        <input id="rc-f-REGION" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="rc-n-REGION"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-MENU_LAYOUT">Menu shape</label>
+        <select id="rc-f-MENU_LAYOUT"></select>
+        <p class="field-note" id="rc-n-MENU_LAYOUT"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-ICON">Icon</label>
+        <input id="rc-f-ICON" type="text" autocomplete="off" spellcheck="false">
+        <p class="field-note" id="rc-n-ICON"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-SCREEN_TIP">Tooltip</label>
+        <input id="rc-f-SCREEN_TIP" type="text" autocomplete="off">
+        <p class="field-note" id="rc-n-SCREEN_TIP"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-SUPER_TIP">Longer tooltip</label>
+        <input id="rc-f-SUPER_TIP" type="text" autocomplete="off">
+        <p class="field-note" id="rc-n-SUPER_TIP"></p>
+      </div>
+      <div class="field">
+        <label for="rc-f-IS_ACTIVE">Active</label>
+        <select id="rc-f-IS_ACTIVE">
+          <option value="TRUE">TRUE</option>
+          <option value="FALSE">FALSE</option>
+        </select>
+        <p class="field-note" id="rc-n-IS_ACTIVE"></p>
+      </div>
+
+      <p id="rc-editor-verdict" class="hint" role="status" aria-live="polite"></p>
+      <div class="row">
+        <button id="rc-editor-save" class="button" type="button">Save to the sheet</button>
+        <button id="rc-editor-cancel" class="button ghost" type="button">Cancel</button>
+      </div>
+    </section>
+
     <section class="card hidden" id="editor-card" aria-labelledby="editor-title">
       <h2 id="editor-title">Editing</h2>
       <p class="hint" id="editor-where"></p>

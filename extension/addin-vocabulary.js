@@ -67,6 +67,10 @@ export const ERROR_CODES = ["ERR_FORMAT", "ERR_NULL", "ERR_LENGTH", "ERR_REF", "
 // MetadataOrchestrator.cs:538 (DUPLICATE), :591 (ORPHAN_COLS), :666 (ERR_REF).
 export const LOG_TAGS = ["DUPLICATE", "ORPHAN_COLS"];
 
+// ---- not yet placed in a section -------------------------------------------
+export const RIBBON_CONTROL_KEYS = ["mnuMaterial", "mnuLabor", "mnuEquipment", "mnuBOQ", "mnuVendor", "mnuSupplier", "mnuSubContractor", "mnuFuel", "mnuRepository", "mnuEurocode", "mnuEgypt", "mnuSaudiArabia", "mnuSA_BuildingMaterialsPriceList", "mnuUnitedArabEmirates", "mnuKuwait", "mnuQatar", "mnuBahrain", "mnuOman", "mnuEG_BuildingMaterialsPriceList", "mnuEG_BusinessDirectory", "mnuEG_CompensationRates", "btnDiesel", "btnLiquidBitumen"];
+export const RIBBON_CONTROL_KEY_DEFAULT = "mnuDynamic";
+
 // ---- the sheets, and the gids compiled into the add-in ----------------------
 export const SHEETS = {
   "1.TableDefinition": {
