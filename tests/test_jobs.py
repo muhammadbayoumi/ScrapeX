@@ -599,6 +599,56 @@ def test_the_db_lock_wraps_only_the_ingest_not_the_network_fetch(tmp_path):
     assert held == [False], "the DB lock was held across the network fetch"
 
 
+def test_capture_reports_a_fetcher_degradation_once(tmp_path):
+    """A recovered request is still evidence about how the crawl succeeded.
+
+    samehgabriel refuses ``per_page`` but accepts the same Store API request
+    without it.  The adaptive fetcher keeps the crawl alive; capture must carry
+    that fact to the caller instead of losing it between HTTP and the run log.
+    """
+    from scrapex.capture import capture_source
+    from scrapex.config import ExtractSpec, SourceEntry
+    from scrapex.connectors.base import ScrapedTable
+    from scrapex.rowspec import PRODUCT_PRICES
+    from scrapex.vocab import ExtractKind, ExtractScope
+
+    conn = dbmod.connect(tmp_path / "degradation.db")
+    dbmod.migrate(conn)
+    entry = SourceEntry.model_validate(dict(
+        source_key="SAMEHGABRIEL", source_name="Sameh Gabriel",
+        base_url="https://samehgabriel.com", family="woocommerce-storeapi",
+        currency="EGP", default_region="EG",
+        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES,
+                             scope=ExtractScope.CENSUS)]))
+    note = "samehgabriel.com refused optional query parameter per_page; retried without it"
+
+    class _Connector:
+        connector_id = "woocommerce-store-api"
+
+        def fetch(self, source):
+            yield ScrapedTable(source.source_key, PRODUCT_PRICES.kind, source.base_url,
+                               list(PRODUCT_PRICES.columns), [], warnings=[note])
+
+    class _Fetcher:
+        requests_count = 2
+        degradations = [note]
+        robots_warnings = []
+
+        def close(self):
+            pass
+
+    import scrapex.capture as capmod
+    original = capmod.build_connector
+    capmod.build_connector = lambda e, crawl=None: (_Connector(), _Fetcher())
+    try:
+        result = capture_source(conn, entry)
+    finally:
+        capmod.build_connector = original
+        conn.close()
+
+    assert result.warnings == [note], "the degradation was lost or duplicated"
+
+
 def test_locked_capture_forwards_every_capture_keyword(tmp_path):
     """Regression (owner-reported: every full_rebuild failed on an unexpected
     'archive_first'). run_job_once passes history/resume/archive_first through

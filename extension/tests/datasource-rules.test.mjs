@@ -421,84 +421,78 @@ test("every finding names the field it is about", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A defect in the ADD-IN, found by a scanner pointed at this file.
-//
-// CodeQL flagged `lower.includes("docs.google.com")` as
-// js/incomplete-url-substring-sanitization. The mirror is deliberate — the
-// add-in matches exactly that way and this module's rule is to mirror rather
-// than invent — but the consequence CodeQL named is real, and it belongs to the
-// add-in: an address that merely MENTIONS docs.google.com passes every check it
-// makes, and is then downloaded with no authentication.
-//
-// So the mirror was not deleted and was not silenced. It was SEPARATED. The
-// add-in's substring test is `readsUriAsGoogleSheets` in the contract module,
-// beside the other quirks it reproduces, and it decides nothing. What decides is
-// the parsed host, here. The two tests below hold that separation in place: one
-// proves the mirror still agrees with the add-in even where the add-in is wrong,
-// the other proves the Console refuses anyway.
+// The add-in's SourceUriValidator repair, merged 2026-08-13. The old mirror was
+// intentionally wrong in the same way as C#: it searched the whole address for
+// `docs.google.com`. C# now parses and normalises the host, accepts exactly two
+// Sheets hosts, and emits ERR_FORMAT for an address that merely mentions one.
+// These tests pin both halves so ScrapeX cannot keep describing the repaired
+// defect or accidentally broaden "Sheets" to every service under google.com.
 // ---------------------------------------------------------------------------
 
-test("the mirror still agrees with the add-in, INCLUDING where it is wrong", () => {
-  // If this ever goes false, the add-in has been repaired — and then the
-  // impostor Error below becomes unreachable and should be reconsidered, not
-  // deleted on the grounds that nothing hits it.
-  assert.equal(
-    readsUriAsGoogleSheets("https://attacker.example/?x=docs.google.com"), true,
-    "the mirror no longer reproduces SourceUriValidator's substring match");
-  assert.equal(readsUriAsGoogleSheets("https://DOCS.GOOGLE.COM/pub"), true,
-    "the add-in matches case-insensitively and this no longer does");
-  assert.equal(readsUriAsGoogleSheets(""), false);
-  assert.equal(readsUriAsGoogleSheets(null), false);
-});
-
-test("and deciding by the mirror alone would accept the attack", () => {
-  // Stated as an assertion rather than a comment, because this is the whole
-  // reason the two live apart: agreeing with the add-in is NOT a safety verdict.
-  const attack = "https://attacker.example/collect?x=docs.google.com&output=tsv";
-
-  assert.equal(readsUriAsGoogleSheets(attack), true,
-    "the add-in would call this a Google Sheet");
-  assert.ok(checkSourceUri(attack).some((f) => f.severity === "Error"),
-    "and the Console let it through, which means the host check has gone");
+test("the mirror reads the parsed host exactly as the repaired add-in does", () => {
+  for (const uri of [
+    "https://DOCS.GOOGLE.COM/pub",
+    "https://spreadsheets.google.com/pub",
+    "https://user:pw@docs.google.com:443/pub",
+    "https://docs.google.com./pub",
+  ]) {
+    assert.equal(readsUriAsGoogleSheets(uri), true, uri);
+  }
+  for (const uri of [
+    "https://attacker.example/?x=docs.google.com",
+    "https://docs.google.com.attacker.example/pub",
+    "https://docs.google.com@attacker.example/pub",
+    "https://drive.google.com/file/d/1",
+    "https://script.google.com/macros/s/1",
+    // Not http(s): the add-in fails these on FORMAT and yield-breaks before it
+    // ever asks whether they are Sheets. `new URL()` parses them happily and
+    // returns Google's host, so the mirror has to refuse them on the scheme.
+    "ftp://docs.google.com/x",
+    "gopher://docs.google.com/",
+    "",
+    null,
+  ]) {
+    assert.equal(readsUriAsGoogleSheets(uri), false, String(uri));
+  }
 });
 
 test("an address that only MENTIONS Google is refused, and says who serves it", () => {
   const found = checkSourceUri(
     "https://attacker.example/collect?x=docs.google.com&output=tsv");
 
-  const impostor = found.filter((f) => /MENTIONS/.test(f.detail));
+  const impostor = found.filter((f) => /impostor/.test(f.detail));
   assert.equal(impostor.length, 1);
   assert.equal(impostor[0].severity, "Error");
   assert.match(impostor[0].detail, /attacker\.example/,
     "the message does not name the host actually being talked to, which is the "
     + "one fact that settles it");
-  assert.match(impostor[0].detail, /no authentication/);
+  assert.equal(impostor[0].code, "ERR_FORMAT");
 });
 
 test("a look-alike host is refused too", () => {
   // The other half of the same trick, and the one a reader is likeliest to miss.
   const found = checkSourceUri(
     "https://docs.google.com.attacker.example/pub?gid=1&output=tsv");
-  assert.ok(found.some((f) => /MENTIONS/.test(f.detail)),
+  assert.ok(found.some((f) => /impostor/.test(f.detail)),
     "docs.google.com.attacker.example was accepted as Google's own host");
 });
 
 test("the real thing is not refused, on either Google host shape", () => {
   for (const uri of [PUBLISHED,
                      "https://spreadsheets.google.com/pub?gid=1&output=tsv"]) {
-    assert.deepEqual(checkSourceUri(uri).filter((f) => /MENTIONS/.test(f.detail)),
+    assert.deepEqual(checkSourceUri(uri).filter((f) => /impostor/.test(f.detail)),
       [], `${uri} was treated as an impostor`);
   }
 });
 
-test("the TSV rule still mirrors the add-in's substring match exactly", () => {
-  // Deliberately NOT narrowed to the real host: the Console must ask for
-  // output=tsv in precisely the cases the add-in does, or it is describing a
-  // different program.
-  const found = checkSourceUri("https://attacker.example/?x=docs.google.com");
-  assert.ok(found.some((f) => /output=tsv/.test(f.fix)),
-    "the TSV warning stopped firing for an address the add-in would still "
-    + "treat as a Google Sheet");
+test("the TSV rule follows the parsed-host decision, not a mention", () => {
+  const impostor = checkSourceUri("https://attacker.example/?x=docs.google.com");
+  assert.equal(impostor.some((f) => /output=tsv/.test(f.fix)), false,
+    "an impostor still received the old whole-string Sheets rules");
+
+  const real = checkSourceUri("https://docs.google.com/spreadsheets/d/1/pub");
+  assert.ok(real.some((f) => /output=tsv/.test(f.fix)),
+    "a real Sheets host no longer receives the TSV-format rule");
 });
 
 test("a malformed address is refused rather than parsed by guesswork", () => {

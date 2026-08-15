@@ -31,7 +31,7 @@ import {
   BEHAVIOUR_VERSION, TRUE_SPELLINGS, FALSE_SPELLINGS, CLICKABLE_ACTIONS,
   MENU_ACTIONS, ENTITY_TYPES, STORAGE_STRATEGIES, LICENSE_TIERS, SEMANTIC_ROLES,
   DATA_TYPES, SOURCE_TYPES, MATCH_MODES, SHEETS as CONTRACT_SHEETS,
-  URI_GOOGLE_SHEETS_MARKER,
+  URI_GOOGLE_SHEETS_HOSTS,
 } from "./addin-vocabulary.js";
 
 /**
@@ -42,7 +42,7 @@ import {
  * the half that cannot be generated — so the test that compares them says, in
  * its own words, what has to happen first.
  */
-export const READ_AGAINST_BEHAVIOUR_VERSION = 1;
+export const READ_AGAINST_BEHAVIOUR_VERSION = 2;
 
 /** Both halves of ACTION_CLASS, which the add-in routes differently. */
 export const ACTION_CLASSES = [...CLICKABLE_ACTIONS, ...MENU_ACTIONS];
@@ -70,31 +70,34 @@ export function readBoolean(cell, whenUnreadable) {
 }
 
 /**
- * What the add-in makes of an ADDRESS — `SourceUriValidator`'s own test, and a
- * companion to `readBoolean` above in every sense: a quirk of the add-in
- * reproduced here so the Console can report it, with the literals read from the
- * contract rather than written into this line.
+ * What the add-in makes of an ADDRESS — `SourceUriValidator` after mbiXaddin
+ * PR #26 (merged 2026-08-13). The old reading searched the whole string for
+ * `docs.google.com`; it now parses an absolute URI, takes only its host, strips
+ * trailing DNS root dots, and compares exactly against the two hosts in the
+ * generated contract.
  *
- * IT IS A SUBSTRING OF THE WHOLE ADDRESS, and that is a defect. The host is
- * never parsed, so
+ * Invalid, local-path and NON-HTTP shapes return false here. `checkSourceUri`
+ * owns their findings, matching the add-in's separation between "is this
+ * Sheets?" and "is this address valid?".
  *
- *     https://attacker.example/?x=docs.google.com&output=tsv
- *
- * is "a Google Sheet" as far as the add-in is concerned. It then fetches it
- * over plain HTTP with NO AUTHENTICATION, following up to five redirects, and
- * parses whatever returns as the table's rows.
- *
- * THIS FUNCTION IS NOT A SECURITY CHECK AND MUST NEVER BE USED AS ONE. It
- * answers exactly one question — "what will the add-in conclude?" — so the
- * Console's advice about a TSV format and a gid lands in precisely the cases
- * the add-in's does. Whether an address IS Google's is decided by parsing the
- * host, in `checkSourceUri`, which is also where the impostor above is reported.
- *
- * The real repair belongs in the add-in's C#; until it lands, the Console is
- * the only surface that says this out loud.
+ * THE SCHEME GATE IS NOT DECORATION. The add-in reaches this decision only
+ * inside `if (isHttp)`, and anything that is neither http(s) nor a local path
+ * has already failed with ERR_FORMAT and `yield break` by then
+ * (`SourceUriValidator.cs:66-80`). `new URL()` is happy to parse
+ * `ftp://docs.google.com/x` and hand back Google's host, so without this line
+ * the mirror answers TRUE where the add-in never asks the question — the one
+ * thing this function exists not to do.
  */
 export function readsUriAsGoogleSheets(uri) {
-  return String(uri ?? "").toLowerCase().includes(URI_GOOGLE_SHEETS_MARKER);
+  const value = String(uri ?? "");
+  const scheme = value.slice(0, 8).toLowerCase();
+  if (!scheme.startsWith("http://") && !scheme.startsWith("https://")) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase().replace(/\.+$/, "");
+    return URI_GOOGLE_SHEETS_HOSTS.includes(host);
+  } catch {
+    return false;
+  }
 }
 
 /**

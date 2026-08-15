@@ -50,10 +50,11 @@ def _key_from_host(host: str) -> str:
     return key[:64]
 
 
-def _try_json(fetcher, url: str, **kw):
+def _try_json(fetcher, url: str, *, optional=(), **kw):
     """GET and parse JSON, returning None on any failure (probe is best-effort)."""
     try:
-        resp = fetcher.get(url, **kw)
+        resp = (fetcher.get_dropping(url, optional=optional, **kw)
+                if optional else fetcher.get(url, **kw))
     except Exception:
         return None
     try:
@@ -80,7 +81,10 @@ def probe(url: str, fetcher: HttpFetcher | None = None) -> ProbeResult:
             evidence.append("/products.json returned a Shopify products array")
         # 2) WooCommerce Store API
         if family == ConnectorFamily.TBD_PROBE:
-            data = _try_json(fetcher, f"{base}/wp-json/wc/store/products", params={"per_page": 1})
+            data = _try_json(
+                fetcher, f"{base}/wp-json/wc/store/products",
+                optional=("per_page",), params={"per_page": 1},
+                headers={"Accept": "application/json"})
             if isinstance(data, list):
                 reachable = True
                 family = ConnectorFamily.WOOCOMMERCE_STOREAPI

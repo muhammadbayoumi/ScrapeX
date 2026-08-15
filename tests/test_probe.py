@@ -29,6 +29,8 @@ class _StubFetcher:
             if needle in url:
                 return resp
         raise RuntimeError("404")
+    def get_dropping(self, url, optional=(), **kw):
+        return self.get(url, **kw)
     def close(self):
         pass
 

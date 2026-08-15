@@ -85,6 +85,69 @@ def test_a_client_error_is_not_retried():
     assert len(seen) == 1
 
 
+# ---- optional request shape: learn once, never hide the cost ----------------
+
+def test_an_optional_parameter_refused_by_the_host_is_dropped_once_and_recorded():
+    """samehgabriel's live rule: the endpoint answers, `per_page` does not."""
+    fetcher, seen = fetcher_over([
+        httpx.Response(403),
+        httpx.Response(200, json=[{"id": 1}]),
+        httpx.Response(200, json=[]),
+    ], max_attempts=1)
+
+    first = fetcher.get_dropping(
+        URL, optional=("per_page",), params={"per_page": 100, "page": 1})
+    second = fetcher.get_dropping(
+        URL, optional=("per_page",), params={"per_page": 100, "page": 2})
+
+    assert first.json() == [{"id": 1}] and second.json() == []
+    assert dict(seen[0].url.params) == {"per_page": "100", "page": "1"}
+    assert dict(seen[1].url.params) == {"page": "1"}
+    assert dict(seen[2].url.params) == {"page": "2"}, (
+        "the proven-refused parameter was tried again on the next page")
+    assert len(fetcher.degradations) == 1
+    assert "per_page" in fetcher.degradations[0] and "HTTP 403" in fetcher.degradations[0]
+
+
+def test_a_parameter_lesson_belongs_to_the_host_that_taught_it():
+    """One host's edge rule must not rewrite requests to another host."""
+    fetcher, seen = fetcher_over([
+        httpx.Response(403), httpx.Response(200), httpx.Response(200),
+    ], max_attempts=1)
+
+    fetcher.get_dropping(
+        URL, optional=("per_page",), params={"per_page": 100, "page": 1})
+    fetcher.get_dropping(
+        "https://other.test/products", optional=("per_page",),
+        params={"per_page": 100, "page": 1})
+
+    assert seen[-1].url.params["per_page"] == "100"
+
+
+def test_a_rate_limit_is_never_rephrased_as_an_optional_parameter_problem():
+    fetcher, seen = fetcher_over([httpx.Response(429)], max_attempts=1)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        fetcher.get_dropping(
+            URL, optional=("per_page",), params={"per_page": 100, "page": 1})
+
+    assert len(seen) == 1, "429 was followed immediately by a differently shaped request"
+    assert fetcher.degradations == []
+
+
+def test_a_second_refusal_does_not_teach_a_lesson_the_host_never_proved():
+    fetcher, seen = fetcher_over(
+        [httpx.Response(403), httpx.Response(403)], max_attempts=1)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        fetcher.get_dropping(
+            URL, optional=("per_page",), params={"per_page": 100, "page": 1})
+
+    assert len(seen) == 2
+    assert fetcher.degradations == []
+    assert fetcher._refused_params == set()
+
+
 def test_retry_after_is_honoured_over_our_own_backoff(monkeypatch):
     slept: list[float] = []
     monkeypatch.setattr("scrapex.connectors.base.time.sleep", slept.append)
@@ -201,6 +264,28 @@ def test_validators_survive_between_crawls():
     later.get(URL)
 
     assert seen[0].headers["If-None-Match"] == '"v1"'
+
+
+def test_a_pages_validator_never_leaks_into_another_page():
+    """A paginated endpoint is several resources even when its path is one.
+
+    The live samehgabriel Store API gives page 1 an ETag. Replaying it against
+    page 2 returns a bodyless 304, which used to make ``response.json()`` fail
+    halfway through the crawl.
+    """
+    fetcher, seen = fetcher_over([
+        httpx.Response(200, text="page one", headers={"ETag": '"p1"'}),
+        httpx.Response(200, text="page two", headers={"ETag": '"p2"'}),
+        httpx.Response(304),
+    ])
+
+    fetcher.get(URL, params={"page": 1})
+    fetcher.get(URL, params={"page": 2})
+    fetcher.get(URL, params={"page": 1})
+
+    assert seen[1].headers.get("If-None-Match") is None
+    assert seen[2].headers["If-None-Match"] == '"p1"'
+    assert set(fetcher.validators()) == {f"{URL}?page=1", f"{URL}?page=2"}
 
 
 # ---- pacing -------------------------------------------------------------------
@@ -346,6 +431,19 @@ def test_no_robots_file_means_no_constraints_and_no_noise():
     fetcher.get(URL)
     assert fetcher._min_interval_s == 0.0
     assert fetcher.robots_warnings == []
+
+
+def test_a_sitemap_fallback_reads_the_addresses_the_site_itself_advertises():
+    fetcher, seen = _fetcher_with_robots(
+        "User-agent: *\nSitemap: https://example.test/wp-sitemap.xml\n"
+        "Sitemap: https://example.test/catalogue.xml\n")
+
+    assert fetcher.sitemap_urls(URL) == [
+        "https://example.test/wp-sitemap.xml",
+        "https://example.test/catalogue.xml",
+    ]
+    assert seen == ["https://example.test/robots.txt"]
+    assert fetcher.requests_count == 0, "the robots lookup became a crawl request"
 
 
 def test_a_huge_retry_after_is_capped_loudly_not_shrunk_silently():

@@ -12,7 +12,8 @@
 // would print a cascade of complaints about a row the add-in never reaches.
 
 import { readBoolean, readsUriAsGoogleSheets, BOOLEAN_DEFAULTS, ERROR_CODE,
-  CONSOLE_ONLY_CODE, CONTEXT_PROPS_KEYS, URI_TSV_MARKERS, URI_TAB_MARKER }
+  CONSOLE_ONLY_CODE, CONTEXT_PROPS_KEYS, URI_GOOGLE_SHEETS_HOSTS,
+  URI_TSV_MARKERS, URI_TAB_MARKER }
   from "./addin-contract.js";
 
 /**
@@ -87,42 +88,25 @@ export function checkSourceUri(uri) {
     }
   }
 
-  //: Is the address really Google's, rather than merely SAYING so?
-  const reallyGoogle = host === "docs.google.com" || host.endsWith(".google.com");
-
-  // A DEFECT IN THE ADD-IN, FOUND BY A SCANNER POINTED AT THIS FILE.
-  //
-  // `SourceUriValidator` decides "is this Google Sheets" with a case-insensitive
-  // SUBSTRING of the whole address — the host is never parsed. This module used
-  // to reproduce that substring inline, and CodeQL was right to object to the
-  // shape of it. The rule here is still to mirror rather than invent, so the
-  // mirror did not move out of the product: it moved to where the add-in's other
-  // quirks live, beside `readBoolean`, and it says on itself that it decides
-  // nothing. What is left below is this module's own reasoning, on a PARSED host.
-  //
-  // The consequence CodeQL named is real, and it is the add-in's:
-  //
-  //     https://attacker.example/?x=docs.google.com&output=tsv
-  //
-  // satisfies every check the add-in makes, and the add-in then downloads it
-  // with no authentication of any kind, following up to five redirects.
-  // Whatever comes back is parsed as the table's rows. The Console cannot fix
-  // that from here — it can only refuse to stay quiet about it.
+  // mbiXaddin repaired its old whole-string substring decision in PR #26. The
+  // mirror now parses the same host and accepts exactly docs.google.com or
+  // spreadsheets.google.com. An address that merely mentions either literal
+  // still gets the add-in's new ERR_FORMAT finding below; it no longer receives
+  // the TSV/gid rules, because the add-in no longer calls it a Sheet.
   const addinReadsThisAsGoogleSheets = readsUriAsGoogleSheets(value);
+  const mentionsSheetsHost = URI_GOOGLE_SHEETS_HOSTS.some(
+    (candidate) => lower.includes(candidate));
 
-  if (isHttp && addinReadsThisAsGoogleSheets && !reallyGoogle) {
+  if (isHttp && mentionsSheetsHost && !addinReadsThisAsGoogleSheets) {
     found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badFormat,
-      `This address MENTIONS docs.google.com but is served by "${host}". The `
-      + "add-in decides an address is Google's by searching the whole string, "
-      + "so it accepts this one and downloads it with no authentication — and "
-      + "whatever comes back becomes the table's rows.",
+      `This address mentions a Google Sheets host but is served by "${host}". `
+      + "The add-in parses the host and rejects this as an impostor address.",
       "If this is meant to be a Google Sheet, the host itself must be "
-      + "docs.google.com."));
+      + "docs.google.com or spreadsheets.google.com."));
   }
 
-  // The same answer, not a second reading of it — so the Console asks for
-  // output=tsv in precisely the cases the add-in does, including the impostor
-  // above, which the add-in also demands a TSV format from.
+  // The same answer, not a second reading: TSV and gid apply only after the
+  // parsed-host decision, exactly as they now do in SourceUriValidator.
   if (addinReadsThisAsGoogleSheets) {
     if (!URI_TSV_MARKERS.some((marker) => lower.includes(marker))) {
       found.push(finding("Error", "SOURCE_URI", ERROR_CODE.badFormat,

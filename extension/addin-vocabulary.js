@@ -4,11 +4,11 @@
 // mbiXaddin's C# accepts. A test fails if this file and that one
 // disagree, so a hand edit here is caught rather than shipped.
 //
-// contract version 1 · behaviour version 1 · read 2026-08-12 from muhammadbayoumi/mbiXaddin
+// contract version 2 · behaviour version 2 · read 2026-08-13 from muhammadbayoumi/mbiXaddin
 
-export const CONTRACT_VERSION = 1;
-export const BEHAVIOUR_VERSION = 1;
-export const CONTRACT_READ_ON = "2026-08-12";
+export const CONTRACT_VERSION = 2;
+export const BEHAVIOUR_VERSION = 2;
+export const CONTRACT_READ_ON = "2026-08-13";
 
 // ---- 4.DataMap -----------------------------------------------------------
 export const SOURCE_TYPES = ["Header", "Index", "Context", "Constant", "Formula"];
@@ -112,12 +112,12 @@ export const TRANSFORM_SEPARATOR = "|";
 export const TRANSFORM_ARGUMENT_SEPARATOR = ":";
 export const BLOCKS_SYNC_FROM = "Error";
 
-// The three literals SourceUriValidator searches for inside the WHOLE
-// address, case-insensitively (SourceUriValidator.cs:80-118). They are
-// contract facts exactly like the transform separator above: change one in
-// the add-in and every Console warning about an address becomes wrong.
-// They live here rather than inline for the same reason the boolean
-// spellings do — so a change to the add-in has one place to land.
-export const URI_GOOGLE_SHEETS_MARKER = "docs.google.com";
+// SourceUriValidator now parses the URI and compares the normalised HOST
+// exactly against these two Google Sheets hosts (SourceUriValidator change
+// merged 2026-08-13, mbiXaddin PR #26). It strips trailing root dots and
+// compares case-insensitively; userinfo, ports, paths and query strings do
+// not participate. The TSV and gid literals are still searched in the
+// whole lower-cased address after that host decision.
+export const URI_GOOGLE_SHEETS_HOSTS = ["docs.google.com", "spreadsheets.google.com"];
 export const URI_TSV_MARKERS = ["output=tsv", "format=tsv"];
 export const URI_TAB_MARKER = "gid=";

@@ -30,10 +30,44 @@
     "is made impossible to change SILENTLY."
   ],
 
-  "contractVersion": 1,
-  "behaviourVersion": 1,
-  "readOn": "2026-08-12",
+  "contractVersion": 2,
+  "behaviourVersion": 2,
+  "readOn": "2026-08-13",
   "readFrom": "muhammadbayoumi/mbiXaddin",
+
+  "_comment_read_against": [
+    "WHICH UPSTREAM STATE THIS READING DESCRIBES, as a commit rather than a date,",
+    "because a date cannot be checked and a commit can. Everything the Console",
+    "believes about mbiXaddin was read from the tree at readAgainstCommit.",
+    "",
+    "IT IS RECORDED BECAUSE THE VERSION NUMBERS ABOVE CANNOT DETECT UPSTREAM",
+    "DRIFT. mbiXaddin has no behaviourVersion of its own — both numbers live in",
+    "THIS repository, and the same hand raises both in the same commit, so their",
+    "agreement proves ScrapeX is internally consistent and nothing more. The",
+    "commit is what lets a test go and look: see the file-drift guard in",
+    "tests/test_the_addin_contract_cannot_drift.py, which compares the .cs files",
+    "this reading cites against the add-in's own main branch.",
+    "",
+    "reviewedSince — cited files that HAVE moved since, each read and found not",
+    "to touch what the Console believes, pinned to the blob they were dismissed",
+    "at. A further edit changes the blob and the guard fires again. THIS LIST IS",
+    "EVIDENCE, NOT AN EXEMPTION: an entry with no reason is a hole."
+  ],
+  "readAgainstCommit": "62184eed5d28d04626ae2ac2e0c51b42c75dc295",
+  "reviewedSince": {
+    "EndpointCatalog.cs": {
+      "blob": "4d26c50327fb0eb3e7bb1a1be8fa1fb1a834570d",
+      "why": "A comment rewrite about which release endpoint is still served. The six compiled-in sheet gids the Console refuses a wrong workbook by are untouched."
+    },
+    "HttpClientService.cs": {
+      "blob": "6eaed48e8a27bb1f31ff34083bde9a70c0ddc748",
+      "why": "5xx backoff bounded by the caller's timeout. Network retry behaviour; it decides nothing about the six configuration sheets."
+    },
+    "mbiXRibbon.cs": {
+      "blob": "5dfd107927c72e381407f812ac02d02aeb975dad",
+      "why": "One click throttle and one dialog presenter across five ribbon buttons. UI plumbing, not 6.RibbonControls semantics."
+    }
+  },
 
   "sheets": {
     "1.TableDefinition": {
@@ -166,14 +200,14 @@
     "BLOCKS_SYNC_FROM": "Error",
 
     "_comment_uri": [
-      "The three literals SourceUriValidator searches for inside the WHOLE",
-      "address, case-insensitively (SourceUriValidator.cs:80-118). They are",
-      "contract facts exactly like the transform separator above: change one in",
-      "the add-in and every Console warning about an address becomes wrong.",
-      "They live here rather than inline for the same reason the boolean",
-      "spellings do — so a change to the add-in has one place to land."
+      "SourceUriValidator now parses the URI and compares the normalised HOST",
+      "exactly against these two Google Sheets hosts (SourceUriValidator change",
+      "merged 2026-08-13, mbiXaddin PR #26). It strips trailing root dots and",
+      "compares case-insensitively; userinfo, ports, paths and query strings do",
+      "not participate. The TSV and gid literals are still searched in the",
+      "whole lower-cased address after that host decision."
     ],
-    "URI_GOOGLE_SHEETS_MARKER": "docs.google.com",
+    "URI_GOOGLE_SHEETS_HOSTS": ["docs.google.com", "spreadsheets.google.com"],
     "URI_TSV_MARKERS": ["output=tsv", "format=tsv"],
     "URI_TAB_MARKER": "gid="
   }

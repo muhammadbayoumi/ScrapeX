@@ -281,7 +281,9 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
             # (owner robots ruling), data warnings at WARNING.
             from .jobs import append_log
             from .vocab import LogLevel
-            flush = [w for t in tables for w in t.warnings]
+            flush = list(dict.fromkeys(
+                [w for t in tables for w in t.warnings]
+                + list(getattr(fetcher, "degradations", []) or [])))
             for w in flush[:12]:
                 append_log(conn, job_id, f"warning: {w}",
                            level=LogLevel.WARNING, source_key=entry.source_key)
@@ -355,9 +357,12 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         localinbox.clear(localinbox.JOURNAL_DIR, entry.source_key)
     # rows/tables come from the PAYLOADS: on a resume the fetched tables are
     # only the tail of the crawl, and the F6 volume canary must see the whole.
+    run_warnings = list(dict.fromkeys(
+        [w for t in tables for w in t.warnings]
+        + list(getattr(fetcher, "degradations", []) or [])))
     return CaptureResult(ingest=result, requests_count=requests_count,
                          tables=len(payloads), rows=sum(len(p.rows) for p in payloads),
-                         warnings=[w for t in tables for w in t.warnings],
+                         warnings=run_warnings,
                          notes=list(getattr(fetcher, "robots_warnings", []) or []))
 
 

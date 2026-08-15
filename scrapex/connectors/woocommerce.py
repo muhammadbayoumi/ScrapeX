@@ -13,16 +13,41 @@ request per variation buys the real numbers.
 """
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode, urlsplit
+
+import httpx
+from bs4 import BeautifulSoup
 
 from ..config import SourceEntry
+from ..localinbox import safe_token
 from ..normalize import brand_pair, option_axes_json, option_fingerprint, strip_markup
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, DetailGroup, ExtractKind, group_for_code
-from .base import CrawlBlocked, HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable, declare_frontier
+from .jsonld import (
+    WalkTally,
+    brand_name,
+    category_path,
+    offer_price,
+    sitemap_locs,
+    walk_product_pages,
+)
+from .jsonld import (
+    enrichment_rows as jsonld_enrichment_rows,
+)
+from .jsonld import (
+    product_row as jsonld_product_row,
+)
 
 PER_PAGE = 100
+_API_HEADERS = {"Accept": "application/json"}
+_PAGE_HEADERS = {"Accept": "text/html,application/xhtml+xml"}
+_SITEMAP_HEADERS = {"Accept": "application/xml,text/xml;q=0.9,*/*;q=0.8"}
+_PAGE_FALLBACK_STATUSES = frozenset({400, 401, 403, 404, 405, 406, 410, 414, 422})
 
 
 # Attributes that are NOT details (owner's correction, 2026-07-22): the single
@@ -105,6 +130,175 @@ def _money(prices: dict, key: str) -> str:
     return f"{int(raw) / (10 ** minor):.{minor}f}"
 
 
+def _positive_int(value) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _site_host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower().rstrip(".").removeprefix("www.")
+
+
+def _same_site(url: str, host: str) -> bool:
+    return bool(host) and _site_host(url) == host
+
+
+def _is_product_sitemap(url: str) -> bool:
+    name = urlsplit(url).path.rsplit("/", 1)[-1].lower()
+    excluded = ("product_cat", "product-tag", "product_tag", "taxonom", "shipping", "pa_")
+    return name.endswith(".xml") and "product" in name and not any(
+        marker in name for marker in excluded)
+
+
+def _same_site_products(urls: Iterable[str], host: str,
+                        *, trusted_product_map: bool = False) -> list[str]:
+    products: list[str] = []
+    for url in urls:
+        path = urlsplit(url).path.lower()
+        if not _same_site(url, host) or path.endswith(".xml"):
+            continue
+        if trusted_product_map or "/product/" in path:
+            products.append(url)
+    return list(dict.fromkeys(products))
+
+
+def _decimal_money(value) -> str:
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return ""
+    if not amount.is_finite() or amount <= 0:
+        return ""
+    return format(amount.quantize(Decimal("0.01")), "f")
+
+
+def _jsonld_product_id(html: str, node: dict, url: str) -> str:
+    soup = BeautifulSoup(html, "lxml")
+    body_classes = soup.body.get("class", []) if soup.body else []
+    for class_name in body_classes:
+        found = re.fullmatch(r"postid-(\d+)", str(class_name))
+        if found:
+            return found.group(1)
+    return str(node.get("productID") or node.get("sku")
+               or str(node.get("@id") or "").removesuffix("#product") or url)
+
+
+def _page_variations(html: str) -> tuple[list[dict], dict[str, tuple[str, dict[str, str]]]]:
+    """Woo's embedded variations and the page's own labels for their slugs."""
+    soup = BeautifulSoup(html, "lxml")
+    form = soup.select_one("form.variations_form[data-product_variations]")
+    if form is None:
+        return [], {}
+    try:
+        variations = json.loads(str(form.get("data-product_variations") or ""))
+    except (json.JSONDecodeError, TypeError):
+        return [], {}
+    if not isinstance(variations, list):
+        return [], {}
+
+    axes: dict[str, tuple[str, dict[str, str]]] = {}
+    for select in form.select("select[name]"):
+        name = str(select.get("name") or "")
+        code = name.removeprefix("attribute_")
+        label_tag = form.find("label", attrs={"for": code})
+        label = label_tag.get_text(" ", strip=True) if label_tag else code
+        values = {str(option.get("value") or ""): option.get_text(" ", strip=True)
+                  for option in select.find_all("option")
+                  if option.get("value") not in (None, "")}
+        axes[name] = (label or code, values)
+    return [v for v in variations if isinstance(v, dict)], axes
+
+
+def _variation_axes_from_page(attributes: dict,
+                              labels: dict[str, tuple[str, dict[str, str]]]
+                              ) -> dict[str, str]:
+    axes: dict[str, str] = {}
+    for name, raw in (attributes or {}).items():
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        label, choices = labels.get(str(name),
+                                    (str(name).removeprefix("attribute_"), {}))
+        axes[label] = choices.get(value, value)
+    return axes
+
+
+def _jsonld_has_unsafe_range(offers) -> bool:
+    candidates = offers if isinstance(offers, list) else [offers]
+    prices = [offer_price(offer)[0] for offer in candidates
+              if isinstance(offer, dict)]
+    stated = {price for price in prices if price}
+    if len(stated) > 1:
+        return True
+    if isinstance(offers, dict):
+        low = str(offers.get("lowPrice") or "")
+        high = str(offers.get("highPrice") or "")
+        return bool(low and high and low != high)
+    return False
+
+
+def _jsonld_price_rows(builder: RowBuilder, node: dict, html: str, url: str,
+                       source: SourceEntry, vat: str,
+                       notes: list[str]) -> tuple[list[list[str]], str]:
+    """Rows from a Woo product page, preserving live variation ids when stated."""
+    pid = _jsonld_product_id(html, node, url)
+    variations, labels = _page_variations(html)
+    if variations:
+        _summary_price, currency, _summary_availability = offer_price(node.get("offers"))
+        rows: list[list[str]] = []
+        skipped = 0
+        for variation in variations:
+            effective = _decimal_money(variation.get("display_price"))
+            if not effective or not variation.get("variation_is_active", True):
+                skipped += 1
+                continue
+            regular = _decimal_money(variation.get("display_regular_price")) or effective
+            axes = _variation_axes_from_page(
+                variation.get("attributes") or {}, labels)
+            option = ", ".join(f"{name}: {value}" for name, value in axes.items())
+            query = urlencode(variation.get("attributes") or {})
+            rows.append(builder.row(
+                external_product_id=pid,
+                external_variant_id=str(variation.get("variation_id") or ""),
+                external_sku=str(variation.get("sku") or node.get("sku") or ""),
+                product_name_ar=str(node.get("name") or ""),
+                **brand_pair(brand_name(node)),
+                product_link=url,
+                variant_url=f"{url}{'&' if '?' in url else '?'}{query}" if query else url,
+                parent_sku=str(node.get("sku") or ""),
+                variant_ar=option,
+                option_fingerprint=option_fingerprint(axes) if axes else "",
+                variant_axes_ar=option_axes_json(axes),
+                country_code_alpha2=source.default_region,
+                currency=currency or source.currency or "UNKNOWN",
+                tax_included=vat,
+                price_before=regular,
+                price_sale=effective if effective != regular else "",
+                price=effective,
+                availability=(Availability.IN_STOCK.value
+                              if variation.get("is_in_stock")
+                              else Availability.OUT_OF_STOCK.value),
+                category_path_ar=category_path(node),
+            ))
+        if skipped:
+            notes.append(
+                f"{skipped} variation(s) on {node.get('name') or url} carried "
+                "no active positive price in the page record and were skipped")
+        return rows, pid
+
+    if _jsonld_has_unsafe_range(node.get("offers")):
+        notes.append(
+            f"{node.get('name') or url}: JSON-LD publishes a price range but "
+            "no individually identified offers — skipped rather than stored "
+            "at the range's low end")
+        return [], pid
+    row = jsonld_product_row(builder, node, url, source, vat, pid)
+    return ([row] if row is not None else []), pid
+
+
 class WooCommerceConnector:
     connector_id = "woocommerce-storeapi"
 
@@ -119,19 +313,83 @@ class WooCommerceConnector:
         base = source.base_url.rstrip("/")
         endpoint = f"{base}/wp-json/wc/store/products"
         vat = "1" if source.vat_mode.value == "incl" else "0"
-        rows: list[list[str]] = []
         notes: list[str] = []
         fetched: list[dict] = []      # kept so enrichment needs no second fetch
 
         page = 1
+        page_size: int | None = None
+        # WHEN THE JSON-LD FALLBACK MAY BE ENTERED, and it is narrower than it
+        # looks: only before the API has answered once (`api_started`) and only
+        # on a crawl with NOTHING JOURNALLED (`not self.skip_tokens`). Every
+        # fallback branch below repeats both halves.
+        #
+        # THE SECOND HALF IS ABOUT DOUBLE INGESTION, not about caution. The two
+        # routes token their pages differently — the API journals `page-1`,
+        # `page-2`, …, the fallback journals `safe_token(product_url)`. Neither
+        # set can recognise the other, so a journal holding API pages plus a
+        # fallback resume would carry the SAME products under two tokens and
+        # ingest them twice. `_fetch_jsonld` honours `skip_tokens` for its own
+        # tokens, which makes an all-fallback journal resumable — but it cannot
+        # tell a `page-3` payload apart from one it has yet to fetch.
+        #
+        # THE COST IS REAL AND ACCEPTED: a fallback crawl that is interrupted
+        # cannot resume. Its next attempt meets the same refusal, finds a
+        # non-empty journal, and FAILS rather than falling back again — and it
+        # will keep failing until that journal is cleared, which discards the
+        # pages it had. Paying that is deliberate: a hard failure is visible and
+        # repairable, while a doubled price history is neither.
+        api_started = False
         while True:
             token = f"page-{page}"
             if token in self.skip_tokens:
                 page += 1
                 continue      # already journaled — never re-asked
-            products = self._fetcher.get(endpoint, params={"per_page": PER_PAGE, "page": page}).json()
-            if not isinstance(products, list) or not products:
+            # `per_page` is an EFFICIENCY, not part of the answer, so it is named
+            # optional: samehgabriel.com answers 200 to this endpoint and 403 to
+            # the same endpoint with `?per_page=1` — any value at all. Twelve
+            # days of that source were lost to a query string. The fetcher asks
+            # again without it and RECORDS that it had to.
+            try:
+                response = self._fetcher.get_dropping(
+                    endpoint, optional=("per_page",),
+                    params={"per_page": PER_PAGE, "page": page},
+                    headers=_API_HEADERS)
+                products = response.json()
+            except CrawlBlocked:
+                raise
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if (not api_started and not self.skip_tokens
+                        and status in _PAGE_FALLBACK_STATUSES):
+                    yield from self._fetch_jsonld(
+                        source, f"Store API answered HTTP {status} after its "
+                        "optional parameters were removed")
+                    return
+                raise
+            except ValueError as exc:
+                if not api_started and not self.skip_tokens:
+                    yield from self._fetch_jsonld(
+                        source, f"Store API returned unreadable JSON ({exc})")
+                    return
+                raise
+
+            if not isinstance(products, list):
+                if not api_started and not self.skip_tokens:
+                    yield from self._fetch_jsonld(
+                        source, "Store API no longer returned a product array")
+                    return
+                raise RuntimeError(
+                    f"{endpoint}?page={page} returned "
+                    f"{type(products).__name__}, not a product array")
+            if not products:
+                if not api_started and not self.skip_tokens:
+                    yield from self._fetch_jsonld(
+                        source, "Store API returned an empty first page")
+                    return
                 break
+
+            api_started = True
+            before_notes = len(notes)
             page_rows: list[list[str]] = []
             for p in products:
                 made = self._product_rows(builder, p, source, vat, endpoint, notes)
@@ -143,16 +401,26 @@ class WooCommerceConnector:
                     # and arrive as out-of-scope rejects — noise that looks like
                     # a contract breach. What we priced is what we describe.
                     fetched.append(p)
-            rows.extend(page_rows)
             # One table PER PAGE so a pause keeps what it fetched: the journal
             # stores each as it arrives and the resume starts at the tail.
             yield ScrapedTable(
                 source_key=source.source_key, kind=PRODUCT_PRICES.kind,
                 source_url=f"{endpoint}?page={page}", header=builder.header,
-                rows=page_rows, warnings=notes if page == 1 else [],
+                rows=page_rows, warnings=notes[before_notes:],
                 page_token=token,
             )
-            if len(products) < PER_PAGE:
+            # Prefer the API's own frontier when it states one. The live host
+            # that rejects `per_page` still answers X-WP-TotalPages: 2; reading
+            # that is stronger than inferring a rule from one page. A shop that
+            # omits the header falls back to the observed page size — never the
+            # size we asked for, because it may have refused that request.
+            announced_pages = _positive_int(
+                response.headers.get("X-WP-TotalPages"))
+            if announced_pages is not None and page >= announced_pages:
+                break
+            if page_size is None:
+                page_size = len(products)
+            if announced_pages is None and len(products) < page_size:
                 break
             page += 1
         # A SECOND table from the SAME fetch. The attributes, categories, tags,
@@ -169,6 +437,116 @@ class WooCommerceConnector:
                     source_key=source.source_key, kind=ENRICHMENT.kind,
                     source_url=endpoint, header=extra.header, rows=attribute_rows,
                 )
+
+    def _fetch_jsonld(self, source: SourceEntry,
+                      reason: str) -> Iterable[ScrapedTable]:
+        """Fallback to the public product pages when the Store API shape is gone.
+
+        JSON-LD is the stable price summary. WooCommerce's own embedded
+        variation record, when present on the SAME page, preserves the numeric
+        product/variation ids and the per-colour prices the API normally gives
+        us. The route is explicitly a warning: page markup carries fewer
+        enrichment facts and costs one request per product.
+        """
+        base = source.base_url.rstrip("/")
+        urls = self._product_urls(base)
+        if not urls:
+            raise RuntimeError(
+                f"{reason}; the JSON-LD fallback could not discover any product "
+                f"URLs from robots.txt or the WordPress sitemap indexes at {base}")
+
+        remaining = [url for url in urls if safe_token(url) not in self.skip_tokens]
+        declare_frontier(self._fetcher, len(remaining))
+        tally = WalkTally()
+        wants_enrichment = any(spec.kind == ExtractKind.ENRICHMENT
+                               for spec in source.extract)
+        vat = "1" if source.vat_mode.value == "incl" else "0"
+        unlanded_notes: list[str] = []
+
+        fallback_warning = (
+            f"{reason}; used the site's public product pages instead. Prices "
+            "came from Product JSON-LD and WooCommerce's page variation record "
+            "when present. This route costs one request per product and its "
+            "enrichment is narrower than the Store API.")
+
+        for url, token, html, node in walk_product_pages(
+                self._fetcher, urls, self.skip_tokens, safe_token, tally,
+                request_kwargs={"headers": _PAGE_HEADERS}):
+            builder = RowBuilder(PRODUCT_PRICES)
+            page_notes: list[str] = []
+            rows, pid = _jsonld_price_rows(
+                builder, node, html, url, source, vat, page_notes)
+            if not rows:
+                tally.priceless += 1
+                unlanded_notes.extend(page_notes)
+            else:
+                yield ScrapedTable(
+                    source.source_key, PRODUCT_PRICES.kind, url,
+                    builder.header, rows, warnings=page_notes,
+                    page_token=token)
+
+            if wants_enrichment and rows:
+                extra = RowBuilder(ENRICHMENT)
+                details = jsonld_enrichment_rows(extra, node, pid)
+                if details:
+                    yield ScrapedTable(
+                        source.source_key, ENRICHMENT.kind, url,
+                        extra.header, details, page_token=token)
+
+        summary = [fallback_warning, *unlanded_notes, *tally.notes()]
+        yield ScrapedTable(
+            source.source_key, PRODUCT_PRICES.kind, base,
+            RowBuilder(PRODUCT_PRICES).header, [], warnings=summary)
+
+    def _product_urls(self, base: str) -> list[str]:
+        """Product pages from the site's own sitemap declarations.
+
+        robots.txt leads. WordPress core and the two common plugin filenames
+        are fallbacks, tried only until one yields a product frontier.
+        """
+        roots: list[str] = []
+        advertised = getattr(self._fetcher, "sitemap_urls", None)
+        if advertised is not None:
+            try:
+                roots.extend(advertised(base))
+            except CrawlBlocked:
+                raise
+            except Exception:
+                pass
+        roots.extend([
+            f"{base}/wp-sitemap.xml",
+            f"{base}/sitemap_index.xml",
+            f"{base}/product-sitemap.xml",
+        ])
+        host = _site_host(base)
+        for root in dict.fromkeys(roots):
+            locs = self._sitemap_locs(root)
+            direct = _same_site_products(
+                locs, host, trusted_product_map=_is_product_sitemap(root))
+            if direct:
+                return direct
+            children = [url for url in locs
+                        if _same_site(url, host) and _is_product_sitemap(url)]
+            for child in children:
+                products = _same_site_products(
+                    self._sitemap_locs(child), host, trusted_product_map=True)
+                if products:
+                    return products
+        return []
+
+    def _sitemap_locs(self, url: str) -> list[str]:
+        try:
+            return sitemap_locs(
+                self._fetcher.get(url, headers=_SITEMAP_HEADERS).text)
+        except CrawlBlocked:
+            raise
+        except httpx.HTTPStatusError as exc:
+            # A missing guessed filename means try the next one. A rate limit or
+            # an unhealthy server means stop; probing more paths is extra load,
+            # not resilience.
+            if exc.response.status_code in _PAGE_FALLBACK_STATUSES:
+                return []
+            raise
 
     def _product_rows(self, builder: RowBuilder, product: dict, source: SourceEntry,
                       vat: str, endpoint: str, notes: list[str]) -> list[list[str]]:

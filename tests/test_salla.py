@@ -39,6 +39,16 @@ def test_offer_price_falls_back_to_lowprice():
     assert offer_price({"price": 0})[0] == ""  # no fallback -> skipped upstream
 
 
+def test_offer_price_reads_woocommerces_unit_price_specification():
+    price, currency, availability = offer_price({
+        "priceSpecification": [{"@type": "UnitPriceSpecification",
+                                "price": "2776.66", "priceCurrency": "EGP"}],
+        "availability": "https://schema.org/InStock",
+    })
+    assert (price, currency) == ("2776.66", "EGP")
+    assert availability.endswith("/InStock")
+
+
 # ---- full fetch (stubbed) ----------------------------------------------------
 
 class _Resp:

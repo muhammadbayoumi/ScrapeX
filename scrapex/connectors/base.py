@@ -254,6 +254,11 @@ class HttpFetcher:
     # not silently shrunk to 120s as before.
     MAX_RETRY_AFTER_S = 900.0
     RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+    # Statuses that may mean "not in that shape" rather than "not at all", and
+    # so are worth one attempt without the optional parameters. 429 is NOT here:
+    # it is about pace, and asking again immediately in any shape is the one
+    # thing a rate-limited site has just told us not to do.
+    DROP_STATUSES = frozenset({400, 403, 404, 414, 422})
 
     def __init__(
         self,
@@ -316,6 +321,14 @@ class HttpFetcher:
         self.requests_count = 0   # recorded into crawl_run (F5 accounting)
         self.not_modified_count = 0
         self.retry_count = 0
+        #: Requests this run had to make in a costlier shape because the site
+        #: refused the efficient one. Read into the run's warnings — a crawl
+        #: that quietly costs ten times the requests is a bill nobody sees.
+        self.degradations: list[str] = []
+        #: (host, parameter) pairs proven refused, so the lesson is asked once
+        #: on that host and never leaked to a second host the same connector
+        #: happens to visit. A parameter name alone is not a site decision.
+        self._refused_params: set[tuple[str, str]] = set()
         # How many requests this crawl expects to make IN TOTAL, once something
         # actually knows. None until then, and None is the honest answer: a
         # sitemap-driven connector learns its frontier before it fetches a
@@ -433,10 +446,79 @@ class HttpFetcher:
         if keep:
             self._validators[url] = keep
 
+    @staticmethod
+    def _validator_url(url: str, params) -> str:
+        """The exact resource a validator describes, including its query.
+
+        An ETag for ``?page=1`` says nothing about ``?page=2``.  Keying the
+        cache only by the path made the second live samehgabriel page inherit
+        page one's validator and answer 304 with no JSON body.
+        """
+        if params is None:
+            return str(url)
+        return str(httpx.URL(url, params=params))
+
     # ---- the request path ---------------------------------------------------
 
     def get(self, url: str, **kwargs) -> httpx.Response:
         return self._request("GET", url, **kwargs)
+
+    def get_dropping(self, url: str, optional: Iterable[str] = (),
+                     **kwargs) -> httpx.Response:
+        """GET, and if the request is REFUSED, ask again without `optional`.
+
+        WHY THIS EXISTS, measured 2026-08-13 on samehgabriel.com. Its Store API
+        answers 200 to /wp-json/wc/store/products and 403 to the same URL with
+        `?per_page=1` — any value, even 1. Not the page size, not the range: the
+        presence of that one parameter trips a rule at the edge. The crawl had
+        been dead for twelve days over a query string.
+
+        A refusal of the whole endpoint is a decision to respect. A refusal of
+        one OPTIONAL parameter is not the same thing: `per_page` is an
+        efficiency, and asking for the same rows in smaller pages is the request
+        the site is willing to answer. So this degrades ONCE, and only for
+        parameters the caller has named as optional — never the address, never
+        anything the answer depends on.
+
+        THE DEGRADATION IS RECORDED, NOT ABSORBED. `degradations` is read into
+        the run's warnings, because a crawl that quietly costs ten times the
+        requests is a bill nobody sees until it is a block. Silence here would
+        turn one visible outage into a permanent invisible cost.
+
+        `sticky` keeps the lesson for the rest of the run: having learned that
+        the site refuses a parameter, asking 300 more times is both rude and
+        slow.
+        """
+        from urllib.parse import urlsplit
+
+        names = [n for n in optional if n]
+        params = dict(kwargs.pop("params", None) or {})
+        droppable = [n for n in names if n in params]
+        host = urlsplit(url).netloc.lower()
+
+        if droppable and all((host, n) in self._refused_params for n in droppable):
+            for name in droppable:
+                params.pop(name)
+            return self._request("GET", url, params=params or None, **kwargs)
+
+        try:
+            return self._request("GET", url, params=params or None, **kwargs)
+        except httpx.HTTPStatusError as refusal:
+            if not droppable or refusal.response.status_code not in self.DROP_STATUSES:
+                raise
+            lighter = {k: v for k, v in params.items() if k not in droppable}
+            answer = self._request("GET", url, params=lighter or None, **kwargs)
+            # Only now, with proof that the lighter request works, is the lesson
+            # worth keeping — a 403 that was really about something else must
+            # not teach us to drop a parameter for ever.
+            self._refused_params.update((host, name) for name in droppable)
+            self.degradations.append(
+                f"{host} refused "
+                f"{', '.join(sorted(droppable))} with HTTP "
+                f"{refusal.response.status_code} and answered without it — this "
+                "crawl is using the site's own page size, which costs more "
+                "requests for the same rows")
+            return answer
 
     def post(self, url: str, **kwargs) -> httpx.Response:
         return self._request("POST", url, **kwargs)
@@ -487,6 +569,25 @@ class HttpFetcher:
                         "blocked by the site")
         return parser
 
+    def sitemap_urls(self, url: str) -> list[str]:
+        """Sitemap addresses the site's own robots.txt advertises, in order.
+
+        The robots file is already fetched lazily before the first request to a
+        host. Exposing only its `Sitemap:` declarations lets a fallback discover
+        a catalogue without guessing a plugin-specific filename, while keeping
+        the robots cache and its network accounting in one place.
+        """
+        from urllib.parse import urlsplit
+
+        self._robots_for(url)
+        host = urlsplit(url).netloc
+        found: list[str] = []
+        for line in self._robots_text.get(host, "").splitlines():
+            name, separator, value = line.partition(":")
+            if separator and name.strip().lower() == "sitemap" and value.strip():
+                found.append(value.strip())
+        return list(dict.fromkeys(found))
+
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
         robots = self._robots_for(url)
         if robots is not None and not robots.can_fetch(self._user_agent, url):
@@ -525,8 +626,11 @@ class HttpFetcher:
                 # collected is the worst failure this product has. The owner
                 # chose to obey; the run must say so out loud and stop.
                 raise RobotsDisallowed(verdict.reason)
+        validator_url = str(url)
         if method == "GET":
-            kwargs["headers"] = self._conditional_headers(url, kwargs.get("headers"))
+            validator_url = self._validator_url(url, kwargs.get("params"))
+            kwargs["headers"] = self._conditional_headers(
+                validator_url, kwargs.get("headers"))
         last_error: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             self._throttle()
@@ -574,7 +678,7 @@ class HttpFetcher:
             else:
                 self._consecutive_refusals = 0
 
-            self._store_validators(url, response)
+            self._store_validators(validator_url, response)
             response.raise_for_status()
             return response
 
