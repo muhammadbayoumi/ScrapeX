@@ -1452,11 +1452,21 @@
     box-shadow: none;
     overflow: visible;
   }
+  /* THE HEADER SITS AT THE TOP, and this rule is where it stopped doing that.
+     `margin-bottom: auto` here and `margin-top: auto` on .profile-legal are two
+     auto margins facing each other in one flex column: they SPLIT the free
+     space between them, which centres everything in the middle. Measured at
+     400x800 before this: the topbar ended at 48 and the avatar began at 240 —
+     a 192px hole above the account, with the lists pushed down behind it.
+
+     Only the bottom one is needed. The legal line keeps its `margin-top: auto`
+     and stays pinned to the bottom edge; removing this one lets the summary,
+     the accounts card and everything after them start where the reader looks
+     first. Owner-reported from the running panel, 2026-08-15. */
   .profile-topbar {
     align-self: stretch;
     display: flex;
     justify-content: flex-end;
-    margin-bottom: auto;
   }
   /* Borderless and quiet — it takes its weight from position, not from paint.
      Every state is spelled out rather than left to one flat rule: the base
