@@ -490,14 +490,17 @@ def _cmd_crawl(args: argparse.Namespace) -> int:
         localinbox.write_payload(base, table.to_payload())
         rows += len(table.rows)
         warnings.extend(table.warnings)
+    warnings = list(dict.fromkeys(
+        warnings + list(getattr(fetcher, "degradations", []) or [])))
     print(f"crawled {entry.source_key}: {rows} rows "
           f"({fetcher.requests_count} requests) -> local inbox {base}")
     # A partial crawl that prints only its row count reads as a clean success.
     for warning in warnings:
         print(f"  warning: {warning}", file=sys.stderr)
     if warnings:
-        print(f"  {len(warnings)} part(s) of this source produced nothing — "
-              "the rows above are INCOMPLETE", file=sys.stderr)
+        print(f"  crawl completed with {len(warnings)} warning(s) — review "
+              "whether rows are incomplete or the fallback merely cost more "
+              "requests", file=sys.stderr)
     return 0
 
 

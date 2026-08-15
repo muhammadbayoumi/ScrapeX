@@ -11,6 +11,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+import httpx
+import pytest
+
 from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.woocommerce import WooCommerceConnector
@@ -25,7 +28,10 @@ VARIATION = json.loads((FX / "woocommerce_variation_10491.json").read_text(encod
 
 
 class _StubResponse:
-    def __init__(self, payload): self._payload = payload
+    def __init__(self, payload=None, *, text="", headers=None):
+        self._payload = payload
+        self.text = text
+        self.headers = headers or {}
     def json(self): return self._payload
 
 
@@ -37,6 +43,8 @@ class _StubFetcher:
             return _StubResponse(VARIATION)
         page = (params or {}).get("page", 1)
         return _StubResponse(FIXTURE if page == 1 else [])
+    def get_dropping(self, url, optional=(), **kwargs):
+        return self.get(url, **kwargs)
     def close(self): pass
 
 
@@ -283,3 +291,99 @@ def test_every_live_variation_price_survives_the_new_guard():
     table = next(iter(WooCommerceConnector(_Live()).fetch(make_entry())))
     assert len(table.rows) == sum(len(p.get("variations") or []) for p in LIVE)
     assert not any("RANGE" in w for w in table.warnings)
+
+
+# ---- a host may refuse the Store API shape without losing its public pages ---
+
+class _PageFallbackFetcher:
+    def __init__(self):
+        self.requests_count = 0
+        self.calls: list[tuple[str, dict]] = []
+
+    def sitemap_urls(self, base):
+        return [f"{base}/wp-sitemap.xml"]
+
+    def get_dropping(self, url, optional=(), **kwargs):
+        self.requests_count += 1
+        self.calls.append((url, kwargs))
+        request = httpx.Request("GET", url)
+        response = httpx.Response(403, request=request)
+        raise httpx.HTTPStatusError("refused", request=request, response=response)
+
+    def get(self, url, **kwargs):
+        self.requests_count += 1
+        self.calls.append((url, kwargs))
+        if url.endswith("/wp-sitemap.xml"):
+            return _StubResponse(text=(
+                '<sitemapindex><sitemap><loc>'
+                'https://samehgabriel.com/wp-sitemap-posts-product-1.xml'
+                '</loc></sitemap></sitemapindex>'))
+        if url.endswith("/wp-sitemap-posts-product-1.xml"):
+            return _StubResponse(text=(
+                '<urlset><url><loc>https://samehgabriel.com/product/cable/'
+                '</loc></url></urlset>'))
+        if url == "https://samehgabriel.com/product/cable/":
+            html = (FX / "woocommerce_product_jsonld.html").read_text(encoding="utf-8")
+            return _StubResponse(text=html)
+        raise AssertionError(f"unexpected request: {url}")
+
+
+def test_store_api_refusal_falls_back_to_jsonld_without_losing_variation_ids():
+    fetcher = _PageFallbackFetcher()
+
+    tables = list(WooCommerceConnector(fetcher).fetch(make_entry()))
+    price_tables = [table for table in tables if table.rows]
+    summary = tables[-1]
+
+    assert len(price_tables) == 1 and len(price_tables[0].rows) == 2
+    view = RowView(PRODUCT_PRICES, price_tables[0].header)
+    earth, red = [view.as_dict(row) for row in price_tables[0].rows]
+    assert earth["external_product_id"] == "10150"
+    assert earth["external_variant_id"] == "10496"
+    assert earth["variant_ar"] == "Color: أرضي"
+    assert earth["price"] == "2776.66" and earth["price_sale"] == "2776.66"
+    assert red["external_variant_id"] == "10497"
+    assert red["availability"] == "out_of_stock"
+    assert any("public product pages" in warning for warning in summary.warnings)
+    product_call = next(call for call in fetcher.calls if call[0].endswith("/product/cable/"))
+    assert "text/html" in product_call[1]["headers"]["Accept"]
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_rate_limits_and_server_failures_never_trigger_more_fallback_requests(status):
+    """A sick or rate-limited server needs less traffic, not a sitemap walk."""
+    class _FailingFetcher:
+        requests_count = 1
+
+        def get_dropping(self, url, optional=(), **kwargs):
+            request = httpx.Request("GET", url)
+            response = httpx.Response(status, request=request)
+            raise httpx.HTTPStatusError("unavailable", request=request,
+                                        response=response)
+
+        def get(self, url, **kwargs):
+            raise AssertionError("a failure was expanded into a fallback request")
+
+    with pytest.raises(httpx.HTTPStatusError):
+        list(WooCommerceConnector(_FailingFetcher()).fetch(make_entry()))
+
+
+def test_the_api_uses_its_announced_last_page_instead_of_probing_an_empty_one():
+    class _TwoPages(_StubFetcher):
+        def __init__(self):
+            super().__init__()
+            self.pages: list[int] = []
+        def get(self, url, params=None, **kwargs):
+            if not url.endswith("/products"):
+                return super().get(url, params=params, **kwargs)
+            self.requests_count += 1
+            page = (params or {}).get("page", 1)
+            self.pages.append(page)
+            payload = [FIXTURE[0]] if page in (1, 2) else []
+            return _StubResponse(payload, headers={"X-WP-TotalPages": "2"})
+
+    fetcher = _TwoPages()
+    tables = list(WooCommerceConnector(fetcher).fetch(make_entry()))
+
+    assert len([table for table in tables if table.kind == PRODUCT_PRICES.kind]) == 2
+    assert fetcher.pages == [1, 2]

@@ -1,5 +1,13 @@
 # Handoff — mbiXaddin decides "is this Google Sheets" by searching the whole string
 
+> **Resolved 2026-08-13.** mbiXaddin PR #26 replaced the substring with an
+> absolute-URI host parse, exact `docs.google.com` / `spreadsheets.google.com`
+> matching, trailing-root-dot normalisation, and an `ERR_FORMAT` finding for
+> impostor addresses. The security consequence below was refuted: the rule is
+> advisory and SOURCE_URI is owner-authored. ScrapeX re-read that behaviour and
+> updated its contract mirror on the `the-addin-parses-its-host` branch. The
+> remainder is kept as the historical handoff and mutation checklist.
+
 *Paste everything below into a session working in
 `C:\Users\User01\source\repos\mbiXaddin`. It is self-contained; that session
 needs no knowledge of the conversation this came from.*

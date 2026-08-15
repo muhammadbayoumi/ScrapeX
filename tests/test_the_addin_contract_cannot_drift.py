@@ -19,11 +19,24 @@ TWO KINDS OF DRIFT, AND ONLY ONE CAN BE AUTOMATED.
   transform is dropped rather than refused", "a source with no mappings hard-fails"
   — none of that is in a type, and no generator will ever find it.
 
-So behaviour is pinned to a NUMBER instead. mbiXaddin raises `behaviourVersion`
-when it changes how a fault is handled; extension/addin-contract.js records the
-version its reading was taken against; and the second test fails when they
-differ. It cannot force anyone to re-read the code. It can make it impossible to
-change the behaviour SILENTLY, which is the whole of what a guard can do here.
+So behaviour is pinned to a NUMBER — and that number is BOOKKEEPING, not a
+signal from upstream. This file said otherwise until 2026-08-15, and the
+correction matters more than the sentence it replaces:
+
+  mbiXaddin HAS NO `behaviourVersion`. It was proposed to them in
+  docs/HANDOFF-mbiXaddin-contract-producer.md and has not been built. Both
+  numbers — contract/addin-contract.json's and extension/addin-contract.js's —
+  live in THIS repository, and the same commit raises both. Their agreement
+  proves ScrapeX is internally consistent about which reading generation it is
+  on. IT CANNOT DETECT THAT MBIXADDIN CHANGED. Believing it could is what let
+  three of this reading's own cited files move unnoticed.
+
+WHAT ACTUALLY LOOKS UPSTREAM is the last test here. The reading records the
+COMMIT it was taken against, and the .cs files it cites are its surface — so
+"has anything I read moved?" is a real question with a computable answer. That
+test needs the add-in's checkout beside this one; where it is absent it SKIPS
+AND SAYS SO, because a guard that is quietly green is the defect this file was
+written about.
 """
 from __future__ import annotations
 
@@ -80,15 +93,19 @@ def test_the_generated_file_says_it_is_generated():
 
 
 def test_the_behaviour_reading_is_not_older_than_the_contract():
-    """THE HALF NO GENERATOR CAN CHECK.
+    """THE TWO HALVES OF ScrapeX'S OWN RECORD AGREE ON WHICH READING THEY ARE ON.
 
     extension/addin-contract.js holds what had to be READ rather than reflected
-    over — what a blank means, what is dropped, what fails a table. When
-    mbiXaddin raises its behaviourVersion it is saying one of those answers has
-    moved, and this fails until someone goes and looks.
+    over — what a blank means, what is dropped, what fails a table. The JSON
+    declares which generation of that reading the repository is shipping; the
+    module declares which one it was written against. When they disagree, half
+    the reading was updated and half was not.
 
-    Raising the number here WITHOUT re-reading would satisfy this test and
-    defeat the only mechanism guarding that half. The message says so.
+    WHAT THIS DOES NOT DO, stated here because the docstring claimed it for
+    three days: it is NOT a signal from mbiXaddin. Both numbers are ours and one
+    commit raises both, so nothing here notices the add-in changing. That is
+    test_no_cited_addin_file_has_moved_since_the_reading below, and the number
+    is the bookkeeping beside it — not a substitute for it.
     """
     declared = _contract()["behaviourVersion"]
     read_against = re.search(
@@ -101,11 +118,13 @@ def test_the_behaviour_reading_is_not_older_than_the_contract():
 
     assert int(read_against.group(1)) == declared, (
         f"the contract declares behaviour version {declared} and the Console's "
-        f"reading was taken against {read_against.group(1)}. mbiXaddin changed "
-        "how it handles a fault or a default — go and re-read that behaviour "
-        "from its code, update extension/addin-contract.js, and only then raise "
-        "READ_AGAINST_BEHAVIOUR_VERSION. Raising the number alone makes this "
-        "test green and the Console wrong.")
+        f"reading was taken against {read_against.group(1)}, so one half of the "
+        "record moved without the other. Whichever is behind, the repair is the "
+        "same: re-read the behaviour from the add-in's code at the contract's "
+        "readAgainstCommit, update extension/addin-contract.js, and raise both "
+        "numbers together. Raising them alone makes this test green and proves "
+        "nothing — these numbers are ScrapeX's bookkeeping, not mbiXaddin's "
+        "signal.")
 
 
 def test_every_sheet_the_contract_names_carries_a_gid_and_its_columns():
@@ -161,26 +180,124 @@ def test_the_arabic_spellings_survived_the_json_round_trip():
 
 
 def test_the_address_markers_are_the_add_ins_own_literals():
-    """`SourceUriValidator` searches the whole address for these three, and every
-    Console warning about an address is keyed on them. Inline, they drifted
-    silently; here, a change to the add-in has to be typed on purpose.
+    """The parsed Sheets hosts and the two whole-address parameter markers.
 
-    The lower case matters and is not cosmetic: the add-in lower-cases the
-    address before searching, so a marker carrying a capital would never match
-    and the Console would fall silent about the mistake its own file header calls
-    the commonest one there is."""
+    These moved in mbiXAddin PR #26: host equality replaced a whole-string
+    `docs.google.com` substring and added the genuine spreadsheets host. A
+    stale single marker would recreate the repaired false positives here."""
     constants = _contract()["constants"]
 
-    assert constants["URI_GOOGLE_SHEETS_MARKER"] == "docs.google.com"
+    assert constants["URI_GOOGLE_SHEETS_HOSTS"] == [
+        "docs.google.com", "spreadsheets.google.com"]
     assert constants["URI_TSV_MARKERS"] == ["output=tsv", "format=tsv"]
     assert constants["URI_TAB_MARKER"] == "gid="
 
-    for name in ("URI_GOOGLE_SHEETS_MARKER", "URI_TAB_MARKER"):
-        assert constants[name] == constants[name].lower(), (
-            f"{name} is compared against a lower-cased address and would never "
-            "match")
+    for host in constants["URI_GOOGLE_SHEETS_HOSTS"]:
+        assert host == host.lower() and host == host.strip("."), (
+            f"{host!r} is not the normalised host SourceUriValidator compares")
+    assert constants["URI_TAB_MARKER"] == constants["URI_TAB_MARKER"].lower()
     for marker in constants["URI_TSV_MARKERS"]:
         assert marker == marker.lower()
+
+
+# ---- the guard that actually looks upstream ---------------------------------
+#
+# WHERE THE ADD-IN'S CHECKOUT IS EXPECTED. A sibling of this repository, which is
+# how the owner keeps them. Absent — on CI, on a fresh clone — the test below
+# SKIPS and names what it could not do. That is deliberate: it is the one guard
+# here whose subject lives outside the repository, and pretending otherwise is
+# the failure this whole file is about.
+ADDIN_CHECKOUT = ROOT.parent / "mbiXaddin"
+READING = ROOT / "docs" / "reviews" / "mbiXaddin-config-contract-20260812.md"
+
+
+def _addin_git(*args: str) -> str | None:
+    """`git` inside the add-in checkout, or None when it cannot answer."""
+    try:
+        done = subprocess.run(("git", "-C", str(ADDIN_CHECKOUT), *args),
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def test_no_cited_addin_file_has_moved_since_the_reading():
+    """Has anything the Console's reading was taken FROM changed since?
+
+    THIS IS THE ONE THAT LOOKS UPSTREAM, and until 2026-08-15 nothing did. The
+    behaviour numbers above are both ours; they cannot notice mbiXaddin moving.
+    Measured the day this was written: three of the eighty .cs files this
+    reading cites had already moved, and no test anywhere had an opinion.
+
+    THE SURFACE IS THE READING'S OWN CITATIONS. Every answer in
+    docs/reviews/mbiXaddin-config-contract-20260812.md carries the file it came
+    from, so those files are exactly what the Console believes it has read. The
+    whole add-in is the wrong unit — it releases constantly, and a guard that
+    fired on every unrelated commit is a guard that gets skipped.
+
+    A file that has moved is a QUESTION, not a verdict. Read it; if it does not
+    touch what the Console believes, record it in `reviewedSince` with the blob
+    it was dismissed at and why. Pinning the blob is what stops that entry
+    becoming a permanent exemption: the next edit changes it and this fires
+    again.
+    """
+    contract = _contract()
+    read_against = contract.get("readAgainstCommit", "")
+    assert re.fullmatch(r"[0-9a-f]{40}", read_against), (
+        "contract/addin-contract.json does not record the 40-character commit "
+        "its reading was taken against, so nothing can ask what has moved since")
+
+    if _addin_git("rev-parse", "--git-dir") is None:
+        pytest.skip(
+            f"the add-in checkout is not at {ADDIN_CHECKOUT} — upstream drift "
+            "since " + read_against[:12] + " was NOT checked by this run")
+    if _addin_git("cat-file", "-t", read_against) != "commit":
+        pytest.skip(
+            f"{ADDIN_CHECKOUT} does not contain {read_against[:12]}; fetch it "
+            "before trusting a green run here")
+    if _addin_git("rev-parse", "--verify", "origin/main") is None:
+        pytest.skip(f"{ADDIN_CHECKOUT} has no origin/main to compare against")
+
+    assert READING.exists(), (
+        f"{READING.name} is the reading itself — its file:line citations ARE the "
+        "surface this guard watches. Moved or deleted, there is nothing left to "
+        "compare and the Console's knowledge has no recorded source")
+    cited = set(re.findall(r"[A-Za-z0-9_]+\.cs", READING.read_text(encoding="utf-8")))
+    changed = _addin_git("diff", "--name-only", read_against, "origin/main", "--", "*.cs")
+    # The reading cites bare filenames; git answers with repository paths. Keep
+    # the path so the blob below is looked up rather than guessed at.
+    moved = {path.rsplit("/", 1)[-1]: path
+             for path in (changed or "").splitlines() if path}
+
+    reviewed = contract.get("reviewedSince", {})
+    unexplained = []
+    for name in sorted(cited & set(moved)):
+        entry = reviewed.get(name)
+        blob = _addin_git("rev-parse", f"origin/main:{moved[name]}")
+        if entry is None:
+            unexplained.append(f"{name} — moved and is not in reviewedSince")
+        elif not str(entry.get("why", "")).strip():
+            unexplained.append(f"{name} — recorded with no reason")
+        elif blob is not None and entry.get("blob") != blob:
+            unexplained.append(
+                f"{name} — dismissed at blob {str(entry.get('blob'))[:12]} and "
+                f"has since moved to {blob[:12]}")
+
+    assert not unexplained, (
+        "the Console's reading of mbiXaddin cites files that have changed since "
+        f"{read_against[:12]}, and this is the only thing that would have said "
+        "so:\n  " + "\n  ".join(unexplained)
+        + "\n\nRead each one at origin/main. If it does not change what the "
+          "Console believes, add or update its entry in the contract's "
+          "reviewedSince with the current blob and the reason. If it does, the "
+          "reading is stale — re-read it and raise behaviourVersion.")
+
+    stale = set(reviewed) - (cited & set(moved))
+    assert not stale, (
+        f"reviewedSince still carries {sorted(stale)}, which no longer appear "
+        "as moved cited files — either the reading was refreshed past them or "
+        "they were never cited. A dismissal list nobody prunes becomes a "
+        "permission slip.")
 
 
 def _js_object(source: str, name: str) -> dict[str, str]:

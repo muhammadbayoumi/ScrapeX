@@ -157,6 +157,7 @@ class WalkTally:
 def walk_product_pages(
         fetcher, urls: Iterable[str], skip_tokens,
         token_of: Callable[[str], str], tally: WalkTally,
+        *, request_kwargs: dict | None = None,
 ) -> Iterator[tuple[str, str, str, dict]]:
     """(url, token, html, product node) for every page that answered and parsed.
 
@@ -176,7 +177,7 @@ def walk_product_pages(
             tally.skipped += 1
             continue
         try:
-            html = fetcher.get(url).text
+            html = fetcher.get(url, **(request_kwargs or {})).text
         except CrawlBlocked:
             raise
         except Exception:
@@ -274,6 +275,21 @@ def offer_price(offers) -> tuple[str, str, str]:
     currency = offers.get("priceCurrency", "") or ""
     availability = str(offers.get("availability", ""))
     price = offers.get("price")
+    # WooCommerce's current schema output puts the actual amount only inside a
+    # UnitPriceSpecification. Measured on samehgabriel.com 2026-08-15: the
+    # enclosing Offer has no `price` and carries a one-item priceSpecification
+    # list. Treating that as priceless would discard a price the page states in
+    # machine-readable form.
+    specifications = offers.get("priceSpecification")
+    if isinstance(specifications, dict):
+        specifications = [specifications]
+    if price in (None, ""):
+        for spec in specifications or []:
+            if not isinstance(spec, dict) or spec.get("price") in (None, ""):
+                continue
+            price = spec["price"]
+            currency = currency or spec.get("priceCurrency", "") or ""
+            break
     if price in (None, "", 0, "0", "0.0", 0.0):     # variant-priced -> AggregateOffer
         price = offers.get("lowPrice")
     return (str(price) if price not in (None, "") else ""), currency, availability

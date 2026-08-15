@@ -194,14 +194,24 @@ def _tables_from_live_fixture():
         def get(self, url, **kw):
             class R:
                 status_code = 200
-                text = Path(__file__).parent.joinpath(
-                    "fixtures/live/samehgabriel_wc_store_products_2026-07-20.json"
-                ).read_text(encoding="utf-8")
+                # A real httpx.Response always carries headers, and the connector
+                # reads X-WP-TotalPages off them. A stub without them would force
+                # a getattr default into the product and let this test travel a
+                # path the live crawl never takes. Empty = "this shop announces
+                # no page count", which is the shape of the 2026-07-20 capture.
+                headers: dict[str, str] = {}
+                def __init__(self, payload):
+                    self._payload = payload
                 def json(self):
-                    return json.loads(self.text)
-                headers = {}
+                    return self._payload
             self.requests_count += 1
-            return R()
+            page = (kw.get("params") or {}).get("page", 1)
+            payload = (json.loads(Path(__file__).parent.joinpath(
+                "fixtures/live/samehgabriel_wc_store_products_2026-07-20.json"
+            ).read_text(encoding="utf-8")) if page == 1 else [])
+            return R(payload)
+        def get_dropping(self, url, optional=(), **kw):
+            return self.get(url, **kw)
         def close(self): pass
 
     connector = WooCommerceConnector(_Fetcher())
