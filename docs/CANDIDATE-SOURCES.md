@@ -128,7 +128,8 @@ generally.
 
 | lead | what is needed |
 |---|---|
-| «اسعار مواد البناء **القاول** السعودية» — Saudi building-materials prices | **Q-L** — the URL, and what «القاول» names: a site, a platform, a publication, or *المقاول* (the contractor) as a category. Recorded verbatim because guessing which would be inventing a source. |
+| **A CONTRACTOR DIRECTORY**, specified in full 2026-08-16 — see `docs/CONTRACTOR-SOURCE.md` | **The four URLs.** The instruction names the contractors list in English and in Arabic and one example profile in each, but the links did not arrive with the message. The ~60 columns are specified exactly and the owner has ruled it gets **a table of its own, separate from the product tables** — it produces companies, not offers. Nothing can be probed until the addresses are in hand. |
+| «اسعار مواد البناء **القاول** السعودية» — Saudi building-materials prices | **Q-L** — the URL, and what «القاول» names: a site, a platform, a publication, or *المقاول* (the contractor) as a category. **Half-answered 2026-08-16**: the owner has now asked for a contractor directory outright, so *المقاول* as a category is real work he wants. Whether it is the SAME lead as this line, or a second one, is still his to say — and the URL is still missing for both. |
 | UAE — *لجنة أسعار الوقود الإماراتية* (fuel pricing committee) | the URL |
 | Bahrain — *لجنة تسعير ومراقبة الوقود* (fuel pricing and monitoring committee) | the URL |
 
