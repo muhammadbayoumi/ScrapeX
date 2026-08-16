@@ -42,35 +42,78 @@ anywhere, as B1 claims. See the conflict below, though — finishing B2 revives 
 | — | The Data page's first load, which aborted itself (#194); the Profile page's centred account (#196); a second account no longer looking signed out (#199); the Mappings card (#197) |
 | **Console · rendered** | `serve_extension()` + `console_stub()` in `tools/tabpage_harness.py`, and `tests/test_console_dom.py`. The gap below is closed |
 
-## In flight
+## Just landed
 
-**The three sign-out paths, and the owner has ruled on them.** Reviewed
-2026-08-16, off-plan, and two are defects:
+**Sign-out — DONE 2026-08-16.** Reviewed, ruled on, built, and mutation-tested.
 
-1. **`Sign out` in a row's ⋮ menu is a dead end** — and #199 opened it.
-   `accountMenu` draws the item inside `if (signedIn)`; before #199 every other
-   account was drawn signed-out so it never rendered. Now it does, and
-   `signOutOfAccount` (`extension/app.js:2952`) handles only the CURRENT
-   account — anything else prints *"That account has no session on this device
-   to end."*
-2. **`Sign out of all accounts` signs out exactly one.**
-   `signOutOfAllAccounts` (`:2964`) presses `#signout`, which revokes the
-   current account's grant alone. Every other account keeps its standing Google
-   grant — which is precisely what makes `switchToAccount`'s silent mint
-   succeed — so they are still signed in, and still drawn that way.
+**A correction first, because the first diagnosis was wrong.** It was reported
+here that the row's `Sign out` had become a dead end. It had not: `accountMenu`
+was called from exactly ONE place, `renderAccountsCard`, with `{signedIn: false}`
+written out literally — so the item inside `if (signedIn)` had **never once been
+drawn**, before or after any of this. The earlier pull request repaired the
+argument `accountRow` gets and left the menu's, which is why a row could offer a
+switch while its own menu could not offer a sign-out. Not a dead end: a missing
+button, and the thing the owner asked for in the first place.
 
-**THE RULING: a real sign-out.** Silently mint a token for the account, then
-revoke it. One mechanism fixes both — the single row and the button that
-promises all — and it costs a round trip per account, which is to be reported
-rather than swallowed when it fails.
+What was true: **`Sign out of all accounts` signed out exactly one.** It pressed
+the top `#signout`, which revokes only the current account's grant; every other
+account kept the standing Google grant that makes a silent mint succeed.
 
-The top icon (`:5362`) was reviewed and is correct: the generation is bumped
-BEFORE the await, it revokes rather than forgets so a return as someone else is
-possible, the row stays, `local-only` is said out loud, and focus goes back.
+**THE RULING, and what was built: a real sign-out.** `endOtherAccountSession`
+mints a token for the account silently (`login_hint` + `prompt=none`) and revokes
+THAT token. `signOutOfAllAccounts` walks the others first — one at a time, not
+`Promise.all` — and presses `#signout` last, because signing out the current
+account clears `state.token` and `renderAccountsCard` returns early without one.
 
-**Also stale, and mine:** `app.js:2752` and `:2888` both claim this build has no
-Web OAuth client. `identity.js:364` carries a real one, created 2026-08-12. The
-first sits directly above the line #199 changed and contradicts it.
+**THE LOCKOUT IT WOULD OTHERWISE HAVE BEEN.** The panel holds exactly ONE token
+and it belongs to the CURRENT account. The obvious implementation — hand
+`state.token` to `revokeToken` — ends the wrong grant: press Sign out on somebody
+else's row and be signed out of your own. `tests/test_signing_out_really_signs
+_out.py` guards precisely that, and nothing in the suite covered it before,
+because no test had ever driven the per-row menu.
+
+**THE HARNESS HAD TO GROW FIRST, and this is the part worth remembering.**
+`tools/panel_harness.py` stubbed only `getAuthToken` and `removeCachedAuthToken`,
+so `identity.js:authorize()` fell into its `getRedirectURL()` try/catch and
+returned state `failed` under **every panel test ever written**. The whole
+multi-account surface was unreachable, and silently — a test could press the
+button and read a plausible error message. It also had no route for Google's
+revoke endpoint, so every sign-out driven through it took the `local-only` path
+on a 404 and no test ever looked at the message. Both are fixed; `silent_for`
+and `revoke_status` are the new knobs.
+
+### What sign-out still cannot reach, stated rather than left to be found
+
+**There are TWO OAuth clients in this project, and therefore two grants.**
+`manifest.json:oauth2.client_id` is a Chrome-Extension client (used by
+`getAuthToken`); `identity.js:WEB_CLIENT_ID` is a Web client (used by
+`launchWebAuthFlow`). A Google grant is per client, so `revokeToken` ends only
+the grant of the client that minted the token it is given. For an account added
+through the switcher that is complete — it only ever had a Web grant. For the
+Chrome profile's PRIMARY account, which can hold both, one may survive. The
+comment at `identity.js:176-189` is written as though there were one client.
+**Not fixed here, and not to be fixed by revoking both**: on an
+`admin_policy_enforced` Workspace account, `blocked-by-admin` is the branch that
+pressing again cannot fix, so dropping the Chrome-Extension grant could leave an
+owner unable to sign back in at all.
+
+Two more found in the same reading and left alone deliberately:
+
+- **HTTP 400 counts as revoked** (`identity.js:205`). Google answers 400 for an
+  EXPIRED token as well as an already-revoked one, and an implicit-flow token
+  lives about an hour. Sign out after an idle hour and the panel reports a grant
+  ended that is still listed.
+- **Neither `authorize` nor `revokeToken` has a deadline**, while `getToken` and
+  `accountFor` both do. A hung revoke leaves the Sign out button disabled with
+  the panel still holding the token.
+
+### One mutation survives, and it is equivalent
+
+Removing the early return AND switching the message from `ended.revoked` to
+`ended.state === "ok"` — **both at once** — produces identical behaviour on every
+reachable input, because `revokeToken` differs between the two only when handed a
+falsy token. Either mutation ALONE is caught. This is recorded rather than
+papered over: contorting a test to kill an equivalent mutant would be the lie.
 
 ## Resume here — the rest of B2
 
