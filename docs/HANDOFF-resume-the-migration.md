@@ -39,14 +39,38 @@ anywhere, as B1 claims. See the conflict below, though — finishing B2 revives 
 | **T1** | `crawl_pace_s` (#190) |
 | — | samehgabriel alive after 12 days dead; the `SourceUriValidator` mirror re-derived after mbiXaddin's own repair; the contract-drift guard given something real to watch (#191) |
 | **B2 · foundation** | `backend.js` extracted; Tabulator vendored into the extension; `data.html`/`data.js`/`datatable.js` (#193) |
+| — | The Data page's first load, which aborted itself (#194); the Profile page's centred account (#196); a second account no longer looking signed out (#199); the Mappings card (#197) |
+| **Console · rendered** | `serve_extension()` + `console_stub()` in `tools/tabpage_harness.py`, and `tests/test_console_dom.py`. The gap below is closed |
 
 ## In flight
 
-**PR #194** — the Data page's first load aborted itself and never painted; the
-fix is an ordering, plus `tools/tabpage_harness.py` and
-`tests/test_tab_page_dom.py` so a tab page is now RENDERED in tests. Also
-generalises CI's "must RUN, not skip" step: seven suites depend on playwright,
-and it named one.
+**The three sign-out paths, and the owner has ruled on them.** Reviewed
+2026-08-16, off-plan, and two are defects:
+
+1. **`Sign out` in a row's ⋮ menu is a dead end** — and #199 opened it.
+   `accountMenu` draws the item inside `if (signedIn)`; before #199 every other
+   account was drawn signed-out so it never rendered. Now it does, and
+   `signOutOfAccount` (`extension/app.js:2952`) handles only the CURRENT
+   account — anything else prints *"That account has no session on this device
+   to end."*
+2. **`Sign out of all accounts` signs out exactly one.**
+   `signOutOfAllAccounts` (`:2964`) presses `#signout`, which revokes the
+   current account's grant alone. Every other account keeps its standing Google
+   grant — which is precisely what makes `switchToAccount`'s silent mint
+   succeed — so they are still signed in, and still drawn that way.
+
+**THE RULING: a real sign-out.** Silently mint a token for the account, then
+revoke it. One mechanism fixes both — the single row and the button that
+promises all — and it costs a round trip per account, which is to be reported
+rather than swallowed when it fails.
+
+The top icon (`:5362`) was reviewed and is correct: the generation is bumped
+BEFORE the await, it revokes rather than forgets so a return as someone else is
+possible, the row stays, `local-only` is said out loud, and focus goes back.
+
+**Also stale, and mine:** `app.js:2752` and `:2888` both claim this build has no
+Web OAuth client. `identity.js:364` carries a real one, created 2026-08-12. The
+first sits directly above the line #199 changed and contradicts it.
 
 ## Resume here — the rest of B2
 
@@ -86,11 +110,24 @@ a saved view. A saved view that cannot be deleted is a defect, not a feature —
 it is the owner's call, and B1's list should be edited rather than quietly
 contradicted.
 
+**HELD, 2026-08-16.** The owner has comments on B1 itself and will raise them
+first. Do not start step 3 until he has.
+
 ## Named gaps, not forgotten
 
-- **No DOM test for the Console.** `tools/tabpage_harness.py` was written for the
-  Data page and would extend to `console.html` cheaply. Until then the Console's
-  only proof is static plus one manual browser pass (#186).
+- ~~**No DOM test for the Console.**~~ **CLOSED.** `tests/test_console_dom.py`
+  renders `console.html` for real — ten tests, every one of them broken
+  deliberately first to prove it fails. It could NOT be built the way the Data
+  page's was: the Console's fourteen modules declare **nineteen colliding
+  top-level names** between them (six rule modules each declare `finding`, `text`
+  and `same`; two declare `SHEETS`), so flattening them into one scope is a
+  SyntaxError before a line runs. It is served over http and loads its real
+  module graph instead — the stronger arrangement, and the one to copy next time.
+
+  What it found: `showView("inspect")` is the LAST line of `showTable`, so a
+  throw anywhere above it means pressing a table does **nothing at all** — the
+  sections are built into a view that is never revealed. No error, no half-drawn
+  page, no clue.
 - **`behaviourVersion` is ScrapeX's own bookkeeping, not a signal.** mbiXaddin has
   no such field; both numbers live here and one commit raises both. The real fix
   is `docs/HANDOFF-mbiXaddin-contract-producer.md`. What DOES look upstream is
@@ -101,7 +138,64 @@ contradicted.
   crawl falls back to product pages when the Store API refuses"* is exactly the
   kind of thing the owner asks *"does my build do that?"* about — which is the
   failure `tests/test_version.py`'s own docstring says the ledger exists to
-  prevent. **Open question, owner's call.**
+  prevent.
+
+  **RULED, 2026-08-16: it moves with every new commit.** Not "per user-visible
+  capability", which was the old rule and left the judgement to whoever was
+  writing — and who kept deciding no. Every commit on `main` is one squashed
+  pull request here, so the rule reads: **every merged PR raises VERSION, and
+  regenerates the baseline and CHANGELOG in the same commit.**
+
+  **Measured, because the owner said it had never moved and he was right.**
+  `git log -G'^VERSION = "'` names three commits in the project's whole life:
+  `7ca7a75` created the ledger, `9a0d399` cut 0.2.1, `adf31b2` cut 0.2.2 on
+  10 August. **48 commits since** — Phase A entire, T1, B2 — with the number
+  standing still. (`-S` finds only one of the three: 0.2.1 → 0.2.2 leaves the
+  count of the searched string unchanged. Use `-G` on this file.)
+
+  ### It is NOT just a bump, and this is the blocker
+
+  Raising VERSION to 0.2.3 was tried on 2026-08-16 and reverted the same day.
+  Two things happened, and the second is the reason it needs its own PR.
+
+  **The ledger's own guard fired, correctly.** `robots_per_source` is dated
+  0.2.2 and cited no commit, and a capability older than the build must cite the
+  work that built it. Read out of `git log`, not remembered: both
+  `-S"crawl_obey_disallow"` and `-S"source-edit-robots"` name `adf31b2` alone,
+  so the setting, the panel control and the ledger line landed together. Write
+  `commit="adf31b2"` as part of that PR.
+
+  **THE ENGINE ADVERTISES A NUMBER IT CANNOT KNOW.** `version_report` sends
+  `"latest_extension_version": VERSION` (`scrapex/version.py:484`, and again in
+  `scrapex/webui/app.py:1355`), so the moment the engine moves ahead of
+  `extension/manifest.json` the panel draws *"This ScrapeX extension is older
+  than the engine it is talking to"*. Measured at 320x440: the profile page's
+  legal line went from 396 to 494 against a 440 viewport — 54px clipped, caught
+  by `test_the_signed_in_profile_starts_at_the_top_and_still_fits`.
+
+  Under "bump every commit" that notice becomes PERMANENT and FALSE.
+
+  It is a leftover from before the release paths were unwelded. PLATFORM-PLAN
+  Decision 21 (done 2026-08-05, PR #112) is explicit — *"the extension can be
+  tagged for the Chrome Web Store, **or** the engine tagged for GitHub Releases,
+  with the other number untouched"*, and *"Google reviews the extension and does
+  not review the engine"*. #112 unwelded the numbers and CI and left the REPORT
+  welded. Three constants still speak the old model: `latest_extension_version`,
+  `LATEST_SOURCE` (*"it ships with the extension"*, `:289`) and
+  `UPDATE_INSTRUCTIONS` (*"it carries the new extension with it"*, `:292`).
+
+  **The remedy, ruled 2026-08-16: the engine keeps the GATE and drops the
+  ADVERT.** `MINIMUM_EXTENSION_VERSION` is a fact the engine owns and is derived
+  from the ledger — it stays. "What is the newest extension available" is
+  Chrome's answer, not the engine's — it goes, with the two sentences that say
+  the engine carries the extension. Then VERSION moves every commit and no false
+  card appears, because the floor has not moved.
+
+  **Do NOT instead bump `extension/manifest.json` alongside VERSION.** That
+  re-welds precisely what #112 unwelded and breaks its stated "Done when".
+
+  Its own PR. Add a guard that fails if the engine ever answers for the
+  extension's head again.
 
 ## Phases not started
 
