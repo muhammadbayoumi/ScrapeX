@@ -2517,11 +2517,14 @@ function renderAccount({ tokenProblem = null } = {}) {
 //
 // WHAT "SIGNED OUT" MEANS ON A ROW. The directory deliberately stores no session
 // state — a cached "signed in" is a fact that goes stale on disk and then lies.
-// The only account this panel KNOWS it holds a token for is the current one;
-// every other row is offered as signed out until a silent authorisation proves
-// otherwise. That check needs the Web OAuth client, which this build does not
-// have yet, so today every other row renders as signed out. That is the truth
-// about this build rather than a placeholder.
+// So a row is drawn signed out only when this panel has LEARNED it is: either it
+// ended that session itself, or a silent authorisation for it was refused.
+// `state.signedOutAccounts` is that knowledge and it is in memory only, which is
+// the point — it is reasoning about this session, not a record about the person.
+//
+// Everything else is offered as a switch. That is a claim the panel can make
+// good on: `switchToAccount` mints silently through `WEB_CLIENT_ID`, and when
+// Google will not answer, the row becomes a signed-out row at that moment.
 
 function accountInitial(account) {
   const source = String(account.name || account.email || "").trim();
@@ -2749,9 +2752,6 @@ function renderAccountsCard() {
   const list = el("div", "accounts-list");
   list.id = "accounts-list";
   for (const account of others) {
-    // See the note at the top of this section: without the Web OAuth client
-    // nothing can be authorised silently, so no other row can be shown as
-    // signed in without saying something this build cannot know.
     // THE ONE LINE THIS WHOLE DEFECT WAS. It read `signedIn: false`, so every
     // other account was drawn signed-out and `accountRow`'s switch branch —
     // which was written, tested and correct — could never be reached. Signing
@@ -2773,7 +2773,17 @@ function renderAccountsCard() {
 
   const open = others.find((account) => account.id === state.openAccountMenu);
   if (open) {
-    card.append(accountMenu(open, { signedIn: false }));
+    // THE SAME QUESTION THE ROW ASKS, and it was `false` written out literally
+    // until 2026-08-16 — so `accountMenu`'s `if (signedIn)` branch never ran and
+    // the Sign out item it guards had never once been drawn. The pull request
+    // that repaired the ROW's argument left this one, which is why a row could
+    // offer a switch while its own menu still could not offer a sign-out.
+    //
+    // (No PR number here on purpose: `#` plus three hex digits is a colour
+    // literal to tests/test_vendor.py, and this comment cost a red build once.)
+    card.append(accountMenu(open, {
+      signedIn: !state.signedOutAccounts.has(open.id),
+    }));
     placeOpenAccountMenu();
   }
 
@@ -2885,11 +2895,14 @@ async function removeAccount(id) {
   renderAccountsCard();
 }
 
-// The four actions that need a token for an account this panel is not currently
-// holding one for. Each is a single call into identity.js, and each reports what
-// came back rather than pretending it worked — today that is the same sentence
-// for all of them, because the build has no Web OAuth client yet and
-// `authorize` refuses before opening anything.
+// The actions that need a token for an account this panel is not currently
+// holding one for. Each is a call into identity.js, and each reports what came
+// back rather than pretending it worked.
+//
+// THESE COMMENTS SAID THE BUILD HAD NO WEB OAUTH CLIENT until 2026-08-16, and
+// by then it had had one since 2026-08-12 (`identity.js:WEB_CLIENT_ID`). A
+// comment that describes a build two versions old is worse than none: it was
+// still being read as a reason none of this could work.
 
 async function switchToAccount(id) {
   const account = state.accounts.find((held) => held.id === id);
@@ -2949,23 +2962,101 @@ async function adoptAuthorizedAccount(token) {
   renderAccountsCard();
 }
 
+/**
+ * Really end the session of an account this panel is NOT holding a token for.
+ *
+ * MINT FIRST, AND NEVER `state.token`. The panel holds exactly ONE token and it
+ * belongs to the CURRENT account. Handing that token to `revokeToken` because a
+ * different row's menu was pressed would end the wrong grant entirely — the
+ * owner presses Sign out on somebody else's row and is signed out of his own.
+ * So the token to end is minted for THIS account, silently, and only then
+ * revoked. It is the one ordering in here that cannot be got wrong twice.
+ *
+ * A REFUSED MINT IS ALREADY THE ANSWER, not a failure to report as one. A
+ * `prompt=none` that Google will not answer means there is no live session for
+ * this account — which is what signed out MEANS — so the row becomes the
+ * signed-out row without any grant having to be ended.
+ *
+ * WHAT THIS CANNOT REACH, said plainly rather than left to be discovered: the
+ * mint goes through `WEB_CLIENT_ID`, so the grant it ends is the WEB client's.
+ * An account that also holds a grant under the manifest's Chrome-Extension
+ * client — which only the Chrome profile's primary account can — keeps that
+ * one. `revokeToken` has always had this limit; it is stated here because this
+ * is the first caller that mints the token it revokes.
+ */
+async function endOtherAccountSession(account) {
+  const minted = await authorize({ email: account.email, interactive: false });
+  const marked = () => {
+    state.signedOutAccounts.add(account.id);
+    renderAccountsCard();
+  };
+
+  if (minted.state !== "ok" && minted.state !== "partial") {
+    marked();
+    setAccountsStatus(`${accountLabel(account)} is signed out.`);
+    return;
+  }
+
+  const ended = await revokeToken(minted.token);
+  marked();
+  // `revoked`, NOT `state`, and the honest reason rather than a grander one:
+  // the two can differ in exactly ONE case — `revokeToken` answers
+  // `{state: "ok", revoked: false}` when handed a falsy token, having asked
+  // Google nothing. The early return above is what keeps a refused mint's
+  // `undefined` from ever arriving here, so today the two cannot disagree.
+  // This is the braces to that belt: if the return above is ever moved or
+  // widened, `state` would report a grant ended that was never asked about,
+  // and `revoked` cannot. A mutation confirms the pair — breaking either one
+  // alone leaves the tests green, and breaking both does not.
+  setAccountsStatus(ended.revoked
+    ? `${accountLabel(account)} is signed out.`
+    : `${accountLabel(account)} is signed out here. ${ended.detail} Google may `
+      + "still list ScrapeX under that account's permissions.");
+}
+
 async function signOutOfAccount(id) {
   closeAccountMenu();
   if (id === state.currentAccountId) {
+    // The current account has a whole handler of its own, and its ordering —
+    // the generation bumped before the await, the revoke before the clear, the
+    // focus returned afterwards — is load-bearing and tested. Press it rather
+    // than writing a second copy that drifts from it.
     const button = $("signout");
     if (button) button.click();
     return;
   }
-  // No token is held for any other account — there is nothing to end here, and
-  // saying so is better than a button that appears to work and does nothing.
-  setAccountsStatus("That account has no session on this device to end.");
+  const account = state.accounts.find((held) => held.id === id);
+  if (!account) return;
+  setAccountsStatus(`Signing out of ${accountLabel(account)}…`);
+  await endOtherAccountSession(account);
 }
 
+/**
+ * Sign out of every account, and mean every.
+ *
+ * THE OTHERS FIRST, THE CURRENT ONE LAST, and the order is the whole of it:
+ * signing out the current account clears `state.token`, and `renderAccountsCard`
+ * returns early without a token — so the card, the rows and this button are all
+ * gone before the loop could reach them.
+ *
+ * ONE AT A TIME rather than `Promise.all`. Each one opens a silent auth flow at
+ * Google and then posts a revoke; firing five at once is a burst against
+ * somebody else's service to save a second on an action taken once.
+ *
+ * NO ROW IS ERASED. Signing out ends sessions; removing an account is a
+ * different button with a confirmation on it.
+ */
 async function signOutOfAllAccounts() {
   closeAccountMenu();
+  const others = state.accounts.filter(
+    (account) => account.id !== state.currentAccountId);
+
+  for (const account of others) {
+    setAccountsStatus(`Signing out of ${accountLabel(account)}…`);
+    await endOtherAccountSession(account);
+  }
+
   const button = $("signout");
-  // The current account is the only one holding a session, so ending it ends
-  // them all. The row for every account stays; signing out is not removing.
   if (button) button.click();
 }
 

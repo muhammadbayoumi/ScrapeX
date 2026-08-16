@@ -78,6 +78,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          signin_never_returns=False, route_delays=None, blackhole_routes=(),
          native_mode="absent", google_account_mode="ok",
          remembered_accounts=None, drive=None,
+         silent_for=None, revoke_status=200,
          worker_alive=True) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
@@ -306,6 +307,37 @@ window.chrome = {{
         .concat([opts && opts.token]);
       SIGNED_IN = null; cb && cb();
     }},
+    // ---- the multi-account half, absent until 2026-08-16 -------------------
+    //
+    // `getAuthToken` above speaks only for the Chrome profile's PRIMARY
+    // account, so everything the account switcher does -- switching, adding,
+    // and now signing out of a row that is not the current one -- goes through
+    // `launchWebAuthFlow` instead. Neither of these two existed here, so
+    // `identity.js:authorize()` hit the `getRedirectURL()` try/catch and
+    // returned state "failed" under every panel test ever written. The whole
+    // multi-account surface was unreachable, and silently: a test could drive
+    // the button and read a plausible error message.
+    getRedirectURL: () => "https://harness.chromiumapp.org/",
+    launchWebAuthFlow: (opts, cb) => {{
+      const url = new URL(opts.url);
+      const hint = url.searchParams.get("login_hint") || "";
+      window.__sx_auth_flows = (window.__sx_auth_flows || []).concat([
+        {{hint, interactive: Boolean(opts.interactive),
+          prompt: url.searchParams.get("prompt")}}]);
+      // WHO GOOGLE WILL ANSWER FOR, SILENTLY. `prompt=none` succeeds only
+      // where there is a live session, so the test names the set -- and an
+      // account outside it produces the real refusal shape
+      // (`error=login_required`), not a rejected promise.
+      const live = SILENT_FOR === null || SILENT_FOR.includes(hint);
+      if (!opts.interactive && !live) {{
+        cb("https://harness.chromiumapp.org/#error=login_required");
+        return;
+      }}
+      cb("https://harness.chromiumapp.org/#access_token=minted-for-"
+         + encodeURIComponent(hint || "default")
+         + "&token_type=Bearer&expires_in=3599&scope="
+         + encodeURIComponent(url.searchParams.get("scope") || ""));
+    }},
   }},
 }};
 
@@ -324,6 +356,11 @@ let SIGNED_IN = {json.dumps(signed_in)};
 const SIGNIN_ERROR = {json.dumps(signin_error)};
 const SIGNIN_DELAY_MS = {json.dumps(signin_delay_ms)};
 const SIGNIN_NEVER_RETURNS = {str(signin_never_returns).lower()};
+// `null` means Google answers a silent mint for ANY account, which is the
+// ordinary case. A list names the ones with a live session, so a test can say
+// "this account's session has ended" without inventing an error shape.
+const SILENT_FOR = {json.dumps(silent_for)};
+const REVOKE_STATUS = {json.dumps(revoke_status)};
 const NATIVE_MODE = {json.dumps(native_mode)};
 const GOOGLE_ACCOUNT_MODE = {json.dumps(google_account_mode)};
 const DRIVE = {json.dumps(drive)};
@@ -369,6 +406,21 @@ window.fetch = async (url, options = {{}}) => {{
     try {{ body = JSON.parse((options && options.body) || "null"); }} catch (_) {{}}
     window.__writes.push({{path, method, body}});
   }}
+  // GOOGLE'S REVOKE ENDPOINT, which had no route here at all — so it fell
+  // through to the generic 404, `identity.js` counted that as NOT revoked
+  // (only `ok || 400` is), and EVERY sign-out driven through this harness
+  // silently took the `local-only` path and painted "Google answered 404 to
+  // the revoke request." No test read that element, which is the only reason
+  // it went unnoticed. The tokens are recorded because which token was ended
+  // is the whole question when several accounts are signed out at once.
+  if (String(url).includes("oauth2.googleapis.com/revoke")) {{
+    let ended = "";
+    try {{ ended = new URLSearchParams(options.body || "").get("token") || ""; }}
+    catch (_) {{}}
+    window.__sx_revoked = (window.__sx_revoked || []).concat([ended]);
+    return new Response("", {{status: REVOKE_STATUS}});
+  }}
+
   // GOOGLE DRIVE. Without this every Drive read 404s and the Manage-account
   // screen can only ever be seen in its failure state — which is how it was
   // first shipped to review. `drive: None` keeps that behaviour deliberately,
