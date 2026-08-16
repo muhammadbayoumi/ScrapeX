@@ -1,0 +1,140 @@
+"""A crawl whose output is EVIDENCE, not rows.
+
+Step 4 of docs/GENERIC-FETCH-SEAM.md, and the wiring that document says has
+never been written. `scrapex/pagewalk.py` shipped in July with zero production
+callers; `scrapex/extract/service.py:save_snapshot` has only ever been reached
+by a human pressing a button in the General workspace. This joins them, and it
+is the whole of what it does.
+
+ONE PAGE IN, ONE SNAPSHOT OUT, AND NOTHING IS PARSED ON THE WAY. The seam's
+central rule, and the reason is arithmetic rather than taste: interpretation
+re-run against stored snapshots re-fetches nothing. On a source whose full pass
+is thirty-five thousand requests, a parse that turns out wrong costs minutes
+instead of ten hours. That is the product, not an optimisation — so this module
+has no idea what a contractor is, and must not learn.
+
+THE SCOPE COMES FROM THE DATABASE AND NOWHERE ELSE. `site_profile.crawl_scope`
+and `crawl_slice` were added by M6a and, until this file, **nothing in Python
+read them**. A scope the caller could also pass would be a scope enforced in two
+places, which is a scope enforced in neither — so the signature does not offer
+one. `docs/PLATFORM-PLAN.md` Decision 23 is the reason it is per-source at all:
+a new source has no default, and no crawl starts until the owner has answered.
+
+EACH PAGE IS COMMITTED AS IT ARRIVES. A crawl interrupted at page 800 keeps 800
+pages, which is the same reasoning the price side's job journal already
+follows — and evidence is worth less the moment it can be lost by stopping.
+"""
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+from .connectors.base import declare_frontier
+from .crawlscope import CrawlScope, Plan, plan
+from .extract.models import SnapshotCreate
+from .extract.service import save_snapshot
+from .pagesource import FetchedPage, PageSource
+from .pagewalk import PageWalker, WalkReport
+
+Fetch = Callable[[str], str]
+
+
+class SiteNotRegistered(LookupError):
+    """No `site_profile` row, so nobody has said how deep this crawl may go.
+
+    RAISED RATHER THAN DEFAULTED. The column's default is `listing_only`, which
+    is the safe scope — but a site with no row at all has not been ASKED, and
+    quietly crawling it at the cheapest scope answers a question the owner was
+    supposed to answer.
+    """
+
+
+@dataclass(frozen=True)
+class CrawlOutcome:
+    """What one snapshot crawl fetched, stored, and failed to."""
+
+    plan: Plan
+    report: WalkReport
+    #: `generic_page_snapshot` ids, in the order the pages arrived.
+    snapshots: tuple[int, ...] = ()
+    #: Pages fetched but NOT stored, with why. Separate from the walker's own
+    #: fetch failures because the two have different remedies: a fetch failure
+    #: is the site's or the network's, a storage failure is ours.
+    unstored: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+
+    @property
+    def stored(self) -> int:
+        return len(self.snapshots)
+
+
+def read_scope(conn: sqlite3.Connection, site_key: str) -> tuple[CrawlScope, str]:
+    """The scope and slice this site was registered with.
+
+    The first reader these two columns have ever had.
+    """
+    row = conn.execute(
+        "SELECT crawl_scope, crawl_slice FROM site_profile WHERE site_key = ?",
+        (site_key,)).fetchone()
+    if row is None:
+        raise SiteNotRegistered(
+            f"no site_profile row for {site_key!r}, so how deep its crawl may "
+            "go has never been decided. Register the site first — a crawl that "
+            "picked the default would be answering for the owner.")
+    return CrawlScope(row[0]), (row[1] or "")
+
+
+def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
+                       base_url: str, *, fetch: Fetch,
+                       listing_pages: int, detail_pages: int = 0,
+                       slice_pages: int = 0, pace_s: float = 1.0,
+                       max_requests: int | None = None,
+                       fetcher: object | None = None) -> CrawlOutcome:
+    """Walk this site at its registered scope, storing every page as evidence.
+
+    `listing_pages` and `detail_pages` are MEASURED BY THE CALLER and passed in,
+    because only the caller has them — 865 is a fact about muqawil discovered by
+    reading page one, and neither this module nor `crawlscope` may carry one
+    site's numbers as though they were every site's.
+
+    `fetcher` is optional and is only ever used to declare the frontier. It is
+    passed through `declare_frontier`, which tolerates a fetcher that cannot
+    hear it: reaching for `expect_requests` directly once turned a progress
+    display into an AttributeError that failed real crawls.
+    """
+    scope, slice_of = read_scope(conn, source.site_key)
+
+    # PLANNED BEFORE THE FIRST REQUEST, and by `crawlscope` rather than here.
+    # It raises SliceRequired for a slice scope with no slice named, and asking
+    # it now means the refusal costs nothing instead of arriving after fourteen
+    # minutes of listing pages. The walker asks it again for itself; that is
+    # deliberate duplication of a CHECK, never of the rule.
+    intended = plan(scope, listing_pages=listing_pages,
+                    detail_pages=detail_pages, slice_pages=slice_pages,
+                    slice_of=slice_of)
+    declare_frontier(fetcher, intended.requests)
+
+    snapshots: list[int] = []
+    unstored: list[tuple[str, str]] = []
+
+    def store(page: FetchedPage) -> None:
+        """One page, straight into evidence, unparsed and committed at once."""
+        try:
+            saved = save_snapshot(conn, SnapshotCreate(
+                source_url=page.url, html_content=page.html))
+            conn.commit()
+        except Exception as exc:
+            # NOT RAISED. One page too large, or one URL the model refuses,
+            # must not discard the eight hundred already stored — the same
+            # reasoning the walker applies to a dead page, one level down.
+            conn.rollback()
+            unstored.append((page.url, f"{type(exc).__name__}: {exc}"))
+            return
+        snapshots.append(int(saved["page_snapshot_id"]))
+
+    walker = PageWalker(source, fetch, pace_s=pace_s)
+    report = walker.walk(base_url, scope, slice_of=slice_of,
+                         max_requests=max_requests, on_page=store)
+
+    return CrawlOutcome(plan=intended, report=report,
+                        snapshots=tuple(snapshots), unstored=tuple(unstored))
