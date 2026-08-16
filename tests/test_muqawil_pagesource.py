@@ -94,6 +94,17 @@ def test_both_locales_are_walked_page_by_page_and_not_locale_by_locale(source):
     assert len(urls) == 6, "three pages in both locales is six requests"
 
 
+def test_the_request_count_is_the_pages_times_the_locales(source):
+    """FOUND BY THE FIRST LIVE RUN. The plan reported 865 requests for a crawl
+    that makes 1,730, because each page is fetched in both languages — so the
+    progress bar would have reached its total half way through and sat there.
+
+    The count belongs to the SITE because only the site knows it fetches each
+    page twice; a caller passing `last_page` cannot know that."""
+    assert source.listing_requests == 6, "three pages in two locales"
+    assert source.listing_requests == len(list(source.listing_urls("https://x")))
+
+
 def test_a_trailing_slash_on_the_base_url_does_not_double(source):
     assert next(iter(source.listing_urls("https://muqawil.org/"))) == \
         "https://muqawil.org/en/contractors?page=1"
