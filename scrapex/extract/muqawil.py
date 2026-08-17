@@ -223,8 +223,26 @@ def read_listing(html: str) -> list[dict[str, str]]:
         count = re.search(r"(\d+)", votes)
         row["customer_rating_count"] = count.group(1) if count else ""
 
-        for name, value in _boxes(card):
+        boxes = _boxes(card)
+        for name, value in boxes[:-1]:
             row[f"card_{_slug(name)}"] = value
+
+        # THE CLASSIFICATION PUTS ITS DATA IN THE LABEL, which is the reverse of
+        # every other box on the card: `.info-name` reads `Second Classified`
+        # and `.info-value` reads `2`. Slugging the name gave a DIFFERENT field
+        # key per grade — `card_second_classified`, `card_fifth_classified` — so
+        # every page produced a different schema and the second page approved
+        # was refused with ExtractionConflict. Found by running it over the real
+        # crawl; no fixture of one page could have shown it.
+        #
+        # TAKEN BY POSITION, and verified over 800 real cards: the last box is a
+        # classification on every one of them, whether the card carries seven
+        # boxes or eight. Position is also the only key that is language-neutral
+        # — the label is the data here, so it cannot be matched against.
+        if boxes:
+            name, value = boxes[-1]
+            row["contractor_classification"] = name
+            row["contractor_classification_grade"] = value
         rows.append(row)
     return rows
 
@@ -262,16 +280,37 @@ def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
     # THE UNION, NOT THE FIRST ROW'S KEYS. A contractor with no rating carries
     # no rating keys at all, so keying the schema off row one would drop a
     # column for every contractor after it that happened to have one.
-    names: list[str] = []
-    for row in rows:
-        for key in row:
-            if key not in names:
-                names.append(key)
+    #
+    # AND ORDERED DETERMINISTICALLY, which cost 105 pages of 120 before it was
+    # done. First-seen order depends on which card came first, and 55 cards in
+    # 800 carry seven boxes rather than eight — so a page whose thin card led
+    # produced the SAME FIELDS IN A DIFFERENT ORDER. `_schema_payload` puts
+    # `position` in the hash, so that is a different schema, and every page
+    # after the first was refused with ExtractionConflict. The fields were
+    # identical; only their order was not.
+    #
+    # A fixed lead for the ones a reader looks for first, then sorted. Column
+    # order on screen is `display_order`'s business and the owner's to set;
+    # this only has to be the SAME every time.
+    lead = ["contractor_id", "company_name", "membership_level", "logo_url",
+            "customer_rating_score", "customer_rating_count",
+            "contractor_classification", "contractor_classification_grade"]
+    present = {key for row in rows for key in row}
+    names = [key for key in lead if key in present]
+    names += sorted(present - set(names))
 
     fields = tuple(
         InferredField(
             field_key=name, source_name=name, data_type="text",
-            nullable=any(not row.get(name) for row in rows),
+            # ALWAYS TRUE, NEVER MEASURED, and this was the third and last
+            # page-property that leaked into a dataset-wide schema. Computed
+            # per page it read False where that page happened to be complete
+            # and True where it was not — and `_schema_payload` puts it in the
+            # hash, so 50 pages in 60 were refused as "a different schema" with
+            # identical fields in identical order. Nullability is a fact about
+            # the DATASET: any page may carry a contractor with a gap, so the
+            # only answer one page can honestly give is yes.
+            nullable=True,
             position=position, confidence=1.0,
             uniqueness=_uniqueness(rows, name),
             null_fraction=sum(1 for row in rows if not row.get(name)) / len(rows),

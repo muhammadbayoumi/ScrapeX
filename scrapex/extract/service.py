@@ -525,3 +525,82 @@ def browse_records(
             int(page[-1]["generic_record_id"]) if has_more else None
         ),
     }
+
+
+def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
+                          *, cap: int = 5_000) -> dict[str, Any] | None:
+    """One generic dataset in the shape the grid already renders.
+
+    THE PAGE NEEDS NO CHANGE, AND THAT IS THE WHOLE DESIGN. `grid.js` never asks
+    where a payload came from — it reads `columns`, `rows`, `total`,
+    `truncated` and `bilingual`, and draws its filters, its column menus, its
+    export and its AR|EN toggle off those. `reports.table_payload` fills them
+    from `price_observation`; this fills the same keys from `generic_record`.
+    A contractor directory is then a table like any other table, on the page
+    the owner already has, with nothing new to learn.
+
+    THE BILINGUAL PAIRS ARE DERIVED, NEVER LISTED. `reports.BILINGUAL_COLUMNS`
+    is a dict written out by hand for products and has no per-source form, so a
+    second table could never have used it. Here any field ending `_ar` pairs
+    with the field of the same name without it — which is what products already
+    do (`product_name` / `product_name_ar`), and which cannot go stale when a
+    column is added. `grid.js:1905` reads `Object.entries(payload.bilingual)`
+    and its own comment says the toggle "never hardcodes a field list"; this is
+    the first caller to take it at its word.
+
+    Returns None when no dataset carries this key, so a caller can fall through
+    to the price path rather than having to ask twice.
+    """
+    found = conn.execute(
+        "SELECT d.dataset_definition_id AS id, d.display_name, d.original_name "
+        "FROM dataset_definition AS d "
+        "WHERE d.dataset_key = ? AND d.valid_to IS NULL LIMIT 1",
+        (dataset_key,)).fetchone()
+    if found is None:
+        return None
+
+    dataset_id = int(found["id"])
+    fields = conn.execute(
+        "SELECT f.field_key, f.display_name, f.original_name, f.data_type "
+        "FROM dataset_schema_version AS sv "
+        "JOIN schema_version_field AS svf "
+        "ON svf.schema_version_id = sv.schema_version_id "
+        "JOIN field_definition AS f "
+        "ON f.field_definition_id = svf.field_definition_id "
+        "WHERE sv.dataset_definition_id = ? AND sv.valid_to IS NULL "
+        "ORDER BY svf.field_order",
+        (dataset_id,)).fetchall()
+
+    total = conn.execute(
+        "SELECT count(*) FROM generic_record WHERE dataset_definition_id = ? "
+        "AND status = 'active'", (dataset_id,)).fetchone()[0]
+    stored = conn.execute(
+        "SELECT data_json FROM generic_record WHERE dataset_definition_id = ? "
+        "AND status = 'active' ORDER BY generic_record_id LIMIT ?",
+        (dataset_id, cap)).fetchall()
+    rows = [json.loads(row["data_json"]) for row in stored]
+
+    keys = {row["field_key"] for row in fields}
+    return {
+        "source_key": dataset_key,
+        "columns": [{"key": row["field_key"],
+                     "label": row["display_name"] or row["original_name"]}
+                    for row in fields],
+        "rows": rows,
+        "total": total,
+        "returned": len(rows),
+        # A PREFIX PRESENTED AS THE WHOLE is the failure the bound exists to
+        # prevent, and the grid already draws a notice from this flag.
+        "truncated": total > len(rows),
+        # NEITHER IS TRUE OF A DIRECTORY, and both are answered rather than
+        # omitted: `grid.js` reads them unconditionally, and an absent key would
+        # be a crash where a false is a switch the page simply does not offer.
+        "folded": False,
+        "fold_variants": False,
+        "foldable": False,
+        "tree": {},
+        "bilingual": {key: key[:-3] for key in sorted(keys)
+                      if key.endswith("_ar") and key[:-3] in keys},
+        "tax_states": {},
+        "moved_to_details": [],
+    }
