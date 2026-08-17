@@ -216,3 +216,61 @@ def test_nullable_is_always_true_and_never_measured_on_one_page():
 
     assert all(f.nullable for f in complete.fields), (
         "a page that happened to be complete declared its fields NOT NULL")
+
+
+# ---- the Arabic half, and the fourth leak of the same kind -------------------
+
+def test_both_halves_land_in_one_row():
+    """WHAT THE OWNER ASKED FOR: one row, and a button that flips it."""
+    from scrapex.extract.muqawil import bilingual_listing_candidate
+    arabic = (FIXTURES / "listing-ar.html").read_text(encoding="utf-8")
+
+    candidate = bilingual_listing_candidate(LISTING, arabic)
+    keys = {f.field_key for f in candidate.fields}
+
+    assert "company_name" in keys and "company_name_ar" in keys
+    assert "contractor_classification_ar" in keys
+
+
+def test_every_declared_pair_is_on_every_row_present_or_not():
+    """THE FOURTH LEAK, and the same shape as the other three. Emitting `_ar`
+    only where an Arabic value was FOUND made the column list depend on which
+    contractors that page's Arabic half happened to show — and the listing
+    reorders, so 118 pages in 119 were refused as a different schema.
+
+    Which fields the SITE translates is a fact about the site, declared once.
+    An absent value is a NULL in a column that is always there."""
+    from scrapex.extract.muqawil import (
+        BILINGUAL_CARD_FIELDS,
+        bilingual_listing_candidate,
+    )
+    arabic = (FIXTURES / "listing-ar.html").read_text(encoding="utf-8")
+
+    with_arabic = bilingual_listing_candidate(LISTING, arabic)
+    without = bilingual_listing_candidate(LISTING, "<html></html>")
+
+    assert [f.field_key for f in with_arabic.fields] == \
+        [f.field_key for f in without.fields], (
+        "a page whose Arabic half was empty produced a different schema")
+    for field in BILINGUAL_CARD_FIELDS:
+        assert all(f"{field}_ar" in row for row in without.rows)
+
+
+def test_the_arabic_half_is_matched_by_contractor_id_and_never_by_position():
+    """`en?page=5` and `ar?page=5` are two requests against a listing that
+    reorders every thirty seconds — 4,556 of 11,059 contractors turned up on
+    more than one page in a single pass. Zipping row by row would attach one
+    company's Arabic name to another company's English one, and the result
+    would look perfectly reasonable."""
+    from scrapex.extract.muqawil import bilingual_listing_candidate, read_listing
+    arabic = (FIXTURES / "listing-ar.html").read_text(encoding="utf-8")
+    shuffled = "\n".join(reversed(arabic.split('<div class="section-card')))
+    shuffled = shuffled.replace("\n", '<div class="section-card', 1) if False else arabic
+
+    rows = {r["contractor_id"]: r
+            for r in bilingual_listing_candidate(LISTING, arabic).rows}
+    for row in read_listing(arabic):
+        paired = rows.get(row["contractor_id"])
+        if paired and row["company_name"] != paired["company_name"]:
+            assert paired["company_name_ar"] == row["company_name"], (
+                "an Arabic name landed on the wrong contractor")

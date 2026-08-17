@@ -47,6 +47,23 @@ from .models import MAX_TABLE_ROWS
 #: has to name something a person could go and look at.
 _LOCATOR = "div.section-card"
 
+#: The CARD fields muqawil publishes in both languages, and the fourth thing
+#: that had to stop being decided per page. Emitting `_ar` only where an Arabic
+#: value happened to be found made the column list depend on which contractors
+#: that page's Arabic half showed — and the listing reorders, so 118 pages in
+#: 119 were refused as a different schema. Which fields the SITE translates is a
+#: fact about the site, so it is declared here beside `PROFILE_FIELDS`, and an
+#: absent value is a NULL in a column that is always there.
+#:
+#: Measured: these differ between locales. `contractor_id`, `logo_url`, the two
+#: rating numbers, the membership number, the classification grade and the two
+#: contractor counts read identically, so none of them earns a second column.
+BILINGUAL_CARD_FIELDS = (
+    "company_name", "membership_level", "contractor_classification",
+    "card_company_size", "card_status", "card_city_region",
+    "card_training_credit_hours",
+)
+
 #: `label -> field_key`, in the page's own order. English only, on purpose —
 #: see the module docstring. A label this map does not know is KEPT, under a
 #: slug of its own, rather than dropped: a field the site adds is news, and a
@@ -269,7 +286,12 @@ def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
     page two. The owner types the schema at approval, which is the step this
     whole design exists to keep. Confidence is 1.0 because nothing was guessed.
     """
-    rows = read_listing(html)
+    return _candidate_from(read_listing(html), table_index=table_index)
+
+
+def _candidate_from(rows: list[dict[str, str]], *,
+                    table_index: int = 0) -> TableCandidate:
+    """Rows already read, in the shape the approval path speaks."""
     if not rows:
         return TableCandidate(
             table_index=table_index, name="contractors", locator=_LOCATOR,
@@ -516,3 +538,44 @@ def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
         merged["latitude"] = str(english.latitude)
         merged["longitude"] = str(english.longitude)
     return merged
+
+
+def bilingual_listing_candidate(english: str, arabic: str, *,
+                                table_index: int = 0) -> TableCandidate:
+    """One listing page in both languages, as one candidate with `_ar` columns.
+
+    THIS IS WHAT LIGHTS THE TOGGLE. `dataset_table_payload` derives
+    `payload.bilingual` from any field ending `_ar` that has a partner without
+    it, and `grid.js` flips exactly those. Until a row carries both halves the
+    toggle has nothing to flip, which is why an English-only approval produces a
+    table with no language switch at all.
+
+    MERGED BY CONTRACTOR ID, NEVER BY POSITION. `en?page=5` and `ar?page=5` are
+    two separate requests against a listing that reorders every thirty seconds —
+    measured: 4,556 of 11,059 contractors turned up on more than one page in a
+    single pass. Zipping the two pages row by row would therefore attach one
+    company's Arabic name to another company's English one, and the result would
+    look perfectly reasonable. A contractor the Arabic page did not happen to
+    show simply keeps its English half.
+
+    AND A PAIR IS ONLY KEPT WHEN THE TWO DIFFER, which is the same rule
+    `merge_locales` applies to profiles. `contractor_id`, the rating counts and
+    the membership number read identically in both, and a second column holding
+    the same string costs a cell in every row of eleven thousand and says
+    nothing.
+    """
+    english_rows = read_listing(english)
+    arabic_rows = {row["contractor_id"]: row for row in read_listing(arabic)}
+
+    merged: list[dict[str, str]] = []
+    for row in english_rows:
+        both = dict(row)
+        other = arabic_rows.get(row["contractor_id"], {})
+        # EVERY declared pair, every row — present or not. See
+        # BILINGUAL_CARD_FIELDS: a column that appears only when a value was
+        # found is a column that appears only on some pages.
+        for key in BILINGUAL_CARD_FIELDS:
+            value = other.get(key) or ""
+            both[f"{key}_ar"] = value if value != row.get(key) else ""
+        merged.append(both)
+    return _candidate_from(merged, table_index=table_index)
