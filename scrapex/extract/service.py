@@ -313,11 +313,26 @@ def _dataset_public(conn: sqlite3.Connection, dataset_id: int) -> dict[str, Any]
 
 
 def approve_candidate(
-    conn: sqlite3.Connection, snapshot_id: int, approval: CandidateApproval
+    conn: sqlite3.Connection, snapshot_id: int, approval: CandidateApproval,
+    *, candidate: TableCandidate | None = None
 ) -> dict[str, Any]:
-    """Atomically turn one reviewed candidate into definitions and generic rows."""
+    """Atomically turn one reviewed candidate into definitions and generic rows.
+
+    `candidate` LETS A SITE SUPPLY ITS OWN, and everything below this line is
+    unchanged by it. Nothing in the storage half has anything to do with
+    `<table>` — only the DETECTION does — and a page can hold rows without
+    holding a table: muqawil.org's contractor listing has TWENTY rows and ZERO
+    `<table>` elements, so `detect_html_tables` finds nothing on it at all.
+
+    The alternative was a second path from such a page to `generic_record`, and
+    that would be a second copy of the atomicity, the idempotency and the
+    revision history — two copies that drift apart on the first bug fixed in
+    only one of them. `scrapex/extract/muqawil.py:listing_candidate` is the
+    first caller.
+    """
     snapshot = _snapshot_row(conn, snapshot_id)
-    candidate = _candidate(snapshot, approval.table_index)
+    if candidate is None:
+        candidate = _candidate(snapshot, approval.table_index)
     if not candidate.approvable:
         reason = candidate.warnings[0] if candidate.warnings else "The table is incomplete."
         raise CandidateNotApprovable(

@@ -38,6 +38,14 @@ from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup, Tag
 
+from .html_table import InferredField, TableCandidate
+from .models import MAX_TABLE_ROWS
+
+#: Where a card sits, in the same shape `html_table.py` writes for a `<table>`
+#: (`table#id::row(1)`). It is stored on every record as `source_locator`, so it
+#: has to name something a person could go and look at.
+_LOCATOR = "div.section-card"
+
 #: `label -> field_key`, in the page's own order. English only, on purpose —
 #: see the module docstring. A label this map does not know is KEPT, under a
 #: slug of its own, rather than dropped: a field the site adds is news, and a
@@ -218,6 +226,73 @@ def read_listing(html: str) -> list[dict[str, str]]:
             row[f"card_{_slug(name)}"] = value
         rows.append(row)
     return rows
+
+
+def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
+    """The cards on one listing page, in the shape the approval path already speaks.
+
+    THE MISSING LINK, AND IT IS AN ADAPTER RATHER THAN A SECOND PIPELINE.
+    `approve_candidate` and everything under it — `_validated_rows`,
+    `_schema_payload`, `_ensure_schema`, the upsert, the revision, the
+    idempotent replay — are written against `TableCandidate`. They have nothing
+    to do with `<table>`; only the DETECTION does. A muqawil listing page holds
+    ZERO `<table>` elements, so detection finds nothing — but the cards are rows
+    with named columns, which is all a candidate has ever been.
+
+    So this converts, and not one line of the storage half changes. The
+    alternative — a parallel path from cards to `generic_record` — would be a
+    second copy of the atomicity, the idempotency and the revision history, and
+    the two would drift on the first bug fixed in only one of them.
+
+    WHAT IS NOT CLAIMED HERE. Every field is typed `text`, and deliberately:
+    `html_table.py` infers types from a table's own values, and inference over
+    twenty rows of one page would guess `integer` for a rating that is `4.5` on
+    page two. The owner types the schema at approval, which is the step this
+    whole design exists to keep. Confidence is 1.0 because nothing was guessed.
+    """
+    rows = read_listing(html)
+    if not rows:
+        return TableCandidate(
+            table_index=table_index, name="contractors", locator=_LOCATOR,
+            fields=(), rows=(), confidence=0.0,
+            warnings=("No contractor cards on this page.",),
+            approvable=False, truncated=False)
+
+    # THE UNION, NOT THE FIRST ROW'S KEYS. A contractor with no rating carries
+    # no rating keys at all, so keying the schema off row one would drop a
+    # column for every contractor after it that happened to have one.
+    names: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in names:
+                names.append(key)
+
+    fields = tuple(
+        InferredField(
+            field_key=name, source_name=name, data_type="text",
+            nullable=any(not row.get(name) for row in rows),
+            position=position, confidence=1.0,
+            uniqueness=_uniqueness(rows, name),
+            null_fraction=sum(1 for row in rows if not row.get(name)) / len(rows),
+            identity_candidate=(name == "contractor_id"),
+        )
+        for position, name in enumerate(names)
+    )
+    return TableCandidate(
+        table_index=table_index, name="contractors", locator=_LOCATOR,
+        fields=fields,
+        # EVERY FIELD ON EVERY ROW, with absent ones as None rather than
+        # missing: `_validated_rows` walks the FIELD list, and a row that
+        # simply lacks a key would raise rather than record an empty cell.
+        rows=tuple({name: (row.get(name) or None) for name in names}
+                   for row in rows),
+        confidence=1.0, warnings=(), approvable=True,
+        truncated=len(rows) >= MAX_TABLE_ROWS)
+
+
+def _uniqueness(rows: list[dict[str, str]], name: str) -> float:
+    seen = {row.get(name) for row in rows if row.get(name)}
+    return len(seen) / len(rows) if rows else 0.0
 
 
 def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:

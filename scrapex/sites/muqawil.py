@@ -93,7 +93,14 @@ def _cards(page: FetchedPage) -> list:
 class MuqawilPageSource:
     """What muqawil.org knows about its own pages."""
 
-    site_key = "muqawil.org"
+    #: THE CATALOGUE'S KEY, NOT THE HOSTNAME, and the difference is not
+    #: cosmetic. `PageSource.site_key` is what `snapshotcrawl.read_scope` looks
+    #: up in `site_profile`, and rows get there through `catalog.register_site`,
+    #: whose `CatalogKey` is `^[a-z][a-z0-9_]{1,63}$` — no dots, no hyphens. A
+    #: `site_key` of "muqawil.org" can therefore never match a row that was
+    #: registered properly, and every crawl of it would raise SiteNotRegistered
+    #: while the row sat there under a name one character different.
+    site_key = "muqawil_org"
 
     def __init__(self, *, last_page: int, locales: Iterable[str] = LOCALES) -> None:
         """`last_page` is REQUIRED, and that is the point.
