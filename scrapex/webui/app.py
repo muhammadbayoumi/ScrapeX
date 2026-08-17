@@ -1466,6 +1466,46 @@ def create_app(
                 "kept_pages": kept["pages"],
                 "kept_at": kept["stopped_at"],
             })
+
+        # A GENERIC DATASET IS A SOURCE THE OWNER CAN OPEN, and until now it was
+        # invisible here: this route walked the manifest alone, so a
+        # `site_profile` row could never reach the panel however much data it
+        # held. The Data screen lists what this answers and opens it through
+        # /api/table/{key}, which already serves a dataset — so listing them is
+        # the whole of what was missing.
+        #
+        # `kind` MARKS THEM, and the panel needs it: the row menu offers Update,
+        # Wipe and Rename, and every one of those is a price-path action that
+        # would answer 400 or worse for a dataset. A button that cannot work is
+        # worse than no button, so the panel hides them on this marker.
+        general = general_read_conn()
+        try:
+            for row in general.execute(
+                    "SELECT d.dataset_key, d.display_name, d.original_name, "
+                    "s.base_url, count(r.generic_record_id) AS rows "
+                    "FROM dataset_definition AS d "
+                    "JOIN site_profile AS s "
+                    "ON s.site_profile_id = d.site_profile_id "
+                    "LEFT JOIN generic_record AS r "
+                    "ON r.dataset_definition_id = d.dataset_definition_id "
+                    "AND r.status = 'active' "
+                    "WHERE d.valid_to IS NULL GROUP BY d.dataset_definition_id"):
+                out.append({
+                    "kind": "dataset",
+                    "source_key": row["dataset_key"],
+                    "source_name": row["display_name"] or row["original_name"],
+                    "source_name_ar": "", "base_url": row["base_url"],
+                    "family": "generic", "active": True, "implemented": True,
+                    "supports_history": False,
+                    # `observations` is what the Data screen filters on, and for
+                    # a directory the honest number is its rows. `products` has
+                    # no meaning for a company, so it carries the same count
+                    # rather than a zero that would read as an empty dataset.
+                    "observations": row["rows"], "products": row["rows"],
+                    "last_success": None, "kept_pages": 0, "kept_at": None,
+                })
+        finally:
+            general.close()
         return {"sources": out}
 
     @app.get("/api/resolve")

@@ -4346,6 +4346,14 @@ const SOURCE_ACTIONS = [
 ];
 
 function sourceMenu(source) {
+  // A GENERIC DATASET GETS NO MENU. Every action here — Update, Wipe, Rename —
+  // is a price-path action: they post to routes that read the manifest, and a
+  // dataset is not in it. Offering them would put three buttons on the card
+  // that answer 400, and a button that cannot work is worse than no button.
+  //
+  // Keyed on the engine's own marker rather than on the key's shape, so the
+  // panel is never the second place that decides what a dataset is.
+  if (source.kind === "dataset") return "";
   const options = SOURCE_ACTIONS.map((item) => `
     <button class="split-button-option" role="menuitem" type="button"
             data-split-action="${item.action}"${item.ready === false ? " disabled" : ""}

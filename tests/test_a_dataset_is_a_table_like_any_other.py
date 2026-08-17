@@ -274,3 +274,68 @@ def test_the_arabic_half_is_matched_by_contractor_id_and_never_by_position():
         if paired and row["company_name"] != paired["company_name"]:
             assert paired["company_name_ar"] == row["company_name"], (
                 "an Arabic name landed on the wrong contractor")
+
+
+# ---- and it has to be FINDABLE, not merely servable --------------------------
+
+def test_a_dataset_appears_among_the_sources_the_panel_lists(tmp_path):
+    """«اريد ان ارى المصدر ضمن صفحة data فى extension حتى استطيع تصفح البيانات».
+
+    `/api/table/{key}` has served a dataset since the payload landed — but
+    `/api/sources` walked the manifest alone, so a `site_profile` row could
+    never reach the panel however much data it held. The Data screen lists what
+    that route answers, so a dataset that is servable and unlistable is a
+    dataset nobody can open.
+    """
+    from fastapi.testclient import TestClient
+
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.webui.app import create_app
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                               pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    try:
+        stored(conn)
+        # COMMITTED, because `approve_candidate` does not: the HTTP route owns
+        # the transaction (`_general_write`), and every other test in this file
+        # reads back through the SAME connection so it never noticed. Here a
+        # second connection asks, and an uncommitted dataset is an absent one.
+        conn.commit()
+    finally:
+        conn.close()
+
+    client = TestClient(create_app(databases=registry))
+    rows = client.get("/api/sources").json()["sources"]
+    mine = [row for row in rows if row["source_key"] == "contractors"]
+
+    assert mine, "the dataset is servable and unlistable, so nobody can open it"
+    row = mine[0]
+    assert row["kind"] == "dataset"
+    assert row["observations"] == 4, (
+        "the Data screen filters on `observations > 0`; a zero here hides it")
+    assert row["implemented"] is True, (
+        "the panel disables a source it thinks has no connector")
+    assert "muqawil.org" in row["base_url"]
+
+
+def test_a_price_source_still_carries_no_kind(tmp_path):
+    """The marker must be ABSENT on the price rows, not false — the panel reads
+    `source.kind === "dataset"`, and a shared key would make every source one
+    edit away from losing its menu."""
+    from fastapi.testclient import TestClient
+
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.webui.app import create_app
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                               pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    client = TestClient(create_app(databases=registry))
+
+    rows = client.get("/api/sources").json()["sources"]
+    priced = [row for row in rows if row.get("kind") != "dataset"]
+
+    assert priced, "the manifest's own sources vanished from the list"
+    assert all("kind" not in row for row in priced)
