@@ -544,6 +544,63 @@ than missing **(inferred from the titles; the check is a diff, not a title match
 
 ---
 
+### DEC-8 · The engine's Data page is a PORT, not a rebuild — measured 2026-08-16
+
+**The owner asked directly:** «هل يمكن نقل صفحة data الموجودة فى المحرك بكل مميزتها الى
+extension ام يلزم اعادة البناء كامل؟» Answered by measurement, not opinion, and the answer
+is a port.
+
+**Why it is a port.** Both pages already run the SAME grid library:
+
+| | |
+|---|---|
+| `scrapex/webui/static/grid.js` | **3,212 lines**, Tabulator |
+| `extension/datatable.js` | **100 lines**, Tabulator |
+
+Tabulator was vendored into the extension in #193, so the difference is not a technology —
+it is **~3,100 lines of behaviour written on top of the library we already ship in both
+places**. `grid.js:5-9` records why that behaviour is ours rather than bought: the owner
+asked for the AG Grid look, and the features in those screenshots — set filter, row
+grouping with aggregation, the columns tool panel, Excel export — live in
+`ag-grid-enterprise`, whose licence field reads *"Commercial"*. So it was built on the MIT
+library instead. **Code we own ports; a licence would not have.**
+
+**And MV3 does not block it.** `eval(`, `new Function` and inline `on*=` handlers in
+`grid.js`: **zero**. Those are precisely the three things Manifest V3's CSP forbids, and one
+of them would have made a port impossible without a rewrite. There is none.
+
+**Where the real work is, and it is not the grid.** `scrapex/webui/templates/source.html`
+carries **105 Jinja expressions** — half the page is assembled on the server before it
+reaches a browser. An extension page is a static file, so every one of those has to become
+a request and a render in JS. Mechanical, not inventive. The routes it needs already exist
+and already answer: `/api/fields`, `/api/promotable`, `/api/views`, `/api/offer` — and the
+extension already calls `/api/table` among them.
+
+**What the gap actually is, with evidence.** The owner sent two screenshots on 2026-08-16.
+The engine's page carries Datasets · Views · Grid Features · Columns menus, a filter and a
+menu on every column, an ALL/ONE toggle, an **EN/AR toggle**, Excel/CSV/JSON export, a
+price rendered with its previous value struck through, row checkboxes, Source overview, and
+a last-run line with a Crawl history link. The migrated page carries side-by-side AR and EN
+columns, a fold checkbox, Reload, and basic pagination. **The migration carried the word
+`bilingual` (`extension/datatable.js:55`) and left the feature** — which is why the owner
+stopped at B1: «اشياء كثيرة مفقودة لذلك توقفت عند b1».
+
+**Three pieces of work, in order:**
+
+1. **Port `grid.js`.** The largest piece and close to a copy.
+2. **Convert the 105 Jinja expressions** from server-side rendering to fetch-and-draw.
+3. **A DOM harness that renders the page in tests** — `tools/tabpage_harness.py` was built
+   for exactly this in #194 and extended to serve real ES modules in #200.
+
+**(3) is the one not to trade away.** The Data page has already shipped BROKEN once with
+2,460 engine and 398 extension tests green on it (#194: every first load aborted itself,
+found only by opening it in a browser). Three thousand ported lines with nothing rendering
+them is that failure with more surface.
+
+**And a standing warning:** do not delete the engine's page until the harness proves the
+ported one works. *"We migrated it"* has been said once already about a page that was
+missing everything in the list above.
+
 ## 4. Built, not yet verified
 
 ### BV-1 · Crawling several sites at once — IT HAS RUN, and the entry was wrong twice
