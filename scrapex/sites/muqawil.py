@@ -107,6 +107,20 @@ class MuqawilPageSource:
         self._last_page = last_page
         self._locales = tuple(locales)
 
+    @property
+    def listing_requests(self) -> int:
+        """How many requests `listing_urls` will actually make.
+
+        NOT the page count, and the difference cost a wrong progress bar on the
+        first live run: 865 pages in two locales is 1,730 requests, and a caller
+        that passed the page count to `crawlscope.plan` declared a frontier of
+        half the crawl. The bar would have reached its total at the half-way
+        point and sat there for fifteen minutes.
+
+        It lives here because only the site knows it fetches each page twice.
+        """
+        return self._last_page * len(self._locales)
+
     def listing_urls(self, base_url: str) -> Iterable[str]:
         """Every listing page, in both locales, page by page rather than locale
         by locale.
