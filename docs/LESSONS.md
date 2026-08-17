@@ -327,7 +327,42 @@ Two more found in the same reading, deliberately left alone:
 
 ---
 
-## 7 · The method that caught all of these
+## 7 · A document can drift into the opposite of the code
+
+A stale document is not a neutral cost. It **actively directs the next reader
+into the wrong action**, and it does so with the authority of a rule.
+
+This project has two instances on record:
+
+- **`docs/data-page-schema.md`** — it called itself "the ruling" and had drifted
+  into stating the opposite of the code **in five ways at once**: wrong
+  classification levels, Brand filed under the wrong block, the reading order the
+  owner's agreement had already replaced, four columns absent, eight price
+  columns absent. PR #63 was sent back partly for leaving it behind. The tables
+  are **generated** now, and `tests/test_the_ruling_matches_the_code.py` is what
+  stops them going stale again.
+- **`ENGINEERING.md` W4** — found 2026-08-17. It was stale twice: the version
+  trigger (superseded by R-06 on 2026-08-16), and a claim that
+  `extension/manifest.json` is an enforced mirror of `VERSION`. That second one
+  had been deliberately undone on 2026-08-05 (Decision 21, PR #112), and
+  `tests/test_version.py:536` now **fails if anyone re-pins the two numbers**. So
+  the most-read rules document in the repository was pointing at an action the
+  test suite actively blocks and [R-07](RULINGS.md#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert)
+  explicitly forbids.
+
+**The pattern:** in both cases the *code* was right and the *document* was wrong,
+and the document was the thing a newcomer would trust. Neither was caught by a
+test, because nothing tested the prose.
+
+**Apply:** when a rule and the code disagree, measure which is right before
+rewriting either — W4 was rewritten only after `tests/test_version.py:79` and
+`:536` were read and the two mirrors were confirmed to differ. And where a
+document states a fact the code owns, prefer **generating** it over promising to
+keep it current. *A document nobody can trust is worse than no document.*
+
+---
+
+## 8 · The method that caught all of these
 
 Reading the code found almost none of these. What found them:
 

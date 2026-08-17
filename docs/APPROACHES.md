@@ -30,7 +30,7 @@ is not optional and is not in competition with the others — the rest describe
 ---
 
 ### A2 · Measure, don't reason
-**The project's own hardest-won method.** [LESSONS.md §7](LESSONS.md#7--the-method-that-caught-all-of-these)
+**The project's own hardest-won method.** [LESSONS.md §8](LESSONS.md#8--the-method-that-caught-all-of-these)
 
 Run it against reality, repeatedly, and let counts decide. Reading the code found
 almost none of this project's real defects.

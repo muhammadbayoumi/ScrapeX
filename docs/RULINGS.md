@@ -109,13 +109,18 @@ Phase A entire, T1 and B2. He noticed and said so. (As of 2026-08-17 the gap is
 > Use `-G`, not `-S`, on this file: `-S` finds only one of the three, because
 > `0.2.1` → `0.2.2` leaves the count of the searched string unchanged.
 
-**BLOCKED — do not simply bump it.** See [R-07](#r-07--the-engine-keeps-the-gate-and-drops-the-advert).
+**BLOCKED — do not simply bump it.** See [R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert).
 
-**Conflict to resolve:** [ENGINEERING.md](../ENGINEERING.md) **W4** still reads
-*"ONE product version, and it moves when the behaviour does"*, which is the
-superseded R-05 rule. W4's wording needs updating to match this ruling; the rest
-of W4 (the ledger, the derived `MINIMUM_EXTENSION_VERSION`, the generated
-CHANGELOG) is unaffected and still stands.
+**Conflict — RESOLVED 2026-08-17.** [ENGINEERING.md](../ENGINEERING.md) **W4**
+read *"ONE product version, and it moves when the behaviour does"* — the
+superseded R-05 trigger — and was stale in a second, more dangerous way: it
+called `extension/manifest.json` a **mirror** with a drift test, which
+[R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert) and PR #112
+deliberately undid. Measured before rewriting: `pyproject.toml` really is an
+enforced mirror (`tests/test_version.py:79`), while the manifest comparison was
+removed on 2026-08-05 and `tests/test_version.py:536` now **fails if anyone
+re-pins it**. A reader following the old W4 literally would have re-welded the
+two numbers — the one thing this ruling forbids. W4 now states both correctly.
 
 ---
 

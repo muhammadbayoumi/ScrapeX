@@ -38,3 +38,10 @@ Thumbs.db
 
 # screenshot harness scratch
 docs/screenshots/_tmp/
+
+# ── Claude Code ────────────────────────────────────────────────────────
+# Worktrees are complete nested checkouts — never commit one. This rule used
+# to live in .git/info/exclude, which git does not transmit, so it existed on
+# one machine only and `git add .` on the other would have committed an entire
+# nested repository. Note .claude/skills/ IS tracked, deliberately.
+.claude/worktrees/

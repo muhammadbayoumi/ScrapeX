@@ -105,7 +105,7 @@ languages — roughly **35,500 requests**, about ten hours at one per second.
 
 **Ruling:** [R-06](RULINGS.md#r-06--version-moves-with-every-merged-pull-request)
 (every merged PR raises `VERSION`) · **Blocked by:**
-[R-07](RULINGS.md#r-07--the-engine-keeps-the-gate-and-drops-the-advert)
+[R-07](RULINGS.md#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert)
 
 `VERSION` is `0.2.2` at [scrapex/version.py:76](../scrapex/version.py); the
 manifest is `0.2.2` too. It last moved at `adf31b2` on **2026-08-10**, and as of
@@ -129,8 +129,11 @@ mechanical.
 - `robots_per_source` is dated 0.2.2 and cites no commit; the ledger's own guard
   fires, correctly. Read out of `git log`, both `-S"crawl_obey_disallow"` and
   `-S"source-edit-robots"` name `adf31b2` alone — write `commit="adf31b2"`.
-- [ENGINEERING.md](../ENGINEERING.md) **W4** still states the superseded
-  per-capability rule ([R-05](RULINGS.md#r-05--version-moves-per-user-visible-capability)). Its wording needs to match R-06.
+- ~~[ENGINEERING.md](../ENGINEERING.md) **W4** states the superseded
+  per-capability rule.~~ **FIXED 2026-08-17.** It was stale twice: the trigger,
+  and a claim that `extension/manifest.json` is an enforced mirror — which PR
+  #112 undid and `tests/test_version.py:536` now actively guards against. W4
+  would have sent a reader into re-welding the two numbers.
 
 ---
 
