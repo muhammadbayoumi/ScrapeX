@@ -143,6 +143,25 @@ class PaceGovernor:
             self._ease(pace, strain, answer)
             return strain
 
+        # ONLY A 200 MAY BUY SPEED, and this is Scrapy's rule taken whole.
+        # `scrapy/extensions/throttle.py` ends `_adjust_delay` with a one-way
+        # ratchet — a non-200 response may only ever RAISE the delay — and its
+        # comment gives the reason: error pages and redirects are SMALL, so they
+        # come back fast, and a latency-driven controller reads an error storm as
+        # "the site just got quicker" and accelerates into it. A positive
+        # feedback loop, at the exact moment the site is failing.
+        #
+        # It bites us harder than it bites them, because `HttpFetcher` sends
+        # conditional requests: a re-crawl is mostly 304s, which carry NO BODY
+        # AT ALL and so are the fastest answers a server can give. Without this
+        # line every re-crawl would widen on its own emptiness.
+        #
+        # `!= 200` and not `< 400`, deliberately — 204, 206, 301, 302 and 304 are
+        # all real answers and none of them is a page. A neutral answer neither
+        # eases nor widens: it simply does not count.
+        if answer.status is not None and answer.status != 200:
+            return strain
+
         # LEARNED ONLY AT ONE IN FLIGHT. See the module docstring: a baseline
         # that moved with the load could never detect the load.
         if pace.concurrency == self._floor and answer.latency_s > 0:

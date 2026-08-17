@@ -251,3 +251,96 @@ def test_every_easing_is_remembered_so_a_report_can_say_what_happened():
     governor.record(HOST, Answer(latency_s=1.0, status=429, retry_after_s=5.0))
 
     assert governor.pace_for(HOST).eased == [(8, 4, Strain.TOLD_TO_WAIT)]
+
+
+# ---- only a 200 may buy speed -----------------------------------------------
+#
+# Scrapy's ratchet, taken whole. `scrapy/extensions/throttle.py` ends
+# `_adjust_delay` by refusing to let a non-200 lower the delay, and its comment
+# gives the reason: error pages and redirects are SMALL, so they come back fast,
+# and a latency-driven controller reads an error storm as "the site got quicker"
+# and accelerates into it — at the exact moment the site is failing.
+
+@pytest.mark.parametrize("status", [404, 301, 302, 500, 204, 206])
+def test_a_fast_error_never_widens_the_crawl(status):
+    """A 404 page is a few hundred bytes and answers in milliseconds. Counted as
+    clean, a storm of them is the fastest the server has ever looked."""
+    governor = PaceGovernor(ceiling=8, clean_before_widening=2)
+    settle(governor, at=6.0)
+    was = governor.concurrency(HOST)
+
+    for _ in range(20):
+        governor.record(HOST, Answer(latency_s=0.05, status=status))
+
+    assert governor.concurrency(HOST) == was, (
+        f"twenty fast {status}s widened the crawl — the site is failing and we "
+        "sped up")
+
+
+def test_a_304_is_the_sharpest_case_because_it_carries_no_body_at_all():
+    """`HttpFetcher` sends conditional requests, so a RE-crawl is mostly 304s.
+    They are the fastest answer a server can give — nothing is sent. Without
+    the ratchet every re-crawl would widen on its own emptiness."""
+    governor = PaceGovernor(ceiling=8, clean_before_widening=2)
+    settle(governor, at=6.0)
+    was = governor.concurrency(HOST)
+
+    for _ in range(30):
+        governor.record(HOST, Answer(latency_s=0.01, status=304))
+
+    assert governor.concurrency(HOST) == was
+
+
+def test_a_fast_error_does_not_teach_the_baseline_either():
+    """The second half of the same defect. A baseline dragged down by empty
+    error pages makes the slowdown threshold far too tight, and the governor
+    then eases on ordinary healthy responses."""
+    governor = PaceGovernor(ceiling=8, clean_before_widening=99)
+    for _ in range(6):
+        governor.record(HOST, clean(6.0))
+    baseline = governor.pace_for(HOST).baseline_s
+
+    for _ in range(20):
+        governor.record(HOST, Answer(latency_s=0.02, status=404))
+
+    assert governor.pace_for(HOST).baseline_s == pytest.approx(baseline, rel=0.01), (
+        "empty error pages taught the governor that this server is fast")
+
+
+def test_an_error_is_neutral_and_not_a_reason_to_ease():
+    """It must not widen, and it must not narrow either. A 404 is a missing
+    page, not a server in distress — easing on one would shrink a crawl for
+    every dead link in a directory."""
+    governor = PaceGovernor(ceiling=8, clean_before_widening=2)
+    settle(governor, at=6.0)
+    was = governor.concurrency(HOST)
+
+    assert governor.record(HOST, Answer(latency_s=0.05, status=404)) is Strain.NONE
+    assert governor.concurrency(HOST) == was
+
+
+def test_a_real_200_still_buys_speed_after_a_run_of_errors():
+    """The ratchet must not JAM. It refuses to let an error buy speed; it must
+    not also refuse the 200 that comes after one."""
+    governor = PaceGovernor(ceiling=8, clean_before_widening=2)
+    governor.record(HOST, Answer(latency_s=1.0, status=429))     # eased to 1
+    for _ in range(20):
+        governor.record(HOST, Answer(latency_s=0.05, status=404))
+    was = governor.concurrency(HOST)
+    assert was == 1, "the errors themselves moved it"
+
+    settle(governor, at=6.0)
+
+    assert governor.concurrency(HOST) > was, "the ratchet jammed shut"
+
+
+def test_an_answer_with_no_status_is_still_read_as_clean():
+    """A fetcher that reports latency without a status — the governor's own
+    tests do — must keep working, or every existing caller silently stops
+    widening."""
+    governor = PaceGovernor(ceiling=4, clean_before_widening=2)
+
+    for _ in range(6):
+        governor.record(HOST, Answer(latency_s=6.0))
+
+    assert governor.concurrency(HOST) > 1
