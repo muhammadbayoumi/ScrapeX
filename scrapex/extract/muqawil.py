@@ -34,6 +34,7 @@ and a parser keyed on it breaks on a difference no reader would ever notice.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup, Tag
@@ -293,6 +294,146 @@ def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
 def _uniqueness(rows: list[dict[str, str]], name: str) -> float:
     seen = {row.get(name) for row in rows if row.get(name)}
     return len(seen) / len(rows) if rows else 0.0
+
+@dataclass(frozen=True)
+class Uniqueness:
+    """What a run of contractors says about a field that ought to be unique."""
+
+    field_key: str
+    checked: int
+    #: contractor ids whose value is missing entirely.
+    blank: tuple[str, ...] = ()
+    #: value -> the contractor ids sharing it. Empty when the rule holds.
+    repeated: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    @property
+    def holds(self) -> bool:
+        return not self.repeated and not self.blank
+
+    def summary(self) -> str:
+        if self.holds:
+            return (f"{self.field_key}: unique across {self.checked:,} "
+                    "contractors, none blank")
+        parts = [f"{self.field_key}: {self.checked:,} checked"]
+        if self.blank:
+            parts.append(f"{len(self.blank):,} blank")
+        if self.repeated:
+            worst = max(self.repeated.items(), key=lambda kv: len(kv[1]))
+            parts.append(f"{len(self.repeated):,} value(s) shared by more than "
+                         f"one contractor, worst {worst[0]!r} on "
+                         f"{len(worst[1])} of them")
+        return " · ".join(parts)
+
+
+def check_unique(rows: Iterable[dict[str, str]], *,
+                 field_key: str = "card_membership_number",
+                 identity: str = "contractor_id") -> Uniqueness:
+    """Count what shares a value that the owner says nothing should share.
+
+    THE OWNER SUPPLIED THE RULE AND THE DATA PROVED IT, in that order. He said
+    the membership number does not repeat; measured over the 11,059 contractors
+    of the first full crawl it was unique with none blank. Without his sentence
+    a repeat would have looked like ordinary data — which is exactly why this
+    exists: the rule is not discoverable from the rows.
+
+    IT COUNTS AND REPORTS. IT DOES NOT RAISE. A duplicate is not necessarily
+    ScrapeX's fault — the site may publish one, or a page may have shifted under
+    a crawl that took three hours — and refusing an eleven-thousand-row dataset
+    over one repeat would throw away a good crawl to punish a bad row. This
+    belongs beside the data, not in front of it.
+
+    ACROSS PAGES, WHICH IS THE ONLY LEVEL IT MEANS ANYTHING AT. A listing page
+    holds twenty rows; a repeat inside one is almost impossible and a repeat
+    across 865 of them is the case worth catching. So it takes rows, not a page.
+    """
+    seen: dict[str, list[str]] = {}
+    blank: list[str] = []
+    checked = 0
+    for row in rows:
+        checked += 1
+        who = str(row.get(identity) or "")
+        value = str(row.get(field_key) or "").strip()
+        if not value:
+            blank.append(who)
+            continue
+        seen.setdefault(value, []).append(who)
+    return Uniqueness(
+        field_key=field_key, checked=checked, blank=tuple(blank),
+        # A value on the SAME contractor twice is a page read twice, not a
+        # collision — the rule is about two contractors, so the ids are deduped
+        # before the count.
+        repeated={value: tuple(sorted(set(ids)))
+                  for value, ids in seen.items() if len(set(ids)) > 1})
+
+
+@dataclass(frozen=True)
+class Drift:
+    """How much a paginated crawl showed itself the same row twice."""
+
+    pages: int
+    rows: int
+    distinct: int
+    #: contractor id -> how many different pages it turned up on.
+    repeated: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def reshown(self) -> int:
+        """Slots spent on a row that had already been seen."""
+        return self.rows - self.distinct
+
+    @property
+    def steady(self) -> bool:
+        return not self.repeated
+
+    def summary(self) -> str:
+        if self.steady:
+            return (f"{self.pages:,} pages, {self.rows:,} rows, every one a "
+                    "different contractor")
+        worst_id, worst_n = max(self.repeated.items(), key=lambda kv: kv[1])
+        return (f"{self.pages:,} pages, {self.rows:,} rows, only "
+                f"{self.distinct:,} contractors — {self.reshown:,} slots were "
+                f"re-showings, {len(self.repeated):,} contractors seen twice or "
+                f"more, worst {worst_id} on {worst_n} pages. The listing moved "
+                "under the crawl, so an unknown number of contractors were "
+                "never shown at all.")
+
+
+def check_drift(paged_rows: Iterable[tuple[int, dict[str, str]]], *,
+                identity: str = "contractor_id") -> Drift:
+    """How often the same contractor turned up on more than one page.
+
+    THIS IS ABOUT THE CRAWL, NOT THE DATA, and the two must not be reported
+    together. `check_unique` deliberately treats one contractor read twice as
+    one contractor — which is right, and was proved right: over the first full
+    crawl, 4,556 contractors appeared more than once and EVERY COPY WAS
+    BYTE-IDENTICAL. Not one differing field, not one membership number shared by
+    two companies, not one company carrying two numbers. So the repeats are not
+    bad data at all; they are one row read from two places.
+
+    WHICH IS THE WORSE FINDING. A listing that reorders under a crawl does not
+    only repeat — it also SKIPS. A contractor that slid from page 42 to 41 is
+    read twice; the one that slid from 41 to 42 is never read at all. Measured
+    on 2026-08-16: 865 pages of twenty offered 17,300 slots, 6,241 of them went
+    to a row already seen, and 11,059 contractors came back. How many were
+    missed is not knowable from the crawl itself.
+
+    So this counts what CAN be seen — the repeats — because they are the visible
+    half of an invisible loss, and a crawl that reported 17,275 rows with no
+    further comment would read as a complete one.
+    """
+    pages: set[int] = set()
+    seen: dict[str, set[int]] = {}
+    rows = 0
+    for page, row in paged_rows:
+        rows += 1
+        pages.add(page)
+        who = str(row.get(identity) or "")
+        if who:
+            seen.setdefault(who, set()).add(page)
+    return Drift(
+        pages=len(pages), rows=rows, distinct=len(seen),
+        repeated={who: len(where) for who, where in seen.items()
+                  if len(where) > 1})
 
 
 def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
