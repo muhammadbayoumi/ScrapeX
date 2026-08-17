@@ -6,6 +6,10 @@ This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
 the work it describes (**C2**, [../CLAUDE.md](../CLAUDE.md)).
 
+**For what the owner has asked for and where each request stands, see
+[REQUESTS.md](REQUESTS.md).** This file tracks the *work in flight*; that one
+tracks *his requests* through Captured → Ruled → Planned → In flight → Done.
+
 ---
 
 ## Open pull requests — both green, both waiting on the owner
@@ -150,8 +154,16 @@ mechanical.
   [LESSONS.md §6](LESSONS.md#6--two-oauth-clients-therefore-two-grants).
 - **HTTP 400 counts as revoked**, and neither `authorize` nor `revokeToken` has a
   deadline. Same section.
-- **R-04 (ten settings move into the extension) has not been built.** It was
-  ruled 2026-08-01 and parked behind a review.
+- **[REQ-04](REQUESTS.md#req-04--every-setting-moves-into-the-extension) — the ten
+  settings move into the extension — is ruled and unbuilt after 16 days.** Parked
+  behind a review on 2026-08-01 and then lost from view. It is the entry that
+  justified building [REQUESTS.md](REQUESTS.md).
+- **Two requests await the owner's ruling:**
+  [REQ-08](REQUESTS.md#req-08--a-guard-against-the-documents-going-stale) (a guard
+  against the documents going stale) and
+  [REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two) (one home for
+  rulings — `RULINGS.md` was written without reading `BACKLOG.md`, which has held
+  23 standing rules since July).
 
 ---
 

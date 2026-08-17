@@ -247,6 +247,36 @@ your own. Guarded by `tests/test_signing_out_really_signs_out.py`.
 
 ---
 
+### R-14 · Requests are captured when made, then planned, then executed
+**2026-08-17 · process**
+
+> «كل طلب او اضافة او اى شى اذكره ونقرر انه فى المستقبل نحطه … علشان مننساش، ولما
+> نوصله نعمله خطه ونفذها» · «عاوز ادارة لطلباتى بحيث توثق وتحفظ ومنها نعمل خطة
+> ومنها ننفذ الخطة»
+
+Every request goes into [REQUESTS.md](REQUESTS.md) as `REQ-nn` in the session it
+is made, quoted in his own words, and moves **Captured → Ruled → Planned → In
+flight → Done**. Done and dropped requests are kept, never deleted.
+
+**Why, with the evidence:** [R-04](#r-04--all-ten-web-only-settings-move-into-the-extension)
+was ruled on 2026-08-01, after he was offered three options and chose the most
+thorough. Sixteen days later nothing had been built and it had dropped out of
+sight entirely — it survived only because a memory file happened to mention SR-10.
+
+**He asked whether `CHECKLIST` was the right name, and it was not.** A checklist is
+ticked and discarded: no state, no evidence, no history. What he described is a
+five-state pipeline. `REQUESTS.md` was recommended and adopted; `ROADMAP` was
+rejected for promising an order he has not set.
+
+**And the boundary rule that came with it**, because building it exposed a
+duplication: **he asked → `REQUESTS.md`; we found it → `BACKLOG.md`; a decision
+was taken → `RULINGS.md`.** See
+[REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two) — this file was written
+without reading `BACKLOG.md`, which has held 23 standing rules since 2026-07-29,
+and which of the two keeps the rulings is his call.
+
+---
+
 ## Superseded
 
 Kept per **C4**. Do not follow these; they are here so the current rule can be

@@ -10,6 +10,29 @@ carries its evidence — a commit hash, a `file:line`, a number measured against
 warehouse, or the owner's own words. Anything I inferred rather than verified is marked
 **(inferred)**.
 
+> ### ⚠ It is no longer the ONLY tracking document — read this before adding an entry
+>
+> A documentation system was built on **2026-08-17** ([R-09](RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english)),
+> and it starts at [../CLAUDE.md](../CLAUDE.md). Three registers now exist, and the
+> test for where a thing belongs is **where it came from**:
+>
+> | it came from | it belongs in |
+> |---|---|
+> | **the owner asked for it** | [REQUESTS.md](REQUESTS.md) — `REQ-nn` |
+> | **we found it** — a bug, a debt, a duplication | **this file** — `OP-`, `DEC-`, `DEBT-` |
+> | **a decision was taken** | [RULINGS.md](RULINGS.md) — `R-nn` |
+>
+> **One overlap is unresolved and it is the owner's call:** §1's standing rules
+> (`SR-1..SR-23`) and `RULINGS.md` (`R-01..R-14`) are both registers of his
+> rulings. `RULINGS.md` was written without reading this file. The options and a
+> recommendation are at [REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two).
+> **Until he rules, do not add a new standing rule to either file without also
+> linking it from the other.**
+>
+> Also note the live state of the work has moved to [STATE.md](STATE.md), which is
+> kept current per **C2**; the "Repository state" block below was last re-measured
+> on 2026-08-12 and its own warning about drifting numbers applies to it again.
+
 **Repository state — re-measured 2026-08-12**
 
 | | |

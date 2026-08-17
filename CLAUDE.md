@@ -63,6 +63,20 @@ on one: *«لدى كذا skill ولا اريد الاعتماد على واحد�
 [docs/APPROACHES.md](docs/APPROACHES.md), with the conflicts between them
 resolved. Choose per task and say which you chose.
 
+**C7 — Every request he makes is captured the moment he makes it.** Anything he
+asks for, adds, or mentions as future work goes into
+[docs/REQUESTS.md](docs/REQUESTS.md) as `REQ-nn` **in the session he said it**,
+quoted in his own words — then it moves Captured → Ruled → Planned → In flight →
+Done, and a plan is written when it is picked up. Done and dropped requests are
+kept, never deleted. *«علشان مننساش، ولما نوصله نعمله خطه ونفذها»* — REQ-04 was
+ruled on 2026-08-01, was never built, and had dropped out of sight entirely,
+which is why this rule exists.
+
+**Registers must not drift into each other.** Three exist, and the test is where
+the thing came from: **he asked** → `REQUESTS.md`; **we found it** →
+`BACKLOG.md`; **a decision was taken** → `RULINGS.md`. The boundary table is in
+[docs/REQUESTS.md](docs/REQUESTS.md#the-boundary--which-file-does-a-thing-belong-in).
+
 ---
 
 ## The map
@@ -71,7 +85,9 @@ resolved. Choose per task and say which you chose.
 |---|---|---|
 | **CLAUDE.md** (this file) | the entry point, the contract, how the owner works | first, always |
 | [docs/STATE.md](docs/STATE.md) | **where the work stands right now** — open PRs, tracks in flight, resume points, live blockers | at the start of every session |
+| [docs/REQUESTS.md](docs/REQUESTS.md) | **everything the owner has asked for**, and which of the five states each request is in | when he asks for something, and before starting new work |
 | [docs/RULINGS.md](docs/RULINGS.md) | every decision the owner has made, dated, with superseded ones kept | before designing anything |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | what *we* found — open problems, declared debt, decided-not-built, questions for him | when hunting for what needs doing |
 | [docs/LESSONS.md](docs/LESSONS.md) | hard-won engineering knowledge — the traps that cost real time, the failures that are silent | before touching ingest, the warehouse, the design system, or the version ledger |
 | [docs/APPROACHES.md](docs/APPROACHES.md) | **the methods available** for writing code and solving problems, and which wins where two disagree | when choosing how to attack a task |
 | [ENGINEERING.md](ENGINEERING.md) | the code rules — architecture, quality, testing, performance | before writing code |
