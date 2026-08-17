@@ -47,6 +47,23 @@ from .models import MAX_TABLE_ROWS
 #: has to name something a person could go and look at.
 _LOCATOR = "div.section-card"
 
+#: The CARD fields muqawil publishes in both languages, and the fourth thing
+#: that had to stop being decided per page. Emitting `_ar` only where an Arabic
+#: value happened to be found made the column list depend on which contractors
+#: that page's Arabic half showed — and the listing reorders, so 118 pages in
+#: 119 were refused as a different schema. Which fields the SITE translates is a
+#: fact about the site, so it is declared here beside `PROFILE_FIELDS`, and an
+#: absent value is a NULL in a column that is always there.
+#:
+#: Measured: these differ between locales. `contractor_id`, `logo_url`, the two
+#: rating numbers, the membership number, the classification grade and the two
+#: contractor counts read identically, so none of them earns a second column.
+BILINGUAL_CARD_FIELDS = (
+    "company_name", "membership_level", "contractor_classification",
+    "card_company_size", "card_status", "card_city_region",
+    "card_training_credit_hours",
+)
+
 #: `label -> field_key`, in the page's own order. English only, on purpose —
 #: see the module docstring. A label this map does not know is KEPT, under a
 #: slug of its own, rather than dropped: a field the site adds is news, and a
@@ -223,8 +240,26 @@ def read_listing(html: str) -> list[dict[str, str]]:
         count = re.search(r"(\d+)", votes)
         row["customer_rating_count"] = count.group(1) if count else ""
 
-        for name, value in _boxes(card):
+        boxes = _boxes(card)
+        for name, value in boxes[:-1]:
             row[f"card_{_slug(name)}"] = value
+
+        # THE CLASSIFICATION PUTS ITS DATA IN THE LABEL, which is the reverse of
+        # every other box on the card: `.info-name` reads `Second Classified`
+        # and `.info-value` reads `2`. Slugging the name gave a DIFFERENT field
+        # key per grade — `card_second_classified`, `card_fifth_classified` — so
+        # every page produced a different schema and the second page approved
+        # was refused with ExtractionConflict. Found by running it over the real
+        # crawl; no fixture of one page could have shown it.
+        #
+        # TAKEN BY POSITION, and verified over 800 real cards: the last box is a
+        # classification on every one of them, whether the card carries seven
+        # boxes or eight. Position is also the only key that is language-neutral
+        # — the label is the data here, so it cannot be matched against.
+        if boxes:
+            name, value = boxes[-1]
+            row["contractor_classification"] = name
+            row["contractor_classification_grade"] = value
         rows.append(row)
     return rows
 
@@ -251,7 +286,12 @@ def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
     page two. The owner types the schema at approval, which is the step this
     whole design exists to keep. Confidence is 1.0 because nothing was guessed.
     """
-    rows = read_listing(html)
+    return _candidate_from(read_listing(html), table_index=table_index)
+
+
+def _candidate_from(rows: list[dict[str, str]], *,
+                    table_index: int = 0) -> TableCandidate:
+    """Rows already read, in the shape the approval path speaks."""
     if not rows:
         return TableCandidate(
             table_index=table_index, name="contractors", locator=_LOCATOR,
@@ -262,16 +302,37 @@ def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
     # THE UNION, NOT THE FIRST ROW'S KEYS. A contractor with no rating carries
     # no rating keys at all, so keying the schema off row one would drop a
     # column for every contractor after it that happened to have one.
-    names: list[str] = []
-    for row in rows:
-        for key in row:
-            if key not in names:
-                names.append(key)
+    #
+    # AND ORDERED DETERMINISTICALLY, which cost 105 pages of 120 before it was
+    # done. First-seen order depends on which card came first, and 55 cards in
+    # 800 carry seven boxes rather than eight — so a page whose thin card led
+    # produced the SAME FIELDS IN A DIFFERENT ORDER. `_schema_payload` puts
+    # `position` in the hash, so that is a different schema, and every page
+    # after the first was refused with ExtractionConflict. The fields were
+    # identical; only their order was not.
+    #
+    # A fixed lead for the ones a reader looks for first, then sorted. Column
+    # order on screen is `display_order`'s business and the owner's to set;
+    # this only has to be the SAME every time.
+    lead = ["contractor_id", "company_name", "membership_level", "logo_url",
+            "customer_rating_score", "customer_rating_count",
+            "contractor_classification", "contractor_classification_grade"]
+    present = {key for row in rows for key in row}
+    names = [key for key in lead if key in present]
+    names += sorted(present - set(names))
 
     fields = tuple(
         InferredField(
             field_key=name, source_name=name, data_type="text",
-            nullable=any(not row.get(name) for row in rows),
+            # ALWAYS TRUE, NEVER MEASURED, and this was the third and last
+            # page-property that leaked into a dataset-wide schema. Computed
+            # per page it read False where that page happened to be complete
+            # and True where it was not — and `_schema_payload` puts it in the
+            # hash, so 50 pages in 60 were refused as "a different schema" with
+            # identical fields in identical order. Nullability is a fact about
+            # the DATASET: any page may carry a contractor with a gap, so the
+            # only answer one page can honestly give is yes.
+            nullable=True,
             position=position, confidence=1.0,
             uniqueness=_uniqueness(rows, name),
             null_fraction=sum(1 for row in rows if not row.get(name)) / len(rows),
@@ -477,3 +538,44 @@ def merge_locales(english: Reading, arabic: Reading) -> dict[str, str]:
         merged["latitude"] = str(english.latitude)
         merged["longitude"] = str(english.longitude)
     return merged
+
+
+def bilingual_listing_candidate(english: str, arabic: str, *,
+                                table_index: int = 0) -> TableCandidate:
+    """One listing page in both languages, as one candidate with `_ar` columns.
+
+    THIS IS WHAT LIGHTS THE TOGGLE. `dataset_table_payload` derives
+    `payload.bilingual` from any field ending `_ar` that has a partner without
+    it, and `grid.js` flips exactly those. Until a row carries both halves the
+    toggle has nothing to flip, which is why an English-only approval produces a
+    table with no language switch at all.
+
+    MERGED BY CONTRACTOR ID, NEVER BY POSITION. `en?page=5` and `ar?page=5` are
+    two separate requests against a listing that reorders every thirty seconds —
+    measured: 4,556 of 11,059 contractors turned up on more than one page in a
+    single pass. Zipping the two pages row by row would therefore attach one
+    company's Arabic name to another company's English one, and the result would
+    look perfectly reasonable. A contractor the Arabic page did not happen to
+    show simply keeps its English half.
+
+    AND A PAIR IS ONLY KEPT WHEN THE TWO DIFFER, which is the same rule
+    `merge_locales` applies to profiles. `contractor_id`, the rating counts and
+    the membership number read identically in both, and a second column holding
+    the same string costs a cell in every row of eleven thousand and says
+    nothing.
+    """
+    english_rows = read_listing(english)
+    arabic_rows = {row["contractor_id"]: row for row in read_listing(arabic)}
+
+    merged: list[dict[str, str]] = []
+    for row in english_rows:
+        both = dict(row)
+        other = arabic_rows.get(row["contractor_id"], {})
+        # EVERY declared pair, every row — present or not. See
+        # BILINGUAL_CARD_FIELDS: a column that appears only when a value was
+        # found is a column that appears only on some pages.
+        for key in BILINGUAL_CARD_FIELDS:
+            value = other.get(key) or ""
+            both[f"{key}_ar"] = value if value != row.get(key) else ""
+        merged.append(both)
+    return _candidate_from(merged, table_index=table_index)

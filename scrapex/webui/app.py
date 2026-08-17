@@ -44,6 +44,7 @@ from ..databases import (
     DatabaseUnavailableError,
     EngineDatabase,
 )
+from ..extract import service as extract_service
 from ..extract.api import create_extraction_router
 from ..features import manifest as feature_manifest
 from ..fields import (
@@ -892,6 +893,25 @@ def create_app(
                 fold = bool(app.state.manifest.get(source_key).fold_variants)
             except KeyError:
                 fold = False
+
+        # A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE. The key is looked
+        # up in the catalogue FIRST, and the price path answers everything the
+        # catalogue does not know — so a contractor directory renders on the
+        # page the owner already has, with its filters, its column menus, its
+        # export and its AR|EN toggle, and `grid.js` never learns it exists.
+        #
+        # The catalogue goes first rather than second because a dataset key is
+        # lower-case with underscores and a source key is upper-case
+        # (`^[A-Z][A-Z0-9_]{2,63}$`), so the two sets cannot collide — and
+        # asking the cheaper, smaller table first costs nothing when it misses.
+        general = general_read_conn()
+        try:
+            dataset = extract_service.dataset_table_payload(general, source_key)
+        finally:
+            general.close()
+        if dataset is not None:
+            return dataset
+
         conn = read_conn()
         try:
             return table_payload(conn, source_key, fold_variants=fold)
