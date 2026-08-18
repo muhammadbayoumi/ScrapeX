@@ -1159,7 +1159,7 @@
     overflow: hidden;
     margin: calc(-1 * var(--sp-4));
     padding: var(--sp-4);
-    background: var(--bg);
+    background: light-dark(#FCF5EB, var(--bg));
   }
   .profile-stage {
     display: flex;
@@ -1920,7 +1920,7 @@
     min-height: 0;
     overflow: hidden;
     margin: calc(-1 * var(--sp-4));
-    background: var(--bg);
+    background: light-dark(#FCF5EB, var(--bg));
   }
   .manage-account-heading {
     flex: none;
