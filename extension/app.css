@@ -1150,7 +1150,11 @@
      `min-height: auto` and refuses to shrink below its content, so without it a
      tall child grows the view instead of handing the overflow to the scroller
      inside it — which is the page-scrolls-instead-of-rows behaviour the chain
-     exists to remove. */
+     exists to remove.
+
+     The page canvas is white in light mode — a cleaner, brighter step back from
+     the card surface — while var(--bg) keeps dark mode intact. The card itself
+     keeps var(--surface). */
   #view-profile {
     display: flex;
     flex-direction: column;
@@ -1159,7 +1163,7 @@
     overflow: hidden;
     margin: calc(-1 * var(--sp-4));
     padding: var(--sp-4);
-    background: var(--bg);
+    background: light-dark(#FFFFFF, var(--bg));
   }
   .profile-stage {
     display: flex;
