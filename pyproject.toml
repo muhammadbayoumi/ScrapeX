@@ -69,6 +69,15 @@ markers = [
     # set. tests/test_the_extension_gate_is_complete.py is what keeps the set
     # honest: a new file that reads extension/ and forgets the mark fails.
     "extension: guards the Chrome extension; runs on an extension-only change",
+    # And a test file that READS A DOCUMENT is guarding the documentation system,
+    # so a documentation-only change must run it and need not run much else.
+    # Same discipline, same reason, a different set:
+    # tests/test_the_docs_gate_is_complete.py fails on a file that reads a
+    # document and forgets this mark. The two sets OVERLAP AND NEITHER CONTAINS
+    # THE OTHER -- test_the_ruling_matches_the_code.py reads
+    # docs/data-page-schema.md and touches no extension file at all, which is why
+    # the extension tier now runs `-m "extension or docs"`.
+    "docs: guards a document; runs on a documentation-only change",
 ]
 
 [tool.ruff]

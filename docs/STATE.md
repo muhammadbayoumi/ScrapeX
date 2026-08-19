@@ -165,6 +165,54 @@ generic storage"* — is now met by the figures above. Lighting them is what mak
 
 ---
 
+## Track 4 · What CI actually costs, and the tier a documentation change needed
+
+**Measured 2026-08-19**, because PR #214 was documentation only and took the two
+slowest runs of the previous twenty:
+
+| | |
+|---|---|
+| `test` job, median of 15 full-scope runs | **12m49s** |
+| of which the `pytest` step | **703s — 92%** |
+| `lint` · `contract-parity` | 21–26s · 14–16s |
+| PR #214's two runs | **14m21s and 14m40s** |
+
+The slowness is entirely inside one step. Four causes, ranked, with what was done:
+
+1. **A documentation change ran the whole suite.** The scope filter knew
+   `extension/` and `docs/` only, and #214 changed `CLAUDE.md`, `ENGINEERING.md`,
+   `README.md`, `.gitignore` and a `.claude/` file — none of which match `^docs/`.
+   **Fixed:** a third `docs` tier, a `pytest.mark.docs` marker on the nine files
+   that read a document, and `tests/test_the_docs_gate_is_complete.py` to keep the
+   set honest. **178 tests in 30.6s** against 451s for the whole suite locally.
+2. **`SCRAPEX_FULL_MIGRATIONS=1` was replaying 61 migration files 927 times per
+   run** — real `migrate()` is 396ms against a 3.6ms template restore, so roughly
+   350s of the 703s. **Moved** to a parallel `migration-authority` job. The
+   guarantee did not move: the same suite still runs against the real stream.
+   ⚠ **It is not a required check until someone makes it one** — until then a
+   migration-stream failure will not block a merge, which is weaker than the
+   inline variable it replaced.
+3. **Nothing was cached.** No `cache: pip`, nothing on `~/.cache/ms-playwright`.
+   **Both added.** Worth ~13s of steady browser download; the 104s apt spike seen
+   on 2026-08-19 is the runner's package mirror and no cache reaches it.
+4. **`tests/test_panel_dom.py` costs 236s of the 703**, about 120s of it literal
+   `wait_for_timeout(500)` on 164 panel opens. **Not touched** — the file's own
+   comment explains why some animation waits are load-bearing, and telling them
+   apart is its own task. Recorded here rather than done.
+
+**And a guard was blind.** The step that refuses a silently-skipping browser suite
+grepped `importorskip("playwright"` **with the closing quote**, so
+`tests/test_grid_dom.py:24` — which writes `importorskip("playwright.sync_api")` —
+never matched, and its 20 tests were invisible to it. One character. Fixed, and
+the guard now finds ten suites instead of nine.
+
+The scope rule itself is now tested:
+`test_the_workflows_documentation_pattern_admits_exactly_what_it_should` lifts the
+bash pattern out of the YAML and classifies fifteen paths with it, over half of
+them cases that must **not** be admitted.
+
+---
+
 ## Track 3 · The version debt
 
 **Ruling:** [R-06](RULINGS.md#r-06--version-moves-with-every-merged-pull-request)

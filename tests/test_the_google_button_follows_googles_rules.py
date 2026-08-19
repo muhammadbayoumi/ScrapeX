@@ -29,7 +29,7 @@ import re
 
 import pytest
 
-pytestmark = pytest.mark.extension
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TOKENS = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")

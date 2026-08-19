@@ -50,7 +50,7 @@ import pytest
 
 # Guards the extension: this reads extension/ sources, so a change there must
 # run it. See tests/test_the_extension_gate_is_complete.py.
-pytestmark = pytest.mark.extension
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "contract" / "addin-contract.json"

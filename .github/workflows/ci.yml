@@ -37,42 +37,54 @@ jobs:
       - name: Lint the JavaScript (eslint)
         run: npx --yes eslint@9.39.0 extension scrapex/webui/static contract apps_script --no-warn-ignored
 
-  test:
+  # ITS OWN JOB, and it was a step inside `test` until 2026-08-19. Two jobs need
+  # the answer now — `test` and `migration-authority` — and they must run in
+  # PARALLEL, so neither can compute it for the other: `needs: test` would
+  # serialise six minutes in front of twelve and make the split pointless.
+  # Computing it twice would mean two copies of the base-detection reasoning
+  # below, and the copy that drifts is always the one nobody reads.
+  #
+  # It is seconds long: a checkout and a `git diff --name-only`. No Python.
+  scope:
     runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
     steps:
       - uses: actions/checkout@v4
         with:
           # The scope step below diffs against the base branch, which needs
           # more than the single commit a shallow checkout fetches.
           fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install
-        # The browser extra is installed HERE and not moved into [dev]: the
-        # panel suite needs a real Chromium, and putting playwright in the extra
-        # every contributor installs would make `pip install -e .[dev]` download
-        # a browser on every machine for a suite most changes never touch. CI is
-        # the place that must run everything.
-        run: |
-          pip install -e .[dev,browser]
-          python -m playwright install --with-deps chromium
-
       - name: What did this change touch?
         id: scope
-        # THIS DECIDES WHICH SUITE RUNS, AND IT IS A STEP RATHER THAN A JOB
-        # FILTER ON PURPOSE. A workflow- or job-level `paths:` filter makes the
-        # job not exist, and a required check that does not exist stays pending
-        # forever — the pull request can never merge. A step that always runs and
-        # sets an output leaves the job reporting on every change, which is what
-        # branch protection needs.
+        # THIS DECIDES WHICH SUITE RUNS, AND IT IS A JOB OUTPUT RATHER THAN A
+        # `paths:` FILTER ON PURPOSE. A workflow- or job-level `paths:` filter
+        # makes the consuming job not exist, and a required check that does not
+        # exist stays pending forever — the pull request can never merge. A job
+        # that always runs, plus step-level `if:` on the expensive steps, leaves
+        # every check reporting on every change, which is what branch protection
+        # needs.
         #
-        # The rule is deliberately one-sided. `extension-only` means every
-        # changed file is inside extension/ or docs/; anything else — one line
-        # in scrapex/, one line in tests/, a workflow edit — runs the whole
-        # suite exactly as before. An unknown event, an empty diff, or a failure
-        # to compute the base all fall through to "run everything", because the
+        # The rule is deliberately one-sided. `extension` means every changed
+        # file is inside extension/ or the documentation set; `docs` means every
+        # changed file is documentation and nothing else. Anything else — one line
+        # in scrapex/, one line in tests/, a workflow edit — runs the whole suite
+        # exactly as before. An unknown event, an empty diff, or a failure to
+        # compute the base all fall through to "run everything", because the
         # expensive mistake here is skipping a suite, never running one twice.
+        #
+        # WHY THE DOCUMENTATION SET IS MORE THAN `docs/`. Measured on PR #214,
+        # which was documentation only: it changed CLAUDE.md, ENGINEERING.md,
+        # README.md, .gitignore and a file under .claude/, none of which match
+        # `^docs/`. It took the FULL suite twice — 14m21s and 14m40s, the two
+        # slowest runs of the last twenty. The documentation system C1 sends every
+        # session to read lives partly at the repository ROOT, so this filter has
+        # to know that, or the system's own pull requests are the slowest kind
+        # there is.
+        #
+        # `.github/` IS DELIBERATELY ABSENT from both sets. A workflow edit
+        # changes what CI itself guarantees, so it runs everything — including an
+        # edit to this very file.
         run: |
           set -euo pipefail
           base=""
@@ -102,11 +114,24 @@ jobs:
             fi
           fi
 
+          # Documentation, in the sense of "a file whose only readers are the
+          # document guards". docs/, .claude/, any Markdown at the root, and
+          # .gitignore. CHANGELOG.md is in here and is GENERATED, which is why
+          # tests/test_version.py carries the docs mark: the guard that catches a
+          # hand-edited CHANGELOG has to run on the change that hand-edits it.
+          documentation='^(docs/|\.claude/|[^/]+\.md$|\.gitignore$)'
+
           scope=full
           if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
             changed=$(git diff --name-only "$base" "${{ github.sha }}")
-            if [ -n "$changed" ] && ! echo "$changed" | grep -qvE '^(extension/|docs/)'; then
-              scope=extension
+            if [ -n "$changed" ]; then
+              # Narrowest first. A change that is documentation AND extension is
+              # an extension change; only an all-documentation diff is `docs`.
+              if ! echo "$changed" | grep -qvE "$documentation"; then
+                scope=docs
+              elif ! echo "$changed" | grep -qvE "^(extension/)|$documentation"; then
+                scope=extension
+              fi
             fi
             echo "changed files:"
             echo "$changed" | sed 's/^/  /'
@@ -115,6 +140,42 @@ jobs:
           fi
           echo "scope=$scope" >> "$GITHUB_OUTPUT"
           echo "SCOPE: $scope"
+
+  test:
+    needs: scope
+    runs-on: ubuntu-latest
+    steps:
+      # Shallow is enough here now. The full history was only ever for the scope
+      # diff, and that moved into its own job above.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # Measured 2026-08-19: nothing in .github/workflows/ cached anything.
+          # `pip install -e .[dev,browser]` is a steady 11s, so this is small --
+          # but it is one line and it never costs more than it saves.
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # The browser download is a steady ~13s of the Install step and is keyed on
+      # nothing but the playwright version, which changes when pyproject does.
+      # The apt half of `--with-deps` is what actually swings -- 9.4s on
+      # 2026-08-17 against 104s on 2026-08-19, on the same command -- and no
+      # cache can fix that, because it is the runner image's package mirror.
+      - name: Cache the browser download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: ms-playwright-${{ runner.os }}-
+      - name: Install
+        # The browser extra is installed HERE and not moved into [dev]: the
+        # panel suite needs a real Chromium, and putting playwright in the extra
+        # every contributor installs would make `pip install -e .[dev]` download
+        # a browser on every machine for a suite most changes never touch. CI is
+        # the place that must run everything.
+        run: |
+          pip install -e .[dev,browser]
+          python -m playwright install --with-deps chromium
 
       - name: Validate the manifest (S5 gate — a broken contract can't merge)
         run: python -m scrapex.cli validate-manifest
@@ -142,7 +203,15 @@ jobs:
           # tests/*.py, NOT -r: a recursive grep also matches the compiled
           # copies under __pycache__, whose names collect nothing and would fail
           # this step for a reason that has nothing to do with the browser.
-          suites=$(grep -l 'importorskip("playwright"' tests/*.py | tr -d '\r' | sort)
+          # NO CLOSING QUOTE AFTER playwright, and that is the whole fix. This
+          # read `importorskip("playwright"` until 2026-08-19, so
+          # tests/test_grid_dom.py:24 -- which writes
+          # `pytest.importorskip("playwright.sync_api")` -- never matched, and its
+          # 20 browser-driven tests were invisible to the guard for as long as
+          # they existed. That is precisely the silent failure the comment above
+          # describes, arrived at through the guard's own pattern rather than
+          # through a forgotten filename.
+          suites=$(grep -l 'importorskip("playwright' tests/*.py | tr -d '\r' | sort)
           echo "browser suites found:"; echo "$suites"
           test -n "$suites"
           for suite in $suites; do
@@ -158,9 +227,13 @@ jobs:
 
       - name: The extension gate must not have emptied
         # The same reasoning as the line above, for the set the split depends
-        # on. 325 of 2020 tests carried the mark when the split was made; a file
-        # that reads extension/ and forgets the mark stops running on exactly
-        # the pull requests it was written for, and nothing goes red.
+        # on. 325 of 2020 tests carried the mark when the split was made and
+        # **661 of 2,656 do today** — counted 2026-08-19 with
+        # `pytest -m extension --collect-only -q`, not remembered. The old figure
+        # had been quoted stale for a while, which is its own small instance of
+        # the thing this file keeps guarding against. A file that reads extension/ and
+        # forgets the mark stops running on exactly the pull requests it was
+        # written for, and nothing goes red.
         # tests/test_the_extension_gate_is_complete.py catches the missing mark;
         # this catches the set being emptied some other way.
         #
@@ -176,25 +249,123 @@ jobs:
           echo "extension gate collected: ${count}"
           test "${count}" -ge 300
 
+      - name: The docs gate must not have emptied either
+        # Same reasoning again, for the set the `docs` scope depends on.
+        # tests/test_the_docs_gate_is_complete.py catches a test file that reads
+        # a document and forgets the mark; this catches the set being emptied
+        # some other way. The floor is small because the set is small — six files
+        # when it was made — and a floor of 1 would let five of them vanish.
+        run: |
+          python -m pytest -m docs --collect-only -q | tr -d '\r' | tee /tmp/docsgate.txt | tail -20
+          count=$(grep -oE ': [0-9]+$' /tmp/docsgate.txt | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          echo "docs gate collected: ${count}"
+          test "${count}" -ge 150
+
+      - name: Documents only (this change touched nothing a document does not own)
+        if: needs.scope.outputs.scope == 'docs'
+        # THE TIER PR #214 SHOULD HAVE HAD. It was documentation only and paid
+        # 14m21s for the full suite; this runs the guards that a document can
+        # actually break -- the citation guard, the generated data-page ruling,
+        # the privacy policy, the version ledger's CHANGELOG -- and stops.
+        #
+        # It is NOT `-m "docs or extension"`: no extension file changed, so the
+        # panel suite has nothing to say. Files that guard both carry both marks
+        # and run here regardless.
+        run: python -m pytest -m docs
+
       - name: Extension gate only (this change touched nothing else)
-        if: steps.scope.outputs.scope == 'extension'
+        if: needs.scope.outputs.scope == 'extension'
         # THE POINT OF THE SPLIT. A button change runs the 325 tests that guard
         # the extension and stops there. The engine suite is not skipped by
         # being unreachable — it is skipped because nothing it tests changed.
-        run: python -m pytest -m extension
+        #
+        # `or docs` because this scope admits documentation files too, and the
+        # docs set is not a subset of the extension set --
+        # tests/test_the_ruling_matches_the_code.py reads
+        # docs/data-page-schema.md and carries no extension mark, so before this
+        # line an extension+docs change could hand-edit that generated ruling and
+        # pass. Strictly more coverage than the old `-m extension`, and the two
+        # sets overlap so the cost is a few seconds.
+        run: python -m pytest -m "extension or docs"
 
       - name: Tests (Python engine + Python-vs-frozen contract)
-        if: steps.scope.outputs.scope != 'extension'
-        # tests/conftest.py restores a prebuilt schema template instead of
-        # replaying 57 migrations per test, which is what turns a ~30-minute
-        # local suite into ~6 minutes. It is a developer-loop convenience, and
-        # this is the line that keeps it one: CI runs the REAL stream 805 times,
-        # so the authority on green tests exactly what it tested before that file
-        # existed. Same reasoning as the panel gate above — a guard that can
-        # vanish quietly is the defect.
+        if: needs.scope.outputs.scope == 'full'
+        # THE FULL SUITE, ON THE SCHEMA TEMPLATE. `SCRAPEX_FULL_MIGRATIONS` moved
+        # out of this step and into the `migration-authority` job below, and the
+        # guarantee did NOT move with it — that job runs the same suite with the
+        # real stream, in parallel, on every change this step runs on.
+        #
+        # WHAT IT BUYS, MEASURED 2026-08-19. tests/conftest.py restores a prebuilt
+        # schema template instead of replaying the migrations per test. Real
+        # `migrate()` is 396ms against a 3.6ms template restore, and a full suite
+        # makes 927 of those calls: 895 restored, 32 real. So the variable was
+        # adding roughly 350 seconds to a step that is 92% of this job's 12m49s.
+        # Splitting it means the ordinary green signal lands in about six minutes
+        # while the authoritative one keeps running beside it.
+        #
+        # IT DOES NOT MAKE A MERGE FASTER BY ITSELF. If branch protection
+        # requires `migration-authority` too — and it should — the slowest
+        # required check still decides. What changes is that a failure unrelated
+        # to migrations surfaces in six minutes instead of thirteen.
+        run: python -m pytest -q
+
+  migration-authority:
+    # THE GUARANTEE THAT USED TO BE AN ENVIRONMENT VARIABLE ON ANOTHER JOB'S
+    # STEP. `tests/conftest.py` restores a prebuilt schema template instead of
+    # replaying the real migration stream, which is what makes a local suite
+    # bearable. This job is the line that keeps that a developer-loop convenience
+    # and nothing more: it runs the SAME suite with `SCRAPEX_FULL_MIGRATIONS=1`,
+    # so the real stream is exercised exactly as it was before conftest existed.
+    #
+    # SEPARATE, AND IN PARALLEL, RATHER THAN INLINE. Measured 2026-08-19: real
+    # `migrate()` costs 396ms against a 3.6ms template restore, and a full suite
+    # makes 927 of those calls. Inline, that put ~350s in front of every other
+    # answer the suite had to give. Beside it, the ordinary failures arrive in
+    # about six minutes and this one keeps running.
+    #
+    # ⚠ IT IS NOT A REQUIRED CHECK UNTIL SOMEONE MAKES IT ONE. A new job is not
+    # automatically added to branch protection. Until `migration-authority` is
+    # required, a migration-stream failure here will NOT block a merge — which
+    # would be strictly weaker than the inline variable it replaced. Add it to
+    # the required set for `main`.
+    #
+    # It reads the same scope, so a documentation change does not replay 61
+    # migration files 927 times to prove a Markdown edit is safe.
+    needs: scope
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        if: needs.scope.outputs.scope == 'full'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # The browser extra is here for the same reason it is in `test`: this runs
+      # the WHOLE suite, and the panel suites need a real Chromium or they
+      # collect nothing and report a skip.
+      - name: Cache the browser download
+        if: needs.scope.outputs.scope == 'full'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: ms-playwright-${{ runner.os }}-
+      - name: Install
+        if: needs.scope.outputs.scope == 'full'
+        run: |
+          pip install -e .[dev,browser]
+          python -m playwright install --with-deps chromium
+      - name: The whole suite, against the real migration stream
+        if: needs.scope.outputs.scope == 'full'
         env:
           SCRAPEX_FULL_MIGRATIONS: "1"
         run: python -m pytest -q
+      - name: Nothing to replay
+        if: needs.scope.outputs.scope != 'full'
+        # The job still reports, which is what branch protection needs — see the
+        # note on `paths:` filters in the `scope` job. It just costs seconds.
+        run: echo "scope is ${{ needs.scope.outputs.scope }}; no engine change to replay migrations for"
 
   contract-parity:
     # The two-engine guardrail: the JS engine must reproduce the FROZEN contract

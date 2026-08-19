@@ -362,9 +362,10 @@ Two more found in the same reading, deliberately left alone:
 A stale document is not a neutral cost. It **actively directs the next reader
 into the wrong action**, and it does so with the authority of a rule.
 
-This project has two instances of a document stating the opposite of the code,
-and a third pattern — a citation that still resolves but no longer points at
-what it names — recorded below them:
+This project has two instances of a document stating the opposite of the code, a
+third pattern — a citation that still resolves but no longer points at what it
+names — and a fourth: a GUARD whose own discovery pattern cannot see its subject.
+All are recorded below.
 
 - **`docs/data-page-schema.md`** — it called itself "the ruling" and had drifted
   into stating the opposite of the code **in five ways at once**: wrong
@@ -492,6 +493,80 @@ for part in path.relative_to(ROOT).parts:
 Same family as §1: the worktree makes correct work look broken. Any path filter,
 ignore rule or glob in this repository must be applied **relative to the
 repository root**.
+
+---
+
+### A guard's own pattern can miss its subject, and the guard reports green
+
+Found 2026-08-19, measuring why CI took thirteen minutes.
+
+`.github/workflows/ci.yml` has a step whose entire purpose is to refuse a browser
+suite that silently collects nothing. It finds its subjects by grepping, and the
+grep read:
+
+```
+grep -l 'importorskip("playwright"' tests/*.py
+```
+
+Note the closing quote. `tests/test_grid_dom.py:24` writes
+`pytest.importorskip("playwright.sync_api")`, so it **never matched**, and its 20
+browser-driven tests were invisible to the guard for as long as they existed.
+Dropping one character fixes it.
+
+**The step's own comment describes the failure it then had.** It says *"THE FILES
+ARE DISCOVERED, NOT NAMED… A guard that lists its subjects fails on the one nobody
+added to the list"* — and discovery by an over-precise pattern fails the same way,
+just less visibly, because there is no list to audit. The same afternoon, the new
+docs-gate detector required a `/` before a quoted `*.md` and therefore could not
+see `test_the_documents_cite_what_they_claim.py`, **the one test whose whole
+subject is the documents.**
+
+The lesson is not "write better regexes". It is: **after writing a discovery
+pattern, print what it found and read the list.** Both misses were obvious the
+moment the list was printed, and invisible for as long as only the exit code was
+read.
+
+### A tier that runs a subset needs a set, a floor, and a test that the tier exists
+
+The extension split had all three and worked. The documentation tier added
+2026-08-19 copies it deliberately rather than inventing a second mechanism:
+
+| | extension | docs |
+|---|---|---|
+| marker | `pytest.mark.extension` | `pytest.mark.docs` |
+| completeness guard | `test_the_extension_gate_is_complete.py` | `test_the_docs_gate_is_complete.py` |
+| floor in CI | ≥300 collected | ≥150 collected |
+
+**And the copying found a hole in the original.** `docs/` was already inside the
+extension-only path filter, so a documentation-only change ran `pytest -m
+extension` — but `test_the_ruling_matches_the_code.py` reads
+`docs/data-page-schema.md`, carries no extension mark, and never needed one. A
+hand-edited copy of that generated ruling would have passed CI on exactly the kind
+of pull request that hand-edits it. The two sets overlap and **neither contains the
+other**, which is why the extension tier now runs `-m "extension or docs"`.
+
+Two things worth carrying to the next tier: the marker must be registered in
+`pyproject.toml` or `--strict-markers` rejects it, and the tier needs a test that
+**the workflow still runs it** — a marked set nothing executes reads as coverage
+and is worse than no set at all.
+
+### A scope rule written in bash inside YAML is code that no linter reads
+
+The rule deciding whether a change runs 178 tests or 2,656 was a `grep -qvE`
+pattern in `ci.yml`. Nothing checked it. Widening it by accident — adding
+`scrapex/` while meaning `docs/` — would make a warehouse change run the
+documentation suite and report green, and the failure would be invisible because
+green is what everyone expects.
+
+`test_the_workflows_documentation_pattern_admits_exactly_what_it_should` now lifts
+the pattern out of the YAML and classifies fifteen real paths with it, over half of
+them cases that must NOT be admitted. Verified by mutation: adding `scrapex/` to
+the pattern fails the test naming three files.
+
+**Any decision expressed as a pattern in a config file is testable, and the
+expensive ones should be tested.** The measured saving here — 12m49s to about 30
+seconds for a documentation-only pull request — is exactly the size of the mistake
+a silent widening would make in the other direction.
 
 ---
 
