@@ -1,6 +1,7 @@
 # State — where the work stands
 
-**Last updated: 2026-08-17.** `main` is at `462ad2d` (#208).
+**Last updated: 2026-08-19.** `main` is at `ac3a5af` — #212, plus one commit
+pushed straight to `main` on 2026-08-18 carrying no PR number.
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -12,21 +13,18 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ---
 
-## Open pull requests — both green, both waiting on the owner
+## Open pull requests
 
-| PR | branch | checks | what it is |
+| PR | branch | state | what it is |
 |---|---|---|---|
-| **#211** | `a-dataset-is-a-table-like-any-other` | lint · test · contract-parity all **SUCCESS**, `MERGEABLE`/`CLEAN` | The contractor directory becomes a table on the existing Data page. Two commits: `4b01087` (the dataset payload + four schema leaks) and `34496db` (the Arabic half and the AR\|EN toggle) |
-| **#210** | `a-404-storm-must-not-buy-speed` | lint · test · contract-parity all **SUCCESS**, `MERGEABLE`/`CLEAN` | Scrapy's one-way ratchet added to the #206 governor: a non-200 may only ever **raise** the delay |
+| **#213** | `the-data-page-port-is-a-port` | **CONFLICTING** — cannot be read until it is rebased | DEC-8: the engine's Data page is a port, not a rebuild, and the measurement says which |
 
-Neither has a review or a comment. The main checkout is currently sitting on
-`a-dataset-is-a-table-like-any-other`.
+**#210, #211 and #212 have all merged** since this file last spoke. What used to
+stand here as "both green, both waiting on the owner" is now history, and the
+reason #210 mattered is kept under Track 2 where it belongs.
 
-> **#210 matters more than its size suggests.** `HttpFetcher` sends conditional
-> requests, so an unchanged page answers **304 with no body** — the fastest answer
-> a server can give. Without the ratchet, every re-crawl widens on its own
-> emptiness. The #206 governor let 404/301/500 fall through as `Strain.NONE` and
-> feed the clean run.
+`ac3a5af` is on `main` without a pull request — a single-parent commit, no review
+trail. Not forbidden, but worth knowing when a bisect lands on it.
 
 ---
 
@@ -90,15 +88,46 @@ broken under load (**T2**).
 off the page (#203) · a crawl whose output is evidence (#204) · the declared
 frontier was half the crawl (#205) · a per-server governor (#206) · cards become
 an approval candidate (#207) · the membership number is unique (#208) · names
-stop coming (#209).
+stop coming (#209) · a 404 storm must not buy speed (#210) · a dataset is a table
+like any other (#211) · the contractors appear among the datasets (#212).
 
-**In flight:** #211 (the table) and #210 (the ratchet).
+**In flight: nothing. The track is waiting on one decision** — see the two
+feature flags below.
 
-**Measured on the real crawl:** 299 pages approved of 300 in both languages ·
-5,154 contractors · 22 columns · 7 bilingual pairs · 4,939 of 5,000 rows carrying
-an Arabic name. Full pass is ~865 listing pages then ~17,300 profiles in two
-languages — roughly **35,500 requests**, about ten hours at one per second.
-`LISTING_ONLY` first, per [R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings).
+> **Why #210 mattered more than its size suggested.** `HttpFetcher` sends
+> conditional requests, so an unchanged page answers **304 with no body** — the
+> fastest answer a server can give. Without the ratchet, every re-crawl widened
+> on its own emptiness: the #206 governor let 404/301/500 fall through as
+> `Strain.NONE` and feed the clean run.
+
+**The full `LISTING_ONLY` pass has run, and it is in the warehouse.** Verified
+against the live database on 2026-08-19, not taken from a conversation:
+
+```
+generic_record            11,059 contractors
+generic_page_snapshot        864 pages, 864 of 864 approved, zero rejected
+generic_record_revision   17,275
+dataset_field                496
+engine db                    460 MB + 4 MB WAL
+```
+
+**The live database is `~/.scrapex/engine/scrapex-engine.db`**, per
+`~/.scrapex/databases.json`. The older `~/.scrapex/marketlens/marketlens.db` is
+110 MB, does not carry the generic tables at all, and will mislead anyone who
+opens it looking for this data.
+
+**Not in, and named so it is not mistaken for done:** the detail files
+(coordinates, email, licences, interests) — a second crawl of ~22,000 requests ·
+the Arabic half of the page snapshots (the English were stored; the Arabic values
+are **inside the rows**, but their evidence is not) · the sweep that says how many
+contractors the listing missed.
+
+**One decision is open and it is the owner's:** both
+`FeatureKey.GENERIC_EXTRACTION` and `FeatureKey.GENERIC_DATASET_CATALOG` are still
+`False` at [scrapex/features.py:57](../scrapex/features.py) and `:62`. Their own
+written condition — *"only after an approved non-product extraction reaches
+generic storage"* — is now met by the figures above. Lighting them is what makes
+`/datasets` appear in navigation and states the capability out loud.
 
 **Four questions are open and are his** — O-1 to O-4 in
 [RULINGS.md](RULINGS.md#open--awaiting-the-owners-ruling).
@@ -113,23 +142,34 @@ languages — roughly **35,500 requests**, about ten hours at one per second.
 
 `VERSION` is `0.2.2` at [scrapex/version.py:76](../scrapex/version.py); the
 manifest is `0.2.2` too. It last moved at `adf31b2` on **2026-08-10**, and as of
-2026-08-17 there are **58 commits since** — the count was 48 when the ruling was
-written. Merging #210 and #211 makes it 60.
+2026-08-19 there are **62 commits since** — the count was 48 when the ruling was
+written and 58 two days ago. It grows every time this is deferred.
 
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:477](../scrapex/version.py) and
-[scrapex/webui/app.py:1355](../scrapex/webui/app.py), drawn by
-[extension/app.js:595](../extension/app.js) and `:629`. Bumping `VERSION` while
+[scrapex/webui/app.py:1375](../scrapex/webui/app.py), drawn by
+[extension/app.js:595](../extension/app.js) and `:629`.
+
+> **Re-verified 2026-08-19, and three of these citations had already drifted.**
+> `webui/app.py` was **1355**, now 1375 — #211 and #212 inserted twenty lines
+> above it. And `LATEST_SOURCE`/`UPDATE_INSTRUCTIONS` were written as `:289` and
+> `:292` when they have been at **282** and **285** all along; `version.py` has
+> not been touched since, so those two were wrong the day they were written.
+> **This is [REQ-08](REQUESTS.md#req-08--a-guard-against-the-documents-going-stale)
+> arguing for itself within 48 hours** — and it is precisely the class option (b)
+> catches. Bumping `VERSION` while
 that stands makes the panel's *"your extension is older than the engine"* card
 **permanent and false**.
 
-**Do this in its own PR:** drop the advert (plus `LATEST_SOURCE` `:289` and
-`UPDATE_INSTRUCTIONS` `:292`), keep the derived gate, add a guard that fails if
+**Do this in its own PR:** drop the advert (plus `LATEST_SOURCE` and
+`UPDATE_INSTRUCTIONS`), keep the derived gate, add a guard that fails if
 the engine ever answers for the extension's head again. Then bumping is
 mechanical.
 
 **Two more things belong in that PR:**
+- Fix `LATEST_SOURCE` `:282` and `UPDATE_INSTRUCTIONS` `:285` — the drawn numbers,
+  not the ones this file used to quote.
 - `robots_per_source` is dated 0.2.2 and cites no commit; the ledger's own guard
   fires, correctly. Read out of `git log`, both `-S"crawl_obey_disallow"` and
   `-S"source-edit-robots"` name `adf31b2` alone — write `commit="adf31b2"`.

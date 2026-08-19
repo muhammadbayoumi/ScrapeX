@@ -56,8 +56,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-02](#req-02--more-than-one-way-of-working) | More than one way of working — add the Karpathy skill | **Done** | 2026-08-17 |
 | [REQ-03](#req-03--a-managed-pipeline-for-the-owners-requests) | A managed pipeline for his requests | **In flight** | 2026-08-17 |
 | [REQ-04](#req-04--every-setting-moves-into-the-extension) | Every setting moves into the extension | **Ruled**, not built — **16 days** | 2026-08-01 |
-| [REQ-05](#req-05--a-contractor-directory-in-a-table-of-its-own) | A contractor directory, in a table of its own | **In flight** | 2026-08-16 |
-| [REQ-06](#req-06--one-row-and-a-button-that-flips-it-between-arabic-and-english) | One row, and a button that flips AR\|EN | **In flight** | 2026-08-17 |
+| [REQ-05](#req-05--a-contractor-directory-in-a-table-of-its-own) | A contractor directory, in a table of its own | **Done** | 2026-08-16 |
+| [REQ-06](#req-06--one-row-and-a-button-that-flips-it-between-arabic-and-english) | One row, and a button that flips AR\|EN | **Done** | 2026-08-17 |
 | [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries) | The Data page carries everything the engine's page does | **Planned** | 2026-08-12 |
 | [REQ-08](#req-08--a-guard-against-the-documents-going-stale) | A guard against the documents going stale | **Captured** — awaiting his ruling | 2026-08-17 |
 | [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Captured** — awaiting his ruling | 2026-08-17 |
@@ -124,18 +124,24 @@ editing.
 ---
 
 ## REQ-05 · A contractor directory, in a table of its own
-**Captured 2026-08-16 · Ruled ([R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings), [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other)) · Planned ([plan](plans/2026-08-16-muqawil-contractor-source.md)) · In flight — PRs #210, #211**
+**Captured 2026-08-16 · Ruled ([R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings), [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other)) · Planned ([plan](plans/2026-08-16-muqawil-contractor-source.md)) · DONE — #202–#212**
 
 > «جدول منفصل تماما عن جداول المنتجات» · «صفحة المقاولين هى جدول سيظهر كاى جدول
 > لدينا»
 
-Landed across #202–#209. **Four questions of his are still open** — O-1 to O-4 in
-[RULINGS.md](RULINGS.md#open--awaiting-the-owners-ruling).
+Landed across #202–#212, and the full listing pass is in the warehouse:
+**11,059 contractors**, 864 of 864 pages approved, zero rejected — verified against
+the live database on 2026-08-19, not read out of a conversation.
+
+**Done does not mean finished asking.** Four questions of his are still open —
+O-1 to O-4 in [RULINGS.md](RULINGS.md#open--awaiting-the-owners-ruling) — and one
+decision is waiting: the two feature flags that make `/datasets` visible are still
+`False`. See [STATE.md](STATE.md#track-2--the-muqawilorg-contractor-directory).
 
 ---
 
 ## REQ-06 · One row, and a button that flips it between Arabic and English
-**Captured 2026-08-17 · Ruled ([R-12](RULINGS.md#r-12--one-row-with-a-button-that-flips-it)) · In flight — PR #211**
+**Captured 2026-08-17 · Ruled ([R-12](RULINGS.md#r-12--one-row-with-a-button-that-flips-it)) · DONE — PR #211**
 
 > «فى النهاية اريد رؤوية جدول اقدر ابدل بين عربى وانجليزى»
 
@@ -180,6 +186,14 @@ quoted symbol. Cheap, catches the dangerous class.
 
 *Recommended: **(b)**.* It is the class that actually hurt — a citation that
 silently moved — and it does not require making the prose machine-generated.
+
+**Evidence arrived on 2026-08-19, two days after this was captured.** Re-checking
+STATE.md's own citations found three of them wrong: `webui/app.py:1355` had moved
+to 1375 because #211 and #212 inserted twenty lines above it, and
+`LATEST_SOURCE`/`UPDATE_INSTRUCTIONS` were quoted as `:289`/`:292` when they have
+been at 282 and 285 all along — wrong the day they were written, in a file no
+commit had touched. All three are fixed, and all three are exactly what (b)
+catches automatically. **Nothing but a hand-check found them, which is the point.**
 
 ---
 
