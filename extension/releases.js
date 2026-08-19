@@ -151,3 +151,70 @@ export async function latestEngineRelease(fetchImpl = fetch) {
   try { body = await response.json(); } catch (_) { body = null; }
   return readVersionManifest(response.status, body);
 }
+
+/**
+ * THE OTHER ENGINES. Candidates, not commitments — and not a register yet.
+ *
+ * docs/MASTER-PLAN.md §8.3 names seven backends and what each is for; this is
+ * the six that are not ScrapeX itself, condensed to what the Engine page can
+ * say without lying. There is no adapter descriptor to read (§8.4 is still a
+ * design exercise) and nothing here is installable, so the page renders this
+ * static table and keeps the note that says so.
+ *
+ * `licence` is the licence NOTE from §8.3, not a verdict: the plan's own column
+ * heading is "licence note to verify per pinned release", and Firecrawl and
+ * Heritrix both carry a caveat that a bare SPDX id would erase.
+ *
+ * When an engine register does exist, this table is what it replaces — one
+ * export, one shape, six rows.
+ */
+export const ENGINE_CANDIDATES = [
+  {
+    id: "scrapy",
+    name: "Scrapy",
+    icon: "dns",
+    role: "Structured spiders and large static crawls",
+    shape: "Isolated Python worker",
+    licence: "BSD-3-Clause",
+  },
+  {
+    id: "crawlee",
+    name: "Crawlee",
+    icon: "account-tree",
+    role: "Persistent queues, sessions and proxies",
+    shape: "Python implementation first; a Node sidecar remains possible",
+    licence: "Apache-2.0",
+  },
+  {
+    id: "crawl4ai",
+    name: "Crawl4AI",
+    icon: "description",
+    role: "Clean Markdown and document extraction",
+    shape: "Isolated Python worker or local service",
+    licence: "Apache-2.0 · attribution and dependencies still to review",
+  },
+  {
+    id: "firecrawl",
+    name: "Firecrawl",
+    icon: "language",
+    role: "Self-hosted or hosted scraping and crawling API",
+    shape: "Separate HTTP provider, never copied into core",
+    licence: "AGPL-3.0 · legal review before distribution",
+  },
+  {
+    id: "katana",
+    name: "Katana",
+    icon: "search",
+    role: "URL, route and endpoint discovery",
+    shape: "Versioned Go binary or container adapter",
+    licence: "MIT",
+  },
+  {
+    id: "heritrix",
+    name: "Heritrix",
+    icon: "storage",
+    role: "Web-scale archival crawling, WARC output",
+    shape: "Separate Java or container archival pack",
+    licence: "Apache-2.0 · some files under other licences",
+  },
+];

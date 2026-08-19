@@ -1396,89 +1396,139 @@
         <p>What is installed on this device, and what is available to install.</p>
       </header>
 
-      <div class="view-scroll">
-        <section class="card engine-card" aria-labelledby="engines-installed-title">
-          <div class="engine-card-header">
-            <h2 id="engines-installed-title">ScrapeX Engine</h2>
-            <div class="engine-overflow">
-              <button class="engine-overflow-button" id="engine-overflow" type="button"
-                      aria-label="More Engine actions" aria-haspopup="menu"
-                      aria-expanded="false" aria-controls="engine-overflow-menu">
-                <svg class="sx-icon" aria-hidden="true">
-                  <use href="icons/material-icons.svg#more-vert"></use>
-                </svg>
-              </button>
-              <div class="engine-overflow-menu hidden" id="engine-overflow-menu"
-                   role="menu" aria-labelledby="engine-overflow">
-                <button class="engine-overflow-menu-item" type="button" role="menuitem" id="engine-diagnostics">
-                  <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#tune"></use></svg>
-                  Run diagnostics
-                </button>
-                <button class="engine-overflow-menu-item" type="button" role="menuitem" id="engine-setup-guide">
-                  <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#info"></use></svg>
-                  Open setup guide
-                </button>
-                <button class="engine-overflow-menu-item" type="button" role="menuitem" id="engine-copy-details">
-                  <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#description"></use></svg>
-                  Copy Engine technical details
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <p class="engine-diagnostics-output muted text-sm hidden" id="engine-diagnostics-output"></p>
-
-          <div class="engine-status" id="engine-status-region"
-               role="status" aria-live="polite" aria-busy="true">
-            <span class="badge" id="engine-status-badge">
-              <span class="dot" id="engine-status-dot" aria-hidden="true"></span>
-              <span id="engine-status">Checking engine…</span>
+      <!-- ONE SCROLLPORT, full-bleed on the panel's ground. The negative
+           margins in .engine-catalogue undo `main`'s padding on three sides and
+           its own padding puts it back inside, so grouped rows read as a list on
+           a page rather than as cards on white — the figure/ground relationship
+           #view-manage-account already uses. Do not nest a second scroller. -->
+      <div class="engine-catalogue">
+        <h2>On this device</h2>
+        <section class="engine-list" aria-label="Installed engines">
+          <!-- The whole row is the target, so the row IS the button. Its state
+               lives here AND on the detail screen, written by one renderer from
+               one summary, so the two screens cannot disagree. -->
+          <button class="engine-row" id="engine-row-scrapex-engine" type="button"
+                  data-engine-id="scrapex-engine">
+            <span class="icon-tile" aria-hidden="true"><span class="brand-logo"></span></span>
+            <span class="engine-row-copy">
+              <span class="engine-row-line">
+                <span class="engine-row-name">ScrapeX Engine</span>
+                <span class="tech hidden" id="engine-row-version"></span>
+              </span>
+              <!-- The live region wraps the badges AND the sentence under them:
+                   "Incompatible" and the two protocol numbers are one
+                   announcement, not two. -->
+              <span class="engine-row-state" id="engine-status-region"
+                    role="status" aria-live="polite" aria-busy="true">
+                <span class="engine-row-tags">
+                  <span class="badge" id="engine-status-badge">
+                    <span class="dot" id="engine-status-dot" aria-hidden="true"></span>
+                    <span id="engine-status">Checking engine…</span>
+                  </span>
+                  <span class="badge hidden" id="engine-row-verdict"></span>
+                </span>
+                <span class="engine-row-sub hidden" id="engine-status-detail"></span>
+              </span>
             </span>
-            <span class="engine-status-detail hidden" id="engine-status-detail"></span>
+            <svg class="sx-icon engine-row-chevron" aria-hidden="true">
+              <use href="icons/material-icons.svg#chevron-right"></use>
+            </svg>
+          </button>
+        </section>
+
+        <h2>Other engines</h2>
+        <!-- NOT `.planned-note`, deliberately: that component means "nothing on
+             this page is wired to anything and every control is disabled", and
+             these rows are wired — each opens what docs/MASTER-PLAN.md §8.3
+             records about that backend. What is unbuilt is the installing, and
+             this says exactly that. -->
+        <p class="engine-scope-note">
+          Candidates, not commitments. Each keeps its own store and hands its
+          output to ScrapeX-Engine. None is installable yet.
+        </p>
+        <section class="engine-list" id="engine-candidates" aria-label="Available engines"></section>
+      </div>
+    </section>
+
+    <!-- ONE ENGINE. A SIBLING of #view-engines and not a child: the state said
+         once at the top, then versions/protocol/licence as rows, then the
+         actions that were hidden in an overflow menu, then the two real actions
+         pinned to the bottom edge. No rail button — reached from a row and left
+         by its own back button, exactly the route #view-source-edit takes from
+         Library and #view-manage-account from Profile. -->
+    <section id="view-engine-detail" class="hidden"
+             aria-labelledby="engine-detail-title" tabindex="0">
+      <header class="engine-detail-heading">
+        <button class="ghost engine-detail-back" id="engine-detail-back" type="button"
+                aria-label="Back to Engine" title="Back to Engine">
+          <svg class="sx-icon" aria-hidden="true">
+            <use href="icons/material-icons.svg#arrow-back"></use>
+          </svg>
+        </button>
+        <span class="engine-detail-titles">
+          <!-- tabindex="-1" so the route into this screen can land focus on the
+               heading of the thing that was pressed, the way the browser would
+               have if this were a page. -->
+          <h1 id="engine-detail-title" tabindex="-1">ScrapeX Engine</h1>
+          <span class="engine-detail-sub" id="engine-detail-sub"></span>
+        </span>
+      </header>
+
+      <div class="engine-detail-body">
+        <!-- THE STATE, SAID ONCE, in the tone of the state. `data-tone` and not
+             a class per tone: engineStatusFromState() already names its tones
+             ok / warn / danger / neutral. This replaces the badge-and-dot pair
+             AND the compatibility paragraph that restated the same mismatch a
+             second time in a class no loaded stylesheet defined. -->
+        <div class="engine-state-banner" id="engine-state-banner"
+             role="status" aria-live="polite" aria-busy="true">
+          <span class="icon-tile" aria-hidden="true">
+            <svg class="sx-icon" aria-hidden="true">
+              <use id="engine-state-icon" href="icons/material-icons.svg#dns"></use>
+            </svg>
+          </span>
+          <span class="engine-state-copy">
+            <strong id="engine-state-text">Checking engine…</strong>
+            <small id="engine-state-detail"></small>
+          </span>
+        </div>
+
+        <section class="engine-spec-list" aria-label="Engine details">
+          <div class="engine-spec-row" id="engine-spec-installed">
+            <span class="engine-spec-label">Installed version</span>
+            <span class="engine-spec-value tech" id="engine-installed-version">—</span>
           </div>
-
-          <p class="notice hidden" id="engine-compatibility-warning"></p>
-
-          <dl class="engine-meta">
-            <div class="kv">
-              <dt>Installed version</dt>
-              <dd class="tech" id="engine-installed-version">—</dd>
-            </div>
-            <div class="kv">
-              <dt>Latest version</dt>
-              <dd class="tech" id="engine-latest-version">—</dd>
-            </div>
-            <div class="kv">
-              <dt>Protocol</dt>
-              <dd class="tech" id="engine-protocol-row">—</dd>
-            </div>
-          </dl>
-
-          <div class="engine-release">
-            <p class="engine-release-verdict" id="engine-release-verdict"></p>
-            <p class="engine-release-detail muted text-sm" id="engine-latest-detail"></p>
+          <div class="engine-spec-row" id="engine-spec-latest">
+            <span class="engine-spec-note">
+              <span class="engine-spec-label">
+                Latest version
+                <span class="badge hidden" id="engine-release-verdict"></span>
+              </span>
+              <small id="engine-latest-detail"></small>
+            </span>
+            <span class="engine-spec-value tech" id="engine-latest-version">—</span>
           </div>
-
-          <div class="engine-actions">
-            <button class="engine-action-primary" id="engine-download" type="button" disabled>
-              <svg class="sx-icon sm" aria-hidden="true">
-                <use href="icons/material-icons.svg#file-download"></use>
-              </svg>
-              Download engine
-            </button>
-            <button class="engine-action-secondary" id="engine-recheck" type="button">
-              <svg class="sx-icon sm" aria-hidden="true">
-                <use href="icons/material-icons.svg#sync"></use>
-              </svg>
-              Check again
-            </button>
+          <div class="engine-spec-row" id="engine-spec-protocol">
+            <span class="engine-spec-label">Protocol</span>
+            <span class="engine-spec-value tech" id="engine-protocol-row">—</span>
           </div>
-
-          <div class="engine-power-setting">
-            <div class="engine-power-info">
-              <span class="engine-power-label" id="engine-power-label">Engine power</span>
-              <span class="engine-power-disclosure muted text-sm" id="engine-power-disclosure">Control is not connected yet.</span>
-            </div>
+          <div class="engine-spec-row" id="engine-spec-role">
+            <span class="engine-spec-label">Role</span>
+            <span class="engine-spec-value" id="engine-role">—</span>
+          </div>
+          <div class="engine-spec-row" id="engine-spec-shape">
+            <span class="engine-spec-label">Integration</span>
+            <span class="engine-spec-value" id="engine-shape">—</span>
+          </div>
+          <div class="engine-spec-row" id="engine-spec-licence">
+            <span class="engine-spec-label">Licence</span>
+            <span class="engine-spec-value" id="engine-licence">—</span>
+          </div>
+          <div class="engine-spec-row has-switch" id="engine-spec-power">
+            <span class="engine-spec-note">
+              <span class="engine-spec-label" id="engine-power-label">Engine power</span>
+              <small id="engine-power-disclosure">Control is not connected yet.</small>
+            </span>
             <span class="m3-switch">
               <input id="engine-power-switch" type="checkbox" role="switch" disabled
                      aria-label="Engine power"
@@ -1490,36 +1540,73 @@
               </span>
             </span>
           </div>
+        </section>
 
-          <details class="install-steps hidden" id="engine-install-steps">
-            <summary>Installation instructions <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#expand-more"></use></svg></summary>
-            <div class="install-steps-content">
-              <ol class="text-sm">
-                <li>Run <span class="tech">scrapex-engine.exe</span>. It installs
-                  for you alone — no administrator rights.</li>
-                <li>Windows shows a blue notice the first time, because the file
-                  is new rather than because anything is wrong with it. Choose
-                  <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
-                <li>Leave its window open — that window <strong>is</strong> the
-                  engine — then press <strong>Check again</strong>.</li>
-              </ol>
-              <div class="engine-checksum">
-                <span>SHA-256</span>
-                <code class="tech" id="engine-download-checksum"></code>
-              </div>
+        <!-- The three items that were behind the overflow menu, promoted to
+             rows. Same ids, same handlers. The menu is gone: with its every
+             item on the screen it had nothing left to open. -->
+        <section class="engine-action-list" id="engine-action-list" aria-label="Engine actions">
+          <button class="engine-action-row" id="engine-diagnostics" type="button">
+            <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#tune"></use></svg>
+            <span>Run diagnostics</span>
+            <svg class="sx-icon engine-row-chevron" aria-hidden="true">
+              <use href="icons/material-icons.svg#chevron-right"></use>
+            </svg>
+          </button>
+          <button class="engine-action-row" id="engine-setup-guide" type="button">
+            <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#info"></use></svg>
+            <span>Open setup guide</span>
+            <svg class="sx-icon engine-row-chevron" aria-hidden="true">
+              <use href="icons/material-icons.svg#chevron-right"></use>
+            </svg>
+          </button>
+          <button class="engine-action-row" id="engine-copy-details" type="button">
+            <svg class="sx-icon" aria-hidden="true"><use href="icons/material-icons.svg#description"></use></svg>
+            <span>Copy Engine technical details</span>
+            <svg class="sx-icon engine-row-chevron" aria-hidden="true">
+              <use href="icons/material-icons.svg#chevron-right"></use>
+            </svg>
+          </button>
+        </section>
+
+        <p class="engine-diagnostics-output muted text-sm hidden" id="engine-diagnostics-output"></p>
+
+        <details class="install-steps hidden" id="engine-install-steps">
+          <summary>Installation instructions <svg class="sx-icon sm" aria-hidden="true"><use href="icons/material-icons.svg#expand-more"></use></svg></summary>
+          <div class="install-steps-content">
+            <ol class="text-sm">
+              <li>Run <span class="tech">scrapex-engine.exe</span>. It installs
+                for you alone — no administrator rights.</li>
+              <li>Windows shows a blue notice the first time, because the file
+                is new rather than because anything is wrong with it. Choose
+                <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+              <li>Leave its window open — that window <strong>is</strong> the
+                engine — then press <strong>Check again</strong>.</li>
+            </ol>
+            <div class="engine-checksum">
+              <span>SHA-256</span>
+              <code class="tech" id="engine-download-checksum"></code>
             </div>
-          </details>
-        </section>
+          </div>
+        </details>
+      </div>
 
-        <section class="card engine-card" aria-labelledby="engines-others-title">
-          <h2 id="engines-others-title">Other engines</h2>
-          <p>
-            Open-source crawlers, installed only when a site needs something
-            ScrapeX-Engine cannot do. Each keeps its own store and hands its
-            output to ScrapeX-Engine.
-          </p>
-          <p class="muted text-sm">No additional engines are available yet.</p>
-        </section>
+      <!-- PINNED, not scrolled: these are what the screen is for, and on a
+           400x520 panel with Chrome's largest font they would otherwise sit
+           below the fold. -->
+      <div class="engine-detail-actions" id="engine-detail-actions">
+        <button class="engine-action-primary" id="engine-download" type="button" disabled>
+          <svg class="sx-icon sm" aria-hidden="true">
+            <use href="icons/material-icons.svg#file-download"></use>
+          </svg>
+          <span id="engine-download-label">Download engine</span>
+        </button>
+        <button class="engine-action-secondary" id="engine-recheck" type="button">
+          <svg class="sx-icon sm" aria-hidden="true">
+            <use href="icons/material-icons.svg#sync"></use>
+          </svg>
+          Check again
+        </button>
       </div>
     </section>
     <section id="view-console" class="hidden" role="tabpanel" aria-labelledby="tab-console" tabindex="0">

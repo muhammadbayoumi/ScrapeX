@@ -38,6 +38,8 @@ Thumbs.db
 
 # screenshot harness scratch
 docs/screenshots/_tmp/
+# and the per-suite scratch engine_verify.py writes beside its output
+docs/screenshots/*/_tmp/
 
 # ── Claude Code ────────────────────────────────────────────────────────
 # Worktrees are complete nested checkouts — never commit one. This rule used

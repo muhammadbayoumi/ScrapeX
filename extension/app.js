@@ -11,7 +11,7 @@ import { checkEngine, getBackend, setBackend } from "./engine.js";
 import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDatabase } from "./transport.js";
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
-import { latestEngineRelease } from "./releases.js";
+import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
@@ -131,6 +131,9 @@ const VIEWS = [
   // matching #view-<name> section takes down every navigation, so the two move
   // together.
   "manage-account",
+  // A sub-view of Engine, reached from a catalogue row. Same contract as the two
+  // above: no rail button, and showView maps it back to the Engine rail entry.
+  "engine-detail",
 ];
 const PANEL_DESTINATIONS = new Set(["data", "settings"]);
 // The local fallback keeps every web page reachable even while the engine is
@@ -274,7 +277,8 @@ function showView(name, animate = true) {
   // Which RAIL entry stays lit. A sub-view has no button of its own, and
   // without an entry here every rail button loses aria-current and tabIndex,
   // leaving the rail with no keyboard entry point at all.
-  const SUB_VIEW_RAIL = {"source-edit": "sources", "manage-account": "profile"};
+  const SUB_VIEW_RAIL = {"source-edit": "sources", "manage-account": "profile",
+                         "engine-detail": "engines"};
   const navigationName = SUB_VIEW_RAIL[name] || name;
   runModeSelectUi?.close();
   closeWorkspaceMenu();
@@ -3336,9 +3340,21 @@ async function disconnectDrive() {
 // never blocks the engine status from being shown.
 let latestRelease = null;
 
+// TWO regions, because the answer arrives while EITHER screen can be open: the
+// catalogue row's badges and the detail screen's banner. Both are written from
+// one summary by updateEngineStatus, so they cannot disagree, and only the
+// visible one is announced — a display:none live region is not read out.
+//
+// The banner is skipped while a CANDIDATE is open: nothing about ScrapeX-Engine's
+// health is being checked on Scrapy's screen, and a spinner there would be about
+// the wrong engine.
 function setEngineBusy(busy) {
-  const region = $("engine-status-region");
-  if (region) region.setAttribute("aria-busy", String(busy));
+  const regions = ["engine-status-region"];
+  if (theInstalledEngineIsOnScreen()) regions.push("engine-state-banner");
+  for (const id of regions) {
+    const region = $(id);
+    if (region) region.setAttribute("aria-busy", String(busy));
+  }
 }
 
 // True for the whole of the Engine page's own Check again — the health answer,
@@ -3403,8 +3419,20 @@ function engineStatusFromState() {
   };
 }
 
+// The glyph the banner wears, one per tone. `play-circle` on a running engine
+// reads as "press to start" — the tone carries the colour, and the glyph has to
+// carry the same claim rather than a second, contradictory one.
+const ENGINE_TONE_ICON = {
+  ok: "check", warn: "play-circle", danger: "close", neutral: "dns",
+};
+
+// ONE summary, TWO screens. The catalogue row keeps the badge-and-dot pair and
+// the detail screen states it once in the tone of the state; both are written
+// here, from the same object, so the row can never say Running over a banner
+// that says Not detected.
 function updateEngineStatus() {
   const summary = engineStatusFromState();
+
   const badge = $("engine-status-badge");
   const dot = $("engine-status-dot");
   badge.className = "badge";
@@ -3423,6 +3451,20 @@ function updateEngineStatus() {
   const detail = $("engine-status-detail");
   detail.textContent = summary.detail;
   detail.classList.toggle("hidden", !summary.detail);
+
+  // THE BANNER IS ScrapeX-ENGINE'S. Every health answer that lands while a
+  // candidate's screen is open would otherwise repaint Scrapy's banner with
+  // ScrapeX's state — and the reader is looking at Scrapy.
+  if (!theInstalledEngineIsOnScreen()) return;
+  const banner = $("engine-state-banner");
+  // `neutral` is the ABSENCE of a tone, and the rule set is keyed on the
+  // attribute being missing rather than on a fourth value.
+  if (summary.tone === "neutral") banner.removeAttribute("data-tone");
+  else banner.setAttribute("data-tone", summary.tone);
+  $("engine-state-icon").setAttribute(
+    "href", `${ICON_SPRITE}#${ENGINE_TONE_ICON[summary.tone] || "dns"}`);
+  $("engine-state-text").textContent = summary.text;
+  $("engine-state-detail").textContent = summary.detail;
 }
 
 function engineProtocolText() {
@@ -3433,23 +3475,20 @@ function engineProtocolText() {
   return String(state.engineProtocol);
 }
 
-function updateEngineWarning() {
-  const warning = $("engine-compatibility-warning");
-  if (state.protocolMismatch) {
-    warning.textContent =
-      `The installed engine uses protocol ${state.engineProtocol}; this extension uses ${PROTOCOL_VERSION}. They cannot communicate.`;
-    warning.classList.remove("hidden");
-  } else {
-    warning.classList.add("hidden");
-    warning.textContent = "";
-  }
-}
-
+// THE COMPATIBILITY PARAGRAPH IS GONE, not moved. It said the mismatch a second
+// time in a `.notice` class no loaded stylesheet defined, so it rendered as bare
+// text; the banner now carries `data-tone="danger"` and the Protocol row states
+// both numbers, which is the same fact told once in the tone of the state.
 function renderEngineStatusUI() {
   const installed = state.engineVersion || "";
   $("engine-installed-version").textContent = installed || "Not detected";
   $("engine-protocol-row").textContent = engineProtocolText();
-  updateEngineWarning();
+  // The version beside the name on the catalogue row: shown only when there IS
+  // one, because an empty `.tech` chip beside a name reads as a missing value
+  // rather than as an engine nobody has installed.
+  const rowVersion = $("engine-row-version");
+  rowVersion.textContent = installed;
+  rowVersion.classList.toggle("hidden", !installed);
   updateEngineStatus();
   refreshEngineBusy();
 }
@@ -3482,11 +3521,30 @@ function updateEngineReleaseUI(latest) {
         : "This release has no installer attached, so there is nothing to install yet.")
     : (latest.detail || "");
 
-  $("engine-release-verdict").textContent = engineReleaseVerdict(installed, latest);
+  // A VERDICT IS A BADGE NOW, and it is on both screens: beside the Latest
+  // version label on the detail, and beside the state on the catalogue row. An
+  // empty verdict is no badge at all rather than an empty pill.
+  const verdict = engineReleaseVerdict(installed, latest);
+  const tone = verdict === "Update available" || verdict === "Available to install"
+    ? "badge ok" : "badge";
+  for (const id of ["engine-release-verdict", "engine-row-verdict"]) {
+    const node = $(id);
+    node.textContent = verdict;
+    node.className = tone;
+    node.classList.toggle("hidden", !verdict);
+  }
 
   const download = $("engine-download");
   const steps = $("engine-install-steps");
   const installer = latest.state === "ok" ? latest.installer : null;
+
+  // WHAT THE BUTTON WILL DO, named with the version it will do it to. "Download
+  // engine" is right on a device with none; on a device with 0.9.4 installed and
+  // 1.0.2 published, the action is an update and the label has to say which.
+  $("engine-download-label").textContent =
+    installed && latest.state === "ok" && verdict === "Update available"
+      ? `Update to ${latest.version}`
+      : "Download engine";
 
   download.disabled = !installer;
   steps.classList.toggle("hidden", !installer);
@@ -3502,11 +3560,111 @@ function updateEngineReleaseUI(latest) {
   }
 }
 
+// WHICH ENGINE IS OPEN. In memory only, and never persisted: the catalogue is
+// where a panel opens, and restoring a detail screen nobody asked for is how a
+// back button comes to lead somewhere the reader has never been.
+let openEngineId = "scrapex-engine";
+// The row that opened it, so Back returns focus to the thing that was pressed.
+let engineRowThatOpened = null;
+
+// The row for the installed engine is in app.html because its ids are written to
+// by the status and release renderers. The candidates are rendered from
+// ENGINE_CANDIDATES, so the list and what the detail screen says about each one
+// come from one table.
+function renderEngineCandidates() {
+  const list = $("engine-candidates");
+  if (list.childElementCount) return;
+  list.innerHTML = ENGINE_CANDIDATES.map((engine) => `
+    <button class="engine-row" type="button" data-engine-id="${esc(engine.id)}">
+      <span class="icon-tile quiet" aria-hidden="true">${icon(engine.icon)}</span>
+      <span class="engine-row-copy">
+        <span class="engine-row-line">
+          <span class="engine-row-name">${esc(engine.name)}</span>
+          <span class="badge">Not installed</span>
+        </span>
+        <span class="engine-row-sub">${esc(engine.role)}</span>
+      </span>
+      ${icon("chevron-right", "engine-row-chevron")}
+    </button>`).join("");
+}
+
+// WHAT ScrapeX-ENGINE'S DETAIL SCREEN SAYS ABOUT ITSELF. The other six describe
+// a role; this one describes what it is to the extension.
+const SCRAPEX_ENGINE = {
+  id: "scrapex-engine",
+  name: "ScrapeX Engine",
+  sub: "The engine this extension ships with",
+  licence: "MIT",
+};
+
+// Whether the detail screen is currently describing the installed engine. Read
+// by the status writers, which own that screen's banner and nothing else's.
+function theInstalledEngineIsOnScreen() {
+  return openEngineId === SCRAPEX_ENGINE.id;
+}
+
+function engineById(id) {
+  if (id === SCRAPEX_ENGINE.id) return SCRAPEX_ENGINE;
+  return ENGINE_CANDIDATES.find((engine) => engine.id === id) || null;
+}
+
+// Open one engine. The installed engine gets every row and both actions; a
+// candidate gets what docs/MASTER-PLAN.md §8.3 records about it and nothing
+// that would imply it can be installed, run or diagnosed — none of which is
+// true yet, and a disabled Download beside a licence note reads as a promise.
+function renderEngineDetail(id) {
+  const engine = engineById(id) || SCRAPEX_ENGINE;
+  openEngineId = engine.id;
+  const installed = engine.id === SCRAPEX_ENGINE.id;
+
+  $("engine-detail-title").textContent = engine.name;
+  $("engine-detail-sub").textContent = installed
+    ? SCRAPEX_ENGINE.sub : "Candidate backend · not installable yet";
+  $("engine-licence").textContent = engine.licence;
+
+  for (const row of ["engine-spec-installed", "engine-spec-latest",
+                     "engine-spec-protocol", "engine-spec-power"]) {
+    $(row).classList.toggle("hidden", !installed);
+  }
+  for (const row of ["engine-spec-role", "engine-spec-shape"]) {
+    $(row).classList.toggle("hidden", installed);
+  }
+  if (!installed) {
+    $("engine-role").textContent = engine.role;
+    $("engine-shape").textContent = engine.shape;
+  }
+  $("engine-action-list").classList.toggle("hidden", !installed);
+  $("engine-detail-actions").classList.toggle("hidden", !installed);
+  $("engine-diagnostics-output").classList.toggle("hidden", !installed);
+  if (!installed) $("engine-install-steps").classList.add("hidden");
+
+  const banner = $("engine-state-banner");
+  if (installed) {
+    // Written by the one status renderer, so this screen and the row agree.
+    updateEngineStatus();
+    refreshEngineBusy();
+  } else {
+    banner.removeAttribute("data-tone");
+    banner.setAttribute("aria-busy", "false");
+    $("engine-state-icon").setAttribute("href", `${ICON_SPRITE}#dns`);
+    $("engine-state-text").textContent = "Not installed";
+    $("engine-state-detail").textContent =
+      "A candidate in the plan. Nothing installs it yet.";
+  }
+}
+
+function openEngineDetail(id, row = null) {
+  engineRowThatOpened = row;
+  renderEngineDetail(id);
+  showView("engine-detail");
+  $("engine-detail-title").focus({ preventScroll: true });
+}
+
 async function renderEngines() {
   // The local engine status is known from state immediately and must not be
   // hidden while waiting for the remote release feed.
+  renderEngineCandidates();
   renderEngineStatusUI();
-  $("engine-recheck").onclick = refreshEngines;
 
   if (!latestRelease) {
     latestRelease = await latestEngineRelease();
@@ -3587,79 +3745,29 @@ async function runEngineDiagnostics() {
     : `No engine at ${await backendBase()}. Start the engine, then check again.`;
 }
 
-function bindEngineOverflowMenu() {
-  const button = $("engine-overflow");
-  const menu = $("engine-overflow-menu");
-  if (!button || !menu) return;
-  const items = () => Array.from(menu.querySelectorAll('[role="menuitem"]'));
-
-  function openMenu() {
-    menu.classList.remove("hidden");
-    button.setAttribute("aria-expanded", "true");
-    const first = items()[0];
-    if (first) first.focus({ preventScroll: true });
-    document.addEventListener("click", outsideClick, true);
-  }
-
-  function closeMenu(returnFocus = true) {
-    menu.classList.add("hidden");
-    button.setAttribute("aria-expanded", "false");
-    document.removeEventListener("click", outsideClick, true);
-    if (returnFocus) button.focus({ preventScroll: true });
-  }
-
-  function outsideClick(e) {
-    if (!menu.contains(e.target) && e.target !== button) closeMenu(true);
-  }
-
-  button.addEventListener("click", () => {
-    if (menu.classList.contains("hidden")) openMenu(); else closeMenu(false);
+// The three actions are rows on the detail screen now, and the overflow menu
+// that used to hold them is gone rather than kept empty: a `more-vert` button
+// with `aria-haspopup="menu"` and nothing to open is a control that lies.
+// `#engine-detail-title` is focusable so the back-and-forth between the two
+// screens lands the reader on the heading of the one they asked for.
+function bindEngineScreens() {
+  // Delegated, because the candidate rows are rendered and re-rendered while
+  // this listener is not: one listener on the scrollport outlives all of them.
+  $("view-engines").addEventListener("click", (event) => {
+    const row = event.target.closest?.(".engine-row");
+    if (row && row.dataset.engineId) openEngineDetail(row.dataset.engineId, row);
   });
 
-  button.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      openMenu();
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      openMenu();
-    }
+  $("engine-detail-back").addEventListener("click", () => {
+    showView("engines");
+    const row = engineRowThatOpened || $("engine-row-scrapex-engine");
+    row?.focus({ preventScroll: true });
   });
 
-  menu.addEventListener("keydown", (e) => {
-    const list = items();
-    const idx = list.indexOf(document.activeElement);
-    if (e.key === "Escape") {
-      e.preventDefault();
-      closeMenu(true);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const next = list[(idx + 1) % list.length];
-      next.focus({ preventScroll: true });
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      const prev = list[(idx - 1 + list.length) % list.length];
-      prev.focus({ preventScroll: true });
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      document.activeElement.click();
-    } else if (e.key === "Tab") {
-      closeMenu(true);
-    }
-  });
-
-  $("engine-diagnostics").addEventListener("click", () => {
-    runEngineDiagnostics();
-    closeMenu(true);
-  });
-  $("engine-setup-guide").addEventListener("click", () => {
-    openEngineSetupGuide();
-    closeMenu(false);
-  });
-  $("engine-copy-details").addEventListener("click", () => {
-    copyEngineDetails();
-    closeMenu(true);
-  });
+  $("engine-recheck").addEventListener("click", refreshEngines);
+  $("engine-diagnostics").addEventListener("click", runEngineDiagnostics);
+  $("engine-setup-guide").addEventListener("click", openEngineSetupGuide);
+  $("engine-copy-details").addEventListener("click", copyEngineDetails);
 }
 
 // ---- the refusal --------------------------------------------------------
@@ -6135,7 +6243,7 @@ function wireDeferredControls() {
   // The Engine page's overflow menu. Deferred with the rest: it is a menu on a
   // destination nobody is looking at when the panel opens, and none of the
   // three things it offers exists before the shell is on screen.
-  bindEngineOverflowMenu();
+  bindEngineScreens();
 }
 
 function scheduleNonCriticalStartup(backendPromise) {

@@ -30,6 +30,12 @@ INSTALLER = {
 }
 
 
+def open_engine(page, engine_id: str = "scrapex-engine") -> None:
+    """Into one engine's own screen, the way the catalogue leads there."""
+    page.click(f'#view-engines .engine-row[data-engine-id="{engine_id}"]')
+    page.wait_for_selector("#view-engine-detail:not(.hidden)")
+
+
 def installer_manifest(version: str = "0.9.0", has_installer: bool = True) -> dict:
     return {
         "product": "scrapex-engine",
@@ -163,20 +169,31 @@ def main() -> int:
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page)
+        open_engine(page)
         page.click('#engine-install-steps summary')
         page.wait_for_function("() => document.getElementById('engine-install-steps').open")
         capture(page, "expanded-instructions", 320, 1200, "light", "whatsapp")
         page.close()
 
-        # Overflow menu open, light/default.
+        # One engine's own screen, light/default — the state banner, the spec
+        # rows and the three actions that used to hide behind the overflow menu.
         page = browser.new_page(viewport={"width": 400, "height": 800})
         page.goto(page_file.as_uri())
         page.wait_for_timeout(700)
         page.click('#tab-engines')
         settle(page)
-        page.evaluate("() => document.getElementById('engine-overflow').click()")
-        page.wait_for_selector("#engine-overflow-menu:not(.hidden)")
-        capture(page, "overflow-menu-open", 400, 800, "light", "whatsapp")
+        open_engine(page)
+        capture(page, "one-engine", 400, 800, "light", "whatsapp")
+        page.close()
+
+        # A candidate backend: what §8.3 records about it, and nothing to press.
+        page = browser.new_page(viewport={"width": 400, "height": 800})
+        page.goto(page_file.as_uri())
+        page.wait_for_timeout(700)
+        page.click('#tab-engines')
+        settle(page)
+        open_engine(page, "scrapy")
+        capture(page, "one-candidate", 400, 800, "light", "whatsapp")
         page.close()
 
         # Narrow 320x480 layout, light/default.

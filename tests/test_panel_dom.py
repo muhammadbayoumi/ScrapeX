@@ -196,6 +196,24 @@ def settle_view(page, name: str) -> None:
         timeout=5_000)
 
 
+def open_engine(page, engine_id: str = "scrapex-engine") -> None:
+    """Walk the route the owner walks into ONE engine's own screen.
+
+    THE ENGINE PAGE IS TWO SCREENS. `#view-engines` is a catalogue — what is
+    installed on this device, and the candidate backends from
+    docs/MASTER-PLAN.md §8.3 — and everything about one engine (its versions, its
+    protocol, its licence, Download and Check again) is behind its row on
+    `#view-engine-detail`, a sibling view with no rail button.
+
+    Every test that presses Check again, opens the install steps or reads a
+    version has to come through here, because a test that reaches a control on a
+    hidden screen is asserting about a screen nobody can see. That is the mistake
+    this suite already caught once, in `class="btn"`: green over nothing.
+    """
+    page.click(f'#view-engines .engine-row[data-engine-id="{engine_id}"]')
+    page.wait_for_selector("#view-engine-detail:not(.hidden)", timeout=10_000)
+
+
 def declared_size(page, selector: str) -> dict:
     """The width/height `app.css` DECLARES for `selector`, read from the CSSOM.
 
@@ -3114,14 +3132,17 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
         "#folder-code")
 
     page.click("#tab-engines")
-    card = page.locator("#view-engines .card").first
 
-    assert (card.locator("h2").text_content() or "").strip() == "ScrapeX Engine"
-    # The card now carries the primary/secondary actions plus the overflow
-    # menu and its three menu items. The two labelled actions are still present.
+    # The catalogue names the engine; the actions belong to its own screen, and
+    # they are pinned to its bottom edge rather than carried by a card.
+    row = page.locator('#view-engines .engine-row[data-engine-id="scrapex-engine"]')
+    assert (row.locator(".engine-row-name").text_content() or "").strip() == "ScrapeX Engine"
+    open_engine(page)
+    assert text_of(page, "#engine-detail-title") == "ScrapeX Engine"
+
+    card = page.locator("#engine-detail-actions")
     assert card.locator("#engine-download").count() == 1
     assert card.locator("#engine-recheck").count() == 1
-    assert card.locator("#engine-overflow").count() == 1
 
     download = card.locator("#engine-download")
     # DOWNLOAD, not Install: Chrome does not let an extension write outside its
@@ -3329,6 +3350,8 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
         timeout=10_000)
 
     assert text_of(page, "#engine-status") == "Running"
+
+    open_engine(page)
     assert text_of(page, "#engine-installed-version") not in ("", "—", "not installed")
     assert str(PROTOCOL) in text_of(page, "#engine-protocol-row")
 
@@ -3358,6 +3381,7 @@ def test_the_latest_row_never_contradicts_the_sentence_under_it(open_panel):
         "() => document.getElementById('engine-latest-detail').textContent !== ''",
         timeout=10_000)
 
+    open_engine(page)
     value = text_of(page, "#engine-latest-version")
     detail = text_of(page, "#engine-latest-detail")
 
@@ -3387,6 +3411,7 @@ def test_a_published_engine_release_is_shown_by_its_version(open_panel):
         "() => document.getElementById('engine-latest-version').textContent !== '—'",
         timeout=10_000)
 
+    open_engine(page)
     assert text_of(page, "#engine-latest-version") == "0.9.0"
     assert text_of(page, "#engine-latest-detail") == "", (
         "a release with an installer needs no explanation under it")
@@ -3415,6 +3440,7 @@ def test_the_download_button_hands_over_the_file_and_the_steps(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
+    open_engine(page)
     assert not page.locator("#engine-download").is_disabled()
     assert page.locator("#engine-install-steps").is_visible()
 
@@ -3466,6 +3492,7 @@ def test_the_download_button_actually_hands_over_the_file(open_panel):
     # Chrome's own download is a navigation the panel does not own, so what is
     # asserted is the handover itself: the url the panel was given, opened in a
     # new tab rather than replacing the panel.
+    open_engine(page)
     page.evaluate("""() => {
       window.__opened = [];
       window.open = (url, target) => { window.__opened.push([url, target]); return null; };
@@ -3500,6 +3527,7 @@ def test_the_recheck_button_repaints_the_engine_card(open_panel):
         "() => document.getElementById('engine-latest-version').textContent === '0.9.0'",
         timeout=10_000)
 
+    open_engine(page)
     before = page.evaluate(
         "window.__calls.filter(c => String(c).includes('version.json')).length")
     page.evaluate(
@@ -3526,6 +3554,7 @@ def test_the_download_button_stays_dead_when_there_is_nothing_to_download(open_p
         "() => document.getElementById('engine-latest-detail').textContent !== ''",
         timeout=10_000)
 
+    open_engine(page)
     assert page.locator("#engine-download").is_disabled()
     assert not page.locator("#engine-install-steps").is_visible()
 
@@ -3539,6 +3568,7 @@ def test_a_release_with_no_installer_says_so_before_the_press(open_panel):
         "() => document.getElementById('engine-latest-detail').textContent !== ''",
         timeout=10_000)
 
+    open_engine(page)
     assert text_of(page, "#engine-latest-version") == "0.9.0"
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
 
@@ -3552,6 +3582,8 @@ def test_the_engine_page_says_not_detected_when_unreachable(open_panel):
         timeout=10_000)
 
     assert "Not detected" in text_of(page, "#engine-status")
+
+    open_engine(page)
     assert text_of(page, "#engine-installed-version") == "Not detected"
     assert text_of(page, "#engine-protocol-row") == "Not available"
 
@@ -3582,10 +3614,17 @@ def test_the_engine_status_maps_protocol_mismatch_to_a_warning(open_panel):
         timeout=10_000)
 
     assert text_of(page, "#engine-status") == "Incompatible"
+
+    open_engine(page)
     assert "99" in text_of(page, "#engine-protocol-row")
     assert "1" in text_of(page, "#engine-protocol-row")
-    warning = text_of(page, "#engine-compatibility-warning")
-    assert "cannot communicate" in warning
+    # SAID ONCE, IN THE TONE OF THE STATE. The paragraph that used to restate the
+    # mismatch under the badge is gone: it wore a `.notice` class no loaded
+    # stylesheet defined, so it rendered as bare text saying the same thing twice.
+    banner = page.locator("#engine-state-banner")
+    assert banner.get_attribute("data-tone") == "danger"
+    assert text_of(page, "#engine-state-text") == "Incompatible"
+    assert "99" in text_of(page, "#engine-state-detail")
 
 
 def test_the_engine_status_maps_installed_but_not_running(open_panel):
@@ -3607,6 +3646,7 @@ def test_the_engine_status_maps_installed_but_not_running(open_panel):
         return original(url, options);
       };
     }""")
+    open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
         "() => document.getElementById('engine-status').textContent === 'Installed, not running'",
@@ -3647,6 +3687,7 @@ def test_a_health_check_that_times_out_is_not_reported_as_no_engine(open_panel):
         return original(url, options);
       };
     }""")
+    open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
@@ -3669,6 +3710,7 @@ def test_the_engine_release_verdict_says_available_to_install(open_panel):
     page.wait_for_function(
         "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
         timeout=10_000)
+    open_engine(page)
     assert text_of(page, "#engine-release-verdict") == "Available to install"
 
 
@@ -3684,6 +3726,7 @@ def test_the_engine_release_verdict_says_update_available(open_panel):
     page.wait_for_function(
         "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
         timeout=10_000)
+    open_engine(page)
     assert text_of(page, "#engine-release-verdict") == "Update available"
 
 
@@ -3699,6 +3742,7 @@ def test_the_engine_release_verdict_says_up_to_date(open_panel):
     page.wait_for_function(
         "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
         timeout=10_000)
+    open_engine(page)
     assert text_of(page, "#engine-release-verdict") == "Up to date"
 
 
@@ -3719,6 +3763,7 @@ def test_the_engine_release_verdict_says_unavailable_when_feed_is_offline(open_p
         return original(url, options);
       };
     }""")
+    open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
         "() => document.getElementById('engine-release-verdict').textContent === 'Update status unavailable'",
@@ -3739,11 +3784,16 @@ def test_the_engine_download_does_not_claim_completion(open_panel):
     page.wait_for_function(
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
+    open_engine(page)
     page.click("#engine-download")
     assert page.locator("#engine-install-steps").evaluate("el => el.open")
-    assert "Download engine" in text_of(page, "#engine-download")
-    assert "Downloaded" not in text_of(page, "#view-engines")
-    assert "complete" not in text_of(page, "#view-engines").lower()
+    # WHAT IT WILL DO, WITH THE VERSION IT WILL DO IT TO. This asserted
+    # "Download engine" while an engine was already installed and a newer one was
+    # published — which is an update, and a button that calls it a download
+    # leaves the owner to work out whether pressing it replaces what he has.
+    assert text_of(page, "#engine-download") == "Update to 0.9.0"
+    assert "Downloaded" not in text_of(page, "#view-engine-detail")
+    assert "complete" not in text_of(page, "#view-engine-detail").lower()
 
 
 def test_the_engine_page_does_not_overflow_at_320px(open_panel):
@@ -3759,10 +3809,15 @@ def test_the_engine_page_does_not_overflow_at_320px(open_panel):
     page.wait_for_function(
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
-    overflow = page.evaluate(
-        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
-    assert not overflow, "the Engine page overflows at 320px"
-    box = page.locator(".engine-actions").bounding_box()
+    def horizontal_overflow():
+        return page.evaluate(
+            "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
+
+    # BOTH screens, because both are the Engine page now.
+    assert not horizontal_overflow(), "the Engine catalogue overflows at 320px"
+    open_engine(page)
+    assert not horizontal_overflow(), "one engine's screen overflows at 320px"
+    box = page.locator("#engine-detail-actions").bounding_box()
     assert box and box["height"] > 0
     assert page.is_visible("#engine-download")
     assert page.is_visible("#engine-recheck")
@@ -3782,6 +3837,7 @@ def test_the_engine_actions_have_visible_keyboard_focus(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
+    open_engine(page)
     for selector in ("#engine-download", "#engine-recheck"):
         page.focus(selector)
         active = page.evaluate("() => document.activeElement.id")
@@ -3806,11 +3862,12 @@ def test_the_engine_page_scrolls_when_the_panel_is_short(open_panel):
     page.wait_for_function(
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
-    page.click("#engine-install-steps summary")
-    page.wait_for_function("() => document.getElementById('engine-install-steps').open")
 
-    info = page.evaluate("""() => {
-      const scroll = document.querySelector('#view-engines .view-scroll');
+    # SCREEN ONE: the pinned heading and one scrollport under it, which is what
+    # `.engine-catalogue` replaced `.view-scroll` with. The last group heading
+    # has to be reachable inside it rather than clipped below.
+    catalogue = page.evaluate("""() => {
+      const scroll = document.querySelector('.engine-catalogue');
       const heading = document.querySelector('#view-engines > .view-heading');
       return {
         scrollHeight: scroll.scrollHeight,
@@ -3820,43 +3877,80 @@ def test_the_engine_page_scrolls_when_the_panel_is_short(open_panel):
         htmlClientWidth: document.documentElement.clientWidth,
       };
     }""")
-    assert info["scrollHeight"] > info["clientHeight"], (
-        f"scrollHeight {info['scrollHeight']} is not taller than clientHeight {info['clientHeight']}")
-    assert info["headingSticky"], "the Engine heading is not sticky"
-    assert info["htmlScrollWidth"] <= info["htmlClientWidth"], "the Engine page overflows horizontally"
+    assert catalogue["scrollHeight"] > catalogue["clientHeight"], (
+        f"scrollHeight {catalogue['scrollHeight']} is not taller than "
+        f"clientHeight {catalogue['clientHeight']}")
+    assert catalogue["headingSticky"], "the Engine heading is not sticky"
+    assert catalogue["htmlScrollWidth"] <= catalogue["htmlClientWidth"], (
+        "the Engine catalogue overflows horizontally")
 
-    page.evaluate("() => { document.querySelector('#view-engines .view-scroll').scrollTop = 99999; }")
-    new_top = page.evaluate(
-        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
-    assert new_top > 0, ".view-scroll did not scroll"
+    page.evaluate("() => { document.querySelector('.engine-catalogue').scrollTop = 99999; }")
+    assert page.evaluate("() => document.querySelector('.engine-catalogue').scrollTop") > 0, (
+        ".engine-catalogue did not scroll")
 
-    checksum_box = page.locator("#engine-download-checksum").bounding_box()
-    scroll_box = page.locator("#view-engines .view-scroll").bounding_box()
-    assert checksum_box and scroll_box
-    assert checksum_box["y"] + checksum_box["height"] <= scroll_box["y"] + scroll_box["height"], (
-        "the checksum is clipped below the scrollport")
-
-    others = page.locator("#engines-others-title").bounding_box()
-    assert others
+    scroll_box = page.locator(".engine-catalogue").bounding_box()
+    others = page.locator("#view-engines .engine-catalogue > h2").last.bounding_box()
+    assert scroll_box and others
     assert others["y"] + others["height"] <= scroll_box["y"] + scroll_box["height"], (
         "Other engines heading is clipped below the scrollport")
+
+    # SCREEN TWO: the same shape one level in — a pinned header, a pinned action
+    # bar, and one scroller between them that reaches the checksum.
+    open_engine(page)
+    page.click("#engine-install-steps summary")
+    page.wait_for_function("() => document.getElementById('engine-install-steps').open")
+
+    body = page.evaluate("""() => {
+      const scroll = document.querySelector('.engine-detail-body');
+      return {scrollHeight: scroll.scrollHeight, clientHeight: scroll.clientHeight};
+    }""")
+    assert body["scrollHeight"] > body["clientHeight"], (
+        "the engine screen does not scroll with the install steps open, so its "
+        "cards are being squeezed instead")
+
+    page.evaluate("() => { document.querySelector('.engine-detail-body').scrollTop = 99999; }")
+    assert page.evaluate("() => document.querySelector('.engine-detail-body').scrollTop") > 0, (
+        ".engine-detail-body did not scroll")
+
+    checksum_box = page.locator("#engine-download-checksum").bounding_box()
+    body_box = page.locator(".engine-detail-body").bounding_box()
+    assert checksum_box and body_box
+    assert checksum_box["y"] + checksum_box["height"] <= body_box["y"] + body_box["height"] + 1, (
+        "the checksum is clipped below the scrollport")
+
+    # The pinned actions survive it: that is why they are pinned.
+    assert page.is_visible("#engine-download")
+    assert page.is_visible("#engine-recheck")
 
 
 def test_the_engine_compatibility_warning_is_not_a_second_live_announcement(open_panel):
     """The status region already announces the mismatch. A duplicate
-    assertive alert on the same fact would double-speak to screen readers."""
+    assertive alert on the same fact would double-speak to screen readers.
+
+    THE PARAGRAPH IS NOW GONE ENTIRELY, and that is the strongest form of this
+    claim. It carried a `.notice` class that no loaded stylesheet defined, so it
+    rendered as bare unstyled text restating what the badge above it had already
+    said. Each screen states the mismatch once: the catalogue row in its badge
+    and its sub-line, the engine's own screen in the tone of its banner.
+    """
     page = open_panel(protocol_version=99)
     page.click("#tab-engines")
     page.wait_for_function(
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
         timeout=10_000)
 
-    warning = page.locator("#engine-compatibility-warning")
-    assert warning.get_attribute("role") != "alert"
+    assert page.locator("#engine-compatibility-warning").count() == 0, (
+        "the second statement of the mismatch is back")
     region_text = text_of(page, "#engine-status-region")
     assert "Incompatible" in region_text
     assert "99" in region_text
     assert "1" in region_text
+
+    # ONE polite region per screen, and no assertive one anywhere.
+    for view in ("#view-engines", "#view-engine-detail"):
+        live = page.locator(f"{view} [aria-live]")
+        assert live.count() == 1, f"{view} announces through {live.count()} regions"
+        assert live.first.get_attribute("aria-live") == "polite"
 
 
 def test_the_engine_page_does_not_restate_no_release_three_times(open_panel):
@@ -3871,7 +3965,8 @@ def test_the_engine_page_does_not_restate_no_release_three_times(open_panel):
         "() => document.getElementById('engine-latest-detail').textContent !== ''",
         timeout=10_000)
 
-    view_text = text_of(page, "#view-engines")
+    open_engine(page)
+    view_text = text_of(page, "#view-engine-detail")
     assert view_text.count("No release yet") <= 1
     assert "No engine has been released yet" in view_text
     assert "No release available yet" not in view_text
@@ -3891,6 +3986,7 @@ def test_the_engine_verdict_says_up_to_date_without_installer(open_panel):
         "() => document.getElementById('engine-latest-detail').textContent !== ''",
         timeout=10_000)
 
+    open_engine(page)
     assert text_of(page, "#engine-release-verdict") == "Up to date"
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
 
@@ -3909,6 +4005,7 @@ def test_the_engine_verdict_says_update_available_without_installer(open_panel):
         "() => document.getElementById('engine-latest-detail').textContent !== ''",
         timeout=10_000)
 
+    open_engine(page)
     assert text_of(page, "#engine-release-verdict") == "Update available"
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
 
@@ -3927,6 +4024,7 @@ def test_the_engine_verdict_does_not_say_available_with_no_engine_and_no_install
         "() => document.getElementById('engine-latest-detail').textContent !== ''",
         timeout=10_000)
 
+    open_engine(page)
     assert "Available to install" not in text_of(page, "#engine-release-verdict")
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
 
@@ -3957,6 +4055,7 @@ def test_the_engine_recheck_does_not_fetch_unrelated_routes(open_panel):
       };
     }""")
 
+    open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
@@ -3993,6 +4092,7 @@ def test_the_engine_recheck_ignores_slow_unrelated_endpoints(open_panel):
       };
     }""")
 
+    open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
@@ -4016,6 +4116,7 @@ def test_the_engine_power_switch_is_a_disabled_placeholder(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
+    open_engine(page)
     switch = page.locator("#engine-power-switch")
     assert switch.is_visible()
     assert switch.is_disabled()
@@ -4042,6 +4143,7 @@ def test_the_engine_power_switch_cannot_be_activated(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
+    open_engine(page)
     switch = page.locator("#engine-power-switch")
     before = switch.is_checked()
     page.evaluate("""() => {
@@ -4070,9 +4172,10 @@ def test_the_engine_power_switch_is_readable_at_320px(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
+    open_engine(page)
     switch = page.locator("#engine-power-switch")
     assert switch.is_visible()
-    box = page.locator(".engine-power-setting").bounding_box()
+    box = page.locator("#engine-spec-power").bounding_box()
     assert box and box["width"] <= 320
     overflow = page.evaluate(
         "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
@@ -4081,92 +4184,171 @@ def test_the_engine_power_switch_is_readable_at_320px(open_panel):
 
 
 def test_the_engine_card_uses_outlined_cards(open_panel):
-    """Engine cards use the M3 outlined-card modifier without shadow or hover
-    lift."""
+    """THE CARDS ARE GROUPED LISTS NOW, and the outline is what still has to be
+    true of them: a 1px hairline, the panel's largest radius, no shadow, and no
+    hover lift. Two lists, because the catalogue has two groups — what is on this
+    device and what is a candidate.
+
+    Dividers come from `.engine-list > * + *`, never from a border per row, so
+    there is no hairline above the first row or below the last. That is asserted
+    here rather than described, because it is the one detail that reads as a
+    rendering bug when it is wrong.
+    """
     page = open_panel()
     page.click("#tab-engines")
-    cards = page.locator("#view-engines .card.engine-card")
-    assert cards.count() == 2
-    for i in range(cards.count()):
-        card = cards.nth(i)
-        style = card.evaluate("el => ({" +
-          "background: getComputedStyle(el).backgroundColor," +
-          "border: getComputedStyle(el).border," +
-          "borderRadius: getComputedStyle(el).borderRadius," +
-          "boxShadow: getComputedStyle(el).boxShadow," +
-          "})")
-        assert "1px" in style["border"]
-        assert style["borderRadius"] == "12px"
+    lists = page.locator("#view-engines .engine-list")
+    assert lists.count() == 2
+    for i in range(lists.count()):
+        style = lists.nth(i).evaluate("""el => ({
+          borderTopWidth: getComputedStyle(el).borderTopWidth,
+          borderRadius: getComputedStyle(el).borderRadius,
+          boxShadow: getComputedStyle(el).boxShadow,
+        })""")
+        assert style["borderTopWidth"] == "1px", style
+        assert style["borderRadius"] == "16px", style
+        assert style["boxShadow"] == "none", style
+
+    rows = page.locator("#engine-candidates .engine-row")
+    assert rows.count() >= 2, "the candidate group rendered no rows"
+    first = rows.first.evaluate("el => getComputedStyle(el).borderTopWidth")
+    assert first == "0px", (
+        f"the first row draws its own top border ({first}), which doubles the "
+        f"list's own hairline")
+    second = rows.nth(1).evaluate("el => getComputedStyle(el).borderTopWidth")
+    assert second == "1px", f"rows are not divided from each other ({second})"
 
 
-def test_the_engine_overflow_menu_opens_and_closes(open_panel):
-    """The overflow menu opens, navigates by keyboard, closes on Escape and
-    outside click, and returns focus to the button."""
-    page = open_panel(engine_manifest={
-        "product": "scrapex-engine", "version": "0.9.0",
-        "installer": {"name": "scrapex-engine.exe",
-                      "url": "https://example.test/scrapex-engine.exe",
-                      "bytes": 24000000, "sha256": "w" * 64},
-    })
+def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_install(open_panel):
+    """WHAT THE SECOND GROUP IS FOR, and the promise it must not make.
+
+    docs/MASTER-PLAN.md §8.3 names six backends beside ScrapeX's own, with a
+    role and a licence note each. None is installable, §8.4's adapter protocol is
+    still a design exercise, and the page has to be able to say all of that
+    without a single control that implies otherwise.
+    """
+    page = open_panel()
     page.click("#tab-engines")
-    page.wait_for_function(
-        "() => !document.getElementById('engine-download').disabled",
-        timeout=10_000)
 
-    overflow = page.locator("#engine-overflow")
-    menu = page.locator("#engine-overflow-menu")
-    assert overflow.get_attribute("aria-haspopup") == "menu"
-    assert overflow.get_attribute("aria-expanded") == "false"
+    rows = page.locator("#engine-candidates .engine-row")
+    assert rows.count() == 6, (
+        f"{rows.count()} candidates offered; §8.3 documents six beside ScrapeX")
+    names = [(rows.nth(i).locator(".engine-row-name").text_content() or "").strip()
+             for i in range(rows.count())]
+    assert names == ["Scrapy", "Crawlee", "Crawl4AI", "Firecrawl", "Katana", "Heritrix"], names
+    for i in range(rows.count()):
+        assert "Not installed" in (rows.nth(i).text_content() or ""), names[i]
 
-    page.click("#engine-overflow")
-    assert menu.is_visible()
-    assert overflow.get_attribute("aria-expanded") == "true"
-    items = menu.locator('[role="menuitem"]')
-    assert items.count() == 3
+    note = text_of(page, ".engine-scope-note")
+    assert "not commitments" in note and "None is installable yet" in note
 
-    # Keyboard navigation.
-    page.keyboard.press("ArrowDown")
-    active = page.evaluate("() => document.activeElement.id")
-    assert active == "engine-setup-guide"
-    page.keyboard.press("ArrowUp")
-    active = page.evaluate("() => document.activeElement.id")
-    assert active == "engine-diagnostics"
+    # Its own screen states the role and the licence, and offers NOTHING to press.
+    open_engine(page, "firecrawl")
+    assert text_of(page, "#engine-detail-title") == "Firecrawl"
+    assert text_of(page, "#engine-state-text") == "Not installed"
+    assert "AGPL-3.0" in text_of(page, "#engine-licence")
+    assert "scraping" in text_of(page, "#engine-role").lower()
+    for hidden in ("#engine-detail-actions", "#engine-action-list",
+                   "#engine-spec-installed", "#engine-spec-latest",
+                   "#engine-spec-protocol", "#engine-spec-power"):
+        assert not page.locator(hidden).is_visible(), (
+            f"{hidden} is offered for a backend that cannot be installed")
 
-    # Escape closes and returns focus.
-    page.keyboard.press("Escape")
-    assert not menu.is_visible()
-    assert overflow.get_attribute("aria-expanded") == "false"
-    active = page.evaluate("() => document.activeElement.id")
-    assert active == "engine-overflow"
+    # A LIVE ENGINE'S STATE MUST NOT LEAK ONTO A CANDIDATE'S SCREEN. The health
+    # answer arrives on its own schedule and every one of them writes the banner;
+    # while Firecrawl is open the banner is Firecrawl's.
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    page.wait_for_timeout(200)
+    assert text_of(page, "#engine-state-text") == "Not installed"
 
-    # Outside click closes.
-    page.click("#engine-overflow")
-    assert menu.is_visible()
-    page.click("#engines-installed-title")
-    assert not menu.is_visible()
+    # NO LABEL MAY PAINT OVER ITS OWN VALUE, at the narrowest panel, on the
+    # longest strings in the table. §8.3's licence notes are sentences, and with
+    # the value column sized `auto` the label track was starved to zero width and
+    # "Licence" printed straight through "Apache-2.0 · some files under other
+    # licences". Heritrix carries the longest of them, so it is the one measured.
+    page.click("#engine-detail-back")
+    page.wait_for_selector("#view-engines:not(.hidden)")
+    page.set_viewport_size({"width": 320, "height": 800})
+    open_engine(page, "heritrix")
+    settle_view(page, "engine-detail")
+    for row in ("engine-spec-role", "engine-spec-shape", "engine-spec-licence"):
+        label = page.locator(f"#{row} .engine-spec-label").bounding_box()
+        value = page.locator(f"#{row} .engine-spec-value").bounding_box()
+        assert label and value
+        assert label["width"] > 1, f"{row}: the label collapsed to {label['width']}px"
+        assert label["x"] + label["width"] <= value["x"] + 1, (
+            f"{row}: the label runs to {label['x'] + label['width']} and the value "
+            f"starts at {value['x']} — they overlap")
 
 
-def test_the_engine_overflow_menu_fits_at_320px(open_panel):
-    """The opened overflow menu must not overflow the 320px viewport."""
-    page = open_panel(engine_manifest={
-        "product": "scrapex-engine", "version": "0.9.0",
-        "installer": {"name": "scrapex-engine.exe",
-                      "url": "https://example.test/scrapex-engine.exe",
-                      "bytes": 24000000, "sha256": "x" * 64},
-    })
-    page.set_viewport_size({"width": 320, "height": 600})
+def test_the_engine_actions_are_rows_and_no_overflow_menu_is_left_behind(open_panel):
+    """THE MENU IS GONE, and this is what replaced it.
+
+    Run diagnostics, Open setup guide and Copy Engine technical details were
+    three items behind a `more-vert` button, which is where a reader goes last
+    and only when they already suspect something is there. They are rows on the
+    engine's own screen now, keeping their ids and their handlers.
+
+    The trigger went with them rather than staying as a placeholder: a button
+    with `aria-haspopup="menu"` and nothing to open is a control that lies, and
+    it can come back on the day it has a second item to hold. Asserted as an
+    absence so the placeholder cannot drift back in unnoticed.
+    """
+    page = open_panel()
     page.click("#tab-engines")
+    open_engine(page)
+
+    rows = page.locator("#engine-action-list .engine-action-row")
+    assert [r.get_attribute("id") for r in rows.all()] == [
+        "engine-diagnostics", "engine-setup-guide", "engine-copy-details"]
+    for row in rows.all():
+        assert row.is_visible()
+        assert not row.is_disabled()
+        box = row.bounding_box()
+        assert box and box["height"] >= 48 - 0.01, box
+
+    assert page.locator("#engine-overflow").count() == 0
+    assert page.locator("#engine-overflow-menu").count() == 0
+    assert page.locator('#view-engine-detail [aria-haspopup]').count() == 0, (
+        "something on the engine screen still claims to open a popup")
+    assert page.locator('#view-engines [aria-haspopup]').count() == 0
+
+    # Diagnostics writes where the reader is looking, not behind a closed menu.
+    page.click("#engine-diagnostics")
     page.wait_for_function(
-        "() => !document.getElementById('engine-download').disabled",
+        "() => document.getElementById('engine-diagnostics-output').textContent !== ''",
         timeout=10_000)
-    page.click("#engine-overflow")
-    menu = page.locator("#engine-overflow-menu")
-    assert menu.is_visible()
-    box = menu.bounding_box()
-    assert box and box["x"] + box["width"] <= 320
-    overflow = page.evaluate(
-        "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
-    assert not overflow
+    assert page.locator("#engine-diagnostics-output").is_visible()
+
+
+def test_the_route_into_one_engine_and_back_lands_focus_where_it_should(open_panel):
+    """A screen reached from a row and left by a back button, like
+    #view-manage-account and #view-source-edit before it.
+
+    THE RAIL STAYS LIT ON ENGINE throughout, because the detail is not a rail
+    destination — and a view with no rail entry is exactly how `showView` came to
+    leave the rail with no keyboard entry point at all, which is why
+    SUB_VIEW_RAIL exists and why this asserts it.
+    """
+    page = open_panel()
+    page.click("#tab-engines")
+
+    row = page.locator('.engine-row[data-engine-id="katana"]')
+    row.click()
+    page.wait_for_selector("#view-engine-detail:not(.hidden)")
+
+    assert page.locator("#view-engines").is_hidden()
+    assert page.evaluate("() => document.activeElement.id") == "engine-detail-title"
+    rail = page.locator("#tab-engines")
+    assert rail.get_attribute("aria-current") == "page"
+    assert rail.get_attribute("aria-selected") == "true"
+
+    page.click("#engine-detail-back")
+    page.wait_for_selector("#view-engines:not(.hidden)")
+    assert page.locator("#view-engine-detail").is_hidden()
+    assert page.evaluate(
+        "() => document.activeElement.dataset.engineId") == "katana", (
+        "Back did not return focus to the row that was opened")
+    assert page.locator("#tab-engines").get_attribute("aria-current") == "page"
 
 
 def test_the_engine_version_request_times_out(open_panel):
@@ -4208,6 +4390,7 @@ def test_the_engine_version_request_times_out(open_panel):
       };
     }""")
 
+    open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
@@ -4217,157 +4400,77 @@ def test_the_engine_version_request_times_out(open_panel):
 
 
 def test_the_engine_card_has_m3_outlined_geometry(open_panel):
-    """Engine cards follow the M3 outlined-card values exactly."""
+    """The grouped lists follow the panel's own outlined values exactly, and the
+    rhythm between the groups is the token, not a number typed twice."""
     page = open_panel()
     page.click("#tab-engines")
-    card = page.locator("#view-engines .card.engine-card").first
-    style = card.evaluate("""el => ({
+    group = page.locator("#view-engines .engine-list").first
+    style = group.evaluate("""el => ({
       borderRadius: getComputedStyle(el).borderRadius,
-      paddingInline: getComputedStyle(el).paddingInline,
       boxShadow: getComputedStyle(el).boxShadow,
       textAlign: getComputedStyle(el).textAlign,
+      overflow: getComputedStyle(el).overflow,
     })""")
-    assert style["borderRadius"] == "12px"
-    assert style["paddingInline"] == "16px"
+    assert style["borderRadius"] == "16px"
     assert style["boxShadow"] == "none"
     assert style["textAlign"] in ("start", "left")
+    # `overflow: hidden` is what makes the radius clip the first and last rows;
+    # without it the rows square off the corners they sit in.
+    assert style["overflow"] == "hidden"
 
-    view_scroll = page.locator("#view-engines .view-scroll")
-    gap = view_scroll.evaluate("el => getComputedStyle(el).gap")
-    assert gap == "8px"
+    row = page.locator('.engine-row[data-engine-id="scrapex-engine"]')
+    assert row.evaluate("el => getComputedStyle(el).paddingInline") == "16px"
+    box = row.bounding_box()
+    assert box and box["height"] >= 48 - 0.01, box
+
+    catalogue = page.locator(".engine-catalogue")
+    assert catalogue.evaluate("el => getComputedStyle(el).gap") == "8px"
+    # FULL-BLEED on the panel's ground: the negative margins undo `main`'s
+    # padding, which is what makes the rows read as a list on a page.
+    assert catalogue.evaluate("el => getComputedStyle(el).borderTopWidth") == "1px"
 
 
-def test_the_engine_overflow_trigger_has_no_visible_resting_container(open_panel):
-    """The three-dot trigger is a 48px hit target with no resting border,
-    background, or square container."""
-    page = open_panel(engine_manifest={
-        "product": "scrapex-engine", "version": "0.9.0",
-        "installer": {"name": "scrapex-engine.exe",
-                      "url": "https://example.test/scrapex-engine.exe",
-                      "bytes": 24000000, "sha256": "q" * 64},
-    })
+def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
+    """The same control Manage account already ships, held to the same values:
+    a 40px pill with no resting border or background, muted until hovered.
+
+    Read from the CSSOM as well as the box, for the reason
+    `test_the_engine_overflow_trigger_has_no_visible_resting_container` was
+    rewritten around: a global `button {min-height: var(--control-height)}`
+    clamps the rendered height back up, so a rendered box alone cannot catch a
+    height regression at all.
+    """
+    page = open_panel()
     page.click("#tab-engines")
-    page.wait_for_function(
-        "() => !document.getElementById('engine-download').disabled",
-        timeout=10_000)
-    # A box is about to be measured, so the view has to have LANDED. Read
-    # `settle_view` before touching this line: without it the measurement below
-    # lands mid-entry-animation 20/20 and fails 7/20.
-    settle_view(page, "engines")
+    open_engine(page)
+    settle_view(page, "engine-detail")
 
-    btn = page.locator("#engine-overflow")
-
-    # TWO CLAIMS, SEPARATED ON PURPOSE. They used to be one assertion, and
-    # conflating them is what made this test unfixable: it read a rendered box
-    # and blamed the stylesheet for the answer.
-    #
-    # (1) THE CONTRACT. app.css pins the trigger at exactly 48x48 — the Android
-    #     touch-target minimum. It is a declaration: exact, and beyond the reach
-    #     of any rounding. THIS is the assertion that bites a real regression,
-    #     and for the HEIGHT it is the only one that can.
-    #
-    #     Verified by mutation, not by hope. Setting .engine-overflow-button to
-    #     44px in app.css fails here, naming the value it found. The rendered
-    #     box does NOT catch it: measured, the button then renders 44 WIDE and
-    #     still 48 TALL, because a global `button, .button {min-height:
-    #     var(--control-height)}` (48px) silently clamps the height back up.
-    #     Width has no such floor (min-width: 0px), so only width moves.
-    #
-    #     Read that twice, because it condemns the assertion this replaced:
-    #     `box["height"] >= 48` could NEVER have caught a height regression.
-    #     The clamp would have handed it 48 and it would have passed, green and
-    #     useless, while the declared contract sat broken in the stylesheet. The
-    #     guard everyone was arguing about was not guarding the thing it named.
-    #     `matches` guards the failure that would otherwise pass silently: the
-    #     rule renamed or dropped from the sheet, leaving nothing to compare and
-    #     an assertion that vacuously holds. It is `>= 1`, not `== 1`, on
-    #     purpose — splitting a rule in two is a benign refactor and should not
-    #     fail a touch-target test. When there are several, the last
-    #     unconditional declaration wins, which is what the cascade does at
-    #     equal specificity.
-    declared = declared_size(page, ".engine-overflow-button")
+    declared = declared_size(page, "button.engine-detail-back")
     assert declared["matches"] >= 1, declared
-    assert declared["width"] == "48px", declared
-    assert declared["height"] == "48px", declared
+    assert declared["width"] == "var(--control-height-sm)", declared
 
-    # (2) THE CONSEQUENCE. That the contract actually reaches the screen — the
-    #     rule is not overridden, and no parent has collapsed the button. This
-    #     is a RENDERED box, so it carries float32 sub-pixel error and needs a
-    #     stated epsilon rather than a bare `>=`. 0.01 is ~1300x the largest
-    #     deviation ever measured here (2**-17, or 7.6e-06) and far below any
-    #     regression worth catching, because the smallest one that matters is a
-    #     whole pixel and (1) catches whole pixels exactly.
-    #
-    #     An earlier version of this line was `>= 48`, and it was twice wrong.
-    #     A bare floor cannot express "measured, with error", so it read as a
-    #     hard accessibility promise it could not keep, and it silently accepted
-    #     the +2**-17 half of the same noise. The floor now lives in (1), where
-    #     it is exact. Do not merge these back into one assertion, and do not
-    #     restore a bare 47.5 — a number with no reason attached is what got
-    #     reverted last time.
+    btn = page.locator("#engine-detail-back")
     box = btn.bounding_box()
     assert box
-    assert box["width"] == pytest.approx(48, abs=0.01), box["width"]
+    assert box["width"] == pytest.approx(40, abs=0.01), box["width"]
+    # 40 WIDE, 48 TALL, and the asymmetry is the point. `button, .button` in
+    # components.css carries `min-height: var(--control-height)` (48px) and
+    # nothing here overrides it, so the declared 2.5rem reaches the width and the
+    # global floor keeps the height. Measured, not assumed — and identical to
+    # `.manage-account-back`, the control this one is a copy of.
     assert box["height"] == pytest.approx(48, abs=0.01), box["height"]
+    twin = page.locator("#manage-account-back").evaluate(
+        "el => getComputedStyle(el).minHeight")
+    assert twin == btn.evaluate("el => getComputedStyle(el).minHeight"), (
+        "the two back buttons in this panel no longer agree on their height")
 
     style = btn.evaluate("""el => ({
       bg: getComputedStyle(el).backgroundColor,
-      border: getComputedStyle(el).border,
       borderRadius: getComputedStyle(el).borderRadius,
     })""")
     assert "rgba(0, 0, 0, 0)" in style["bg"] or style["bg"] == "transparent", style["bg"]
-    assert style["border"].startswith("0px"), style["border"]
-    assert style["borderRadius"] == "50%", style["borderRadius"]
-
-
-def test_the_engine_overflow_menu_is_anchored_without_scrolling(open_panel):
-    """The menu opens directly below its trigger, stays in the viewport, and
-    leaves the Engine heading visible without changing .view-scroll position."""
-    page = open_panel(engine_manifest={
-        "product": "scrapex-engine", "version": "0.9.0",
-        "installer": {"name": "scrapex-engine.exe",
-                      "url": "https://example.test/scrapex-engine.exe",
-                      "bytes": 24000000, "sha256": "r" * 64},
-    })
-    page.set_viewport_size({"width": 320, "height": 600})
-    page.click("#tab-engines")
-    page.wait_for_function(
-        "() => !document.getElementById('engine-download').disabled",
-        timeout=10_000)
-
-    scroll_before = page.evaluate(
-        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
-
-    btn = page.locator("#engine-overflow")
-    menu = page.locator("#engine-overflow-menu")
-    # Use a native click so the assertion measures the page, not Playwright's
-    # own scroll-into-view behaviour for the trigger.
-    page.evaluate("() => document.getElementById('engine-overflow').click()")
-    page.wait_for_timeout(150)
-    assert menu.is_visible()
-
-    btn_box = btn.bounding_box()
-    menu_box = menu.bounding_box()
-    heading_box = page.locator("#engines-installed-title").bounding_box()
-    assert btn_box and menu_box and heading_box
-
-    offset = menu_box["y"] - (btn_box["y"] + btn_box["height"])
-    assert 0 <= offset <= 6, f"menu offset from trigger is {offset}px"
-
-    viewport_w = 320
-    viewport_h = 600
-    for label, box in (("trigger", btn_box), ("menu", menu_box)):
-        assert box["x"] >= 0, f"{label} left is negative"
-        assert box["x"] + box["width"] <= viewport_w, f"{label} overflows right"
-        assert box["y"] >= 0, f"{label} top is negative"
-        assert box["y"] + box["height"] <= viewport_h, f"{label} overflows bottom"
-
-    assert heading_box["y"] >= 0
-    assert heading_box["y"] + heading_box["height"] <= viewport_h
-
-    scroll_after = page.evaluate(
-        "() => document.querySelector('#view-engines .view-scroll').scrollTop")
-    assert scroll_after == scroll_before
+    assert style["borderRadius"] == "999px", style["borderRadius"]
+    assert btn.get_attribute("aria-label") == "Back to Engine"
 
 
 def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):
@@ -4384,7 +4487,8 @@ def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
-    row = page.locator(".engine-power-setting")
+    open_engine(page)
+    row = page.locator("#engine-spec-power")
     assert row.is_visible()
     row_box = row.bounding_box()
 
@@ -4430,6 +4534,7 @@ def test_the_engine_install_region_is_divided_and_sha_wraps(open_panel):
     page.wait_for_function(
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
+    open_engine(page)
     page.click("#engine-install-steps summary")
     page.wait_for_function("() => document.getElementById('engine-install-steps').open")
 
@@ -4468,38 +4573,32 @@ def test_the_engine_actions_stack_full_width_at_320px(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
-    actions = page.locator(".engine-actions")
+    open_engine(page)
+    actions = page.locator("#engine-detail-actions")
     action_box = actions.bounding_box()
     download = page.locator("#engine-download").bounding_box()
     recheck = page.locator("#engine-recheck").bounding_box()
     assert action_box and download and recheck
-    assert download["width"] >= action_box["width"] - 4
-    assert recheck["width"] >= action_box["width"] - 4
+
+    # AGAINST THE BAR'S CONTENT WIDTH, not its border box. The actions are pinned
+    # to the panel edge now and the bar draws its own padding, so "full width"
+    # means the width inside that padding; comparing against the outer box would
+    # demand the buttons overflow their own container by 32px.
+    inner = page.evaluate("""() => {
+      const el = document.getElementById('engine-detail-actions');
+      const s = getComputedStyle(el);
+      return el.getBoundingClientRect().width
+             - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
+    }""")
+    assert download["width"] >= inner - 1, (download["width"], inner)
+    assert recheck["width"] >= inner - 1, (recheck["width"], inner)
     assert recheck["y"] > download["y"] + download["height"] - 1
 
-
-def test_the_engine_overflow_menu_returns_focus_after_page_actions(open_panel):
-    """Run diagnostics and Copy details close the menu and return focus to the
-    overflow trigger instead of leaving it inside the hidden menu."""
-    page = open_panel(engine_manifest={
-        "product": "scrapex-engine", "version": "0.9.0",
-        "installer": {"name": "scrapex-engine.exe",
-                      "url": "https://example.test/scrapex-engine.exe",
-                      "bytes": 24000000, "sha256": "v" * 64},
-    })
-    page.click("#tab-engines")
-    page.wait_for_function(
-        "() => !document.getElementById('engine-download').disabled",
-        timeout=10_000)
-
-    for action in ("engine-diagnostics", "engine-copy-details"):
-        page.click("#engine-overflow")
-        page.wait_for_selector("#engine-overflow-menu", state="visible")
-        page.click(f"#{action}")
-        page.wait_for_selector("#engine-overflow-menu", state="hidden")
-        active = page.evaluate("() => document.activeElement.id")
-        assert active == "engine-overflow", (
-            f"{action} left focus on {active!r} instead of the overflow trigger")
+    # AND THE BAR ITSELF REACHES BOTH EDGES. `#view-engine-detail` bleeds by
+    # `calc(-1 * var(--panel-pad))`, which is a named token precisely because
+    # `main`'s padding drops to --sp-3 under 340px: hard-coding --sp-4 there put
+    # this bar at x -4 and clipped 4px off its right side.
+    assert action_box["x"] == pytest.approx(0, abs=0.51), action_box["x"]
 
 
 def _alpha_of(css_colour: str) -> float:
@@ -4538,7 +4637,13 @@ def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
         ("light", "github"),
         ("dark", "github"),
     ]
-    selectors = ["#engine-overflow", "#engine-recheck", "#engine-install-steps summary"]
+    open_engine(page)
+    # `#engine-detail-back` is deliberately NOT here. It is a muted icon button
+    # that brightens to `--text` on hover, exactly as `.manage-account-back`
+    # already does — a legible darkening in light and lightening in dark, not the
+    # white-on-pale foreground this test exists to catch.
+    selectors = ["#engine-recheck", "#engine-diagnostics",
+                 "#engine-install-steps summary"]
 
     for scheme, palette in combos:
         page.evaluate(
@@ -4556,7 +4661,7 @@ def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
                 f"{rest} -> {hover}")
 
 # Move the cursor away so the next combo starts from rest.
-            page.hover("#view-engines > .view-heading")
+            page.hover("#engine-detail-title")
 
 
 def test_engine_controls_show_focus_visible_not_just_hover(open_panel):
@@ -4573,7 +4678,8 @@ def test_engine_controls_show_focus_visible_not_just_hover(open_panel):
         "() => !document.getElementById('engine-download').disabled",
         timeout=10_000)
 
-    for selector in ("#engine-overflow", "#engine-recheck"):
+    open_engine(page)
+    for selector in ("#engine-detail-back", "#engine-recheck", "#engine-diagnostics"):
         page.focus(selector)
         outline = page.locator(selector).evaluate(
             "el => getComputedStyle(el).outlineWidth")
@@ -4600,8 +4706,7 @@ def test_the_neutral_engine_hover_is_a_state_layer_not_an_opaque_fill(open_panel
     """
     page = open_panel()
     rules = page.evaluate("""() => {
-      const wanted = ['.engine-overflow-button:hover',
-                      '.engine-action-secondary:hover',
+      const wanted = ['.engine-action-secondary:hover',
                       '.install-steps > summary:hover'];
       const found = {};
       for (const sheet of document.styleSheets) {
@@ -4617,8 +4722,12 @@ def test_the_neutral_engine_hover_is_a_state_layer_not_an_opaque_fill(open_panel
       return found;
     }""")
 
-    for selector in ('.engine-overflow-button:hover',
-                     '.engine-action-secondary:hover',
+    # `.engine-overflow-button:hover` was the third selector here until the
+    # overflow menu was retired. The two that remain are the ones whose fill sits
+    # on a pale surface; the rows and the back button added with the catalogue
+    # use `--control-hover` deliberately, as `.manage-account-back` already does,
+    # and pin `color: var(--text)` beside it so the foreground cannot go white.
+    for selector in ('.engine-action-secondary:hover',
                      '.install-steps > summary:hover'):
         declared = rules.get(selector)
         assert declared, f"no hover background rule found for {selector}"

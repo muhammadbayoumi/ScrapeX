@@ -242,6 +242,22 @@ svg {
   color: var(--red);
 }
 
+/* The NEUTRAL tone, beside .amber and .danger. Ten rows on the Engine catalogue
+   need a tile that is not in the positive tone, and writing
+   `background: var(--chip); color: var(--muted)` per row is the duplication
+   .icon-tile was extracted to stop. */
+.icon-tile.quiet {
+  background: var(--chip);
+  color: var(--muted);
+}
+
+/* `.brand-logo` is an empty span with a CSS mask and a hard-coded
+   `background: var(--text)`. Inside a tinted tile it must take the tile's own
+   ink instead, the same way the sprite icons already do through currentColor. */
+.icon-tile > .brand-logo {
+  background: currentColor;
+}
+
 /* ---- Sign in with Google ---------------------------------------------------
  * Built to developers.google.com/identity/branding-guidelines rather than to
  * taste, because this button is Google's and the rules are theirs:
