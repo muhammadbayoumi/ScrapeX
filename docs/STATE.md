@@ -24,7 +24,15 @@ stand here as "both green, both waiting on the owner" is now history, and the
 reason #210 mattered is kept under Track 2 where it belongs.
 
 `ac3a5af` is on `main` without a pull request — a single-parent commit, no review
-trail. Not forbidden, but worth knowing when a bisect lands on it.
+trail. **It broke `main`, and `main` has been red since 2026-08-18 because of it.**
+`extension/app.css:1166` reads `background: light-dark(#FFFFFF, var(--bg));`, and
+`tests/test_vendor.py::test_ui_colour_literals_live_only_in_the_canonical_colour_system`
+forbids a raw hex literal outside the token system. Reproduced locally on
+2026-08-19. Every PR opened since inherits the red, #214 included. **This is what
+the missing pull request cost** — CI would have refused it before it reached
+`main`. The fix belongs in its own PR and it is a palette-token change, so
+[LESSONS.md §5](LESSONS.md#5--the-design-system-a-token-has-four-homes) governs it:
+a token has four homes.
 
 ---
 
@@ -52,7 +60,7 @@ test (#200) · sign-out (#201, ruling [R-13](RULINGS.md#r-13--sign-out-of-all-ac
    source's answers 404 **without confirming the id exists at all**.
 2. **Choose-Columns — `GET`/`POST /api/fields/{key}`. Do not write a second one.**
    The panel already has the whole thing: `loadSourceColumns`
-   (`extension/app.js:1579`) and `saveSourceColumns` (`:1618`), speaking the same
+   (`extension/app.js:1590`) and `saveSourceColumns` (`:1629`), speaking the same
    bodies. **Extract** it into a shared module the way `backend.js` was, or the
    two surfaces will disagree about how a column is saved.
 3. **Saved views — `POST /api/views/{key}`, `DELETE /api/views/{id}`.**
@@ -124,7 +132,7 @@ contractors the listing missed.
 
 **One decision is open and it is the owner's:** both
 `FeatureKey.GENERIC_EXTRACTION` and `FeatureKey.GENERIC_DATASET_CATALOG` are still
-`False` at [scrapex/features.py:57](../scrapex/features.py) and `:62`. Their own
+`False` at [scrapex/features.py:54](../scrapex/features.py) and `:60`. Their own
 written condition — *"only after an approved non-product extraction reaches
 generic storage"* — is now met by the figures above. Lighting them is what makes
 `/datasets` appear in navigation and states the capability out loud.
@@ -198,12 +206,14 @@ mechanical.
   settings move into the extension — is ruled and unbuilt after 16 days.** Parked
   behind a review on 2026-08-01 and then lost from view. It is the entry that
   justified building [REQUESTS.md](REQUESTS.md).
-- **Two requests await the owner's ruling:**
-  [REQ-08](REQUESTS.md#req-08--a-guard-against-the-documents-going-stale) (a guard
-  against the documents going stale) and
-  [REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two) (one home for
-  rulings — `RULINGS.md` was written without reading `BACKLOG.md`, which has held
-  23 standing rules since July).
+- ~~**Two requests await the owner's ruling:** REQ-08 and REQ-09.~~ **BOTH RULED
+  AND BUILT 2026-08-19** — he took both recommendations
+  ([R-15](RULINGS.md#r-15--the-documents-are-guarded-by-a-test-not-by-good-intentions),
+  [R-16](RULINGS.md#r-16--one-home-for-rulings-and-it-is-this-file)).
+  `SR-1`–`SR-23` now live in `RULINGS.md` with every number intact and
+  `BACKLOG.md` §1 is a pointer; `tests/test_the_documents_cite_what_they_claim.py`
+  guards the citations. **Six citations across four documents were wrong and are
+  corrected** — see [LESSONS.md §7](LESSONS.md#7--a-document-can-drift-into-the-opposite-of-the-code).
 
 ---
 

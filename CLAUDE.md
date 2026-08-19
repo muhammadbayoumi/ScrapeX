@@ -29,7 +29,7 @@ happen.
 
 ## The contract
 
-These five rules govern how this documentation system is used and changed. They
+These seven rules govern how this documentation system is used and changed. They
 were set by the owner on 2026-08-17 and they bind every session.
 
 **C1 — Consult before building.** No change to the code happens without reading
@@ -158,3 +158,10 @@ When a phase lands, a PR merges, or the owner rules:
 4. Commit it **in the same pull request as the work it describes.** A
    documentation update deferred to "later" is the failure this system exists to
    prevent.
+
+**A `file:line` citation in any of these documents is tested.**
+`tests/test_the_documents_cite_what_they_claim.py` checks that every one names a
+real file and a real line, and that the citations listed in its `PINNED` table
+still sit beside the symbol they were written for ([R-15](docs/RULINGS.md#r-15--the-documents-are-guarded-by-a-test-not-by-good-intentions)).
+Writing a citation that matters means adding a row there. Three citations had
+already drifted when the guard was built.

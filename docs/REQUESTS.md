@@ -59,8 +59,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-05](#req-05--a-contractor-directory-in-a-table-of-its-own) | A contractor directory, in a table of its own | **Done** | 2026-08-16 |
 | [REQ-06](#req-06--one-row-and-a-button-that-flips-it-between-arabic-and-english) | One row, and a button that flips AR\|EN | **Done** | 2026-08-17 |
 | [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries) | The Data page carries everything the engine's page does | **Planned** | 2026-08-12 |
-| [REQ-08](#req-08--a-guard-against-the-documents-going-stale) | A guard against the documents going stale | **Captured** — awaiting his ruling | 2026-08-17 |
-| [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Captured** — awaiting his ruling | 2026-08-17 |
+| [REQ-08](#req-08--a-guard-against-the-documents-going-stale) | A guard against the documents going stale | **Done** | 2026-08-17 |
+| [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Done** | 2026-08-17 |
 
 ---
 
@@ -164,7 +164,32 @@ will raise them first.
 ---
 
 ## REQ-08 · A guard against the documents going stale
-**Captured 2026-08-17 · Awaiting his ruling**
+**Captured 2026-08-17 · Ruled 2026-08-19 ([R-15](RULINGS.md#r-15--the-documents-are-guarded-by-a-test-not-by-good-intentions)) · DONE**
+
+> «نفذ توصيتك فى REQ-08 و REQ-09»
+
+**Built: `tests/test_the_documents_cite_what_they_claim.py`, option (b).** Two
+tiers, because one tier could not be made both sensitive and precise:
+
+- **Tier 1** — every `file:line` in the eight documents of CLAUDE.md's map
+  names a file that exists and a line inside it. 42 citations checked, zero
+  inference, nothing that can flake.
+- **Tier 2** — a `PINNED` list of 19 load-bearing citations whose subject is
+  stated in the test and checked exactly, ±3 lines. This is the tier that
+  catches the drift that started it; a mutation test put the citation back to
+  1355 and confirmed the guard refuses it.
+
+**Why not infer the subject from the prose.** It was built that way first and
+measured: at 220 characters of context it reported eleven failures of which
+**four were false** — it kept latching onto the name of a different file. Strict
+adjacency instead dropped coverage from 42 citations to 3 and stopped catching
+the original defect. The repository's own rule settled it, from
+`tests/test_the_published_documents_are_checked_not_announced.py`: *"Two cheap
+checks that cannot flake beat one true check that does."*
+
+**`docs/plans/` is excluded, and that is a ruling not a gap** — 200 of the
+repository's 289 citations live there, and those files are verbatim history. A
+test asserts the exclusion stays deliberate.
 
 Proposed after finding that `ENGINEERING.md` W4 had drifted into pointing at an
 action the test suite forbids ([LESSONS.md §7](LESSONS.md#7--a-document-can-drift-into-the-opposite-of-the-code)).
@@ -188,17 +213,24 @@ quoted symbol. Cheap, catches the dangerous class.
 silently moved — and it does not require making the prose machine-generated.
 
 **Evidence arrived on 2026-08-19, two days after this was captured.** Re-checking
-STATE.md's own citations found three of them wrong: `webui/app.py:1355` had moved
-to 1375 because #211 and #212 inserted twenty lines above it, and
-`LATEST_SOURCE`/`UPDATE_INSTRUCTIONS` were quoted as `:289`/`:292` when they have
-been at 282 and 285 all along — wrong the day they were written, in a file no
-commit had touched. All three are fixed, and all three are exactly what (b)
+STATE.md's own citations found three of them wrong: the `webui/app.py` citation
+still said line 1355 when the code had moved to 1375 — #211 and #212 inserted
+twenty lines above it — and `LATEST_SOURCE`/`UPDATE_INSTRUCTIONS` were quoted at
+lines 289 and 292 when they have been at 282 and 285 all along — wrong the day
+they were written, in a file no commit had touched. All three are fixed, and all three are exactly what (b)
 catches automatically. **Nothing but a hand-check found them, which is the point.**
 
 ---
 
 ## REQ-09 · One home for rulings, not two
-**Captured 2026-08-17 · Awaiting his ruling**
+**Captured 2026-08-17 · Ruled 2026-08-19 ([R-16](RULINGS.md#r-16--one-home-for-rulings-and-it-is-this-file)) · DONE**
+
+**Done, option (a):** `SR-1`–`SR-23` moved into
+[RULINGS.md](RULINGS.md#standing-rules--the-data-product-and-process-policy-sr-1sr-23),
+every number unchanged, the table spliced **verbatim** by script so no word of
+his could be paraphrased in the move. `BACKLOG.md` §1 is now a pointer, and that
+file keeps `OP-`, `DEC-`, `BV-`, `DEBT-` and `Q-`. Its title no longer claims to
+be *"the one tracking document"*, because it has not been one since 2026-08-17.
 
 **Found while building this file, and it is mine to own:** `RULINGS.md` was
 written on 2026-08-17 without reading `BACKLOG.md`, which has held **23 standing

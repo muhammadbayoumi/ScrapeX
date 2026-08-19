@@ -332,7 +332,9 @@ Two more found in the same reading, deliberately left alone:
 A stale document is not a neutral cost. It **actively directs the next reader
 into the wrong action**, and it does so with the authority of a rule.
 
-This project has two instances on record:
+This project has two instances of a document stating the opposite of the code,
+and a third pattern — a citation that still resolves but no longer points at
+what it names — recorded below them:
 
 - **`docs/data-page-schema.md`** — it called itself "the ruling" and had drifted
   into stating the opposite of the code **in five ways at once**: wrong
@@ -359,6 +361,89 @@ rewriting either — W4 was rewritten only after `tests/test_version.py:79` and
 `:536` were read and the two mirrors were confirmed to differ. And where a
 document states a fact the code owns, prefer **generating** it over promising to
 keep it current. *A document nobody can trust is worse than no document.*
+
+---
+
+### A citation that still resolves can still be wrong, and that is the dangerous kind
+
+Found 2026-08-19, building the [REQ-08](REQUESTS.md#req-08--a-guard-against-the-documents-going-stale)
+guard. `docs/STATE.md` was two days old and three of its own `file:line`
+citations were already wrong:
+
+| citation | said | was | why |
+|---|---|---|---|
+| `"latest_extension_version": VERSION` in `scrapex/webui/app.py` | 1355 | **1375** | #211 and #212 inserted twenty lines above it |
+| `LATEST_SOURCE` in `scrapex/version.py` | 289 | **282** | wrong the day it was written; the file was never touched |
+| `UPDATE_INSTRUCTIONS` in `scrapex/version.py` | 292 | **285** | same |
+
+**The file existed and the line existed in every case.** An existence check —
+the obvious guard — passes all three. What makes this class dangerous is that the
+citation looks healthy: a reader follows it, lands on plausible code twenty lines
+early, and reasons from the wrong place with full confidence. Three more were
+found in `BACKLOG.md` the same afternoon (`app.py:1366`, `:2363`,
+`extension/app.js:885`), and two of mine were wrong within an hour of writing
+them — `scrapex/features.py:57` and `:62` are a closing bracket and a docstring;
+the flags are at 54 and 60.
+
+**The remedy is `tests/test_the_documents_cite_what_they_claim.py`**
+([R-15](RULINGS.md#r-15--the-documents-are-guarded-by-a-test-not-by-good-intentions)),
+and the lesson for anyone writing a citation: **paste the line you are citing,
+from the file, at the moment you cite it.** Every wrong number above came from
+remembering a number instead of reading one.
+
+### A guard that infers its subject from prose cannot be both sensitive and precise
+
+The natural design for the above is to read the symbol out of the sentence — take
+the backticked span next to the citation and require it on the cited line. It was
+built that way first, and measured three ways:
+
+| rule | citations checked | failures | of those, false |
+|---|---|---|---|
+| nearest span within 220 chars | 26 | 11 | **4** |
+| same, path-like spans excluded, 120 chars | 26 | 10 | **2** |
+| strict adjacency only | **3** | 0 | — |
+
+The false alarms all came from the same thing: prose puts other backticked names
+beside a citation. `extension/manifest.json` sat sixty characters from a
+**correct** citation of `tests/test_version.py:536`; `` `_about` renders the
+engine's own `/settings` page (`…settings.html:162-167`) `` offers `/settings` as
+the nearest span while the citation is perfectly right. Tightening to fix those
+dropped coverage to three citations and stopped catching the `app.py:1355` drift
+that motivated the whole exercise — because in
+`` (`scrapex/version.py:477`, again in `scrapex/webui/app.py:1355`) `` another
+citation stands between the symbol and its line.
+
+`tests/test_the_published_documents_are_checked_not_announced.py` had already
+written the rule that settles this: *"A publish step that cries wolf gets ignored,
+which is the exact failure it exists to prevent. Two cheap checks that cannot
+flake beat one true check that does."* So the guard that shipped **infers
+nothing**: a mechanical tier over every citation, and an explicit pinned list for
+the ones that carry weight. The pinned list costs a line of maintenance per
+important citation, and that cost is the feature.
+
+### A path filter tested against absolute parts skips the whole worktree
+
+Cost about fifteen minutes on 2026-08-19, and it belongs beside §1.
+
+The guard indexes the repository and excludes `.git`, `node_modules`, `.claude`
+and friends. Written the obvious way:
+
+```python
+if path.is_file() and not any(part in skip for part in path.parts):
+```
+
+A worktree lives at `...\ScrapeX\.claude\worktrees\<name>`, so **`.claude` is a
+part of every absolute path in it**. The index came back empty, and the test
+reported all seventeen bare-basename citations as unresolvable — a failure that
+reads exactly like the documents being wrong. The fix is one call:
+
+```python
+for part in path.relative_to(ROOT).parts:
+```
+
+Same family as §1: the worktree makes correct work look broken. Any path filter,
+ignore rule or glob in this repository must be applied **relative to the
+repository root**.
 
 ---
 

@@ -1,4 +1,4 @@
-# ScrapeX — the one tracking document
+# ScrapeX — what we found: open problems, debt, and decisions not yet built
 
 Written **2026-07-29**. This file exists because decisions kept getting lost between
 sessions. It is the single place where the project's *state* lives: what is settled, what
@@ -22,12 +22,13 @@ warehouse, or the owner's own words. Anything I inferred rather than verified is
 > | **we found it** — a bug, a debt, a duplication | **this file** — `OP-`, `DEC-`, `DEBT-` |
 > | **a decision was taken** | [RULINGS.md](RULINGS.md) — `R-nn` |
 >
-> **One overlap is unresolved and it is the owner's call:** §1's standing rules
-> (`SR-1..SR-23`) and `RULINGS.md` (`R-01..R-14`) are both registers of his
-> rulings. `RULINGS.md` was written without reading this file. The options and a
-> recommendation are at [REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two).
-> **Until he rules, do not add a new standing rule to either file without also
-> linking it from the other.**
+> **The overlap that stood here is resolved.** §1's `SR-1..SR-23` and
+> `RULINGS.md`'s `R-nn` were both registers of his rulings, because `RULINGS.md`
+> was written without reading this file. He ruled on **2026-08-19**
+> ([R-16](RULINGS.md#r-16--one-home-for-rulings-and-it-is-this-file),
+> [REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two)): the `SR-` rules moved
+> to `RULINGS.md` keeping every number, and **a new standing rule goes there, never
+> here.**
 >
 > Also note the live state of the work has moved to [STATE.md](STATE.md), which is
 > kept current per **C2**; the "Repository state" block below was last re-measured
@@ -59,36 +60,24 @@ cosmetics everywhere.
 
 ---
 
-## 1. Standing rules — settled, do not re-litigate
+## 1. Standing rules — MOVED to docs/RULINGS.md
 
-These are the owner's rulings. Each is one line and its reason. Re-proposing one of these
-is a waste of a session.
+**`SR-1`–`SR-23` left this file on 2026-08-19** for
+[RULINGS.md](RULINGS.md#standing-rules--the-data-product-and-process-policy-sr-1sr-23),
+on the owner's ruling
+[R-16](RULINGS.md#r-16--one-home-for-rulings-and-it-is-this-file).
+**Every number is unchanged** — an `SR-` cited in this file, in another document, or
+in a test still means what it meant.
 
-| ID | Rule | Why | Evidence |
-|---|---|---|---|
-| **SR-1** | **Source truth is never edited.** What the site publishes is the record, typos included. Rules decide *where* a fact is shown, never *what* it says. | A cleaning rule silently forks the warehouse from the source; the next crawl can no longer tell "the shop fixed it" from "our rule stopped firing". | Owner 2026-07-28: «مصدر الحقيقة هو ما ينشره الموقع حتى لو كان فيه خطأ بشرى… القواعد فقط لمعلومة تُعرض أين، ولكن لا لتغييرها» — *the source of truth is what the site publishes even if it contains a human error; rules only decide where a fact is shown, never change it.* memory `source-truth-never-edited.md` |
-| **SR-2** | **Bilingual capture.** Anything a site publishes in AR *and* EN is captured in both — names, category levels, attribute labels *and* values, descriptions, units. A missing translation the site does publish is a **defect**, not a nicety. | The owner reads and reports in both languages and refuses to re-extract to see the other one. | Owner 2026-07-23: «أى محتوى أجيبه من أى موقع متوفر باللغة الإنجليزية والعربية أريد أن أجيبه باللغتين» — *any content available in both English and Arabic, I want in both.* memory `bilingual-capture-rule.md` |
-| **SR-3** | **A price is never converted.** A converted number is never shown without the rate that produced it *and* that rate's date. Google Finance is the rate authority. | The one time this was broken it put 3,312 figures in the warehouse that no page had ever printed. | Owner 2026-07-26; `scrapex/config.py:74`, `scrapex/rates.py:5`, `grid.js:1382` |
-| **SR-4** | **Authority first, then recency, for exchange rates.** A rate *provider* always outranks a shop's own published rate; among providers the newest wins. A shop's rate is still used where no provider published one. | advancedcastle publishes a SAR/EGP ratio of 13.46 while pricing its own Egyptian pages at 11.768. On recency alone that number would have converted every EGP-priced row in the warehouse. | `69e986c`, migration `0054` |
-| **SR-5** | **Retention never deletes a price observation.** Space is reclaimed by *building* a new database and switching a pointer; the predecessor is sealed beside it and never removed. The UI may never say "recovered space" (a test fails if that phrase appears). | Observations can never be re-observed. | memory `scrapex-phase5-integrations.md`; append-only enforced by SQLite triggers (ENGINEERING A7) |
-| **SR-6** | **An unchanged price is confirmed, not appended.** History is a timeline of real changes. Availability and stock have no history at all — latest state only. | A year of unchanged diesel used to be 52 identical "history" rows. | memory `scrapex-price-semantics.md` |
-| **SR-7** | **Development beats crawling.** A migration blocked by a running crawl → pause the crawl (never cancel), back up, apply via `init-db`, restart, resume. Do not ask again. | A crawl is repeatable and resumable; a half-applied change is not. | Owner 2026-07-29: «وقف الزحفة … التطوير اهم من الزحف» — *stop the crawl; development matters more than crawling.* memory `development-beats-crawling.md` |
-| **SR-8** | **robots.txt: `Crawl-delay` honoured automatically; `Disallow` NEVER enforced and never a warning** — one info-level job-log line only where a disallowed path intersects one we crawl. | The owner wants uninterrupted crawling, but wants a future block to have a traceable cause. | Owner 2026-07-22, `docs/robots-policy.md` |
-| **SR-9** | **Silence is never permission to go faster.** Absent config reads as *honour the delay* at every layer. Turning it off announces the number it is overriding. | A crawler that outpaces a site by default gets its owner blocked without him choosing it. | `c63ec21` |
-| **SR-10** | **Every setting lives in the extension; the web page is display-only** — but display-only is not blank: the page must still show every value it stopped editing. | A setting that exists only on the web page is a setting the owner does not have — proven: crawl pace was built, plumbed to `HttpFetcher`, and he asked for it as if it did not exist. | Owner 2026-07-29: «لا اريد اى اعدادت على صفحة الويب الاعدادت كلها على extension بينما صفحة الويب للعرض فقط». Enforced by `tests/test_settings_live_in_the_extension.py` (`2253308`), not by memory |
-| **SR-11** | **Delete is two actions, never one.** *Stop tracking* keeps every row ever collected; *Erase collected data* keeps the registration. Both confirmed by typing, not by an OK. | Removing an entry is not a claim that none of the data happened. | Owner 2026-07-28, `412785b` |
-| **SR-12** | **A rename moves the data with the name** — all nine tables in ONE transaction, manifest rewritten only after the rows have moved. | Renaming the manifest alone would not rename a source, it would orphan one. | `412785b`, `scrapex/sources_admin.py:11` |
-| **SR-13** | **Nothing is collected that is not declared in `sources.yaml`.** The manifest is an extraction contract with a scope guard that rejects out-of-contract rows. | Owner principle: «له أساس ليس جمعاً عشوائياً» — *it has a basis, it is not random collection.* | `sources.yaml:1-18` |
-| **SR-14** | **GPP: the latest published price only, never their paid historical series.** Our history accumulates from our own weekly observations. | A licence obligation, and it is tested (ENGINEERING T6). | `sources.yaml:436`, memory `scraper-ecosystem-design.md` |
-| **SR-15** | **Names state their language: unmarked = English, `_ar` = Arabic; the key and the label are the same word.** A monolingual Arabic source fills `product_name_ar` and leaves `product_name` **empty** — never "helpfully" carry Arabic into the unmarked column. | The reader had to learn a private vocabulary to use his own spreadsheet. | `docs/column-vocabulary.md`, migrations `0038`–`0042`, `PAYLOAD_VERSION 2` |
-| **SR-16** | **Column presence is per source.** Every gate in `reports.column_presence` asks *this* source's own rows, never a global table. | A global `currency_rate` count once put fuel-implied USD estimates on every shop. | memory `scrapex-columns-classification.md` |
-| **SR-17** | **Detail groups are a closed vocabulary of seven, and a code the map has never seen goes to the owner before it gets a group.** | A silently widened catch-all misinforms every later reader. | Owner 2026-07-28, migration `0046`, `scrapex/vocab.py` `_DETAIL_GROUP_BY_CODE` |
-| **SR-18** | **Commit and push after each plan step; do not batch, and do not end a step asking "shall I continue?".** | The owner works across parallel sessions and worktrees; unpushed commits are invisible to them — that is how a duplicate `0012` migration happened. | Owner, repeated. memory `commit-and-push-each-step.md` |
-| **SR-19** | **Never `git add .` or stage a path list — read the whole cached diff before committing.** | Twice this swept another session's half-finished work into a commit and broke `main` from a clean checkout. | `e2573e1` ("I staged that file after reading only `--stat`. Reading the whole cached diff is the rule that would have caught it, and it is the rule I agreed to"), `0a2209c` |
-| **SR-20** | **Commit messages carry no double-quote characters** (PowerShell here-strings break on them). | Mechanical, but it costs a retry every time. | memory `git-commit-heredoc-quotes.md` |
-| **SR-21** | **Every worker other than me produces drafts.** `codex/*` branches and other sessions are pull requests awaiting review with `file:line` evidence, never work to build on. | The owner said plainly he does not trust anyone else in the code; the arrangement only survives because the audits catch things (17 real defects past 527 green tests). | memory `scrapex-review-gate.md` |
-| **SR-22** | **Build, don't stop to review** — write code that already satisfies the review rules; pause only for genuinely forking product decisions. | Owner 2026-07-16: «انا مش عاوز اراجع حاجة دلوقتى انا عاوز ابنى ولكن بكود يحترم المراجعة» — *I don't want to review anything now, I want to build, but with code that respects the review.* | memory `build-not-review-bake-rules-in.md`, `ENGINEERING.md` |
-| **SR-23** | **CI must be green on every push.** `.github/workflows/ci.yml` runs on `push` and `pull_request`: manifest validation, a floor of ≥40 collected panel tests, the full pytest suite, the JS↔Python contract-parity gate, and the extension `node:test` suite. | A guard that can vanish quietly is the defect — the panel suite silently skipped for months. | `.github/workflows/ci.yml`, `48ec48b`. *(The "must be green" phrasing is the observed convention across every commit message, which reports the suite total — **inferred** as a rule, not stated by the owner in those words.)* |
+They moved because his rulings were in two registers at once: this §1 since
+2026-07-29, and `RULINGS.md` since 2026-08-17, which was written without reading
+this file. `RULINGS.md` is where **C1** sends every session before it designs
+anything, and this document is too long to be read before every decision.
+
+**This file keeps what it is best at** — what *we* found rather than what he ruled:
+`OP-` (open problems), `DEC-` (decided, not built), `BV-` (built, not verified),
+`DEBT-` (deferred on purpose) and `Q-` (questions for him). A new standing rule goes
+to `RULINGS.md`; a thing we discovered goes here.
 
 ---
 
@@ -275,8 +264,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1366` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2363` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1386` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2401` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -284,7 +273,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2363`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2401`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -593,7 +582,7 @@ at the run, don't assume it.
 ### BV-3 · Settings moved into the extension panel — CONFIRMED, and its warning has come true
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
-crawl: `extension/app.js:885` posts `crawl_honour_delay` → `scrapex/capture.py:95`
+crawl: `extension/app.js:836` posts `crawl_honour_delay` → `scrapex/capture.py:95`
 reads it → `scrapex/connectors/base.py:485` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.
@@ -1056,7 +1045,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2363` that the fix never reached
+   second `worker_alive` computation at `app.py:2401` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been
