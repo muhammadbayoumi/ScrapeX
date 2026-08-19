@@ -30,9 +30,17 @@ trail. **It broke `main`, and `main` has been red since 2026-08-18 because of it
 forbids a raw hex literal outside the token system. Reproduced locally on
 2026-08-19. Every PR opened since inherits the red, #214 included. **This is what
 the missing pull request cost** — CI would have refused it before it reached
-`main`. The fix belongs in its own PR and it is a palette-token change, so
-[LESSONS.md §5](LESSONS.md#5--the-design-system-a-token-has-four-homes) governs it:
-a token has four homes.
+`main`.
+
+**Fix in flight: #215, a full revert.** He was offered the token expression
+`light-dark(var(--surface), var(--bg))` and chose to go back to the original
+instead — «الغى تعديلات الخلفية ورجعها للاصل». `extension/app.css` is
+byte-identical to `36dd91c` again. Two things the literal did, recorded because
+they are why the guard exists: under `data-color-mode="device"` it **discarded the
+owner's accent palette on that one page in silence**, and its own comment claimed
+the canvas was a brighter step back from the card when `--surface` is already pure
+white and the card uses it. Also learned: that guard **reads every line, comments
+included** — a comment that merely names a hex value fails it too.
 
 ---
 
