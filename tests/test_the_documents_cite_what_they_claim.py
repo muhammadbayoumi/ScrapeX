@@ -63,6 +63,16 @@ import re
 
 import pytest
 
+# THE EXTENSION MARK IS LOAD-BEARING HERE, and CI caught its absence before this
+# comment existed. Four pinned citations point into `extension/app.js` --
+# loadSourceColumns at 1590, saveSourceColumns at 1629, the crawl_honour_delay
+# POST at 836, latest_extension_version at 595. An extension-only change runs
+# `pytest -m extension`, so without the mark those four would stop being checked
+# on exactly the pull requests most likely to move them.
+# See tests/test_the_extension_gate_is_complete.py, which is the guard that
+# refuses an unmarked file reading extension/ sources.
+pytestmark = pytest.mark.extension
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # The map in CLAUDE.md -- the documents C1 sends every session to read before it
