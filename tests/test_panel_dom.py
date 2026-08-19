@@ -4616,6 +4616,64 @@ def test_the_engine_actions_stack_full_width_at_320px(open_panel):
     assert action_box["x"] == pytest.approx(0, abs=0.51), action_box["x"]
 
 
+def _bleeds_to_the_panel_edge(page, selector):
+    """The measurement a full-bleed screen has to pass: its box is `main`'s box.
+
+    Both edges, because the failure is one-sided. A screen that cancels `main`'s
+    padding with a negative margin LARGER than that padding starts left of the
+    panel and runs the same amount off the right, where `main`'s
+    `overflow: hidden` silently eats it — the left edge shows as a gap, the
+    right edge shows as nothing at all.
+    """
+    box = page.locator(selector).bounding_box()
+    main = page.locator("main").bounding_box()
+    assert box and main
+    return box, main
+
+
+def test_the_full_bleed_screens_still_bleed_exactly_at_320px(open_panel):
+    """Profile and Manage account cancel `main`'s padding to paint to the panel
+    edge, and `main`'s padding is not one number.
+
+    THE BUG THIS WOULD HAVE CAUGHT. `main` is padded `--panel-pad`, which the
+    340px query narrows from `--sp-4` to `--sp-3`. Both screens spelled their
+    cancelling margin `calc(-1 * var(--sp-4))` literally, so at 320px they
+    pulled 16px against a 12px padding: the box began at x -4 and the 4px it
+    gained on the right disappeared into `main`'s `overflow: hidden`. Nothing
+    measured it. `test_the_engine_actions_stack_full_width_at_320px` above is
+    the only 320px geometry guard on this file, and the Engine screen is not
+    full-bleed, so it could not see this.
+
+    Asserting against `main`'s own box rather than against 0 and 320 keeps the
+    test honest if the rail width or the padding is ever retuned: what must
+    hold is that the screen covers its container, whatever that measures.
+    """
+    page = open_panel(signed_in=ACCOUNT)
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.set_viewport_size({"width": 320, "height": 600})
+    page.wait_for_timeout(200)
+
+    box, main = _bleeds_to_the_panel_edge(page, "#view-profile")
+    assert abs(box["x"] - main["x"]) < 1, (
+        f"Profile starts at x {box['x']} but main starts at {main['x']}: its "
+        f"full-bleed margin no longer matches main's padding at 320px")
+    assert abs((box["x"] + box["width"]) - (main["x"] + main["width"])) < 1, (
+        f"Profile ends at x {box['x'] + box['width']} but main ends at "
+        f"{main['x'] + main['width']}: the overhang is clipped by main's "
+        f"overflow: hidden, so it is invisible rather than obviously wrong")
+
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+
+    box, main = _bleeds_to_the_panel_edge(page, "#view-manage-account")
+    assert abs(box["x"] - main["x"]) < 1, (
+        f"Manage account starts at x {box['x']} but main starts at "
+        f"{main['x']}: same defect, second screen")
+    assert abs((box["x"] + box["width"]) - (main["x"] + main["width"])) < 1, (
+        f"Manage account ends at x {box['x'] + box['width']} but main ends at "
+        f"{main['x'] + main['width']}")
+
+
 def _alpha_of(css_colour: str) -> float:
     """Alpha from any form Chrome serialises a computed colour in.
 
