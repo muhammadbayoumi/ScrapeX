@@ -123,7 +123,15 @@ jobs:
 
           scope=full
           if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2>/dev/null; then
-            changed=$(git diff --name-only "$base" "${{ github.sha }}")
+            # --no-renames, AND THAT IS NOT A DETAIL. Rename detection is on
+            # by default and `--name-only` then prints only the DESTINATION of a
+            # move: `git mv scrapex/webui/templates/settings_partial.html
+            # extension/settings.html` reports one path under extension/, so the
+            # diff classifies as `extension` and the engine suite never runs on a
+            # change that deleted an engine template. Reproduced in a scratch
+            # repository. Without rename detection both paths appear, and the
+            # only direction this moves the answer is WIDER.
+            changed=$(git diff --name-only --no-renames "$base" "${{ github.sha }}")
             if [ -n "$changed" ]; then
               # Narrowest first. A change that is documentation AND extension is
               # an extension change; only an all-documentation diff is `docs`.
@@ -145,9 +153,24 @@ jobs:
     needs: scope
     runs-on: ubuntu-latest
     steps:
-      # Shallow is enough here now. The full history was only ever for the scope
-      # diff, and that moved into its own job above.
       - uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, and it is not for the scope diff. Two guards in this
+          # suite ask git when something last really changed, and BOTH SKIP
+          # rather than fail on a grafted clone:
+          #   tests/test_the_privacy_policy_is_true.py:433 -- the "Last updated"
+          #     staleness guard, added 2026-08-12 after the policy was edited
+          #     three times in a day while still claiming an older date;
+          #   tests/test_version.py:231 -- every capability's cited commit hash.
+          # A depth-1 checkout turns both into skips, which `-q` reports as green.
+          # Measured: edit docs/privacy-policy.md, leave its date, and full
+          # history fails while depth 1 passes.
+          #
+          # publish-docs.yml and release-extension.yml pin this for the same
+          # reason, and the helper's own comment names them. This job was the
+          # third, briefly, in the commit that split the scope job out.
+          # tests/test_the_workflows_check_out_enough_history.py now guards it.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -335,6 +358,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, and it is not for the scope diff. Two guards in this
+          # suite ask git when something last really changed, and BOTH SKIP
+          # rather than fail on a grafted clone:
+          #   tests/test_the_privacy_policy_is_true.py:433 -- the "Last updated"
+          #     staleness guard, added 2026-08-12 after the policy was edited
+          #     three times in a day while still claiming an older date;
+          #   tests/test_version.py:231 -- every capability's cited commit hash.
+          # A depth-1 checkout turns both into skips, which `-q` reports as green.
+          # Measured: edit docs/privacy-policy.md, leave its date, and full
+          # history fails while depth 1 passes.
+          #
+          # publish-docs.yml and release-extension.yml pin this for the same
+          # reason, and the helper's own comment names them. This job is NEW, so
+          # it never had the history to lose -- it was born shallow, which is the
+          # easier half of the same mistake to make.
+          # tests/test_the_workflows_check_out_enough_history.py now guards it.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         if: needs.scope.outputs.scope == 'full'
         with:

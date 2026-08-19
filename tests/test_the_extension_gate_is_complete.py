@@ -32,6 +32,8 @@ import re
 
 import pytest
 
+from tests.marks import carries
+
 pytestmark = pytest.mark.extension
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -59,7 +61,10 @@ def test_every_test_file_that_reads_the_extension_carries_the_mark():
         source = path.read_text(encoding="utf-8")
         if not READS_EXTENSION.search(source):
             continue
-        if "pytest.mark.extension" not in source:
+        # `carries`, not `in source`: THIS FILE mentions the mark four times in
+        # its own prose and messages, so the substring version reported it as
+        # marked whether it was or not. Measured 2026-08-19 -- see tests/marks.py.
+        if not carries(path, "extension"):
             unmarked.append(path.name)
 
     assert not unmarked, (
@@ -80,12 +85,12 @@ def test_the_mark_is_declared_so_a_typo_cannot_be_silent():
     # `addopts`, not the file: the flag is named in the comment beside the
     # marker declaration, so a plain substring search finds its own explanation
     # and passes with the flag switched off — measured, on the first attempt.
-    addopts = re.search(r'^addopts = "([^"]*)"', pyproject, re.M)
+    addopts = re.search(r'^addopts = "([^"]*)"', pyproject, re.MULTILINE)
     assert addopts, "pyproject.toml no longer sets addopts"
     assert "--strict-markers" in addopts.group(1), (
         "an unknown marker is only a warning again, so a misspelt "
         "`pytest.mark.extension` silently removes a file from the gate")
-    assert re.search(r'^\s*"extension:', pyproject, re.M), (
+    assert re.search(r'^\s*"extension:', pyproject, re.MULTILINE), (
         "the extension marker is no longer declared in pyproject.toml")
 
 
@@ -96,8 +101,7 @@ def test_the_gate_still_holds_enough_tests_to_be_a_gate(pytestconfig):
     the number that matters is how many tests CARRY the mark, and that is a
     fact about the files.
     """
-    marked_files = [p for p in _test_files()
-                    if "pytest.mark.extension" in p.read_text(encoding="utf-8")]
+    marked_files = [p for p in _test_files() if carries(p, "extension")]
     assert len(marked_files) >= 10, (
         f"only {len(marked_files)} files are in the extension gate; eleven were "
         "measured when the split was made")
@@ -106,7 +110,7 @@ def test_the_gate_still_holds_enough_tests_to_be_a_gate(pytestconfig):
     # repository is written. Parametrised cases multiply this, so the real
     # collected count is higher — which is the safe direction for a floor.
     functions = sum(
-        len(re.findall(r"^def test_", p.read_text(encoding="utf-8"), re.M))
+        len(re.findall(r"^def test_", p.read_text(encoding="utf-8"), re.MULTILINE))
         for p in marked_files)
     assert functions >= LEAST_TESTS_IN_THE_GATE - 60, (
         f"the extension gate is down to {functions} test functions; it was "

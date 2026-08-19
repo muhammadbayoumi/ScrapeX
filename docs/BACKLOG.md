@@ -959,6 +959,17 @@ UNCONDITIONALLY — a marker that appears only when there were orphans would be
 absent on every healthy start, and anyone waiting for it would wait for ever on
 exactly the machines where nothing had gone wrong.
 
+> **RE-MEASURED 2026-08-19 AND IT IS BACK, under load.** Three consecutive runs of
+> `tests/test_the_engine_survives_being_killed.py` on the owner's Windows machine --
+> while a full suite and twenty review agents were running -- gave **pass, FAIL,
+> FAIL** on an unchanged tree. The marker fix does not hold at this load, so
+> "MOSTLY" in the heading is doing real work.
+>
+> Recorded rather than diagnosed, and deliberately not blamed on the change that was
+> in flight: this entry's own warning below is that a with-and-without comparison
+> proved nothing here before. What is new is the load. The next step is to find
+> whether `Engine.start(swept=True)` is on this path at all, not to add a sleep.
+
 **Four runs in four, green.** And an honest note on the check: removing the wait
 again passed three runs in three that afternoon, having failed three in four
 that morning. A race that depends on machine load cannot be reproduced on

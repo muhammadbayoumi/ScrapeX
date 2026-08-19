@@ -36,7 +36,12 @@ import re
 
 import pytest
 
-pytestmark = pytest.mark.docs
+from tests.marks import carries
+
+# BOTH marks. This file reads a document, and its CLASSIFICATION table below names
+# `extension/app.js`, which is what the extension gate's own detector looks for --
+# so it belongs to both sets and says so rather than being admitted by accident.
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -75,7 +80,10 @@ def test_every_test_file_that_reads_a_document_carries_the_mark():
         source = path.read_text(encoding="utf-8")
         if not READS_A_DOCUMENT.search(source):
             continue
-        if "pytest.mark.docs" not in source:
+        # `carries`, not `in source`. A substring search counts this very file as
+        # marked on the strength of the line above and the message below -- see
+        # tests/marks.py, where that was measured.
+        if not carries(path, "docs"):
             unmarked.append(path.name)
 
     assert not unmarked, (
@@ -96,7 +104,14 @@ def test_the_mark_is_declared_so_a_typo_cannot_be_silent():
     """
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert "--strict-markers" in pyproject, (
+    # `addopts`, not the whole file -- the same trap the extension gate records
+    # hitting on its first attempt, and this file walked into it too. The flag is
+    # NAMED in the comment beside the marker declarations, so a plain substring
+    # search finds its own explanation and passes with the flag switched off.
+    # Confirmed by mutation: removing it from addopts left the old assertion green.
+    addopts = re.search(r'^addopts = "([^"]*)"', pyproject, re.MULTILINE)
+    assert addopts, "pyproject.toml no longer sets addopts"
+    assert "--strict-markers" in addopts.group(1), (
         "--strict-markers is gone from addopts; a misspelled mark is now a "
         "warning and a file can leave the docs set without failing anything")
     assert re.search(r'^\s*"docs:', pyproject, re.MULTILINE), (
@@ -108,8 +123,7 @@ def test_the_gate_still_collects_a_real_suite():
     """The count, not just the presence of a mark. A per-file 'at least one'
     would not notice 178 tests becoming 3 -- which is precisely how the panel
     suite went quiet."""
-    marked = [path for path in _test_files()
-              if "pytest.mark.docs" in path.read_text(encoding="utf-8")]
+    marked = [path for path in _test_files() if carries(path, "docs")]
 
     assert len(marked) >= 8, (
         f"only {len(marked)} test files carry the docs mark; nine did when the "
@@ -136,9 +150,14 @@ def test_the_workflow_actually_runs_the_docs_tier():
     leaving the markers behind, this is what says so."""
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
-    assert "pytest -m docs" in workflow, (
-        "ci.yml no longer runs `pytest -m docs`, so the docs mark selects a "
-        "suite that never executes")
+    # THE WHOLE `run:` LINE, not the substring. `pytest -m docs` also appears in
+    # the --collect-only floor step a few lines above, so the substring version
+    # passed with the step that actually RUNS the tier deleted. Confirmed by
+    # mutation before this line was written.
+    assert "run: python -m pytest -m docs\n" in workflow, (
+        "ci.yml has no step whose whole command is `python -m pytest -m docs`, so "
+        "the docs mark selects a suite that never executes. The --collect-only "
+        "gate step does not count: it collects and never runs.")
     assert 'scope=docs' in workflow, (
         "ci.yml no longer computes a `docs` scope, so the tier can never be "
         "chosen no matter what carries the mark")
@@ -185,6 +204,29 @@ def test_the_workflows_documentation_pattern_admits_exactly_what_it_should():
     and classifies real paths with it, so the rule is tested rather than trusted.
     """
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    # THE POLARITY, BEFORE THE PATTERN. `! grep -qvE` means "no changed line
+    # FAILS to match", i.e. all of them match. Plain `grep -qE` means "at least
+    # one matches" -- the opposite -- and would classify a diff of one Markdown
+    # file plus one connector as documentation. Extracting the regex alone cannot
+    # see that: an adversarial pass inverted these two lines and every assertion
+    # in this file stayed green, so the lines are pinned verbatim.
+    for decision in (
+            'if ! echo "$changed" | grep -qvE "$documentation"; then',
+            'elif ! echo "$changed" | grep -qvE "^(extension/)|$documentation"; then'):
+        assert decision in workflow, (
+            f"the scope decision no longer reads {decision!r}. If the shape "
+            "changed, re-derive the polarity and update this list -- a `grep -qE` "
+            "where a `! grep -qvE` was means ANY file matching is enough, and a "
+            "code change would run the documentation tier.")
+
+    # And the diff must stay rename-blind: `--name-only` alone reports only a
+    # move's destination, so a file moved out of scrapex/ into docs/ would look
+    # like a documentation change. Reproduced before this was pinned.
+    assert 'git diff --name-only --no-renames' in workflow, (
+        "the scope diff lost --no-renames, so a file MOVED into docs/ or "
+        "extension/ reports only its destination and the engine suite is skipped "
+        "on a change that deleted an engine file")
 
     found = re.search(r"^\s*documentation='([^']+)'", workflow, re.MULTILINE)
     assert found, (

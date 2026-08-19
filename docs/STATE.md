@@ -208,8 +208,38 @@ the guard now finds ten suites instead of nine.
 
 The scope rule itself is now tested:
 `test_the_workflows_documentation_pattern_admits_exactly_what_it_should` lifts the
-bash pattern out of the YAML and classifies fifteen paths with it, over half of
-them cases that must **not** be admitted.
+bash pattern out of the YAML and classifies fifteen paths with it, over half of them
+cases that must **not** be admitted — and it pins the **polarity** of the two
+decision lines, because an adversarial pass inverted `! grep -qvE` to `grep -qE` and
+every assertion stayed green.
+
+### What an adversarial review caught before this merged, and the worst of it was mine
+
+Twenty agents over four lenses, sixteen refutation verdicts, **eight findings
+survived** — three of which had already been found and fixed by hand. The other
+three:
+
+1. **A blocker of my own making.** Moving the scope computation into its own job made
+   `fetch-depth: 0` look unnecessary and I wrote "Shallow is enough here now". It is
+   not: `tests/test_the_privacy_policy_is_true.py:433` and `tests/test_version.py:231`
+   both **skip** rather than fail on a grafted clone, and `-q` reports a run full of
+   skips as green. Proven by experiment — edit `docs/privacy-policy.md`, leave its
+   date, and full history fails while `--depth 1` passes. **The repository had already
+   learned this twice**, in `publish-docs.yml` and `release-extension.yml`.
+2. **`git diff --name-only` reports only a rename's destination**, so a file moved out
+   of `scrapex/` into `extension/` or `docs/` classified as the narrow scope.
+   `--no-renames` added; it can only widen.
+3. **The pattern guard could not see the logic inverted.** Now pinned.
+
+**And the structural fix found a fourth instance nothing else had.**
+`tests/test_the_workflows_check_out_enough_history.py` reads every workflow, finds
+every job that runs pytest, and requires full history — and it immediately failed on
+`release-engine.yml`'s build job, which runs the **whole suite** at depth 1. Both date
+guards have therefore been skipping on **every engine release**. Fixed here.
+
+Why the mistake recurred is the part worth keeping: the requirement lived as prose
+beside the file that *needed* the history, never on the jobs that had to *provide* it.
+See [LESSONS.md](LESSONS.md#7--a-document-can-drift-into-the-opposite-of-the-code).
 
 ---
 
