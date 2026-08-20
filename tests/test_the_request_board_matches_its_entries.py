@@ -21,12 +21,23 @@ docs/REQUESTS.md. tests/test_the_extension_gate_is_complete.py owns that rule, a
 note it matches on the literal path string: a sentence merely *mentioning* the
 tree is enough to trip it, which is why this paragraph talks around the name. That
 is the same prose-inference limit LESSONS.md records twice over.
+
+MARKED `docs`, and that mark is the whole reason this file has to carry one: it
+reads a document, and a change touching nothing but documents runs `pytest -m
+docs`. An unmarked file would simply stop running on exactly the pull requests
+that edit docs/REQUESTS.md -- which is every pull request that could break it.
+tests/test_the_docs_gate_is_complete.py is the guard that refuses the omission,
+and it caught this file the moment the two changes met.
 """
 
 from __future__ import annotations
 
 import pathlib
 import re
+
+import pytest
+
+pytestmark = pytest.mark.docs
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BOARD = ROOT / "docs" / "REQUESTS.md"
