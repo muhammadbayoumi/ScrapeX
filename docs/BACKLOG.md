@@ -570,9 +570,12 @@ library instead. **Code we own ports; a licence would not have.**
 of them would have made a port impossible without a rewrite. There is none.
 
 **Where the real work is, and it is not the grid.** `scrapex/webui/templates/source.html`
-carries **105 Jinja expressions** — half the page is assembled on the server before it
-reaches a browser. An extension page is a static file, so every one of those has to become
-a request and a render in JS. Mechanical, not inventive. The routes it needs already exist
+carries Jinja on **105 of its lines**, and those lines hold **118 expressions** — 61
+`{{ }}` substitutions and 57 `{% %}` control statements, counted 2026-08-20. (The
+first version of this entry said "105 Jinja expressions": 105 is the LINE count, and
+naming it as expressions understated the work by thirteen.) Half the page is assembled
+on the server before it reaches a browser. An extension page is a static file, so
+every one of those has to become a request and a render in JS. Mechanical, not inventive. The routes it needs already exist
 and already answer: `/api/fields`, `/api/promotable`, `/api/views`, `/api/offer` — and the
 extension already calls `/api/table` among them.
 
@@ -588,7 +591,8 @@ stopped at B1: «اشياء كثيرة مفقودة لذلك توقفت عند b
 **Three pieces of work, in order:**
 
 1. **Port `grid.js`.** The largest piece and close to a copy.
-2. **Convert the 105 Jinja expressions** from server-side rendering to fetch-and-draw.
+2. **Convert the 118 Jinja expressions** across those 105 lines from server-side
+   rendering to fetch-and-draw.
 3. **A DOM harness that renders the page in tests** — `tools/tabpage_harness.py` was built
    for exactly this in #194 and extended to serve real ES modules in #200.
 
