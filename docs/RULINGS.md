@@ -414,6 +414,40 @@ rule wastes a session.
 
 ---
 
+### R-18 · Merge it when it is green
+
+**2026-08-20 · process**
+
+> «ادمج لما يخضر»
+
+Said while four pull requests sat waiting on checks that had only just started
+working again. It ends a standing ambiguity: before this, green was reported to him
+and each merge waited for a separate instruction, which meant a ready pull request
+could sit for a day for no reason anyone could name.
+
+**Green means the checks that ran, not the checks that exist.** Three things had to
+be settled before this ruling could be safely obeyed, and all three are why it is
+written down rather than assumed:
+
+| trap | what it means for this rule |
+|---|---|
+| **`main` has no branch protection at all** — `gh api .../branches/main/protection` answers 404 | Nothing mechanical stops a red merge. This ruling is the whole gate, so it has to be read literally |
+| **A run that never started reports failure** | The 2026-08-19 outage failed every job with *"the job was not started because recent account payments have failed"* and no step executed. That is not red, it is absent — read the annotation before believing a failure |
+| **A green tick can belong to a different tree** | #217's `pull_request` run passed while its `push` run failed on the same commit: the merge ref carried `main`'s revert, the branch alone did not. A tick from before the last rebase is evidence about a tree nobody is merging |
+
+**How to apply.** When every check on a pull request has *concluded* and every
+conclusion is success, merge it — squash, and no further instruction needed. Do not
+merge while anything is `IN_PROGRESS`, `SKIPPED` or `QUEUED`; a skipped required
+check reads as satisfied, which is the silent-skip failure this repository has now
+recorded three times. If a check is red, establish whether it ran at all before
+touching the code. And if the branch has been rebased since the tick, wait for the
+new run — the old one described a tree that no longer exists.
+
+This does not override the ordering a stack imposes: a pull request whose premise is
+another's still waits for it, green or not.
+
+---
+
 ## Superseded
 
 Kept per **C4**. Do not follow these; they are here so the current rule can be
