@@ -66,6 +66,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-08](#req-08--a-guard-against-the-documents-going-stale) | A guard against the documents going stale | **Done** | 2026-08-17 |
 | [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Done** | 2026-08-17 |
 | [REQ-10](#req-10--adversarially-review-the-fixes-then-execute) | Adversarially review the fixes, then execute | **Done** | 2026-08-20 |
+| [REQ-11](#req-11--branch-protection-for-main-in-a-session-of-its-own) | Branch protection for `main`, in a session of its own | **Captured** — deferred by him | 2026-08-20 |
 
 ---
 
@@ -294,6 +295,65 @@ withdrawn rule teaches more than one that was never tried: the same
 no-elapsed-duration rule over the registers' free prose flagged twelve lines and
 essentially all twelve were honest history. It lives on the parsed state fields
 instead. See [LESSONS.md](LESSONS.md).
+
+---
+
+## REQ-11 · Branch protection for `main`, in a session of its own
+
+**Captured 2026-08-20 · Deferred by him, deliberately**
+
+> «حماية فرع main» · then «حماية main اجعلها لجلسة مخصصة»
+
+He asked for it, was shown one trap that could lock him out of merging, and moved
+it to a session of its own rather than deciding at the end of a long one. That is
+the request: **not "protect main" but "protect main with its own attention".**
+
+### Why it matters more than it sounds
+
+**`main` has no protection at all today.** `gh api
+repos/muhammadbayoumi/ScrapeX/branches/main/protection` answers **404** — no
+required checks, no restriction on direct pushes, nothing. So
+[R-18](RULINGS.md#r-18--merge-it-when-it-is-green) is the *entire* gate, enforced
+by discipline alone.
+
+It has already failed once, and expensively. `ac3a5af` reached `main` **with no
+pull request**, so no CI ran before it landed; it carried a raw hex literal that
+`tests/test_vendor.py` forbids, and `main` stayed red from 2026-08-18 until #215
+reverted it. Every pull request opened in between inherited that red.
+
+### The trap that stopped it being done at once
+
+After #216 the suite runs in tiers: `test` and `migration-authority` are jobs
+gated on `needs: scope`. **A documentation-only change makes them `SKIPPED`** —
+observed, not theorised: #216's own run reported exactly that when `scope` failed.
+And a *required* check that is skipped does not read as satisfied by GitHub's
+merge gate — it can leave a pull request unmergeable for ever. That is the same
+silent-skip shape [R-18](RULINGS.md#r-18--merge-it-when-it-is-green) names as its
+third trap.
+
+### The two options, as they stood when he deferred
+
+**(a) The safe subset.** Require `lint`, `contract-parity` and `scope` — all three
+run on every change and finish in seconds. Forbid direct pushes to `main`, forbid
+deletion and force-push. **No** human-review requirement: there is no second
+reviewer, so requiring one locks him out. **No** enforcement on admins, so an
+escape hatch remains.
+
+**(b) Require everything, `test` and `migration-authority` included** — stronger,
+and it accepts that a docs-only pull request may hang until someone intervenes.
+
+*Recommended: **(a)**, and then measure.* The measurement that settles (b) is
+cheap and was offered rather than assumed: open a real documentation-only pull
+request and read what GitHub reports for a skipped required job, instead of
+trusting either reading of the API docs.
+
+### What the session should also settle
+
+- Whether **`migration-authority`** becomes required. #216 asked for this
+  explicitly: until it is, a migration-stream failure does not block a merge,
+  which is *weaker* than the inline environment variable it replaced.
+- Whether the repository being **public** since 2026-08-20 changes anything —
+  protection rules and the audit that was declined are related decisions.
 
 ---
 

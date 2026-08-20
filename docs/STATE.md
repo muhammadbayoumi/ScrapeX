@@ -1,8 +1,6 @@
 # State — where the work stands
 
-**Last updated: 2026-08-20.** `main` is at `cab69b1` — #214, the documentation
-system itself. Behind it: #215 (the revert, merged 2026-08-19) and one commit
-pushed straight to `main` on 2026-08-18 carrying no PR number.
+**Last updated: 2026-08-20.** `main` is at `72f93a8` (#218).
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -14,48 +12,50 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ---
 
-## Open pull requests
+## Open pull requests — none
 
-> **Read no check status on this page as a verdict on code.** GitHub Actions has
-> not started a job since 2026-08-19T14:28Z — failed payment or a spending limit,
-> in GitHub's own words. Every open PR shows three red checks that never ran. See
-> [OP-20](BACKLOG.md) in the backlog; only the owner can clear it.
+**The board is empty for the first time in this file's short life.** Nine merged on
+2026-08-20, in this order, each on green CI under
+[R-18](RULINGS.md#r-18--merge-it-when-it-is-green):
 
-| PR | branch | state | what it is |
-|---|---|---|---|
-| **#213** | `the-data-page-port-is-a-port` | **CONFLICTING** — cannot be read until it is rebased | DEC-8: the engine's Data page is a port, not a rebuild, and the measurement says which |
-| *(unopened)* | `the-board-is-generated` | local, tests green | [REQ-10](REQUESTS.md#req-10--adversarially-review-the-fixes-then-execute): the request board is guarded against its own entries, and a generated document stops naming a command that does not exist |
+| | |
+|---|---|
+| `a683d70` | **#215** the profile background reverted, which unblocked `main` |
+| `bf2ae66` | **#220** the Arabic half was a column and not a value, and `/source/{key}` answered 404 for a dataset |
+| `a1d077f` | **#213** DEC-8: the engine's Data page is a port, not a rebuild |
+| `3d265cd` | **#216** the CI tiers, the docs gate, and two guards that had become silent skips |
+| `cb869f9` | **#222** R-18 itself — merge it when it is green |
+| `785533c` | **#221** the two generic flags lit, at `PARTIAL` |
+| `ce80886` | **#217** the Engine page is two screens, plus three defects an adversarial review confirmed |
+| `42dbf23` | **#223** a dataset exports a workbook and loads whole |
+| `72f93a8` | **#218** `main`'s padding is a token, and the two full-bleed screens finish #217's refactor |
 
-> **Two other sessions are working in this repository.** `scrapex/extract/muqawil.py`
-> and `tests/test_a_dataset_is_a_table_like_any_other.py` carry another session's
-> uncommitted work in the main checkout, which is why `the-board-is-generated` is a
-> separate worktree and why every commit on it stages explicit paths. SR-19 is the
-> rule, and it exists because this went wrong twice before.
+> **CI works again, and how it came back is worth knowing.** Every job from
+> 2026-08-19T14:28Z until 2026-08-20T06:34Z failed with *"the job was not started
+> because recent account payments have failed"* and **no step executed** — absent,
+> not red. It cleared because **the repository was made public**: private Actions
+> minutes on the free plan had run out, and public repositories get unlimited
+> standard-runner minutes. A ruling recording that, and recording that an exposure
+> audit was proposed and declined, is drafted but **not yet committed** — see the
+> uncommitted-work list under Named gaps.
 
-**#210, #211 and #212 have all merged** since this file last spoke. What used to
-stand here as "both green, both waiting on the owner" is now history, and the
-reason #210 mattered is kept under Track 2 where it belongs.
+### What `ac3a5af` cost, kept because REQ-11 exists for it
 
-`ac3a5af` is on `main` without a pull request — a single-parent commit, no review
-trail. **It broke `main`, and `main` has been red since 2026-08-18 because of it.**
-`extension/app.css:1166` reads `background: light-dark(#FFFFFF, var(--bg));`, and
+It reached `main` **with no pull request** — a single-parent commit, so no CI ran
+before it landed. It wrote a raw hex literal into `extension/app.css`, which
 `tests/test_vendor.py::test_ui_colour_literals_live_only_in_the_canonical_colour_system`
-forbids a raw hex literal outside the token system. Reproduced locally on
-2026-08-19. Every PR opened since inherits the red, #214 included. **This is what
-the missing pull request cost** — CI would have refused it before it reached
-`main`.
+forbids, and `main` was red from 2026-08-18 until #215 reverted it on 2026-08-19.
+Every pull request opened in between inherited that red, and I misread the outage's
+"failure" as a regression of my own once.
 
-**Fixed by #215, a full revert, merged 2026-08-19T10:37Z.** It landed eighteen hours BEFORE #214 — which was carrying this very sentence, so the sentence reached `main` already false. That is the shape of the drift this file keeps producing: a PR state hand-copied into prose while `gh` can answer it.
-
-What it did: He was offered the token expression
-`light-dark(var(--surface), var(--bg))` and chose to go back to the original
-instead — «الغى تعديلات الخلفية ورجعها للاصل». `extension/app.css` is
-byte-identical to `36dd91c` again. Two things the literal did, recorded because
-they are why the guard exists: under `data-color-mode="device"` it **discarded the
-owner's accent palette on that one page in silence**, and its own comment claimed
-the canvas was a brighter step back from the card when `--surface` is already pure
-white and the card uses it. Also learned: that guard **reads every line, comments
-included** — a comment that merely names a hex value fails it too.
+**`main` still has no branch protection at all** — `gh api
+.../branches/main/protection` answers 404. So R-18 is the entire gate, enforced by
+discipline. Captured as
+[REQ-11](REQUESTS.md#req-11--branch-protection-for-main-in-a-session-of-its-own),
+deferred by him to a session of its own, with the trap that stopped it being done
+at once: `test` and `migration-authority` are gated on `needs: scope`, a docs-only
+change makes them **`SKIPPED`**, and a required check that is skipped can leave a
+pull request unmergeable for ever.
 
 ---
 
