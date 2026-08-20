@@ -118,7 +118,7 @@ challenge.
 
 | what | shape |
 |---|---|
-| listing | `https://muqawil.org/{en\|ar}/contractors?page=N` — **865 pages, 20 rows each** |
+| listing | `https://muqawil.org/{en\|ar}/contractors?page=N` — **871 pages** as of 2026-08-20, 20 rows each and the last one **2**. Both numbers are READ, never assumed: 865 was true on 2026-08-16 and the page count moves as contractors register. See [DEC-11](BACKLOG.md) |
 | profile | `https://muqawil.org/{en\|ar}/contractors/{contractor_id}/{143}` |
 | logo | `https://muqawil.org/public/contractor/companyLogo/CompanyLogo-{unix_ts}_{name}.{ext}` |
 | map page | `https://muqawil.org/{en\|ar}/contractors/map` |
@@ -233,7 +233,10 @@ no human reader would notice.
 `per_page`, `perPage`, `limit`, `size`, `page_size` and `take` were each tried at 60
 against `?page=2`. All six returned **exactly 20 rows**. So the bound is fixed:
 
-> **865 listing pages × 20 rows ≈ 17,300 contractor profiles.**
+> **871 listing pages, and the arithmetic is `(L−1)×20 + c` where `c` is the last
+> page's own count — 17,402 as of 2026-08-20.** Multiplying by 20 throughout
+> overcounts by however few rows the final page carries, which is 2 today and was 15
+> four days ago. [DEC-11](BACKLOG.md).
 
 Not the 122,785 the site's own counter shows — that is total membership, and the owner was
 right to call those counters statistics rather than columns.
@@ -547,7 +550,7 @@ level are exactly the things whose CHANGE is the answer worth having.
 ### The crawl
 
 `fetcher: http`, ScrapeX's own user agent, the owner's pace (the site declares no
-`Crawl-delay`). **865 listing pages**, then **~17,300 profiles**, each in two languages —
+`Crawl-delay`). **871 listing pages**, then **17,402 profiles**, each in two languages —
 roughly **35,500 requests** for a full pass, about ten hours at one per second.
 
 The listing pages alone are ~1,730 requests and carry most of the card fields. **A

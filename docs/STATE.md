@@ -178,7 +178,9 @@ passes over the English listing, 8h37m:
 
 It **stopped at its pass ceiling, not at convergence** — the sixth pass still
 brought 62 names never seen before, so an unknown number remain unseen. The
-warehouse therefore holds **11,059 of at least 17,283: about 64%**. The sweep
+warehouse therefore holds **11,059 of 17,402 — about 64%**. That denominator is
+[DEC-11](BACKLOG.md)'s, measured as `(871−1)×20 + 2` from two requests; the sweep's
+"at least 17,283" cost 8h54m to reach a smaller and less exact answer. The sweep
 stored no snapshots and read one language only, deliberately (it needed ids, not
 values), so the ~6,224 known-missing contractors have **no evidence and no Arabic
 half** — closing that gap is a new bilingual crawl, and DEC-9 argues it should
