@@ -448,6 +448,136 @@ another's still waits for it, green or not.
 
 ---
 
+### R-19 · The five multi-valued contractor groups go in CHILD TABLES, not JSON
+
+**2026-08-20 · data model · answers [O-1](#open--awaiting-the-owners-ruling)**
+
+> «جداول أبناء للخمس كلّها»
+
+Interests, Licensed Activities, Qualification Programs, Balady Services and the
+contractor relations each get a real child table. Not a JSON blob inside
+`data_json`.
+
+**AND THIS OVERRULES THE DESIGN DOCUMENT, which is why it is written here rather
+than quietly applied.** [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) states flatly
+that the five hierarchical groups go in JSON inside `data_json`. He was offered
+that, with JSON as the recommendation, and chose child tables. The document is
+corrected in the same pull request as this ruling — **C2** — and its previous
+position is left visible rather than deleted, per **C4**.
+
+**HE ASKED WHETHER HIS OWN DECISION WAS WRONG — «ربما يكون قرار خاطى» — so it was
+measured rather than deferred to, and the measurement supports him.**
+
+One real profile was fetched and parsed (شركة عبر المملكة سبك, membership 10001274,
+the contractor whose absence from the warehouse started this):
+
+| group | what the page actually holds |
+|---|---|
+| Interests / activities | **30 values across 6 groups, and they are HIERARCHICAL** — a parent category with children: building construction 6, roads 4, electrical 5, lifts 5, landscaping 7, sewage 3 |
+| Licensed activities | a table with **one row — the header only.** Empty for this contractor |
+| Main / sub contractors | two tables, **one row each.** Empty, which agrees with the card counts: `0` for 11,057 of 11,059 records |
+
+**So the arithmetic is roughly 30 hierarchical values x 17,283 contractors — about
+half a million rows.** In an indexed child table that is nothing for SQLite and it
+answers *"which contractors operate sewage networks"* instantly. As JSON it stores
+just as easily but the same question means scanning eleven thousand blobs.
+
+**AND THE ARGUMENT MADE FOR JSON DID NOT ACTUALLY DISTINGUISH THE TWO.** The
+recommendation leaned on the grid being one flat table — but the grid cannot render
+a nested JSON array either. Both shapes need new payload work; only one of them
+also gives the query. The design picked JSON before anyone had counted those thirty
+values.
+
+**The limit of this evidence, stated plainly: one contractor.** Generalising needs a
+handful more profiles, which the crawl study will produce. But the direction is
+unambiguous and nothing in it favours JSON.
+
+**What it costs.** Five tables and their migration; a read path per table; and the
+dataset payload has to carry them, which today it cannot. That last part is the real
+work and it is not yet designed — and it would have been needed for JSON too.
+
+**What is already true and helps.** `dataset_relationship` and
+`relationship_field_pair` exist (`db/migrations/0013_generic_dataset_catalog.sql`),
+with a propose/list API and tests. They hold **0 rows**. So the machinery for the
+relations half exists and has never had a tenant.
+
+---
+
+### R-20 · An unchanged contractor is confirmed, not re-recorded
+
+**2026-08-20 · data model · answers [O-3](#open--awaiting-the-owners-ruling) and [O-4](#open--awaiting-the-owners-ruling)**
+
+> «مراجعة عند التغير فقط»
+
+A second crawl that finds a contractor unchanged **updates `last_seen_at` and
+writes no revision**. History is kept — a revision per real change, which is what
+makes "when did this classification change" answerable.
+
+**This is `SR-6` applied to a directory instead of a price** — *"an unchanged price
+is confirmed, not appended"* — and the reasoning transfers exactly: history is a
+timeline of real changes, and a year of identical rows is not history.
+
+**MEASURED, AND IT IS NOT WHAT THE CODE DOES TODAY.** `content_hash` exists on
+`generic_record` and is **not consulted on ingest**: the warehouse holds **34,550
+revisions for 11,059 contractors** — roughly three apiece, from two crawls of a
+directory that barely changed. Under this ruling that number should have been close
+to 11,059. So the ruling is a change to the write path, not a description of it.
+
+**And it compounds with the storage question.** Every re-crawl currently grows the
+revision table linearly whether anything changed or not, which is part of the
+volume [DEC-9](BACKLOG.md) is arguing about. Consulting the hash is the cheapest
+line in that argument.
+
+---
+
+### R-21 · One source owns every outbound request, and paces itself per site and per connection
+
+**2026-08-20 · architecture**
+
+> «التوازى يجب ان يكون مصدر واحد يدير اى استعلام او اتصال بالانترنت ويوازى على حسب
+> سرعة الانترنت وسرعة الاستجابة من كل موقع… مواقع تقبل 10 طلبات ومواقع لا تقبل سوى
+> طلب واحد وسرعة الانترنت تستحمل طلبان فقط»
+
+Every outbound request goes through **one** component. It decides how many may be
+in flight, adapting on two axes at once: **what each site tolerates**, learned per
+host, and **what the local connection can carry**, measured.
+
+**HALF OF THIS IS ALREADY BUILT, AND NONE OF IT IS USED.**
+[scrapex/pacegovernor.py](../scrapex/pacegovernor.py) already keeps a `HostPace`
+per host — *"one per host, never shared"* — carrying a `concurrency` that starts at
+1 and is raised toward a ceiling of 4 only while the host stays clean. It learns
+the uncontended latency at concurrency 1 and only there, and it carries the Scrapy
+one-way ratchet from #210.
+
+**But `grep` for `concurrency(` outside that file returns nothing, and the only
+code that constructs a `PaceGovernor` is its own test suite.** The governor
+computes a number no crawl reads.
+
+**So the work this ruling names is not building a governor. It is three things:**
+
+1. **Wire the existing governor into the fetch loop** — the crawl is sequential by
+   construction today, so nothing consumes the learned concurrency.
+2. **Add the global cap he asked for**, which does not exist: the governor is
+   per-host and nothing bounds the *total* in flight by measured local bandwidth.
+   Two sites at 4 each is 8 in flight on a connection that may carry 2.
+3. **Make it the single owner.** Outbound requests are issued from more than one
+   place today; this ruling makes that a defect.
+
+**The measurement that justifies it**, recorded in the governor's own header from
+2026-08-16 against muqawil.org: a page costs **5.84s, of which 5.69s is the server
+thinking**. Compression was already on, HTTP/2 changed nothing, there is no `ETag`
+— **nothing client-side touches the cost**. Four in flight took **9.5s where four
+in series took 26.4s: a 2.8x gain**, every answer a 200.
+
+**And the price, which is why the cap is per-site and adaptive rather than a
+constant:** per-request latency rose from ~6.6s to ~9.2s under those four, a 40%
+rise, with no 429 and no refused connection. The file's own words: *"That is a
+server saying it is hurting in the only language it has"* — and a crawler that
+waits for a 429 before easing off has ignored the polite warning to wait for the
+rude one.
+
+---
+
 ## Superseded
 
 Kept per **C4**. Do not follow these; they are here so the current rule can be
@@ -476,10 +606,7 @@ Recorded rather than defaulted, per **R-02**.
 
 | # | question | context |
 |---|---|---|
-| **O-1** | **JSON column or child table** for the five multi-valued contractor groups? He allowed either. The trade is queryability against one table instead of six. | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
 | **O-2** | **Does the contractor entity belong in the mbiXaddin workbook** — a `1.TableDefinition` row and its `2.SchemaRule` columns — or is it engine-only until it has proved itself? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
-| **O-3** | **Refresh shape.** A directory is re-read whole, not watched for price changes, so the append-gate reasoning does not apply. What does a second crawl of an *unchanged* contractor write? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
-| **O-4** | **Retention.** Offers keep history because a price has a date. Does a contractor profile keep history, or is the latest reading the only one? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
 | **O-5** | **B1 lists `DELETE /api/views/{id}` among nine dead routes to delete — but building saved views revives it.** Either B1 loses that line, or the new Data page cannot delete a saved view. **HELD 2026-08-16:** he has comments on B1 itself and will raise them first. Do not start B2 step 3 until he has. | [HANDOFF-resume-the-migration.md](HANDOFF-resume-the-migration.md) |
 
 > **O-3 and O-4 may already be answered in practice** by what PR #211 implemented

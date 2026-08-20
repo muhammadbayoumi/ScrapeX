@@ -422,17 +422,36 @@ the column even if the identification is right.
 That is the owner's «جدول منفصل تمامًا … سيكون لهذا المصدر فقط» exactly: **one table, for
 this source only**, sharing nothing with `price_observation`.
 
-**The five hierarchical groups go in JSON inside `data_json`, not in child tables.** The
-owner allowed either. JSON is chosen because he asked for ONE table and child tables would
-make six; because `generic_record.data_json` already carries a `json_valid` +
-`json_type='object'` CHECK; and because `field_definition.data_type` already admits `json`.
-Nothing is invented. `Interests` keeps its real tree shape instead of being flattened into
-`Activity 1, Activity 2, …`, which is what he ruled out.
+**The five hierarchical groups go in CHILD TABLES.** Ruled by the owner on 2026-08-20 —
+«جداول أبناء للخمس كلّها» — and recorded as
+[R-19](RULINGS.md#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json).
 
-**The one place a child table would earn its keep** is `Main Contractors` /
-`Subcontractors`: those are contractor-to-contractor edges, and a JSON blob cannot answer
-*"who subcontracts for X"*. `dataset_relationship` + `relationship_field_pair` exist for
-exactly that. **Deferred, not dismissed** — it is an owner question below.
+> **This paragraph used to say the opposite, and the superseded reasoning is kept
+> rather than deleted, per C4.** It read: *"The five hierarchical groups go in JSON
+> inside `data_json`, not in child tables… JSON is chosen because he asked for ONE
+> table and child tables would make six; because `generic_record.data_json` already
+> carries a `json_valid` + `json_type='object'` CHECK; and because
+> `field_definition.data_type` already admits `json`."*
+>
+> **What changed is a measurement, taken after that was written.** One real profile
+> was parsed — شركة عبر المملكة سبك, membership 10001274 — and its Interests are
+> **30 values across 6 groups, hierarchical**: a parent category with children
+> (building construction 6, roads 4, electrical 5, lifts 5, landscaping 7, sewage 3).
+> At ~17,283 contractors that is on the order of **half a million rows**, which an
+> indexed child table answers instantly and a JSON blob answers by scanning eleven
+> thousand bodies.
+>
+> The old paragraph's strongest argument also turned out not to distinguish the two:
+> it leaned on the grid being one flat table, but the grid cannot render a nested
+> JSON array either. **Both shapes need new payload work; only one also gives the
+> query.** `Interests` still keeps its real tree shape rather than being flattened
+> into `Activity 1, Activity 2, …`, which is what he ruled out from the start.
+
+**`Main Contractors` / `Subcontractors` are edges, and now have the same answer.**
+`dataset_relationship` + `relationship_field_pair` exist for exactly that and hold
+**0 rows**. Measured on the same profile: both tables render with a header row and no
+data, which agrees with the listing counts — `0` for 11,057 of 11,059 stored records.
+So the edge machinery has never had a tenant, and this is its first.
 
 ### Bilingual: DERIVED from the `_ar` suffix, never a hand-written list
 
