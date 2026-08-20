@@ -3547,7 +3547,16 @@ function updateEngineReleaseUI(latest) {
       : "Download engine";
 
   download.disabled = !installer;
-  steps.classList.toggle("hidden", !installer);
+  // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW. This renderer is
+  // called after two awaits (renderEngines, refreshEngines), so it can land
+  // after the reader has opened a CANDIDATE's detail screen -- and since the
+  // install steps now live inside #view-engine-detail, which all seven engines
+  // share, an unguarded un-hide paints ScrapeX-Engine's instructions and its
+  // installer checksum onto Scrapy's screen, undoing the `hidden` that
+  // renderEngineDetail had just set. The other writes above are safe without
+  // this because their ancestors are hidden for a candidate; this node's are
+  // not. Same guard the two callers below already use.
+  steps.classList.toggle("hidden", !installer || !theInstalledEngineIsOnScreen());
 
   if (installer) {
     $("engine-download-checksum").textContent = installer.sha256 ? installer.sha256 : "";

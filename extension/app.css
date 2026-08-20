@@ -248,6 +248,23 @@
     overflow: hidden;
     scrollbar-gutter: auto;
   }
+  /* AND #view-engines BLEEDS ITSELF, because the rule above gives it
+     `overflow: hidden` with no padding of its own -- so its padding box equals
+     its content box and it clips every descendant at `main`'s CONTENT edge. A
+     negative margin on the grandchild scrollport therefore changed layout and
+     was painted away: measured on this branch's own capture, the catalogue's
+     ground started at x=16 with a 16px white frame down both sides and the
+     list border flush against it at 0px gutter.
+     The bleed belongs on the direct child of `main`, which is what
+     #view-manage-account and #view-engine-detail both do -- `main` clips at its
+     PADDING box, so a child reaching into that padding is not clipped. The
+     heading is put back inside by hand; only the scrollport is full-bleed. */
+  #view-engines {
+    margin: 0 calc(-1 * var(--panel-pad)) calc(-1 * var(--panel-pad));
+  }
+  #view-engines > .view-heading {
+    padding-inline: var(--panel-pad);
+  }
   .view-scroll {
     display: flex;
     flex: 1;
@@ -3224,15 +3241,16 @@
      page rather than as cards on white — the same figure/ground relationship
      #view-manage-account already uses.
 
-     The negative margins undo `main`'s padding on three sides and the padding
-     puts it back inside. Do not add a second scroller inside this one. */
+     #view-engines carries the negative margins now, NOT this rule: a
+     grandchild cannot escape a parent that clips, and this rule used to try.
+     Its own padding puts the rows back inside the bled ground. Do not add a
+     second scroller inside this one. */
   .engine-catalogue {
     display: flex;
     flex: 1;
     flex-direction: column;
     gap: var(--sp-2);
     min-height: 0;
-    margin: 0 calc(-1 * var(--panel-pad)) calc(-1 * var(--panel-pad));
     padding: var(--sp-4);
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -3353,7 +3371,17 @@
   #view-engine-detail {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    /* `flex: 1`, NOT `height: 100%`. As a flex item of `main` this screen gets
+       flex-grow 0 by default, so `height: 100%` resolved to main's CONTENT
+       height: the negative TOP margin lifted the top edge flush, but a negative
+       BOTTOM margin only reduces the space a box consumes -- it cannot grow a
+       non-growing item -- so the screen ended 2 x --panel-pad short of the
+       panel's bottom. That left .engine-detail-actions, which is pinned
+       precisely because a 400x520 panel would push it below the fold, floating
+       32px above the edge it is pinned to, and left a 32px white band under the
+       ground on every candidate screen. A growing item absorbs the free space
+       the negative margin adds, so `flex: 1` reaches the edge. */
+    flex: 1;
     min-height: 0;
     overflow: hidden;
     margin: calc(-1 * var(--panel-pad));

@@ -4249,7 +4249,8 @@ def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_inst
     assert "scraping" in text_of(page, "#engine-role").lower()
     for hidden in ("#engine-detail-actions", "#engine-action-list",
                    "#engine-spec-installed", "#engine-spec-latest",
-                   "#engine-spec-protocol", "#engine-spec-power"):
+                   "#engine-spec-protocol", "#engine-spec-power",
+                   "#engine-install-steps"):
         assert not page.locator(hidden).is_visible(), (
             f"{hidden} is offered for a backend that cannot be installed")
 
@@ -4259,6 +4260,20 @@ def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_inst
     page.evaluate("() => window.dispatchEvent(new Event('focus'))")
     page.wait_for_timeout(200)
     assert text_of(page, "#engine-state-text") == "Not installed"
+
+    # AND NEITHER MAY THE RELEASE ANSWER, which arrives on a SECOND schedule of
+    # its own. The install steps and the installer's checksum are ScrapeX-Engine's
+    # and live inside the detail screen all seven engines share, so an unguarded
+    # repaint after the manifest resolves used to undo the `hidden` that opening
+    # a candidate had just set -- painting "Run scrapex-engine.exe" and a SHA-256
+    # onto Firecrawl's screen, which offers nothing to press by design. The focus
+    # event above is the cheap way to reach it: it runs the refresh whose two
+    # awaits are what let the answer land late.
+    assert not page.locator("#engine-install-steps").is_visible(), (
+        "ScrapeX-Engine's installation instructions are painted on a candidate "
+        "backend's screen after the release manifest answers")
+    assert not page.locator("#engine-download-checksum").is_visible(), (
+        "the ScrapeX installer's checksum is on a candidate backend's screen")
 
     # NO LABEL MAY PAINT OVER ITS OWN VALUE, at the narrowest panel, on the
     # longest strings in the table. §8.3's licence notes are sentences, and with
