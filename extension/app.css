@@ -1,6 +1,14 @@
 :root {
   --brand-mark: url("icons/x-mark.svg");
   --panel-rail-width: 3.5rem;
+  /* `main`'s padding, NAMED, because a screen that goes full-bleed has to undo
+     exactly it. The value drops to --sp-3 under 340px (see the media query near
+     the end of this file), so a child that hard-codes `-1 * var(--sp-4)` pulls
+     4px too far on each side at the narrowest panel — measured on the Engine
+     screens at 320px: the pinned action bar sat at x -4 and lost 4px off its
+     right edge into `overflow: hidden`. Same shape as --panel-rail-width, which
+     is named here for the same reason. */
+  --panel-pad: var(--sp-4);
   /* The extension behaves like a compact Android app: every primary touch
      target remains at least 48px even when the visual icon is smaller. */
   --control-height: var(--touch-target);
@@ -18,7 +26,7 @@
   * { min-width: 0; }
   .wrap, .card, .srow, .kv, .checklist { overflow-wrap: anywhere; }
 
-  main { grid-column: 1; grid-row: 1; overflow: hidden; padding: var(--sp-4);
+  main { grid-column: 1; grid-row: 1; overflow: hidden; padding: var(--panel-pad);
          display: flex; flex-direction: column; gap: var(--sp-4);
          background: var(--surface);
          scrollbar-width: thin; scrollbar-color: var(--muted) transparent; }
@@ -239,6 +247,23 @@
     padding-inline-end: 0;
     overflow: hidden;
     scrollbar-gutter: auto;
+  }
+  /* AND #view-engines BLEEDS ITSELF, because the rule above gives it
+     `overflow: hidden` with no padding of its own -- so its padding box equals
+     its content box and it clips every descendant at `main`'s CONTENT edge. A
+     negative margin on the grandchild scrollport therefore changed layout and
+     was painted away: measured on this branch's own capture, the catalogue's
+     ground started at x=16 with a 16px white frame down both sides and the
+     list border flush against it at 0px gutter.
+     The bleed belongs on the direct child of `main`, which is what
+     #view-manage-account and #view-engine-detail both do -- `main` clips at its
+     PADDING box, so a child reaching into that padding is not clipped. The
+     heading is put back inside by hand; only the scrollport is full-bleed. */
+  #view-engines {
+    margin: 0 calc(-1 * var(--panel-pad)) calc(-1 * var(--panel-pad));
+  }
+  #view-engines > .view-heading {
+    padding-inline: var(--panel-pad);
   }
   .view-scroll {
     display: flex;
@@ -1108,7 +1133,13 @@
   /* A page that exists so its shape can be agreed says so on itself. Nothing
      on such a page is wired to anything, and every control on it is disabled;
      the note is what stops a reader mistaking a shape for a feature. */
-  .planned-note {
+  /* SAME BOX, DIFFERENT CLAIM. The Engine catalogue's "Other engines" note is
+     not excusing dead controls — its rows work — it is stating that installing
+     them is out of scope. One rule, two names, so the guard in
+     tests/test_panel_dom.py can keep holding `.planned-note` to "every control
+     in here is disabled" without that rule spreading to a working list. */
+  .planned-note,
+  .engine-scope-note {
     margin: 0;
     padding: var(--sp-2) var(--sp-3);
     white-space: normal;
@@ -3071,8 +3102,7 @@
   .sx-mini { grid-column: 1; grid-row: 2; }
 
   @media (max-width: 340px) {
-    :root { --panel-rail-width: 3.25rem; }
-    main { padding: var(--sp-3); }
+    :root { --panel-rail-width: 3.25rem; --panel-pad: var(--sp-3); }
   }
 
   .skeleton { height: var(--sp-3); border-radius: var(--radius-xs); background: var(--chip);
@@ -3116,65 +3146,6 @@
   margin: var(--sp-3) 0 0;
 }
 
-  /* Engine page — semantic status, metadata, release, actions, power, install. */
-  .engine-status {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--sp-2);
-    min-height: var(--control-height-sm);
-    margin-top: var(--sp-3);
-    line-height: 1.35;
-  }
-  .engine-status-detail {
-    flex: 1 1 auto;
-    min-width: min(100%, 12rem);
-    color: var(--muted);
-    font-size: var(--fs-sm);
-    line-height: 1.35;
-  }
-
-  .engine-meta {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--sp-1) var(--sp-2);
-    margin-top: var(--sp-3);
-    line-height: 1.35;
-  }
-  .engine-meta .kv { display: contents; }
-  .engine-meta dt {
-    justify-self: start;
-    font-size: var(--fs-sm);
-    color: var(--text);
-  }
-  .engine-meta dd {
-    justify-self: end;
-    margin: 0;
-    text-align: end;
-    overflow-wrap: anywhere;
-  }
-
-  .engine-release { margin-top: var(--sp-2); line-height: 1.4; }
-  .engine-release-verdict {
-    margin: 0;
-    font-size: var(--fs-sm);
-    font-weight: var(--fw-medium);
-  }
-  .engine-release-detail { margin: var(--sp-1) 0 0; }
-
-  .engine-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-start;
-    gap: var(--sp-2);
-    margin-top: var(--sp-3);
-  }
-  .engine-actions > button {
-    flex: 1 1 auto;
-    min-height: 40px;
-    min-width: min(100%, 10rem);
-  }
   .engine-action-primary:disabled {
     opacity: .38;
     background: color-mix(in srgb, var(--text) 12%, transparent);
@@ -3201,27 +3172,8 @@
     color: var(--text);
   }
 
-  .engine-power-setting {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 40px;
-    gap: var(--sp-2);
-    margin-top: var(--sp-2);
-  }
-  .engine-power-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .engine-power-label { font-size: var(--fs-sm); color: var(--text); line-height: 1.35; }
-  .engine-power-disclosure { margin: 0; text-align: start; line-height: 1.4; }
-
-  #engine-compatibility-warning {
-    margin: var(--sp-2) 0 0;
-    text-align: start;
-  }
+  /* `.dot.warn` outlives the card it was written for: the catalogue row's state
+     badge still carries it. */
   .dot.warn { background: var(--amber); }
 
   /* Engine page — expandable installation region. */
@@ -3276,107 +3228,414 @@
   .engine-checksum span { font-size: var(--fs-xs); color: var(--muted); }
   .engine-checksum code { overflow-wrap: anywhere; word-break: break-all; font-size: var(--fs-xs); margin: 0; }
 
-  /* Engine page — Material 3 outlined cards. */
-  .card.engine-card {
-    background: var(--surface);
-    border: 1px solid var(--outline-variant);
-    border-radius: 12px;
-    padding: 12px 16px;
-    box-shadow: none;
-    text-align: start;
-  }
-  .card.engine-card:hover,
-  .card.engine-card:active,
-  .card.engine-card:focus-within {
-    box-shadow: none;
-    transform: none;
-  }
-  #view-engines .view-scroll { gap: 8px; }
-  .engine-card-header {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: var(--touch-target);
-    gap: var(--sp-2);
-  }
-  .engine-card h2 { text-transform: none; }
-  .engine-card-header h2 {
-    padding-inline-end: calc(var(--touch-target) + var(--sp-2));
-    margin: 0;
-    font-size: var(--fs-lg);
-    font-weight: var(--fw-bold);
-  }
-
-  /* Engine overflow trigger and anchored menu. */
-  .engine-overflow { position: absolute; inset-inline-end: 0; inset-block-start: 0; }
-  .engine-overflow-button {
-    display: inline-grid;
-    place-items: center;
-    width: 48px;
-    height: 48px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    background: transparent;
-    color: var(--text);
-    cursor: pointer;
-  }
-  .engine-overflow-button svg { color: currentColor; }
-  .engine-overflow-button:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--text) 8%, transparent);
-    color: var(--text);
-  }
-  .engine-overflow-button:active:not(:disabled) {
-    background: color-mix(in srgb, var(--text) 12%, transparent);
-    color: var(--text);
-  }
-  .engine-overflow-button:focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
-    outline-offset: 2px;
-  }
-  .engine-overflow-menu {
-    position: absolute;
-    inset-block-start: calc(100% + 4px);
-    inset-inline-end: 0;
-    z-index: 10;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: max-content;
-    min-width: 10rem;
-    max-width: min(14rem, calc(100vw - var(--sp-6)));
-    padding: var(--sp-1);
-    background: var(--surface);
-    border: 1px solid var(--outline-variant);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-md);
-  }
-  .engine-overflow-menu.hidden { display: none; }
-  .engine-overflow-menu-item {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    width: 100%;
-    min-height: 40px;
-    padding: var(--sp-1) var(--sp-3);
-    white-space: normal;
-    text-align: start;
-    border: 0;
-    border-radius: calc(var(--radius) - 2px);
-    background: transparent;
-    color: var(--text);
-    font: inherit;
-    cursor: pointer;
-  }
-  .engine-overflow-menu-item:hover:not(:disabled) { background: var(--control-hover); }
-  .engine-overflow-menu-item:focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--focus) 70%, transparent);
-    outline-offset: 0;
-  }
-  .engine-overflow-menu-item .sx-icon { flex: none; }
 
   .engine-diagnostics-output {
     margin: var(--sp-2) 0 0;
     text-align: start;
+  }
+
+  /* ---- Engine › catalogue ------------------------------------------------
+     The page keeps the SHARED #view-engines frame it already has (a pinned
+     .view-heading and one independent scrollport). Only the scrollport changes:
+     it is full-bleed on the panel's ground so grouped rows read as a list on a
+     page rather than as cards on white — the same figure/ground relationship
+     #view-manage-account already uses.
+
+     #view-engines carries the negative margins now, NOT this rule: a
+     grandchild cannot escape a parent that clips, and this rule used to try.
+     Its own padding puts the rows back inside the bled ground. Do not add a
+     second scroller inside this one. */
+  .engine-catalogue {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--sp-2);
+    min-height: 0;
+    padding: var(--sp-4);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-top: 1px solid var(--line);
+    background: var(--bg);
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+  /* Lists keep their natural height so the scrollport scrolls instead of
+     flexbox compressing and clipping the last row. Same guarantee
+     `.view-scroll > *` already gives the pages that use it. */
+  .engine-catalogue > * {
+    flex-shrink: 0;
+  }
+  /* The group headings are the panel's plain <h2> — small, uppercase, muted and
+     already defined. Only their rhythm inside this scrollport is new. */
+  .engine-catalogue > h2 {
+    margin: var(--sp-3) 0 var(--sp-1);
+  }
+  .engine-catalogue > h2:first-child {
+    margin-top: 0;
+  }
+
+  /* One grouped list. No padding of its own: the rows draw their own, and the
+     dividers come from the adjacency rule rather than from a border per row, so
+     there is never a hairline above the first row or below the last. */
+  .engine-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  /* One engine. A real <button>, because the whole row is the target and a row
+     that reacts to a click while looking like nothing is a control nobody
+     discovers — the same reasoning .account-switch carries on Profile.
+     `minmax(0, 1fr)` on the copy column is what makes the ellipsis possible. */
+  .engine-row {
+    --icon-tile: 2.5rem;
+    --icon-tile-glyph: 1.25rem;
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr) 1.25rem;
+    align-items: center;
+    gap: var(--sp-3);
+    width: 100%;
+    min-height: var(--touch-target);
+    padding: var(--sp-3) var(--sp-4);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-weight: var(--fw-regular);
+    text-align: start;
+  }
+  /* Written as button.engine-row and spelled out in full: the base `button`
+     rules in components.css are (0,1,1) and (0,2,1), so a bare .engine-row
+     would lose the fill and the hover back to them. */
+  button.engine-row:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  button.engine-row:active:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+    transform: none;
+  }
+  .engine-row-copy,
+  .engine-row-state {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+  .engine-row-line {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+  }
+  .engine-row-name {
+    font-weight: var(--fw-medium);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .engine-row-sub {
+    white-space: normal;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+    line-height: 1.35;
+  }
+  .engine-row-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .engine-row-chevron {
+    color: var(--muted);
+  }
+  /* AFTER `.engine-row`, and that order is load-bearing. `.engine-list > * + *`
+     and `.engine-row` are both (0,1,0), so at equal specificity the later rule
+     wins — and `.engine-row` has to say `border: 0` to cancel the base `button`
+     border, which silently ate this divider when it was declared first.
+     Measured: every row but the first rendered `border-top-width: 0px`. */
+  .engine-list > * + * {
+    border-top: 1px solid var(--line);
+  }
+
+  /* ---- Engine › one engine -----------------------------------------------
+     Its own view section, a SIBLING of #view-engines rather than a child, with
+     no rail button of its own: reached from a catalogue row, left by its own
+     back button. Exactly what #view-source-edit does for Library and
+     #view-manage-account for Profile. */
+  #view-engine-detail {
+    display: flex;
+    flex-direction: column;
+    /* `flex: 1`, NOT `height: 100%`. As a flex item of `main` this screen gets
+       flex-grow 0 by default, so `height: 100%` resolved to main's CONTENT
+       height: the negative TOP margin lifted the top edge flush, but a negative
+       BOTTOM margin only reduces the space a box consumes -- it cannot grow a
+       non-growing item -- so the screen ended 2 x --panel-pad short of the
+       panel's bottom. That left .engine-detail-actions, which is pinned
+       precisely because a 400x520 panel would push it below the fold, floating
+       32px above the edge it is pinned to, and left a 32px white band under the
+       ground on every candidate screen. A growing item absorbs the free space
+       the negative margin adds, so `flex: 1` reaches the edge. */
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    margin: calc(-1 * var(--panel-pad));
+    background: var(--bg);
+  }
+  .engine-detail-heading {
+    flex: none;
+    display: grid;
+    grid-template-columns: var(--control-height-sm) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  button.engine-detail-back {
+    width: var(--control-height-sm);
+    min-width: var(--control-height-sm);
+    padding: 0;
+    border-color: transparent;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--muted);
+  }
+  button.engine-detail-back:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  .engine-detail-titles {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  #engine-detail-title {
+    margin: 0;
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-bold);
+    line-height: var(--lh-tight);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .engine-detail-sub {
+    font-size: var(--fs-xs);
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The only scroller on this screen. */
+  .engine-detail-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    padding: var(--sp-4);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) transparent;
+  }
+  /* LOAD-BEARING. In a flex column scroller every child defaults to
+     `flex-shrink: 1`, so an over-height column silently squeezes the cards and
+     clips their last row instead of scrolling. */
+  .engine-detail-body > * {
+    flex-shrink: 0;
+  }
+
+  /* The state, said once, in the tone of the state. `data-tone` and not a class
+     per tone: the value comes from engineStatusFromState(), which already names
+     its tones ok / warn / danger / neutral. */
+  .engine-state-banner {
+    --icon-tile: 2.5rem;
+    --icon-tile-glyph: 1.5rem;
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+  }
+  .engine-state-banner[data-tone="ok"] {
+    border-color: var(--accent);
+    background: var(--accent-weak);
+    color: var(--accent-ink);
+  }
+  .engine-state-banner[data-tone="warn"] {
+    border-color: var(--amber);
+    background: var(--amber-weak);
+    color: var(--amber);
+  }
+  .engine-state-banner[data-tone="danger"] {
+    border-color: var(--red);
+    background: var(--red-weak);
+    color: var(--red);
+  }
+  /* The tile inverts inside a tinted banner: surface behind, the banner's own
+     ink in front, so one element carries the tone and the tile echoes it. */
+  .engine-state-banner > .icon-tile {
+    background: var(--surface);
+    color: inherit;
+  }
+  .engine-state-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .engine-state-copy small {
+    font-size: var(--fs-sm);
+    line-height: 1.35;
+  }
+  .engine-state-copy small:empty { display: none; }
+
+  /* Specifications and actions: two lists with the same anatomy as
+     .engine-list, named apart because their row grids differ. */
+  .engine-spec-list,
+  .engine-action-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  /* `auto minmax(0, 1fr)` and NOT `minmax(0, 1fr) auto`, which is what the
+     reference carried. An `auto` value track sizes to its max-content, so a value
+     longer than the space left starved the label track to zero and the label
+     painted straight over the value — seen on Heritrix's "Apache-2.0 · some files
+     under other licences", and waiting to happen on the installed engine's own
+     "Not reported · Extension expects 1" at 320px. Reversed, the label takes the
+     width of its own short words and the value gets the remainder and wraps
+     inside it. Short values look identical: `justify-self` still ends them. */
+  .engine-spec-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-3) var(--sp-4);
+  }
+  /* A switch is 46x40 and brings its own touch target, so the row gives back
+     the padding it would otherwise double. */
+  .engine-spec-row.has-switch {
+    padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  }
+  .engine-spec-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+    font-size: var(--fs-sm);
+  }
+  .engine-spec-note {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    font-size: var(--fs-sm);
+  }
+  .engine-spec-note small {
+    color: var(--muted);
+    font-size: var(--fs-sm);
+    line-height: 1.4;
+  }
+  /* An empty explanation is not a blank line. Every one of these is filled only
+     when the feed has something extra to say. */
+  .engine-spec-note small:empty { display: none; }
+  /* Values sit at the end of the row and wrap rather than widen it. `.tech` in
+     the markup marks anything that is a figure — versions, protocol numbers. */
+  .engine-spec-value {
+    justify-self: end;
+    text-align: end;
+    font-size: var(--fs-sm);
+    color: var(--muted);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .engine-action-row {
+    display: grid;
+    grid-template-columns: 1.25rem minmax(0, 1fr) 1.25rem;
+    align-items: center;
+    gap: var(--sp-3);
+    width: 100%;
+    min-height: var(--touch-target);
+    padding: var(--sp-2) var(--sp-4);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    text-align: start;
+  }
+  button.engine-action-row:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+  }
+  button.engine-action-row:active:not(:disabled) {
+    border-color: transparent;
+    background: var(--control-hover);
+    color: var(--text);
+    transform: none;
+  }
+  .engine-action-row > .sx-icon {
+    color: var(--muted);
+  }
+  .engine-action-row > span {
+    min-width: 0;
+    white-space: normal;
+  }
+  /* Same order, same reason as `.engine-list > * + *` above: `.engine-action-row`
+     cancels the base button border, so the divider has to be declared after it. */
+  .engine-spec-list > * + *,
+  .engine-action-list > * + * {
+    border-top: 1px solid var(--line);
+  }
+
+  /* The two engine-level actions are pinned, not scrolled: they are what the
+     screen is for, and on a 400x520 panel with Chrome's largest font they would
+     otherwise sit below the fold. */
+  .engine-detail-actions {
+    flex: none;
+    display: flex;
+    gap: var(--sp-2);
+    padding: var(--sp-3) var(--sp-4);
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .engine-detail-actions > button {
+    min-height: 40px;
+  }
+  .engine-detail-actions > .engine-action-primary {
+    flex: 1;
+  }
+
+  /* Under 22rem the two actions stack, each to the full width. The primary is
+     named a second time because `.engine-detail-actions > .engine-action-primary`
+     is (0,2,0) and would otherwise out-specify a `> button` rule inside this
+     query and keep its `flex: 1` — measured: it rendered 244px inside a 276px
+     bar instead of stacking. `min-width` is what forces the wrap: two 10rem
+     minimums plus the gap cannot share a 320px panel. */
+  @media (max-width: 22rem) {
+    .engine-detail-actions {
+      flex-wrap: wrap;
+    }
+    .engine-detail-actions > button,
+    .engine-detail-actions > .engine-action-primary {
+      flex: 1 1 auto;
+      min-width: min(100%, 10rem);
+    }
   }

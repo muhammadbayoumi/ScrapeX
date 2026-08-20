@@ -717,7 +717,7 @@ at the run, don't assume it.
 ### BV-3 · Settings moved into the extension panel — CONFIRMED, and its warning has come true
 **Re-measured 2026-08-12. The "not yet confirmed" half is CLOSED by the live
 warehouse**, which shows the whole chain working on the owner's machine in a real
-crawl: `extension/app.js:836` posts `crawl_honour_delay` → `scrapex/capture.py:95`
+crawl: `extension/app.js:840` posts `crawl_honour_delay` → `scrapex/capture.py:95`
 reads it → `scrapex/connectors/base.py:485` emits the sentence → `job_log_entry`
 for job 120 carries it. Two settings hold non-default values, so something wrote
 them: `crawl_honour_delay = '0'`, `crawl_min_interval_s = '1'`.

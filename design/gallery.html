@@ -720,6 +720,12 @@
       <span class="icon-tile danger">
         <svg aria-hidden="true"><use href="#close"></use></svg>
       </span>
+      <span class="icon-tile quiet">
+        <svg aria-hidden="true"><use href="#dns"></use></svg>
+      </span>
+      <span class="icon-tile quiet">
+        <span class="brand-logo" aria-hidden="true"></span>
+      </span>
       <span class="icon-tile" style="--icon-tile:3rem;--icon-tile-glyph:1.5rem">
         <svg aria-hidden="true"><use href="#sync"></use></svg>
       </span>
@@ -727,6 +733,10 @@
     <pre>&lt;span class="icon-tile"&gt;&lt;svg&gt;&lt;use href="…#storage"&gt;&lt;/use&gt;&lt;/svg&gt;&lt;/span&gt;
 &lt;span class="icon-tile amber"&gt;…   warning tone
 &lt;span class="icon-tile danger"&gt;…  problem tone
+&lt;span class="icon-tile quiet"&gt;…   neutral tone, for a thing that is not installed
+
+/* .brand-logo inside a tile takes the tile's ink instead of --text: */
+&lt;span class="icon-tile"&gt;&lt;span class="brand-logo"&gt;&lt;/span&gt;&lt;/span&gt;
 
 /* a page that needs a different size says only that: */
 .sync-route-icon { --icon-tile: 3rem; --icon-tile-glyph: 1.5rem; }</pre>
