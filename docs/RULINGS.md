@@ -1,0 +1,419 @@
+# Rulings — what the owner has decided
+
+Every decision the owner has made about ScrapeX, with the date, the reason, and
+the evidence that produced it. Governed by **C3** and **C4** in
+[../CLAUDE.md](../CLAUDE.md):
+
+- A ruling is recorded here, not left in a commit message or a conversation.
+- **A superseded ruling stays.** It is marked, it points to what replaced it, and
+  it says what changed. The owner's view is expected to move as evidence
+  arrives; the history of a decision is part of the decision.
+
+Rulings are numbered `R-nn` in the order they were recorded. The number never
+changes and is never reused.
+
+> **Format.** Each entry states the ruling, the date, what he actually said where
+> that is on record, and — where one exists — the measurement that decided it.
+
+---
+
+## Active
+
+### R-01 · Diagnose, confirm, then fix — one step at a time
+**2026-07-21 · process**
+
+Explain the problem first, agree the cause, then solve it step by step. Not a fix
+delivered on first contact.
+
+> «عندى مشاكل عاوز اشرحها وبعد فهمها نحاول نحلها خطوة خطوة»
+
+**Why:** he is the author and reasons about his own system. A fix landed before
+the cause is agreed removes the evidence he needs to judge it. Prefer read-only
+inspection while diagnosing — during one such session a plain `sqlite3.connect()`
+created a stray `harvest.db` and destroyed the state being diagnosed.
+
+**Apply:** present the proven root cause with `file:line` evidence, then ask
+before editing.
+
+---
+
+### R-02 · An un-computable mapping is the owner's call, and studies come first
+**2026-07-30 · process**
+
+Where a correspondence cannot be computed from the source data, he decides — and
+he may refuse to decide until the supporting facts are measured.
+
+Asked where the `Bagged` packaging type belonged, he did not pick:
+
+> «اريد فحص اكتر هل هناك فرق فى السعر ام لا … وكمان اريد دراسة وضع السعر الى اكتر
+> من ٣٠ طن فى price trade … اريد دراسة الامرين»
+
+**Apply:** offer options with the *measured* consequence of each. Answer a study
+with counts from live data. Build everything that does not depend on the open
+ruling, and leave the undecided fact flowing through the unrecognised-code path
+so the question stays visible instead of being absorbed by a default. This is the
+standing `ASK` rule in `scrapex/vocab.py`.
+
+---
+
+### R-03 · `Bagged` packaging is filed under **Store**
+**2026-07-30 · data model · decided by R-02's studies**
+
+Both studies came in first, and they are what decided it: the corporate site
+publishes the same CEM II cement as available in bags *and* in bulk, and
+packaging carries **no price signal at all** in that source. So packaging is how
+the store supplies the goods, not a property of them — his own
+Specifications / More-information / Store boundary, applied to evidence.
+
+---
+
+### R-04 · All ten web-only settings move into the extension
+**2026-08-01 · scope**
+
+Offered three options — move Excel and Sheets only, record an explicit exemption,
+or move them all — he chose to move them all. He did **not** take the storage
+exemption offered, so `backup_folder` moves too. Only `runtime-restart` and
+`runtime-upgrade` stay exempt.
+
+The ten: `excel_folder`, `excel_workbook`, `excel_schema`, `excel_structure`,
+`excel_update`, `funnel_url`, `funnel_token`, `google_folder`, `google_workbook`,
+`backup_folder` — saved from `templates/excel.html`, `templates/sync.html` and
+`templates/_storage.html`, each POSTing `/api/settings`.
+
+**Why:** his standing rule SR-10 says every setting lives in the extension, and
+it was true for exactly one page. The guard read `templates/settings.html` and
+nothing else, so ten settings sat outside a rule that looked enforced.
+
+**Apply:** the guard is the deliverable, not just the move — it must read **every**
+template under `scrapex/webui/templates/`, keeping the named runtime-repair
+exemption. The web page must keep **displaying** every value it stops editing
+(SR-10's second half).
+
+---
+
+### R-06 · `VERSION` moves with every merged pull request
+**2026-08-16 · release · supersedes [R-05](#r-05--version-moves-per-user-visible-capability)**
+
+`scrapex/version.py:VERSION` moves on **every new commit**. PRs are
+squash-merged here, so one commit on `main` = one merged PR = one bump. Each bump
+regenerates `contracts/capability-baseline.json` and `CHANGELOG.md` in the same
+commit, and updates the `pyproject.toml` mirror.
+
+**Why the old rule died:** "each user-visible capability" left the judgement to
+whoever was writing, and they kept deciding no. Measured with
+`git log -G'^VERSION = "'` — the number moved **three times in the project's
+life**, last at `adf31b2` on 2026-08-10, then stood still for 48 commits covering
+Phase A entire, T1 and B2. He noticed and said so. (As of 2026-08-17 the gap is
+**58 commits**.)
+
+> Use `-G`, not `-S`, on this file: `-S` finds only one of the three, because
+> `0.2.1` → `0.2.2` leaves the count of the searched string unchanged.
+
+**BLOCKED — do not simply bump it.** See [R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert).
+
+**Conflict — RESOLVED 2026-08-17.** [ENGINEERING.md](../ENGINEERING.md) **W4**
+read *"ONE product version, and it moves when the behaviour does"* — the
+superseded R-05 trigger — and was stale in a second, more dangerous way: it
+called `extension/manifest.json` a **mirror** with a drift test, which
+[R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert) and PR #112
+deliberately undid. Measured before rewriting: `pyproject.toml` really is an
+enforced mirror (`tests/test_version.py:79`), while the manifest comparison was
+removed on 2026-08-05 and `tests/test_version.py:536` now **fails if anyone
+re-pins it**. A reader following the old W4 literally would have re-welded the
+two numbers — the one thing this ruling forbids. W4 now states both correctly.
+
+---
+
+### R-07 · The engine keeps the version **gate** and drops the **advert**
+**2026-08-16 · release · unblocks R-06**
+
+`MINIMUM_EXTENSION_VERSION` is a fact the engine owns, derived from the ledger —
+it **stays**. "What is the newest extension available" is Chrome's answer, not
+the engine's — it **goes**, along with the two constants that still say the
+engine carries the extension.
+
+**The defect, found by trying the bump and reverting it the same day:**
+`version_report` sends `"latest_extension_version": VERSION`
+(`scrapex/version.py:477`, again in `scrapex/webui/app.py:1375`, drawn by
+`extension/app.js:595` and `:629`). The moment the engine moves ahead of
+`extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
+the engine it is talking to"*. Measured at 320×440: the profile page's legal line
+went from 396 to 494 against a 440 viewport — 54px clipped. Under "bump every
+commit" that card becomes **permanent and false**.
+
+Also to go: `LATEST_SOURCE` (*"it ships with the extension"*, `:289`) and
+`UPDATE_INSTRUCTIONS` (*"it carries the new extension with it"*, `:292`).
+
+**Never fix this by bumping `extension/manifest.json` alongside VERSION.** That
+was recommended once and it was wrong: it re-welds exactly what PLATFORM-PLAN
+Decision 21 unwelded (PR #112), whose "Done when" is *"the other number
+untouched"*. The two ship down separate paths — Google reviews the extension,
+nobody reviews the engine.
+
+**Apply:** its own pull request, with a guard that fails if the engine ever
+answers for the extension's head again.
+
+---
+
+### R-08 · The plan and the state live in the repository
+**2026-08-15 · process · generalised by [R-09](#r-09--one-documentation-system-in-the-repository-all-english)**
+
+The owner works from two machines. A plan on one of them does not exist on the
+other. `docs/MIGRATION-PLAN.md` was moved out of `~/.claude/plans/` on this
+ruling, and `docs/HANDOFF-resume-the-migration.md` was created as its living
+state.
+
+---
+
+### R-09 · One documentation system, in the repository, all English
+**2026-08-17 · process · generalises R-08**
+
+> «اريد نظام موحد للمعلومات حيث اننى اعمل من جهازين مختلفين الصبح فى العمل والليل
+> فى البيت» · «واجعله كله بالانجلليزى» · «وضيف فيه كل الخبرات التى اكتسبتها اثناء
+> عملك على المشروع» · «وضع شرط انه يتطور مع الوقت وان لا تطوير يحدث فى الكود دون
+> الرجوع اليه واى تغير منى يتم توثيقه حتى لو اختلف راى فراى ديناميكى يعدل ويطور
+> مع الوقت»
+
+**What forced it:** R-08 moved one plan and stopped there. On 2026-08-17 he opened
+the second machine — a **different user account** — and could not continue. Two
+things were true at once: thirteen memory files and seven plans lived under one
+account's home directory, and the repository held no `CLAUDE.md` at all, so a
+fresh session there had no pointer to the good documents that *were* committed.
+
+**The system:** `CLAUDE.md` → `docs/STATE.md` → `docs/RULINGS.md` →
+`docs/LESSONS.md` → `docs/plans/`. Its five governing rules are **C1–C5** in
+[../CLAUDE.md](../CLAUDE.md).
+
+---
+
+### R-10 · The contractor directory — three rulings
+**2026-08-16 · muqawil.org source**
+
+1. **A muqawil-specific parser first**, generalised to a card detector later.
+2. **`LISTING_ONLY` first**, then widen to profiles.
+3. **The missing bilingual toggle belongs to the paused B1 work**, not to this
+   source: «اشياء كثيرة مفقودة لذلك توقفت عند b1 … ومنها ايضا هذه المشكلة».
+
+Recorded in [plans/2026-08-16-muqawil-contractor-source.md](plans/2026-08-16-muqawil-contractor-source.md).
+
+---
+
+### R-11 · A contractor directory is a separate table, and a table like any other
+**2026-08-17 · data model**
+
+Two statements, given at different moments, that together shaped PR #211:
+
+> «جدول منفصل تماما عن جداول المنتجات» — a table entirely separate from the
+> product tables.
+
+> «صفحة المقاولين هى جدول سيظهر كاى جدول لدينا» — the contractors page is a table
+> that will appear like any of our tables.
+
+**Separate in storage, identical as a surface.** That framing is what made the
+work small: `grid.js` never asks where a payload came from, so
+`dataset_table_payload` fills the same keys from `generic_record` that
+`reports.table_payload` fills from `price_observation`, and not one line of the
+page changed.
+
+---
+
+### R-12 · One row, with a button that flips it
+**2026-08-17 · UI**
+
+> «فى النهاية اريد رؤوية جدول اقدر ابدل بين عربى وانجليزى»
+
+The Arabic and English halves land in **one** row, merged **by contractor id,
+never by position** — the listing reorders every thirty seconds (measured: 4,556
+of 11,059 contractors appeared on more than one page in a single pass), so
+zipping two pages row-by-row would attach one company's Arabic name to another's
+English one and look perfectly reasonable on screen.
+
+---
+
+### R-13 · Sign out of all accounts must really sign out all of them
+**2026-08-16 · extension**
+
+`Sign out of all accounts` pressed the top `#signout`, which revokes only the
+current account's grant; every other account kept the standing Google grant that
+makes a silent mint succeed. The ruling: a real sign-out — mint a token for each
+other account silently (`login_hint` + `prompt=none`), revoke **that** token, and
+press `#signout` last, because signing out the current account clears
+`state.token`.
+
+**The lockout it would otherwise have been:** the panel holds exactly one token
+and it belongs to the *current* account. Handing `state.token` to `revokeToken`
+ends the wrong grant — press Sign out on somebody else's row and be signed out of
+your own. Guarded by `tests/test_signing_out_really_signs_out.py`.
+
+---
+
+### R-14 · Requests are captured when made, then planned, then executed
+**2026-08-17 · process**
+
+> «كل طلب او اضافة او اى شى اذكره ونقرر انه فى المستقبل نحطه … علشان مننساش، ولما
+> نوصله نعمله خطه ونفذها» · «عاوز ادارة لطلباتى بحيث توثق وتحفظ ومنها نعمل خطة
+> ومنها ننفذ الخطة»
+
+Every request goes into [REQUESTS.md](REQUESTS.md) as `REQ-nn` in the session it
+is made, quoted in his own words, and moves **Captured → Ruled → Planned → In
+flight → Done**. Done and dropped requests are kept, never deleted.
+
+**Why, with the evidence:** [R-04](#r-04--all-ten-web-only-settings-move-into-the-extension)
+was ruled on 2026-08-01, after he was offered three options and chose the most
+thorough. Sixteen days later nothing had been built and it had dropped out of
+sight entirely — it survived only because a memory file happened to mention SR-10.
+
+**He asked whether `CHECKLIST` was the right name, and it was not.** A checklist is
+ticked and discarded: no state, no evidence, no history. What he described is a
+five-state pipeline. `REQUESTS.md` was recommended and adopted; `ROADMAP` was
+rejected for promising an order he has not set.
+
+**And the boundary rule that came with it**, because building it exposed a
+duplication: **he asked → `REQUESTS.md`; we found it → `BACKLOG.md`; a decision
+was taken → `RULINGS.md`.** See
+[REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two) — this file was written
+without reading `BACKLOG.md`, which had held 23 standing rules since 2026-07-29.
+**He ruled on that on 2026-08-19:** the `SR-` rules moved here
+([R-16](#r-16--one-home-for-rulings-and-it-is-this-file)).
+
+---
+
+### R-15 · The documents are guarded by a test, not by good intentions
+
+**2026-08-19 · active · [REQ-08](REQUESTS.md#req-08--a-guard-against-the-documents-going-stale)**
+
+> «نفذ توصيتك فى REQ-08 و REQ-09» — *carry out your recommendation on REQ-08 and
+> REQ-09.*
+
+He was offered three options and took the recommendation: **(b)** — a test that
+every `file:line` citation in the system's documents still points at the symbol
+quoted beside it. Not (a), which would have made the prose machine-generated, and
+not (c), which was **C2** and good intentions.
+
+**What decided it was not an argument, it was three failures.** Re-reading
+`STATE.md` two days after it was written found the `"latest_extension_version"`
+citation in `scrapex/webui/app.py` still pointing at line 1355 when the code had
+moved to 1375 — #211 and #212 inserted twenty lines above it — and
+`LATEST_SOURCE`/`UPDATE_INSTRUCTIONS` cited at lines 289 and 292 when they had
+been at 282 and 285 all along, in a file no commit had touched. A citation that
+silently moves is worse than no citation: it sends the next session to the wrong
+line with full confidence.
+
+**The scope is the map in [../CLAUDE.md](../CLAUDE.md), and the exclusion is
+deliberate.** The guard reads the documents C1 tells every session to read.
+`docs/plans/` is **excluded**: those are verbatim historical records, and
+[plans/README.md](plans/README.md) says nothing in them was rewritten, *"because a
+plan edited after the fact stops being evidence of what was decided when"*. A plan
+from 2026-07-20 citing `reports.py:176` described that day's code correctly.
+Forcing it to match today's would be falsifying a record to make a test pass.
+
+Enforced by `tests/test_the_documents_cite_what_they_claim.py`.
+
+### R-16 · One home for rulings, and it is this file
+
+**2026-08-19 · active · [REQ-09](REQUESTS.md#req-09--one-home-for-rulings-not-two)**
+
+Recommendation **(a)**, taken: `SR-1`–`SR-23` move out of `BACKLOG.md` §1 and into
+this file, each keeping its number. `BACKLOG.md` §1 becomes a pointer, and that file
+keeps what it is genuinely best at — `OP-`, `DEC-`, `BV-`, `DEBT-`, `Q-`.
+
+**The defect was mine, and it is recorded rather than quietly repaired.** This file
+was written on 2026-08-17 without reading `BACKLOG.md`, which had held 23 standing
+rules since 2026-07-29 and called itself *"the one tracking document"*. His rulings
+then lived in two registers — barely overlapping in content, completely overlapping
+in kind. That is the same defect the migration plan warns about at B2 step 2: *"do
+not write a second one."*
+
+Option (b) — folding `R-01`–`R-14` back into BACKLOG.md — was rejected because
+**C1** requires every session to read the rulings before designing anything, and a
+1,151-line document does not get read before every design decision. Option (c), a
+documented split by subject, was rejected because a boundary nobody can state in
+one sentence will not hold.
+
+---
+
+## Standing rules — the data, product and process policy (`SR-1`–`SR-23`)
+
+**Migrated here from [BACKLOG.md](BACKLOG.md) §1 on 2026-08-19, on the owner's
+ruling ([R-16](#r-16--one-home-for-rulings-and-it-is-this-file)).** Every number is
+unchanged: `SR-7` is still `SR-7` everywhere it is cited. The table is moved
+**verbatim** — not one of his words was rewritten in the move, because a ruling
+paraphrased is a ruling weakened.
+
+They stay `SR-` rather than becoming `R-` for the same reason: an ID cited across
+eleven documents and two test suites is renumbered only by someone who wants to
+break every citation at once. **Two prefixes, one home** — and the home is the file
+**C1** sends every session to read.
+
+`SR-` rules are his settled *policy*: what may be collected, what may never be
+edited, how a price behaves, how work is committed. `R-` rules are the *decisions*
+he has taken, dated, each with the evidence that produced it. Re-proposing an `SR-`
+rule wastes a session.
+
+| ID | Rule | Why | Evidence |
+|---|---|---|---|
+| **SR-1** | **Source truth is never edited.** What the site publishes is the record, typos included. Rules decide *where* a fact is shown, never *what* it says. | A cleaning rule silently forks the warehouse from the source; the next crawl can no longer tell "the shop fixed it" from "our rule stopped firing". | Owner 2026-07-28: «مصدر الحقيقة هو ما ينشره الموقع حتى لو كان فيه خطأ بشرى… القواعد فقط لمعلومة تُعرض أين، ولكن لا لتغييرها» — *the source of truth is what the site publishes even if it contains a human error; rules only decide where a fact is shown, never change it.* memory `source-truth-never-edited.md` |
+| **SR-2** | **Bilingual capture.** Anything a site publishes in AR *and* EN is captured in both — names, category levels, attribute labels *and* values, descriptions, units. A missing translation the site does publish is a **defect**, not a nicety. | The owner reads and reports in both languages and refuses to re-extract to see the other one. | Owner 2026-07-23: «أى محتوى أجيبه من أى موقع متوفر باللغة الإنجليزية والعربية أريد أن أجيبه باللغتين» — *any content available in both English and Arabic, I want in both.* memory `bilingual-capture-rule.md` |
+| **SR-3** | **A price is never converted.** A converted number is never shown without the rate that produced it *and* that rate's date. Google Finance is the rate authority. | The one time this was broken it put 3,312 figures in the warehouse that no page had ever printed. | Owner 2026-07-26; `scrapex/config.py:74`, `scrapex/rates.py:5`, `grid.js:1382` |
+| **SR-4** | **Authority first, then recency, for exchange rates.** A rate *provider* always outranks a shop's own published rate; among providers the newest wins. A shop's rate is still used where no provider published one. | advancedcastle publishes a SAR/EGP ratio of 13.46 while pricing its own Egyptian pages at 11.768. On recency alone that number would have converted every EGP-priced row in the warehouse. | `69e986c`, migration `0054` |
+| **SR-5** | **Retention never deletes a price observation.** Space is reclaimed by *building* a new database and switching a pointer; the predecessor is sealed beside it and never removed. The UI may never say "recovered space" (a test fails if that phrase appears). | Observations can never be re-observed. | memory `scrapex-phase5-integrations.md`; append-only enforced by SQLite triggers (ENGINEERING A7) |
+| **SR-6** | **An unchanged price is confirmed, not appended.** History is a timeline of real changes. Availability and stock have no history at all — latest state only. | A year of unchanged diesel used to be 52 identical "history" rows. | memory `scrapex-price-semantics.md` |
+| **SR-7** | **Development beats crawling.** A migration blocked by a running crawl → pause the crawl (never cancel), back up, apply via `init-db`, restart, resume. Do not ask again. | A crawl is repeatable and resumable; a half-applied change is not. | Owner 2026-07-29: «وقف الزحفة … التطوير اهم من الزحف» — *stop the crawl; development matters more than crawling.* memory `development-beats-crawling.md` |
+| **SR-8** | **robots.txt: `Crawl-delay` honoured automatically; `Disallow` NEVER enforced and never a warning** — one info-level job-log line only where a disallowed path intersects one we crawl. | The owner wants uninterrupted crawling, but wants a future block to have a traceable cause. | Owner 2026-07-22, `docs/robots-policy.md` |
+| **SR-9** | **Silence is never permission to go faster.** Absent config reads as *honour the delay* at every layer. Turning it off announces the number it is overriding. | A crawler that outpaces a site by default gets its owner blocked without him choosing it. | `c63ec21` |
+| **SR-10** | **Every setting lives in the extension; the web page is display-only** — but display-only is not blank: the page must still show every value it stopped editing. | A setting that exists only on the web page is a setting the owner does not have — proven: crawl pace was built, plumbed to `HttpFetcher`, and he asked for it as if it did not exist. | Owner 2026-07-29: «لا اريد اى اعدادت على صفحة الويب الاعدادت كلها على extension بينما صفحة الويب للعرض فقط». Enforced by `tests/test_settings_live_in_the_extension.py` (`2253308`), not by memory |
+| **SR-11** | **Delete is two actions, never one.** *Stop tracking* keeps every row ever collected; *Erase collected data* keeps the registration. Both confirmed by typing, not by an OK. | Removing an entry is not a claim that none of the data happened. | Owner 2026-07-28, `412785b` |
+| **SR-12** | **A rename moves the data with the name** — all nine tables in ONE transaction, manifest rewritten only after the rows have moved. | Renaming the manifest alone would not rename a source, it would orphan one. | `412785b`, `scrapex/sources_admin.py:11` |
+| **SR-13** | **Nothing is collected that is not declared in `sources.yaml`.** The manifest is an extraction contract with a scope guard that rejects out-of-contract rows. | Owner principle: «له أساس ليس جمعاً عشوائياً» — *it has a basis, it is not random collection.* | `sources.yaml:1-18` |
+| **SR-14** | **GPP: the latest published price only, never their paid historical series.** Our history accumulates from our own weekly observations. | A licence obligation, and it is tested (ENGINEERING T6). | `sources.yaml:436`, memory `scraper-ecosystem-design.md` |
+| **SR-15** | **Names state their language: unmarked = English, `_ar` = Arabic; the key and the label are the same word.** A monolingual Arabic source fills `product_name_ar` and leaves `product_name` **empty** — never "helpfully" carry Arabic into the unmarked column. | The reader had to learn a private vocabulary to use his own spreadsheet. | `docs/column-vocabulary.md`, migrations `0038`–`0042`, `PAYLOAD_VERSION 2` |
+| **SR-16** | **Column presence is per source.** Every gate in `reports.column_presence` asks *this* source's own rows, never a global table. | A global `currency_rate` count once put fuel-implied USD estimates on every shop. | memory `scrapex-columns-classification.md` |
+| **SR-17** | **Detail groups are a closed vocabulary of seven, and a code the map has never seen goes to the owner before it gets a group.** | A silently widened catch-all misinforms every later reader. | Owner 2026-07-28, migration `0046`, `scrapex/vocab.py` `_DETAIL_GROUP_BY_CODE` |
+| **SR-18** | **Commit and push after each plan step; do not batch, and do not end a step asking "shall I continue?".** | The owner works across parallel sessions and worktrees; unpushed commits are invisible to them — that is how a duplicate `0012` migration happened. | Owner, repeated. memory `commit-and-push-each-step.md` |
+| **SR-19** | **Never `git add .` or stage a path list — read the whole cached diff before committing.** | Twice this swept another session's half-finished work into a commit and broke `main` from a clean checkout. | `e2573e1` ("I staged that file after reading only `--stat`. Reading the whole cached diff is the rule that would have caught it, and it is the rule I agreed to"), `0a2209c` |
+| **SR-20** | **Commit messages carry no double-quote characters** (PowerShell here-strings break on them). | Mechanical, but it costs a retry every time. | memory `git-commit-heredoc-quotes.md` |
+| **SR-21** | **Every worker other than me produces drafts.** `codex/*` branches and other sessions are pull requests awaiting review with `file:line` evidence, never work to build on. | The owner said plainly he does not trust anyone else in the code; the arrangement only survives because the audits catch things (17 real defects past 527 green tests). | memory `scrapex-review-gate.md` |
+| **SR-22** | **Build, don't stop to review** — write code that already satisfies the review rules; pause only for genuinely forking product decisions. | Owner 2026-07-16: «انا مش عاوز اراجع حاجة دلوقتى انا عاوز ابنى ولكن بكود يحترم المراجعة» — *I don't want to review anything now, I want to build, but with code that respects the review.* | memory `build-not-review-bake-rules-in.md`, `ENGINEERING.md` |
+| **SR-23** | **CI must be green on every push.** `.github/workflows/ci.yml` runs on `push` and `pull_request`: manifest validation, a floor of ≥40 collected panel tests, the full pytest suite, the JS↔Python contract-parity gate, and the extension `node:test` suite. | A guard that can vanish quietly is the defect — the panel suite silently skipped for months. | `.github/workflows/ci.yml`, `48ec48b`. *(The "must be green" phrasing is the observed convention across every commit message, which reports the suite total — **inferred** as a rule, not stated by the owner in those words.)* |
+
+---
+
+## Superseded
+
+Kept per **C4**. Do not follow these; they are here so the current rule can be
+understood.
+
+### R-05 · `VERSION` moves per user-visible capability
+**2026-08-01 · ~~active~~ SUPERSEDED 2026-08-16 by [R-06](#r-06--version-moves-with-every-merged-pull-request)**
+
+The rule was: raise `scrapex/version.py:VERSION` for each capability a person
+would notice the absence of.
+
+**What changed:** it left the judgement to whoever was writing, and they kept
+deciding no. The number stood still for 48 commits — Phase A entire, T1 and B2 —
+while the ledger's gate stayed green either way. The owner noticed and replaced
+the rule with a mechanical one that needs no judgement.
+
+**Still live from the old ruling:** the capability ledger itself, the derived
+`MINIMUM_EXTENSION_VERSION`, and the generated `CHANGELOG.md`. Only the *trigger*
+changed.
+
+---
+
+## Open — awaiting the owner's ruling
+
+Recorded rather than defaulted, per **R-02**.
+
+| # | question | context |
+|---|---|---|
+| **O-1** | **JSON column or child table** for the five multi-valued contractor groups? He allowed either. The trade is queryability against one table instead of six. | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
+| **O-2** | **Does the contractor entity belong in the mbiXaddin workbook** — a `1.TableDefinition` row and its `2.SchemaRule` columns — or is it engine-only until it has proved itself? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
+| **O-3** | **Refresh shape.** A directory is re-read whole, not watched for price changes, so the append-gate reasoning does not apply. What does a second crawl of an *unchanged* contractor write? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
+| **O-4** | **Retention.** Offers keep history because a price has a date. Does a contractor profile keep history, or is the latest reading the only one? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
+| **O-5** | **B1 lists `DELETE /api/views/{id}` among nine dead routes to delete — but building saved views revives it.** Either B1 loses that line, or the new Data page cannot delete a saved view. **HELD 2026-08-16:** he has comments on B1 itself and will raise them first. Do not start B2 step 3 until he has. | [HANDOFF-resume-the-migration.md](HANDOFF-resume-the-migration.md) |
+
+> **O-3 and O-4 may already be answered in practice** by what PR #211 implemented
+> — `content_hash` over the normalised `data_json` as the change detector, an
+> unchanged contractor moving `last_seen_at` and writing no revision, and history
+> kept via `generic_record_revision`. Confirming that is his call to make
+> explicit, not ours to assume.
