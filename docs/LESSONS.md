@@ -303,6 +303,51 @@ only when handed a falsy token. Either mutation alone is caught.
 It is recorded rather than papered over. Contorting a test to kill an equivalent
 mutant would be the lie.
 
+### Presence is not arrival: asserting the column, not the value
+
+Four of the seven declared bilingual pairs on the contractor dataset shipped
+**NULL in all 11,059 rows**, and every check passed the whole way. The test read:
+
+```python
+for field in BILINGUAL_CARD_FIELDS:
+    assert all(f"{field}_ar" in row for row in without.rows)
+```
+
+That asserts the **column exists**. It was written to catch a real defect — a
+schema that changed per page — and it caught that one. It could never have caught
+an empty column, because an empty column is present.
+
+The cause was worth the lesson too. `read_listing` keys a card's boxes by
+`card_{_slug(label)}`, and `_slug` keeps `[a-z0-9]` only — so on the **Arabic**
+page every label filtered down to nothing, became `unnamed`, and seven boxes
+collapsed into one key the last of them won. The merge asked the Arabic page for
+English names. The module's own docstring had already stated the right rule for
+the profile path — *"the Arabic value is taken from the SAME INDEX … the Arabic
+labels are never matched against anything"* — and only the listing path was doing
+it by key.
+
+**A test on a bilingual column asserts a value that is non-empty, DIFFERENT from
+its partner, and in the right script.** Anything weaker passes on an empty table.
+
+### A success count is not a write count
+
+The seam's stated product is that a wrong parse is re-run over stored snapshots
+with nothing re-fetched. Re-running the corrected parser over all 864 snapshots
+reported **864 re-approved, 0 refused** — and changed nothing at all. Every
+column was exactly as empty afterwards, and `generic_record_revision` had not
+gained a single row.
+
+`approve_candidate` short-circuits on `_approved_ingestion(conn, snapshot_id,
+locator)`: same site, same dataset, same `schema_hash` means "already approved",
+and it returns `{"recovered": True}` **without touching a row**. A corrected
+parser produces the same schema with different values, so all 864 pages took that
+path. The driver counted the returns and called them writes.
+
+Two things follow. **Read the flag the function hands back** — `recovered` was
+right there and unexamined. And **verify a repair by measuring the data, not the
+run**: counting filled cells per column found it in one query, where the script's
+own report was confidently wrong. Recorded as DEC-10, because the fix is a ruling.
+
 ---
 
 ## 5 · The design system: a token has four homes

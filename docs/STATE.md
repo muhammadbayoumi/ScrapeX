@@ -120,10 +120,11 @@ off the page (#203) · a crawl whose output is evidence (#204) · the declared
 frontier was half the crawl (#205) · a per-server governor (#206) · cards become
 an approval candidate (#207) · the membership number is unique (#208) · names
 stop coming (#209) · a 404 storm must not buy speed (#210) · a dataset is a table
-like any other (#211) · the contractors appear among the datasets (#212).
+like any other (#211) · the contractors appear among the datasets (#212) · the
+Arabic half was a column and not a value (#220).
 
-**In flight: nothing. The track is waiting on one decision** — see the two
-feature flags below.
+**In flight: PR #220.** The track is otherwise waiting on decisions — the two
+feature flags below, and DEC-9/DEC-10 in [BACKLOG.md](BACKLOG.md).
 
 > **Why #210 mattered more than its size suggested.** `HttpFetcher` sends
 > conditional requests, so an unchanged page answers **304 with no body** — the
@@ -132,15 +133,56 @@ feature flags below.
 > `Strain.NONE` and feed the clean run.
 
 **The full `LISTING_ONLY` pass has run, and it is in the warehouse.** Verified
-against the live database on 2026-08-19, not taken from a conversation:
+against the live database on 2026-08-20, not taken from a conversation:
 
 ```
 generic_record            11,059 contractors
-generic_page_snapshot        864 pages, 864 of 864 approved, zero rejected
-generic_record_revision   17,275
-dataset_field                496
-engine db                    460 MB + 4 MB WAL
+generic_page_snapshot      1,728 pages — 864 English AND 864 Arabic
+generic_record_revision   34,550
+engine db                    796 MB + a 393 MB WAL   ← 2026-08-20 07:0x
 ```
+
+**Read the WAL as part of the size.** The figure above was `835 MB` when it was
+first written a few hours earlier, and the file has moved since — a bare total goes
+stale the same day. What matters is that **393 MB of it is an unmerged write-ahead
+log**: `~1.19 GB` on disk today, and a checkpoint will move most of that into the
+main file rather than reclaim it. That is the measurement `DEC-9` is arguing about.
+
+**The Arabic snapshots were merged on 2026-08-20**, and they carried the #220
+repair with them: four of the seven declared bilingual pairs had been NULL in
+all 11,059 rows. All seven now hold values —
+
+```
+company_name_ar 97.9% · contractor_classification_ar 98.0%
+card_company_size_ar 98.0% · card_status_ar 98.0%
+card_city_region_ar 89.5% · card_training_credit_hours_ar 98.0%
+membership_level_ar 0.2% (as its English half)
+```
+
+**And `/source/contractors` renders.** It answered 404 until #220 — #212's leak
+one layer up, the page asking the manifest where the API had learned to ask the
+catalogue too. Confirmed in a browser: 20 rows painted, 5,000 in the grid, and
+`grid.js`'s EN/AR switch flips all seven pairs.
+
+**HOW MANY CONTRACTORS EXIST, measured and not converged.** The sweep ran six
+passes over the English listing, 8h37m:
+
+| pass | new | total |
+|---|---|---|
+| 1 | +11,191 | 11,191 |
+| 2 | +3,960 | 15,151 |
+| 3 | +1,334 | 16,485 |
+| 4 | +547 | 17,032 |
+| 5 | +189 | 17,221 |
+| 6 | **+62** | **17,283** |
+
+It **stopped at its pass ceiling, not at convergence** — the sixth pass still
+brought 62 names never seen before, so an unknown number remain unseen. The
+warehouse therefore holds **11,059 of at least 17,283: about 64%**. The sweep
+stored no snapshots and read one language only, deliberately (it needed ids, not
+values), so the ~6,224 known-missing contractors have **no evidence and no Arabic
+half** — closing that gap is a new bilingual crawl, and DEC-9 argues it should
+follow the compression migration rather than precede it.
 
 **The live database is `~/.scrapex/engine/scrapex-engine.db`**, per
 `~/.scrapex/databases.json`. The older `~/.scrapex/marketlens/marketlens.db` is
@@ -149,9 +191,10 @@ opens it looking for this data.
 
 **Not in, and named so it is not mistaken for done:** the detail files
 (coordinates, email, licences, interests) — a second crawl of ~22,000 requests ·
-the Arabic half of the page snapshots (the English were stored; the Arabic values
-are **inside the rows**, but their evidence is not) · the sweep that says how many
-contractors the listing missed.
+the ~6,224 contractors the sweep counted and nothing has fetched · the
+compression migration DEC-9 asks for · the row-aware idempotency key DEC-10 asks
+for, without which a corrected parser cannot be re-run over stored snapshots at
+all.
 
 **One decision is open and it is the owner's:** both
 `FeatureKey.GENERIC_EXTRACTION` and `FeatureKey.GENERIC_DATASET_CATALOG` are still
