@@ -473,3 +473,81 @@ def test_a_price_source_still_carries_no_kind(tmp_path):
 
     assert priced, "the manifest's own sources vanished from the list"
     assert all("kind" not in row for row in priced)
+
+
+# ---- what the owner reported on 2026-08-20 -----------------------------------
+
+def test_every_row_is_loaded_because_a_prefix_cannot_be_filtered(conn):
+    """«اريد تحميل كل الصفوف بلا حد» — and the cost of the cap was not the
+    count in the corner, it was the FILTERS.
+
+    The grid filters and searches what it was given. At a cap of 5,000 against
+    11,059 stored, a search for a contractor in the other 6,059 returned nothing
+    and said so exactly as it would for a contractor who did not exist. The page
+    even reported it honestly — "filters search only what is loaded" — which
+    makes it a documented wrong answer rather than a hidden one.
+
+    The default is now every row. A caller that wants a bound still passes one,
+    and `truncated` still tells the truth when it does.
+    """
+    payload = stored(conn)
+
+    assert payload["returned"] == payload["total"]
+    assert payload["truncated"] is False, (
+        "a dataset reports itself truncated while holding every row it has")
+
+    # AND THE DEFAULT ITSELF, because this fixture cannot reach the old cap.
+    # The listing holds ~20 rows, so restoring `cap=5_000` leaves every
+    # assertion above green — measured by mutation, and a guard that passes
+    # under the defect it was written for is the silent-skip shape this
+    # repository has recorded three times. The contract is what changed: the
+    # default no longer decides for the reader, so the default is what is
+    # asserted.
+    import inspect
+
+    default = inspect.signature(service.dataset_table_payload).parameters["cap"].default
+    assert default is None, (
+        f"dataset_table_payload defaults to cap={default!r}; a number here silently "
+        "truncates every dataset larger than it, and the grid can only filter what "
+        "it was given")
+
+    bounded = service.dataset_table_payload(conn, "contractors", cap=2)
+    assert bounded["returned"] == 2
+    assert bounded["truncated"] is True, (
+        "an explicit cap must still report the prefix as a prefix")
+    assert bounded["total"] == payload["total"], (
+        "the cap changed the total, so the reader cannot see what is missing")
+
+
+def test_a_dataset_exports_a_workbook_instead_of_refusing_one(conn):
+    """`/export/contractors.xlsx` answered 404 with "nothing to publish for
+    contractors — crawl + ingest it first", on 11,059 stored rows.
+
+    THE THIRD READER THAT DID NOT ASK THE CATALOGUE. #212 fixed /api/sources and
+    #220 fixed /source/{key}; `publish.workbook_tables` reads the price join, a
+    dataset has no row in it, and `if not rows` raises. The branch belongs in
+    workbook_tables rather than in the route because that function has THREE
+    consumers — the .xlsx download, the Apps Script funnel and the Google sink —
+    and fixing the route alone would leave the other two refusing.
+
+    ONE TAB, not four: a directory has no price history, no detail block and no
+    provenance sheet, and three empty tabs beside it is the failure
+    workbook_tables already refuses for the price path.
+    """
+    from scrapex.publish import workbook_tables
+
+    payload = stored(conn)
+    tabs = workbook_tables(conn, "contractors")
+
+    assert len(tabs) == 1, "a directory grew tabs it has no content for"
+    name, header, rows = tabs[0]
+    assert name == "contractors"
+    assert len(rows) == payload["total"], (
+        "the export carries fewer rows than the dataset holds")
+    assert header == [column["label"] or column["key"]
+                      for column in payload["columns"]], (
+        "the export's header is not the schema's own labels, in its own order")
+    assert len(rows[0]) == len(header), "a row and its header disagree in width"
+
+    with pytest.raises(ValueError, match="nothing to publish"):
+        workbook_tables(conn, "NOT_A_SOURCE_OR_DATASET")

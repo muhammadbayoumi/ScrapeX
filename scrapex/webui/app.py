@@ -1119,11 +1119,13 @@ def create_app(
         cannot answer differently from another.
         """
         conn = read_conn()
+        general = general_read_conn()
         try:
-            tabs = workbook_tables(conn, source_key)
+            tabs = workbook_tables(conn, source_key, general=general)
         except ValueError as exc:      # nothing ingested for this source yet
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         finally:
+            general.close()
             conn.close()
         try:
             body = workbook_bytes(tabs)

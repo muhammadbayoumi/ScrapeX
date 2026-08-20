@@ -71,9 +71,32 @@ def _sink_batch(sink: SheetSink, handle) -> AbstractContextManager[None]:
     return batch(handle) if batch is not None else nullcontext()
 
 
+def dataset_workbook_tables(payload: dict,
+                            tab: str | None = None
+                            ) -> list[tuple[str, list[str], list[list]]]:
+    """One generic dataset as workbook tabs. A pure function over the payload.
+
+    ONE TAB, and the reason is what a dataset IS. The price export carries four
+    because a price has a history, a detail block and a provenance sheet; a
+    contractor directory has one flat table and inventing three empty tabs
+    beside it would be the "empty tables written as a header nobody can use"
+    that workbook_tables already refuses.
+
+    The header is the DISPLAY labels, in the schema's own field order, and the
+    cells are read through the same key order — so a column cannot land under
+    another column's name if the payload's key order ever changes.
+    """
+    keys = [column["key"] for column in payload["columns"]]
+    header = [column["label"] or column["key"] for column in payload["columns"]]
+    rows = [[row.get(key, "") for key in keys] for row in payload["rows"]]
+    return [(tab or payload["source_key"], header, rows)]
+
+
 def workbook_tables(conn: sqlite3.Connection, source_key: str,
                     schema: str = ORIGINAL_SCHEMA,
-                    tab: str | None = None) -> list[tuple[str, list[str], list[list]]]:
+                    tab: str | None = None,
+                    general: sqlite3.Connection | None = None,
+                    ) -> list[tuple[str, list[str], list[list]]]:
     """EVERY tab one source's export is made of: [(tab, header, rows), ...].
 
     The one place that decides what a complete export CONTAINS, so a workbook
@@ -89,6 +112,30 @@ def workbook_tables(conn: sqlite3.Connection, source_key: str,
     nobody can use — except the price table, whose absence is an error, not an
     empty tab.
     """
+    # A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE, and the catalogue is
+    # asked FIRST -- the same order and the same reason as /api/table and
+    # /source/{key}: a dataset key is lower-case with underscores and a source
+    # key is upper-case, so the two sets cannot collide, and asking the smaller
+    # table first costs nothing when it misses.
+    #
+    # THE BRANCH IS HERE RATHER THAN IN THE ROUTE, deliberately. This function
+    # is documented as the one place that decides what a complete export
+    # CONTAINS, and it has THREE consumers -- the .xlsx download, the Apps
+    # Script funnel (outputs.py) and the Google/local sink (publish_source).
+    # Fixing only the route would have left `export contractors` from the CLI
+    # and the Drive push still answering "nothing to publish", which is the
+    # defect this is, one layer down.
+    #
+    # `general` is separate because a two-database installation keeps the
+    # catalogue in the general database; it falls back to `conn`, which is the
+    # single-database case and the one the owner runs.
+    from .extract.service import dataset_table_payload
+
+    dataset = dataset_table_payload(general if general is not None else conn,
+                                    source_key)
+    if dataset is not None:
+        return dataset_workbook_tables(dataset, tab=tab)
+
     header, rows = export_source_table(conn, source_key)
     if not rows:
         raise ValueError(f"nothing to publish for {source_key} — crawl + ingest it first")
