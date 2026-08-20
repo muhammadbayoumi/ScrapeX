@@ -256,6 +256,96 @@ def test_every_declared_pair_is_on_every_row_present_or_not():
         assert all(f"{field}_ar" in row for row in without.rows)
 
 
+def test_a_declared_pair_carries_an_arabic_value_and_not_merely_a_column():
+    """THE FIFTH LEAK — and the fourth's own test was blind to it.
+
+    That test asserts `f"{field}_ar" in row`: that the COLUMN is there. Four of
+    the seven declared pairs then shipped EMPTY in all 11,059 approved rows —
+    `card_city_region_ar`, `card_company_size_ar`, `card_status_ar` and
+    `card_training_credit_hours_ar` — and every check passed the whole way.
+
+    `read_listing` keys a card's boxes by `card_{_slug(label)}`, and `_slug`
+    keeps `[a-z0-9]` only: on the Arabic page each label filtered down to
+    nothing, became `unnamed`, and seven boxes collapsed into one that the last
+    of them won. The merge was asking the Arabic page for English keys.
+
+    PRESENCE IS NOT ARRIVAL. This asserts arrival."""
+    from scrapex.extract.muqawil import (
+        BILINGUAL_CARD_FIELDS,
+        bilingual_listing_candidate,
+    )
+    arabic = (FIXTURES / "listing-ar.html").read_text(encoding="utf-8")
+
+    rows = bilingual_listing_candidate(LISTING, arabic).rows
+    assert rows, "the fixture stopped producing rows"
+
+    for field in BILINGUAL_CARD_FIELDS:
+        for row in rows:
+            value = row[f"{field}_ar"]
+            assert value, (
+                f"{field}_ar is an empty column on contractor "
+                f"{row['contractor_id']} — the column exists and nothing arrived")
+            assert value != row[field], (
+                f"{field}_ar merely repeats the English value")
+            # The site translates all seven. A value with no Arabic letter in it
+            # is an English string that reached an Arabic column, which is how a
+            # positional pairing goes wrong without looking wrong.
+            assert any("؀" <= character <= "ۿ" for character in value), (
+                f"{field}_ar holds {value!r}, which carries no Arabic letter")
+
+
+def test_a_card_whose_two_languages_disagree_on_box_count_keeps_its_english():
+    """The equal-length guard, which no real card has ever tripped.
+
+    Box counts agreed on 2,360 of 2,360 cards seen in both languages across 120
+    real page pairs — so this case has to be BUILT to be tested, and it is worth
+    building: a positional pair drawn from lists of different lengths puts one
+    field's value under another field's name, and nothing about the result looks
+    wrong. Training hours would read as a city.
+
+    The fallback is the one this function already promises an unpaired
+    contractor: keep the English half. Per CARD, not per page — the other
+    contractors on the same page are untouched."""
+    from bs4 import BeautifulSoup
+
+    from scrapex.extract.muqawil import (
+        _PROFILE_HREF,
+        bilingual_listing_candidate,
+    )
+    arabic = (FIXTURES / "listing-ar.html").read_text(encoding="utf-8")
+
+    soup = BeautifulSoup(arabic, "html.parser")
+    maimed = None
+    for card in soup.select("div.section-card"):
+        link = card.find("a", href=_PROFILE_HREF)
+        if link is None:
+            continue
+        maimed = _PROFILE_HREF.search(link["href"]).group(1)
+        card.select_one(".info-box").decompose()
+        break
+    assert maimed, "the fixture no longer holds a card to maim"
+
+    rows = {row["contractor_id"]: row
+            for row in bilingual_listing_candidate(LISTING, str(soup)).rows}
+
+    hurt = rows[maimed]
+    for field in ("card_city_region", "card_company_size", "card_status",
+                  "card_training_credit_hours"):
+        # Empty rather than `""`: `_candidate_from` normalises a blank to NULL,
+        # which is why the live table read `null` and not the empty string.
+        assert not hurt[f"{field}_ar"], (
+            f"{field}_ar took a value from a card whose boxes did not line up")
+    # The title and the badge are read from fixed places, not from the boxes,
+    # so they are unaffected — losing a box must not cost the whole row.
+    assert hurt["company_name_ar"], "a maimed card lost its Arabic name too"
+
+    others = [row for contractor, row in rows.items() if contractor != maimed]
+    assert others, "the fixture needs a second contractor to prove the scope"
+    for row in others:
+        assert row["card_city_region_ar"], (
+            "one bad card cost the whole page its Arabic half")
+
+
 def test_the_arabic_half_is_matched_by_contractor_id_and_never_by_position():
     """`en?page=5` and `ar?page=5` are two requests against a listing that
     reorders every thirty seconds — 4,556 of 11,059 contractors turned up on
@@ -318,6 +408,50 @@ def test_a_dataset_appears_among_the_sources_the_panel_lists(tmp_path):
     assert row["implemented"] is True, (
         "the panel disables a source it thinks has no connector")
     assert "muqawil.org" in row["base_url"]
+
+
+def test_the_source_page_renders_a_dataset_instead_of_answering_404(tmp_path):
+    """«اريد ظهور الجدول فى هذه الصفحة http://127.0.0.1:8000/source/contractors».
+
+    THE SAME LEAK AS `/api/sources`, ONE LAYER UP. That route learned about
+    datasets; the PAGE kept asking the manifest alone, and `source()` ends
+    `status_code=200 if summary is not None else 404` — so `/source/contractors`
+    answered 404 for a table `/api/table/contractors` was serving in full. A
+    grid nobody can reach.
+
+    The page needs nothing else: `grid.js` fetches `/api/table/{key}` itself and
+    builds the language switch from `payload.bilingual`, which is generic and
+    not product-specific. Verified in a browser — EN shows the seven English
+    columns, AR shows the seven Arabic ones."""
+    from fastapi.testclient import TestClient
+
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.webui.app import create_app
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                               pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    try:
+        stored(conn)
+        conn.commit()
+    finally:
+        conn.close()
+
+    client = TestClient(create_app(databases=registry))
+    page = client.get("/source/contractors")
+
+    assert page.status_code == 200, (
+        "the page 404s on a dataset whose rows /api/table already serves")
+    assert "Contractors" in page.text, "the page does not name the dataset"
+    assert "grid.js" in page.text, (
+        "without grid.js the page has no grid to fill")
+    # The price machinery must NOT have run: there is no availability, no offer
+    # and no price history for a company, and asking the warehouse for them is
+    # how this branch would raise instead of render.
+    missing = client.get("/source/no-such-thing-at-all")
+    assert missing.status_code == 404, (
+        "a key that is neither a source nor a dataset must still 404")
 
 
 def test_a_price_source_still_carries_no_kind(tmp_path):

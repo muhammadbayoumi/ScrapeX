@@ -100,6 +100,7 @@ from ..reports import (
     BROWSE_COLUMNS,
     FILTERABLE,
     SORTABLE,
+    SourceSummary,
     browse_columns,
     browse_google_finance_rates,
     browse_observations,
@@ -593,6 +594,48 @@ def create_app(
             source.base_url = entry.base_url or source.base_url
         return sources
 
+    def _dataset_rows():
+        """Every approved dataset, in the shape a source listing already speaks.
+
+        ONE QUERY, TWO READERS, and the reason is a bug that shipped. `/api/sources`
+        learned about datasets in #212 and the PAGE did not — so
+        `/source/contractors` answered 404 while `/api/table/contractors` served
+        11,059 rows to nobody at all. Copying the query into the page would have
+        left the next widening to drift the same way.
+
+        `kind` MARKS THEM, and the panel needs it: the row menu offers Update,
+        Wipe and Rename, and every one of those is a price-path action that would
+        answer 400 or worse for a dataset. A button that cannot work is worse
+        than no button, so the panel hides them on this marker.
+        """
+        general = general_read_conn()
+        try:
+            return [{
+                "kind": "dataset",
+                "source_key": row["dataset_key"],
+                "source_name": row["display_name"] or row["original_name"],
+                "source_name_ar": "", "base_url": row["base_url"],
+                "family": "generic", "active": True, "implemented": True,
+                "supports_history": False,
+                # `observations` is what the Data screen filters on, and for a
+                # directory the honest number is its rows. `products` has no
+                # meaning for a company, so it carries the same count rather
+                # than a zero that would read as an empty dataset.
+                "observations": row["rows"], "products": row["rows"],
+                "last_success": None, "kept_pages": 0, "kept_at": None,
+            } for row in general.execute(
+                "SELECT d.dataset_key, d.display_name, d.original_name, "
+                "s.base_url, count(r.generic_record_id) AS rows "
+                "FROM dataset_definition AS d "
+                "JOIN site_profile AS s "
+                "ON s.site_profile_id = d.site_profile_id "
+                "LEFT JOIN generic_record AS r "
+                "ON r.dataset_definition_id = d.dataset_definition_id "
+                "AND r.status = 'active' "
+                "WHERE d.valid_to IS NULL GROUP BY d.dataset_definition_id")]
+        finally:
+            general.close()
+
     def _source_catalog(conn):
         """Every configured source, split by whether it has warehouse data."""
         sources = _display_sources(conn)
@@ -808,10 +851,31 @@ def create_app(
             rate_dataset = google_finance_status(conn)
             summary = next((source for source in sources
                             if source.source_key == source_key), None)
+            # A DATASET IS NOT IN THE MANIFEST, and this page asked the manifest
+            # alone: `/source/contractors` answered 404 for a table that
+            # `/api/table/contractors` was already serving in full. The price
+            # machinery below stays behind `is_dataset` because none of it means
+            # anything for a company — there is no availability, no offer and no
+            # price history to count. The GRID does not need any of it:
+            # `grid.js` fetches `/api/table/{key}` itself and builds the language
+            # switch from `payload.bilingual`, which is generic and not
+            # product-specific.
+            is_dataset = summary is None
+            if is_dataset:
+                dataset = next((row for row in _dataset_rows()
+                                if row["source_key"] == source_key), None)
+                if dataset is not None:
+                    summary = SourceSummary(
+                        source_key=dataset["source_key"],
+                        source_name=dataset["source_name"],
+                        source_name_ar=dataset["source_name_ar"],
+                        base_url=dataset["base_url"],
+                        products=dataset["products"],
+                        observations=dataset["observations"])
             page_data, fields, views, columns = None, [], [], []
             changes_by_offer, facets, watch_counts = {}, {}, {}
             absent_columns = []
-            if summary is not None:
+            if summary is not None and not is_dataset:
                 page_data = browse_observations(
                     conn, source_key, search=q or None, availability=availability or None,
                     sort=sort or None, direction=direction,
@@ -1478,34 +1542,7 @@ def create_app(
         # Wipe and Rename, and every one of those is a price-path action that
         # would answer 400 or worse for a dataset. A button that cannot work is
         # worse than no button, so the panel hides them on this marker.
-        general = general_read_conn()
-        try:
-            for row in general.execute(
-                    "SELECT d.dataset_key, d.display_name, d.original_name, "
-                    "s.base_url, count(r.generic_record_id) AS rows "
-                    "FROM dataset_definition AS d "
-                    "JOIN site_profile AS s "
-                    "ON s.site_profile_id = d.site_profile_id "
-                    "LEFT JOIN generic_record AS r "
-                    "ON r.dataset_definition_id = d.dataset_definition_id "
-                    "AND r.status = 'active' "
-                    "WHERE d.valid_to IS NULL GROUP BY d.dataset_definition_id"):
-                out.append({
-                    "kind": "dataset",
-                    "source_key": row["dataset_key"],
-                    "source_name": row["display_name"] or row["original_name"],
-                    "source_name_ar": "", "base_url": row["base_url"],
-                    "family": "generic", "active": True, "implemented": True,
-                    "supports_history": False,
-                    # `observations` is what the Data screen filters on, and for
-                    # a directory the honest number is its rows. `products` has
-                    # no meaning for a company, so it carries the same count
-                    # rather than a zero that would read as an empty dataset.
-                    "observations": row["rows"], "products": row["rows"],
-                    "last_success": None, "kept_pages": 0, "kept_at": None,
-                })
-        finally:
-            general.close()
+        out.extend(_dataset_rows())
         return {"sources": out}
 
     @app.get("/api/resolve")
