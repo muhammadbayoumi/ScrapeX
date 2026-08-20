@@ -63,6 +63,74 @@ class FetchedPage:
                              "save_snapshot needs it to say where this came from")
 
 
+@dataclass(frozen=True)
+class Cell:
+    """One filtered view of a listing — a slice small enough to read whole.
+
+    WHY A LISTING NEEDS SLICING AT ALL, and it is not about politeness. muqawil's
+    listing order is a randomised ordering held in a cache whose generation lasts
+    **at least 157 s** (measured: page 1 of a filtered slice held its exact order
+    at 55 s, 90 s and 157 s, and had rolled by 282 s). Inside one generation
+    pagination is an exact partition — pages disjoint, together covering every
+    published row once. Across generations it is independent resampling, which is
+    why 864 pages read over hours yielded 11,059 of 17,275 slots and why six
+    blind passes over 8h37m never converged.
+
+    So a page set read entirely inside ONE generation is provably complete for
+    that set, and a cell is a set small enough for that to be possible. The whole
+    method is in `docs/BACKLOG.md`, DEC-11.
+
+    THE PARAMS ARE ORDERED AND THAT IS LOAD-BEARING. They go into the URL, and
+    the URL is the identity a resume matches on: `generic_page_snapshot.source_url`
+    is what `snapshotcrawl.already_stored` compares. A mapping would let two runs
+    of the same cell write `region_id=1&company_size=big` and
+    `company_size=big&region_id=1`, and the second would re-fetch every page it
+    already had.
+
+    THE EMPTY CELL IS THE WHOLE LISTING, which removes a special case rather than
+    adding one: sizing the unfiltered listing and sizing a cell are then the same
+    two requests through the same code, and the exhaustiveness audit — is
+    `Σ N_cell` equal to `N_whole`? — has both sides measured the same way.
+    """
+
+    params: tuple[tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        names = [name for name, _ in self.params]
+        if len(names) != len(set(names)):
+            # A repeated parameter is not a narrower filter, it is an ambiguous
+            # one — the site decides which occurrence wins and nothing here can
+            # say which. Refused rather than de-duplicated, because silently
+            # dropping one would produce a cell whose label and whose URL
+            # describe different sets.
+            raise ValueError(
+                f"a cell names {names} — one parameter twice, so what it selects "
+                "depends on which occurrence the site honours. Name each once.")
+
+    @property
+    def query(self) -> str:
+        """The cell as a query string, without a leading or trailing separator."""
+        return "&".join(f"{name}={value}" for name, value in self.params)
+
+    @property
+    def label(self) -> str:
+        """A name for logs, run refs and reports. Empty cell reads `whole`.
+
+        NOT the query string. It is used in `crawl_run_ref`, and a ref carrying
+        `&` and `=` is a ref nobody can grep for or paste into a shell.
+        """
+        if not self.params:
+            return "whole"
+        return "-".join(f"{name}_{value}" for name, value in self.params)
+
+    def __str__(self) -> str:
+        return self.label
+
+
+#: The unfiltered listing, as a cell. See `Cell` on why this is not a special case.
+WHOLE = Cell()
+
+
 class SliceNotSupported(NotImplementedError):
     """This site cannot decide slice membership from its listing pages.
 

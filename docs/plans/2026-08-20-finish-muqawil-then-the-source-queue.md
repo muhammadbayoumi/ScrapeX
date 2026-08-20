@@ -45,6 +45,45 @@ set before the crawl has been cleared.
 
 ### 1 · The listing crawl — closes coverage to a *provable* 100%
 
+> **BUILT AND RUNNING, 2026-08-20 (evening).** `scrapex/partitioncrawl.py`,
+> `Cell`/`WHOLE` in `scrapex/pagesource.py`, `MuqawilPartition` + `cells()` +
+> `listing_url()` + `read_ids()` in `scrapex/sites/muqawil.py`, and the driver
+> `tools/crawl_muqawil_listing.py`. Twenty-seven mutations killed across the crawl
+> and the upgrade path it needed.
+>
+> **`--plan` ran against the live site and the partition is confirmed exact:**
+> 56 cells, 897 pages, declared **17,414** against the listing's **17,414** —
+> exhaustiveness deficit **0**, twice. Re-priced from the latency it actually paid:
+> **~1,964 requests bilingual, about 1.4 h** (the 1,065 below is English-only).
+>
+> **Getting it a warehouse took two rulings of his.** The home machine had none and a
+> pre-collapse pointer ([OP-22](../BACKLOG.md)); he ruled that an empty installation is
+> the product's normal first-run state ([R-23](../RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)).
+> `carry-over` then refused on his real data and **I stepped around it** by crawling
+> into an empty database beside his full one — the trap `registry.py`'s own message
+> names. He refused that too:
+> [R-24](../RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+> — a database is **upgraded, never replaced**. So [OP-23](../BACKLOG.md) was fixed and
+> the installation upgraded in place: 3,739 offers, 3,739 observations, 17,111
+> attributes, 7,410 change events, **not one row short**.
+>
+> Run it against the installation's own warehouse:
+> ```
+> python tools/crawl_muqawil_listing.py --plan
+> python tools/crawl_muqawil_listing.py --crawl   --run-ref listing-YYYY-MM-DD
+> python tools/crawl_muqawil_listing.py --approve --run-ref listing-YYYY-MM-DD
+> ```
+> `--crawl` is resumable: the same `--run-ref` again skips the pages it stored,
+> and `--approve` re-reads the stored pages without fetching anything.
+>
+> **Three things the live run taught that no fixture could.** A cell can publish
+> **zero** rows (`region_id=8 & company_size=big`) and its empty page 1 is a
+> different fact from a page never read — conflating them left that cell
+> permanently unprovable and so the whole partition unprovable. A **log line** can
+> kill the run: `UnicodeEncodeError` on `→` against a cp1252 console, after all 114
+> requests had succeeded. And `snapshotcrawl`'s **resume saves no requests** at all
+> — [OP-21](../BACKLOG.md) — which `partitioncrawl` works around locally.
+
 **~1,065 requests, ~1.7 hours.** Method in [DEC-11](../BACKLOG.md), §"The method:
 partition, then witness the partition":
 
@@ -105,6 +144,7 @@ existed for**, so it must run with `body_class` set — `snapshotcrawl` already 
 | **`DEC-10`** | *"fix the parser and re-run over the snapshots"* **does not work**: `approve_candidate` short-circuits on `(snapshot, locator)` plus `schema_hash`, so a corrected parser returns `recovered=True` for every page and writes nothing. 864 pages once reported re-approved changed not one row. Needs a row-aware idempotency key |
 | **`STORAGE.md` §5** | *Is a snapshot evidence, or only a parse cache?* **His.** It does not block the crawl — the recommendation is retain everything — it decides whether a future reduction is permitted |
 | **`DEC-12`** | The append gate's key is not the number. **His**, because it changes what `SR-6` means. Not needed for muqawil; needed before the first price collection |
+|  Which machine holds the warehouse? Measured: the home machine has no engine database, a `"mode": "split"` pointer from before the collapse, and a `general.db` with **zero rows in every generic table** — so the 11,059 rows, the 1,728 snapshots and the sweep's 17,283-id sighting ledger are on the work machine only. Carry the file across, run only there, or reconcile two warehouses. [OP-22](../BACKLOG.md) |
 | **`O-2`, `O-5`** | Open contractor questions. `O-5` is explicitly held by him |
 | **`REQ-11`** | Branch protection — he deferred it to its own session. `main` still has **no protection at all** (the API answers 404) |
 

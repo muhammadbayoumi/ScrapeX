@@ -107,6 +107,19 @@ of papered over.
 **Reach for it:** on a small, high-consequence surface where "the tests pass" is
 not enough — auth, revocation, the append gate, a version gate.
 
+**And a distinction the partitioned crawl made sharp, 2026-08-20.** Twenty-one
+mutations were run against `scrapex/partitioncrawl.py` and all twenty-one were
+killed, which sounds like the technique found the bugs. **It found none of them.**
+The three real defects in that module — a cell that publishes zero rows being
+unprovable for ever, a `UnicodeEncodeError` that killed a run after 114 successful
+requests, and a cost report that billed for requests never made — were found by
+**writing the tests** (A6) and by **running it against the live site** (A2).
+
+So the two techniques answer different questions and neither substitutes for the
+other: A6/A2 ask *is the behaviour right*, A7 asks *would a test notice if it
+stopped being right*. A module with a clean mutation score and no live run is a
+module whose guards are trustworthy about behaviour nobody has checked.
+
 ---
 
 ### A8 · The built-in review skills

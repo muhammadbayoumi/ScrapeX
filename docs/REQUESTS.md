@@ -68,13 +68,14 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-10](#req-10--adversarially-review-the-fixes-then-execute) | Adversarially review the fixes, then execute | **Done** | 2026-08-20 |
 | [REQ-11](#req-11--branch-protection-for-main-in-a-session-of-its-own) | Branch protection for `main`, in a session of its own | **Captured** — deferred by him | 2026-08-20 |
 | [REQ-12](#req-12--justify-the-volume-not-compress-it) | Justify the volume, not compress it | **Captured** — study done, the ruling is his | 2026-08-20 |
-| [REQ-13](#req-13--crawl-muqawil-without-missing-anyone-and-know-the-cost-before-starting) | Crawl muqawil without missing anyone, and price it first | **Captured** — method proven, crawl not built | 2026-08-20 |
+| [REQ-13](#req-13--crawl-muqawil-without-missing-anyone-and-know-the-cost-before-starting) | Crawl muqawil without missing anyone, and price it first | **In flight** — built, priced, and running under [R-23](RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation) | 2026-08-20 |
 | [REQ-14](#req-14--balady-engineering-offices-as-the-next-source-after-muqawil) | Balady engineering offices, the next source after muqawil | **Captured** — queued behind muqawil | 2026-08-20 |
 | [REQ-15](#req-15--the-uae-sources-third-in-the-queue) | The UAE sources, third in the queue | **Captured** — queued behind Balady | 2026-08-20 |
 | [REQ-16](#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue) | Egypt, Oman, Qatar, Bahrain and Kuwait, fourth in the queue | **Captured** — appended in the order received | 2026-08-20 |
 | [REQ-17](#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) | Official diesel prices — a product source, not a firm directory | **Captured** — the smallest item in the queue | 2026-08-20 |
 | [REQ-18](#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) | Bitumen 60/70 prices — the first source that cannot be crawled | **Captured** — 5 of 7 need a written quotation | 2026-08-20 |
 | [REQ-19](#req-19--reinforced-concrete-material-prices--its-turn-will-come) | Reinforced-concrete material prices — its turn will come | **Captured** — a provenance-typed price model | 2026-08-20 |
+| [REQ-20](#req-20--the-database-rename-must-reach-every-user-not-just-this-machine) | The database rename must reach every user | **Captured** — measured; a release blocker under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema) | 2026-08-20 |
 
 ---
 
@@ -427,7 +428,31 @@ the measurement.
 
 ## REQ-13 · Crawl muqawil without missing anyone, and know the cost before starting
 
-**Captured 2026-08-20 · The study is done and one slice is proven; the crawl is not built**
+**Captured 2026-08-20 · Ruled ([R-23](RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)) · In flight — built, priced against the live site, and RUNNING**
+
+> **What changed on the evening of 2026-08-20.** The method stopped being a study
+> and became `scrapex/partitioncrawl.py` plus a committed driver,
+> `tools/crawl_muqawil_listing.py`. Its `--plan` mode answers his third question —
+> *how do we estimate the requests before starting* — **by measuring, not by
+> quoting a document**: it sizes all 56 cells in 114 requests and prices the crawl
+> from the latency it just paid. Run against the live directory it reported 56
+> cells, 897 pages, **17,414 declared against the listing's 17,414 — exhaustiveness
+> deficit 0**, and ~1,964 requests at about 1.3 h for both locales.
+>
+> His first constraint is honoured by construction and now proven twice over: the
+> last page held **14** cards that evening, against 15 on 2026-08-16 and 2 that
+> morning, so `S` and `c` are read every time. His second — «لا اريد تكرار هذا
+> الامر» — is what `record_sightings` per attempt answers.
+>
+> **And it is running.** It looked blocked — the home machine had no warehouse to
+> write to ([OP-22](BACKLOG.md)) — and he ruled the premise away the same evening:
+> ScrapeX is a tool many people install, so an empty installation is the product's
+> normal first-run state and a warehouse is per installation
+> ([R-23](RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)).
+> One was created here and the crawl went into it. `scrapex carry-over` refused on the
+> way — 261 pre-0058 offers against a trigger added after them, [OP-23](BACKLOG.md) —
+> so the price half of this installation is untouched and that defect is recorded
+> rather than worked around.
 
 > «عدد الصفح غير ثابت وفعدد المقاولين المسجلين على الموقع بالتاكيد يتغيروا مع الوقت شوف
 > طريقة ازاى نعرف عدد الصفح او ازاى نزحف صح بدون ان نغفل شى … ازاى نقدر عدد الطلبات قبل
@@ -805,6 +830,55 @@ absolute prices. Oman and Kuwait offer **indices**, which its own §3 says are n
 prices. Bahrain offers approval and specification evidence, which is not a price
 either. So for four of seven countries this is a `quote_required` source in the same
 sense the bitumen brief is.
+
+---
+
+## REQ-20 · The database rename must reach every user, not just this machine
+**Captured 2026-08-20 · Measured the same evening; the build is his to schedule**
+
+> «قاعدة بيانات marketlens تم تغيير اسمها — هل تم تغيير اسمها عند كل المستخدمين؟»
+
+He asked it as a question and it is a requirement: `marketlens.db` + `general.db`
+became `engine/scrapex-engine.db`, and **every existing installation has to make that
+transition exactly once.** He had just watched me do it by hand on this machine, and
+the question is whether a user gets the same outcome without me there.
+
+### The answer is no, and it was measured rather than argued
+
+`carry_over` has exactly one production caller — the manual `scrapex carry-over`
+subcommand. Simulated against a fake split installation:
+
+| how the user starts it | what they get |
+|---|---|
+| a terminal | a clean message naming `scrapex carry-over` |
+| **the extension panel** (`native.startup_check()`) | `ok: false`, `action: "check_storage"` — a dead engine |
+| **the panel's own repair button** (`native.upgrade_database()`) | `ok: false`. It **cannot** fix this transition at all |
+
+Full detail in [OP-24](BACKLOG.md).
+
+### Why this is his ruling already, applied to the wrong half
+
+The project decided this on **2026-08-05**, on his instruction, when migration 0061
+left the engine refusing to start: *"the one person the refusal speaks to is the one
+who does not read a log"*, so the upgrade became part of the startup procedure
+(`cli._upgrade_what_is_only_behind`). That reasoning was applied to **migrations** and
+never to **carry-over** — the larger transition of the two. Under
+[R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+it is a release blocker rather than debt.
+
+### And the automatic version is safer than the one already shipping
+
+`_upgrade_what_is_only_behind` advances the user's file in place and must back it up
+first. `carry_over` opens both old files **read-only**, writes a new one, verifies
+every table's row count, and moves the pointer **last** — so the old files *are* the
+backup, and a failure leaves an installation that refuses to start rather than one
+running on half its data.
+
+### What it still needs, and it is the gap that hid this
+
+**A test that a split installation STARTS.** Every carry-over test to date calls
+`carry_over` directly, so nothing ever exercised the path a user takes — which is
+exactly why a manual-only remedy looked finished.
 
 ---
 

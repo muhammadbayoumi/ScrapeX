@@ -432,6 +432,208 @@ the row count is the only thing that notices. `PRAGMA table_info` does not show
 CHECK constraints at all, which is why the test fixture was wrong three times
 before it was built from the shipped schema instead of from memory.
 
+### OP-21 · `snapshotcrawl`'s resume saves the write and none of the requests
+
+**MEASURED 2026-08-20**, by resuming a nine-page crawl and counting: the second run
+made exactly as many requests as the first.
+
+The module's own docstring gives the reason it exists in requests —
+*"a second attempt re-fetched every one of them — on a full pass, hours of requests
+to re-learn what was already on disk. Keeping the evidence and re-fetching it
+anyway is not a resume."* The implementation checks the resume in the wrong place:
+
+```
+scrapex/snapshotcrawl.py:154   def store(page: FetchedPage) -> None:
+scrapex/snapshotcrawl.py:156       if page.url in seen:
+```
+
+`store` is the walker's `on_page`, and `PageWalker.walk` calls it **after**
+`self._get(url, …)` has already fetched. So a resumed run re-fetches every page and
+then declines to store it. It saves the INSERT and the compression, which is real,
+and none of the hours, which is what was claimed.
+
+**Not fixed here, per [R-01](RULINGS.md#r-01--diagnose-confirm-then-fix--one-step-at-a-time)**
+— where the skip belongs is that module's own decision, and the honest fix moves
+the check into the walk rather than adding a second one. `scrapex/partitioncrawl.py`
+needs a resume that actually saves requests because it is a ~2,000-request crawl, so
+it filters the already-stored URLs out of the `PageSource` before the walk sees them
+(`_Unstored`) and reads those pages' ids back off the stored snapshot instead of off
+the wire. That is a local answer, and it leaves this defect standing for every other
+caller.
+
+**Why it matters beyond the tidiness:** the resume is the reason a crawl can be
+interrupted. An eight-hour profile crawl (step 4 of the muqawil plan, 34,806 pages)
+interrupted at hour six would, today, re-fetch six hours of pages to store nothing.
+
+### OP-22 · The warehouse exists on ONE of the two machines, and the pointer on the other is pre-collapse
+
+**MEASURED 2026-08-20 on the home machine**, before anything was run:
+
+| | |
+|---|---|
+| `~/.scrapex/engine/scrapex-engine.db` | **does not exist** |
+| `~/.scrapex/databases.json` | `"mode": "split"` — the layout from before the two databases were collapsed into one, so `DatabaseRegistry.defaults()` **raises** |
+| `~/.scrapex/general/general.db` | 192 KB, has the generic tables and **0 rows in every one of them**; no `dataset_sighting`, no `snapshot_dictionary` |
+| `~/.scrapex/marketlens/marketlens.db` | 21 MB, and carries none of the generic tables |
+
+So the 11,059 contractors, the 1,728 page snapshots and — the part that cannot be
+re-derived — the `dataset_sighting` ledger from the six-pass sweep, with its 17,283
+ids and their frequency distribution, are on the work machine only. The home machine
+can read every document describing them and open none of them.
+
+> **THE FRAMING BELOW WAS MINE AND HE OVERTURNED IT THE SAME DAY. Kept per C4/C5.**
+> I wrote that this is *"`CLAUDE.md`'s founding failure in the one place the
+> repository cannot follow it"*. It is not a failure at all:
+> [R-23](RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)
+> — ScrapeX is a tool **many people install**, so an installation with no warehouse
+> is the product's **normal first-run state**, and a warehouse is per installation.
+> The repository rule is about decisions and knowledge, which do travel; a user's
+> collected data was never meant to.
+>
+> **What survives as a real finding** is the second half: a *coverage number is a
+> fact about one installation*, so "11,059 of 17,403" must never be written as a
+> project-wide truth — and any session must check which warehouse it is looking at
+> before trusting one. That part stands, and it is why this entry is not deleted.
+
+~~**This is `CLAUDE.md`'s founding failure in the one place the repository cannot
+follow it.** A document is committed and travels; a 796 MB database is not and does
+not.~~
+
+**The question it raised was the owner's** and was recorded as `O-6`: carry the file
+across, run only where the data is, or let each machine hold a warehouse and
+reconcile them. **He chose none of them** — see the note above. It never blocked the
+*build*; the crawl was written, tested and priced without it.
+
+### OP-23 · ~~`carry_over` cannot carry a pre-0058 installation~~ — FIXED 2026-08-20, and the fix was a ruling first
+
+> **CLOSED THE SAME EVENING IT WAS FOUND, because the owner ruled that it was not a
+> backlog item.** I had recorded it here and stepped around it by creating a second
+> warehouse. He refused that:
+> [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+> — a database is upgraded, never replaced, and a migration that refuses on real data
+> is a release blocker rather than debt. The diagnosis below stands as written; what
+> changed is who it was for.
+>
+> **Fixed and verified on the real installation:** `Backfill` in
+> `scrapex/databases/carry_over.py` supplies the columns the engine schema requires
+> and the split-era schema never had, reusing migration 0058's own
+> `legacy_unwitnessed` rather than minting a second literal, conditional exactly as
+> 0058 is. The carry-over then ran: **3,739 offers, 3,739 observations, 3,739 periods,
+> 17,111 attributes, 7,410 change events, 966 products — not one row short**, 261
+> offers marked legacy, 3,478 without a unit untouched, old files read-only and still
+> in place. Guarded by
+> `tests/test_a_carry_over_upgrades_rather_than_starting_over.py`; six mutations killed.
+>
+> **Two things it had to be at the INSERT rather than after it**, both measured:
+> the trigger fires on INSERT so a later `UPDATE` never runs; and copy-then-migrate —
+> the elegant design, which would have got every migration's backfill for free — is
+> architecturally closed, because the engine schema is DERIVED and starts a new stream
+> at v1. A copy of `marketlens.db` is refused on `application_id` (1398295884) before
+> its `user_version` of 55 is even read. That measurement is why the row-copy design
+> in `carry_over` is correct by necessity and not by oversight.
+
+### The diagnosis, kept because it is where the fix came from
+
+**MEASURED 2026-08-20, by running it for real on the home machine** while creating the
+warehouse [R-23](RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)
+calls for. `scrapex carry-over` refused:
+
+```
+error: a selling unit must carry its provenance and its witness
+```
+
+**It refused correctly and moved nothing** — the pointer is still `"mode": "split"`,
+which is the safety design in `carry_over`'s own docstring working exactly as written.
+But the documented upgrade path for this installation is now closed.
+
+**The cause, exactly.** Migration 0058 added `unit_basis_provenance` and
+`unit_basis_witness` to `source_offer` plus two triggers that refuse a row carrying a
+`selling_unit_id` without both. `carry_over` INSERTs the old rows into an
+already-migrated database, so the triggers see them — and the old schema has **no such
+columns at all**:
+
+| | |
+|---|---|
+| `source_offer` rows in `marketlens.db` | **3,739** |
+| of those, carrying a `selling_unit_id` | **261** |
+| `unit_basis_provenance` / `unit_basis_witness` in the old schema | **the columns do not exist** |
+
+**And the fix needs no decision about evidence, which is why this is a defect and not
+a question.** 0058 already faced the same rows in the in-place upgrade path and answered
+it — [db/migrations/0058_a_unit_that_can_name_who_said_it.sql:89-90](../db/migrations/0058_a_unit_that_can_name_who_said_it.sql)
+sets `unit_basis_provenance = 'legacy_unwitnessed'` with a witness that says in words
+that nobody can say where the value came from. So the honest value exists, is named,
+and counts as unresolved under the resolution metric. `carry_over` simply never applies
+it, because it copies rows rather than migrating a file.
+
+~~**Not fixed here, per R-01.**~~ **Struck 2026-08-20:** R-01 governs a fix landing before the CAUSE is agreed, and the cause was agreed the moment it was measured. What I actually did was defer a release blocker, which is what R-24 refuses.
+It touches the path that carries the owner's 3,739 price observations, which is the
+highest-consequence surface in the project, and it is unrelated to the muqawil crawl
+this pull request is about. The shape of the fix is one `UPDATE` after the copy, reusing
+0058's own literal rather than inventing a second one — and it needs a test that the
+carried rows come out marked `legacy_unwitnessed` rather than merely arriving.
+
+**A sibling of [OP-17](#op-17--carry_over-cannot-merge-a-table-that-lives-in-both-old-databases)**,
+and the same lesson from a different direction: that entry recorded that
+`INSERT OR IGNORE` swallows a CONSTRAINT failure as quietly as a duplicate. Here the
+constraint is a TRIGGER, so it aborted loudly instead — which is better, and is why
+this was found in one command rather than by counting rows afterwards.
+
+### OP-24 · The marketlens → engine rename is a MANUAL command, so a shipped user gets a dead engine
+
+**HIS QUESTION, 2026-08-20, on the board as [REQ-20](REQUESTS.md#req-20--the-database-rename-must-reach-every-user-not-just-this-machine):** «قاعدة بيانات marketlens تم تغيير اسمها — هل تم تغيير
+اسمها عند كل المستخدمين؟» The answer is no, and it was measured rather than reasoned.
+
+**The mechanism exists and the product does not reach it.** `carry_over` has exactly
+**one** production caller — the manual subcommand `scrapex carry-over`
+(`scrapex/cli.py:993`). Nothing automatic calls it: not `ui`, not autostart, not the
+native host, not the panel.
+
+**What a split-era user actually gets**, simulated end to end against a fake split
+installation:
+
+| path | result |
+|---|---|
+| any CLI command | clean message naming `scrapex carry-over` — `main()` catches everything (`scrapex/cli.py:1127`) |
+| `native.startup_check()` — how the PANEL starts the engine | `ok: false`, `action: "check_storage"`, detail = *"Run 'scrapex carry-over'"* |
+| `native.upgrade_database()` — **the panel's own repair action** | `ok: false`. **It cannot fix this**: `DatabaseRegistry.defaults()` refuses before `initialize()` is ever reached |
+
+So the one button the product offers for a database problem is unable to fix the one
+transition every existing installation must make — and it reports the failure as
+`check_storage`, which is the wrong action: nothing is wrong with the storage.
+
+**THE PROJECT HAS ALREADY RULED ON THIS EXACT SITUATION, and the ruling was not applied
+here.** `cli._upgrade_what_is_only_behind` exists because of his instruction of
+2026-08-05, and its docstring is this entry's whole argument:
+
+> Migration 0061 merged and was never applied here, so the next time the engine started
+> it refused — correctly, and with the exact command to run — and the owner saw only a
+> dead engine. The rule protected the data and cost him the product, because **the one
+> person the refusal speaks to is the one who does not read a log.**
+
+That reasoning was applied to *migrations* and never to *carry-over*, which is the
+bigger of the two transitions.
+
+**And the automatic version is SAFER than the one already shipped**, which is the part
+that makes this cheap. `_upgrade_what_is_only_behind` advances the user's file in place
+and therefore has to take a backup first. `carry_over` opens both old files
+**read-only**, writes a new one, verifies every table's row count, and moves the
+pointer **last** — so the old files are the backup, by construction, and a failure
+leaves an installation that refuses to start rather than one that starts on half its
+data.
+
+**Shape of the fix**, for whoever picks it up: call `carry_over` from the same place
+`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:761`) when the pointer is
+split, say so on stdout and in the log naming both source files, and give
+`native.upgrade_database()` the same path so the panel's button works. Then a test
+that a split installation **starts**, which is the test nobody has written — every
+carry-over test to date has called `carry_over` directly, so the gap was invisible.
+
+**Not built here.** It is a different concern from the muqawil crawl in flight, and
+under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+it is a **release blocker** rather than debt — so it is his call whether it goes in its
+own session now or immediately after the crawl lands.
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
@@ -1425,6 +1627,15 @@ why.
 > what stopped it: three consecutive failures in the modified worktree looked like
 > proof the branch had caused them. Four passes on the unmodified checkout refuted
 > that in one command. **Never conclude from runs on one side only.**
+>
+> **Re-measured again on the evening of 2026-08-20, and this time the load was
+> deliberate.** The partitioned muqawil crawl was running — ~1,964 requests against a
+> live site — which is the loaded machine this entry names, rather than a coincidence
+> of other sessions. Under it: **3 of 3 failures on unmodified `main` at `2366d6d`**,
+> same assertion at `tests/test_the_engine_survives_being_killed.py:266`, and the same
+> failure inside the branch. Both sides, as this entry demands. So a crawl in progress
+> is now a known way to reproduce it fairly reliably — which is worth more to whoever
+> fixes it than another run of the flake in quiet conditions.
 >
 > Consequence unchanged and worth restating: `_source_is_busy` reads that status,
 > so a real crash leaves the source blocked from every future crawl with nothing
