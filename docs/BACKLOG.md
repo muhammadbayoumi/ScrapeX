@@ -582,6 +582,128 @@ than missing **(inferred from the titles; the check is a diff, not a title match
 **superseded, do not merge**. Two branches live in `~/.codex/worktrees/`, so
 `git worktree remove` comes before any deletion.
 
+### DEC-11 · How to crawl muqawil without missing anyone, and what it costs
+
+**STUDIED 2026-08-20 on his instruction** — «ازاى نزحف صح بدون ان نغفل شى» and «اريد
+منك فحص كل الحلول والحالات» — because the warehouse had told him a real company did
+not exist. Fifteen agents over five angles, each proposed method then attacked to find
+the contractor it misses.
+
+#### First, four numbers in this repository are wrong, including one of mine
+
+| stated | measured 2026-08-20 |
+|---|---|
+| 865 listing pages | **871** |
+| ~17,300 / "at least 17,283" contractors | **17,402** = `(L−1)×20 + c`, where the last page now carries **2** cards, not 15 |
+| a 2026-08-17 pass ran at 5.4 requests/second *(mine, in conversation)* | **FALSE.** `captured_at` is the INSERT time, not the fetch time. The "160 seconds" was a database copy. The real rate is **5.84 s PER REQUEST** — 34× slower |
+| 121,157 detail requests | superseded, and still written down |
+
+**So speed IS a problem, contrary to what I told him.** The correction matters because
+every cost below is priced at 5.84 s and would be nonsense at 5.4/s.
+
+#### The mechanism, and it is the whole answer
+
+The listing order is **not** randomised per request. It is a randomised ordering held
+in a cache whose generation lasts **more than 66 s and at most 268 s**. Measured.
+
+- **Inside one generation, pagination is an exact partition** — pages disjoint,
+  together covering every published row once.
+- **Across generations it is independent resampling**, which is why 864 pages read
+  over hours yielded 11,059 of 17,275 slots and why six passes never converged.
+
+> **Therefore any page set read entirely inside one generation is provably complete
+> for that set.** That sentence is the difference between hoping and knowing.
+
+#### The method: partition, then witness the partition
+
+| step | what it does | cost |
+|---|---|---|
+| **0 · ceiling** | page 1 → `L` and cards-per-page `S`; page `L` → `c`; `N = (L−1)·S + c`. **`S` is READ, never assumed** — he warned it may change, and it did change on the last page | **2 requests, ~12 s** — replaces an 8h54m six-pass sweep |
+| **1 · partition** | slices small enough to read inside one generation: `floor(66 s ÷ s-per-request)` ≈ **11 pages** serial, ~31 at concurrency 4. `region_id` verified live: region 1 → 322 pages, region 13 → 8 | free from a stored page |
+| **2 · witness** | after reading a slice, **re-fetch its page 1**. Byte-identical ⇒ the generation never rolled ⇒ the pages were one true partition ⇒ if `distinct == N_s` the slice is **provably complete**. Different ⇒ discard and retry | `L_s + 1` |
+| **3 · exhaustiveness audit** | `Σ N_s == N_total`? If short, **the deficit is exactly the count of contractors whose facet value is null** — the "contractor in no partition" case, detected and counted instead of silently dropped | 2 per slice |
+| **4 · global deficit** | `D = N − |distinct|`. `D > 0` **proves** incompleteness and names its size; `D == 0` proves every published row position was read. Re-read `L` at the end: if it moved, say "complete as of the start, with N arrivals deferred" | free |
+
+**Cost: ~1,670 requests ≈ 2.7 h serial, ~58 min at concurrency 4** — against **18.4 h**
+for a blind 13-pass sweep that can still only ever say *"expected unseen 0.04"*. Seven
+times cheaper **and provable instead of probabilistic**.
+
+**Concurrency buys wall-clock, not coverage.** Closing an 871-page pass inside a 66 s
+generation would need ~34 in flight, and `pacegovernor.py` already measured the price
+of four (latency 6.6 s → 9.2 s, *"a server saying it is hurting"*). Coverage comes from
+slice size, not from parallelism.
+
+#### What this method still cannot see, and it is the most important paragraph here
+
+It proves it read every row the paginated listing **publishes**. It cannot prove the
+listing publishes every contractor the site knows:
+
+> **The site's own header counts 123,842 "Saudi Contractor" against 17,402 published
+> rows — a factor of 7.1.**
+
+So the only honest warehouse claim is *"every contractor findable in the muqawil.org
+contractor listing as of «timestamp»"*, never *"every Saudi contractor"*. And
+membership **10001274** is therefore **explained but not closed**: `q` reaches it
+(tested — it returned exactly id 1301), and whether it appears in the unfiltered
+listing is unknown until one crawl closes with `D == 0`.
+
+#### The blind fallback, priced honestly
+
+Expected unseen after `k` passes = `N·e^(−k)`, and the model is validated: it predicted
+42.9 unseen after 6 passes; the sweep observed 38. `k=10` for expected unseen below 1,
+`k=13` for 95% confidence of missing nobody, `k=15` for 99%. Reserve it for the
+residual, never as the primary method — it cannot say "complete".
+
+#### And one cost correction that changes the plan
+
+`sites/muqawil.py:118` computes `listing_requests = last_page × len(locales)`. Correct
+about requests, **but it must not be read as coverage**: Arabic page N returns the SAME
+20 ids as English page N — 20 of 20 identical on 845 of 864 stored pages. The Arabic
+half buys **129 new ids for 865 requests**. Count passes in ONE locale for completeness
+planning and treat Arabic as a data-pairing cost, not a coverage cost.
+
+#### Unknowns, with the missing evidence named
+
+1. **Is `region_id` exhaustive?** `Σ N_r` over 13 regions against 17,402 is
+   **unmeasured**. Missing evidence: 26 GETs, ~2.6 minutes.
+2. **Does a partition fine enough for an 11–31 page slice exist?** This is the method's
+   one load-bearing unverified dependency. `city_id`'s `<select>` is **empty in the
+   stored HTML** — AJAX-populated, values never observed — and `company_size`,
+   `rating_stars`, `user_type` and `interest_id` have no `<select>` in the listing at
+   all. Only `region_id` (13) is readable and confirmed, and Riyadh alone is 322 pages.
+   Missing evidence: the endpoint that populates `city_id`.
+3. **Is 10001274 in the unfiltered listing?** Unknown until a converged crawl says so.
+4. A parsing trap worth keeping: a first region probe reported "no pagination" because
+   the hrefs carry `&amp;` — the character before `page=` is a semicolon. **Unescape
+   HTML before matching.**
+
+#### Dead ends, so nobody spends the requests twice
+
+Recorded because a negative result stated firmly is worth as much as a positive one,
+and each of these looked promising enough to chase:
+
+- **The sitemap does not enumerate contractors.** `/sitemap.xml` → `/ar/sitemap.xml` →
+  a sitemapindex of `sitemap-ar.xml` and `sitemap-en.xml`, and the English one holds
+  **20 static pages**. Settled; do not re-check.
+- **`/en/contractors/map` carries no contractor markers.** The page is 406 KB and
+  holds 263 distinct latitude-shaped numbers, which is what made it look like a feed.
+  It is not: the one coordinate in the map's own script is the map CENTRE — Riyadh,
+  `{lat: 24.70372261387751, lng: 46.683}` — sitting under a comment copied straight
+  from a Google Maps tutorial, `// The location of Uluru`. **Zero contractor profile
+  links on the page.** Its only endpoints are `/api/js` (Google Maps) and
+  `/api/rating-api` (the rating widget). So the map gives neither an enumeration nor
+  the coordinates the owner asked for — `latitude`/`longitude` remain a profile-page
+  field, exactly as `CONTRACTOR-SOURCE.md` already marks them (`js`, inline script
+  only).
+- **No stable sort exists.** `sort`, `order`, `order_by`, `orderby`, `sort_by`,
+  `direction` and `sort_field` were each tried against the live listing and **not one
+  changed the order** — measured before this study, and recorded in
+  `scrapex/sweep.py`'s header. There is nothing to build.
+- **Id-space enumeration is not viable.** Contractor ids span 720 … 20,217,024 in two
+  series the site publishes, far too sparse to probe.
+
+---
+
 ### DEC-9 · Snapshots are stored uncompressed, and the full crawl is 6.4 GB of it
 **MEASURED 2026-08-20, on the live database.** The contractors cost 342 MB, of which
 **320 MB is HTML and 22 MB is data** — 94% of the price is the pages, not the rows.
@@ -607,14 +729,16 @@ times, which is exactly why it compresses so well:
 **320 MB would be 21 MB.** And the projection that makes it a decision — one real
 profile page was fetched and measured at **168 KB raw, 18 KB compressed (9.4x)**:
 
-| Stage B, 17,283 contractors x 2 languages = 34,566 pages | |
+| Stage B, 17,402 contractors x 2 languages = 34,804 pages | |
 |---|---|
 | raw | **~6.4 GB** |
 | compressed | **~660 MB** |
 
 **The recommendation is that the rule is right and the encoding is wrong.** "One page
 in, one snapshot out" earned itself on 2026-08-20: a defect in the bilingual merge was
-repaired from disk with **nothing re-fetched**, where a re-crawl is 2.8 hours. So the
+repaired from disk with **nothing re-fetched**, where a re-crawl is 2.8 hours — and
+[DEC-11](#dec-11--how-to-crawl-muqawil-without-missing-anyone-and-what-it-costs) prices
+a *provable* one at 2.7 hours serial or 58 minutes at concurrency 4. So the
 snapshots stay. They should be stored compressed — `zlib` is in the standard library
 and needs no new dependency.
 
