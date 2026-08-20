@@ -153,7 +153,7 @@ def test_generic_records_and_price_rows_land_in_the_same_database(tmp_path: Path
     try:
         snapshot = save(conn)
         candidate = service._candidate(
-            service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0)
+            conn, service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0)
         service.approve_candidate(
             conn, snapshot["page_snapshot_id"], approval(candidate))
         ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
@@ -187,7 +187,7 @@ def test_discovery_returns_candidates_without_polluting_permanent_datasets(conn)
 def test_owner_approval_atomically_creates_schema_and_typed_generic_records(conn):
     snapshot = save(conn)
     candidate = service._candidate(
-        service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0
+        conn, service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0
     )
 
     result = service.approve_candidate(
@@ -229,7 +229,7 @@ def test_failed_identity_approval_rolls_back_and_a_corrected_retry_recovers(
     """
     snapshot = save(conn, html)
     candidate = service._candidate(
-        service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0
+        conn, service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0
     )
 
     with pytest.raises(CandidateNotApprovable, match="duplicate record keys"):
@@ -254,7 +254,7 @@ def test_failed_identity_approval_rolls_back_and_a_corrected_retry_recovers(
 def test_retry_after_a_lost_success_response_is_idempotent(conn):
     snapshot = save(conn)
     candidate = service._candidate(
-        service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0
+        conn, service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0
     )
     request = approval(candidate)
     first = service.approve_candidate(conn, snapshot["page_snapshot_id"], request)
@@ -276,7 +276,7 @@ def test_retry_after_a_lost_success_response_is_idempotent(conn):
 def test_later_snapshot_updates_current_record_and_appends_revision(conn):
     first_snapshot = save(conn)
     first_candidate = service._candidate(
-        service._snapshot_row(conn, first_snapshot["page_snapshot_id"]), 0
+        conn, service._snapshot_row(conn, first_snapshot["page_snapshot_id"]), 0
     )
     request = approval(first_candidate)
     first = service.approve_candidate(
@@ -318,7 +318,7 @@ def test_generic_ingestion_and_price_ingestion_share_one_database(
     with closing(databases.engine.connect()) as conn:
         snapshot = save(conn)
         candidate = service._candidate(
-            service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0)
+            conn, service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0)
         service.approve_candidate(
             conn, snapshot["page_snapshot_id"], approval(candidate))
         conn.commit()

@@ -35,6 +35,12 @@ class SnapshotCreate(BaseModel):
     #: moment of capture. None for a crawl that does not name itself, and for
     #: the 1,728 snapshots stored before runs had names.
     crawl_run_ref: str | None = None
+    #: Which compression dictionary this page belongs with -- `host/kind`, from
+    #: `snapshotbody.label_for`. None means STORE IT AS IT ARRIVED, and that is
+    #: the default on purpose: the engine's save-a-page endpoint saves one page
+    #: by hand, which has no class to share a dictionary with and nothing to
+    #: gain. A crawl of 36,548 pages has both. See docs/STORAGE.md.
+    body_class: str | None = None
 
 
 class ApprovalField(BaseModel):

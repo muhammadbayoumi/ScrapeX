@@ -26,6 +26,7 @@ import pytest
 from scrapex.crawlscope import CrawlScope, SliceRequired
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.pagesource import FetchedPage
+from scrapex.snapshotbody import ZSTD_RAW_DICT, decode
 from scrapex.snapshotcrawl import (
     SiteNotRegistered,
     crawl_to_snapshots,
@@ -137,12 +138,29 @@ def test_every_page_reaches_storage_unparsed(conn):
     assert outcome.report.listing_pages == 2
     assert outcome.report.detail_pages == 0, "listing_only fetched a detail page"
 
-    kept = conn.execute(
-        "SELECT html_content FROM generic_page_snapshot ORDER BY page_snapshot_id"
-    ).fetchone()[0]
-    assert kept == "<html>RIYADH one</html>", (
-        "the HTML was altered on the way in — evidence that has been touched "
-        "cannot settle what the page said")
+    # UNPARSED IS ABOUT THE EVIDENCE, NOT ABOUT THE ENCODING, and this assertion
+    # used to conflate them. It compared the raw column against the page and
+    # passed for the right reason until 2026-08-20, when the crawl began storing
+    # bodies zstd-compressed against a dictionary of their own page kind
+    # (docs/STORAGE.md: 4.55 GB becomes about 90 MB). The column then held a
+    # frame, and the test read that as tampering.
+    #
+    # It is not tampering, and the property it was protecting is unchanged: what
+    # the page said is recoverable EXACTLY. So the check now runs through the one
+    # reader every consumer uses, and it is STRONGER than before -- it pins the
+    # guarantee AND proves the body really went through the codec, which the old
+    # form could not distinguish from a codec that quietly stored plaintext.
+    row = conn.execute(
+        "SELECT page_snapshot_id, html_content, html_codec, html_dict_id "
+        "FROM generic_page_snapshot ORDER BY page_snapshot_id"
+    ).fetchone()
+    assert decode(conn, row) == "<html>RIYADH one</html>", (
+        "the HTML did not come back byte-for-byte — evidence that cannot be "
+        "recovered exactly cannot settle what the page said")
+    assert row["html_codec"] == ZSTD_RAW_DICT, (
+        "the crawl stored this page uncompressed, so the mechanism "
+        "docs/STORAGE.md was written for has no caller on the path that matters")
+    assert row["html_content"] != "<html>RIYADH one</html>"
 
 
 def test_the_full_scope_stores_the_detail_pages_too(conn):

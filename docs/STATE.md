@@ -109,7 +109,8 @@ broken under load (**T2**).
 ## Track 2 · The muqawil.org contractor directory
 
 **Design:** [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) · **Storage:**
-[STORAGE.md](STORAGE.md) · **Seam:**
+[STORAGE.md](STORAGE.md) — **the mechanism is built** (`scrapex/snapshotbody.py`,
+engine migration 0005), so nothing gates the crawl any more · **Seam:**
 [GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md) · **Plan:**
 [plans/2026-08-16-muqawil-contractor-source.md](plans/2026-08-16-muqawil-contractor-source.md)
 · **Rulings:** [R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings),
@@ -186,6 +187,16 @@ snapshots and read one language only, deliberately (it needed ids, not values), 
 the ~6,344 known-missing contractors have **no evidence and no Arabic half** —
 closing that gap is a new bilingual crawl, and DEC-9 argues it should follow the
 compression migration rather than precede it.
+
+**The storage question that gated the crawl is answered and built.** `docs/STORAGE.md`
+measured what retention costs and what each option spends: the corpus is **4.55 GB**
+raw, not the 6.4 GB projected from one sample, and `zstd` against one real page of the
+same kind as a raw dictionary stores it in about **90 MB** — 187× on listings, 46× on
+profiles, every row independently decompressible. `scrapex/snapshotbody.py` and engine
+migration 0005 are that mechanism, and `snapshotcrawl` is its caller, so the pages the
+crawl writes arrive compressed. **The 1,728 rows already on disk were deliberately not
+rewritten**: `html_codec` defaults to `'plain'` rather than dropping an immutability
+trigger to backfill 607 MB.
 
 **And that crawl now has a method that can prove itself, measured 2026-08-20.**
 `region_id` × `company_size` is an **exhaustive 56-cell partition** of the
