@@ -1447,6 +1447,7 @@
       if (!chosen.length) { closeOfferPanel(); return; }
       if (chosen.length > 1) {
         nextSelectionPanelMode = null;
+        openSelectedFocus = null;
         renderSelectedCardsPanel(chosen);
         return;
       }
@@ -1593,14 +1594,18 @@
   let openOfferRow = null;
   let nextSelectionPanelMode = null;
   // What the panel on screen was drawn FROM, so a language switch can redraw it
-  // without another round trip. Exactly one of the two is ever set.
+  // without losing a multi-row selection or the record currently in focus.
   let openOfferData = null;
   let openSelectedRows = null;
+  let openSelectedFocus = null;
 
   function redrawOpenPanel() {
     const panel = document.getElementById("offer-panel");
     if (!panel || panel.hidden) return;
-    if (openSelectedRows) { renderSelectedCardsPanel(openSelectedRows); return; }
+    if (openSelectedRows) {
+      renderSelectedCardsPanel(openSelectedRows, openSelectedFocus);
+      return;
+    }
     if (openOfferData && openOfferId) {
       renderOfferPanel(panel, openOfferData, openOfferId, openOfferMode);
     }
@@ -1611,7 +1616,8 @@
     if (!panel) return;
     mode = mode || "history";
     openOfferRow = rowData || null;
-    if (openOfferId === offerId && openOfferMode === mode && !panel.hidden) {
+    if (!openSelectedRows &&
+        openOfferId === offerId && openOfferMode === mode && !panel.hidden) {
       if (mode === "record") return;           // re-selecting the same row
       closeOfferPanel();                       // same row, same ask = close
       return;
@@ -1647,6 +1653,7 @@
     openOfferId = null;
     openOfferData = null;
     openSelectedRows = null;
+    openSelectedFocus = null;
   }
 
   // ---- the record panel: one product, shaped the way its own page is shaped -
@@ -1923,17 +1930,17 @@
       imageStage.appendChild(main);
       const count = el("span", "selected-product-image-count", "1 / " + images.length);
       imageStage.appendChild(count);
+      const thumbs = el("div", "selected-product-thumbs");
+      let current = 0;
+      const showImage = (index) => {
+        current = (index + images.length) % images.length;
+        main.src = images[current].url;
+        main.alt = images[current].alt;
+        count.textContent = (current + 1) + " / " + images.length;
+        thumbs.querySelectorAll("button").forEach((item, itemIndex) =>
+          item.classList.toggle("is-active", itemIndex === current));
+      };
       if (images.length > 1) {
-        const thumbs = el("div", "selected-product-thumbs");
-        let current = 0;
-        const showImage = (index) => {
-          current = (index + images.length) % images.length;
-          main.src = images[current].url;
-          main.alt = images[current].alt;
-          count.textContent = (current + 1) + " / " + images.length;
-          thumbs.querySelectorAll("button").forEach((item, itemIndex) =>
-            item.classList.toggle("is-active", itemIndex === current));
-        };
         const previous = el("button", "selected-product-image-nav is-previous", "‹");
         previous.type = "button";
         previous.setAttribute("aria-label", "Previous product image");
@@ -1943,20 +1950,20 @@
         next.setAttribute("aria-label", "Next product image");
         next.addEventListener("click", () => showImage(current + 1));
         imageStage.append(previous, next);
-        images.forEach((image, index) => {
-          const thumb = el("button", index === 0 ? "is-active" : "");
-          thumb.type = "button";
-          thumb.setAttribute("aria-label", "Show image " + (index + 1));
-          const picture = document.createElement("img");
-          picture.src = image.url;
-          picture.alt = "";
-          picture.loading = "lazy";
-          thumb.appendChild(picture);
-          thumb.addEventListener("click", () => showImage(index));
-          thumbs.appendChild(thumb);
-        });
-        media.appendChild(thumbs);
       }
+      images.forEach((image, index) => {
+        const thumb = el("button", index === 0 ? "is-active" : "");
+        thumb.type = "button";
+        thumb.setAttribute("aria-label", "Show image " + (index + 1));
+        const picture = document.createElement("img");
+        picture.src = image.url;
+        picture.alt = "";
+        picture.loading = "lazy";
+        thumb.appendChild(picture);
+        thumb.addEventListener("click", () => showImage(index));
+        thumbs.appendChild(thumb);
+      });
+      media.appendChild(thumbs);
     } else {
       const empty = el("div", "selected-product-image-empty",
         data ? "No product image" : "Loading product image…");
@@ -1985,21 +1992,20 @@
     }
     body.appendChild(titleRow);
     const description = shortDescription(details);
-    if (description) {
-      const short = el("p", "selected-product-description", description);
-      short.dir = "auto";
-      body.appendChild(short);
-    }
+    const short = el("p", "selected-product-description", description);
+    short.dir = "auto";
+    if (!description) short.setAttribute("aria-hidden", "true");
+    body.appendChild(short);
 
     const categoryLevel = deepestCategoryLevel(row);
-    if (categoryLevel) {
-      const category = el("div", "selected-product-category");
-      category.appendChild(el("span", "selected-product-category-label", "Category"));
-      const value = el("strong", "selected-product-category-value", categoryLevel);
-      value.dir = "auto";
-      category.appendChild(value);
-      body.appendChild(category);
-    }
+    const category = el("div", "selected-product-category" +
+      (categoryLevel ? "" : " is-empty"));
+    category.appendChild(el("span", "selected-product-category-label", "Category"));
+    const categoryValue = el("strong", "selected-product-category-value", categoryLevel);
+    categoryValue.dir = "auto";
+    category.appendChild(categoryValue);
+    if (!categoryLevel) category.setAttribute("aria-hidden", "true");
+    body.appendChild(category);
 
     const currentPrice = row.price !== undefined && row.price !== null && row.price !== ""
       ? row.price
@@ -2031,11 +2037,14 @@
     return box;
   }
 
-  function renderOfferPanel(panel, data, offerId, mode) {
+  function renderOfferPanel(panel, data, offerId, mode, preserveSelection) {
     panel.textContent = "";
     panel.className = "record-panel";
     openOfferData = data;
-    openSelectedRows = null;
+    if (!preserveSelection) {
+      openSelectedRows = null;
+      openSelectedFocus = null;
+    }
     const offer = data.offer || {};
     const row = openOfferRow || {};
     const details = data.details || [];
@@ -2204,6 +2213,7 @@
         return;
       }
       openOfferMode = view;
+      if (preserveSelection) openSelectedFocus = {offerId, view};
       inspector.inert = false;
       inspector.setAttribute("aria-hidden", "false");
       workspace.classList.add("has-inspector");
@@ -2213,6 +2223,7 @@
 
     function hideInspector() {
       openOfferMode = "record";
+      if (preserveSelection) openSelectedFocus = {offerId, view: "record"};
       inspector.inert = true;
       inspector.setAttribute("aria-hidden", "true");
       workspace.classList.remove("has-inspector");
@@ -2375,7 +2386,7 @@
   }
 
   // ---- more than one row selected: one product card per selected row --------
-  function renderSelectedCardsPanel(rowsData) {
+  function renderSelectedCardsPanel(rowsData, requestedFocus) {
     const panel = document.getElementById("offer-panel");
     if (!panel) return;
     openOfferId = null;
@@ -2385,37 +2396,52 @@
 
     openSelectedRows = rowsData;
     openOfferData = null;
-    const productGrid = el("div", "selected-product-grid");
-    panel.appendChild(productGrid);
     const selection = rowsData;
-    const focusRecord = (row, view) => {
-      let component = null;
-      try {
-        component = table.getRows().find((candidate) =>
-          candidate.getData().offer_id === row.offer_id);
-        nextSelectionPanelMode = view;
-        table.deselectRow();
-        if (component) component.select();
-      } catch (err) { /* the direct open below is the safe fallback */ }
-      if (!component) {
-        nextSelectionPanelMode = null;
-        openOfferPanel(row.offer_id, view, row);
+    const records = new Map();
+
+    const loadRecord = (row) => {
+      if (!records.has(row.offer_id)) {
+        records.set(row.offer_id,
+          fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + row.offer_id)
+            .then((response) => response.ok
+              ? response.json()
+              : Promise.reject(new Error("HTTP " + response.status))));
       }
+      return records.get(row.offer_id);
     };
-    rowsData.forEach((row) => {
+
+    const showFocusedRecord = (row, data, view) => {
+      if (openSelectedRows !== selection) return;
+      openOfferId = row.offer_id;
+      openOfferMode = view;
+      openOfferRow = row;
+      openSelectedFocus = {offerId: row.offer_id, view};
+      renderOfferPanel(panel, data, row.offer_id, view, true);
+      openSelectedRows = selection;
+      panel.classList.add("is-multi", "has-focused-record");
+
+      const otherRows = selection.filter((item) => item.offer_id !== row.offer_id);
+      if (!otherRows.length) return;
+      const secondary = el("section", "selected-products-secondary");
+      secondary.setAttribute("aria-label", "Other selected products");
+      const secondaryGrid = el("div",
+        "selected-product-grid selected-product-grid-secondary");
+      secondary.appendChild(secondaryGrid);
+      panel.appendChild(secondary);
+      otherRows.forEach((item) => appendLoadableCard(secondaryGrid, item));
+    };
+
+    const appendLoadableCard = (container, row) => {
       const placeholder = productSummaryCard(row, null, () => {}, () => {});
-      productGrid.appendChild(placeholder);
-      fetch("/api/offer/" + encodeURIComponent(SOURCE) + "/" + row.offer_id)
-        .then((response) => response.ok
-          ? response.json()
-          : Promise.reject(new Error("HTTP " + response.status)))
+      container.appendChild(placeholder);
+      loadRecord(row)
         .then((data) => {
           if (openSelectedRows !== selection || !placeholder.isConnected) return;
           placeholder.replaceWith(productSummaryCard(
             row,
             data,
-            () => focusRecord(row, "details"),
-            () => focusRecord(row, "history")));
+            () => showFocusedRecord(row, data, "details"),
+            () => showFocusedRecord(row, data, "history")));
         })
         .catch(() => {
           if (openSelectedRows !== selection || !placeholder.isConnected) return;
@@ -2425,7 +2451,28 @@
           if (empty) empty.textContent = "No product image";
           if (description) description.textContent = "Product details are unavailable right now.";
         });
-    });
+    };
+
+    const focusedRow = requestedFocus && rowsData.find((row) =>
+      row.offer_id === requestedFocus.offerId);
+    if (focusedRow) {
+      loadRecord(focusedRow)
+        .then((data) => {
+          if (openSelectedRows !== selection) return;
+          showFocusedRecord(focusedRow, data, requestedFocus.view || "record");
+        })
+        .catch(() => {
+          if (openSelectedRows !== selection) return;
+          openSelectedFocus = null;
+          renderSelectedCardsPanel(selection);
+        });
+      return;
+    }
+
+    openSelectedFocus = null;
+    const productGrid = el("div", "selected-product-grid");
+    panel.appendChild(productGrid);
+    rowsData.forEach((row) => appendLoadableCard(productGrid, row));
     panel.focus({preventScroll: true});
     panel.scrollIntoView({behavior: "smooth", block: "nearest"});
   }

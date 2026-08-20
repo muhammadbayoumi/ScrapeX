@@ -862,8 +862,20 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert "max-width: none" in css
     assert ".record-card-body::-webkit-scrollbar" in css
     assert ":has(.spec-list)" not in css
-    assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
+    assert "repeat(auto-fill, minmax(min(20rem, 100%), 24rem))" in css
+    assert ".selected-products-secondary" in css
+    assert "height: 4rem" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
+
+    multi = script.split("function renderSelectedCardsPanel", 1)[1].split(
+        "// ---- export", 1)[0]
+    assert "table.deselectRow()" not in multi
+    assert '"selected-products-secondary"' in multi
+    assert '"selected-product-grid selected-product-grid-secondary"' in multi
+    assert "renderOfferPanel(panel, data, row.offer_id, view, true)" in multi
+    assert "otherRows.forEach((item) => appendLoadableCard" in multi
+    assert 'const thumbs = el("div", "selected-product-thumbs")' in script
+    assert "media.appendChild(thumbs)" in script
 
 
 def test_the_panel_never_renders_scraped_values_as_html():
