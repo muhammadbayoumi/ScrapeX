@@ -28,6 +28,13 @@ class SnapshotCreate(BaseModel):
 
     source_url: AnyHttpUrl
     html_content: str = Field(min_length=1, max_length=MAX_HTML_BYTES)
+    #: Which crawl run fetched this page, so an interrupted one can resume
+    #: without re-fetching what it already has. SET AT INSERT AND NEVER
+    #: UPDATED -- `trg_generic_page_snapshot_immutable_update` forbids the
+    #: alternative, and rightly: who fetched a page is a fact fixed at the
+    #: moment of capture. None for a crawl that does not name itself, and for
+    #: the 1,728 snapshots stored before runs had names.
+    crawl_run_ref: str | None = None
 
 
 class ApprovalField(BaseModel):

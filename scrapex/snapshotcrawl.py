@@ -23,6 +23,17 @@ a new source has no default, and no crawl starts until the owner has answered.
 EACH PAGE IS COMMITTED AS IT ARRIVES. A crawl interrupted at page 800 keeps 800
 pages, which is the same reasoning the price side's job journal already
 follows — and evidence is worth less the moment it can be lost by stopping.
+
+AND UNTIL 2026-08-20 THAT SENTENCE WAS ONLY HALF TRUE. The 800 pages survived;
+the knowledge of WHICH 800 did not. `generic_page_snapshot` carried no run
+column, so a second attempt re-fetched every one of them — on a full pass, hours
+of requests to re-learn what was already on disk. Keeping the evidence and
+re-fetching it anyway is not a resume.
+
+`run_ref` fixes it, and the shape of the fix is the point: a resume SKIPS URLS
+THIS RUN ALREADY STORED, and only this run. Not "already stored ever" — a
+listing is live, and a later run must re-read it to see what changed. The scope
+of the skip is one run because that is exactly the scope of an interruption.
 """
 from __future__ import annotations
 
@@ -62,6 +73,10 @@ class CrawlOutcome:
     #: fetch failures because the two have different remedies: a fetch failure
     #: is the site's or the network's, a storage failure is ours.
     unstored: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    #: URLs this run had already stored, so a resume did not store them twice.
+    #: NOT merged into `unstored`: that field means something went wrong, and a
+    #: skip is the resume working.
+    skipped: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def stored(self) -> int:
@@ -84,12 +99,25 @@ def read_scope(conn: sqlite3.Connection, site_key: str) -> tuple[CrawlScope, str
     return CrawlScope(row[0]), (row[1] or "")
 
 
+def already_stored(conn: sqlite3.Connection, run_ref: str) -> frozenset[str]:
+    """URLs this run has already turned into evidence.
+
+    Empty for a run nobody has started, which makes a first attempt and a resume
+    the same code path — the alternative is a `resuming` flag, and a flag is a
+    second place for the two to disagree.
+    """
+    return frozenset(row[0] for row in conn.execute(
+        "SELECT source_url FROM generic_page_snapshot WHERE crawl_run_ref = ?",
+        (run_ref,)))
+
+
 def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
                        base_url: str, *, fetch: Fetch,
                        listing_pages: int, detail_pages: int = 0,
                        slice_pages: int = 0, pace_s: float = 1.0,
                        max_requests: int | None = None,
-                       fetcher: object | None = None) -> CrawlOutcome:
+                       fetcher: object | None = None,
+                       run_ref: str | None = None) -> CrawlOutcome:
     """Walk this site at its registered scope, storing every page as evidence.
 
     `listing_pages` and `detail_pages` are MEASURED BY THE CALLER and passed in,
@@ -116,12 +144,29 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
 
     snapshots: list[int] = []
     unstored: list[tuple[str, str]] = []
+    # READ ONCE, BEFORE THE FIRST REQUEST. Asking per page would be one query
+    # per fetch for a set that only this loop appends to, and the loop knows
+    # what it added.
+    seen = set(already_stored(conn, run_ref)) if run_ref else set()
+    skipped: list[str] = []
 
     def store(page: FetchedPage) -> None:
         """One page, straight into evidence, unparsed and committed at once."""
+        if page.url in seen:
+            # THE RESUME. Counted rather than silent: a resume that says nothing
+            # is indistinguishable from a crawl that fetched everything, and the
+            # difference is the hours it saved.
+            skipped.append(page.url)
+            return
         try:
+            # THE REF GOES IN WITH THE ROW, not by a later UPDATE:
+            # `trg_generic_page_snapshot_immutable_update` aborts any update to
+            # this table, and the first draft of this resume learned that from a
+            # test failure reading "saved HTML snapshots are immutable". The
+            # trigger is right — who fetched a page is fixed at capture.
             saved = save_snapshot(conn, SnapshotCreate(
-                source_url=page.url, html_content=page.html))
+                source_url=page.url, html_content=page.html,
+                crawl_run_ref=run_ref))
             conn.commit()
         except Exception as exc:
             # NOT RAISED. One page too large, or one URL the model refuses,
@@ -131,10 +176,12 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
             unstored.append((page.url, f"{type(exc).__name__}: {exc}"))
             return
         snapshots.append(int(saved["page_snapshot_id"]))
+        seen.add(page.url)
 
     walker = PageWalker(source, fetch, pace_s=pace_s)
     report = walker.walk(base_url, scope, slice_of=slice_of,
                          max_requests=max_requests, on_page=store)
 
     return CrawlOutcome(plan=intended, report=report,
-                        snapshots=tuple(snapshots), unstored=tuple(unstored))
+                        snapshots=tuple(snapshots), unstored=tuple(unstored),
+                        skipped=tuple(skipped))

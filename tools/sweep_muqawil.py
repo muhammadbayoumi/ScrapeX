@@ -10,6 +10,17 @@ set of integers. Pass one's evidence is already stored and stays.
 Once the true number is known, how to crawl for production is a separate
 decision, taken with the number in hand rather than guessed at without it.
 
+AND IT NOW KEEPS THE IDS, WHICH IS THE WHOLE POINT AND WAS MISSING. The first
+version called `sweep.record()`, printed `sweep.summary()` and exited — so six
+passes over 8h37m produced a COUNT in a log file and threw away the SET. When the
+owner later asked whether membership 10001274 was in the warehouse, the answer
+"we do not know what we are missing, only how much" was the honest one, and it
+should not have been. `Sweep` had held every id in `found` the whole time and
+nobody read it.
+
+Every pass now writes its ids to `dataset_sighting`, so "which contractors has
+the site shown us that we never stored" is a query instead of a rerun.
+
 Run it with the repo's own venv:  python tools/sweep_muqawil.py
 """
 from __future__ import annotations
@@ -22,7 +33,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scrapex.connectors.base import HttpFetcher          # noqa: E402
+from scrapex.databases import DatabaseRegistry
 from scrapex.extract.muqawil import read_listing         # noqa: E402
+from scrapex.sightings import coverage, record_sightings
 from scrapex.sites.muqawil import read_last_page  # noqa: E402
 from scrapex.sweep import Sweep                          # noqa: E402
 
@@ -67,15 +80,29 @@ def main() -> None:
     sweep = Sweep(dry_passes_before_stopping=2, max_passes=6)
     say(f"\n=== sweep started, {last} pages a pass, ~{last*5.84/3600:.1f} h each ===")
 
-    while sweep.keep_going:
-        number = len(sweep.passes) + 1
-        started = time.monotonic()
-        made = sweep.record(one_pass(fetch, last, number))
-        say(f"  pass {number}: +{made.fresh:,} new, {made.seen:,} total, "
-            f"{(time.monotonic()-started)/60:.0f} min")
+    # OPENED BEFORE THE FIRST PASS, so a sweep that cannot persist what it sees
+    # fails now rather than after eight hours of fetching.
+    conn = DatabaseRegistry.defaults().engine.connect()
+    try:
+        while sweep.keep_going:
+            number = len(sweep.passes) + 1
+            started = time.monotonic()
+            ids = one_pass(fetch, last, number)
+            made = sweep.record(ids)
+            # WRITTEN PER PASS, not once at the end. A sweep killed on pass four
+            # used to leave nothing; now it leaves four passes of sightings, which
+            # is the same reasoning snapshotcrawl applies to a page.
+            fresh = record_sightings(conn, "contractors", ids,
+                                     run_ref=f"sweep-{number}")
+            say(f"  pass {number}: +{made.fresh:,} new, {made.seen:,} total, "
+                f"{fresh:,} newly sighted, {(time.monotonic()-started)/60:.0f} min")
 
-    say("")
-    say(sweep.summary())
+        say("")
+        say(sweep.summary())
+        say("")
+        say(str(coverage(conn, "contractors")))
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
