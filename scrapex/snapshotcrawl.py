@@ -47,6 +47,7 @@ from .extract.models import SnapshotCreate
 from .extract.service import save_snapshot
 from .pagesource import FetchedPage, PageSource
 from .pagewalk import PageWalker, WalkReport
+from .snapshotbody import label_for
 
 Fetch = Callable[[str], str]
 
@@ -164,9 +165,16 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
             # this table, and the first draft of this resume learned that from a
             # test failure reading "saved HTML snapshots are immutable". The
             # trigger is right — who fetched a page is fixed at capture.
+            # COMPRESSED AGAINST ITS OWN KIND. `docs/STORAGE.md` measured 187x
+            # on listings and 46x on profiles with one real page of the same
+            # kind as a raw zstd dictionary -- against zlib's 15.6x and 7.7x,
+            # because zlib's 32 KB window never sees across a 121 KB page. This
+            # is the path the 36,548 pages of «كلّ ما ينشره الموقع» arrive on, so
+            # it is the path that had to learn it: 4.55 GB becomes about 90 MB.
             saved = save_snapshot(conn, SnapshotCreate(
                 source_url=page.url, html_content=page.html,
-                crawl_run_ref=run_ref))
+                crawl_run_ref=run_ref,
+                body_class=label_for(page.url, page.kind)))
             conn.commit()
         except Exception as exc:
             # NOT RAISED. One page too large, or one URL the model refuses,

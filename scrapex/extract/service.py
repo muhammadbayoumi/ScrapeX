@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from .. import catalog
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
+from ..snapshotbody import decode, encode
 from .html_table import TableCandidate, candidate_by_index, detect_html_tables
 from .models import (
     DEFAULT_RECORD_PAGE_SIZE,
@@ -40,7 +41,8 @@ def _site_base_url(source_url: str) -> str:
 def _snapshot_row(conn: sqlite3.Connection, snapshot_id: int) -> sqlite3.Row:
     row = conn.execute(
         "SELECT page_snapshot_id, source_url, content_type, html_content, "
-        "content_hash, captured_at FROM generic_page_snapshot "
+        "content_hash, captured_at, html_codec, html_dict_id "
+        "FROM generic_page_snapshot "
         "WHERE page_snapshot_id = ? LIMIT 1",
         (snapshot_id,),
     ).fetchone()
@@ -70,11 +72,18 @@ def save_snapshot(conn: sqlite3.Connection, request: SnapshotCreate) -> dict[str
             "snapshot and try again."
         )
     source_url = str(request.source_url)
+    # THE HASH IS OF THE PAGE, NEVER OF ITS ENCODING. Two runs that fetch the
+    # same page must agree on its content_hash whether one compressed it and the
+    # other did not -- identity is a fact about content, and the day a codec
+    # changes must not be the day every page becomes a different page.
+    body, codec, dict_id = encode(conn, request.html_content,
+                                  label=request.body_class)
     cursor = conn.execute(
         "INSERT INTO generic_page_snapshot "
-        "(source_url, html_content, content_hash, crawl_run_ref) VALUES (?,?,?,?)",
-        (source_url, request.html_content, _digest(request.html_content),
-         request.crawl_run_ref),
+        "(source_url, html_content, content_hash, crawl_run_ref, html_codec, "
+        " html_dict_id) VALUES (?,?,?,?,?,?)",
+        (source_url, body, _digest(request.html_content),
+         request.crawl_run_ref, codec, dict_id),
     )
     return _snapshot_public(_snapshot_row(conn, int(cursor.lastrowid)))
 
@@ -82,16 +91,17 @@ def save_snapshot(conn: sqlite3.Connection, request: SnapshotCreate) -> dict[str
 def discover_snapshot(conn: sqlite3.Connection, snapshot_id: int) -> dict[str, Any]:
     """Recompute temporary candidates from saved evidence without catalogue writes."""
     snapshot = _snapshot_row(conn, snapshot_id)
-    candidates = detect_html_tables(snapshot["html_content"])
+    candidates = detect_html_tables(decode(conn, snapshot))
     return {
         "snapshot": _snapshot_public(snapshot),
         "candidates": [candidate.public() for candidate in candidates],
     }
 
 
-def _candidate(snapshot: sqlite3.Row, table_index: int) -> TableCandidate:
+def _candidate(conn: sqlite3.Connection, snapshot: sqlite3.Row,
+               table_index: int) -> TableCandidate:
     try:
-        return candidate_by_index(snapshot["html_content"], table_index)
+        return candidate_by_index(decode(conn, snapshot), table_index)
     except LookupError:
         raise ExtractionNotFound(
             "The selected table candidate no longer exists in this snapshot. "
@@ -333,7 +343,7 @@ def approve_candidate(
     """
     snapshot = _snapshot_row(conn, snapshot_id)
     if candidate is None:
-        candidate = _candidate(snapshot, approval.table_index)
+        candidate = _candidate(conn, snapshot, approval.table_index)
     if not candidate.approvable:
         reason = candidate.warnings[0] if candidate.warnings else "The table is incomplete."
         raise CandidateNotApprovable(
