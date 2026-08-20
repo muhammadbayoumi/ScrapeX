@@ -176,6 +176,41 @@ def _boxes(soup: BeautifulSoup) -> list[tuple[str, str]]:
     return pairs
 
 
+def _card_boxes(html: str) -> dict[str, tuple[tuple[str, str], ...]]:
+    """Per contractor, that card's boxes in PAGE ORDER, as `(field_key, value)`.
+
+    WHY THIS EXISTS, and it is the fourth leak's twin. `read_listing` keys a
+    card's boxes by `card_{_slug(label)}`, and `_slug` keeps `[a-z0-9]` only —
+    so on the ARABIC page every label filters down to nothing, becomes
+    `unnamed`, and all seven boxes collapse into ONE key that the last of them
+    wins. Merging the two languages BY KEY therefore asked the Arabic page for
+    names it does not have, and `card_city_region_ar`, `card_company_size_ar`,
+    `card_status_ar` and `card_training_credit_hours_ar` were empty in all
+    11,059 approved rows. The test that should have caught it asserted the
+    COLUMN was present rather than that a VALUE had arrived.
+
+    So the boxes come back positional and the module's existing rule applies:
+    the English label names the field, the Arabic page contributes a value at
+    the same index, and no Arabic label is ever matched against anything. That
+    is what `merge_locales` already does for profiles.
+
+    MEASURED BEFORE IT WAS RELIED ON. Across 120 real page pairs, 2,360 cards
+    appeared in both languages, and the box count agreed on 2,360 of them.
+
+    The last box is dropped because it is the classification, whose LABEL is its
+    data — `read_listing` takes that one by position for the same reason.
+    """
+    boxes: dict[str, tuple[tuple[str, str], ...]] = {}
+    for card in BeautifulSoup(html, "html.parser").select("div.section-card"):
+        link = card.find("a", href=_PROFILE_HREF)
+        if link is None:
+            continue
+        found = _PROFILE_HREF.search(link["href"])
+        boxes[found.group(1)] = tuple(
+            (f"card_{_slug(name)}", value) for name, value in _boxes(card)[:-1])
+    return boxes
+
+
 def read_profile(html: str) -> Reading:
     """One profile page, in whichever language it was fetched.
 
@@ -550,13 +585,18 @@ def bilingual_listing_candidate(english: str, arabic: str, *,
     toggle has nothing to flip, which is why an English-only approval produces a
     table with no language switch at all.
 
-    MERGED BY CONTRACTOR ID, NEVER BY POSITION. `en?page=5` and `ar?page=5` are
-    two separate requests against a listing that reorders every thirty seconds —
-    measured: 4,556 of 11,059 contractors turned up on more than one page in a
-    single pass. Zipping the two pages row by row would therefore attach one
-    company's Arabic name to another company's English one, and the result would
-    look perfectly reasonable. A contractor the Arabic page did not happen to
-    show simply keeps its English half.
+    CONTRACTORS ARE MATCHED BY ID, NEVER BY POSITION ON THE PAGE. `en?page=5`
+    and `ar?page=5` are two separate requests against a listing that reorders
+    every thirty seconds — measured: 4,556 of 11,059 contractors turned up on
+    more than one page in a single pass. Zipping the two pages row by row would
+    therefore attach one company's Arabic name to another company's English one,
+    and the result would look perfectly reasonable. A contractor the Arabic page
+    did not happen to show simply keeps its English half.
+
+    ONE CARD'S BOXES ARE THEN PAIRED BY POSITION WITHIN THAT MATCH, which is a
+    different question and the opposite answer — see `_card_boxes`. The order of
+    boxes inside a card is the site's template, not its data, and the Arabic
+    labels cannot be read as keys at all.
 
     AND A PAIR IS ONLY KEPT WHEN THE TWO DIFFER, which is the same rule
     `merge_locales` applies to profiles. `contractor_id`, the rating counts and
@@ -566,16 +606,29 @@ def bilingual_listing_candidate(english: str, arabic: str, *,
     """
     english_rows = read_listing(english)
     arabic_rows = {row["contractor_id"]: row for row in read_listing(arabic)}
+    english_boxes, arabic_boxes = _card_boxes(english), _card_boxes(arabic)
 
     merged: list[dict[str, str]] = []
     for row in english_rows:
         both = dict(row)
-        other = arabic_rows.get(row["contractor_id"], {})
+        contractor = row["contractor_id"]
+        other = arabic_rows.get(contractor, {})
+        mine = english_boxes.get(contractor, ())
+        theirs = arabic_boxes.get(contractor, ())
+        # ONLY WHEN BOTH LANGUAGES PUBLISHED THE SAME NUMBER OF BOXES. A
+        # positional pair drawn from lists of different lengths is a value on
+        # the wrong field, which is worse than no value; a card that fails this
+        # keeps its English half, exactly as an unpaired contractor does.
+        aligned = ({key: theirs[index][1] for index, (key, _) in enumerate(mine)}
+                   if len(mine) == len(theirs) else {})
         # EVERY declared pair, every row — present or not. See
         # BILINGUAL_CARD_FIELDS: a column that appears only when a value was
         # found is a column that appears only on some pages.
         for key in BILINGUAL_CARD_FIELDS:
-            value = other.get(key) or ""
+            # `aligned` answers for the card's boxes. `other` answers for the
+            # three fields read from fixed places in the markup, which never
+            # needed a label: the title, the membership badge, the grade.
+            value = aligned.get(key) or other.get(key) or ""
             both[f"{key}_ar"] = value if value != row.get(key) else ""
         merged.append(both)
     return _candidate_from(merged, table_index=table_index)
