@@ -528,7 +528,7 @@ def browse_records(
 
 
 def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
-                          *, cap: int = 5_000) -> dict[str, Any] | None:
+                          *, cap: int | None = None) -> dict[str, Any] | None:
     """One generic dataset in the shape the grid already renders.
 
     THE PAGE NEEDS NO CHANGE, AND THAT IS THE WHOLE DESIGN. `grid.js` never asks
@@ -550,6 +550,24 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
 
     Returns None when no dataset carries this key, so a caller can fall through
     to the price path rather than having to ask twice.
+
+    `cap=None` MEANS EVERY ROW, and that is the default on the owner's
+    instruction of 2026-08-20: «اريد تحميل كل الصفوف بلا حد». It used to default
+    to 5,000, so the page read "Loaded 5,000 of 11,059" and -- the part that
+    actually cost him something -- the grid's filters and its search only ever
+    saw the loaded prefix, so a search for a contractor in the other 6,059
+    found nothing and said so as if the contractor did not exist.
+
+    The number was also inconsistent with the docstring above it. A price table
+    loads reports.TABLE_ROW_CAP = 20,000 and a price EXPORT 40,000, so
+    "a table like any other table" was capped at a quarter of the smaller of
+    those, for no reason recorded anywhere.
+
+    MEASURED before removing it, because A8 asks for a bound and the honest
+    answer is what it costs: all 11,059 rows read and parsed in 0.09s for a
+    13.2 MB JSON payload, against 6.0 MB for the first 5,000. At the 17,283 the
+    sweep counted it is ~21 MB. A caller that needs a bound still passes one;
+    what changed is that the default no longer decides for him.
     """
     found = conn.execute(
         "SELECT d.dataset_definition_id AS id, d.display_name, d.original_name "
@@ -574,10 +592,13 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     total = conn.execute(
         "SELECT count(*) FROM generic_record WHERE dataset_definition_id = ? "
         "AND status = 'active'", (dataset_id,)).fetchone()[0]
+    # LIMIT only when a caller asked for one. `LIMIT -1` is SQLite's own idiom
+    # for no limit and is used rather than building two query strings, so the
+    # bounded and unbounded paths cannot drift apart.
     stored = conn.execute(
         "SELECT data_json FROM generic_record WHERE dataset_definition_id = ? "
         "AND status = 'active' ORDER BY generic_record_id LIMIT ?",
-        (dataset_id, cap)).fetchall()
+        (dataset_id, -1 if cap is None else int(cap))).fetchall()
     rows = [json.loads(row["data_json"]) for row in stored]
 
     keys = {row["field_key"] for row in fields}
