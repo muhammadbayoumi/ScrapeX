@@ -58,8 +58,16 @@ def test_feature_manifest_is_honest_about_the_generic_roadmap(client):
     assert response.status_code == 200
     features = {item["key"]: item for item in response.json()["features"]}
     assert features["price_tracking"]["enabled"] is True
-    assert features["generic_dataset_catalog"]["enabled"] is False
-    assert features["generic_extraction"]["stage"] == "not_started"
+    # LIT 2026-08-20 on the owner's instruction, and still PARTIAL. The honesty
+    # this test guards is no longer "not advertised" but "not oversold": a flag
+    # that reached production_ready on one site and one dataset would be the
+    # inflation scrapex/features.py exists to refuse.
+    assert features["generic_dataset_catalog"]["enabled"] is True
+    assert features["generic_dataset_catalog"]["stage"] == "partial"
+    assert features["generic_extraction"]["enabled"] is True
+    assert features["generic_extraction"]["stage"] == "partial"
+    assert features["crawl_frontier"]["enabled"] is False
+    assert features["site_data_model"]["enabled"] is False
 
 
 def test_sources_lists_manifest_with_counts(client):

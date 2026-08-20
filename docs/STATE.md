@@ -196,12 +196,21 @@ compression migration DEC-9 asks for · the row-aware idempotency key DEC-10 ask
 for, without which a corrected parser cannot be re-run over stored snapshots at
 all.
 
-**One decision is open and it is the owner's:** both
-`FeatureKey.GENERIC_EXTRACTION` and `FeatureKey.GENERIC_DATASET_CATALOG` are still
-`False` at [scrapex/features.py:54](../scrapex/features.py) and `:60`. Their own
-written condition — *"only after an approved non-product extraction reaches
-generic storage"* — is now met by the figures above. Lighting them is what makes
-`/datasets` appear in navigation and states the capability out loud.
+**He ruled, and both flags are lit.** `FeatureKey.GENERIC_DATASET_CATALOG` and
+`FeatureKey.GENERIC_EXTRACTION` are `True` at
+[scrapex/features.py:54](../scrapex/features.py) and `:65`, both at **`PARTIAL`** —
+one site, one dataset, listing pages only, and ~6,224 contractors the sweep counted
+with nothing stored for them. Their written conditions were measured, not quoted:
+11,059 rows through the approval path over 1,728 ingestions, every one
+`status=success`.
+
+> **And the reason given for lighting them was wrong, so it is corrected here
+> rather than deleted.** This file used to say lighting them "makes `/datasets`
+> appear in navigation". It does not. `is_enabled` has **no production caller** in
+> the engine or the panel, and there is no `/datasets` route — measured, not
+> assumed. What the flags govern is what `/api/features` **publishes**, so lighting
+> one is a *claim* about a capability rather than a switch that reveals it. The
+> capability itself already works without them: `/source/contractors` serves today.
 
 **Four questions are open and are his** — O-1 to O-4 in
 [RULINGS.md](RULINGS.md#open--awaiting-the-owners-ruling).
