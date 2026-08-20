@@ -17,6 +17,17 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.2",
     "tzdata>=2024.1",   # Windows ships no system tz database (scheduler timezones)
+    # Snapshot bodies, compressed against a shared raw dictionary: 187x on
+    # listing pages and 46x on profiles, where zlib gets 15.6x and 7.7x --
+    # its 32 KB window never reaches across a 121 KB page skeleton. See
+    # docs/STORAGE.md and scrapex/snapshotbody.py.
+    #
+    # NOT `compression.zstd`, which is the same library in the 3.14 standard
+    # library: requires-python is >=3.12 and CI runs 3.12, so importing it
+    # broke the package outright. This wheel behaves the same on 3.12, 3.13
+    # and 3.14, which also means a page compressed on one of the owner's two
+    # machines can be read on the other.
+    "zstandard>=0.22",
 ]
 
 [project.optional-dependencies]

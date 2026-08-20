@@ -27,6 +27,14 @@
 --
 -- 618 MB of listings becomes 3.3 MB; 3.95 GB of profiles becomes 87 MB.
 --
+-- THE CODEC IS THE `zstandard` WHEEL, NOT `compression.zstd`. The first draft
+-- of this used the 3.14 standard library module, and requires-python is
+-- ">=3.12" with CI on 3.12.14 -- where importing it stopped the package
+-- loading at all, not merely the tests. Same libzstd, identical on 3.12 through
+-- 3.14, which also means a page compressed on one of the owner's two machines
+-- can be read on the other. Re-measured through the wheel on the same 40 stored
+-- pages: 254x.
+--
 -- NOTHING EXISTING IS REWRITTEN, AND THAT IS NOT LAZINESS.
 -- `trg_generic_page_snapshot_immutable_update` aborts any UPDATE to this
 -- table, and it is right to: a stored page is evidence of what a site

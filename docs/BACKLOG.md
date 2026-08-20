@@ -893,8 +893,8 @@ and each of these looked promising enough to chase:
 > intra-page**. zlib's 32 KB window never sees across a 121 KB page, so the
 > cross-page redundancy this entry credits for the ratio was left on the table.
 > `zstd` with one real page as a raw dictionary gets **187×** on listings and
-> **46×** on profiles, is in the 3.14 standard library, and keeps every row
-> independently decompressible. Its *rule* — keep the snapshots — is upheld and
+> **46×** on profiles — **254×** re-measured through the `zstandard` wheel,
+> which is what shipped — and keeps every row independently decompressible. Its *rule* — keep the snapshots — is upheld and
 > strengthened. Its *encoding* is not.
 
 **MEASURED 2026-08-20, on the live database.** The contractors cost 342 MB, of which

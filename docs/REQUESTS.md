@@ -400,9 +400,9 @@ does not exist:
 
 - The 6.4 GB was projected from **one** profile page at 168 KB. Thirteen real
   profiles average **119 KB**, so the complete corpus is **4.55 GB** raw, not 6.4.
-- `compression.zstd` entered the standard library in Python 3.14, and a raw page
-  used as a shared dictionary compresses listings **187×** and profiles **46×** with
-  every row still independently decompressible. `DEC-9`'s zlib gets 15.6× and 7.7×,
+- `zstandard` with a raw page used as a shared dictionary compresses listings
+  **187×** and profiles **46×** — **254×** re-measured through the wheel that
+  shipped — with every row still independently decompressible. `DEC-9`'s zlib gets 15.6× and 7.7×,
   because its 32 KB window cannot see across a 121 KB page — the cross-page
   redundancy it credited for its ratio was **left on the table**.
 - So everything the site publishes, both languages, evidence retained: **~90 MB of

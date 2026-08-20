@@ -31,6 +31,19 @@ and reached 19.7× against the raw page's 187×. A trained dictionary is built f
 small samples; this corpus is a handful of very large near-duplicates, and the best
 dictionary for a page that is 97% skeleton is a page.
 
+WHY `zstandard` AND NOT `compression.zstd`, WHICH IS IN THE 3.14 STANDARD LIBRARY.
+The first version of this module used the stdlib one and was wrong: `pyproject.toml`
+declares `requires-python = ">=3.12"`, CI runs **3.12.14**, and `compression.zstd`
+arrived in **3.14**. So the package did not merely fail its tests there -- it failed
+to IMPORT, which would have stopped the engine starting.
+
+And the fix is more portable than the thing it replaces, which is the part worth
+keeping: `zstandard` behaves identically on 3.12, 3.13 and 3.14, while
+`compression.zstd` exists on 3.14 alone. The owner works from two machines. A
+compressed page that only one of them can read is a worse failure than a dependency,
+because the plaintext is not stored anywhere else. Ratios are unchanged -- this is the
+same libzstd underneath.
+
 WHY THIS IS NOT A FLAG. `scrapex/features.py` already carries the lesson: a
 capability with no production caller is a claim, not a mechanism. `snapshotcrawl`
 calls this on the path that fetches the 36,548 pages the study is about.
@@ -40,7 +53,7 @@ from __future__ import annotations
 import sqlite3
 from urllib.parse import urlparse
 
-from compression import zstd
+import zstandard
 
 #: `html_content` is the page, exactly as it arrived. Every row written before
 #: 2026-08-20 is this, and stays this — `trg_generic_page_snapshot_immutable_update`
@@ -55,6 +68,18 @@ ZSTD_RAW_DICT = "zstd-raw-dict"
 #: and level 19 gives 186× at 19.6 ms — slightly WORSE for 5.6× the time. 12 is
 #: where the curve stops paying.
 LEVEL = 12
+
+
+def _raw_dict(body: bytes) -> zstandard.ZstdCompressionDict:
+    """One real page as a dictionary, used exactly as it arrived.
+
+    RAW CONTENT, not a trained dictionary. `train_dict` was measured at 110 KB and
+    at 512 KB and reached 19.7x against the raw page's 187x: a trained dictionary is
+    built for many small samples, and this corpus is a handful of very large
+    near-duplicates. The best dictionary for a page that is 97% skeleton is a page.
+    """
+    return zstandard.ZstdCompressionDict(
+        body, dict_type=zstandard.DICT_TYPE_RAWCONTENT)
 
 
 class UnknownCodec(RuntimeError):
@@ -123,7 +148,8 @@ def encode(
 
     plain = html.encode("utf-8")
     dict_id, body = _dictionary(conn, label, html)
-    packed = zstd.compress(plain, LEVEL, zstd_dict=zstd.ZstdDict(body, is_raw=True))
+    packed = zstandard.ZstdCompressor(
+        level=LEVEL, dict_data=_raw_dict(body)).compress(plain)
     if len(packed) >= len(plain):
         return html, PLAIN, None
     return packed, ZSTD_RAW_DICT, dict_id
@@ -168,9 +194,9 @@ def decode(conn: sqlite3.Connection, row) -> str:
                 f"dictionary {dict_id}, which is not in this database. The page "
                 "cannot be read and its plaintext is not stored anywhere else.")
         body = bytes(found[0])
-        return zstd.decompress(
-            bytes(row["html_content"]), zstd_dict=zstd.ZstdDict(body, is_raw=True),
-        ).decode("utf-8")
+        return zstandard.ZstdDecompressor(
+            dict_data=_raw_dict(body),
+        ).decompress(bytes(row["html_content"])).decode("utf-8")
     raise UnknownCodec(
         f"snapshot {_field(row, 'page_snapshot_id')} is stored as {codec!r}, which this "
         "build cannot decode. Do not treat the stored bytes as HTML.")
