@@ -108,7 +108,8 @@ broken under load (**T2**).
 
 ## Track 2 · The muqawil.org contractor directory
 
-**Design:** [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) · **Seam:**
+**Design:** [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) · **Storage:**
+[STORAGE.md](STORAGE.md) · **Seam:**
 [GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md) · **Plan:**
 [plans/2026-08-16-muqawil-contractor-source.md](plans/2026-08-16-muqawil-contractor-source.md)
 · **Rulings:** [R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings),
