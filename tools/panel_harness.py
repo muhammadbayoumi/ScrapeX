@@ -104,7 +104,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             "crawl_parallel_sources": {"value": "1"},
             "crawl_timeout_s": {"value": "30"},
             "crawl_user_agent": {"value": ""},
-            "log_retention_days": {"value": "30"}}},
+            "log_retention_days": {"value": "30"},
+            # Empty is the real default: dates keep their UTC day boundary
+            # until the owner declares one.
+            "business_day_zone": {"value": ""}}},
         # The shared display time zone (spec 33). None is the real default state
         # — no zone chosen yet, so every surface follows what it detects.
         "/api/timezone": {"timezone": timezone},

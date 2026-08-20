@@ -1813,6 +1813,15 @@ def create_app(
 
     @app.post("/api/settings")
     def api_save_settings(body: dict):
+        # The business-day zone decides which DAY an exported date falls on, so
+        # a typo may not quietly mean UTC: it would move dates in the owner's
+        # sheet with nothing on any screen to explain it. Refused here for the
+        # same reason /api/timezone refuses one, and with the same check.
+        zone = (body or {}).get("business_day_zone")
+        if isinstance(zone, str) and zone.strip() and not zone_exists(zone.strip()):
+            raise HTTPException(
+                status_code=400,
+                detail=f"{zone.strip()!r} is not a known IANA time zone identifier")
         try:
             with dbmod.write_lock(app.state.db_path):
                 conn = _write_conn()

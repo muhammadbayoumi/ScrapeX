@@ -10,6 +10,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from . import fields, tax
+from .settings import business_day, get as _setting
 from .normalize import option_axes_from
 from .vocab import DETAIL_GROUP_ORDER
 
@@ -484,6 +485,16 @@ def _order_by(sort: str | None, direction: str | None) -> str:
     return f"ORDER BY {column} {way}, sp.product_name_ar, so.country_code_alpha2"
 
 
+def business_zone(conn: sqlite3.Connection) -> str:
+    """The declared business-day zone, read once per report.
+
+    Every server-side date in this module goes through business_day() with this
+    value. Read here rather than at each call site so a report cannot answer
+    with one boundary in a column and another in the row beside it.
+    """
+    return _setting(conn, "business_day_zone")
+
+
 def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: str | None = None,
                         availability: str | None = None, sort: str | None = None,
                         direction: str | None = None,
@@ -517,6 +528,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         [*base_params, limit, offset],
     ).fetchall()
     tax_rules = tax.load_rules(conn, source_key)
+    _zone = business_zone(conn)
     shaped = [
         {"product_name_ar": r[0], "variant_ar": r[1], "sku": r[2], "price": r[3],
          "price_before": r[4], "price_sale": r[5], "currency": r[6], "availability": r[7],
@@ -524,7 +536,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
          "tax_included": bool(r[8]), "price_changed_on": r[9], "product_link": r[10],
          "curation": r[11], "country_code_alpha2": r[12] or "", "country": region_name(r[12]),
          # When the price was last CONFIRMED, which is not when it last changed.
-         "last_confirmed_on": (r[13] or "")[:10],
+         "last_confirmed_on": business_day(r[13], _zone),
          # A price without its unit is not a comparable number: 325 per tonne and
          # 325 per bag are different facts that look identical on screen.
          "unit": price_unit(r[14], r[15]),
@@ -1038,7 +1050,9 @@ EXPORT_COLUMNS: list[tuple[str, "Callable[[dict, object], object]"]] = [
     # a completed run last saw it still true. They are different questions, and
     # publishing only the first made a confirmed price look stale.
     ("price_changed_on", lambda r, s: r["business_date"] or ""),
-    ("last_confirmed_on", lambda r, s: (r["last_confirmed_at"] or "")[:10]),
+    # Derived onto the row by export_source_table, which is where the
+    # connection — and therefore the declared zone — actually is.
+    ("last_confirmed_on", lambda r, s: r["last_confirmed_on"]),
     # The official body the source names for its figure, when it names one.
     ("official_source", lambda r, s: r["official_source"] or ""),
     ("official_source_link", lambda r, s: r["official_source_link"] or ""),
@@ -1108,8 +1122,13 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     filters = _filter_values(conn, source_key)
     table = []
     parsed = []
+    _zone = business_zone(conn)
     for raw in rows:
         row = dict(zip(aliases, raw))
+        # The day this confirmation falls on, in the zone the owner declared —
+        # the same value the screen and the filter use, so the sheet cannot
+        # disagree with the page it was exported from.
+        row["last_confirmed_on"] = business_day(row["last_confirmed_at"], _zone)
         # ...and read for THIS row's figure, so tax_evidence never contradicts
         # the tax_included cell two columns to its left.
         state = (tax.resolve(tax_rules, row["country_code_alpha2"],
@@ -1277,7 +1296,8 @@ def export_details_table(conn: sqlite3.Connection, source_key: str,
         (source_key, limit)).fetchall()
     return list(DETAILS_HEADER), [
         [r[0] or "", r[1] or "", (r[2] or "") if r[2] != "*" else "", r[3] or "",
-         r[4] or "Details", r[5] or "", r[6] or "", r[7] or "", (r[8] or "")[:10]]
+         r[4] or "Details", r[5] or "", r[6] or "", r[7] or "",
+         business_day(r[8], business_zone(conn))]
         for r in rows]
 
 
@@ -1491,6 +1511,7 @@ def product_attributes(conn: sqlite3.Connection, offer_id: int,
         "WHERE so.offer_id = ? "
         "ORDER BY spa.attribute_group, spa.attribute_label, spa.raw_value LIMIT ?",
         (offer_id, max(1, min(limit, 1000)))).fetchall()
+    _zone = business_zone(conn)
     # `code` and `lang` travel with every row so the panel can PAIR the two
     # languages of one fact (description + description_en) into ONE entry
     # instead of printing the same attribute twice. Connectors already keep the
@@ -1500,7 +1521,7 @@ def product_attributes(conn: sqlite3.Connection, offer_id: int,
     # a datasheet's byte size, a weight — which the panel formats rather than
     # printing raw.
     return [{"group": r[0] or "Details", "label": r[1] or r[2], "value": r[3],
-             "url": r[4] or "", "last_seen_at": (r[5] or "")[:10],
+             "url": r[4] or "", "last_seen_at": business_day(r[5], _zone),
              "code": r[2] or "", "lang": r[6] or "",
              "numeric": r[7] or "", "unit": r[8] or ""} for r in rows]
 
@@ -1869,6 +1890,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                               .for_row(tax_included).as_dict())
         return tax_index[key]
 
+    _zone = business_zone(conn)
     shaped = [{"product_name_ar": r[0], "variant_ar": r[1] or "", "variant": r[30] or "",
                # The variation's own page where there is one; the row's arrow
                # and the record panel both open the most specific address.
@@ -1879,7 +1901,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                "price_changed_on": r[8],
                "curation": r[10], "country_code_alpha2": r[11] or "",
                "country": region_name(r[11]),
-               "last_confirmed_on": (r[12] or "")[:10],
+               "last_confirmed_on": business_day(r[12], _zone),
                "unit": price_unit(r[13], r[14]), "offer_id": r[15],
                # The price cell renders this when the Unit column is empty. It
                # is NOT a unit and must never fill that column: it is the

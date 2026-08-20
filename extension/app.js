@@ -398,6 +398,57 @@ async function confirmTimeZoneShared() {
   }
 }
 
+// ---- the business day zone (a DATA setting, not a display one) -------------
+//
+// It shares the Display section because the owner reads the two together, and
+// it is deliberately a SEPARATE control with its own Save. Picking a display
+// zone must never change what the engine computes: this one decides which day
+// "last confirmed" and "last seen" fall on, which is the value the table is
+// filtered by and the value written into the owner's sheet.
+
+async function loadBusinessDayZone() {
+  const select = $("business_day_zone");
+  if (!select.options.length) {
+    // The same IANA list the display selector uses — one source, so the two
+    // cannot offer different zones (§6.4: never a hand-written list).
+    const {zones} = window.ScrapeXTime.zones();
+    const utc = document.createElement("option");
+    utc.value = "";
+    utc.textContent = "UTC — the day boundary every date has now";
+    select.append(utc);
+    zones.filter((id) => id !== "UTC").forEach((id) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      select.append(option);
+    });
+  }
+  try {
+    const settings = (await api("/api/settings")).settings || {};
+    const raw = settings.business_day_zone;
+    select.value = (raw && typeof raw === "object" ? raw.value : raw) || "";
+  } catch (err) {
+    out("business-day-msg", "could not read it: " + esc(err.message), "err");
+  }
+}
+
+async function saveBusinessDayZone() {
+  const chosen = $("business_day_zone").value;
+  out("business-day-msg", "saving…");
+  try {
+    await post("/api/settings", {business_day_zone: chosen});
+  } catch (err) {
+    // The engine refuses a zone it cannot resolve rather than storing it, so
+    // this message carries a real reason and not a shrug.
+    out("business-day-msg", "not saved: " + esc(err.message), "err");
+    return;
+  }
+  out("business-day-msg", chosen
+    ? "Saved — dates are filed under the day they fall on in " + esc(chosen) +
+      ", on screen, in the filter, and in every export from now on."
+    : "Saved — dates are filed under their UTC day, as before.", "ok");
+}
+
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
@@ -2404,6 +2455,15 @@ async function init() {
     out("timezone-msg", "saving…");
     confirmTimeZoneShared();
   });
+
+  // The business-day zone is read from the engine, so it loads when the
+  // section is opened rather than at boot — the same rule the crawl pace
+  // follows, and for the same reason: a stale value is worse than a late one.
+  $("business-day-save").addEventListener("click", saveBusinessDayZone);
+  document.querySelector('[data-sect="s-timezone"]')
+    .addEventListener("click", () => {
+      if (!$("s-timezone").classList.contains("hidden")) loadBusinessDayZone();
+    });
 
   refreshMode();
   // The opening view must be ENTERED through showView like every other one.

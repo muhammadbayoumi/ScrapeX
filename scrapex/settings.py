@@ -88,6 +88,20 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
     # a zone the owner chose. It changes DISPLAY only; every stored timestamp
     # stays the "%Y-%m-%dT%H:%M:%SZ" UTC that payload.py already enforces.
     Setting("ui_time_zone", "", label="Shared display time zone"),
+    # The zone that decides WHICH DAY an operational instant falls on, for the
+    # dates the engine computes server-side (last_confirmed_on, last_seen_at).
+    #
+    # Deliberately NOT ui_time_zone, and the distinction is the whole point.
+    # ui_time_zone is a viewer's preference and may differ per browser; this
+    # value leaves the building — it is filtered on, sorted by, and written into
+    # the owner's Google Sheet. Anchoring exported data to whoever happens to be
+    # looking would mean the sheet's contents changed when someone changed a
+    # colour-scheme-adjacent setting. One declared value, so the screen, the
+    # filter and the sheet can never disagree.
+    #
+    # Empty means UTC, which is the boundary every one of these dates has had
+    # until now: an unset setting changes not one value.
+    Setting("business_day_zone", "", label="Zone that decides which day a date falls on"),
     # --- Storage (spec 17) ---
     Setting("backup_folder", "", label="Folder for backups"),
     # --- Logs and diagnostics (spec 33) ---
@@ -122,6 +136,38 @@ class RunResult:
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def business_day(instant: str | None, zone: str = "") -> str:
+    """The calendar day an instant falls on, in the declared business zone.
+
+    The engine turns instants into dates in five places, and until now every one
+    of them took the first ten characters — i.e. UTC's midnight. For an owner
+    three hours east that files a 22:30 confirmation under the previous day, on
+    screen, in the column he filters by, and in the sheet he exports.
+
+    An empty zone keeps exactly that behaviour, byte for byte, so the setting is
+    inert until he chooses. An unresolvable one also falls back to UTC rather
+    than raising: a zone that cannot resolve is REFUSED when it is saved (the
+    web layer checks it), and a report that already holds the data must not be
+    the thing that crashes — the same split the scheduler draws between
+    `zone_exists` for saving and its own resolver for firing.
+    """
+    text = "" if instant is None else str(instant)
+    if not text or not zone:
+        return text[:10]
+    try:
+        moment = datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        # Already a date, or a shape this function does not own. Untouched.
+        return text[:10]
+    try:
+        from zoneinfo import ZoneInfo
+
+        return (moment.replace(tzinfo=timezone.utc)
+                .astimezone(ZoneInfo(zone)).strftime("%Y-%m-%d"))
+    except Exception:
+        return text[:10]
 
 
 def file_stamp() -> str:

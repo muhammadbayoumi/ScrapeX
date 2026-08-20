@@ -999,6 +999,23 @@
               <p class="muted text-xs" data-time-zone-note>&nbsp;</p>
               <p class="muted text-xs" id="timezone-example">&nbsp;</p>
               <div id="timezone-msg" class="muted text-sm" role="status" aria-live="polite"></div>
+
+              <!-- A DIFFERENT question from the one above, and the copy has to
+                   say so: this one changes data that leaves the building. -->
+              <h3 class="mt-2">Which day a date belongs to</h3>
+              <label for="business_day_zone">Anchor the day to</label>
+              <select id="business_day_zone" dir="ltr"></select>
+              <p class="muted text-xs">
+                Some columns are a DAY, not a moment — “last confirmed”, “last
+                seen”. The engine decides which day they fall on before the page
+                ever sees them, so this choice also changes what you filter by
+                and what is written into your Google Sheet. It is one declared
+                value for every surface, not a per-browser preference. Leave it
+                on UTC and nothing changes.</p>
+              <div class="row mt-2">
+                <button id="business-day-save" class="primary">Save</button>
+              </div>
+              <div id="business-day-msg" class="muted text-sm" role="status" aria-live="polite"></div>
             </div>
           </article>
         </div>
