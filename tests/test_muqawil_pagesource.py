@@ -79,6 +79,41 @@ def test_the_page_count_is_read_from_the_listing_rather_than_assumed():
     assert read_last_page(listing().html) == 865
 
 
+def test_a_filtered_listing_does_not_hide_its_page_count_behind_an_entity():
+    """THE LIVE FAILURE, in the shape the live page writes it.
+
+    Unfiltered, the paginator writes `?page=2` and the old pattern matched
+    because `page=` followed a `?`. Add one filter and it writes
+    `?region_id=1&amp;page=322`, where the character before `page=` is a
+    SEMICOLON — so nothing matched, `read_last_page` raised, and Riyadh's 322
+    pages read as one page of twenty. Measured against the live site on
+    2026-08-20: 322 is the real number.
+
+    Asserted on the ESCAPED text and not on `&`, because a fixture written with
+    a bare ampersand is not the page: bs4 and the browser both normalise, and it
+    was exactly the escaping that broke this.
+    """
+    escaped = (
+        '<ul class="pagination">'
+        '<li><a href="https://muqawil.org/en/contractors?region_id=1&amp;page=1">'
+        '«</a></li>'
+        '<li><a href="https://muqawil.org/en/contractors?region_id=1&amp;page=2">'
+        '2</a></li>'
+        '<li><a href="https://muqawil.org/en/contractors?region_id=1&amp;page=322">'
+        '»</a></li></ul>')
+    assert "&amp;page=322" in escaped, "the fixture must carry the entity"
+    assert read_last_page(escaped) == 322
+
+
+def test_a_page_count_is_not_read_off_the_query_string_of_the_page_itself():
+    """A slice's own URL is `?page=1&region_id=1`, and a caller that passed the
+    URL in with the body — or a pattern loose enough to reach it — would read
+    `1` and call the slice complete. The number has to come from a LINK."""
+    with pytest.raises(ValueError, match="refusing to guess"):
+        read_last_page("<html><body>?page=7 is not a link</body>"
+                       "<p>region_id=1&amp;page=9</p></html>")
+
+
 def test_a_page_with_no_pagination_refuses_rather_than_guessing():
     """Returning 1 would be the dangerous answer: a crawl of twenty contractors
     out of seventeen thousand, reported as complete."""
