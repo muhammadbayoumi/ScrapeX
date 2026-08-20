@@ -877,7 +877,28 @@ for three different readers, and compression hides it. If space ever becomes a
 problem, the 90 MB of `.jsonl`/`.csv` is the part regenerable from the `.db`;
 the zip is not the thing to reconsider.
 
-### OP-19 · The chaos test races the startup sweep it is checking — MOSTLY fixed 2026-08-12
+### OP-19 · The chaos test races the startup sweep it is checking — STILL LIVE, re-measured 2026-08-20
+
+> **RE-MEASURED 2026-08-20, and "MOSTLY fixed" is too generous.** Thirteen runs of
+> `test_a_killed_engine_does_not_leave_a_job_claiming_to_run` across two
+> checkouts: **8 failed, 5 passed.** The `swept=True` marker did not close the race.
+>
+> It fails on **unmodified `cab69b1`** — 1 of 5 there — so it is not caused by any
+> branch in flight; a separate worktree carrying only documentation changes failed
+> 7 of 8. That asymmetry is this entry's own thesis rather than a second bug: the
+> conditions differed, and **two other sessions were editing this repository at the
+> time**, which is precisely the "loaded Windows machine" named below. The failure
+> is always the same assertion, `tests/test_the_engine_survives_being_killed.py:266`
+> — after crash and restart the job still reads `running`.
+>
+> The trap described below was walked into again on the way here, and this entry is
+> what stopped it: three consecutive failures in the modified worktree looked like
+> proof the branch had caused them. Four passes on the unmodified checkout refuted
+> that in one command. **Never conclude from runs on one side only.**
+>
+> Consequence unchanged and worth restating: `_source_is_busy` reads that status,
+> so a real crash leaves the source blocked from every future crawl with nothing
+> anywhere saying why. That is the defect; the flaky test is only how it is seen.
 
 Found 2026-08-11 while removing the engine's Google surface. The suite went red
 on `test_a_killed_engine_does_not_leave_a_job_claiming_to_run`, and the first
