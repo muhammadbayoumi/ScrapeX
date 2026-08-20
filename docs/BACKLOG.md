@@ -877,6 +877,42 @@ for three different readers, and compression hides it. If space ever becomes a
 problem, the 90 MB of `.jsonl`/`.csv` is the part regenerable from the `.db`;
 the zip is not the thing to reconsider.
 
+### OP-20 · CI has not executed since 2026-08-19, and the reason is billing
+
+**Measured 2026-08-20.** Every workflow run since `2026-08-19T14:28Z` fails in
+**0-3 seconds with ZERO steps** — lint, test, contract-parity, scope,
+migration-authority, and the store-documents publish alike. The last run that
+actually executed anything was `2026-08-19T11:50Z` on
+`claude/blissful-swartz-bdca44` (13/11/9 steps, the test job 1,030 seconds, and it
+failed on code). The last CI success was `2026-08-19T11:11Z`.
+
+GitHub's own annotation on the job, read out of the API rather than guessed:
+
+> *"The job was not started because recent account payments have failed or your
+> spending limit needs to be increased. Please check the 'Billing & plans' section
+> in your settings"*
+
+**This is an account setting and only the owner can clear it.** Nothing in the
+code is involved, and `repos/.../actions/permissions` is `enabled: true,
+allowed_actions: all`, so it is not a policy block.
+
+**What it has already cost, and this is the part that matters:**
+
+- **#214 — the whole documentation system — merged with CI never having run.**
+  Its own merge run at `2026-08-20T04:57Z` is one of the zero-step failures. The
+  system now telling every session to trust these documents was itself verified
+  only locally.
+- **SR-23 cannot be satisfied at all right now.** *"CI must be green on every
+  push"* is not a rule anyone can follow while no job starts, and a red check that
+  means "unpaid" is indistinguishable at a glance from a red check that means
+  "broken" — which is how a real failure gets waved through.
+- Every open pull request shows three failing checks that say nothing about its
+  code. #219, #213 and `ci/the-suite-a-docs-change-actually-needs` all inherit it.
+
+**Until it is cleared, a local full-suite run is the only verification available**,
+and a PR should say so rather than showing a red tick and hoping the reader knows
+why.
+
 ### OP-19 · The chaos test races the startup sweep it is checking — STILL LIVE, re-measured 2026-08-20
 
 > **RE-MEASURED 2026-08-20, and "MOSTLY fixed" is too generous.** Thirteen runs of

@@ -16,6 +16,11 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+> **Read no check status on this page as a verdict on code.** GitHub Actions has
+> not started a job since 2026-08-19T14:28Z — failed payment or a spending limit,
+> in GitHub's own words. Every open PR shows three red checks that never ran. See
+> [OP-20](BACKLOG.md) in the backlog; only the owner can clear it.
+
 | PR | branch | state | what it is |
 |---|---|---|---|
 | **#213** | `the-data-page-port-is-a-port` | **CONFLICTING** — cannot be read until it is rebased | DEC-8: the engine's Data page is a port, not a rebuild, and the measurement says which |
