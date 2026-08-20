@@ -1012,6 +1012,41 @@ for three different readers, and compression hides it. If space ever becomes a
 problem, the 90 MB of `.jsonl`/`.csv` is the part regenerable from the `.db`;
 the zip is not the thing to reconsider.
 
+### OP-21 · A public repository lets a stranger's fork run our workflows
+
+**Raised 2026-08-20 by [R-19](RULINGS.md#r-19--the-repository-is-public-and-the-pre-publication-audit-was-declined), and NOT yet audited — this entry is the question, not the answer.**
+
+Going public changed who may cause a workflow to run. A fork's pull request can
+trigger `pull_request` workflows, so every job in `.github/workflows` is now
+reachable by someone with no write access to this repository.
+
+**What has to be read, file by file, before anyone says this is fine:**
+
+- **Which workflows trigger on `pull_request`, and whether any of them touch a
+  secret.** `ci.yml` is believed to need none; `publish-docs.yml` writes through the
+  GitHub Contents API and therefore holds a token — if it can be reached from a fork,
+  that token is reachable from a fork. Not verified.
+- **`pull_request` versus `pull_request_target`.** The first checks out the fork's
+  code without repository secrets; the second runs in the base repository's context
+  WITH them, and combining it with a checkout of the fork's ref is the known
+  privilege-escalation pattern.
+- **Whether any job runs code from the checked-out tree** — a test suite does, by
+  definition, so a fork's pull request executes its own Python on our runner. That is
+  normal and expected for GitHub-hosted runners and unacceptable on a self-hosted one.
+  This project uses `runs-on: ubuntu-latest` throughout, which is the safe case, but
+  it should be asserted rather than assumed.
+- **`permissions:` on each workflow.** An absent block inherits the repository
+  default, which may be write.
+- **Whether Actions is set to require approval for first-time contributors**, which is
+  a repository setting rather than a file.
+
+**It is deliberately not fixed here.** R-19 records that he declined the exposure
+audit, and this is the one part of that audit which is about *future* exposure rather
+than history already published — so it is a live question rather than a closed one,
+and it belongs beside
+[REQ-11](REQUESTS.md#req-11--branch-protection-for-main-in-a-session-of-its-own),
+which is the session that will already be reading these settings.
+
 ### OP-20 · CI has not executed since 2026-08-19, and the reason is billing
 
 **Measured 2026-08-20.** Every workflow run since `2026-08-19T14:28Z` fails in

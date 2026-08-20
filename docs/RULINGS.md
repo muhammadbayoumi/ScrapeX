@@ -368,7 +368,7 @@ proof it was enough.
 
 ---
 
-### R-18 · The repository is public, and the pre-publication audit was declined
+### R-19 · The repository is public, and the pre-publication audit was declined
 **2026-08-20 · process, and it cannot be undone**
 
 > «لو كان Billing & plans خاصة ب GITHUB خلى المشروع PUBLIC وكمل» — then, when a
@@ -409,7 +409,8 @@ already distributed. Do treat these as facts of the world now: a secret found in
 history must be **rotated, not deleted**, because deleting it from git does not
 un-publish it; and a new fixture of a real page is a publishing decision, not just
 a test decision. **Public repositories also let fork pull requests run
-workflows** — see [OP-21](BACKLOG.md) for what that means for `.github/workflows`.
+workflows** — see [OP-21](BACKLOG.md#op-21--a-public-repository-lets-a-strangers-fork-run-our-workflows)
+for what that means for `.github/workflows`.
 
 ---
 
