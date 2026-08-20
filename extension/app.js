@@ -912,11 +912,20 @@ function setupRunModeSelect() {
       else focusOption(event.key === "ArrowDown" ? 1 : -1);
     }
   });
+  // Escape closes the popup wherever the focus happens to be, the same way the
+  // workspace menu answers it. Bound to the list alone it was SILENTLY DROPPED
+  // for the first frame after opening: open() moves the focus into the list in
+  // a requestAnimationFrame, so until that frame runs the focus is still on the
+  // trigger, whose handler answers to the arrow keys only — the key reached no
+  // listener at all and the popup stayed open under the owner's hand. The list
+  // keeps the arrow/Home/End keys below, which do need a focused option.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || list.classList.contains("hidden")) return;
+    event.preventDefault();
+    close({restoreFocus: true});
+  });
   list.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close({restoreFocus: true});
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       focusOption(event.key === "ArrowDown" ? 1 : -1);
     } else if (event.key === "Home" || event.key === "End") {

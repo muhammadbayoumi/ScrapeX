@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
 pytest.importorskip("playwright", reason="needs the browser extra")
-from playwright.sync_api import sync_playwright  # noqa: E402
+from playwright.sync_api import expect, sync_playwright  # noqa: E402
 
 import panel_harness as harness  # noqa: E402
 
@@ -833,7 +833,44 @@ def test_run_mode_uses_the_themed_listbox_instead_of_the_native_blue_popup(open_
     assert themed, "the selected row escaped the active theme"
 
     page.keyboard.press("Escape")
-    assert not page.locator("#run-mode-list").is_visible()
+    # to_be_hidden, not `assert not is_visible()`: a point-in-time read states a
+    # race it cannot win. The close itself is synchronous, so this waits on
+    # nothing in practice — but the next person to add a transition here should
+    # get a passing test, not a Tuesday spent on a red run they cannot explain.
+    expect(page.locator("#run-mode-list")).to_be_hidden()
+
+
+def test_escape_closes_the_run_mode_listbox_before_the_focus_frame_lands(open_panel):
+    """The popup takes focus one frame after it opens (open() schedules it in a
+    requestAnimationFrame), and for that frame the focus is still on the
+    trigger. Escape used to be bound to the list alone, so a press inside that
+    window reached only the trigger — whose handler answers to the arrow keys —
+    and was dropped: the popup stayed open and the key did nothing.
+
+    That frame is normally ~16ms and no one notices. A loaded CI runner
+    stretches it far enough to lose the keypress outright, which is how this
+    suite came to fail on a branch that cannot reach the panel at all."""
+    page = open_panel()
+    page.click(RUN_TAB)
+    page.wait_for_timeout(200)
+
+    page.click("#run-mode-trigger")
+    expect(page.locator("#run-mode-list")).to_be_visible()
+    # Hold the focus where the panel itself leaves it for that one frame. This
+    # is the state under test, reached without racing the real frame.
+    page.focus("#run-mode-trigger")
+    page.keyboard.press("Escape")
+
+    expect(page.locator("#run-mode-list")).to_be_hidden()
+    assert page.get_attribute("#run-mode-trigger", "aria-expanded") == "false"
+    assert page.evaluate("() => document.activeElement.id") == "run-mode-trigger"
+    assert not page.js_errors
+
+    # The focus DOES land on the selected option once the frame runs — Escape
+    # closing early is a repair to the popup, not a replacement for it being a
+    # real listbox that the keyboard can walk.
+    page.click("#run-mode-trigger")
+    expect(page.locator('#run-mode-list [aria-selected="true"]')).to_be_focused()
 
 
 def test_update_is_not_on_offer_for_a_site_with_no_data(open_panel):
