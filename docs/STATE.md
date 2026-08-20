@@ -83,7 +83,7 @@ test (#200) · sign-out (#201, ruling [R-13](RULINGS.md#r-13--sign-out-of-all-ac
    source's answers 404 **without confirming the id exists at all**.
 2. **Choose-Columns — `GET`/`POST /api/fields/{key}`. Do not write a second one.**
    The panel already has the whole thing: `loadSourceColumns`
-   (`extension/app.js:1590`) and `saveSourceColumns` (`:1629`), speaking the same
+   (`extension/app.js:1594`) and `saveSourceColumns` (`:1633`), speaking the same
    bodies. **Extract** it into a shared module the way `backend.js` was, or the
    two surfaces will disagree about how a column is saved.
 3. **Saved views — `POST /api/views/{key}`, `DELETE /api/views/{id}`.**
@@ -301,7 +301,7 @@ written and 58 two days ago. It grows every time this is deferred.
 `"latest_extension_version": VERSION` at
 [scrapex/version.py:477](../scrapex/version.py) and
 [scrapex/webui/app.py:1439](../scrapex/webui/app.py), drawn by
-[extension/app.js:595](../extension/app.js) and `:629`.
+[extension/app.js:599](../extension/app.js) and `:633`.
 
 > **Re-verified 2026-08-19, and three of these citations had already drifted.**
 > `webui/app.py` was **1355**, now 1375 — #211 and #212 inserted twenty lines

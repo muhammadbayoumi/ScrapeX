@@ -105,7 +105,7 @@ PINNED = (
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 477, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "scrapex/webui/app.py", 1439, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "extension/app.js", 595, "latest_extension_version"),
+    ("docs/STATE.md", "extension/app.js", 599, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
     ("docs/RULINGS.md", "scrapex/webui/app.py", 1439, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 477, '"latest_extension_version": VERSION'),
@@ -114,9 +114,9 @@ PINNED = (
     ("docs/STATE.md", "scrapex/features.py", 60, "False"),
     # B2 step 2 -- "do not write a second one". The instruction is to EXTRACT
     # these two, so a reader sent to the wrong line writes the duplicate instead.
-    ("docs/STATE.md", "extension/app.js", 1590, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1590, "async function loadSourceColumns("),
-    ("docs/APPROACHES.md", "extension/app.js", 1629, "async function saveSourceColumns("),
+    ("docs/STATE.md", "extension/app.js", 1594, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1594, "async function loadSourceColumns("),
+    ("docs/APPROACHES.md", "extension/app.js", 1633, "async function saveSourceColumns("),
     # The guards the documents claim exist. A rule that cites a dead guard is a
     # rule with nothing behind it -- which is how W4 came to be believed.
     ("docs/RULINGS.md", "tests/test_version.py", 536,
@@ -129,7 +129,7 @@ PINNED = (
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 2438, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
-    ("docs/BACKLOG.md", "extension/app.js", 836, "crawl_honour_delay:"),
+    ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),
     ("docs/BACKLOG.md", "scrapex/capture.py", 95, "crawl_honour_delay"),
 )
 
