@@ -582,6 +582,69 @@ than missing **(inferred from the titles; the check is a diff, not a title match
 **superseded, do not merge**. Two branches live in `~/.codex/worktrees/`, so
 `git worktree remove` comes before any deletion.
 
+### DEC-12 · The append gate's key is not the number, and three of his briefs prove it separately
+
+**FOUND 2026-08-20**, not from the code but from reading three price briefs he sent
+within an hour of each other. Each describes a different product, each was written
+independently, and **each breaks `SR-6` in a different place.** One case would be a
+quirk; three from three directions is a defect in the key.
+
+`SR-6` is right about what it was written for: a scraped shelf price where an
+unchanged number carries no new information, so the observation is **confirmed rather
+than appended**. That is what `_still_the_same_price` implements, and it is why the
+warehouse is not full of identical rows.
+
+**It is wrong about what "the same" means for an official published price.**
+
+| the brief | what carries the new fact | what `SR-6` sees |
+|---|---|---|
+| [DIESEL-PRICES.md](DIESEL-PRICES.md) §3 — *"never overwrite a previous price when a new month or quarter begins"* | **the period.** Oman published `0.258 OMR/litre` for August. If July was also `0.258`, the ministry setting it again for a named month **is** the fact | no change → writes nothing → **the August period never exists** |
+| [BITUMEN-PRICES.md](BITUMEN-PRICES.md) | **the commercial basis.** Two observations can be ex-refinery and delivered, taxed and untaxed, 25-tonne truck and sea — different facts at equal values | no change → collapses them → destroys the only thing that made either usable |
+| [CONCRETE-MATERIALS.md](CONCRETE-MATERIALS.md) §3 | **the source type.** Its table has a column headed *"Can it populate `price_amount`?"* and the answer is **No** for `official_price_index`, `official_approved_source` and `official_specification`. An index point and an absolute price are not comparable quantities | no change → treats an index value and a price as the same observation |
+
+> **So the key is not `(product, price)`. It is at least
+> `(product identity, period, commercial basis, source type)`** — and the concrete
+> brief goes further than a key: an index must not enter the price column **at all**,
+> which is a schema boundary rather than a gate condition. It gives
+> `price_index_observations` and `water_tariffs` their own tables for exactly that
+> reason.
+
+#### Why this is recorded now, before any of it is collected
+
+Because the failure is **silent and unrecoverable**. A dropped month is not a wrong
+row that a later fix corrects — it is a row that never existed, in a table whose whole
+purpose is history. By the time anyone notices August is missing, August is not
+re-fetchable: these are dated bulletins and expiring quotations, and the Qatar bitumen
+figure had **already expired** when he sent it.
+
+**And this shape has already happened here once.** A new `price_observation` column
+stayed NULL because the append gate never learned to notice it — the gate decides what
+history exists, and it only ever knew about the price. That is the same defect at a
+smaller scale, and it is the reason to believe this one.
+
+#### Water is the sharpest single example, and it is his
+
+The concrete brief §2.2 refuses to store one water price at all. The official network
+tariff is **one component** of the site cost, beside meter charges, wastewater
+charges, tanker filling, transport, storage and testing — and *"a potable-water tariff
+alone does not prove technical suitability"* for concrete mixing. **One number here
+would be false in both directions**: too low as a delivered cost, and not evidence of
+fitness for purpose. So the tariff and the delivered quotation are two tables, which
+is the same argument as the three rows above with the volume turned up.
+
+#### What this does NOT say
+
+It does not say `SR-6` should be removed. `SR-6` earned itself on the price sources
+this project already runs, and removing it would fill the warehouse with identical
+rows. **It says the gate needs to be told what "new" means per product class**, and
+that the three product classes he has now queued each answer differently.
+
+**Not built, and deliberately not designed here.** The evidence is recorded while it
+is fresh; the mechanism is a decision for when the first of these collections is
+actually scheduled, and it will need his ruling because it changes what `SR-6` means.
+
+---
+
 ### DEC-11 · How to crawl muqawil without missing anyone, and what it costs
 
 **STUDIED 2026-08-20 on his instruction** — «ازاى نزحف صح بدون ان نغفل شى» and «اريد

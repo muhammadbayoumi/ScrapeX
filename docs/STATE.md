@@ -232,6 +232,88 @@ with nothing stored for them. Their written conditions were measured, not quoted
 
 ---
 
+## Track 5 · The source queue — eight countries and three product classes, none started
+
+**He set the order himself on 2026-08-20**, and for the first two it is a
+precondition rather than a preference: each waits for the previous one to be
+**finished completely**, where finished is his definition — «كلّ ما ينشره الموقع».
+The fourth he added with «المزيد من المصادر ضفها الى القائمة» and named no position,
+so it is appended in the order received.
+
+| # | source | where the brief is | state |
+|---|---|---|---|
+| 1 | **muqawil.org** | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) | Track 2 above — 11,059 of 17,403 rows, listing pages only, profiles never crawled |
+| 2 | **Balady engineering offices** | [BALADY-ENG-OFFICES.md](BALADY-ENG-OFFICES.md) | **Queued.** [REQ-14](REQUESTS.md#req-14--balady-engineering-offices-as-the-next-source-after-muqawil) |
+| 3 | **UAE contractors and consultants** | [UAE-SOURCES.md](UAE-SOURCES.md) | **Queued.** [REQ-15](REQUESTS.md#req-15--the-uae-sources-third-in-the-queue) |
+| 4 | **Egypt, Oman, Qatar, Bahrain, Kuwait** | [GULF-EGYPT-SOURCES.md](GULF-EGYPT-SOURCES.md) | **Queued.** [REQ-16](REQUESTS.md#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue) |
+| — | **Official diesel prices, 7 countries** — a PRODUCT source, not a firm directory | [DIESEL-PRICES.md](DIESEL-PRICES.md) | **Queued.** [REQ-17](REQUESTS.md#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) |
+| — | **Bitumen 60/70 prices, 7 countries** — a product source that **cannot be crawled** | [BITUMEN-PRICES.md](BITUMEN-PRICES.md) | **Queued.** [REQ-18](REQUESTS.md#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) |
+| — | **Reinforced-concrete materials, 7 countries** — cement, rebar, aggregate, water | [CONCRETE-MATERIALS.md](CONCRETE-MATERIALS.md) | **Queued.** [REQ-19](REQUESTS.md#req-19--reinforced-concrete-material-prices--its-turn-will-come) |
+
+> **Four briefs, 8 countries, and not one of them started.** Saudi Arabia twice
+> (muqawil and Balady), the seven emirates, then Egypt, Oman, Qatar, Bahrain and
+> Kuwait. The queue is a queue, not a plan: none of it competes with finishing
+> muqawil, which is what he said the priority is.
+
+**The diesel-price list is a different KIND of source and is listed without a
+position.** He classified it himself — **«مصادر منتجات»**, product sources. The
+other four describe *firms* and land in `generic_record`; this describes *a product's
+price over time* and lands in `price_observation` — the original spine of this
+project, which muqawil never touched. It is also **7 pages against muqawil's
+36,548**, about fourteen requests a month, so it is an afternoon rather than a track.
+
+> **And it collides with `SR-6`, which is worth knowing before it starts.** `SR-6`
+> says an unchanged price is confirmed, not appended. His rule §3 says never
+> overwrite a previous price when a new month begins. If Oman's July price equalled
+> August's, the gate writes nothing and the August **period** never exists. A
+> period-keyed price has to key the gate on the PERIOD, not only the value.
+> [DIESEL-PRICES.md](DIESEL-PRICES.md) carries the reasoning.
+
+**And the bitumen brief cannot be crawled at all** — by its own conclusion, five of
+its seven countries have no public official price, so its acquisition mode is a
+written quotation to a producer. What this project can do for it is store a dated,
+caveated observation that is never mistaken for a live market price. It is also the
+**second** independent case against `SR-6`'s key: for diesel the key is the period,
+for bitumen the commercial basis, because two observations can carry the same number
+and different bases. [BITUMEN-PRICES.md](BITUMEN-PRICES.md).
+
+**A third price brief makes it a finding rather than an observation.** The
+reinforced-concrete materials brief types its sources explicitly and answers **No** to
+*"can it populate `price_amount`?"* for an index, an approved-supplier list and a
+specification. So: diesel says the append key is the **period**, bitumen the
+**commercial basis**, concrete the **source type** — three products, three axes, three
+briefs written separately. Recorded as [DEC-12](BACKLOG.md) before any of it is
+collected, because a dropped period is not a wrong row a later fix corrects; it is a
+row that never existed, in a table whose whole purpose is history.
+
+**All three briefs are his, stored verbatim**, and they are in the repository rather than
+in a conversation for a measured reason: he re-sent the muqawil column specification
+on 2026-08-20 because he could not tell whether it had survived. It had. He should
+not have to ask twice.
+
+**Neither is a schema to implement.** Balady's brief says so in its own words —
+*"Do not assume that any preliminary finding in this brief is correct"* — and demands
+every statement be labelled **Verified / Inferred / Unverified / Not available**. The
+UAE file is not even one source: its key finding is that **no single public federal
+directory covers every emirate**, so the emirate and the regulatory authority are
+part of a record's identity.
+
+**Two things worth knowing before either starts**, so the work does not open by
+rediscovering them:
+
+- **Ask for the open dataset first.** Both files require checking for an official
+  API or download **before** any browser automation. It is the cheapest question
+  available and it can delete the crawl. muqawil's equivalent was answered late, and
+  the answer was no — three dead ends recorded in [DEC-11](BACKLOG.md) so nobody
+  spends those requests again.
+- **Abu Dhabi DMT may be better-shaped than muqawil.** It publishes `firm_name` and
+  `firm_name_ar` **in one record**. On muqawil the Arabic half is a second full crawl
+  — 871 listing pages and 17,403 profiles again — matched by page-order index
+  because one label is spelled `رقم العضويه` with `ه`. A bilingual record halves
+  the requests and removes that risk.
+
+---
+
 ## Track 4 · What CI actually costs, and the tier a documentation change needed
 
 **Measured 2026-08-19**, because PR #214 was documentation only and took the two
