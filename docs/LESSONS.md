@@ -706,3 +706,48 @@ Reading the code found almost none of these. What found them:
   single-ingest blind spot.
 - **When a fix looks like it did nothing, suspect the environment before the
   logic** — §1 above.
+
+---
+
+## 9 · A measurement is only as good as the instrument
+
+### A witness that compares the wrong thing certifies nothing, and looks fine doing it
+
+The muqawil completeness proof rests on one check: after reading a slice, re-fetch its
+first page and confirm the listing never reshuffled underneath. As designed
+([DEC-11](BACKLOG.md)) that check was **"byte-identical"**.
+
+Measured: a re-fetched page whose contractor ids came back in the **exact same order**
+was **not** byte-identical. The body carries per-response noise. So the comparison would
+have failed on every slice, every time — and a witness that always fails does not raise,
+it simply never certifies anything. The crawl would have run for hours, discarded and
+retried each slice forever, and reported no completeness at all, while every line of it
+worked as written.
+
+**Compare the thing the claim is about.** The claim is *"the ordering did not change"*,
+so the comparison is the id sequence. The bytes are a proxy that is strictly stronger
+than the property, and a proxy stronger than the property is not a conservative choice —
+it is a check that can never pass.
+
+### A facet's controls may not be a `<select>`, and its null class may have a value
+
+Two beliefs about muqawil's listing were recorded from a search of its `<select>`
+elements, and both were wrong in a way that changed the plan:
+
+- **`company_size`, `user_type` and `rating_stars` are radio inputs.** They were written
+  down as having "no `<select>` in the listing at all", which was true and read as *no
+  filter exists*. Their values were in the page the whole time.
+- **`city_id`'s `<select>` is genuinely empty** — but only because an endpoint fills it.
+  `var citiesUrl = …/contractors/cities` sat in the same page's jQuery, four kilobytes
+  from the empty element. **The stored HTML answered a question we had recorded as
+  needing new evidence.**
+
+And the one that mattered most: summing a facet's values fell **1,437 short** of the
+whole, which looked like proof that 8.3% of contractors were unreachable by any filter.
+They were reachable — `region_id=0` returns exactly that set, exactly that size. **A
+facet's "not set" class can be addressable, and the way to find out costs one request.**
+
+Both of these are the same mistake with two faces: **an absence found by one instrument
+was reported as an absence in the world.** Before recording that something cannot be
+done, name the instrument that failed to find it.
+

@@ -178,13 +178,25 @@ passes over the English listing, 8h37m:
 
 It **stopped at its pass ceiling, not at convergence** — the sixth pass still
 brought 62 names never seen before, so an unknown number remain unseen. The
-warehouse therefore holds **11,059 of 17,402 — about 64%**. That denominator is
-[DEC-11](BACKLOG.md)'s, measured as `(871−1)×20 + 2` from two requests; the sweep's
-"at least 17,283" cost 8h54m to reach a smaller and less exact answer. The sweep
-stored no snapshots and read one language only, deliberately (it needed ids, not
-values), so the ~6,224 known-missing contractors have **no evidence and no Arabic
-half** — closing that gap is a new bilingual crawl, and DEC-9 argues it should
-follow the compression migration rather than precede it.
+warehouse therefore holds **11,059 of 17,403 — about 64%**. That denominator is
+[DEC-11](BACKLOG.md)'s, `(871−1)×20 + c` from two requests; the sweep's "at least
+17,283" cost 8h54m to reach a smaller and less exact answer. The sweep stored no
+snapshots and read one language only, deliberately (it needed ids, not values), so
+the ~6,344 known-missing contractors have **no evidence and no Arabic half** —
+closing that gap is a new bilingual crawl, and DEC-9 argues it should follow the
+compression migration rather than precede it.
+
+**And that crawl now has a method that can prove itself, measured 2026-08-20.**
+`region_id` × `company_size` is an **exhaustive 56-cell partition** of the
+directory — 15,966 across regions 1–13 plus **1,437 under `region_id=0`**, the
+contractors who publish no location at all, summing to 17,403 exactly. Each cell
+publishes its own page count in its paginator's `»` link, so one request sizes it;
+a slice re-read against its own first page proves it was read inside a single
+cache generation. One cell has been closed end to end already — region 13 ×
+verysmall, 128 ids, 128 distinct, `D = 0`. Cost of the whole listing that way:
+**~1,065 requests, ~1.7 h**, against 18.4 h for a blind sweep that can never say
+"complete". [DEC-11](BACKLOG.md) carries the numbers, the two corrections the
+measurement forced, and what it still cannot see.
 
 **The live database is `~/.scrapex/engine/scrapex-engine.db`**, per
 `~/.scrapex/databases.json`. The older `~/.scrapex/marketlens/marketlens.db` is
@@ -193,7 +205,7 @@ opens it looking for this data.
 
 **Not in, and named so it is not mistaken for done:** the detail files
 (coordinates, email, licences, interests) — a second crawl of ~22,000 requests ·
-the ~6,224 contractors the sweep counted and nothing has fetched · the
+the ~6,344 contractors the sweep counted and nothing has fetched · the
 compression migration DEC-9 asks for · the row-aware idempotency key DEC-10 asks
 for, without which a corrected parser cannot be re-run over stored snapshots at
 all.
@@ -201,7 +213,7 @@ all.
 **He ruled, and both flags are lit.** `FeatureKey.GENERIC_DATASET_CATALOG` and
 `FeatureKey.GENERIC_EXTRACTION` are `True` at
 [scrapex/features.py:54](../scrapex/features.py) and `:65`, both at **`PARTIAL`** —
-one site, one dataset, listing pages only, and ~6,224 contractors the sweep counted
+one site, one dataset, listing pages only, and ~6,344 contractors the sweep counted
 with nothing stored for them. Their written conditions were measured, not quoted:
 11,059 rows through the approval path over 1,728 ingestions, every one
 `status=success`.

@@ -619,8 +619,8 @@ in a cache whose generation lasts **more than 66 s and at most 268 s**. Measured
 | step | what it does | cost |
 |---|---|---|
 | **0 · ceiling** | page 1 → `L` and cards-per-page `S`; page `L` → `c`; `N = (L−1)·S + c`. **`S` is READ, never assumed** — he warned it may change, and it did change on the last page | **2 requests, ~12 s** — replaces an 8h54m six-pass sweep |
-| **1 · partition** | slices small enough to read inside one generation: `floor(66 s ÷ s-per-request)` ≈ **11 pages** serial, ~31 at concurrency 4. `region_id` verified live: region 1 → 322 pages, region 13 → 8 | free from a stored page |
-| **2 · witness** | after reading a slice, **re-fetch its page 1**. Byte-identical ⇒ the generation never rolled ⇒ the pages were one true partition ⇒ if `distinct == N_s` the slice is **provably complete**. Different ⇒ discard and retry | `L_s + 1` |
+| **1 · partition** | slices small enough to read inside one generation. **`region_id` × `company_size`, 56 cells, exhaustive and verified to the unit** — see the measurement below. Slice sizes are read from each cell's own paginator, never assumed | 1 request a cell |
+| **2 · witness** | after reading a slice, **re-fetch its page 1 and compare THE ID SEQUENCE** — never the bytes; see the correction below. Same sequence ⇒ the generation never rolled ⇒ the pages were one true partition ⇒ if `distinct == N_s` the slice is **provably complete**. Different ⇒ the ids still count, and the slice retries | `L_s + 1` |
 | **3 · exhaustiveness audit** | `Σ N_s == N_total`? If short, **the deficit is exactly the count of contractors whose facet value is null** — the "contractor in no partition" case, detected and counted instead of silently dropped | 2 per slice |
 | **4 · global deficit** | `D = N − |distinct|`. `D > 0` **proves** incompleteness and names its size; `D == 0` proves every published row position was read. Re-read `L` at the end: if it moved, say "complete as of the start, with N arrivals deferred" | free |
 
@@ -662,20 +662,132 @@ about requests, **but it must not be read as coverage**: Arabic page N returns t
 half buys **129 new ids for 865 requests**. Count passes in ONE locale for completeness
 planning and treat Arabic as a data-pairing cost, not a coverage cost.
 
-#### Unknowns, with the missing evidence named
+#### The partition, measured 2026-08-20 — and it is exhaustive to the unit
 
-1. **Is `region_id` exhaustive?** `Σ N_r` over 13 regions against 17,402 is
-   **unmeasured**. Missing evidence: 26 GETs, ~2.6 minutes.
-2. **Does a partition fine enough for an 11–31 page slice exist?** This is the method's
-   one load-bearing unverified dependency. `city_id`'s `<select>` is **empty in the
-   stored HTML** — AJAX-populated, values never observed — and `company_size`,
-   `rating_stars`, `user_type` and `interest_id` have no `<select>` in the listing at
-   all. Only `region_id` (13) is readable and confirmed, and Riyadh alone is 322 pages.
-   Missing evidence: the endpoint that populates `city_id`.
-3. **Is 10001274 in the unfiltered listing?** Unknown until a converged crawl says so.
-4. A parsing trap worth keeping: a first region probe reported "no pagination" because
-   the hrefs carry `&amp;` — the character before `page=` is a semicolon. **Unescape
-   HTML before matching.**
+**MEASURED, 152 requests** — 43 sizing the regions, 61 the region×size cells, 13 the
+cities endpoint, 10 probing whether a null facet is addressable, 10 sizing
+`region_id=0`, 14 witnessing, 1 diagnosing.
+
+The three unknowns this study left open were the ones the method stood on. Two are now
+closed and the third is closed as a defect.
+
+**The page count never needed a sweep.** The paginator publishes its own last page:
+
+```html
+<li class="page-item"><a href="…?region_id=1&amp;page=322">»</a></li>
+```
+
+So **one request sizes any slice**, filtered or not. `read_last_page` already did this
+and nobody had noticed it answers the filtered case too.
+
+**Every filter the listing offers, because a `<select>`-only search had missed most of
+them.** This study previously recorded that `company_size`, `rating_stars` and
+`user_type` "have no `<select>` in the listing at all". True, and misleading: **they are
+radio inputs**, and their values were in the page the whole time.
+
+| parameter | values | exhaustive? |
+|---|---|---|
+| `region_id` | `1`…`13`, **and `0`** | **yes, with `0`** — see below |
+| `city_id` | 3,953 ids, AJAX only | no — same null class as region |
+| `company_size` | `big` `medium` `small` `verysmall` | **yes** |
+| `user_type` | `SC` `NSC` | **yes** (783 + 88 = 871 pages, the whole listing) |
+| `rating_stars` | `1`…`5` | no — **17 contractors in total** carry any rating |
+| `lc_program_list_id` | 13 programme ids | no |
+| `interest_id` | `jstree`, hierarchical | no, and multi-valued |
+| `q` | free text | **matches the membership number exactly** |
+| `my_contractors` | `1` `2` | no — a logged-in user's own list |
+
+**`city_id` comes from an endpoint, and it was in the stored HTML all along**, in the
+listing's own jQuery rather than in any `<option>` — which is exactly why a search of
+the `<select>` found an empty one:
+
+```js
+var citiesUrl = "https://muqawil.org/en/contractors/cities";
+```
+
+`GET /{lang}/contractors/cities?region_id=<n>` → `[{"id":…,"name":…}, …]`. Thirteen
+requests give **3,953 cities**. `city_id` also works **without** `region_id`
+(`?city_id=3` alone → 296 pages, which is RIYADH — the warehouse projects 5,896 for
+that city and the paginator says 5,920).
+
+**`region_id=0` is the whole answer to the exhaustiveness question.** `Σ N_r` over
+regions 1–13 came to **15,966** against a whole of **17,403** — 1,437 short, the
+contractors whose card publishes no location at all. `region_id=0` (and
+`region_id=null`) returns **exactly those 1,437**, every card blank:
+
+| | |
+|---|---|
+| Σ regions 1…13 | **15,966** |
+| `region_id=0` | **1,437** — and its own four `company_size` cells sum to 1,437 |
+| whole listing | **17,403** = 15,966 + 1,437, exact |
+
+Corroborated independently: 960 of the 11,059 stored records (**8.7%**) have a null
+`card_city_region`, and 1,437 of 17,403 is **8.3%**. Two measurements, different
+instruments, same class of contractor. **This is the "contractor in no partition" case
+the study warned about, and it turns out to have a URL.**
+
+`company_size` is a second exhaustive axis: its four values sum to **17,405** against
+17,403 — a drift of two arrivals in the minutes between the two measurements — and
+`card_company_size` is filled for **all 11,059** stored records with no empties, ratios
+matching the live page counts to a tenth of a percent (76.6 / 14.4 / 6.1 / 3.1).
+
+**So the partition is `region_id` × `company_size` — 56 cells, exhaustive, exact.**
+
+| | |
+|---|---|
+| cells | **56** |
+| Σ pages over cells | **897** against 871 unfiltered — **3% overhead**, the per-cell rounding |
+| cells over 31 pages | **6**: Riyadh×verysmall 235, Makkah×verysmall 156, Eastern×verysmall 93, no-region×verysmall 59, Riyadh×small 51, Madinah×verysmall 32 |
+| those 6, split again by `city_id` | **405 of 410** city×size cells fall under 31 pages. The five that do not: RIYADH×verysmall ~212, JEDDAH×verysmall ~92, RIYADH×small ~48, MAKKAH×verysmall ~39, DAMMAM×verysmall ~32 |
+
+**Re-priced: ~1,065 requests, ~1.7 h serial** (56 to size + 897 to read + 56 to
+witness + 56 tail counts) against this study's earlier estimate of 1,670 and 2.7 h, and
+against **18.4 h** for the blind sweep. And it is now provable rather than hoped-for,
+because the partition is exhaustive rather than assumed to be.
+
+#### Two corrections the measurement forced, and one would have broken everything
+
+**1 · The witness must compare the ID SEQUENCE, not the bytes.** Step 2 said
+"byte-identical". Measured: a re-fetched page 1 whose id order was **identical** was
+**not** byte-identical — the body carries per-response noise. A byte comparison would
+have failed every witness, so the method would have certified **nothing**, ever, while
+looking like it was working.
+
+**2 · A filtered listing hid its page count behind an entity, and that is a defect in
+this repository rather than a quirk of the site.** `read_last_page` matched
+`[?&]page=(\d+)`. Unfiltered, the paginator writes `?page=2` and it matched. Filtered,
+it writes `&amp;page=322`, where the character before `page=` is a **semicolon** — so
+nothing matched, the function raised, and a caller that guarded the raise read Riyadh's
+**322 pages as one page of twenty**. It is fixed, read only from inside an `href`
+(unescaping alone would let prose containing `page=` count as pagination), and both
+halves are mutation-proven.
+
+#### Proven once, end to end
+
+`region_id=13` × `company_size=verysmall`, 7 pages: **128 ids read, 128 distinct**, and
+the witness page 1 came back in the same order. `D = 0`. **That slice is complete, and
+the claim is a proof rather than a hope** — the first time anything in this project has
+been able to say that about muqawil.
+
+And the generation lasts longer than the study assumed. Page 1 of a filtered slice held
+its exact order at **55 s, 90 s and 157 s**, and had rolled by **282 s** (10 of 20 ids
+in common). So the working floor is **157 s**, not 66 s — which is what makes 31-page
+cells comfortable and the six heavy cells worth attempting at all.
+
+#### Unknowns that remain
+
+1. **Is 10001274 in the unfiltered listing?** Still unknown until a crawl closes with
+   `D = 0`. But it is now **reachable on demand**: `?q=10001274` returns exactly one
+   card. That is the reconciliation primitive `dataset_sighting` needed — one request
+   per missing id, not a re-crawl.
+2. **The five city×size cells over 31 pages**, worst RIYADH×verysmall at ~212. No
+   fourth exhaustive axis is fine enough — `user_type` only halves it to ~190. The
+   witness makes attempting them **safe rather than risky**, since a failed witness
+   still contributes its ids and retries, so this is a cost question and not a
+   correctness one.
+3. **Whether `q` can cover the residue.** `q=zzz` → 0 results and `q=a` → 856 pages, so
+   it is a substring match and a cover built from it would overlap. Unmeasured whether
+   every published name contains an ASCII letter.
 
 #### Dead ends, so nobody spends the requests twice
 

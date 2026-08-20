@@ -32,6 +32,7 @@ full record is `docs/CONTRACTOR-SOURCE.md`; these four decide the code:
 """
 from __future__ import annotations
 
+import html as html_entities
 import re
 from collections.abc import Iterable
 
@@ -68,8 +69,28 @@ def read_last_page(html: str) -> int:
     constant here would quietly stop crawling the tail the week it changed. The
     caller reads page one, calls this, and only then builds the source — which
     is why `MuqawilPageSource` demands the number instead of defaulting it.
+
+    ENTITIES ARE UNESCAPED FIRST, and the reason is a measured failure rather
+    than tidiness. An UNFILTERED listing writes `?page=2`, so `page=` follows a
+    `?` and the old pattern matched. A FILTERED one — `?region_id=1` — writes
+    `href="...?region_id=1&amp;page=322"`, where the character before `page=` is
+    a SEMICOLON. The pattern matched nothing, this function raised, and every
+    caller that guarded the raise read a 322-page region as a single page of
+    twenty. That is not a parse quirk: the whole partition-and-witness method in
+    `DEC-11` reads its slice sizes from a filtered listing, so a slice would
+    have reported itself complete after one page while 6,420 contractors sat
+    behind pagination nobody followed.
+
+    AND ONLY INSIDE AN `href`, because unescaping WIDENS what matches: after it,
+    the string `region_id=1&page=9` sitting in ordinary body text counts as a
+    page link where the semicolon used to hide it. The number a crawl trusts has
+    to come from a link the site published, not from prose that happens to look
+    like a query string.
     """
-    pages = [int(found) for found in re.findall(r"[?&]page=(\d+)", html)]
+    pages = [int(found)
+             for href in re.findall(r"""href=["']([^"']+)["']""", html)
+             for found in re.findall(r"[?&]page=(\d+)",
+                                     html_entities.unescape(href))]
     if not pages:
         raise ValueError(
             "no pagination on this listing page, so the crawl's size is "

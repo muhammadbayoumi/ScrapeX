@@ -234,12 +234,70 @@ no human reader would notice.
 against `?page=2`. All six returned **exactly 20 rows**. So the bound is fixed:
 
 > **871 listing pages, and the arithmetic is `(L−1)×20 + c` where `c` is the last
-> page's own count — 17,402 as of 2026-08-20.** Multiplying by 20 throughout
-> overcounts by however few rows the final page carries, which is 2 today and was 15
-> four days ago. [DEC-11](BACKLOG.md).
+> page's own count — 17,402 on the morning of 2026-08-20 and 17,403 the same
+> afternoon.** Multiplying by 20 throughout overcounts by however few rows the final
+> page carries: 15 on 2026-08-16, 2 that morning, 3 that afternoon. The owner said
+> the data is live before any of this was measured, and the tail count is where it
+> shows. [DEC-11](BACKLOG.md).
 
 Not the 122,785 the site's own counter shows — that is total membership, and the owner was
 right to call those counters statistics rather than columns.
+
+### 4a. The page count is published, and every filter is a partition axis
+
+**MEASURED 2026-08-20, 152 requests.** The paginator's last link carries the number:
+
+```html
+<li class="page-item"><a href="…?region_id=1&amp;page=322">»</a></li>
+```
+
+So **one request sizes any slice**, and `read_last_page` reads it. Two things about that
+href are load-bearing:
+
+- the number is inside an **`href`**, not in prose — a looser match reads the page's own
+  query string and calls a 322-page region complete after one page;
+- it is written **`&amp;page=`**, so the character before `page=` is a **semicolon**.
+  Matching `[?&]page=` finds nothing on any filtered listing. That was a live defect
+  here, not a site quirk. [DEC-11](BACKLOG.md).
+
+The listing's ten filter parameters, all GET on `/{lang}/contractors`:
+
+| parameter | values | exhaustive |
+|---|---|---|
+| `region_id` | `0`, `1`…`13` | **yes** — see below |
+| `city_id` | 3,953 ids, from an endpoint | no |
+| `company_size` | `big` `medium` `small` `verysmall` | **yes** |
+| `user_type` | `SC` `NSC` | **yes** |
+| `rating_stars` | `1`…`5` | no — 17 contractors carry any rating at all |
+| `lc_program_list_id` | 13 programme ids | no |
+| `interest_id` | `jstree`, hierarchical, multi-valued | no |
+| `balady_service_id` | | no |
+| `q` | free text; **matches the membership number exactly** | n/a |
+| `my_contractors` | `1` `2` | no — a signed-in user's own list |
+
+**`company_size`, `user_type` and `rating_stars` are radio inputs, not `<select>`s.** A
+search for `<select>` misses them entirely, which is how they were once recorded as
+absent.
+
+**`city_id` is filled by an endpoint**, which is why its `<select>` is empty in every
+stored page:
+
+```js
+var citiesUrl = "https://muqawil.org/en/contractors/cities";
+```
+
+`GET /{lang}/contractors/cities?region_id=<n>` returns `[{"id":…,"name":…}, …]`. It also
+works standalone: `?city_id=3` alone answers 296 pages.
+
+**`region_id=0` returns the contractors who publish no location.** Regions 1–13 sum to
+15,966 against a whole of 17,403; `region_id=0` returns exactly the missing **1,437**,
+every card blank. Independently: **960 of 11,059 stored records (8.7%)** have a null
+`card_city_region`, against 1,437 of 17,403 (**8.3%**).
+
+> **`region_id` × `company_size` is therefore an exhaustive 56-cell partition of the
+> directory, verified to the unit** — the basis of the crawl method in
+> [DEC-11](BACKLOG.md), and the reason a completeness claim about this site can be a
+> proof rather than a hope.
 
 ### 5. Found while measuring: the email is obfuscated, and a naive scrape never gets it
 
