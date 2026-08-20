@@ -17,7 +17,11 @@ the pull request it became. That chain is the point.
 ## The pipeline
 
 Every request moves through these states, in order. It may stop at any of them,
-but it may not skip one.
+and it may **skip** one -- but only forward, and only for a reason the entry
+states. The common skip is `Planned`: when a request is small enough that the
+ruling *is* the plan, it goes `Ruled` straight to `In flight`. R-15 and R-16 did
+exactly that. What is forbidden is moving BACKWARD without saying why, and
+recording a state the work has not reached.
 
 | state | means | where the work goes |
 |---|---|---|
@@ -54,18 +58,19 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 |---|---|---|---|
 | [REQ-01](#req-01--one-documentation-system-in-the-repository) | One documentation system, in the repo, all English | **Done** | 2026-08-17 |
 | [REQ-02](#req-02--more-than-one-way-of-working) | More than one way of working — add the Karpathy skill | **Done** | 2026-08-17 |
-| [REQ-03](#req-03--a-managed-pipeline-for-the-owners-requests) | A managed pipeline for his requests | **In flight** | 2026-08-17 |
-| [REQ-04](#req-04--every-setting-moves-into-the-extension) | Every setting moves into the extension | **Ruled**, not built — **16 days** | 2026-08-01 |
+| [REQ-03](#req-03--a-managed-pipeline-for-the-owners-requests) | A managed pipeline for his requests | **Done** | 2026-08-17 |
+| [REQ-04](#req-04--every-setting-moves-into-the-extension) | Every setting moves into the extension | **Ruled** — not built | 2026-08-01 |
 | [REQ-05](#req-05--a-contractor-directory-in-a-table-of-its-own) | A contractor directory, in a table of its own | **Done** | 2026-08-16 |
 | [REQ-06](#req-06--one-row-and-a-button-that-flips-it-between-arabic-and-english) | One row, and a button that flips AR\|EN | **Done** | 2026-08-17 |
 | [REQ-07](#req-07--the-data-page-must-carry-everything-the-engines-page-carries) | The Data page carries everything the engine's page does | **Planned** | 2026-08-12 |
 | [REQ-08](#req-08--a-guard-against-the-documents-going-stale) | A guard against the documents going stale | **Done** | 2026-08-17 |
 | [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Done** | 2026-08-17 |
+| [REQ-10](#req-10--adversarially-review-the-fixes-then-execute) | Adversarially review the fixes, then execute | **Done** | 2026-08-20 |
 
 ---
 
 ## REQ-01 · One documentation system, in the repository
-**Captured 2026-08-17 · Ruled ([R-09](RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english)) · DONE — commits `51e44f3`, `47874b1`**
+**Captured 2026-08-17 · Ruled ([R-09](RULINGS.md#r-09--one-documentation-system-in-the-repository-all-english)) · Done — commits `51e44f3`, `47874b1`**
 
 > «اريد نظام موحد للمعلومات حيث اننى اعمل من جهازين مختلفين» · «واجعله كله
 > بالانجلليزى» · «وضيف فيه كل الخبرات التى اكتسبتها»
@@ -77,7 +82,7 @@ seven rescued plans.
 ---
 
 ## REQ-02 · More than one way of working
-**Captured 2026-08-17 · DONE — commit `51e44f3`**
+**Captured 2026-08-17 · Done — commit `51e44f3`**
 
 > «واحدة من الطرق التى نكتب بها كود او نحل مشكلة حيث لدى كذا skill ولا اريد
 > الاعتماد على واحدة فقط»
@@ -90,7 +95,7 @@ project's own rules resolved there.
 ---
 
 ## REQ-03 · A managed pipeline for the owner's requests
-**Captured 2026-08-17 · In flight — this file**
+**Captured 2026-08-17 · Ruled ([R-14](RULINGS.md#r-14--requests-are-captured-when-made-then-planned-then-executed)) · Done — #214**
 
 > «كل طلب او اضافة او اى شى اذكره ونقرر انه فى المستقبل نحطه … علشان مننساش،
 > ولما نوصله نعمله خطه ونفذها»
@@ -104,9 +109,9 @@ has not set; `WISHLIST` for understating what these are.
 ---
 
 ## REQ-04 · Every setting moves into the extension
-**Captured 2026-08-01 · Ruled ([R-04](RULINGS.md#r-04--all-ten-web-only-settings-move-into-the-extension), and `SR-10` in [BACKLOG.md](BACKLOG.md)) · NOT BUILT**
+**Captured 2026-08-01 · Ruled ([R-04](RULINGS.md#r-04--all-ten-web-only-settings-move-into-the-extension), and `SR-10` in [BACKLOG.md](BACKLOG.md)) · Ruled — not built, measured 2026-08-20**
 
-**This is the entry that justifies the whole file.** Ruled sixteen days ago,
+**This is the entry that justifies the whole file.** Ruled 2026-08-01,
 offered three options, he chose the most thorough — and nothing has been built.
 It was parked behind a review and then simply dropped out of view.
 
@@ -124,7 +129,7 @@ editing.
 ---
 
 ## REQ-05 · A contractor directory, in a table of its own
-**Captured 2026-08-16 · Ruled ([R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings), [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other)) · Planned ([plan](plans/2026-08-16-muqawil-contractor-source.md)) · DONE — #202–#212**
+**Captured 2026-08-16 · Ruled ([R-10](RULINGS.md#r-10--the-contractor-directory--three-rulings), [R-11](RULINGS.md#r-11--a-contractor-directory-is-a-separate-table-and-a-table-like-any-other)) · Planned ([plan](plans/2026-08-16-muqawil-contractor-source.md)) · Done — #202–#212**
 
 > «جدول منفصل تماما عن جداول المنتجات» · «صفحة المقاولين هى جدول سيظهر كاى جدول
 > لدينا»
@@ -141,7 +146,7 @@ decision is waiting: the two feature flags that make `/datasets` visible are sti
 ---
 
 ## REQ-06 · One row, and a button that flips it between Arabic and English
-**Captured 2026-08-17 · Ruled ([R-12](RULINGS.md#r-12--one-row-with-a-button-that-flips-it)) · DONE — PR #211**
+**Captured 2026-08-17 · Ruled ([R-12](RULINGS.md#r-12--one-row-with-a-button-that-flips-it)) · Done — PR #211**
 
 > «فى النهاية اريد رؤوية جدول اقدر ابدل بين عربى وانجليزى»
 
@@ -164,7 +169,7 @@ will raise them first.
 ---
 
 ## REQ-08 · A guard against the documents going stale
-**Captured 2026-08-17 · Ruled 2026-08-19 ([R-15](RULINGS.md#r-15--the-documents-are-guarded-by-a-test-not-by-good-intentions)) · DONE**
+**Captured 2026-08-17 · Ruled 2026-08-19 ([R-15](RULINGS.md#r-15--the-documents-are-guarded-by-a-test-not-by-good-intentions)) · Done**
 
 > «نفذ توصيتك فى REQ-08 و REQ-09»
 
@@ -223,7 +228,7 @@ catches automatically. **Nothing but a hand-check found them, which is the point
 ---
 
 ## REQ-09 · One home for rulings, not two
-**Captured 2026-08-17 · Ruled 2026-08-19 ([R-16](RULINGS.md#r-16--one-home-for-rulings-and-it-is-this-file)) · DONE**
+**Captured 2026-08-17 · Ruled 2026-08-19 ([R-16](RULINGS.md#r-16--one-home-for-rulings-and-it-is-this-file)) · Done**
 
 **Done, option (a):** `SR-1`–`SR-23` moved into
 [RULINGS.md](RULINGS.md#standing-rules--the-data-product-and-process-policy-sr-1sr-23),
@@ -256,6 +261,39 @@ nobody can state in one sentence is a boundary that will not hold.
 *Recommended: **(a)**.* Separation by kind is what makes C1 followable, and
 BACKLOG.md is already too large to be read before every design decision. The cost
 is one careful migration pass, and every `SR-` ID keeps its number.
+
+---
+
+## REQ-10 · Adversarially review the fixes, then execute
+**Captured 2026-08-20 · Ruled ([R-17](RULINGS.md#r-17--a-fix-is-adversarially-reviewed-before-it-is-written)) · Done — this commit**
+
+> «مراجعة عدائية اولا على 3 اصلاحات» — then «نفذ»
+
+Three drifts had been reported on 2026-08-20 and he asked for them to be
+**attacked before being written**, not merely checked. The review is why the work
+that followed is not the work that was proposed:
+
+- **It refuted one of the three.** `RULINGS.md:106` reads *"(As of 2026-08-17 the
+  gap is 58 commits.)"* — dated, therefore history rather than rot. The finding
+  was withdrawn.
+- **It widened another.** "16 days" had a second copy in `STATE.md`, and a third
+  written out in words as "sixteen days ago".
+- **It found what the three had missed:** the board is hand-written with no
+  generator, so board and entries must drift; `REQ-05` was `Done` while O-1..O-4
+  stayed open; and the pipeline's own *"may not skip one"* was obeyed by **no
+  entry at all**.
+
+Built: `tests/test_the_request_board_matches_its_entries.py` — seven tests, every
+one mutation-tested by breaking it deliberately first. The board's `request`
+column is independently worded from the entry heading in five of nine rows, so it
+cannot be generated; what is derivable is checked instead, and the prose stays
+hand-written. The skip rule now describes what actually happens.
+
+**And the rule that was written, run and withdrawn**, recorded because a
+withdrawn rule teaches more than one that was never tried: the same
+no-elapsed-duration rule over the registers' free prose flagged twelve lines and
+essentially all twelve were honest history. It lives on the parsed state fields
+instead. See [LESSONS.md](LESSONS.md).
 
 ---
 

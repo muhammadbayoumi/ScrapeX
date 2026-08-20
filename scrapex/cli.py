@@ -299,7 +299,7 @@ def _render_data_page_schema() -> str:
         "# What the Data page shows, and where",
         "",
         "The column tables below are GENERATED from `scrapex/reports.py` by",
-        "`python -m scrapex.cli export-docs`. Do not hand-edit them: the code is the",
+        "`python -m scrapex.cli export-version`. Do not hand-edit them: the code is the",
         "truth and this is its readable form. The prose is hand-written, because those",
         "are the owner's rulings and nothing derives them.",
         "",

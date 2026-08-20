@@ -263,6 +263,36 @@ declare `SHEETS`. Flattening them into one scope is a `SyntaxError` before a lin
 runs. `tests/test_console_dom.py` serves `console.html` over http and loads its
 real module graph instead — **the stronger arrangement, and the one to copy.**
 
+### A guard joined by `or` cannot report which branch is false
+
+`tests/test_the_ruling_matches_the_code.py` checked that the generated document
+tells its reader how to regenerate it:
+
+```python
+assert "export-docs" in text or "export-version" in text
+```
+
+It was green for as long as it existed, and the document it guards said *"GENERATED
+— by `python -m scrapex.cli export-docs`"*. **There is no `export-docs`.** argparse
+answers `invalid choice: 'export-docs'` and lists the twenty-two real subcommands.
+The wrong name was in the generator itself, `scrapex/cli.py:302`, so the sentence
+was faithfully produced — and a reader following the repository's own instruction
+got an error.
+
+Two names joined by `or` accept either, so the assertion could not fail on the one
+that was wrong. It was not a weak test; it was a test whose failure mode did not
+exist. Found 2026-08-20 by reading the pattern before copying it, not by any test.
+
+**The fix reads the parser, not a list beside it:** every
+`python -m scrapex.cli <name>` in the document is checked against
+`build_parser()`'s real subparser choices. A list of valid names kept in the test
+would have drifted exactly the way the sentence did.
+
+**Apply:** an `or` between two *alternatives* is fine; an `or` between two
+*spellings of the same fact* is a hole. When a test tolerates more than one answer,
+ask which wrong answer it now accepts — and whether the truth is available to be
+read instead of matched.
+
 ### Record an equivalent mutant rather than contorting a test
 
 In the sign-out work, removing the early return **and** switching the message from
@@ -420,6 +450,24 @@ flake beat one true check that does."* So the guard that shipped **infers
 nothing**: a mechanical tier over every citation, and an explicit pinned list for
 the ones that carry weight. The pinned list costs a line of maintenance per
 important citation, and that cost is the feature.
+
+**IT HAPPENED AGAIN ON 2026-08-20, with this section already on the page.** A
+no-elapsed-durations rule was written over the four registers' free prose, run,
+and withdrawn within the hour: it flagged **twelve** lines and essentially every
+one was honest history — *"no one noticed for eleven days"*, *"Sixteen days later
+nothing had been built"*, *"two days after this was captured"*. A **closed** past
+interval does not rot. An **open** count against today does. No regex over prose
+separates them, which is this section's claim restated in a new subject.
+
+The rule now reads the parsed state fields of `docs/REQUESTS.md` — the board cells
+and the entry state lines — where the boundary is structural rather than inferred,
+and it is exact there. Same remedy as the pinned list: infer nothing, and pay a
+small explicit cost instead.
+
+The lesson about the lesson: it was recorded and still overreached. Reading it is
+not the same as applying it, which is why [APPROACHES.md](APPROACHES.md) A5 is now
+[R-17](RULINGS.md#r-17--a-fix-is-adversarially-reviewed-before-it-is-written) —
+the default for a fix, not an option.
 
 ### A path filter tested against absolute parts skips the whole worktree
 

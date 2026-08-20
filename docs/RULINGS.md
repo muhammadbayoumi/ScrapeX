@@ -332,6 +332,42 @@ one sentence will not hold.
 
 ---
 
+### R-17 · A fix is adversarially reviewed before it is written
+**2026-08-20 · process**
+
+> «مراجعة عدائية اولا على 3 اصلاحات»
+
+Three drifts had been reported and he asked for them to be **attacked** before
+being written — not checked, refuted. Then «نفذ».
+
+**It earned its keep on the first pass, against the reviewer's own findings:**
+
+| the review did | to what |
+|---|---|
+| **refuted one** | "`RULINGS.md` says 58 commits and the truth is 64" — the line reads *"(As of 2026-08-17 the gap is 58 commits.)"*. Dated, therefore history. The finding was withdrawn |
+| **widened another** | "16 days" had a second copy in `STATE.md` and a third spelled out as "sixteen days ago" |
+| **replaced the remedy** | fixing `STATE.md`'s "#215 in flight" was a symptom; #215 had merged eighteen hours *before* the PR carrying that sentence, so the sentence reached `main` already false |
+| **found three the fixes had missed** | the board has no generator, so it must drift; `REQ-05` read `Done` while O-1..O-4 stayed open; and the pipeline's *"may not skip one"* was obeyed by **no entry at all** |
+
+**And it works against an implementation too, which is the part worth keeping.**
+The rule that came out of the review — *no elapsed durations* — was then written
+over the registers' free prose, run, and **withdrawn**: it flagged twelve lines and
+essentially every one was honest history ("no one noticed for eleven days",
+"Sixteen days later nothing had been built"). A closed past interval does not rot;
+an open count against today does; no regex over prose separates them. The rule
+now lives on the parsed state fields, where it is exact. See
+[LESSONS.md](LESSONS.md) and [REQ-10](REQUESTS.md#req-10--adversarially-review-the-fixes-then-execute).
+
+**How to apply.** Attack each proposed fix on three questions before writing it:
+*is the finding even true*, *is the scope right in both directions*, and *does the
+fix address the cause or the symptom*. [APPROACHES.md](APPROACHES.md) **A5** is the
+method; this ruling makes it the default for a fix rather than an option, and the
+limit is stated there too — a review by the same author who proposed the fix is
+weaker than independent critics, and finding five things is evidence it worked, not
+proof it was enough.
+
+---
+
 ## Standing rules — the data, product and process policy (`SR-1`–`SR-23`)
 
 **Migrated here from [BACKLOG.md](BACKLOG.md) §1 on 2026-08-19, on the owner's

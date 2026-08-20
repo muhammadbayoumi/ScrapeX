@@ -17,10 +17,12 @@ tests are what stop them going stale again.
 
 from __future__ import annotations
 
+import argparse
 import pathlib
+import re
 
 from scrapex import reports
-from scrapex.cli import _render_data_page_schema
+from scrapex.cli import _render_data_page_schema, build_parser
 from scrapex.vocab import BLOCK_ORDER
 
 RULING = pathlib.Path(__file__).resolve().parent.parent / "docs" / "data-page-schema.md"
@@ -97,8 +99,35 @@ def test_the_owners_prose_survives_generation():
 def test_the_file_says_it_is_generated_and_how_to_regenerate_it():
     """Otherwise the next person edits it by hand, the golden test fails on
     their unrelated PR, and they learn the rule from a red build instead of
-    from the file."""
+    from the file.
+
+    AND THE COMMAND IT NAMES HAS TO EXIST. This read
+    `assert "export-docs" in text or "export-version" in text`, and that `or`
+    is the whole reason it stood green while the file told its reader to run
+    `python -m scrapex.cli export-docs` -- which argparse answers with
+    "invalid choice: 'export-docs'". A guard that accepts either of two names
+    can never report the wrong one. Found 2026-08-20; the generator was
+    emitting it at `scrapex/cli.py:302`."""
     text = RULING.read_text(encoding="utf-8")
 
     assert "GENERATED from `scrapex/reports.py`" in text
-    assert "export-docs" in text or "export-version" in text
+
+    named = re.findall(r"python -m scrapex\.cli ([a-z][a-z0-9-]*)", text)
+    assert named, "the file no longer says which command regenerates it"
+
+    real = _subcommands()
+    for command in named:
+        assert command in real, (
+            f"docs/data-page-schema.md tells the reader to run `python -m "
+            f"scrapex.cli {command}`, which is not a scrapex subcommand. "
+            f"Real ones: {sorted(real)}")
+
+
+def _subcommands() -> set[str]:
+    """The real subcommand names, read out of the parser rather than from a
+    list kept beside it -- a list would drift the way the sentence above did."""
+    parser = build_parser()
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return set(action.choices)
+    raise AssertionError("scrapex.cli.build_parser() has no subparsers")

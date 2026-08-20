@@ -1,6 +1,7 @@
 # State — where the work stands
 
-**Last updated: 2026-08-19.** `main` is at `ac3a5af` — #212, plus one commit
+**Last updated: 2026-08-20.** `main` is at `cab69b1` — #214, the documentation
+system itself. Behind it: #215 (the revert, merged 2026-08-19) and one commit
 pushed straight to `main` on 2026-08-18 carrying no PR number.
 
 This is the document that is **wrong the moment it is out of date**. Update it
@@ -15,9 +16,21 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+> **Read no check status on this page as a verdict on code.** GitHub Actions has
+> not started a job since 2026-08-19T14:28Z — failed payment or a spending limit,
+> in GitHub's own words. Every open PR shows three red checks that never ran. See
+> [OP-20](BACKLOG.md) in the backlog; only the owner can clear it.
+
 | PR | branch | state | what it is |
 |---|---|---|---|
 | **#213** | `the-data-page-port-is-a-port` | **CONFLICTING** — cannot be read until it is rebased | DEC-8: the engine's Data page is a port, not a rebuild, and the measurement says which |
+| *(unopened)* | `the-board-is-generated` | local, tests green | [REQ-10](REQUESTS.md#req-10--adversarially-review-the-fixes-then-execute): the request board is guarded against its own entries, and a generated document stops naming a command that does not exist |
+
+> **Two other sessions are working in this repository.** `scrapex/extract/muqawil.py`
+> and `tests/test_a_dataset_is_a_table_like_any_other.py` carry another session's
+> uncommitted work in the main checkout, which is why `the-board-is-generated` is a
+> separate worktree and why every commit on it stages explicit paths. SR-19 is the
+> rule, and it exists because this went wrong twice before.
 
 **#210, #211 and #212 have all merged** since this file last spoke. What used to
 stand here as "both green, both waiting on the owner" is now history, and the
@@ -32,7 +45,9 @@ forbids a raw hex literal outside the token system. Reproduced locally on
 the missing pull request cost** — CI would have refused it before it reached
 `main`.
 
-**Fix in flight: #215, a full revert.** He was offered the token expression
+**Fixed by #215, a full revert, merged 2026-08-19T10:37Z.** It landed eighteen hours BEFORE #214 — which was carrying this very sentence, so the sentence reached `main` already false. That is the shape of the drift this file keeps producing: a PR state hand-copied into prose while `gh` can answer it.
+
+What it did: He was offered the token expression
 `light-dark(var(--surface), var(--bg))` and chose to go back to the original
 instead — «الغى تعديلات الخلفية ورجعها للاصل». `extension/app.css` is
 byte-identical to `36dd91c` again. Two things the literal did, recorded because
@@ -211,9 +226,13 @@ mechanical.
 - **HTTP 400 counts as revoked**, and neither `authorize` nor `revokeToken` has a
   deadline. Same section.
 - **[REQ-04](REQUESTS.md#req-04--every-setting-moves-into-the-extension) — the ten
-  settings move into the extension — is ruled and unbuilt after 16 days.** Parked
-  behind a review on 2026-08-01 and then lost from view. It is the entry that
-  justified building [REQUESTS.md](REQUESTS.md).
+  settings move into the extension — was ruled 2026-08-01 and is still unbuilt,
+  measured 2026-08-20.** Parked behind a review and then lost from view; verified
+  untouched with `git log -S'excel_folder' -- scrapex/webui/templates/ extension/`,
+  which returns nothing since the ruling. It is the entry that justified building
+  [REQUESTS.md](REQUESTS.md). The count of days it has sat is deliberately NOT
+  written here: the number that used to stand in this line was already stale by
+  the time anyone reread it, which is why the rule is a date and never a duration.
 - ~~**Two requests await the owner's ruling:** REQ-08 and REQ-09.~~ **BOTH RULED
   AND BUILT 2026-08-19** — he took both recommendations
   ([R-15](RULINGS.md#r-15--the-documents-are-guarded-by-a-test-not-by-good-intentions),
