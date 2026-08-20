@@ -97,7 +97,8 @@ Other long-standing documents — `docs/MIGRATION-PLAN.md`,
 `docs/COMPATIBILITY.md`, `docs/PLATFORM-PLAN.md`, `docs/GENERIC-FETCH-SEAM.md`,
 `docs/CONTRACTOR-SOURCE.md`, `docs/STORAGE.md`, `docs/BALADY-ENG-OFFICES.md`,
 `docs/UAE-SOURCES.md`, `docs/GULF-EGYPT-SOURCES.md`, `docs/DIESEL-PRICES.md`,
-`docs/BITUMEN-PRICES.md` — are indexed from `docs/STATE.md`
+`docs/BITUMEN-PRICES.md`, `docs/CONCRETE-MATERIALS.md` — are indexed from
+`docs/STATE.md`
 under the track they belong to.
 
 ---

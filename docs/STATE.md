@@ -232,7 +232,7 @@ with nothing stored for them. Their written conditions were measured, not quoted
 
 ---
 
-## Track 5 · The source queue — eight countries and two products, none started
+## Track 5 · The source queue — eight countries and three product classes, none started
 
 **He set the order himself on 2026-08-20**, and for the first two it is a
 precondition rather than a preference: each waits for the previous one to be
@@ -248,6 +248,7 @@ so it is appended in the order received.
 | 4 | **Egypt, Oman, Qatar, Bahrain, Kuwait** | [GULF-EGYPT-SOURCES.md](GULF-EGYPT-SOURCES.md) | **Queued.** [REQ-16](REQUESTS.md#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue) |
 | — | **Official diesel prices, 7 countries** — a PRODUCT source, not a firm directory | [DIESEL-PRICES.md](DIESEL-PRICES.md) | **Queued.** [REQ-17](REQUESTS.md#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) |
 | — | **Bitumen 60/70 prices, 7 countries** — a product source that **cannot be crawled** | [BITUMEN-PRICES.md](BITUMEN-PRICES.md) | **Queued.** [REQ-18](REQUESTS.md#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) |
+| — | **Reinforced-concrete materials, 7 countries** — cement, rebar, aggregate, water | [CONCRETE-MATERIALS.md](CONCRETE-MATERIALS.md) | **Queued.** [REQ-19](REQUESTS.md#req-19--reinforced-concrete-material-prices--its-turn-will-come) |
 
 > **Four briefs, 8 countries, and not one of them started.** Saudi Arabia twice
 > (muqawil and Balady), the seven emirates, then Egypt, Oman, Qatar, Bahrain and
@@ -275,6 +276,15 @@ caveated observation that is never mistaken for a live market price. It is also 
 **second** independent case against `SR-6`'s key: for diesel the key is the period,
 for bitumen the commercial basis, because two observations can carry the same number
 and different bases. [BITUMEN-PRICES.md](BITUMEN-PRICES.md).
+
+**A third price brief makes it a finding rather than an observation.** The
+reinforced-concrete materials brief types its sources explicitly and answers **No** to
+*"can it populate `price_amount`?"* for an index, an approved-supplier list and a
+specification. So: diesel says the append key is the **period**, bitumen the
+**commercial basis**, concrete the **source type** — three products, three axes, three
+briefs written separately. Recorded as [DEC-12](BACKLOG.md) before any of it is
+collected, because a dropped period is not a wrong row a later fix corrects; it is a
+row that never existed, in a table whose whole purpose is history.
 
 **All three briefs are his, stored verbatim**, and they are in the repository rather than
 in a conversation for a measured reason: he re-sent the muqawil column specification

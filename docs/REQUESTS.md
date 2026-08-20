@@ -74,6 +74,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-16](#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue) | Egypt, Oman, Qatar, Bahrain and Kuwait, fourth in the queue | **Captured** — appended in the order received | 2026-08-20 |
 | [REQ-17](#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) | Official diesel prices — a product source, not a firm directory | **Captured** — the smallest item in the queue | 2026-08-20 |
 | [REQ-18](#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) | Bitumen 60/70 prices — the first source that cannot be crawled | **Captured** — 5 of 7 need a written quotation | 2026-08-20 |
+| [REQ-19](#req-19--reinforced-concrete-material-prices--its-turn-will-come) | Reinforced-concrete material prices — its turn will come | **Captured** — a provenance-typed price model | 2026-08-20 |
 
 ---
 
@@ -755,6 +756,55 @@ His §12 rejects any figure not traceable to an official producer, public author
 signed quote, tender award or official statistical publication — trader
 advertisements and aggregator sites explicitly excluded. That is a rule about what
 may enter the warehouse at all, and it is stricter than anything code enforces today.
+
+---
+
+## REQ-19 · Reinforced-concrete material prices — its turn will come
+
+**Captured 2026-08-20 · Queued, in his own words**
+
+> «مصادر جديدة ضيفها للقائمة **سياتى دورها يوما ما**»
+
+Cement, reinforcing steel, structural steel sections, sand, coarse aggregate and
+water, across the same seven countries.
+
+### Where it went
+
+[CONCRETE-MATERIALS.md](CONCRETE-MATERIALS.md), verbatim under a preamble.
+
+### It is the most carefully-typed of his briefs, and that is its contribution
+
+Its §3 source-type table carries a column headed **"Can it populate `price_amount`?"**
+and answers **No** for `official_price_index`, `official_approved_source` and
+`official_specification`. An index is not a price; an approved-supplier list does not
+establish one. That is a **provenance-typed price model**, stricter than anything this
+warehouse enforces, and it is why his design gives `price_index_observations` and
+`water_tariffs` their own tables rather than a `kind` column on one.
+
+### Water is the sharpest example in any of the seven briefs
+
+His §2.2 refuses to store a single water price at all: the official network tariff is
+one component beside meter charges, wastewater, tanker filling, transport, storage and
+testing — and *"a potable-water tariff alone does not prove technical suitability"* for
+mixing or curing. **One number would be false in both directions** — too low as a
+delivered cost, and not evidence of fitness for purpose.
+
+### It completes a pattern, now recorded as [DEC-12](BACKLOG.md)
+
+Third independent case that `SR-6` keys on the wrong thing: diesel says the key is
+the **period**, bitumen the **commercial basis**, this one the **source type**. Three
+products, three axes, three briefs written separately — and recorded before any
+collection is scheduled, because the failure is silent and the data does not wait:
+dated bulletins expire, and the Qatar bitumen figure had already expired when he sent
+it.
+
+### And its own coverage is narrower than its length suggests
+
+Its §12 bottom line: only **Saudi Arabia, Egypt and Qatar** have usable official
+absolute prices. Oman and Kuwait offer **indices**, which its own §3 says are not
+prices. Bahrain offers approval and specification evidence, which is not a price
+either. So for four of seven countries this is a `quote_required` source in the same
+sense the bitumen brief is.
 
 ---
 
