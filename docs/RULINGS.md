@@ -612,6 +612,100 @@ the right order.
 
 ---
 
+### R-23 · ScrapeX is a multi-user product, so a warehouse is per installation
+
+**2026-08-20 · architecture, and it corrects a framing of mine**
+
+> «هو فعلا غير موجود ولكن الاداة مصممة انها تعمل لكذا مستخدم وليس لمستخدم واحد فقط
+> اذا سنشغل crawl لهذا الجهاز — المقارنة ان تمت ستكون للتطوير وليس للجمع»
+
+**The question he was answering.** The home machine has no engine database and a
+pre-collapse pointer, so the 11,059 rows, the 1,728 snapshots and the sweep's
+17,283-id sighting ledger existed on the work machine only. I put it to him as
+[O-6](#open--awaiting-the-owners-ruling) — carry the file across, run only where the
+data is, or keep two warehouses and reconcile them — and recommended the first two.
+
+**His ruling is none of the three, because the premise was wrong.** ScrapeX is a
+tool **many people install**, not one installation that happens to live on two
+machines. Every user's warehouse is their own and starts empty; a machine with no
+database is therefore the **normal first-run state of the product**, not a fault to
+be repaired by copying a file. So: create a warehouse here and run the crawl into it.
+
+**What this changes, and it is more than where a command runs:**
+
+- **A coverage number is a fact about ONE installation.** "11,059 of 17,403" is not a
+  project-wide truth and must never be written as one. The claim
+  `docs/BACKLOG.md` DEC-11 already insists on — *"every contractor findable in the
+  muqawil.org listing as of «timestamp»"* — needs *"in this installation"* beside it.
+- **Comparing two machines' data is a DEVELOPMENT activity**, «للتطوير وليس للجمع».
+  It can validate that the method is reproducible — two installations crawling the
+  same live listing should converge on the same ids — and it is not a way of
+  assembling one larger dataset.
+- **`OP-22`'s framing was mine and it was wrong.** I called it "`CLAUDE.md`'s founding
+  failure in the one place the repository cannot follow it". The repository rule is
+  about **decisions and knowledge**, which do travel and are committed; a user's
+  collected DATA was never meant to. Kept and corrected rather than deleted, per
+  **C4/C5**.
+- **What still travels is the code and the method.** A crawl that could only be run
+  on the machine that happened to hold the data was a defect regardless — which is
+  why `tools/crawl_muqawil_listing.py` had to exist either way.
+
+**How to apply.** On an installation with no warehouse, create one — `scrapex
+carry-over` where a pre-collapse pointer names old files (it opens them read-only,
+verifies row counts, and rewrites the pointer only if they match), `scrapex init-db`
+where there is nothing to carry. Then crawl. Do **not** copy another installation's
+database in order to make a number match.
+
+---
+
+### R-24 · A database is UPGRADED, never replaced — the user's data survives the schema
+
+**2026-08-20 · architecture. He is correcting something I did, and the correction is
+the more important half of the ruling.**
+
+> «انت ليه عملت قاعدة بيانات جديدة؟ فاعدة البيانات الى كانت موجودة قديمة كان ممكن
+> تسال تطورها لتطابق تطوير الكود او تحذفها وتنشى واحده جديدة مطابقة لاخر نسخة من
+> الكود. طبعا الافضل تطويرها لان عند نشر الاداة المفروض نحافظ على بيانات المستخدمين
+> وقاعدة البيانات تتطور ويظل بياناتهم محفوظة»
+
+**What I did.** [R-23](#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)
+said to create a warehouse on this installation. `scrapex carry-over` refused —
+[OP-23](BACKLOG.md) — so I set `SCRAPEX_DATA_ROOT` to a second location, ran
+`init-db`, and crawled into that. His 3,739 price observations stayed behind a
+pointer nothing opens, with an empty database beside them.
+
+**`registry.py` says not to do that, in words, and I had quoted those words an hour
+earlier:** *"NOT `init-db`… On an installation with data in them it produces an empty
+warehouse beside a full one that nothing will open again."* A different data root
+does not change the outcome; it only moves where the empty file sits.
+
+**The ruling.** Two options existed — upgrade the old database so it matches the
+code, or delete it and create a new one — and **upgrading is the one that ships**:
+when the tool is published, a user's data must survive the schema evolving. That
+makes the migration path a **product feature**, not maintenance. Concretely:
+
+- **A carry-over or migration that refuses on real data is a release blocker**, not a
+  backlog entry to route around. Routing around it is how it stays broken, because
+  the only installations that exercise it are real ones.
+- **Never create a second warehouse to get past a failing upgrade.** Fix the upgrade.
+  If it truly cannot be fixed in the moment, stop and say so rather than leaving two
+  databases and choosing the empty one.
+- **`init-db` is for an installation with nothing to lose.** Everywhere else it is the
+  trap `registry.py` names.
+- **A value the upgrade supplies is reported**, and is reused from the migration that
+  introduced the column rather than invented (see `Backfill` in
+  `scrapex/databases/carry_over.py`). Inventing one would put a fact in the user's
+  data that their source never said.
+
+**Done under it, 2026-08-20:** `carry_over` fixed and the real installation upgraded
+in place — 3,739 offers, 3,739 observations, 17,111 attributes, 7,410 change events,
+**not one row short**, the 261 pre-0058 offers marked `legacy_unwitnessed`, the 3,478
+without a unit untouched, and the old files still where they were, read-only.
+Guarded by `tests/test_a_carry_over_upgrades_rather_than_starting_over.py`, six
+mutations killed.
+
+---
+
 ## Superseded
 
 Kept per **C4**. Do not follow these; they are here so the current rule can be
@@ -642,6 +736,7 @@ Recorded rather than defaulted, per **R-02**.
 |---|---|---|
 | **O-2** | **Does the contractor entity belong in the mbiXaddin workbook** — a `1.TableDefinition` row and its `2.SchemaRule` columns — or is it engine-only until it has proved itself? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
 | **O-5** | **B1 lists `DELETE /api/views/{id}` among nine dead routes to delete — but building saved views revives it.** Either B1 loses that line, or the new Data page cannot delete a saved view. **HELD 2026-08-16:** he has comments on B1 itself and will raise them first. Do not start B2 step 3 until he has. | [HANDOFF-resume-the-migration.md](HANDOFF-resume-the-migration.md) |
+| ~~**O-6**~~ | **ANSWERED 2026-08-20, and none of the three options was the answer.** I asked which machine holds the warehouse, given the home machine has none. He ruled that the premise was wrong: ScrapeX is a tool many people install, so an empty installation is the product's normal first-run state and a warehouse is **per installation**. Create one here and crawl into it; comparing two machines is development, not collection. → **[R-23](#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)** | [OP-22](BACKLOG.md) |
 
 > **O-3 and O-4 may already be answered in practice** by what PR #211 implemented
 > — `content_hash` over the normalised `data_json` as the change detector, an

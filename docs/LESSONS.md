@@ -53,6 +53,32 @@ untouched.
 
 `python -m pytest` from the worktree root is unaffected — cwd leads `sys.path`.
 
+### A warning you have just read aloud is still a warning you can walk into
+
+2026-08-20. `registry.py` refuses a pre-collapse pointer with a message that names the
+trap explicitly: *"NOT `init-db`: … On an installation with data in them it produces an
+empty warehouse beside a full one that nothing will open again."* I printed that
+message in a status report, quoted it back, called `carry_over`'s refusal "the safety
+design working" — and then set `SCRAPEX_DATA_ROOT` to a second location, ran
+`init-db`, and crawled into the empty database. A different data root does not change
+the outcome; it only moves where the empty file sits.
+
+The owner caught it in one sentence, and his correction is
+[R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema):
+a database is upgraded, never replaced, because a shipped tool must carry its users'
+data across schema changes.
+
+**Why it happened is the part worth keeping.** The blocked thing (a warehouse to crawl
+into) was not the important thing (the upgrade path). Creating a second warehouse made
+the crawl runnable in ten minutes and left the release blocker untouched — and it felt
+like progress, because something started working. **A workaround that unblocks you is
+the most dangerous kind: it removes the pressure that would have fixed the real
+defect.**
+
+**Apply:** when a documented safety rail stops you, the rail is the finding. Fix what
+it is protecting, or stop and say you are blocked. Do not build a path around it —
+especially not one that works.
+
 ### Never hash a repo file's raw bytes
 
 `.gitattributes` sets `* text=auto` and `core.autocrlf` is true at system level,
@@ -81,9 +107,24 @@ strings or DB rows is unaffected: `normalize.py`, `funnel.py`, `retention.py` an
 
 ### Where it lives
 
-The warehouse is **split**. `~/.scrapex/databases.json` points at
-`~/.scrapex/general/general.db` and `~/.scrapex/marketlens/marketlens.db`. The
-top-level `harvest.db` is a stray stub with no tables.
+**ONE FILE, AND THIS ENTRY SAID TWO UNTIL 2026-08-20.** M5 collapsed the pair into
+`~/.scrapex/engine/scrapex-engine.db`, and `~/.scrapex/databases.json` names it under
+`"mode": "single"` / `engine_path`
+([scrapex/databases/registry.py:33](../scrapex/databases/registry.py)). This section
+went on describing the split layout in the present tense, which is the failure §7 is
+about, in the file that records §7.
+
+**A pointer that still says `"mode": "split"` is a MACHINE that has not been carried
+over, not a layout choice.** `DatabaseRegistry.read` refuses it by name and tells you
+to run `scrapex carry-over` — *not* `init-db`, which would create an empty warehouse
+beside the full one. Measured on the home machine on 2026-08-20: pointer in split
+mode, no engine database at all, `general.db` present with **zero rows in every
+generic table**. See [OP-22](BACKLOG.md).
+
+The old `~/.scrapex/general/general.db` and `~/.scrapex/marketlens/marketlens.db` are
+left where they were by design — carry-over copies, it does not move. The top-level
+`harvest.db` is a stray stub with no tables. **`marketlens.db` will mislead anyone who
+opens it looking for contractor data: it carries none of the generic tables.**
 
 Job state is in `crawl_job` (`checkpoint_json`, `error_summary`,
 `counters_json`); worker liveness and last error in `scrapex_meta` under
@@ -329,6 +370,41 @@ it by key.
 **A test on a bilingual column asserts a value that is non-empty, DIFFERENT from
 its partner, and in the right script.** Anything weaker passes on an empty table.
 
+### `INSERT OR IGNORE` hid the same failure three times in one hour, in three different disguises
+
+Building the carry-over guard on 2026-08-20. The task was one sentence — carry 3,739
+pre-0058 offers into the engine schema — and it reported `written: 0`, then
+`written: 1`, then correct, **with no error at any point**. Three distinct causes,
+each invisible for the same reason: `INSERT OR IGNORE` treats a constraint violation
+exactly as it treats a duplicate.
+
+1. **A trigger.** `trg_offer_unit_needs_a_witness_insert` refuses an offer with a
+   `selling_unit_id` and no provenance. Under `OR IGNORE`, `RAISE(ABORT)` does not
+   abort — the row is skipped. Note that the CLI *did* raise on the real database, so
+   the same defect looked like a hard error in one place and silence in another.
+2. **`NOT NULL DEFAULT` defeated by an explicit column list.** The copy names every
+   shared column, so an old `NULL` is passed as `NULL` and the new schema's `DEFAULT`
+   never applies. `country_code_alpha2 NOT NULL DEFAULT '*'` rejects the row.
+   **A DEFAULT only protects a column you do not mention.**
+3. **A unique index collapsing rows that differ only by primary key.**
+   `ux_source_offer_identity` is `(source_variant_id, COALESCE(branch_id,''),
+   country_code_alpha2, customer_segment, COALESCE(selling_unit_id,0),
+   basis_quantity)`. 3,739 rows built from one template are one row under it, and
+   exactly one arrived.
+
+**Two of the three were the FIXTURE, and that is the lesson rather than an aside.**
+Causes 2 and 3 do not exist in the owner's real data — measured, not assumed: `0
+NULLs of 3,739` in all six of those columns. A fixture written from memory described
+data that has never existed, and it hid the real defect twice while looking like it
+had found something. `OP-17` already says to build a fixture from the shipped schema;
+this is what ignoring that costs.
+
+**Apply:** when a bulk copy reports fewer rows than it read, do not reason about why —
+re-run one row with a plain `INSERT` and let SQLite name the constraint. That took one
+command each time and would have taken all three at once. And **compare the counts on
+both sides**: `carry_over`'s `read` vs `written` check is the only reason any of this
+was visible at all, which is what makes it worth more than the code it guards.
+
 ### A success count is not a write count
 
 The seam's stated product is that a wrong parse is re-run over stored snapshots
@@ -407,10 +483,11 @@ Two more found in the same reading, deliberately left alone:
 A stale document is not a neutral cost. It **actively directs the next reader
 into the wrong action**, and it does so with the authority of a rule.
 
-This project has two instances of a document stating the opposite of the code, a
-third pattern — a citation that still resolves but no longer points at what it
-names — a fourth, a GUARD whose own discovery pattern cannot see its subject — and a fifth, a guard that SKIPS rather than fails and so reports green while absent.
-All are recorded below.
+This project has two instances of a document stating the opposite of the code, and
+four further patterns: a **docstring right about the intent and wrong about the
+mechanism**; a citation that still resolves but no longer points at what it names; a
+GUARD whose own discovery pattern cannot see its subject; and a guard that SKIPS
+rather than fails and so reports green while absent. All are recorded below.
 
 - **`docs/data-page-schema.md`** — it called itself "the ruling" and had drifted
   into stating the opposite of the code **in five ways at once**: wrong
@@ -437,6 +514,35 @@ rewriting either — W4 was rewritten only after `tests/test_version.py:79` and
 `:536` were read and the two mirrors were confirmed to differ. And where a
 document states a fact the code owns, prefer **generating** it over promising to
 keep it current. *A document nobody can trust is worse than no document.*
+
+---
+
+### A docstring can be right about the intent and wrong about the mechanism, and only a measurement tells them apart
+
+Found 2026-08-20, building the partitioned listing crawl. `snapshotcrawl.py`'s
+resume is explained in its module docstring in terms of **requests**:
+
+> a second attempt re-fetched every one of them — on a full pass, hours of requests
+> to re-learn what was already on disk. Keeping the evidence and re-fetching it
+> anyway is not a resume.
+
+Every word of that is the right intent. The check sits in `store`
+([scrapex/snapshotcrawl.py:156](../scrapex/snapshotcrawl.py)), which is the
+walker's `on_page` — called **after** the fetch. So the resume saves the INSERT and
+saves no request at all, and the docstring's own justification is the one thing it
+does not deliver. Recorded as [OP-21](BACKLOG.md).
+
+**What made this different from the two instances above** is that the document was
+not stale and was not describing old code: it described the *purpose* correctly and
+was never checked against the *effect*. Reading it and reading the code both leave
+you satisfied — `run_ref` exists, `already_stored` exists, `skipped` is reported,
+the tests pass. It took resuming a nine-page crawl and **counting the requests** to
+see it: the second run made exactly as many as the first.
+
+**Apply:** when a docstring justifies a mechanism with a number — hours, requests,
+bytes, rows — that number is a claim, and it is testable. Write the test that counts
+it. A resume test asserting `skipped` is non-empty passes under this defect; one
+asserting the request count does not.
 
 ---
 

@@ -126,6 +126,83 @@ LEDGER_TABLES = {
 }
 
 
+@dataclass(frozen=True)
+class Backfill:
+    """A column the NEW schema requires that an OLD one never had.
+
+    THE DEFECT THIS EXISTS FOR, found by running the carry-over for real on the
+    owner's own installation on 2026-08-20:
+
+        error: a selling unit must carry its provenance and its witness
+
+    Migration 0058 added `source_offer.unit_basis_provenance` and
+    `unit_basis_witness` plus two triggers that REFUSE a row carrying a
+    `selling_unit_id` without both. 261 of this installation's 3,739 offers carry
+    one, and the old schema has no such columns at all — so every carry-over of a
+    pre-0058 installation aborted on the first of them, and the documented upgrade
+    path was closed for exactly the installations it was written for.
+
+    WHY A DECLARED TABLE AND NOT A POST-COPY UPDATE. The trigger fires on INSERT.
+    A backfill that ran afterwards would never run, because the insert raises
+    first. The value has to arrive WITH the row.
+
+    WHY THIS IS NOT INVENTING EVIDENCE, which is the only thing that would make it
+    unacceptable. 0058 met these same rows in the in-place upgrade path and already
+    answered: `legacy_unwitnessed`, with a witness that says in words that nobody
+    can say where the value came from. Under the resolution metric it counts as
+    unresolved, which is the truth about it. This reuses that answer rather than
+    minting a second one — and
+    `tests/test_a_carry_over_upgrades_rather_than_starting_over.py` fails if the
+    two ever drift apart.
+
+    WHY IT IS CONDITIONAL. 0058's own `UPDATE` is `WHERE selling_unit_id IS NOT
+    NULL`. An offer with no unit has nothing to say the provenance OF, and filling
+    it would claim a fact about 3,478 rows that the migration deliberately leaves
+    alone.
+    """
+
+    #: The table this applies to.
+    table: str
+    #: The column whose non-NULL value makes the fill apply, row by row.
+    when: str
+    #: `column -> value`, applied only where `when` is not NULL.
+    values: dict[str, str]
+
+
+#: What migration 0058 assigns to rows that predate it, reused verbatim.
+LEGACY_UNWITNESSED = "legacy_unwitnessed"
+LEGACY_WITNESS = (
+    "pre-0058: written by normalize.selling_unit_from or a connector constant; "
+    "the field it was read from was not recorded")
+
+#: Every column the engine schema requires that a split-era schema lacked. Empty
+#: until one is needed, and it needed one the first time it met real data.
+BACKFILLS: tuple[Backfill, ...] = (
+    Backfill(table="source_offer", when="selling_unit_id",
+             values={"unit_basis_provenance": LEGACY_UNWITNESSED,
+                     "unit_basis_witness": LEGACY_WITNESS}),
+)
+
+
+def _backfill_for(table: str, source_columns: list[str],
+                  target_columns: list[str]) -> tuple[Backfill, list[str]] | None:
+    """The backfill this table needs, and which of its columns are actually missing.
+
+    ONLY COLUMNS THE SOURCE LACKS AND THE TARGET HAS. A source that already carries
+    the column carries its VALUES too, and overwriting them with a legacy marker
+    would replace real provenance with "nobody knows" — the exact inversion of what
+    this is for.
+    """
+    for backfill in BACKFILLS:
+        if backfill.table != table or backfill.when not in source_columns:
+            continue
+        missing = [name for name in backfill.values
+                   if name in target_columns and name not in source_columns]
+        if missing:
+            return backfill, missing
+    return None
+
+
 def _tables(conn: sqlite3.Connection) -> set[str]:
     return {
         row[0] for row in conn.execute(
@@ -193,6 +270,31 @@ def carry_over(
                     quoted = ", ".join(f'"{c}"' for c in shared)
                     payload = source.execute(
                         f'SELECT {quoted} FROM "{table}"').fetchall()
+
+                    # A COLUMN THE NEW SCHEMA REQUIRES AND THE OLD ONE NEVER HAD.
+                    # It has to arrive WITH the row: the trigger that demands it
+                    # fires on INSERT, so a backfill afterwards never runs. See
+                    # `Backfill` for why this reuses 0058's own value rather than
+                    # minting a second one.
+                    fill = _backfill_for(table, columns, target_columns)
+                    if fill is not None:
+                        backfill, missing = fill
+                        gate = shared.index(backfill.when)
+                        columns_out = shared + missing
+                        payload = [
+                            (*row, *(backfill.values[name] if row[gate] is not None
+                                     else None for name in missing))
+                            for row in payload]
+                        quoted = ", ".join(f'"{c}"' for c in columns_out)
+                        entry_columns = len(columns_out)
+                        report.setdefault("backfilled", []).append(
+                            {"table": table, "columns": missing,
+                             "rows": sum(1 for row in payload if row[gate] is not None),
+                             "why": "the new schema requires it and the old one had "
+                                    "no such column; value from migration 0058"})
+                    else:
+                        entry_columns = len(shared)
+
                     # DISTINCT, because the two old files can legitimately hold
                     # the same row -- both carried `scrapex_meta`, for instance.
                     # `INSERT OR IGNORE` drops the second copy, and counting it
@@ -201,7 +303,7 @@ def carry_over(
                     if not dry_run:
                         target.executemany(
                             f'INSERT OR IGNORE INTO "{table}" ({quoted}) '
-                            f'VALUES ({", ".join("?" * len(shared))})', payload)
+                            f'VALUES ({", ".join("?" * entry_columns)})', payload)
                     entry = report["tables"].setdefault(
                         table, {"read": 0, "distinct": 0, "written": 0, "source": []})
                     entry["read"] += rows

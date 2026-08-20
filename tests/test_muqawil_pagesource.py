@@ -19,6 +19,8 @@ from pathlib import Path
 import pytest
 
 from scrapex.pagesource import (
+    WHOLE,
+    Cell,
     FetchedPage,
     PageKind,
     PageSource,
@@ -28,6 +30,10 @@ from scrapex.pagesource import (
 from scrapex.sites.muqawil import (
     SELF_BUILD_SEGMENT,
     MuqawilPageSource,
+    MuqawilPartition,
+    cells,
+    listing_url,
+    read_ids,
     read_last_page,
 )
 
@@ -264,3 +270,138 @@ def test_the_walker_can_ask_up_front_whether_slicing_is_available(source):
     assert supports_slices(source, base_url="https://muqawil.org") is False, (
         "asked with an EMPTY page and no city named, muqawil must refuse — "
         "which is what lets the walker offer the scope honestly")
+
+
+# ---- the partition: which slices exist, and how a slice's URL is built -------
+
+def test_the_partition_is_fifty_six_cells_and_region_zero_is_one_of_them():
+    """`region_id=0` IS THE WHOLE EXHAUSTIVENESS ANSWER, and leaving it out is
+    the defect this asserts against.
+
+    `Σ N` over regions 1–13 came to 15,966 against a listing of 17,403 — 1,437
+    short, and those 1,437 are the contractors whose card publishes no location
+    at all. `region_id=0` returns exactly them. A partition of regions 1–13 would
+    read 15,966 rows, prove all 52 cells complete, and be wrong about the
+    directory by 8.3%.
+    """
+    every = cells()
+    assert len(every) == 56, "fourteen regions including zero, times four sizes"
+    assert len({one.query for one in every}) == 56, "and no cell repeats another"
+
+    regions = {dict(one.params)["region_id"] for one in every}
+    assert regions == {str(n) for n in range(14)}
+    assert "0" in regions, "the contractors who publish no location have a URL"
+
+    sizes = {dict(one.params)["company_size"] for one in every}
+    assert sizes == {"big", "medium", "small", "verysmall"}
+
+
+def test_a_cell_url_puts_the_filter_before_the_page_as_the_site_does():
+    """ONE BUILDER, BECAUSE THE URL IS AN IDENTITY. It is what gets stored in
+    `generic_page_snapshot.source_url`, what `already_stored` compares on a
+    resume, and what the witness re-fetches. Two builders differing by parameter
+    order give a resume that re-fetches everything it already has, and neither
+    copy looks wrong on its own.
+
+    The order also matches the paginator hrefs the site itself publishes
+    (`...?region_id=1&page=322`), so a stored URL can be compared with the link
+    the page came from.
+    """
+    one = Cell(params=(("region_id", "1"), ("company_size", "big")))
+    assert listing_url("https://muqawil.org", locale="en", page=322, cell=one) == \
+        "https://muqawil.org/en/contractors?region_id=1&company_size=big&page=322"
+    assert listing_url("https://muqawil.org/", locale="ar", page=1) == \
+        "https://muqawil.org/ar/contractors?page=1"
+
+
+def test_a_cell_names_its_own_pages_and_never_the_listings():
+    """REGION 13 × VERYSMALL IS SEVEN PAGES where the listing is 871. Handing a
+    cell the listing's page count would fetch 864 pages that all answer with the
+    cell's last page over and over — and the crawl would look like it was
+    working."""
+    one = Cell(params=(("region_id", "13"), ("company_size", "verysmall")))
+    source = MuqawilPageSource(last_page=7, locales=("en",), cell=one)
+    urls = list(source.listing_urls("https://muqawil.org"))
+    assert len(urls) == 7
+    assert urls[0].endswith("?region_id=13&company_size=verysmall&page=1")
+    assert urls[-1].endswith("&page=7")
+    assert source.cell is one
+
+
+def test_an_unfiltered_source_is_unchanged_by_the_partition_existing(source):
+    """THE DEFAULT IS THE WHOLE LISTING. Every caller written before the
+    partition existed passes no cell and must get exactly what it got."""
+    assert source.cell is WHOLE
+    assert next(iter(source.listing_urls("https://muqawil.org"))) == \
+        "https://muqawil.org/en/contractors?page=1"
+
+
+def test_a_cell_that_names_one_parameter_twice_is_refused():
+    """A repeated parameter is not a narrower filter, it is an ambiguous one: the
+    site decides which occurrence wins and nothing here can say which. Refused
+    rather than de-duplicated, because dropping one silently gives a cell whose
+    label and whose URL describe different sets."""
+    with pytest.raises(ValueError, match="one parameter twice"):
+        Cell(params=(("region_id", "1"), ("region_id", "2")))
+
+
+def test_the_empty_cell_is_the_whole_listing_and_has_a_name():
+    """Not a special case, deliberately: sizing the unfiltered listing and sizing
+    a cell are then the same two requests through the same code, which is what
+    lets the exhaustiveness audit compare both sides measured the same way."""
+    assert WHOLE.query == ""
+    assert WHOLE.label == "whole"
+    assert Cell(params=(("region_id", "0"),)).label == "region_id_0"
+
+
+# ---- ids off a listing page: order kept, duplicates kept ---------------------
+
+def test_the_id_sequence_is_read_in_published_order_with_duplicates_kept():
+    """THIS IS WHAT THE WITNESS COMPARES. A set would answer "the same twenty
+    contractors" for two different orderings, and a rolled cache generation is
+    exactly a reordering of the same population — so an unordered read would
+    certify the one event the witness exists to catch.
+
+    Duplicates are kept for the same reason: 4,556 of 11,059 contractors turned
+    up on more than one page in a single pass, and a repeat inside one page is
+    itself a fact about the page rather than noise to clean up.
+    """
+    page = listing()
+    ids = read_ids(page.html)
+    assert ids, "the fixture must publish contractors"
+    assert isinstance(ids, tuple)
+
+    doubled = read_ids(page.html + page.html)
+    assert doubled == ids + ids, "duplicates kept, and in order"
+    assert len(set(doubled)) == len(set(ids))
+
+
+def test_the_ids_are_the_same_in_both_locales_because_an_href_has_no_language():
+    """MEASURED: 20 of 20 identical on 845 of 864 stored pages. It is why the
+    coverage arithmetic is read from ONE locale — counting both would divide by a
+    population it had counted twice — and why the Arabic half is a data-pairing
+    cost rather than a coverage cost."""
+    assert set(read_ids(listing("en").html)) == set(read_ids(listing("ar").html))
+
+
+def test_a_listing_and_its_detail_urls_agree_about_who_is_on_the_page(source):
+    """`detail_urls` and `read_ids` read the same cards through the same regex, so
+    a change to one cannot leave the other behind. The impostor twenty-first
+    `div.section-card` is excluded by both, because both require a profile link."""
+    page = listing()
+    from_details = {url.split("/")[-2] for url in source.detail_urls(page)}
+    assert from_details == set(read_ids(page.html))
+
+
+def test_a_partition_declares_the_locales_it_reads_and_refuses_a_stray_primary():
+    """The coverage arithmetic must be read off pages the crawl actually asks
+    for. A primary locale outside the fetched set would compute a deficit over a
+    population nothing had fetched."""
+    partition = MuqawilPartition()
+    assert partition.locales == ("en", "ar")
+    assert partition.primary_locale == "en"
+    assert partition.site_key == MuqawilPageSource.site_key
+    assert len(partition.cells()) == 56
+
+    with pytest.raises(ValueError, match="not among the locales"):
+        MuqawilPartition(locales=("ar",), primary_locale="en")

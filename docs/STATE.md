@@ -1,6 +1,6 @@
 # State — where the work stands
 
-**Last updated: 2026-08-20.** `main` is at `72f93a8` (#218).
+**Last updated: 2026-08-20 (evening).** `main` is at `2366d6d` (#232).
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -12,10 +12,14 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ---
 
-## Open pull requests — none
+## Open pull requests
 
-**The board is empty for the first time in this file's short life.** Nine merged on
-2026-08-20, in this order, each on green CI under
+**One: the partitioned listing crawl** — `scrapex/partitioncrawl.py`, the `Cell`
+vocabulary, muqawil's facets, and the driver that had never existed. Verified
+against the live directory before it opened: 56 cells, 897 pages, an exhaustiveness
+deficit of **0**.
+
+Sixteen merged on 2026-08-20, the last nine in this order, each on green CI under
 [R-18](RULINGS.md#r-18--merge-it-when-it-is-green):
 
 | | |
@@ -125,8 +129,18 @@ stop coming (#209) · a 404 storm must not buy speed (#210) · a dataset is a ta
 like any other (#211) · the contractors appear among the datasets (#212) · the
 Arabic half was a column and not a value (#220).
 
-**In flight: PR #220.** The track is otherwise waiting on decisions — the two
-feature flags below, and DEC-9/DEC-10 in [BACKLOG.md](BACKLOG.md).
+Then: the crawl study and its two corrections (#228 · #229) · a crawl that says
+what it saw and where it stopped (#227) · the storage study (#230) · six source
+briefs (#231) · **a snapshot says how it is encoded, and 4.55 GB becomes about
+90 MB (#232)** — the compression mechanism itself.
+
+**In flight: the partitioned listing crawl** — built, verified against the live
+directory, and **running** into this installation's own warehouse; see the section
+below. It carried two rulings with it,
+[R-23](RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)
+and [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema),
+and a fixed upgrade path ([OP-23](BACKLOG.md), closed). The track's one remaining
+decision is DEC-10 in [BACKLOG.md](BACKLOG.md).
 
 > **Why #210 mattered more than its size suggested.** `HttpFetcher` sends
 > conditional requests, so an unchanged page answers **304 with no body** — the
@@ -198,7 +212,86 @@ crawl writes arrive compressed. **The 1,728 rows already on disk were deliberate
 rewritten**: `html_codec` defaults to `'plain'` rather than dropping an immutability
 trigger to backfill 607 MB.
 
-**And that crawl now has a method that can prove itself, measured 2026-08-20.**
+**AND THE METHOD IS NOW BUILT, AND HAS VERIFIED THE PARTITION AGAINST THE LIVE SITE.**
+`scrapex/partitioncrawl.py` (new), `Cell`/`WHOLE` in
+[scrapex/pagesource.py:67](../scrapex/pagesource.py), `MuqawilPartition` plus
+`REGION_IDS`, `COMPANY_SIZES`, `cells()`, `listing_url()` and `read_ids()` in
+`scrapex/sites/muqawil.py`, and — the piece that had never existed —
+`tools/crawl_muqawil_listing.py`, a committed driver.
+
+**`--plan` was run against the live directory on the evening of 2026-08-20, 114
+requests, and it closed the study's last open question:**
+
+```
+listing now:  L=871  S=20  c=14  N=17,414
+cells 56   pages 897  (+26 over the unfiltered 871)
+declared 17,414 against the listing's 17,414 — exhaustiveness deficit 0
+```
+
+**Exact to the unit, by committed code rather than by a scratchpad.** DEC-11
+predicted 897 pages and 3% overhead; both are confirmed. Region 13 × verysmall
+came back at 128 again, and Riyadh × verysmall has grown 235 → **236**.
+
+Two facts the live run produced that no fixture could have:
+
+- **`region_id=8 & company_size=big` publishes ZERO contractors** and still serves
+  a paginator, so `read_last_page` answers 1 and `read_ids` answers nothing. An
+  empty cell's page 1 is *read and empty*, which is not the same fact as *never
+  read* — and conflating them left that cell permanently unprovable, which makes
+  the whole 56-cell partition permanently unprovable. Fixed, and both halves are
+  mutation-proven. **21 of the 56 cells are a single page.**
+- **A log line killed the run.** The sizing pass made all 114 requests correctly and
+  then died on `UnicodeEncodeError` printing `→` to a cp1252 console. On the crawl
+  itself that is hours of fetching discarded by a character. `say` can no longer
+  raise.
+
+**Sixteen mutations, sixteen killed**, per the rule that a guard is not trusted
+until it has been mutated — including the two that would have made the method
+worthless while looking like it worked: a witness comparing **bytes**, and one
+comparing **sets** instead of sequences.
+
+**IT IS RUNNING, and getting there took two rulings of his and a fixed upgrade path.**
+Priced from its own measurement: **897 pages × 2 locales + 170 = ~1,964 requests**, and
+at the 2.51 s a request the sizing pass actually paid, about **1.4 hours**.
+
+The home machine had no engine database and a pre-collapse `"mode": "split"` pointer
+([OP-22](BACKLOG.md)). I asked which machine should hold the warehouse; he answered
+that the premise was wrong — ScrapeX is a tool **many people install**, so an empty
+installation is the product's normal first-run state and a warehouse is per
+installation ([R-23](RULINGS.md#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)).
+
+**Then `scrapex carry-over` refused on his real data and I stepped around it**, by
+pointing `SCRAPEX_DATA_ROOT` at a second location and crawling into an empty database
+beside his full one — the exact trap `registry.py`'s own refusal message names, which
+I had quoted an hour earlier. He refused that too:
+[R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+— **a database is upgraded, never replaced**, because a shipped tool must carry its
+users' data across schema changes, which makes the migration path a product feature
+rather than maintenance.
+
+**So the upgrade was fixed and run, and the crawl is in the real warehouse.**
+[OP-23](BACKLOG.md) is closed: `Backfill` in `scrapex/databases/carry_over.py` supplies
+what the engine schema requires and the split-era schema lacked, reusing migration
+0058's own `legacy_unwitnessed` rather than a second literal. Verified on the live
+installation, both sides counted:
+
+```
+price_observation 3,739 → 3,739     source_product_attribute 17,111 → 17,111
+source_offer      3,739 → 3,739     change_event              7,410 →  7,410
+source_variant    3,739 → 3,739     source_product              966 →    966
+261 offers marked legacy_unwitnessed · 3,478 without a unit untouched · rows lost: none
+```
+
+The old files were opened read-only and are still where they were.
+
+**And one defect was found in existing code and left standing on purpose.**
+`snapshotcrawl`'s resume checks its skip inside `store`, which the walker calls
+*after* the fetch — so a resumed crawl re-fetches every page and then declines to
+store it. It saves the write and none of the hours its own docstring promises.
+[OP-21](BACKLOG.md), not fixed here per **R-01**; `partitioncrawl` works around it
+locally with `_Unstored`.
+
+**The earlier study, kept because it is where the numbers came from — measured 2026-08-20.**
 `region_id` × `company_size` is an **exhaustive 56-cell partition** of the
 directory — 15,966 across regions 1–13 plus **1,437 under `region_id=0`**, the
 contractors who publish no location at all, summing to 17,403 exactly. Each cell

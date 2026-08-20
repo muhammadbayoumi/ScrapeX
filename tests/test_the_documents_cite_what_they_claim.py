@@ -131,6 +131,26 @@ PINNED = (
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),
     ("docs/BACKLOG.md", "scrapex/capture.py", 95, "crawl_honour_delay"),
+    # OP-21 · the resume that saves the write and none of the requests. This is a
+    # citation of a DEFECT at an exact line, so it is the kind that must not drift:
+    # a reader sent one line off reads `store`'s docstring, agrees with it, and
+    # concludes the entry is wrong. If someone moves this check into the walk, the
+    # entry is answered and this row should go with it.
+    ("docs/BACKLOG.md", "scrapex/snapshotcrawl.py", 156, "if page.url in seen:"),
+    ("docs/LESSONS.md", "scrapex/snapshotcrawl.py", 156, "if page.url in seen:"),
+    # OP-22 / LESSONS §2 · one database, and where it is. That section described
+    # the pre-collapse split layout in the present tense until 2026-08-20, so the
+    # line naming the single file is worth holding still.
+    ("docs/LESSONS.md", "scrapex/databases/registry.py", 33, "DEFAULT_ENGINE_PATH"),
+    # The partition crawl's shared vocabulary. STATE.md sends a reader here to
+    # learn what a cell IS before reading how one is witnessed.
+    ("docs/STATE.md", "scrapex/pagesource.py", 67, "class Cell:"),
+    # OP-23 · the value `carry_over` must reuse rather than invent. The entry's
+    # whole argument is that this literal already exists, so a reader landing on
+    # the wrong line would conclude the fix needs a ruling about evidence when it
+    # does not.
+    ("docs/BACKLOG.md", "db/migrations/0058_a_unit_that_can_name_who_said_it.sql",
+     90, "'legacy_unwitnessed'"),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
