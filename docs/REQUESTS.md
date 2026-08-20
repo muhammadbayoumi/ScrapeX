@@ -71,6 +71,9 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-13](#req-13--crawl-muqawil-without-missing-anyone-and-know-the-cost-before-starting) | Crawl muqawil without missing anyone, and price it first | **Captured** — method proven, crawl not built | 2026-08-20 |
 | [REQ-14](#req-14--balady-engineering-offices-as-the-next-source-after-muqawil) | Balady engineering offices, the next source after muqawil | **Captured** — queued behind muqawil | 2026-08-20 |
 | [REQ-15](#req-15--the-uae-sources-third-in-the-queue) | The UAE sources, third in the queue | **Captured** — queued behind Balady | 2026-08-20 |
+| [REQ-16](#req-16--egypt-oman-qatar-bahrain-and-kuwait-fourth-in-the-queue) | Egypt, Oman, Qatar, Bahrain and Kuwait, fourth in the queue | **Captured** — appended in the order received | 2026-08-20 |
+| [REQ-17](#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) | Official diesel prices — a product source, not a firm directory | **Captured** — the smallest item in the queue | 2026-08-20 |
+| [REQ-18](#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) | Bitumen 60/70 prices — the first source that cannot be crawled | **Captured** — 5 of 7 need a written quotation | 2026-08-20 |
 
 ---
 
@@ -565,6 +568,193 @@ listed once per project category must be modelled as a company-category
 relationship, **not** collapsed as duplicates — is the same trap as counting a
 muqawil contractor twice for appearing on two listing pages, which is why
 `dataset_sighting` counts sightings separately from records.
+
+---
+
+## REQ-16 · Egypt, Oman, Qatar, Bahrain and Kuwait, fourth in the queue
+
+**Captured 2026-08-20 · Appended to the queue in the order received**
+
+> «المزيد من المصادر ضفها الى القائمة»
+
+He said *add them to the list* without naming a position, so they are **appended
+after the UAE**. Nothing has started on any queued survey, so the order costs
+nothing to change — it is written down so there **is** one, not so it is fixed.
+
+### Where it went
+
+[GULF-EGYPT-SOURCES.md](GULF-EGYPT-SOURCES.md), verbatim under a preamble.
+
+### The scale, and where its value actually is
+
+The largest of the three surveys: **five countries, 32 numbered sources, 933
+lines.** With this the queue reaches **eight countries**.
+
+**Its most useful content is where it says no.** Only three of the five have
+anything resembling a national public directory:
+
+| | |
+|---|---|
+| **Oman** | ESNAD / Tender Board `Registered Companies` — his own words, *"the closest source found to the Saudi `muqawil.org` use case"* |
+| **Qatar** | Monaqasat classified-company profiles |
+| **Bahrain** | three separate official lists, not one |
+| **Egypt** | **no complete combined directory confirmed** — EFCBC is authenticated; DRSO's consulting-office list is Arabic-only |
+| **Kuwait** | **no complete current public list confirmed** |
+
+So its real instruction is his §45 — *"build federated datasets rather than claiming
+a single complete national directory"* — and that is a **schema** requirement rather
+than a crawl detail. It is why his `firms` table carries `source_system` and
+`regulatory_authority`, and why classifications, accreditations and contacts are
+separate child tables.
+
+### Two things in it that this project should take even before the work starts
+
+**A stable identifier joining two language views is better than anything muqawil
+has.** Oman's ESNAD and Qatar's Monaqasat both publish Arabic and English views
+joined by an identifier — PTLC/CR, and the profile file number. On muqawil the
+Arabic half is a **second full crawl** of 871 listing pages and 17,403 profiles,
+matched by **page-order index** because one label is spelled `رقم العضويه` with `ه`.
+His §38.4 and §38.5 already require the identifier join, and it removes that risk
+entirely.
+
+**His §38.2 is stricter than any rule we have written down**, and it should be
+adopted: keep `source_registration_number_raw` — the identifier **exactly as
+published** — beside any cleaned form. muqawil stores the membership number as
+published and it has held, but nothing records that as a rule. Eight countries of
+identifiers with slashes and leading zeros is the wrong time to find out.
+
+### What has not been done
+
+Nothing. It is queued, and its own §39 requires every one of the 32 sources to be
+re-opened and re-verified on the day the work starts, because *"all source status,
+counts, classifications, contacts and expiry dates are time-sensitive"*.
+
+---
+
+## REQ-17 · Official diesel prices — a product source, not a firm directory
+
+**Captured 2026-08-20 · Queued; and it is the smallest item in the queue by far**
+
+> «مصادر اخرى لاسعار الديزل فقط مصادر منتجات ضيفها لقائمة المصادر»
+
+Official retail diesel prices for Saudi Arabia, the UAE, Egypt, Oman, Qatar,
+Bahrain and Kuwait, with the publisher and the dated announcement for each.
+
+### Where it went
+
+[DIESEL-PRICES.md](DIESEL-PRICES.md), verbatim under a preamble.
+
+### He classified it himself, and the classification matters
+
+**«مصادر منتجات»** — product sources. The other four queued surveys are **firm
+directories** and land in `generic_record` through the generic-dataset seam muqawil
+pioneered. This describes **a product's price over time**, which is the *original*
+spine of this project: `price_observation`, the `db/migrations/` PRICE chain, `SR-6`.
+
+**It is the first queued source that touches the half of the warehouse muqawil never
+went near.**
+
+### And it is tiny, which he should know before deciding where it sits
+
+| | requests to collect once |
+|---|---|
+| muqawil, everything the site publishes | **36,548** |
+| this | **7 pages, ~14 with both locales** |
+
+About **fourteen requests a month**. It does not compete with finishing muqawil in
+any real sense — an afternoon, not a track. The order stays his; the size is recorded
+so the decision is made with it in view.
+
+### One mechanism will silently drop his data, and it is already measured
+
+His rule §3 is *"never overwrite a previous price when a new month or quarter
+begins."* `SR-6` says **an unchanged price is confirmed, not appended.** Those
+disagree, concretely: if Oman's July price was also `0.258`, the append gate sees no
+change and writes nothing, so the **August period never exists** and his §3 is
+violated by a rule that is otherwise right.
+
+> A period-keyed price must key the append gate on the **period**, not only the
+> value. `SR-6` was written for a shelf price, where an unchanged number carries no
+> information. An official price *for a named month* carries information even when
+> the number is identical — it says the ministry set it again.
+
+Same shape as a defect already on record: a new `price_observation` column stays NULL
+because the gate never learned to notice it. **Settle it before the first collection,
+not after a month is missing.**
+
+### Two sources need something this project does not have
+
+- **Bahrain publishes the price as an image.** His own instruction is to preserve the
+  screenshot or image hash and treat OCR as a *candidate* extraction only, verified
+  against the dated committee announcement. There is no OCR path here, and his rule
+  is the right one regardless: the image is the evidence, the number is a claim
+  about it.
+- **Kuwait's page is stale in the dates, not the price.** He observed a correct value
+  beside an out-of-date validity note and says not to derive the effective dates from
+  the static page. A collector that trusted it would store a right price under wrong
+  dates, which is the worse failure because it looks complete.
+
+---
+
+## REQ-18 · Bitumen 60/70 prices — the first source that cannot be crawled
+
+**Captured 2026-08-20 · Queued; and its acquisition mode is correspondence, not fetching**
+
+> «مصادر اخرى»
+
+Official bitumen 60/70 price sources for the same seven countries as the diesel
+list — and its conclusion is that, for five of them, **there is nothing public to
+fetch.**
+
+### Where it went
+
+[BITUMEN-PRICES.md](BITUMEN-PRICES.md), verbatim under a preamble.
+
+### Why it is unlike every other source in the queue
+
+| | |
+|---|---|
+| **`quote_required`** | Saudi Arabia, UAE, Oman, Bahrain, Kuwait |
+| **a dated bulletin, not a live price** | Egypt — `EGP 21,542`/tonne, July 2026 |
+| **already expired** | Qatar — `2,925`/tonne, 22–31 July 2026, **no currency label on the page** |
+
+Bitumen 60/70 is bulk B2B: the payable price depends on quantity, customer category,
+loading point, destination, hot-bulk versus packaged, tax, freight and quote
+validity. His brief therefore ends with **a letter to send a producer**, not a URL to
+crawl. That is the shape of the product, not a gap in the plan.
+
+**So what this project can do for it is narrower and more valuable than a crawl:** be
+the place a dated, sourced, caveated observation is stored so it is never mistaken
+for a current market price. His `verification_status` vocabulary —
+`quote_required`, `latest_official_bulletin`, `expired_official_price` — is the most
+useful column in his design.
+
+### Its most important instruction is a refusal to compare
+
+*"Do not flatten these observations into one comparable price list."* Egypt's official
+label is **بيتومين مؤكسد على الساخن 70/60**, possibly a hot-applied **oxidized**
+product rather than the paving penetration grade; Qatar's row shows no currency.
+Comparing or converting them would manufacture a number nobody published. That is
+`SR-1` on a harder case: what was published is *incomplete*, and the record must
+carry the incompleteness rather than resolve it.
+
+### And it is the second measured case against `SR-6`'s key
+
+`SR-6` confirms rather than appends an unchanged price. Here two observations can
+carry **the same number and different commercial bases** — ex-refinery versus
+delivered, taxed versus not. Different facts, equal values; a gate comparing only the
+number collapses them and destroys the only thing that makes either usable.
+
+> With [REQ-17](#req-17--official-diesel-prices--a-product-source-not-a-firm-directory)
+> this is two independent cases saying the same thing: **the append gate's key is not
+> the number.** For diesel it is the period; for bitumen it is the commercial basis.
+
+### One line in it is a hard boundary, not a task
+
+His §12 rejects any figure not traceable to an official producer, public authority,
+signed quote, tender award or official statistical publication — trader
+advertisements and aggregator sites explicitly excluded. That is a rule about what
+may enter the warehouse at all, and it is stricter than anything code enforces today.
 
 ---
 
