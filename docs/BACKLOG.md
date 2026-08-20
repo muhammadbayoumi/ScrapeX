@@ -817,6 +817,23 @@ and each of these looked promising enough to chase:
 ---
 
 ### DEC-9 · Snapshots are stored uncompressed, and the full crawl is 6.4 GB of it
+
+> **SUPERSEDED 2026-08-20 by [STORAGE.md](STORAGE.md), and kept in full per C4.**
+> It asked *how to store 6.4 GB more cheaply* and answered that well. The owner
+> asked *why we are storing 6.4 GB at all*, and five of the numbers below do not
+> survive being measured properly: a listing page is **17.8%** cards, not 21%; a
+> profile is **119 KB** across 13 samples, not 168 KB from one; the corpus is
+> **4.55 GB**, not 6.4; a profile compresses **7.7×** with zlib, not 9.4×; and the
+> compressed projection is **~90 MB**, not 660.
+>
+> The one that mattered is not a number but a cause: its 15.6× is **entirely
+> intra-page**. zlib's 32 KB window never sees across a 121 KB page, so the
+> cross-page redundancy this entry credits for the ratio was left on the table.
+> `zstd` with one real page as a raw dictionary gets **187×** on listings and
+> **46×** on profiles, is in the 3.14 standard library, and keeps every row
+> independently decompressible. Its *rule* — keep the snapshots — is upheld and
+> strengthened. Its *encoding* is not.
+
 **MEASURED 2026-08-20, on the live database.** The contractors cost 342 MB, of which
 **320 MB is HTML and 22 MB is data** — 94% of the price is the pages, not the rows.
 
@@ -895,6 +912,9 @@ approved**, and that has to be said out loud rather than discovered again.
 ---
 
 ### DEC-8 · The engine's Data page is a PORT, not a rebuild — measured 2026-08-16
+
+**This answers [REQ-07](REQUESTS.md#req-07--the-data-page-must-carry-everything-the-engines-page-carries)**
+— his request on the board, which did not cite it in either direction.
 
 **The owner asked directly:** «هل يمكن نقل صفحة data الموجودة فى المحرك بكل مميزتها الى
 extension ام يلزم اعادة البناء كامل؟» Answered by measurement, not opinion, and the answer

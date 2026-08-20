@@ -67,6 +67,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-09](#req-09--one-home-for-rulings-not-two) | One home for rulings, not two | **Done** | 2026-08-17 |
 | [REQ-10](#req-10--adversarially-review-the-fixes-then-execute) | Adversarially review the fixes, then execute | **Done** | 2026-08-20 |
 | [REQ-11](#req-11--branch-protection-for-main-in-a-session-of-its-own) | Branch protection for `main`, in a session of its own | **Captured** — deferred by him | 2026-08-20 |
+| [REQ-12](#req-12--justify-the-volume-not-compress-it) | Justify the volume, not compress it | **Captured** — study done, the ruling is his | 2026-08-20 |
+| [REQ-13](#req-13--crawl-muqawil-without-missing-anyone-and-know-the-cost-before-starting) | Crawl muqawil without missing anyone, and price it first | **Captured** — method proven, crawl not built | 2026-08-20 |
 
 ---
 
@@ -157,7 +159,10 @@ reorders every thirty seconds.
 ---
 
 ## REQ-07 · The Data page must carry everything the engine's page carries
+
 **Captured 2026-08-12 (the migration plan is his) · Planned · Not started**
+
+**Answered by measurement:** [DEC-8](BACKLOG.md#dec-8--the-engines-data-page-is-a-port-not-a-rebuild--measured-2026-08-16) settled his direct question — «هل يمكن نقل صفحة data الموجودة فى المحرك بكل مميزتها الى extension ام يلزم اعادة البناء كامل؟» — by measuring rather than guessing, and the answer is **a port, not a rebuild**. The link was missing in both directions, so a reader of this board could not see the question had been answered at all.
 
 Four capabilities remain before the workbook link may be removed from the source
 card: the details drawer, Choose-Columns, saved views, and promotion. The order
@@ -354,6 +359,125 @@ trusting either reading of the API docs.
   which is *weaker* than the inline environment variable it replaced.
 - Whether the repository being **public** since 2026-08-20 changes anything —
   protection rules and the audit that was declined are related decisions.
+
+---
+
+## REQ-12 · Justify the volume, not compress it
+
+**Captured 2026-08-20 · The study is done; the ruling is his**
+
+> «انا لم استقر على طريقة خفض حجم المخزن … **ليست الفكرة ضغط الملفات** بل دراسة نشوف
+> احنا بنسحب اى ولية وبنحتفظ باية ولية وما الفائدة — دراسة تبرر الحجم الذى قيل انه
+> سيصل الى 5 جيجا من مصدر مقاول فقط»
+
+He had already been shown `DEC-9` and did not accept it as the answer, and he was
+right not to: `DEC-9` asked **how to store 6.4 GB more cheaply** and he is asking
+**why we are storing 6.4 GB at all.** Compression answers the first and cannot
+touch the second — a justified 660 MB and an unjustified 660 MB look identical on
+disk. He also asked for a wider measurement before any migration
+(«أريد قياساً أوسع أولاً»).
+
+### This entry is also a filing defect being repaired
+
+The request was **absent from this file entirely** — no hit for «مساحة», `storage`,
+`space`, `compress` or «حجم» — while the research it prompted sat in
+[BACKLOG.md](BACKLOG.md) as `DEC-9`. That is exactly the failure this file exists to
+prevent: `REQ-04` sat ruled and unbuilt for sixteen days after dropping out of view.
+Real work, correctly researched, invisible on the board that tracks what he asked
+for. `DEC-9`'s own filing was **correct** — it is a finding of ours; his *request*
+is what was missing.
+
+### Where it went
+
+[STORAGE.md](STORAGE.md), and the answer is that the volume he asked us to justify
+does not exist:
+
+- The 6.4 GB was projected from **one** profile page at 168 KB. Thirteen real
+  profiles average **119 KB**, so the complete corpus is **4.55 GB** raw, not 6.4.
+- `compression.zstd` entered the standard library in Python 3.14, and a raw page
+  used as a shared dictionary compresses listings **187×** and profiles **46×** with
+  every row still independently decompressible. `DEC-9`'s zlib gets 15.6× and 7.7×,
+  because its 32 KB window cannot see across a 121 KB page — the cross-page
+  redundancy it credited for its ratio was **left on the table**.
+- So everything the site publishes, both languages, evidence retained: **~90 MB of
+  pages plus ~70 MB of rows — about 160 MB**, against the 5 GB in the question.
+- And trimming is **strictly dominated**: keeping only the visible text of every
+  profile, uncompressed, costs **139 MB**; keeping the whole HTML compressed costs
+  **87 MB**. It is more expensive *and* it spends the ability to re-parse, which is
+  in active use while 48 of his ~70 columns remain unextracted.
+
+### What still needs him
+
+**Is a snapshot evidence, or only a parse cache?** `SR-1` makes the site the source
+of truth, so a stored page is a record of what it published on a date. If that
+matters to him, profiles may never be dropped for a re-fetch; if it does not, 87 MB
+is recoverable at the price of 17.4 hours. The study refuses to assume this
+([STORAGE.md §5](STORAGE.md)).
+
+**And the migration is not written.** He asked for the measurement first; this is
+the measurement.
+
+---
+
+## REQ-13 · Crawl muqawil without missing anyone, and know the cost before starting
+
+**Captured 2026-08-20 · The study is done and one slice is proven; the crawl is not built**
+
+> «عدد الصفح غير ثابت وفعدد المقاولين المسجلين على الموقع بالتاكيد يتغيروا مع الوقت شوف
+> طريقة ازاى نعرف عدد الصفح او ازاى نزحف صح بدون ان نغفل شى … ازاى نقدر عدد الطلبات قبل
+> بداية الزحف … **اريد منك فحص كل الحلول والحالات**»
+
+And the reason it was asked, in his words: **«لقد ذكرت لك اسم مقاول لم ياتى فى قاعدة
+البيانات — لا اريد تكرار هذا الامر»**. He named contractor **10001274**; the site
+answers 200 and the warehouse did not have it. He asked that it not happen again.
+
+He also set the two constraints the answer has to respect, both correcting an
+assumption of ours: **the page count is not fixed**, and **a page need not hold
+twenty cards** — «البيانات حية».
+
+### This entry is the third filing defect of the same kind, found by a rule
+
+`DEC-11` is 150 lines of measured research that exists **because he asked for it**,
+and it quotes his instruction twice. Nothing on this board recorded the request.
+[REQ-12](#req-12--justify-the-volume-not-compress-it) was the same failure and
+`DEC-8`/`REQ-07` was the same failure in the other direction. Three in one file is
+not an accident, so the signal is now a guard:
+`tests/test_a_request_of_his_reaches_the_board.py` fails when a finding quotes him
+in Arabic and no request cites it.
+
+### Where it went
+
+[DEC-11](BACKLOG.md#dec-11--how-to-crawl-muqawil-without-missing-anyone-and-what-it-costs),
+and each of his three questions has an answer:
+
+- **How do we know the page count?** The paginator publishes it — its `»` link
+  carries the last page. **One request**, filtered or not, and `read_last_page`
+  reads it. It also honours his warning: the last page carried 15 cards on
+  2026-08-16, 2 on the morning of 2026-08-20 and 3 that afternoon, so the count is
+  `(L−1)×20 + c` with `c` **read**, never assumed.
+- **How do we crawl without missing anyone?** `region_id` × `company_size` is an
+  exhaustive 56-cell partition, verified to the unit — 15,966 across regions 1–13
+  plus 1,437 under `region_id=0`, the contractors who publish no location, summing
+  to 17,403 exactly. A slice read inside one cache generation and witnessed against
+  its own first page is **provably** complete. One cell is closed already: region 13
+  × verysmall, 128 ids, 128 distinct, `D = 0`.
+- **How do we estimate the requests before starting?** 56 requests size every cell
+  before a single page is crawled. Total **~1,065 requests, ~1.7 h** — against
+  **18.4 h** for a blind sweep that can never say "complete".
+
+And **10001274 is reachable on demand**: `?q=10001274` returns exactly one card. So
+the specific thing he asked not to recur has a one-request answer, and
+`dataset_sighting` (#227) is the ledger that says which ids need it.
+
+### What is not done
+
+The crawl itself. The method is measured and proven on one slice; nothing runs it
+yet, and [STORAGE.md](STORAGE.md) was deliberately settled first so that 36,548
+pages are not written under a retention policy that a later decision would rewrite.
+
+Five city×size cells stay above the safe slice size, worst ~212 pages, and no
+fourth exhaustive axis is fine enough. The witness makes attempting them safe
+rather than risky, so it is a cost question — but it is the open one.
 
 ---
 
