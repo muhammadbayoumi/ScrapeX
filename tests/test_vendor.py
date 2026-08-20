@@ -292,8 +292,11 @@ def test_grid_behaviour_changes_bust_the_browser_cache():
     # had none, so both were being stacked under Specifications.
     # design-system-40: Excel is the direct split-button action; CSV and JSON
     # stay together in its compact, accessible format menu.
-    assert '/static/grid.js?v=design-system-40' in page
-    assert '/static/grid-theme.css?v=design-system-40' in page
+    # design-system-42: two selected cards keep the established card width and
+    # aligned slots; the focused card keeps its side inspector while the other
+    # selected cards move below without clearing the table selection.
+    assert '/static/grid.js?v=design-system-42' in page
+    assert '/static/grid-theme.css?v=design-system-42' in page
 
 
 def test_material_header_icons_are_local_and_dry():
@@ -791,9 +794,9 @@ def test_history_opens_inline_and_the_full_page_link_survives():
     assert 'full.href = "/source/" + encodeURIComponent(SOURCE) + "/offer/"' in script
 
 
-def test_selected_rows_render_as_product_cards_with_a_side_inspector():
-    """Selection starts with a compact product view; Details and History share
-    an attached side card with three focused detail sections."""
+def test_selected_rows_render_as_product_cards_with_a_responsive_inspector():
+    """A selected product keeps the attached side inspector; with several
+    selected products, the other cards move below without being deselected."""
     script = (VENDOR.parent / "grid.js").read_text(encoding="utf-8")
     css = (VENDOR.parent / "grid-theme.css").read_text(encoding="utf-8")
 
@@ -840,6 +843,9 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert "transform: translateY(-50%)" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-track" in css
     assert ".selected-product-thumbs::-webkit-scrollbar-button" in css
+    assert "height: 5.25rem" in css
+    assert 'const thumbs = el("div", "selected-product-thumbs")' in script
+    assert "images.forEach((image, index)" in script
     assert ".record-product-workspace.has-inspector" in css
     assert ".record-inspector-nav" in css
     assert ".record-inspector-nav-primary" in css
@@ -863,6 +869,22 @@ def test_selected_rows_render_as_product_cards_with_a_side_inspector():
     assert ".record-card-body::-webkit-scrollbar" in css
     assert ":has(.spec-list)" not in css
     assert "repeat(auto-fit, minmax(min(20rem, 100%), 1fr))" in css
+    assert '"selected-product-grid is-pair"' in script
+    assert ".selected-product-grid.is-pair" in css
+    assert "repeat(2, minmax(0, 24rem))" in css
+    multi = script.split("function renderSelectedCardsPanel", 1)[1].split(
+        "// ---- export", 1)[0]
+    assert '"selected-product-detail-host"' in multi
+    assert "renderOfferPanel(detailPanel, data, row.offer_id, view," in multi
+    assert "table.deselectRow()" not in multi
+    assert "panel.append(detailHost, productGrid)" in multi
+    assert 'button.closest(".selected-product-card")' in multi
+    assert "focusedCard.hidden = true" in multi
+    assert 'productGrid.classList.add("has-focused-record")' in multi
+    assert ".selected-product-grid.has-focused-record" in css
+    assert ".selected-product-detail-host .selected-product-grid { display: none; }" not in css
+    assert "grid-template-rows:" in css
+    assert "height: 3.25rem" in css
     assert ".record-card-wide { grid-column: 1 / -1; }" in css
 
 
