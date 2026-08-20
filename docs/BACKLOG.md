@@ -542,6 +542,80 @@ than missing **(inferred from the titles; the check is a diff, not a title match
 **superseded, do not merge**. Two branches live in `~/.codex/worktrees/`, so
 `git worktree remove` comes before any deletion.
 
+### DEC-9 · Snapshots are stored uncompressed, and the full crawl is 6.4 GB of it
+**MEASURED 2026-08-20, on the live database.** The contractors cost 342 MB, of which
+**320 MB is HTML and 22 MB is data** — 94% of the price is the pages, not the rows.
+
+| | |
+|---|---|
+| the file on disk | 483 MB *(now 835 MB, with the Arabic half merged)* |
+| 864 snapshots | 320 MB, averaging **362 KB a page** |
+| 11,059 records | 8.7 MB |
+| 17,275 revisions | 13.6 MB |
+
+**Only 21% of a listing page is its contractor cards.** The other 291 KB is nav,
+footer, scripts and the city dropdown — a near-identical skeleton repeated 864
+times, which is exactly why it compresses so well:
+
+| | | |
+|---|---|---|
+| 25 pages raw | 9.3 MB | |
+| gzip level 6 | 0.6 MB | **15.1x** |
+| zlib level 9 | 0.6 MB | **15.6x** |
+| lzma | 0.5 MB | 19.1x |
+
+**320 MB would be 21 MB.** And the projection that makes it a decision — one real
+profile page was fetched and measured at **168 KB raw, 18 KB compressed (9.4x)**:
+
+| Stage B, 17,283 contractors x 2 languages = 34,566 pages | |
+|---|---|
+| raw | **~6.4 GB** |
+| compressed | **~660 MB** |
+
+**The recommendation is that the rule is right and the encoding is wrong.** "One page
+in, one snapshot out" earned itself on 2026-08-20: a defect in the bilingual merge was
+repaired from disk with **nothing re-fetched**, where a re-crawl is 2.8 hours. So the
+snapshots stay. They should be stored compressed — `zlib` is in the standard library
+and needs no new dependency.
+
+What was considered and is worse:
+- **Trimming to the cards (21%)** saves 4.8x where compression saves 15.6x — three
+  times worse, and it spends the ability to re-parse. The defect repaired that day was
+  *inside* the card; the next one may not be.
+- **Deleting snapshots after approval** spends exactly what saved the day.
+- **Keeping a hash and re-fetching on demand** cannot work: the listing reorders every
+  thirty seconds, so a page is not reproducible. What is not kept now is not gettable
+  later.
+- **A shared-dictionary compressor (trained zstd)** would beat 15.6x, since the
+  skeleton repeats 864 times — but it adds a dependency for a margin we do not need.
+
+**The cost, and why it is the owner's call:** `html_content` becomes a BLOB rather than
+TEXT. That is a migration plus every reader of the column.
+
+### DEC-10 · "Fix the parser and re-run over the snapshots" does not actually work
+The seam's stated product is that a wrong parse is re-run against stored snapshots with
+nothing re-fetched (`GENERIC-FETCH-SEAM.md`). **It was tried on 2026-08-20 and wrote
+nothing at all.**
+
+`approve_candidate` short-circuits on `_approved_ingestion(conn, snapshot_id,
+locator)` — same site, same dataset, same `schema_hash` means "already approved", and
+it returns `recovered=True` without touching a row. A **corrected parser produces the
+same schema and different values**, so all 864 pages came back recovered and the four
+empty columns stayed empty. Worse, the caller cannot tell: the return value looks like
+success, and the script that drove it reported 864 re-approvals that were 864 no-ops.
+
+The repair only landed because the ARABIC snapshots were merged in the same pass —
+a genuinely new `(snapshot, locator)` pair, so a genuinely new approval.
+
+**The gap is that the idempotency key does not include the ROWS.** A candidate hash
+alongside `schema_hash` would make a corrected parse a different request — replay of an
+identical request still short-circuits, so the tested behaviour is kept — and the
+re-ingestion would write revisions, which is what a repair should leave behind. Not
+built, because it changes the approval path's atomicity guarantee and that is a ruling.
+
+Until it is built, **re-parsing means approving against a snapshot that has never been
+approved**, and that has to be said out loud rather than discovered again.
+
 ---
 
 ## 4. Built, not yet verified
