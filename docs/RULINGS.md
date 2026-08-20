@@ -368,6 +368,51 @@ proof it was enough.
 
 ---
 
+### R-18 · The repository is public, and the pre-publication audit was declined
+**2026-08-20 · process, and it cannot be undone**
+
+> «لو كان Billing & plans خاصة ب GITHUB خلى المشروع PUBLIC وكمل» — then, when a
+> content audit was proposed first: «افتحه PUBLIC بلا قلق».
+
+`muhammadbayoumi/ScrapeX` went from private to **public** on 2026-08-20. His
+reasoning was correct and was verified before acting: the repository was private
+on a free plan — proved by `branches/main/protection` answering *"Upgrade to
+GitHub Pro or make this repository public to enable this feature"* — and a free
+plan's private Actions minutes had run out
+([OP-20](BACKLOG.md)). Public repositories get unlimited standard-runner minutes,
+so publishing restored CI. It did: `lint` and `contract-parity` went green within
+a minute of the switch, after nineteen hours of jobs that never started.
+
+**AN EXPOSURE AUDIT WAS PROPOSED AND HE DECLINED IT.** Recorded under **C5**,
+because an unwritten objection helps nobody on the other machine, and because a
+future session needs to know what was and was not checked rather than assuming.
+
+**What WAS verified, mechanically, before the switch:** no secret-class file was
+ever committed in the whole history — `client_secret*`, `token.json`, `*.secret`,
+`.env`, `.env.*`, `credentials/`, `google/` all return **zero** commits under
+`--diff-filter=A` across `--all`, and no path matching those names appears in
+`git log --all --name-only --diff-filter=A`.
+
+**What was NOT checked, and is now public and permanent:**
+
+- secret VALUES embedded in committed file contents, at any point in history
+- personal data of third parties in committed fixtures — `docs/CONTRACTOR-SOURCE.md`
+  describes decoding `data-cfemail` addresses and extracting per-contractor
+  coordinates from muqawil.org, and fixtures of real pages are committed
+- redistribution of other sites' HTML committed as test fixtures
+- whether `sources.yaml` and `docs/SOURCES-REGISTER.md` publish which suppliers he
+  tracks and how, which is a commercial judgement only he can make
+- the candour of this repository's very long commit messages about third parties
+
+**How to apply.** Do not re-open the decision; it is made and the history is
+already distributed. Do treat these as facts of the world now: a secret found in
+history must be **rotated, not deleted**, because deleting it from git does not
+un-publish it; and a new fixture of a real page is a publishing decision, not just
+a test decision. **Public repositories also let fork pull requests run
+workflows** — see [OP-21](BACKLOG.md) for what that means for `.github/workflows`.
+
+---
+
 ## Standing rules — the data, product and process policy (`SR-1`–`SR-23`)
 
 **Migrated here from [BACKLOG.md](BACKLOG.md) §1 on 2026-08-19, on the owner's
