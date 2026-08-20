@@ -51,15 +51,26 @@ _FEATURES = (
     ),
     FeatureState(
         FeatureKey.GENERIC_DATASET_CATALOG,
-        False,
-        DeliveryStage.FOUNDATION,
-        "Definitions and API exist; enable only after generic rows and the catalogue UI ship.",
+        True,
+        DeliveryStage.PARTIAL,
+        "Enabled 2026-08-20 on the owner's instruction. One dataset is catalogued "
+        "and browsable: /api/sources reports `contractors` with kind=dataset among "
+        "thirteen entries (#212), /source/contractors renders it (#220), and "
+        "/api/table/contractors answers 22 columns over 11,059 rows. PARTIAL, not "
+        "production_ready: there is exactly one dataset, no dataset-only page, and "
+        "the relationship and promotion paths are untested for this kind.",
     ),
     FeatureState(
         FeatureKey.GENERIC_EXTRACTION,
-        False,
-        DeliveryStage.NOT_STARTED,
-        "Enabled only after an approved non-product extraction reaches generic storage.",
+        True,
+        DeliveryStage.PARTIAL,
+        "Enabled 2026-08-20 on the owner's instruction, its written condition met: "
+        "11,059 muqawil.org contractors reached generic storage through the approval "
+        "path over 1,728 ingestions -- 864 English pages and 864 Arabic -- every one "
+        "of them status=success with none refused, and all seven declared bilingual "
+        "pairs carry Arabic values (#202-#212, #220). PARTIAL: one site, "
+        "listing pages only, and the ~6,224 contractors the sweep counted have no "
+        "evidence stored.",
     ),
     FeatureState(
         FeatureKey.CRAWL_FRONTIER,
