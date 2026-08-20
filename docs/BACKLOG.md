@@ -501,7 +501,47 @@ per-branch availability. All three need an extension session capture, not a conn
 change. `sources.yaml:131`, `:112`, memory `sika-trade-tier-price.md`.
 
 ### DEC-7 · Branch cleanup, which the owner asked to be reminded of
-**RE-MEASURED 2026-08-12: 148 local branches, 128 remote.** It has GROWN by 31
+**RE-MEASURED 2026-08-20, with the right test this time: 172 local, 125 remote.**
+
+Run over all 172 local refs with `git merge-tree --write-tree origin/main <branch>`
+compared against `git rev-parse origin/main^{tree}` — the test this entry itself
+prescribes, on `main` at `72f93a8` (#218):
+
+| | |
+|---|---|
+| fully contained in `main` — merging changes **nothing** | **60** |
+| merging would **conflict** | **110** |
+| merges cleanly and **adds** something | **2** |
+
+The shape has held across three measurements over eleven days: 47/68/1, then this.
+Local grew 148 → 172 while remote SHRANK 128 → 125, so someone is deleting remote
+branches and nothing is deleting local ones.
+
+**And both members of the `adds` bucket are instructive rather than a backlog.**
+
+- `docs/branch-protection-is-its-own-session` — in flight; this entry's own commit.
+- `feat/the-warehouse-travels-through-drive` — **THE TRAP, and it must not be
+  merged.** It reads as "adds something" because its content is genuinely absent
+  from `main`. But its commit *did* land, as `8ebb1f5` (#123), and
+  `scrapex/drive.py` was then **deliberately deleted** by `59d5910` (#164), "Drive
+  moves into the panel, and the engine stops holding a token it never needed".
+  Verified: `git cat-file -e origin/main:scrapex/drive.py` fails. Merging it
+  resurrects a module the owner had removed on purpose.
+
+  **So `adds` is not a synonym for `wanted`.** The bucket test answers *would
+  merging change main*, never *should it*. Any branch whose files `main` later
+  deleted lands in `adds` for ever, and this is the second time this entry has
+  had to warn about a bucket being read as an instruction.
+
+**A branch rots between measurements, which is the case for acting rather than
+re-measuring.** `claude/jolly-borg-a826ba` — the one branch the 2026-08-20 morning
+inventory found holding live work that merged **cleanly** — is now in the
+**conflict** bucket. #217 and #218 moved `extension/app.css`, `extension/console.css`
+and the three parallel `tokens.css` / `appearance.js` copies, which is exactly the
+surface it touches. It was mergeable in the morning and is not by the afternoon,
+and nothing about the branch changed.
+
+**Previous measurement, 2026-08-12: 148 local branches, 128 remote.** It has GROWN by 31
 local and 22 remote in three days — every session that opens a branch adds one,
 and nothing removes any. The 2026-08-09 figures (117 / 106) are kept below with
 the analysis that was done against them, because the *method* is the valuable
