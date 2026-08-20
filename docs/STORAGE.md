@@ -217,13 +217,53 @@ it. It changes one row of the table above and no others: if evidence-over-time m
    evidence plus ~70 MB of rows and indexes — call it **160 MB** for everything the site
    publishes, against the **5 GB** the question was asked about.
 
-### What this does not decide, and what it needs from him
+### BUILT 2026-08-20, on his instruction «ابدأ آلية التخزين»
+
+Recommendation 3 is no longer a recommendation:
+
+| | |
+|---|---|
+| the codec | [`scrapex/snapshotbody.py`](../scrapex/snapshotbody.py) — `plain` and `zstd-raw-dict`, level 12 |
+| the schema | `db/engine/migrations/0005_a_snapshot_says_how_it_is_encoded.sql` — `snapshot_dictionary`, plus `html_codec` and `html_dict_id` on the snapshots |
+| the production caller | `scrapex/snapshotcrawl.py` — the path the 36,548 pages arrive on, compressed against a dictionary of their own **kind** via `label_for(url, page.kind)` |
+| the guards | `tests/test_a_snapshot_says_how_it_is_encoded.py`, 13 tests, mutation-proven three ways |
+
+**Nothing existing was rewritten, and that was a decision rather than a shortcut.**
+`trg_generic_page_snapshot_immutable_update` aborts any UPDATE to the snapshot table,
+and it is right to — a stored page is evidence of what a site published on a date. A
+backfill would have to drop that trigger; the trigger is worth more than the 607 MB.
+So `html_codec` carries a DEFAULT of `'plain'` and the 1,728 rows already on disk are
+read by exactly the path that reads a new one. **The 3.95 GB this is for has not been
+fetched yet, which is the whole reason the study gated the crawl.**
+
+Three things the build had to get right that the study did not have to say:
+
+- **`content_hash` stays the hash of the DECODED page.** Otherwise the day a codec
+  changes is the day every page becomes a different page, and every dedup and
+  revision decision downstream moves with it.
+- **`html_content` keeps its declared TEXT type and holds either.** SQLite column
+  types are affinities, and TEXT affinity explicitly does not convert a BLOB — so a
+  compressed body lives in the column it belongs in, `NOT NULL` is satisfied
+  honestly, and no table rebuild puts 1,728 rows of evidence and four foreign keys at
+  risk in order to add two columns.
+- **A page that would grow is stored plain.** A codec that is a pessimisation on some
+  rows and an optimisation on others is one nobody can reason about, so the
+  comparison is made on real bytes.
+
+**And the dictionary is guarded harder than the snapshots are.** A changed snapshot
+loses one page; a changed dictionary loses **every** page compressed against it,
+silently, and only when someone tries to read one — with no repair, because the
+plaintext is not stored anywhere else. `snapshot_dictionary` therefore forbids both
+UPDATE and DELETE.
+
+### What this still does not decide, and what it needs from him
 
 - **§5 — is a snapshot evidence, or only a parse cache?** His answer decides whether
-  profiles may ever be dropped for a re-fetch.
-- **The migration itself is not written.** He asked for a wider measurement first
-  («أريد قياساً أوسع أولاً»); this is that measurement. Writing the migration is a
-  separate decision with this in hand.
+  profiles may ever be dropped for a re-fetch. **It does not block the crawl**: the
+  recommendation is to retain everything, and §5 only decides whether a future
+  reduction is permitted.
+- **Backfilling the 1,728 existing rows** would save ~600 MB and requires dropping an
+  immutability trigger to do it. Not done, and not recommended without him saying so.
 - **`R-20` (revision on change only) is worth more than it looks here.** 34,550
   revisions for 11,059 records is 26.7 MB, and the distribution is exactly two revisions
   per appearance — the second recording no change. Under `R-20` that table is roughly
