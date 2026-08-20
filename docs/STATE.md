@@ -232,6 +232,46 @@ with nothing stored for them. Their written conditions were measured, not quoted
 
 ---
 
+## Track 5 · The source queue — two more, in his order, neither started
+
+**He set the order himself on 2026-08-20**, and it is a precondition rather than a
+preference: each source waits for the previous one to be **finished completely**,
+where finished is his definition — «كلّ ما ينشره الموقع».
+
+| # | source | where the brief is | state |
+|---|---|---|---|
+| 1 | **muqawil.org** | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) | Track 2 above — 11,059 of 17,403 rows, listing pages only, profiles never crawled |
+| 2 | **Balady engineering offices** | [BALADY-ENG-OFFICES.md](BALADY-ENG-OFFICES.md) | **Queued.** [REQ-14](REQUESTS.md#req-14--balady-engineering-offices-as-the-next-source-after-muqawil) |
+| 3 | **UAE contractors and consultants** | [UAE-SOURCES.md](UAE-SOURCES.md) | **Queued.** [REQ-15](REQUESTS.md#req-15--the-uae-sources-third-in-the-queue) |
+
+**Both briefs are his, stored verbatim**, and they are in the repository rather than
+in a conversation for a measured reason: he re-sent the muqawil column specification
+on 2026-08-20 because he could not tell whether it had survived. It had. He should
+not have to ask twice.
+
+**Neither is a schema to implement.** Balady's brief says so in its own words —
+*"Do not assume that any preliminary finding in this brief is correct"* — and demands
+every statement be labelled **Verified / Inferred / Unverified / Not available**. The
+UAE file is not even one source: its key finding is that **no single public federal
+directory covers every emirate**, so the emirate and the regulatory authority are
+part of a record's identity.
+
+**Two things worth knowing before either starts**, so the work does not open by
+rediscovering them:
+
+- **Ask for the open dataset first.** Both files require checking for an official
+  API or download **before** any browser automation. It is the cheapest question
+  available and it can delete the crawl. muqawil's equivalent was answered late, and
+  the answer was no — three dead ends recorded in [DEC-11](BACKLOG.md) so nobody
+  spends those requests again.
+- **Abu Dhabi DMT may be better-shaped than muqawil.** It publishes `firm_name` and
+  `firm_name_ar` **in one record**. On muqawil the Arabic half is a second full crawl
+  — 871 listing pages and 17,403 profiles again — matched by page-order index
+  because one label is spelled `رقم العضويه` with `ه`. A bilingual record halves
+  the requests and removes that risk.
+
+---
+
 ## Track 4 · What CI actually costs, and the tier a documentation change needed
 
 **Measured 2026-08-19**, because PR #214 was documentation only and took the two

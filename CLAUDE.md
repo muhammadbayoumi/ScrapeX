@@ -95,7 +95,8 @@ the thing came from: **he asked** → `REQUESTS.md`; **we found it** →
 
 Other long-standing documents — `docs/MIGRATION-PLAN.md`,
 `docs/COMPATIBILITY.md`, `docs/PLATFORM-PLAN.md`, `docs/GENERIC-FETCH-SEAM.md`,
-`docs/CONTRACTOR-SOURCE.md`, `docs/STORAGE.md` — are indexed from `docs/STATE.md`
+`docs/CONTRACTOR-SOURCE.md`, `docs/STORAGE.md`, `docs/BALADY-ENG-OFFICES.md`,
+`docs/UAE-SOURCES.md` — are indexed from `docs/STATE.md`
 under the track they belong to.
 
 ---

@@ -69,6 +69,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-11](#req-11--branch-protection-for-main-in-a-session-of-its-own) | Branch protection for `main`, in a session of its own | **Captured** — deferred by him | 2026-08-20 |
 | [REQ-12](#req-12--justify-the-volume-not-compress-it) | Justify the volume, not compress it | **Captured** — study done, the ruling is his | 2026-08-20 |
 | [REQ-13](#req-13--crawl-muqawil-without-missing-anyone-and-know-the-cost-before-starting) | Crawl muqawil without missing anyone, and price it first | **Captured** — method proven, crawl not built | 2026-08-20 |
+| [REQ-14](#req-14--balady-engineering-offices-as-the-next-source-after-muqawil) | Balady engineering offices, the next source after muqawil | **Captured** — queued behind muqawil | 2026-08-20 |
+| [REQ-15](#req-15--the-uae-sources-third-in-the-queue) | The UAE sources, third in the queue | **Captured** — queued behind Balady | 2026-08-20 |
 
 ---
 
@@ -478,6 +480,91 @@ pages are not written under a retention policy that a later decision would rewri
 Five city×size cells stay above the safe slice size, worst ~212 pages, and no
 fourth exhaustive axis is fine enough. The witness makes attempting them safe
 rather than risky, so it is a cost question — but it is the open one.
+
+---
+
+## REQ-14 · Balady engineering offices, as the next source after muqawil
+
+**Captured 2026-08-20 · Queued behind muqawil, by his instruction**
+
+> «ضيف هذا الملف ليكون المصدر التالى بعد الانتهاء الكامل من مصدر مقاول وكمل شغل كما
+> انت»
+
+He attached a **verification brief** for the Saudi Balady Engineering Offices
+inquiry service — `apps.balady.gov.sa/Eservices/Inquiries/InquiryEngOffices/Index`
+— and set one precondition: **muqawil finished completely first.** "Finished" is his
+own definition, «كلّ ما ينشره الموقع».
+
+### Where it went
+
+[BALADY-ENG-OFFICES.md](BALADY-ENG-OFFICES.md), his brief stored **verbatim** under
+a preamble that records what this project already knows that bears on it. It is in
+the repository rather than in a conversation because he had to re-send the muqawil
+column specification once already, not knowing whether it had survived
+(«لان دراسته ربما تكون فقدت»).
+
+### What the brief is, and what it is not
+
+It is **not** a schema to implement. It is a brief to **verify** one, and it says so
+in its own words: *"Do not assume that any preliminary finding in this brief is
+correct."* Every field list in it is labelled *appears to* and carries a
+verification instruction. Nine deliverables, and the report format demands every
+statement be labelled **Verified / Inferred / Unverified / Not available**.
+
+**Its deliverable 6 should be answered first** — whether an official API or
+downloadable open dataset exists. It is the cheapest question in the brief and it
+can delete the crawl entirely. muqawil's equivalent was answered late and the answer
+was no, at the cost of the requests it took to find out.
+
+### Nothing about it needs a compliance change
+
+Its guardrail — *"Do not bypass authentication, CAPTCHA, access controls, rate
+limits"* — is what `HttpFetcher` already does. `SR-8` honours `Crawl-delay`, and the
+class names user-agent rotation, proxy rotation, header spoofing and CAPTCHA
+handling as deliberately absent because *"those evade a decision the site has
+made"*.
+
+---
+
+## REQ-15 · The UAE sources, third in the queue
+
+**Captured 2026-08-20 · Queued behind muqawil and Balady, by his instruction**
+
+> «ضيف هذا الملف ليكون المصادر التالية بعد الانتهاء الكامل من مصدر مقاول ومصدر
+> بلدية»
+
+A survey of official UAE government and municipal sources for engineering
+contractors and consultancy firms, with his own recommended priority order.
+
+### Where it went
+
+[UAE-SOURCES.md](UAE-SOURCES.md), verbatim under a preamble.
+
+### Why it is a different shape of work, and it matters for planning
+
+**It is not a source; it is a portfolio.** Its key finding is negative and is the
+most consequential line in it: **no single public federal directory covers every
+emirate.** Registration and classification are per-emirate, so the emirate and the
+regulatory authority are part of a record's **identity** — which is why his schema
+opens with `country`, `emirate`, `regulatory_authority`, `source_system`. Seven
+emirates, four of them with no confirmed public list at all.
+
+**One of them is better-shaped than muqawil, and by a measurable margin.** Abu Dhabi
+DMT publishes `firm_name` and `firm_name_ar` **in the same record**. On muqawil the
+Arabic half costs a second full crawl — 871 listing pages and 17,403 profiles again
+— and the values are matched by page-order index because the same label is spelled
+`رقم العضويه` with `ه` in one place. A bilingual record halves the requests and
+removes that risk entirely. If it holds up, DMT is the best-shaped source this
+project has been given.
+
+### Two of his rules here are already rulings, and one caution must not be lost
+
+The `_ar` convention is `R-12`; child tables for multi-valued groups is `R-19`
+(**«جداول أبناء للخمس كلّها»**). And his own caution about Ras Al Khaimah — a company
+listed once per project category must be modelled as a company-category
+relationship, **not** collapsed as duplicates — is the same trap as counting a
+muqawil contractor twice for appearing on two listing pages, which is why
+`dataset_sighting` counts sightings separately from records.
 
 ---
 
