@@ -576,6 +576,40 @@ server saying it is hurting in the only language it has"* — and a crawler that
 waits for a 429 before easing off has ignored the polite warning to wait for the
 rude one.
 
+
+### R-22 · The full suite finishes before the pull request opens
+
+**2026-08-20 · process**
+
+> «لا بعد ان تنتهى» — then «حافظ على المبدا»
+
+A pull request is opened after `python -m pytest -q` has **finished**, not while it
+is running. Not at 24%, not at 48%, however clean the output looks so far.
+
+**RECORDED BECAUSE I BROKE IT FIVE MINUTES AFTER SAYING IT MYSELF.** On this very
+branch I wrote *"أفتح PR بعد أن تنتهي السويت — لا قبلها هذه المرّة"* and then opened
+#227 at 48%. He corrected it, and let that one stand — «طالما فتحت خلاص هذه المرة» —
+which is exactly why the rule goes in a file rather than in my intention. A practice
+I could not keep for five minutes is not a practice.
+
+**And it is not fussiness. It failed three times in one day:**
+
+| | |
+|---|---|
+| #221 | opened on `tests/test_features.py` alone, six green. The full suite found **four** other things asserting on the feature manifest |
+| #217 | the panel suite was run without the guard that watches the *shape* of the suite — the extension gate caught a missing mark after the PR was open |
+| #216 | its own new docs gate failed on a file that had landed on `main` in #219, found only by running everything |
+
+Each was found **after** the pull request existed, which is the expensive order: a red
+PR is a claim already published.
+
+**How to apply.** Run the suite, read its last line, then open. A slow suite is not a
+reason to skip this — it is the reason **`OP-19`** is known to be a flake rather than
+suspected of being one, and the reason the 2,656-test run is worth having at all. If
+the wait is genuinely blocking, open it as a **draft** and mark it ready when the run
+lands; that is what happened here after the fact, and it is the right shape done in
+the right order.
+
 ---
 
 ## Superseded
