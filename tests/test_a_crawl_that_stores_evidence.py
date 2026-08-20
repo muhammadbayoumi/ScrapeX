@@ -265,3 +265,93 @@ def test_a_fetcher_that_cannot_hear_the_frontier_is_not_an_error(conn):
     register(conn, "listing_only")
 
     assert crawl(conn, fetcher=object()).stored == 2
+
+
+# ---- the resume, added 2026-08-20 --------------------------------------------
+
+def test_a_resume_does_not_fetch_again_what_this_run_already_stored(conn):
+    """The docstring said "a crawl interrupted at page 800 keeps 800 pages" and
+    that was only half true. The pages survived; WHICH pages did not, because
+    generic_page_snapshot had no run column — so a second attempt re-fetched all
+    800. On a full pass that is hours of requests to re-learn what is on disk.
+    """
+    register(conn, "listing_only")
+
+    first = crawl(conn, run_ref="run-1")
+    assert first.stored == 2 and first.skipped == ()
+
+    second = crawl(conn, run_ref="run-1")
+
+    assert second.stored == 0, "a resume stored a page it already had"
+    assert len(second.skipped) == 2
+    assert stored_urls(conn) == [f"{BASE}/list?page=1", f"{BASE}/list?page=2"], (
+        "the resume duplicated the evidence instead of skipping it")
+
+
+def test_a_skip_is_counted_and_not_silent(conn):
+    """A resume that says nothing is indistinguishable from a crawl that fetched
+    everything, and the difference is the hours it saved."""
+    register(conn, "listing_only")
+    crawl(conn, run_ref="run-1")
+
+    assert set(crawl(conn, run_ref="run-1").skipped) == {
+        f"{BASE}/list?page=1", f"{BASE}/list?page=2"}
+
+
+def test_a_skip_is_not_reported_as_a_failure(conn):
+    """`unstored` means something went wrong. A skip is the resume WORKING, and
+    merging the two would make a healthy resume look like a broken crawl."""
+    register(conn, "listing_only")
+    crawl(conn, run_ref="run-1")
+
+    assert crawl(conn, run_ref="run-1").unstored == ()
+
+
+def test_a_different_run_reads_the_listing_again(conn):
+    """THE SCOPE OF THE SKIP IS ONE RUN, and this is the test that pins it. A
+    listing is live — the whole reason this directory needs re-crawling is that
+    it changes — so "already stored ever" would freeze the warehouse at its
+    first pass. Only an interruption is being resumed, and an interruption
+    belongs to one run."""
+    register(conn, "listing_only")
+    crawl(conn, run_ref="run-1")
+
+    later = crawl(conn, run_ref="run-2")
+
+    assert later.stored == 2 and later.skipped == ()
+    assert len(stored_urls(conn)) == 4
+
+
+def test_a_crawl_with_no_run_ref_behaves_exactly_as_before(conn):
+    """The parameter is optional, and every existing caller passes nothing. A
+    crawl that suddenly started skipping would be a silent behaviour change in
+    the price path's neighbour."""
+    register(conn, "listing_only")
+    crawl(conn)
+
+    again = crawl(conn)
+
+    assert again.stored == 2 and again.skipped == ()
+    assert len(stored_urls(conn)) == 4
+
+
+def test_the_run_is_recorded_on_the_evidence_it_stored(conn):
+    """Without this the skip has nothing to read, and the column would be an
+    unused schema change."""
+    register(conn, "listing_only")
+    crawl(conn, run_ref="run-1")
+
+    refs = {row[0] for row in conn.execute(
+        "SELECT crawl_run_ref FROM generic_page_snapshot")}
+    assert refs == {"run-1"}
+
+
+def test_evidence_stored_before_runs_had_names_keeps_a_null(conn):
+    """1,728 snapshots already exist and no run can be attributed to them
+    honestly. NULL says "stored before crawls said who they were"; a backfill
+    would be an invention, and this column exists to stop inventions."""
+    register(conn, "listing_only")
+    crawl(conn)
+
+    assert {row[0] for row in conn.execute(
+        "SELECT crawl_run_ref FROM generic_page_snapshot")} == {None}

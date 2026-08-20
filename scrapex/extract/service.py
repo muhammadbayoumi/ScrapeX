@@ -72,8 +72,9 @@ def save_snapshot(conn: sqlite3.Connection, request: SnapshotCreate) -> dict[str
     source_url = str(request.source_url)
     cursor = conn.execute(
         "INSERT INTO generic_page_snapshot "
-        "(source_url, html_content, content_hash) VALUES (?,?,?)",
-        (source_url, request.html_content, _digest(request.html_content)),
+        "(source_url, html_content, content_hash, crawl_run_ref) VALUES (?,?,?,?)",
+        (source_url, request.html_content, _digest(request.html_content),
+         request.crawl_run_ref),
     )
     return _snapshot_public(_snapshot_row(conn, int(cursor.lastrowid)))
 
