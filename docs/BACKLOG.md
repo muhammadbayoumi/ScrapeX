@@ -677,6 +677,31 @@ planning and treat Arabic as a data-pairing cost, not a coverage cost.
    the hrefs carry `&amp;` — the character before `page=` is a semicolon. **Unescape
    HTML before matching.**
 
+#### Dead ends, so nobody spends the requests twice
+
+Recorded because a negative result stated firmly is worth as much as a positive one,
+and each of these looked promising enough to chase:
+
+- **The sitemap does not enumerate contractors.** `/sitemap.xml` → `/ar/sitemap.xml` →
+  a sitemapindex of `sitemap-ar.xml` and `sitemap-en.xml`, and the English one holds
+  **20 static pages**. Settled; do not re-check.
+- **`/en/contractors/map` carries no contractor markers.** The page is 406 KB and
+  holds 263 distinct latitude-shaped numbers, which is what made it look like a feed.
+  It is not: the one coordinate in the map's own script is the map CENTRE — Riyadh,
+  `{lat: 24.70372261387751, lng: 46.683}` — sitting under a comment copied straight
+  from a Google Maps tutorial, `// The location of Uluru`. **Zero contractor profile
+  links on the page.** Its only endpoints are `/api/js` (Google Maps) and
+  `/api/rating-api` (the rating widget). So the map gives neither an enumeration nor
+  the coordinates the owner asked for — `latitude`/`longitude` remain a profile-page
+  field, exactly as `CONTRACTOR-SOURCE.md` already marks them (`js`, inline script
+  only).
+- **No stable sort exists.** `sort`, `order`, `order_by`, `orderby`, `sort_by`,
+  `direction` and `sort_field` were each tried against the live listing and **not one
+  changed the order** — measured before this study, and recorded in
+  `scrapex/sweep.py`'s header. There is nothing to build.
+- **Id-space enumeration is not viable.** Contractor ids span 720 … 20,217,024 in two
+  series the site publishes, far too sparse to probe.
+
 ---
 
 ### DEC-9 · Snapshots are stored uncompressed, and the full crawl is 6.4 GB of it
