@@ -110,8 +110,8 @@ PINNED = (
     ("docs/RULINGS.md", "scrapex/webui/app.py", 1439, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 477, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
-    ("docs/STATE.md", "scrapex/features.py", 54, "False"),
-    ("docs/STATE.md", "scrapex/features.py", 60, "False"),
+    ("docs/STATE.md", "scrapex/features.py", 54, "True"),
+    ("docs/STATE.md", "scrapex/features.py", 65, "True"),
     # B2 step 2 -- "do not write a second one". The instruction is to EXTRACT
     # these two, so a reader sent to the wrong line writes the duplicate instead.
     ("docs/STATE.md", "extension/app.js", 1590, "async function loadSourceColumns("),

@@ -19,17 +19,33 @@ def test_price_tracking_is_the_enabled_compatibility_baseline():
     assert price["stage"] == DeliveryStage.PARTIAL.value
 
 
-def test_generic_catalogue_foundation_is_visible_but_not_enabled():
-    feature = next(
-        f for f in manifest()["features"] if f["key"] == "generic_dataset_catalog"
-    )
-    assert feature["stage"] == DeliveryStage.FOUNDATION.value
-    assert feature["enabled"] is False
+def test_the_two_generic_capabilities_the_owner_lit_are_partial_not_ready():
+    """Lit 2026-08-20, and the point of this manifest is that lighting one is a
+    CLAIM. Both are PARTIAL rather than production_ready: one site, one dataset,
+    listing pages only. A flag that jumped straight to production_ready would be
+    the overselling this file exists to prevent."""
+    for key in ("generic_dataset_catalog", "generic_extraction"):
+        feature = next(f for f in manifest()["features"] if f["key"] == key)
+        assert feature["enabled"] is True, key
+        assert feature["stage"] == DeliveryStage.PARTIAL.value, key
+        assert feature["stage"] != DeliveryStage.PRODUCTION_READY.value, key
+
+    assert is_enabled(FeatureKey.GENERIC_DATASET_CATALOG) is True
+    assert is_enabled(FeatureKey.GENERIC_EXTRACTION) is True
+
+
+def test_a_lit_flag_says_what_evidence_lit_it():
+    """The detail is the whole value of an honest manifest: `enabled: true` with
+    no evidence is indistinguishable from optimism. Both entries name the
+    measurement and the pull requests, and both name what is NOT done."""
+    for key in ("generic_dataset_catalog", "generic_extraction"):
+        detail = next(f for f in manifest()["features"] if f["key"] == key)["detail"]
+        assert "2026-08-20" in detail, key
+        assert "11,059" in detail, key
+        assert "PARTIAL" in detail, key
 
 
 @pytest.mark.parametrize("feature", [
-    FeatureKey.GENERIC_DATASET_CATALOG,
-    FeatureKey.GENERIC_EXTRACTION,
     FeatureKey.CRAWL_FRONTIER,
     FeatureKey.SITE_DATA_MODEL,
 ])

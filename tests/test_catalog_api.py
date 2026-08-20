@@ -142,5 +142,8 @@ def test_feature_manifest_reports_foundation_without_enabling_the_ui(client):
         item["key"]: item for item in client.get("/api/features").json()["features"]
     }
     catalog_feature = features["generic_dataset_catalog"]
-    assert catalog_feature["stage"] == "foundation"
-    assert catalog_feature["enabled"] is False
+    # foundation -> partial, and enabled, on the owner's instruction 2026-08-20:
+    # one dataset is catalogued and browsable. `partial` is the assertion that
+    # matters now -- the UI it reports on serves one dataset, not a catalogue.
+    assert catalog_feature["stage"] == "partial"
+    assert catalog_feature["enabled"] is True

@@ -35,6 +35,10 @@ env/
 Thumbs.db
 .vscode/
 .idea/
+# Visual Studio's own workspace state: .vsidx indexes run to tens of megabytes
+# each and are per-machine. Untracked was not enough -- `git add -A` swept 33 MB
+# of them into a commit on 2026-08-20, which is the SR-19 failure the rule names.
+.vs/
 
 # screenshot harness scratch
 docs/screenshots/_tmp/
