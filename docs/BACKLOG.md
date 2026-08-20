@@ -579,6 +579,61 @@ and the same lesson from a different direction: that entry recorded that
 constraint is a TRIGGER, so it aborted loudly instead — which is better, and is why
 this was found in one command rather than by counting rows afterwards.
 
+### OP-24 · The marketlens → engine rename is a MANUAL command, so a shipped user gets a dead engine
+
+**HIS QUESTION, 2026-08-20, on the board as [REQ-20](REQUESTS.md#req-20--the-database-rename-must-reach-every-user-not-just-this-machine):** «قاعدة بيانات marketlens تم تغيير اسمها — هل تم تغيير
+اسمها عند كل المستخدمين؟» The answer is no, and it was measured rather than reasoned.
+
+**The mechanism exists and the product does not reach it.** `carry_over` has exactly
+**one** production caller — the manual subcommand `scrapex carry-over`
+(`scrapex/cli.py:993`). Nothing automatic calls it: not `ui`, not autostart, not the
+native host, not the panel.
+
+**What a split-era user actually gets**, simulated end to end against a fake split
+installation:
+
+| path | result |
+|---|---|
+| any CLI command | clean message naming `scrapex carry-over` — `main()` catches everything (`scrapex/cli.py:1127`) |
+| `native.startup_check()` — how the PANEL starts the engine | `ok: false`, `action: "check_storage"`, detail = *"Run 'scrapex carry-over'"* |
+| `native.upgrade_database()` — **the panel's own repair action** | `ok: false`. **It cannot fix this**: `DatabaseRegistry.defaults()` refuses before `initialize()` is ever reached |
+
+So the one button the product offers for a database problem is unable to fix the one
+transition every existing installation must make — and it reports the failure as
+`check_storage`, which is the wrong action: nothing is wrong with the storage.
+
+**THE PROJECT HAS ALREADY RULED ON THIS EXACT SITUATION, and the ruling was not applied
+here.** `cli._upgrade_what_is_only_behind` exists because of his instruction of
+2026-08-05, and its docstring is this entry's whole argument:
+
+> Migration 0061 merged and was never applied here, so the next time the engine started
+> it refused — correctly, and with the exact command to run — and the owner saw only a
+> dead engine. The rule protected the data and cost him the product, because **the one
+> person the refusal speaks to is the one who does not read a log.**
+
+That reasoning was applied to *migrations* and never to *carry-over*, which is the
+bigger of the two transitions.
+
+**And the automatic version is SAFER than the one already shipped**, which is the part
+that makes this cheap. `_upgrade_what_is_only_behind` advances the user's file in place
+and therefore has to take a backup first. `carry_over` opens both old files
+**read-only**, writes a new one, verifies every table's row count, and moves the
+pointer **last** — so the old files are the backup, by construction, and a failure
+leaves an installation that refuses to start rather than one that starts on half its
+data.
+
+**Shape of the fix**, for whoever picks it up: call `carry_over` from the same place
+`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:761`) when the pointer is
+split, say so on stdout and in the log naming both source files, and give
+`native.upgrade_database()` the same path so the panel's button works. Then a test
+that a split installation **starts**, which is the test nobody has written — every
+carry-over test to date has called `carry_over` directly, so the gap was invisible.
+
+**Not built here.** It is a different concern from the muqawil crawl in flight, and
+under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+it is a **release blocker** rather than debt — so it is his call whether it goes in its
+own session now or immediately after the crawl lands.
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product

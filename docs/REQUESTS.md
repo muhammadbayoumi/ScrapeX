@@ -75,6 +75,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-17](#req-17--official-diesel-prices--a-product-source-not-a-firm-directory) | Official diesel prices — a product source, not a firm directory | **Captured** — the smallest item in the queue | 2026-08-20 |
 | [REQ-18](#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) | Bitumen 60/70 prices — the first source that cannot be crawled | **Captured** — 5 of 7 need a written quotation | 2026-08-20 |
 | [REQ-19](#req-19--reinforced-concrete-material-prices--its-turn-will-come) | Reinforced-concrete material prices — its turn will come | **Captured** — a provenance-typed price model | 2026-08-20 |
+| [REQ-20](#req-20--the-database-rename-must-reach-every-user-not-just-this-machine) | The database rename must reach every user | **Captured** — measured; a release blocker under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema) | 2026-08-20 |
 
 ---
 
@@ -829,6 +830,55 @@ absolute prices. Oman and Kuwait offer **indices**, which its own §3 says are n
 prices. Bahrain offers approval and specification evidence, which is not a price
 either. So for four of seven countries this is a `quote_required` source in the same
 sense the bitumen brief is.
+
+---
+
+## REQ-20 · The database rename must reach every user, not just this machine
+**Captured 2026-08-20 · Measured the same evening; the build is his to schedule**
+
+> «قاعدة بيانات marketlens تم تغيير اسمها — هل تم تغيير اسمها عند كل المستخدمين؟»
+
+He asked it as a question and it is a requirement: `marketlens.db` + `general.db`
+became `engine/scrapex-engine.db`, and **every existing installation has to make that
+transition exactly once.** He had just watched me do it by hand on this machine, and
+the question is whether a user gets the same outcome without me there.
+
+### The answer is no, and it was measured rather than argued
+
+`carry_over` has exactly one production caller — the manual `scrapex carry-over`
+subcommand. Simulated against a fake split installation:
+
+| how the user starts it | what they get |
+|---|---|
+| a terminal | a clean message naming `scrapex carry-over` |
+| **the extension panel** (`native.startup_check()`) | `ok: false`, `action: "check_storage"` — a dead engine |
+| **the panel's own repair button** (`native.upgrade_database()`) | `ok: false`. It **cannot** fix this transition at all |
+
+Full detail in [OP-24](BACKLOG.md).
+
+### Why this is his ruling already, applied to the wrong half
+
+The project decided this on **2026-08-05**, on his instruction, when migration 0061
+left the engine refusing to start: *"the one person the refusal speaks to is the one
+who does not read a log"*, so the upgrade became part of the startup procedure
+(`cli._upgrade_what_is_only_behind`). That reasoning was applied to **migrations** and
+never to **carry-over** — the larger transition of the two. Under
+[R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema)
+it is a release blocker rather than debt.
+
+### And the automatic version is safer than the one already shipping
+
+`_upgrade_what_is_only_behind` advances the user's file in place and must back it up
+first. `carry_over` opens both old files **read-only**, writes a new one, verifies
+every table's row count, and moves the pointer **last** — so the old files *are* the
+backup, and a failure leaves an installation that refuses to start rather than one
+running on half its data.
+
+### What it still needs, and it is the gap that hid this
+
+**A test that a split installation STARTS.** Every carry-over test to date calls
+`carry_over` directly, so nothing ever exercised the path a user takes — which is
+exactly why a manual-only remedy looked finished.
 
 ---
 
