@@ -18,6 +18,7 @@ GOES UNANNOUNCED.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -230,21 +231,52 @@ def test_no_two_image_rows_share_a_url_or_a_code():
         assert len(set(codes)) == len(codes), f"one code used twice: {codes}"
 
 
-def test_the_merged_urls_reproduce_what_the_summary_already_stored():
-    """No churn: every URL this source already holds is still the same string.
+def test_the_summarys_picture_survives_at_the_size_the_owner_chose():
+    """The owner ruled for `full_size` (2026-08-01), and this pins the result.
 
-    The bootstrap publishes five sizes and `large` is the one the store's own
-    JSON-LD names — 429 of 429 matched URLs byte-identical, measured on the
-    whole catalogue. Recording `large` is therefore what makes the merge
-    provably duplicate-free rather than merely tidy.
+    Recording `large` would have reproduced every already-stored URL byte for
+    byte; `full_size` is a larger file on 435 of 493 pictures and he chose it.
+    So the guarantee is no longer "the same string" — it is the stronger one
+    that made the choice safe to offer at all: every picture the summary names
+    is still present, still ONCE, at the address the page's own record gives
+    it. Identity is the uuid, so changing which size is stored cannot split one
+    picture into two rows.
     """
     node = parse_product_jsonld(ZID_PAGE)
     summary = jsonld_pictures(node, identity=image_identity)
-    merged_urls = {p.url for p in merge_pictures(zid_pictures(ZID_PAGE), summary)}
+    merged = merge_pictures(zid_pictures(ZID_PAGE), summary)
+    by_identity = {p.identity: p for p in merged}
+
     for picture in summary:
-        assert picture.url in merged_urls, (
-            f"{picture.url} was replaced by another rendition — the same "
-            "picture would now sit at two addresses")
+        assert picture.identity in by_identity, (
+            f"{picture.url} vanished — the merge must never store less than "
+            "the route it replaces")
+    assert len(by_identity) == len(merged), "one picture reached two rows"
+
+    # And the size actually recorded is the page's full_size, not its large.
+    anchor = ZID_PAGE.index("var productImages = ") + len("var productImages = ")
+    entries, _ = json.JSONDecoder().raw_decode(ZID_PAGE, anchor)
+    published = {str(e["id"]): (e.get("image") or {}) for e in entries}
+    changed = 0
+    for picture in merged:
+        sizes = published.get(picture.identity)
+        if not sizes:
+            continue                     # summary-only: it keeps its own URL
+        assert picture.url == sizes["full_size"]
+        changed += sizes["full_size"] != sizes["large"]
+    assert changed, ("this fixture no longer distinguishes the two sizes, so "
+                     "it cannot prove which one is recorded")
+
+
+def test_a_picture_the_page_does_not_list_keeps_its_own_url():
+    """The 6 summary-only pictures have no `full_size` to take.
+
+    Rewriting their path to invent one is exactly what this connector must
+    never do, so they stay at the address the JSON-LD published.
+    """
+    ghost = Picture(identity="ghost", url="https://example.com/ghost-large.jpg")
+    merged = merge_pictures(zid_pictures(ZID_PAGE), [ghost])
+    assert merged[-1].url == "https://example.com/ghost-large.jpg"
 
 
 # --------------------------------------------------------------------------

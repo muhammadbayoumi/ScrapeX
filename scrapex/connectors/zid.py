@@ -66,14 +66,21 @@ Every page also carries `var productImages = [...]` — the JSON the theme
 renders FROM, with a stable image id, the merchant's alt_text, a display order
 and five sizes. That is what page_pictures reads, and why.
 
-Two things measured on all 168 products decide how the routes are merged. Of
-435 JSON-LD image URLs, ZERO are string-equal to a gallery `<img src>` and ZERO
-name a picture the gallery lacks: the same picture, published at two addresses.
-So the merge is keyed on the image uuid, never the URL, or every picture would
-have been stored twice under two codes. And the size recorded is `large`,
-because that is the one the store's own JSON-LD names — 429 of 429 matched URLs
-byte-identical — so the overlap provably collapses and no already-stored link
-churns.
+The measurement that decides how the routes are merged: of 435 JSON-LD image
+URLs, ZERO are string-equal to a gallery `<img src>` and ZERO name a picture
+the gallery lacks — the same picture, published at two addresses. So the merge
+is keyed on the image uuid, NEVER the URL, or every picture would have been
+stored twice under two codes.
+
+THE SIZE RECORDED IS `full_size`, ruled by the owner 2026-08-01. Recording
+`large` instead would have reproduced every already-stored URL byte for byte
+(429 of 429 matched), and that safe default was put to him rather than taken
+quietly, because `full_size` is a genuinely larger file on 435 of the 493
+pictures the page lists. He chose the bigger picture. The cost is a ONE-TIME
+rewrite of 435 of 499 stored URLs; it does not repeat, because `full_size` is
+as stable an address as `large`. Because identity is the uuid and not the URL,
+this changes nothing about the merge — the two routes still collapse to one row
+per picture.
 
 MEASURED after, replaying this merge over all 168 pages: 435 -> 499 image rows,
 48 products gain, 0 lost, 190 rows carrying the shop's own alt text. The
@@ -198,16 +205,32 @@ def page_pictures(html: str) -> list[Picture]:
     counts — a reader that quietly returned nothing the day the theme changed
     is exactly the failure this whole route has to be able to announce.
 
-    WHICH SIZE IS RECORDED. The bootstrap publishes five (`full_size`, `large`,
-    `medium`, `small`, `thumbnail`) and the store's own JSON-LD chooses `large`
-    for every picture it names — MEASURED on the full catalogue: 429 of 429
-    matched JSON-LD URLs are byte-identical to that picture's `large`, 0
-    differ. Recording `large` therefore reproduces every URL this source has
-    already stored, so merging the two routes cannot leave one picture sitting
-    under two attribute codes at two addresses, and no image link the owner
-    already has churns. `full_size` is published too and is a different, larger
-    file on 406 of 464 pictures; moving to it is a one-line change and the
-    owner's call, not one to make quietly inside a coverage fix.
+    WHICH SIZE IS RECORDED — `full_size`, by the owner's ruling 2026-08-01.
+
+    The bootstrap publishes five (`full_size`, `large`, `medium`, `small`,
+    `thumbnail`). The store's own JSON-LD names `large` for every picture it
+    lists, so recording `large` would have reproduced every URL already stored
+    byte for byte — 429 of 429 matched. That was the safe default and it was
+    put to the owner rather than chosen quietly, because the other side of the
+    trade is real: MEASURED on the full catalogue, `full_size` is a DIFFERENT,
+    larger file on 435 of the 493 pictures the page lists, and identical on the
+    other 58. The owner chose the bigger picture over the untouched link.
+
+    So this is a deliberate, one-time rewrite of 435 of 499 stored image URLs.
+    It is NOT a churn risk repeated every crawl: `full_size` is as stable an
+    address as `large`, and a second run stores the same string again.
+
+    Falling back to `large` is not a guess — it is the same picture's other
+    published address, used only if a future entry omits `full_size`. Today
+    that never happens: `full_size` is absent on 0 of 493.
+
+    THE MERGE IS UNAFFECTED, which is the whole reason identity is not the URL.
+    Pictures dedupe on the image uuid, so a JSON-LD entry naming `large` and a
+    bootstrap entry naming `full_size` are still recognised as ONE picture and
+    stored once, at the bootstrap's address. The only rows that keep a `large`
+    URL are the 6 pictures that exist ONLY in the JSON-LD — there is no page
+    record for them to take a `full_size` from, and inventing one by rewriting
+    the path is exactly what this connector must never do.
     """
     match = _PRODUCT_IMAGES.search(html or "")
     if not match:
@@ -227,7 +250,7 @@ def page_pictures(html: str) -> list[Picture]:
         sizes = entry.get("image")
         if not isinstance(sizes, dict):
             continue
-        url = str(sizes.get("large") or "").strip()
+        url = str(sizes.get("full_size") or sizes.get("large") or "").strip()
         if not url.startswith("http"):
             continue
         identity = str(entry.get("id") or "").strip().lower() or image_identity(url)

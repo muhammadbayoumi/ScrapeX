@@ -227,11 +227,19 @@ sources:
       The two routes name the SAME pictures at DIFFERENT addresses — of 435
       JSON-LD URLs, 0 appear as a gallery `<img src>` string, and 0 name a
       picture the gallery lacks — so merging on the URL would have stored every
-      picture twice. They are merged on the image id instead, and the recorded
-      size is `large`, which is the one the store's own JSON-LD names (429 of
-      429 matched URLs byte-identical), so nothing already stored churns and
-      the overlap provably cannot land twice. `full_size` is published too and
-      is a bigger file on 406 of 464 pictures; moving to it is an owner's call.
+      picture twice. They are merged on the IMAGE ID instead, which is what
+      makes the size a free choice rather than a correctness question.
+
+      SIZE: OWNER-RULED 2026-08-01. The bootstrap publishes five. Recording
+      `large` would have reproduced every already-stored URL byte for byte (429
+      of 429 matched) and churned nothing; `full_size` is a genuinely larger
+      file on 435 of the 493 pictures the page lists, identical on the other
+      58. Asked with that trade stated, the owner chose `full_size`. The cost
+      is a ONE-TIME rewrite of 435 of 499 stored image URLs — it does not
+      repeat, because `full_size` is as stable an address as `large`. The 6
+      pictures that exist only in the JSON-LD keep their published `large` URL:
+      there is no page record to take a `full_size` from, and rewriting the
+      path to invent one is precisely what this crawl never does.
 
       MEASURED after, replaying the shipped merge over all 168 pages: 435 ->
       499 image rows, 48 products gain pictures, 0 pictures lost, and 190 rows
