@@ -407,9 +407,10 @@ Two more found in the same reading, deliberately left alone:
 A stale document is not a neutral cost. It **actively directs the next reader
 into the wrong action**, and it does so with the authority of a rule.
 
-This project has two instances of a document stating the opposite of the code,
-and a third pattern — a citation that still resolves but no longer points at
-what it names — recorded below them:
+This project has two instances of a document stating the opposite of the code, a
+third pattern — a citation that still resolves but no longer points at what it
+names — a fourth, a GUARD whose own discovery pattern cannot see its subject — and a fifth, a guard that SKIPS rather than fails and so reports green while absent.
+All are recorded below.
 
 - **`docs/data-page-schema.md`** — it called itself "the ruling" and had drifted
   into stating the opposite of the code **in five ways at once**: wrong
@@ -537,6 +538,152 @@ for part in path.relative_to(ROOT).parts:
 Same family as §1: the worktree makes correct work look broken. Any path filter,
 ignore rule or glob in this repository must be applied **relative to the
 repository root**.
+
+---
+
+### A guard's own pattern can miss its subject, and the guard reports green
+
+Found 2026-08-19, measuring why CI took thirteen minutes.
+
+`.github/workflows/ci.yml` has a step whose entire purpose is to refuse a browser
+suite that silently collects nothing. It finds its subjects by grepping, and the
+grep read:
+
+```
+grep -l 'importorskip("playwright"' tests/*.py
+```
+
+Note the closing quote. `tests/test_grid_dom.py:24` writes
+`pytest.importorskip("playwright.sync_api")`, so it **never matched**, and its 20
+browser-driven tests were invisible to the guard for as long as they existed.
+Dropping one character fixes it.
+
+**The step's own comment describes the failure it then had.** It says *"THE FILES
+ARE DISCOVERED, NOT NAMED… A guard that lists its subjects fails on the one nobody
+added to the list"* — and discovery by an over-precise pattern fails the same way,
+just less visibly, because there is no list to audit. The same afternoon, the new
+docs-gate detector required a `/` before a quoted `*.md` and therefore could not
+see `test_the_documents_cite_what_they_claim.py`, **the one test whose whole
+subject is the documents.**
+
+The lesson is not "write better regexes". It is: **after writing a discovery
+pattern, print what it found and read the list.** Both misses were obvious the
+moment the list was printed, and invisible for as long as only the exit code was
+read.
+
+### A tier that runs a subset needs a set, a floor, and a test that the tier exists
+
+The extension split had all three and worked. The documentation tier added
+2026-08-19 copies it deliberately rather than inventing a second mechanism:
+
+| | extension | docs |
+|---|---|---|
+| marker | `pytest.mark.extension` | `pytest.mark.docs` |
+| completeness guard | `test_the_extension_gate_is_complete.py` | `test_the_docs_gate_is_complete.py` |
+| floor in CI | ≥300 collected | ≥150 collected |
+
+**And the copying found a hole in the original.** `docs/` was already inside the
+extension-only path filter, so a documentation-only change ran `pytest -m
+extension` — but `test_the_ruling_matches_the_code.py` reads
+`docs/data-page-schema.md`, carries no extension mark, and never needed one. A
+hand-edited copy of that generated ruling would have passed CI on exactly the kind
+of pull request that hand-edits it. The two sets overlap and **neither contains the
+other**, which is why the extension tier now runs `-m "extension or docs"`.
+
+Two things worth carrying to the next tier: the marker must be registered in
+`pyproject.toml` or `--strict-markers` rejects it, and the tier needs a test that
+**the workflow still runs it** — a marked set nothing executes reads as coverage
+and is worse than no set at all.
+
+### A scope rule written in bash inside YAML is code that no linter reads
+
+The rule deciding whether a change runs 178 tests or 2,656 was a `grep -qvE`
+pattern in `ci.yml`. Nothing checked it. Widening it by accident — adding
+`scrapex/` while meaning `docs/` — would make a warehouse change run the
+documentation suite and report green, and the failure would be invisible because
+green is what everyone expects.
+
+`test_the_workflows_documentation_pattern_admits_exactly_what_it_should` now lifts
+the pattern out of the YAML and classifies fifteen real paths with it, over half of
+them cases that must NOT be admitted. Verified by mutation: adding `scrapex/` to
+the pattern fails the test naming three files.
+
+**Any decision expressed as a pattern in a config file is testable, and the
+expensive ones should be tested.** The measured saving here — 12m49s to about 30
+seconds for a documentation-only pull request — is exactly the size of the mistake
+a silent widening would make in the other direction.
+
+---
+
+### A skip is not a failure, and a guard that skips is a guard that is gone
+
+The worst defect in the CI work of 2026-08-19 was introduced BY that work, and
+caught by an adversarial review before it merged. It earns the space because the
+shape recurs.
+
+Moving the scope computation into its own job made `fetch-depth: 0` look unnecessary
+on the `test` job, and the comment "Shallow is enough here now" went in with the
+change. It was wrong. **Two guards ask git when something last really changed, and
+both skip rather than fail on a grafted clone:**
+
+| guard | on a shallow clone |
+|---|---|
+| `tests/test_the_privacy_policy_is_true.py:433` -- the policy's "Last updated" line | `_last_changed()` returns None, the test **skips** |
+| `tests/test_version.py:231` -- every capability's cited commit | **skips** |
+
+Under `addopts = "-q --strict-markers"` a run full of skips reports **green**. The
+review proved it by experiment rather than argument: edit `docs/privacy-policy.md`,
+leave its date alone, and full history reports one failure while `--depth 1` reports
+none. That is precisely the defect the guard was written for on 2026-08-12, after the
+policy was edited three times in a day while advertising an older date -- and the
+Chrome Web Store listing hangs on that document.
+
+**The repository had already learned this once.** `publish-docs.yml` and
+`release-extension.yml` both ran the file at depth 1; both were fixed, and the
+helper's own comment names them and says it "refuses to guess if one ever stops".
+
+**So why it happened again.** The requirement lived as prose beside the file that
+NEEDED the history, never on the jobs that have to PROVIDE it. Nothing structural
+connected the two. `tests/test_the_workflows_check_out_enough_history.py` is that
+structure now -- and on its first run it found a **fourth** instance nothing else
+had: `release-engine.yml`'s build job runs the whole suite at depth 1, so both guards
+have been skipping on **every engine release**.
+
+Two things to carry:
+
+- **When a test can skip, ask what makes it skip and who guarantees that never
+  happens.** A skip is invisible in a way a failure is not.
+- **A requirement written next to its consumer will be violated by its provider.**
+  Put it in a test that reads the provider.
+
+### `git diff --name-only` hides half of a rename, and a scope filter believes it
+
+Rename detection is on by default, so `--name-only` prints only a move's
+**destination**. `git mv scrapex/webui/templates/settings_partial.html
+extension/settings.html` reports one path under `extension/` -- and a scope filter
+reading that classifies the change as extension-only and never runs the engine suite,
+on a change that **deleted an engine template**. Reproduced in a scratch repository:
+`--name-status` shows `R100 old new`, and `--no-renames` shows both paths.
+
+It matters here specifically because
+[REQ-04](REQUESTS.md#req-04--every-setting-moves-into-the-extension) is exactly that
+kind of move -- ten settings going from the web page into the extension.
+
+`--no-renames` is the fix, and it can only ever widen the scope, which is the safe
+direction for a filter deciding what NOT to run.
+
+### Extract the pattern and you have still not tested the decision
+
+The guard written for the scope rule lifted the regex out of `ci.yml` and classified
+paths with it. An adversarial pass then inverted the shell logic -- `! grep -qvE`
+("no line fails to match", so all match) to `grep -qE` ("at least one matches", the
+opposite) -- and **every assertion stayed green**, because the extracted pattern was
+byte-identical. A diff of one Markdown file plus one connector would have run the
+documentation tier.
+
+A configuration guard has to pin the **polarity** as well as the pattern. The two
+decision lines are now asserted verbatim, with the reasoning beside them so the next
+person to reshape them re-derives the polarity instead of preserving characters.
 
 ---
 

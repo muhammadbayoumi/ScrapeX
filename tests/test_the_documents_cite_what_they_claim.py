@@ -71,7 +71,7 @@ import pytest
 # on exactly the pull requests most likely to move them.
 # See tests/test_the_extension_gate_is_complete.py, which is the guard that
 # refuses an unmarked file reading extension/ sources.
-pytestmark = pytest.mark.extension
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 

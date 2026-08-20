@@ -49,7 +49,7 @@ from scrapex.version import (
 
 # Guards the extension: this file reads extension/ sources, so a change to a
 # button must run it. See tests/test_the_extension_gate_is_complete.py.
-pytestmark = pytest.mark.extension
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACTS = ROOT / "contracts"

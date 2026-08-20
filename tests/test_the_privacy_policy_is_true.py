@@ -18,7 +18,7 @@ import re
 import pytest
 from urllib.parse import urlparse
 
-pytestmark = pytest.mark.extension
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICY = ROOT / "docs" / "privacy-policy.md"

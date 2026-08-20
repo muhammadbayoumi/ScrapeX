@@ -30,7 +30,7 @@ import pytest
 # Guards the extension: this file reads extension/ sources — the manifest the
 # store path packages, and the public repo the engine path publishes to. See
 # tests/test_the_extension_gate_is_complete.py.
-pytestmark = pytest.mark.extension
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"

@@ -21,9 +21,21 @@ import argparse
 import pathlib
 import re
 
+import pytest
+
 from scrapex import reports
 from scrapex.cli import _render_data_page_schema, build_parser
 from scrapex.vocab import BLOCK_ORDER
+
+# THIS FILE IS WHY THE DOCS TIER EXISTS. It reads docs/data-page-schema.md and
+# asserts it equals what the generator produces -- and it carried no mark at all,
+# while `docs/` was already inside the extension-only path filter. So a
+# documentation-only change ran `pytest -m extension`, this file was not in that
+# set, and a hand-edited copy of the ruling would have passed CI on exactly the
+# kind of pull request that hand-edits it. No extension mark: it touches no
+# extension file, which is also why the extension tier now runs
+# `-m "extension or docs"` rather than `-m extension`.
+pytestmark = pytest.mark.docs
 
 RULING = pathlib.Path(__file__).resolve().parent.parent / "docs" / "data-page-schema.md"
 

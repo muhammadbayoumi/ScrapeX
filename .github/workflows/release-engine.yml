@@ -75,6 +75,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, because this job runs the WHOLE suite below and two of
+          # its guards ask git when a document last really changed --
+          # tests/test_the_privacy_policy_is_true.py:433 and
+          # tests/test_version.py:231. Both SKIP rather than fail on a grafted
+          # clone, and a run full of skips reports green under `-q`. So this
+          # workflow has been shipping the engine without checking that the
+          # privacy policy's own date is honest, or that a capability's cited
+          # commit exists. Found 2026-08-19 by
+          # tests/test_the_workflows_check_out_enough_history.py, which is the
+          # third and fourth instance of this same mistake in this repository.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

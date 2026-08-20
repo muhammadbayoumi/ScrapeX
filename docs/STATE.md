@@ -208,6 +208,84 @@ generic storage"* — is now met by the figures above. Lighting them is what mak
 
 ---
 
+## Track 4 · What CI actually costs, and the tier a documentation change needed
+
+**Measured 2026-08-19**, because PR #214 was documentation only and took the two
+slowest runs of the previous twenty:
+
+| | |
+|---|---|
+| `test` job, median of 15 full-scope runs | **12m49s** |
+| of which the `pytest` step | **703s — 92%** |
+| `lint` · `contract-parity` | 21–26s · 14–16s |
+| PR #214's two runs | **14m21s and 14m40s** |
+
+The slowness is entirely inside one step. Four causes, ranked, with what was done:
+
+1. **A documentation change ran the whole suite.** The scope filter knew
+   `extension/` and `docs/` only, and #214 changed `CLAUDE.md`, `ENGINEERING.md`,
+   `README.md`, `.gitignore` and a `.claude/` file — none of which match `^docs/`.
+   **Fixed:** a third `docs` tier, a `pytest.mark.docs` marker on the nine files
+   that read a document, and `tests/test_the_docs_gate_is_complete.py` to keep the
+   set honest. **178 tests in 30.6s** against 451s for the whole suite locally.
+2. **`SCRAPEX_FULL_MIGRATIONS=1` was replaying 61 migration files 927 times per
+   run** — real `migrate()` is 396ms against a 3.6ms template restore, so roughly
+   350s of the 703s. **Moved** to a parallel `migration-authority` job. The
+   guarantee did not move: the same suite still runs against the real stream.
+   ⚠ **It is not a required check until someone makes it one** — until then a
+   migration-stream failure will not block a merge, which is weaker than the
+   inline variable it replaced.
+3. **Nothing was cached.** No `cache: pip`, nothing on `~/.cache/ms-playwright`.
+   **Both added.** Worth ~13s of steady browser download; the 104s apt spike seen
+   on 2026-08-19 is the runner's package mirror and no cache reaches it.
+4. **`tests/test_panel_dom.py` costs 236s of the 703**, about 120s of it literal
+   `wait_for_timeout(500)` on 164 panel opens. **Not touched** — the file's own
+   comment explains why some animation waits are load-bearing, and telling them
+   apart is its own task. Recorded here rather than done.
+
+**And a guard was blind.** The step that refuses a silently-skipping browser suite
+grepped `importorskip("playwright"` **with the closing quote**, so
+`tests/test_grid_dom.py:24` — which writes `importorskip("playwright.sync_api")` —
+never matched, and its 20 tests were invisible to it. One character. Fixed, and
+the guard now finds ten suites instead of nine.
+
+The scope rule itself is now tested:
+`test_the_workflows_documentation_pattern_admits_exactly_what_it_should` lifts the
+bash pattern out of the YAML and classifies fifteen paths with it, over half of them
+cases that must **not** be admitted — and it pins the **polarity** of the two
+decision lines, because an adversarial pass inverted `! grep -qvE` to `grep -qE` and
+every assertion stayed green.
+
+### What an adversarial review caught before this merged, and the worst of it was mine
+
+Twenty agents over four lenses, sixteen refutation verdicts, **eight findings
+survived** — three of which had already been found and fixed by hand. The other
+three:
+
+1. **A blocker of my own making.** Moving the scope computation into its own job made
+   `fetch-depth: 0` look unnecessary and I wrote "Shallow is enough here now". It is
+   not: `tests/test_the_privacy_policy_is_true.py:433` and `tests/test_version.py:231`
+   both **skip** rather than fail on a grafted clone, and `-q` reports a run full of
+   skips as green. Proven by experiment — edit `docs/privacy-policy.md`, leave its
+   date, and full history fails while `--depth 1` passes. **The repository had already
+   learned this twice**, in `publish-docs.yml` and `release-extension.yml`.
+2. **`git diff --name-only` reports only a rename's destination**, so a file moved out
+   of `scrapex/` into `extension/` or `docs/` classified as the narrow scope.
+   `--no-renames` added; it can only widen.
+3. **The pattern guard could not see the logic inverted.** Now pinned.
+
+**And the structural fix found a fourth instance nothing else had.**
+`tests/test_the_workflows_check_out_enough_history.py` reads every workflow, finds
+every job that runs pytest, and requires full history — and it immediately failed on
+`release-engine.yml`'s build job, which runs the **whole suite** at depth 1. Both date
+guards have therefore been skipping on **every engine release**. Fixed here.
+
+Why the mistake recurred is the part worth keeping: the requirement lived as prose
+beside the file that *needed* the history, never on the jobs that had to *provide* it.
+See [LESSONS.md](LESSONS.md#7--a-document-can-drift-into-the-opposite-of-the-code).
+
+---
+
 ## Track 3 · The version debt
 
 **Ruling:** [R-06](RULINGS.md#r-06--version-moves-with-every-merged-pull-request)
