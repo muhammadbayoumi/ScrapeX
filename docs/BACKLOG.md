@@ -873,7 +873,44 @@ Re-authored by line number, with the anchor lines asserted before anything is wr
 
 ---
 
-### OP-29 · An invalid escape sequence in a test docstring is a future `SyntaxError`
+### OP-29 · ~~An invalid escape sequence in a test docstring is a future `SyntaxError`~~ — FIXED 2026-08-21
+
+> **CLOSED THE DAY AFTER IT WAS FILED, and the one character is a guard now rather
+> than a memory.** `tests/test_relaunch_log.py:85` opens `r"""`, so the Windows path
+> the docstring quotes is text rather than three escape sequences. Measured before
+> and after with one command:
+>
+> ```
+> PYTHONPATH=. python -m pytest tests/test_relaunch_log.py \
+>   tests/test_the_extension_gate_is_complete.py \
+>   tests/test_the_docs_gate_is_complete.py -p no:randomly -q -rw
+> ```
+>
+> **Before:** two entries in pytest's warnings summary — one against
+> `tests/test_relaunch_log.py:85` from importing the module, and one `<unknown>:85`
+> attributed to *both* gate tests at once, which is exactly the shape the diagnosis
+> below predicted. **After:** no warnings summary at all, 16 passed, exit 0.
+> The docstring's own text did not change — an invalid escape was already kept
+> verbatim, so nothing but the warning ever differed.
+>
+> **The sweep found nothing else, and that is a measurement rather than a glance.**
+> All **273** tracked `.py` files were compiled and every string literal classified:
+> **zero** invalid escapes remain; the only three non-raw literals holding a
+> valid-but-silent escape are deliberate byte constants (a UTF-8 BOM, a length
+> prefix, the PNG magic); and all **171** regex patterns in the repository are
+> already raw — so none of them holds a `\b` that would mean *backspace* where a
+> word boundary was meant, which is this defect's silent twin and would never warn.
+> `tests/test_gpp.py:496` reads like a fourth finding and is not: it is a `"""\`
+> line continuation, and it looked like backslash-CR only because the checkout is
+> CRLF — trap 2 of [../CLAUDE.md](../CLAUDE.md) biting the scan that was hunting
+> trap-shaped bugs.
+>
+> **Guarded, so a revert is loud.** The `r"""` is pinned in `PINNED` in
+> `tests/test_the_documents_cite_what_they_claim.py`, so deleting the `r` now fails
+> tier 2 of the citation guard instead of printing a warning nobody reads.
+
+**The diagnosis, kept as it was written on 2026-08-21 — the present tense below
+is that morning's, not today's.**
 
 Every full suite prints `<unknown>:85: SyntaxWarning: invalid escape sequence '\.'`,
 raised by both gate tests because they compile the suite's own sources to count it.
