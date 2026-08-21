@@ -312,9 +312,20 @@ class MuqawilPageSource:
             if contractor_id in emitted:
                 continue
             emitted.add(contractor_id)
-            for locale in self._locales:
-                yield row_index, (f"{base}/{locale}/contractors/"
-                                  f"{contractor_id}/{SELF_BUILD_SEGMENT}")
+            for url in self.profile_urls(base, contractor_id):
+                yield row_index, url
+
+    def profile_urls(self, base_url: str, contractor_id: str) -> Iterable[str]:
+        """The profile pages of ONE contractor, one per locale.
+
+        THE ONE PLACE THAT KNOWS THE SHAPE. A frontier can be built two ways — off the
+        listing pages on disk, or off the ids in `dataset_sighting` — and both need this
+        URL. Two copies of the pattern is two places to forget `SELF_BUILD_SEGMENT`,
+        which is the segment that makes the self-build price section render at all.
+        """
+        for locale in self._locales:
+            yield (f"{base_url.rstrip('/')}/{locale}/contractors/"
+                   f"{contractor_id}/{SELF_BUILD_SEGMENT}")
 
     def belongs_to_slice(self, page: FetchedPage, row_index: int,
                          slice_of: str) -> bool:

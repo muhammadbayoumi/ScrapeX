@@ -126,7 +126,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 | 2 | ~~State the resume cost in the tool's output~~ **DONE** | ~40 min | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
 | 3 | ~~`is_enabled` has 0 callers~~ **DONE** | ~1 h | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
 | 4 | The slice scope — **defect fixed**; the walk moves into item 5 | ~2 h so far | Built and tested; wiring it is what makes a partial re-read addressable. |
-| 5 | The profile crawl — 34,806 pages | **~2 h to wire, ~17.4 h to run** | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
+| 5 | The profile crawl — **wired**; 34,834 pages, measured at **11.1 h** to run | ~3 h | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
 | 6 | `R-19` child tables, all five groups | **~1 day** | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
 
 **So: about a day and a half of work, plus roughly eighteen hours of crawling that runs
@@ -278,8 +278,29 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       كلّها»: Interests, Licensed Activities, Qualification Programs, Balady Services,
       contractor relations. Not JSON, not `Activity 1, 2, 3`. A measured profile carried
       **30 hierarchical interest values in 6 groups** — about 500K rows. Ruled, unbuilt.
-- [ ] **The profile crawl**, 34,806 pages both locales. Must run with `body_class` set
-      so the pages arrive compressed — `snapshotcrawl` already does it.
+- [~] **The profile crawl — BUILT, not yet run.** `scrapex contractors --details`
+      fetches the profile page of every contractor the **registered scope** asks for,
+      with `body_class` set so each arrives under the profile dictionary (`STORAGE.md`
+      measured 46x against zlib's 7.7x, because zlib's 32 KB window never sees across a
+      121 KB page).
+      **THE FRONTIER COMES OFF THE LEDGER, AND THE FIRST ANSWER WAS 1,500x SLOWER.**
+      Deriving it from stored listing pages means decoding and BeautifulSoup-parsing
+      14,727 of them: measured at **over 120 s and still running when it was killed**.
+      `dataset_sighting` already holds every id the site has ever shown us, so the full
+      frontier is one indexed SELECT — **0.08 s for 34,834 URLs**. A slice still needs
+      the pages, because the city is on the card and the ledger holds ids alone.
+      **And it must be `sighted_ids`, not `stored_ids`:** 17,417 against 15,707 on the
+      live warehouse, because a row exists only once its page is approved — so a
+      frontier from rows would skip the 1,710 contractors seen and not yet interpreted,
+      which is the population this crawl most needs.
+      **THE RUNTIME ESTIMATE WAS WRONG IN BOTH DIRECTIONS.** This list said ~17.4 h; the
+      single-threaded study's 5.84 s a request says 56.5 h. Measured over **87 minutes
+      of real crawling with six workers: 52.5 pages a minute, 1.14 s a page → 11.1 h**.
+      `--ceiling` stops a first run early and says PARTIAL, and the same `--run-ref`
+      continues it.
+      **What is left is to RUN it**, which is his call, and the profile approval path —
+      `bilingual_profile_candidate` exists (#235) and nothing calls it yet. Twelve
+      tests.
 - [~] **Conditional requests on the recurring pass — BUILT, AND THIS SOURCE CANNOT USE
       THEM.** Measured 2026-08-21 against the live site, one request:
 

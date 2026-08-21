@@ -185,6 +185,24 @@ def _records_with_status(conn: sqlite3.Connection, dataset_key: str,
     return found
 
 
+def sighted_ids(conn: sqlite3.Connection, dataset_key: str) -> tuple[str, ...]:
+    """Every id the SITE has shown us, in id order. The counterpart to `stored_ids`.
+
+    THE TWO ARE DIFFERENT NUMBERS AND THE DIFFERENCE MATTERS. Measured on the live
+    warehouse 2026-08-21: 17,417 sighted against 15,707 stored, because a row exists
+    only once a page has been approved. So a frontier built from `stored_ids` would
+    silently omit the 1,710 contractors we have seen and not yet interpreted — which is
+    the population a profile crawl most needs to reach.
+
+    ONE INDEXED READ. `dataset_sighting` carries the site's own id in a real column,
+    unlike `generic_record` where it lives inside `data_json` and no index can serve a
+    `json_extract` — the 800x that `stored_ids` documents.
+    """
+    return tuple(row[0] for row in conn.execute(
+        "SELECT external_id FROM dataset_sighting WHERE dataset_key = ? "
+        " ORDER BY external_id", (dataset_key,)))
+
+
 def missing_ids(conn: sqlite3.Connection, dataset_key: str,
                 *, limit: int | None = None) -> tuple[str, ...]:
     """Ids the site showed us that never became a record.
