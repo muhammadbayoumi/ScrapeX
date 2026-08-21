@@ -849,6 +849,146 @@ names its category, and the platform's own documents say so. **Not** settled: wh
 what identifies an account (`Q-14`). Those are
 [the plan](plans/2026-08-21-the-platform-not-a-price-tracker.md), and none of it is
 built.
+### R-31 · The warehouse records WHICH field changed, and a new field is a version, not a refusal
+
+**2026-08-21 · data model · extends [R-30](#r-30--r-19-is-built-as-child-datasets-whose-value-references-a-taxonomy)**
+
+> «اريد الافضل على الاطلاق ليس الاسهل فى التنفيذ فى المرحلة الحالية» · «نعم وسع النطاق ونفذ الأفضل»
+
+He asked four things of `R-30`'s shape: is it dynamic when most contractors leave
+most values empty, what happens when the site adds a field, is everything kept in
+the database, and can a change be **written down** as "this field was updated"
+rather than worked out afterwards. Measured, two were already true and **two were
+not**, and the two that were not are independent of the (b)/(c) choice entirely.
+
+**1 · A NEW FIELD IS REFUSED TODAY, NOT VERSIONED.**
+`extract/service.py` raises `ExtractionConflict` when the field set differs from the
+approved one, and its own message points at *"schema-drift review support"* that does
+not exist. The machinery is all there — `version_number`, `status`, `valid_to` — and
+**v2 is unreachable**: reaching it requires `valid_to` to be set, and measured, all
+five references to `valid_to` in the code are **reads**. Nothing has ever written it.
+
+**The rule is DIRECTIONAL, and that is what makes it safe.** A superset — every
+approved field still present, new ones added — retires the active version and opens
+v2. A subset, a rename or a retype is still **refused**. That distinction is not
+invented for this ruling: it is exactly what happened in #234, where `region_id=0`'s
+pages carried 21 of the declared 22 fields and were correctly refused. Auto-versioning
+any drift would have accepted a parser that silently lost a column.
+
+**2 · A REVISION RECORDS THE WHOLE ROW, SO "WHICH FIELD CHANGED" IS DERIVED.**
+`generic_record_revision.data_json` holds the entire object. The answer to "when did
+this contractor's readiness change" is computable by diffing two revisions and is
+**written down nowhere**. So a field-level change log is added: the row, the field,
+the value before, the value after, when, and the snapshot that proves it.
+
+**IT IS LIGHTER THAN WHAT IT SUPPLEMENTS, WHICH IS THE PART WORTH KNOWING.** A
+revision copies all 21 fields — roughly 2.5 KB — to record one field moving. A
+field-change row is on the order of 100 bytes. **It does not replace the revision**:
+the revision is the row as it stood, which is the thing an audit needs; the log is
+the question anyone actually asks.
+
+**3 · SPARSENESS WAS ALREADY TRUE, AND IS NOT A REASON TO PREFER (b).**
+A child row exists per value held, so a contractor with no activities costs zero rows
+and zero NULLs. That is true of (c) equally. Recorded because he asked, and because
+the honest answer is that it does not distinguish the options.
+
+**4 · EVERYTHING IS ALREADY IN THE DATABASE.** `data_json` plus the compressed page
+in `generic_page_snapshot`, linked by `source_snapshot_id NOT NULL`. Nothing is
+discarded. **But JSON's flexibility is partly an illusion and he should know it:** an
+undeclared key is stored and is **invisible to the user**, because the payload's
+columns come from the declared fields in `schema_version_field`. Flexibility in
+storage is not flexibility in the product; that is what point 1 is for.
+
+**What this costs.** `OP-25` route (c) — which he passed over on timing — is now in
+scope, and there is one new table. He was told both before ruling.
+
+---
+
+### R-30 · R-19 is built as child DATASETS whose value references a taxonomy
+
+> **EXTENDED, NOT REPLACED, by [R-31](#r-31--the-warehouse-records-which-field-changed-and-a-new-field-is-a-version-not-a-refusal) on 2026-08-21.** Everything below stands. He then asked whether (b) is dynamic for sparse and future fields, and whether a field change can be recorded rather than derived — and two of those answers were no. He widened the scope: «نعم وسع النطاق ونفذ الأفضل».
+
+**2026-08-21 · data model · answers [Q-13](BACKLOG.md), refines [R-19](#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json)**
+
+> «نفذ ب» — option (b), chosen after asking for the three to be compared on time
+
+He asked for his own ruling to be tested ([REQ-23](REQUESTS.md)), then for the three
+implementations to be compared **on time specifically**, and chose (b). So `R-19`
+stands and its implementation is settled:
+
+| | |
+|---|---|
+| **where the child rows live** | a child **dataset** in `generic_record` — no new table, no migration for the rows themselves |
+| **how the value is stored** | a reference to a `classification_node`, so the ~120-character bilingual path is stored **once** and referenced by integer |
+| **how it is queried** | a **partial expression index** on `json_extract(data_json,'$.node_id')`, scoped by `dataset_definition_id` |
+| **how it reaches the sheet** | one export tab per child dataset, driven by `dataset_relationship` |
+
+**Why (b) and not (c), in his own terms — time.** (c) is 7x faster to load once
+(3.9 s against 27.6 s) and (b) is **40x faster on the question that gets asked**
+(0.6 ms against 20.2 ms) and **3.8x** on the per-value counts. The load happens once
+per full re-extraction; the question happens whenever anyone asks it.
+
+**And (a) — `R-19` read literally — is fastest at nothing measured fairly.** Its one
+apparent win, the parent roll-up at 612 ms against 1,320 ms, is not the same query:
+it matches a string **prefix** with `LIKE`, and the fixture's own separators are
+inconsistent (`-` and `–` both appear), so that match fails silently on some values.
+It also rewrites **103,698 rows in 5.9 s** when the site relabels a category, against
+one row in 0.1 ms.
+
+**Nothing writes `classification_node` today** — measured, `grep` finds no
+`INSERT INTO classification` anywhere in the repository, and `reports.py` only names
+the table in a glossary. The taxonomy writer is therefore the first thing (b) needs,
+not a detail of it.
+
+---
+
+### R-28 · The 74 approved pages are wiped and re-approved from disk
+
+**2026-08-21 · data · answers [OP-25](BACKLOG.md)**
+
+> «امسح وأعِد الاعتماد من القرص» — chosen from three options
+
+`region_id=0`'s 74 pages taught a 21-field schema, so every page declaring the
+declared 22 is refused. The `contractors` dataset is **wiped and re-approved from the
+stored snapshots**, which costs ~20 minutes and **not one network request** — the
+snapshots are on disk, and that is the entire economics of
+[GENERIC-FETCH-SEAM.md](GENERIC-FETCH-SEAM.md).
+
+**It destroys 1,172 rows, and that is the reason it is cheap rather than a cost.**
+Those rows are rebuilt from the same disk immediately, and the alternative kept them
+at the price of two datasets describing one directory — which `R-11` would not accept.
+
+**What this unblocks is the whole point.** The ledger holds **15,782 distinct ids of
+the listing's 17,414** and the warehouse holds 1,172 records. The gap is not missing
+evidence, it is unapproved evidence.
+
+The third option — building schema-drift review, which the error message itself points
+at — was **not rejected on merit**: it is the largest, it would serve every future
+source, and it is now the only remaining part of `OP-25`. It was not chosen because it
+would keep this crawl unextracted while it was built.
+
+---
+
+### R-29 · A contractor the site stops showing is `unavailable`, not `retired`
+
+**2026-08-21 · data model · answers [OP-26](BACKLOG.md), completes [R-27](#r-27--a-row-never-disappears-from-the-users-view-its-state-becomes-a-column)**
+
+> «unavailable» — chosen over `retired` and over a rule combining both
+
+`generic_record.status` has accepted `active`, `unavailable` and `retired` since the
+table existed, and **nothing has ever written either of the last two**. Detection was
+built with `sightings.departures`; this ruling is what lets it write.
+
+**`unavailable` means "the site is not showing this contractor right now" — and the
+reversibility is the whole reason.** A crawl that ended early, a cell that failed to
+size, a filter the site changed: any of those makes a standing contractor look absent.
+Under `retired` that row becomes history with no way back. Under `unavailable` it
+returns on the next crawl that sees it, which is exactly what the `returned` state and
+`last_absent_at` — shipped in #235 — were built to express.
+
+**`retired` is not thereby unusable.** It remains the honest answer for a contractor the
+site states is gone rather than merely stops listing. Nothing writes it yet, and
+nothing should until the site gives us that statement to read.
 
 ---
 
@@ -908,7 +1048,7 @@ Recorded rather than defaulted, per **R-02**.
 
 | # | question | context |
 |---|---|---|
-| **O-2** | **Does the contractor entity belong in the mbiXaddin workbook** — a `1.TableDefinition` row and its `2.SchemaRule` columns — or is it engine-only until it has proved itself? | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
+| **O-2** | **Does the contractor entity belong in the mbiXaddin workbook** — a `1.TableDefinition` row and its `2.SchemaRule` columns — or is it engine-only until it has proved itself? **HELD 2026-08-21:** put to him with a recommendation and he answered «اترك هذا الامر الان» — leave it for now. Do not define a workbook table for contractors, and do not re-ask until `Q-13` is settled: `R-19` changes how many tabs the export has, which is the shape the workbook would be committing to. | [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) |
 | **O-5** | **B1 lists `DELETE /api/views/{id}` among nine dead routes to delete — but building saved views revives it.** Either B1 loses that line, or the new Data page cannot delete a saved view. **HELD 2026-08-16:** he has comments on B1 itself and will raise them first. Do not start B2 step 3 until he has. | [HANDOFF-resume-the-migration.md](HANDOFF-resume-the-migration.md) |
 | ~~**O-6**~~ | **ANSWERED 2026-08-20, and none of the three options was the answer.** I asked which machine holds the warehouse, given the home machine has none. He ruled that the premise was wrong: ScrapeX is a tool many people install, so an empty installation is the product's normal first-run state and a warehouse is **per installation**. Create one here and crawl into it; comparing two machines is development, not collection. → **[R-23](#r-23--scrapex-is-a-multi-user-product-so-a-warehouse-is-per-installation)** | [OP-22](BACKLOG.md) |
 
