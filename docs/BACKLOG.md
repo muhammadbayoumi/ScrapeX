@@ -1009,6 +1009,34 @@ has data consequences:
 impossible rather than deferred; (b) or (c) as the real model, once he rules.*
 **Not started — his call, on live data.**
 
+### OP-32 · The test suite writes into the owner's live crawl log
+
+**Found 2026-08-21, by reading the log to check on a crawl.**
+
+`contractors.say` appends every line to `Path.home()/".scrapex"/"contractors.log"` with
+no way to redirect it, so any test that reaches it writes to the **real** file. What
+surfaced it: two lines saying *"departures not marked: the crawl is not provably
+complete"* sat at the tail of the live log while a real crawl was running, and they came
+from the gate tests, not from the crawl. A log read to find out what a crawl did is
+worth nothing if a test can write to it.
+
+It predates the work that found it — `test_the_crawl_driver_cannot_lose_a_run.py` has
+been calling `crawl()` and therefore `say()` since it was written. Two things follow
+from it, and the second is the reason this is recorded rather than patched:
+
+* **Wrong content in a file used for diagnosis.** The lines are indistinguishable from
+  a real run's, and this one nearly cost a wrong conclusion about a live crawl.
+* **A path derived from `HOME` at import time.** In CI that is a container's home and
+  harmless; on a developer's machine it is the file they read. The fix is to make the
+  destination injectable rather than to monkeypatch it per test file — which is a small
+  change to a module that is currently being edited by the six-item track, so it waits
+  until that lands rather than colliding with it.
+
+Mitigated where it was found: the new tests redirect `contractors.LOG` to `tmp_path`.
+The general fix is still open.
+
+---
+
 ### OP-31 · Six crawl workers starve another process out of the warehouse
 
 **Measured 2026-08-21, minutes after `--workers` was built, by using it.** The owner

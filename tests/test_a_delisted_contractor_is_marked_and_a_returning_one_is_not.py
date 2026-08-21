@@ -41,6 +41,24 @@ from scrapex.sightings import (
 ABSENT_AT = "2026-08-21T12:00:00Z"
 
 
+@pytest.fixture(autouse=True)
+def _log_somewhere_harmless(tmp_path, monkeypatch):
+    """`say` APPENDS TO THE USER'S REAL LOG, and these tests call it.
+
+    `contractors.say` writes every line to `Path.home()/".scrapex"/"contractors.log"`
+    unconditionally — correct for a crawl that runs for hours and must leave a record,
+    and wrong for a test suite: the refusal lines from the gate tests below turned up in
+    the owner's live log, interleaved with a real crawl's output, where they read as the
+    crawl refusing to mark departures.
+
+    The behaviour predates this file, so it is recorded as `OP-32` rather than changed
+    here. What this fixture fixes is the part these tests are responsible for.
+    """
+    from scrapex import contractors
+
+    monkeypatch.setattr(contractors, "LOG", tmp_path / "contractors.log")
+
+
 @pytest.fixture()
 def conn(tmp_path: Path):
     registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
