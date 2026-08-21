@@ -123,7 +123,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 | | item | cost | why this order |
 |---|---|---|---|
 | 1 | ~~`status = 'unavailable'` on a departed row~~ **DONE** | ~3 h, not 1 | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
-| 2 | State the resume cost in the tool's output | **~20 min** | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
+| 2 | ~~State the resume cost in the tool's output~~ **DONE** | ~40 min | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
 | 3 | `is_enabled` has 0 callers | **~1 h** | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
 | 4 | The slice scope, unused for muqawil | **~1 h** | Built and tested; wiring it is what makes a partial re-read addressable. |
 | 5 | The profile crawl — 34,806 pages | **~2 h to wire, ~17.4 h to run** | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
@@ -218,8 +218,22 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       56, and deriving cities means querying the warehouse for what we have seen. Not
       built ahead of his ruling, because for Riyadh it buys 9% (4,697 → 4,268) and
       the counting proof remains the route.
-- [ ] **Make sizing resumable**, or state its cost in the tool's own output. A resumed
-      run re-pays ~112 requests (5.7%).
+- [x] **Sizing states its cost, in the output, computed.** The item offered two
+      branches and this takes the second: making sizing resumable would change what the
+      progress denominator MEANS — the frontier is declared once after sizing, and that
+      is what makes it a count rather than an estimate — while stating the cost only
+      stops hiding a number.
+      `PartitionOutcome.sizing_requests` is the requests that measured and stored
+      nothing, and the report names them with their share: *"of those, 118 (5.7%) sized
+      cells and stored nothing — a resumed run pays them again"*. **`~112` was a
+      measurement of one site on one day** and it lived in a module header no user
+      reads; it moves with the partition and a constant in prose cannot follow it.
+      Two things fell out. `--plan` now says what IT spent, because the crawl's report
+      points at it as the cheaper route and a route that never states its price is not
+      an answer. And the hours estimate divided by `whole.requests + len(cells) * 2` —
+      two requests per cell, **assumed** — where `size_cell` reports what each actually
+      cost; a cell needing a third probe made the divisor too small and inflated every
+      hour figure derived from it. Four mutations killed.
 
 ### C · The 48 columns — further along than this list said
 

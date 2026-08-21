@@ -142,16 +142,27 @@ def plan(directory: Directory, fetch, started: float) -> None:
     pages = 0
     declared = 0
     over = []
+    sizing = whole.requests
     for cell in partition.cells():
         size = size_cell(fetch, partition, directory.base_url, cell)
         pages += size.last_page
         declared += size.declared
+        sizing += size.requests
         if size.last_page > RETRY_PAGE_CEILING:
             over.append(size)
         say(f"  {size}")
     locales = len(partition.locales)
     requests = pages * locales + len(partition.cells()) * 3 + 2
     say("")
+    # WHAT THIS COMMAND JUST SPENT, and the reason to print it is that `--crawl` now
+    # names the same cost in its own report and points here. Every cell is sized before
+    # any page is stored, and a resumed crawl pays that again because sizing is not
+    # resumable — so `--plan` is the way to pay it once, deliberately, and read the
+    # answer. A pointer to a cheaper route is worth nothing if the route never says
+    # what it cost.
+    say(f"this plan cost {sizing:,} request(s) sizing {len(partition.cells())} cells "
+        f"and the listing; a crawl re-pays that, and this run has now measured it "
+        f"rather than estimating it")
     say(f"cells {len(partition.cells())}  pages {pages} "
         f"(+{pages - whole.last_page} over the unfiltered {whole.last_page})")
     say(f"declared {declared:,} against the listing's {whole.declared:,} — "
@@ -160,7 +171,13 @@ def plan(directory: Directory, fetch, started: float) -> None:
     # PRICED FROM THIS RUN'S OWN LATENCY, not from a number in a document. The
     # study measured 5.84 s a request; the sizing just made 100-odd requests, so
     # the honest estimate is the one it just paid for.
-    per = (time.monotonic() - started) / max(1, whole.requests + len(partition.cells()) * 2)
+    #
+    # AND THE DIVISOR IS NOW COUNTED RATHER THAN GUESSED. It was
+    # `whole.requests + len(cells) * 2` — two requests per cell, assumed. `size_cell`
+    # reports what each one actually cost, and a cell that needed a third probe made
+    # the old divisor too small, which inflated the seconds-per-request and every hour
+    # figure derived from it. Same expression, real numerator and real denominator.
+    per = (time.monotonic() - started) / max(1, sizing)
     say(f"measured {per:.2f} s a request just now -> about {requests * per / 3600:.1f} h")
     if over:
         say(f"{len(over)} cell(s) above the {RETRY_PAGE_CEILING}-page witness ceiling, "

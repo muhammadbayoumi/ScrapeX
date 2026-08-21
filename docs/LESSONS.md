@@ -895,6 +895,17 @@ and the file is byte-identical to the original after every restore. Without them
 harness reports with total confidence in both directions — which is worse than not
 running it, because a false `killed` retires a real concern.
 
+**And the third assertion collides with the second.** Comparing BYTES is what makes the
+restore check trustworthy — `read_text()` normalises newlines, so a text comparison can
+report a clean restore over a file whose line endings changed. But reading bytes means
+the anchors are matched against CRLF, because `.gitattributes` sets `* text=auto` and
+Windows checks out `
+`. Every anchor written with `
+` then finds nothing, and the
+harness says `anchor occurs 0x` about code that is plainly on the screen. Translate the
+ANCHORS to the file's line endings; normalising the file would rewrite every line in it
+and defeat the restore check the bytes were for.
+
 ### And `restored: True` can be true while the file on disk has changed
 
 The harness proves it restored by comparing what it wrote back:
