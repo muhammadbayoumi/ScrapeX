@@ -27,7 +27,11 @@ import re
 
 import pytest
 
-pytestmark = [pytest.mark.extension]
+# BOTH MARKS. `extension` because it reads extension/ sources, and `docs`
+# because it also reads docs/store-listing.md -- the cross-check that the
+# prose Google reads has not gone false. A docs-only change must run this,
+# or editing that listing could reintroduce the claim this file forbids.
+pytestmark = [pytest.mark.extension, pytest.mark.docs]
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = json.loads((ROOT / "extension" / "manifest.json").read_text(encoding="utf-8"))
