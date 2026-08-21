@@ -101,6 +101,32 @@ same-content-modulo-newlines), then upgrade it in place. Hashing in-memory
 strings or DB rows is unaffected: `normalize.py`, `funnel.py`, `retention.py` and
 `split.py::_table_hash` are all immune.
 
+### On the owner's machine, neither `scrapex` nor `python` is on PATH
+
+`scrapex ui` is the documented single launch path, and **it cannot be typed on the
+machine where the owner works.** Measured 2026-08-21 on the Muhammad account:
+
+| typed | what happens |
+|---|---|
+| `scrapex` | not found. `Scripts\` is not on PATH at all, though `scrapex.exe` is in it |
+| `python` | the **Microsoft Store stub** — *"Python was not found; run without arguments to install from the Microsoft Store"* |
+| `py` | works, and resolves to `…\Programs\Python\Python312\python.exe` |
+
+The cause is PATH order, not a missing install: `…\Microsoft\WindowsApps` (the
+Store aliases) sits at position 22 and `…\Programs\Python\Python312` at 26, so the
+stub wins. `…\Python\Launcher` is at 21, which is why `py` is the one that works.
+
+**Apply:** an instruction that begins `scrapex …` or `python -m scrapex.cli …` will
+fail for him before it does anything, and the failure looks like a broken tool
+rather than a PATH. Write `py -m scrapex.cli …` when handing him a command, and
+remember the two-machine rule — the other account's PATH has not been measured and
+may differ.
+
+**And the same fact bites the frozen engine from the other side:** when there is no
+Python on PATH at all, the shipped `.exe` is the ONLY way in. That is the argument
+for the one-file binary, and the reason its silence when double-clicked
+(`OP-32`) cost the owner the whole afternoon rather than a minute at a terminal.
+
 ---
 
 ## 2 · The warehouse, and reading it without breaking it
@@ -425,6 +451,42 @@ run**: counting filled cells per column found it in one query, where the script'
 own report was confidently wrong. Recorded as DEC-10, because the fix is a ruling.
 
 ---
+
+### A release gate that asks only what no user types will pass a black window
+
+The engine was published with a defect that made it unusable, and every check the
+release ran was green. The gate asked the built binary one question:
+
+    built=$(./dist/scrapex-engine.exe --version)
+
+`--version` is the argument **nobody types**. A person double-clicks the file, which
+passes none — a different branch of `packaging/engine_entry.py:main`, and in the
+build that shipped as `engine-v0.2.1` that branch fell through to the Chrome native
+messaging host, which waits on stdin for framed JSON and prints nothing at all.
+Measured on the published artifact: **zero bytes, and still running after twenty
+seconds.** The owner met a black window, concluded the engine had not installed, and
+was right that something was broken.
+
+**The source had been guarded the whole time**, which is the uncomfortable part.
+`test_the_entry_point_tells_its_three_callers_apart` pins bare argv to `_first_run`
+and has since #141. It was written *because of* this defect. It could not help: the
+artifact was built from a commit six hours older than the fix, and no test in ~2,200
+had ever run the built binary at all.
+
+**Apply:** when something is shipped rather than imported, the gate must exercise
+**the caller that exists in the world**, not the one that is convenient to assert on.
+The convenient caller is usually a flag; the real one is usually a person, and its
+signature is that it produces no exit code worth reading — a working first run never
+returns, and a broken one exits 0 in silence. So judge the OUTPUT. "It printed
+nothing" is the whole defect, and it is invisible to every check that reads a status.
+
+**And a stale artifact is not a stale number.** `VERSION` had already moved to
+0.2.2, `docs/STATE.md` tracked the gap as *version debt*, and `OP-15` recorded the
+panel showing "Installed 0.2.2 / Latest released 0.2.1" as a **wording** problem
+about the two meanings of "installed". Three documents held the evidence and all
+three read it as bookkeeping. The number was telling the truth: no release carrying
+the fix had ever been cut, and the only thing installable was the broken one — for
+twelve days.
 
 ## 5 · The design system: a token has four homes
 

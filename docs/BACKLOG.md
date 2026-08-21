@@ -1079,6 +1079,395 @@ many workers are asked for, and the cost is bounded by arithmetic rather than by
 hoping. (a) as an immediate mitigation.*
 **Not started.**
 
+### OP-32 · The fix for the black window has sat in the repository for twelve days, unreleased
+
+**Status: OPEN. The gate that let it happen is closed in this PR; publishing is his.**
+Reported by the owner on 2026-08-21 as *"it did not install — black screen"*, and
+captured as [REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
+
+**The install path is neither missing nor broken. It is STALE, which is worse,
+because every part of it works.** The panel reads the manifest, gets `0.2.1`,
+correctly says *"Available to install"*, and hands over a byte-perfect download.
+What arrives is the build from **before** `_first_run` existed:
+
+| | |
+|---|---|
+| published | `engine-v0.2.1`, tag → commit `4386d25`, 2026-08-09T09:47Z |
+| bare invocation there | `4386d25:packaging/engine_entry.py:62` → `return serve()` — the native host. **A citation of a past commit**: today's line 62 is a comment |
+| `_first_run` landed | `7a067c5`, 2026-08-09T19:09+03:00 — **six hours after the release** |
+| `--splash` landed | `756fa39`, 2026-08-10 |
+| `scrapex/version.py:76` | `VERSION = "0.2.2"` |
+| engine tags in the repo | `engine-v0.2.1`. That is the whole list. |
+
+**Measured on the published artifact, twice, on 2026-08-21.** Stdin closed: zero
+bytes, exit 0 — the window opens and vanishes. Stdin held open, as a real console
+holds it: zero bytes, **still running after twenty seconds**. Nothing was written to
+`~/.scrapex/engine.log`, which is still dated 2026-08-01, because it never reached
+the code that could write.
+
+**WHY CI PASSED IT, and this is the part a test can prevent.** The release asked the
+built binary exactly one question — `--version` — which is the one argument no user
+ever types, on the one branch that was already correct.
+`tests/test_native.py::test_the_entry_point_tells_its_three_callers_apart` has
+guarded the *source* dispatch since #141; **nothing has ever run the artifact.** Now
+`tests/test_the_release_proves_the_double_click.py` and a new workflow step do: the
+release launches the engine with no arguments, bounded by a timeout because a good
+first run never returns, and refuses a build whose output is empty or which cannot
+get past preparing a database. Eleven mutations, eleven killed — one of which caught
+this guard accepting a data root that was named but never assigned.
+
+**It was half-seen and not followed through.** `OP-15` already recorded, on
+2026-08-11, that the Engine card read *"Installed version 0.2.2 / Latest released
+0.2.1"* — and filed it as a **wording** defect about the two meanings of
+"installed". The numbers were the finding: the release had not happened.
+
+**Next action, and it is his:** `git tag engine-v0.2.2 && git push origin engine-v0.2.2`.
+Track 3 in [STATE.md](STATE.md) holds `VERSION` at 0.2.2 behind `R-07`, so the number
+is already right and nothing needs bumping to release it.
+
+### OP-33 · ~~The owner's own warehouse is ahead of `main`, so the engine refuses to start on his machine~~ — FIXED 2026-08-21 by #243
+
+> **CLOSED BY THE MERGE, NOT BY THIS WORK.** `claude/his-four-rulings` landed as
+> [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243) (`eb691d9`) and brought
+> engine migrations **0007** and **0008** with it, so `main` reads schema v8. Verified
+> against his live file from the merged tree, read-only:
+>
+> ```
+> "status": "Healthy",  "schema_version": 8,  "ok": true
+> ```
+>
+> So a released engine built from `main` can now open his warehouse. **What is NOT
+> closed is the panel's sentence**: an engine that refuses to start still never binds
+> a port, so `extension/app.js:3416` still reports "Not detected" for a schema fault,
+> a permissions fault and an absent engine alike. That half is now `OP-38`.
+
+**The diagnosis, kept as written — it is why the merge mattered.**
+
+    $ scrapex database-status
+    "status": "Needs a newer ScrapeX",
+    "action": "This database was written by a later version (schema v8; this
+               build reads v6). Update ScrapeX and retry, and do not downgrade
+               the database."
+    $ scrapex ui --no-open
+    error: the engine database is needs a newer scrapex — ... ; exit 1
+
+`PRAGMA user_version` on `~/.scrapex/engine/scrapex-engine.db` is **8**.
+`db/engine/migrations/` on `main` stops at `0006_a_row_says_when_it_was_last_proved_absent.sql`.
+**0007 and 0008 exist in exactly one place** — the worktree
+`.claude/worktrees/determined-liskov-0c89fe`, branch `claude/his-four-rulings`,
+unmerged — and that branch's code was run against his live warehouse on 2026-08-21,
+leaving the `pre-ledger-repair` and `pre-reapprove` backups beside it.
+
+So the engine a release would ship **cannot open his database**, and `R-24` (a
+database is upgraded, never replaced) is what forbids the obvious shortcut. Verified
+from the branch that owns v8, against the same file: `"status": "Healthy"`, and
+`scrapex ui --no-open` there answers `/api/health` **200** with
+`worker_alive: true` in about 16 seconds.
+
+**And the panel cannot say any of this.** An engine that refuses to start never
+binds a port, so `checkEngine` gets a connection error and
+`extension/app.js:3416` reports **"Not detected"** — which is false and sends the
+reader to reinstall something that is already installed. The engine knows the
+sentence; there is no channel that carries it to a panel.
+
+**Next action:** merge `claude/his-four-rulings` before, or with, the release. Until
+then the only engine that runs on this machine is that worktree's.
+
+### OP-34 · A launch that dies in a console writes nothing to `engine.log`
+
+**Status: OPEN, filed not fixed, per `R-01`.** Found while looking for the black
+window's trace and finding none.
+
+`_bind_log_streams` (`scrapex/cli.py:940`) says it plainly: *"run it from a terminal
+and this does nothing at all."* It exists for the `pythonw` autostart path, which
+has no streams. A double-click **does** get a console, so the redirect no-ops and
+the failure goes to a window that is closing. `~/.scrapex/engine.log` is dated
+**2026-08-01** across every launch attempt described in `OP-32`.
+
+The instinct — *"a black screen very likely wrote something to engine.log"* — is
+therefore wrong for the one path a user actually takes, and an hour can be spent
+reading a three-week-old log as though it were evidence.
+
+`_first_run` covers the user-facing half already: it holds the window open on
+failure and names where it stopped. What is missing is the **record afterwards**,
+for the machine the owner is not sitting at.
+
+### OP-35 · ~~Half the CLI is unreachable from the shipped engine, and says nothing about it~~ — FIXED 2026-08-21
+
+> **CLOSED ON HIS INSTRUCTION — *«ابدأ بـ OP-36 و OP-35 وضمهم لنفس tree»*.**
+> `KNOWN_COMMANDS` is gone. `packaging/engine_entry.py:18` now calls
+> `known_commands()`, which asks `scrapex.cli.subcommands()` — and that reads the
+> subparser choices off `build_parser()` itself. **Derived, not extended:** a longer
+> literal would have fixed today and drifted again.
+>
+> Measured after: **24 of 24** reachable, against 12 before. `database-status` and
+> `relaunch` among the twelve recovered.
+>
+> Guarded by `tests/test_the_frozen_engine_can_start_itself.py`, which asserts the
+> two sets are equal AND names the twelve casualties separately — because equality
+> alone would still pass if both sides shrank together. The one private-argparse
+> poke lives in `cli.py`, and `subcommands()` **raises** rather than returning an
+> empty set if argparse ever changes shape: an empty set would make every argument
+> look like Chrome, which is this defect total instead of partial.
+
+**The diagnosis, kept as written.** Found while diagnosing `OP-32`; it is the SAME
+defect, one layer along.
+
+`packaging/engine_entry.py:19` hand-maintains the set of subcommands the frozen
+binary will forward to the CLI. Anything not in it is assumed to be Chrome and goes
+to `serve()` — which waits on stdin and prints nothing. The set lists **12**
+commands. `scrapex.cli.build_parser()` has **24**:
+
+    autostart  backup-databases  carry-over  contractors  database-status
+    export-version  relaunch  restore-database  run-due  schedule  sources
+    wipe-source
+
+**Measured on the published 0.2.1 artifact, with a control**, so this is not read
+off the source. One of the three is in the set; two are not:
+
+| typed at `scrapex-engine.exe` | in the set? | exit | bytes printed |
+|---|---|---|---|
+| `status` | yes | 1 | **94** — *"engine database is missing: Reconnect the storage…"* |
+| `database-status` | no | 0 | **0** |
+| `autostart` | no | 0 | **0** |
+
+The listed one answers, correctly and usefully. The unlisted ones are the black
+window again. **`OP-33` was
+diagnosed with `database-status`** — the command that names a schema-ahead warehouse
+in one line — and it is on that list, so the shipped engine cannot answer the
+question a stuck user most needs answered. So are `backup-databases`,
+`restore-database` and `carry-over`: the three that exist to protect his data.
+
+**The fix is not to extend the literal**, which is what drifted. Derive the set from
+`build_parser()`'s own choices, so a new subcommand is reachable the day it is added
+and this cannot happen a third time. Then the guard is one line comparing the two.
+
+**Next action:** derive `KNOWN_COMMANDS`, add the comparison test, and mutate it.
+
+### OP-36 · FOUR spawn sites put `-m scrapex.cli` in front of an executable that ignores it
+
+**Status: ~~OPEN~~ FIXED 2026-08-21, on his instruction — *«ابدأ بـ OP-36 و OP-35
+وضمهم لنفس tree»*.**
+
+> **ONE MODULE, FOUR CALL SITES.** `scrapex/enginelaunch.py:74`
+> (`engine_argv`) is the one that answers the `-m` question, and the module is
+> `nativehost.py:57`'s three lines generalised: `frozen()`, `runner()`,
+> `engine_argv()`, `engine_command()` and `working_directory()`. `relaunch`,
+> `native`, `autostart` and `osschedule` all call it and none of them decides the
+> `-m` question any more. It imports nothing from `scrapex`, so the two callers
+> reached while the engine is still coming up cannot meet an import cycle.
+>
+> **All three bugs closed, and the mirrors asserted too** — a fix that made the
+> frozen path right by breaking the source path would pass a one-sided test:
+>
+> | | frozen | source |
+> |---|---|---|
+> | `-m scrapex.cli` | **absent** | **present** |
+> | `pythonw.exe` preference | ignored, with a real decoy beside a real exe | honoured |
+> | `cd /d <repo>` in the Startup entry | **absent** | present |
+>
+> **Ten mutations, ten killed** — and the tenth is why the count is worth quoting.
+> The `pythonw` test first passed for the wrong reason: it pointed `sys.executable`
+> at a path that did not exist, so re-adding the probe changed nothing and the
+> assertion held anyway. Only a **real** `pythonw.exe` beside a **real** `.exe`
+> can tell "frozen returns itself" from "the probe happened to miss".
+
+**The diagnosis, kept as written. It was bigger than OP-35 and probably worse.**
+
+> **RE-MEASURED 2026-08-21 AFTER THE #243 MERGE, AND IT IS FOUR SITES, NOT TWO.**
+> The first pass named `relaunch.py` alone. A sweep of every `sys.executable` in
+> `scrapex/` found the same two bugs repeated at four of the five places that start
+> a child process:
+>
+> **The five sites as they were before the fix.** The line numbers are the
+> pre-fix ones and are kept as the record of what was measured; four of them no
+> longer name what they named, which is why their pins were retired rather than
+> re-aimed.
+>
+> | site (pre-fix) | what it starts | then | now |
+> |---|---|---|---|
+> | `relaunch.py:52` | the engine a relaunch brings back | broken | `enginelaunch.engine_argv` |
+> | `relaunch.py:146` | the detached helper that does the relaunch | broken | `enginelaunch.engine_argv` |
+> | `native.py:286` | the engine Chrome's native host starts | broken | `enginelaunch.engine_argv` |
+> | `autostart.py:48` | the Startup entry | broken ×3 | `engine_command` + conditional `cd` |
+> | `osschedule.py:65` | the Scheduled Task's interpreter | broken | `enginelaunch.runner` |
+> | `nativehost.py:57` | Chrome's launcher | **CORRECT — the precedent** | unchanged |
+>
+> **THE FIX IS ALREADY WRITTEN, ONCE, IN THIS REPOSITORY.** `nativehost.py:57` is
+> three lines and says exactly the right thing:
+>
+> ```python
+> if getattr(sys, "frozen", False):        # the PyInstaller build: run ourselves
+>     return sys.executable
+> ```
+>
+> So this is not a design problem. It is one helper the other four never got, and
+> the repair is to give them it rather than to write a fifth variation.
+>
+> **AND THE SECOND BUG AT EVERY SITE, which is quieter:**
+> `interpreter.with_name("pythonw.exe")`. Beside `scrapex-engine.exe` there is no
+> `pythonw.exe`, so `windowless.exists()` is always false and the console-hiding
+> falls back to the visible executable. That one degrades rather than breaks — but
+> it means a frozen autostart or Scheduled Task flashes a window on every tick,
+> which is the exact thing both of those comments say they exist to prevent.
+>
+> **`autostart.py:48` IS BROKEN A THIRD WAY, and it is the worst of them:**
+>
+> ```
+> cmd /c cd /d "{repo}" && "{runner}" -m scrapex.cli ui --port N >> engine.log
+> ```
+>
+> `repo` is `Path(__file__).resolve().parent.parent`. Inside a one-file build that
+> is the PyInstaller unpack directory under `%TEMP%`, **which is deleted when the
+> process exits.** So a frozen install that turns on autostart writes a Startup
+> entry pointing at a directory that will not exist at the next boot. `OP-34` is
+> why nobody would ever see why.
+ Not
+reproduced against a running frozen engine — read from the code and stated as such,
+because saying so is cheaper than a release to find out.
+
+`scrapex/relaunch.py:52` and `:146` both build the child process the same way:
+
+    [str(runner),      "-m", "scrapex.cli", "ui", ...]         # :52  _engine_command
+    [str(interpreter), "-m", "scrapex.cli", "relaunch", ...]   # :146 spawn_helper
+
+`interpreter` is `sys.executable`. Under PyInstaller **that is
+`scrapex-engine.exe`**, and its bootloader does not honour `-m`: those become plain
+arguments. So `engine_entry.main` receives
+
+    ["-m", "scrapex.cli", "ui", "--port", "8000", "--no-open"]
+
+strips the dash-arguments, finds `argv[0] == "scrapex.cli"`, does not recognise it,
+and **returns `serve()`**. The engine asks to be replaced and a mute native host
+arrives instead. `pythonw.exe` beside a frozen executable does not exist either, so
+`_engine_command`'s windowless branch silently picks the exe.
+
+Everything `tests/test_relaunch_log.py` and
+`tests/test_the_engine_survives_being_killed.py` assert is true of the SOURCE tree,
+where `sys.executable` really is a Python. The frozen case has never been exercised —
+same shape as `OP-32`, where the guarded thing and the shipped thing were different
+things.
+
+**Next action:** make the two command builders frozen-aware (`sys.frozen` →
+`[exe, "ui", ...]` with no `-m`), and have `OP-35`'s derived dispatch accept it. Then
+one test per builder asserting the frozen shape, which needs no real binary — only a
+patched `sys.frozen` and `sys.executable`.
+
+### OP-37 · ~~`main` went red at 12:00Z today and stays red, which blocks the engine release~~ — FIXED 2026-08-21
+
+> **CLOSED THE SAME DAY — AND TWICE, INDEPENDENTLY, WHICH IS THE INTERESTING PART.**
+> He instructed *«ابدأ بـ OP-35»* (its number before the #243 merge renumbered it),
+> and while this branch was writing the fix, [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243)
+> landed **the identical one line** on `main` from another session. Two sessions
+> reached the same repair without seeing each other, which is corroboration rather
+> than waste — and it is not an invention either: **the sibling test in this same
+> file's neighbour already uses the correct pattern for the same column.** `tests/test_a_crawl_says_what_it_saw.py:215` pins every row's
+> `last_seen_at` with a bare `UPDATE` and *then* overrides the one it is about. The
+> broken test pinned both sides of `last_seen_at` and only one side of
+> `first_seen_at`. One line closes the gap.
+>
+> **AND THE FIX WAS PROVED NOT TO HAVE NEUTERED THE TEST**, which is the real risk
+> when a red test goes green. Three mutations, three killed:
+>
+> | mutation | result |
+> |---|---|
+> | remove the new pin | **KILLED** — the bomb returns, so the fix is load-bearing |
+> | `row_state`: `first_seen_at >= newest` → `>` (**production code**) | **KILLED** — the `new` rule is still guarded |
+> | `row_state`: stop calling an unseen row `absent` (**production code**) | **KILLED** — the `absent` rule is still guarded |
+>
+> The two production mutations are the ones that matter: a test edited into
+> passing would have survived them.
+>
+> **AND ONE CORRECTION TO #243'S ACCOUNT, per C5.** Its comment calls this a
+> dependency on the TIME OF DAY — *"new for the whole afternoon and not at all in
+> the morning"*. That is true of **2026-08-21 alone**. From the next day onward
+> `now` is past `12:00:00Z` at every hour, so the test could never have passed
+> again at any time of day. The distinction decides what a reader does: told it is
+> time-of-day, they wait for the morning, and the morning never fixes it. The
+> comment in the test now says so. All 40 tests in the file pass, and the class
+> was swept — the other 13 files holding a hardcoded 2026 timestamp pass every
+> value to `row_state()` explicitly, so no `now` is involved, and **no
+> future-dated literal exists anywhere in `tests/`** that would arm the same bomb
+> for a later date.
+
+**The diagnosis, kept as written — the present tense below is that afternoon's.**
+It was the most urgent entry in this file, because `OP-32`'s next action could not
+be taken while it stood.
+
+    FAILED tests/test_a_dataset_is_a_table_like_any_other.py::
+           test_gone_and_new_are_measured_against_the_most_recent_crawl
+    assert 3 == 1   # "and the one that first appeared is new"
+
+**Reproduced on the untouched `main` checkout at `38a1e24`**, so it is not this PR's.
+
+**IT IS A TIME BOMB AND IT HAS GONE OFF.** The test hardcodes the newest crawl at
+`2026-08-21T12:00:00Z` (`tests/test_a_dataset_is_a_table_like_any_other.py:906`, and the row it
+means to single out at `:909`) and
+then sets **only the last row's** `first_seen_at` to the same stamp, expecting exactly
+one `new` row. But the other rows' `first_seen_at` is whatever `stored()` wrote at
+insertion — *now* — and `row_state` decides:
+
+    if first_seen_at is not None and first_seen_at >= newest:
+        return STATE_NEW
+
+At 2026-08-21T13:28Z, `now >= 2026-08-21T12:00:00Z` for **every** row, so all three
+are `new`. Proved by moving the stamp and nothing else:
+
+| the stamp | result |
+|---|---|
+| `2026-08-21T12:00:00Z` as committed | **FAIL**, 3 new |
+| `2027-08-21T12:00:00Z` | **pass** |
+
+**AND IT DOES NOT HEAL OVERNIGHT.** `now` only increases, so the comparison is true
+for ever from 12:00Z on 2026-08-21. This is not today's flake — **`main` is red from
+now on.** It passed every run before 12:00Z, which is why #235 merged green.
+
+**Why it blocks the release.** `.github/workflows/release-engine.yml` runs the whole
+suite in *"The engine must pass its own tests before it is shipped"* **before** it
+builds. So `git tag engine-v0.2.2` fails at that step, and `OP-32` — the thing the
+owner actually asked for — cannot ship until this is repaired. `R-18` (merge it when
+it is green) is also unsatisfiable for every open pull request while this stands.
+
+**The repair, which preserves what the test means.** Its intent is *one* row first
+appeared in the newest crawl and the others predate it. The `last_seen_at` lines two
+above already pin both sides explicitly; `first_seen_at` pins only one. Pin the other
+side too, rather than leaving it at insertion time:
+
+    conn.execute("UPDATE generic_record SET first_seen_at = '2026-01-01T00:00:00Z'")
+    conn.execute("UPDATE generic_record SET first_seen_at = '2026-08-21T12:00:00Z' "
+                 " WHERE generic_record_id = ?", (ids[-1],))
+
+**The class, and it is worth a `LESSONS` line if it recurs:** a test that compares a
+literal timestamp against `now` is only asserting anything while `now` is on the right
+side of it. Every such literal is a date on which the suite changes its mind.
+### OP-38 · "Not detected" is what the panel says about an engine that is installed and refusing
+
+**Status: OPEN.** The half of `OP-33` the #243 merge did not close, split out so it
+is not filed as fixed with it.
+
+An engine that refuses to start never binds a port. So `checkEngine` in
+`extension/engine.js` gets a connection error, and
+`extension/app.js:3416` reports:
+
+    text: "Not detected"      detail: "The panel could not reach the Engine."
+
+**That sentence is false in every case except one**, and it sends the reader to
+reinstall software that is already installed. The engine knew exactly what was
+wrong — *"This database was written by a later version (schema v8; this build reads
+v6)"* — and there was no channel to carry it. Same for a locked database, a busy
+port, a permissions fault, or a half-written config.
+
+**The states are already distinguished where they CAN be**: `Not running`,
+`Installed, not running`, `Check timed out` and `Incompatible` all exist and are
+reasoned about in `engineStatusFromState`. The gap is only the case where nothing
+answers at all — and it is the case a stuck user is in.
+
+**The cheapest honest fix is not a protocol.** A refusal already knows how to write
+a line; it just has nowhere durable to write it (`OP-34`). If a failed start left a
+one-line reason where the panel could read it, "Not detected" could become "Installed,
+but it stopped: …". Fixing `OP-34` and this entry are the same work.
+
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product

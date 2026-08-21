@@ -13,8 +13,9 @@ says in its own header who wrote it and how to remove it.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
+
+from . import enginelaunch
 
 LAUNCHER_NAME = "ScrapeX Engine.vbs"
 DEFAULT_ENGINE_PORT = 8000     # mirrors native.DEFAULT_ENGINE_PORT (import-free
@@ -40,13 +41,17 @@ def _command(port: int) -> str:
     come up. pythonw where it exists so nothing can flash a console; the
     VBS run-style 0 hides the cmd window itself.
     """
-    interpreter = Path(sys.executable)
-    windowless = interpreter.with_name("pythonw.exe")
-    runner = windowless if windowless.exists() else interpreter
-    repo = Path(__file__).resolve().parent.parent
+    launch = enginelaunch.engine_command("ui", "--port", str(int(port)))
+    # THE cd IS CONDITIONAL NOW, and it is the sharpest fix here. A one-file
+    # build unpacks into a directory under %TEMP% that is DELETED when the
+    # process exits, so the old unconditional `cd /d
+    # Path(__file__).parent.parent` wrote a Startup entry naming a directory
+    # that would not exist at the next boot -- and `OP-34` is why nobody
+    # would ever see why (`OP-36`).
+    directory = enginelaunch.working_directory()
+    prefix = f'cd /d "{directory}" && ' if directory is not None else ""
     log = Path.home() / ".scrapex" / "engine.log"
-    return (f'cmd /c cd /d "{repo}" && "{runner}" -m scrapex.cli ui '
-            f'--port {int(port)} >> "{log}" 2>&1')
+    return f'cmd /c {prefix}{launch} >> "{log}" 2>&1'
 
 
 def install(port: int = DEFAULT_ENGINE_PORT) -> Path:
