@@ -694,6 +694,12 @@ ways out, and the choice has data consequences:
 
 *Recommended: (a), and it is only cheap because nothing has to be re-fetched.*
 
+**RULED 2026-08-21 — (a).** → [R-28](RULINGS.md#r-28--the-74-approved-pages-are-wiped-and-re-approved-from-disk).
+**What remains of OP-25 is option (c) alone**: schema-drift review still does not
+exist, the error message still points at it, and it was passed over for timing
+rather than on merit. It stays open here as the part that serves every future
+source.
+
 ### OP-26 · The contractor directory can be COLLECTED but not MAINTAINED
 
 **MEASURED 2026-08-21**, answering [REQ-22](REQUESTS.md#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update).
@@ -739,7 +745,7 @@ routine.
 >
 > | | |
 > |---|---|
-> | `unavailable` | the site is not showing this contractor **right now** — reversible, and the row comes back on the next crawl that sees it |
+> | `unavailable` | the site is not showing this contractor **right now** — reversible, and the row comes back on the next crawl that sees it. **RULED 2026-08-21: this one** → [R-29](RULINGS.md#r-29--a-contractor-the-site-stops-showing-is-unavailable-not-retired) |
 > | `retired` | it is gone, and the row is history |
 >
 > A directory that reorders and churns by 25 rows a night will produce both, and
@@ -924,6 +930,126 @@ this a `SyntaxError`**, and then the file stops importing. The fix is one charac
 `r"""` — and it is filed rather than folded into an unrelated pull request because a
 warning that has been printing for a while is not an emergency, and because a
 docstring quoting a path is exactly the case that will recur.
+
+### OP-30 · Two migration ledgers, one number space — and engine `0006` is the first to collide
+
+**Found on the owner's LIVE warehouse, 2026-08-21, while upgrading it at his
+instruction.** The upgrade backed the file up, applied both migrations correctly, and
+then **refused to stamp them**, leaving a warehouse no current build can open.
+
+```
+engine migration 0006_a_row_says_when_it_was_last_proved_absent.sql
+checksum changed; restore the original migration file and retry
+```
+
+**The message is wrong about the cause, which is what made this take a while.** No
+migration file changed. `database_migration` is `migration_number INTEGER PRIMARY
+KEY` — **one number space** — and the collapsed warehouse carries **two streams** in
+it:
+
+| numbers | stream | applied |
+|---|---|---|
+| 1–5 | the **engine**: `schema.sql`, `0002…` – `0005_a_snapshot_says_how_it_is_encoded.sql` | 2026-08-20 |
+| 6–55 | the **price** database, carried over: `0006_change_event.sql` – `0057_the_weight…` | 2026-07-31 |
+
+So `_verify_checksums` looks up **number 6**, finds `0006_change_event.sql`'s digest,
+compares it against engine `0006`'s, and reports a changed checksum. The row keyed 6
+is not engine migration 6 — **it is a foreign row.**
+
+**WHY THIS WAS LATENT UNTIL NOW, EXACTLY.** Engine migrations had only ever reached
+`0005`. Number 6 is the first the engine has ever wanted, and #235 is what introduced
+it. Every earlier engine migration fitted below the carried-over range by luck.
+
+**WHY NO TEST AND NO CI RUN COULD HAVE CAUGHT IT, which is the part worth keeping.**
+A fresh `init-db` writes only the engine's own rows, so the number space is empty
+above 5 and nothing collides. **CI always starts from a fresh database**, and 273
+tracked test files plus the `migration-authority` job — which runs the whole suite
+against the real migration stream — all pass. The collision needs a warehouse that
+*carried over from marketlens*, and no test has one. That is the same class of gap as
+`R-24`: the upgrade path is only exercised by a real user's file.
+
+**WHO IT HITS.** Every installation that carried over from the price database, the
+moment it upgrades past engine `0005`. A fresh installation is unaffected.
+
+### What the state actually is, measured rather than feared
+
+| | |
+|---|---|
+| `PRAGMA integrity_check` | **ok** |
+| both migrations | **applied** — `dataset_sighting.last_absent_at` and `generic_record.node_id` are both there, `generic_record_field_change` exists |
+| `user_version` | **7**, correct for the applied schema |
+| rows | **every one of 53 tables unchanged** except `generic_page_snapshot` +6, which is the crawl writing six more pages before it was stopped |
+| the backup | verified restorable: integrity ok, v5, 16,781 sightings, 9,526 snapshots, 1,172 records |
+
+**So no data was lost and the schema is right.** What is wrong is four fields in a
+ledger — and `connect()` verifies that ledger, so the warehouse is unopenable until it
+is fixed. **The crawl cannot resume until then either**, because `open_engine` goes
+through the same `connect()`.
+
+### The fix, and why it is not "renumber and move on"
+
+The engine's verification keys on a number that another stream also owns. The honest
+reading is that **it should key on the migration NAME**, which is unique across both
+streams, and that a name with no row is simply unstamped. Three ways, and the choice
+has data consequences:
+
+- **(a) Verify and stamp by `migration_name`.** Smallest change, and it makes the
+  foreign rows harmless rather than fatal. `migration_number INTEGER PRIMARY KEY`
+  means a new row cannot reuse 6, so the number becomes `MAX(number)+1` and stops
+  meaning "position in the stream" — which it already does not mean, given two streams
+  share it.
+- **(b) Namespace the ledger** with a `stream` column, keyed `(stream, number)`, and
+  backfill the carried-over rows as `price`. Correct, and it is a migration that has
+  to run *before* verification — the ordering is the whole difficulty.
+- **(c) Have `carry_over` not bring the price ledger across at all,** and repair
+  existing warehouses. Cleanest in the long run and the largest change; it also
+  discards a record of what the price database did, which `C4` reasoning says to keep.
+
+*Recommended: (a) now, because it unblocks a live warehouse and makes the failure
+impossible rather than deferred; (b) or (c) as the real model, once he rules.*
+**Not started — his call, on live data.**
+
+### OP-31 · Six crawl workers starve another process out of the warehouse
+
+**Measured 2026-08-21, minutes after `--workers` was built, by using it.** The owner
+asked for the Engine to be started while a six-worker crawl was running. It refused:
+
+```
+sqlite3.OperationalError: database is locked
+  scrapex/jobs.py:932  record_worker_failure
+```
+
+Every connection sets `busy_timeout = 5000`, so a writer waits five seconds before
+giving up. **Six concurrent writers kept it waiting longer than that** — so the
+failure is not a missing timeout, it is a timeout that is too short for the load the
+new flag can create.
+
+**THIS IS A COST OF `--workers`, NOT A DEFECT IN THE ENGINE**, and it was not measured
+before the flag was written. `R-21` is about pacing outbound requests per site and it
+says nothing about how many writers one SQLite file will tolerate — the concurrency
+was designed against the site's tolerance and not the warehouse's.
+
+**What is NOT wrong:** the crawl itself. WAL lets readers proceed throughout, the
+workers wait for each other correctly, and no row was lost — `integrity_check` is ok
+and 53 table counts were unchanged across the whole run. The contention is with
+*other processes*, which is exactly what a background crawl is supposed not to do.
+
+Three ways out, and the choice is a trade:
+
+- **(a) Raise `busy_timeout` for the crawl's own connections only.** Smallest, and it
+  makes the crawl wait for the Engine rather than the reverse — the right priority,
+  since the Engine is what the user is looking at. Does not help a third process.
+- **(b) Serialise the crawl's WRITES behind one lock** while leaving the fetches
+  concurrent. The DB work is milliseconds against a six-second fetch, so this costs
+  almost nothing and bounds the contention at one writer regardless of `--workers`.
+  Larger change to `snapshotcrawl`'s write path.
+- **(c) Cap `--workers` by measurement** rather than by the latency ratio alone, and
+  say in the help what it costs. Cheapest to write, weakest guarantee.
+
+*Recommended: (b) — it is the only one that makes the guarantee independent of how
+many workers are asked for, and the cost is bounded by arithmetic rather than by
+hoping. (a) as an immediate mitigation.*
+**Not started.**
 
 ## 3. Decided, not yet built
 
@@ -1629,7 +1755,14 @@ with HTTP 429.
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
 
-**Q-14 · What identifies an ACCOUNT, so a database can belong to one?**
+**Q-14 · ~~What identifies an ACCOUNT, so a database can belong to one?~~ — ANSWERED 2026-08-21: (a), the signed-in address.**
+→ [R-34](RULINGS.md#r-34--an-account-is-the-signed-in-address-and-a-warehouse-records-whose-it-is).
+He settled it by naming one: «اجعلها تخص حساب muhammad.bayoumi.ali@gmail.com», and
+his own warehouse now carries it in `scrapex_meta.account_owner`. The options and
+the reasoning are kept below, because the trade-off is the only place the two
+rejected halves are written down.
+
+**Q-14 (as asked) · What identifies an ACCOUNT, so a database can belong to one?**
 `REQ-26`. He ruled that a database belongs to one account and not to everyone on the
 machine, and that two Chrome profiles with two accounts get two databases. Measured:
 **no account concept exists** — `DATABASE_ROOT` is `~/.scrapex` per operating-system
@@ -1681,6 +1814,9 @@ built. Costs ~235 MB and ~28 s per full re-extraction.
 **7x faster to write** than (b), at the price of (a)'s bespoke work everywhere.
 *Recommended: (b). It wins or ties every operational criterion; (c) is the fallback if
 the storage figure is judged too high.*
+
+**RULED 2026-08-21 — (b)**, after he asked for the three to be compared **on time**
+specifically. → [R-30](RULINGS.md#r-30--r-19-is-built-as-child-datasets-whose-value-references-a-taxonomy).
 
 **Two things found on the way that need his eye regardless of the option chosen:**
 R-19's own sample reported the licensed-activities table as *"one row — the header

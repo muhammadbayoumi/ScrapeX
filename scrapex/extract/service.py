@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sqlite3
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -254,6 +255,61 @@ def _approved_ingestion(
     ).fetchone()
 
 
+def _retire_or_refuse(conn: sqlite3.Connection, active_version_id: int,
+                      approval: CandidateApproval) -> None:
+    """A GROWN schema opens a new version; a SHRUNK one is still refused.
+
+    `R-31`. Until 2026-08-21 any difference from the approved field set raised
+    `ExtractionConflict`, whose own message pointed at "schema-drift review support"
+    that did not exist. It could not have existed: reaching version 2 requires the
+    active version to be retired, and `valid_to` was READ in five places and written
+    in none. So a site that added a field could never be recorded at all.
+
+    THE RULE IS DIRECTIONAL, AND THAT IS THE WHOLE SAFETY OF IT.
+
+        every approved field still present, plus new ones  ->  retire, open v2
+        a field missing, renamed or re-keyed               ->  refuse, as before
+
+    #234 IS WHY, and it is the case that makes the naive version wrong. `region_id=0`
+    publishes contractors with no location box, so its 74 pages taught a schema of 21
+    fields where the declared set is 22 — a SUBSET — and 823 pages were refused. Had
+    any drift opened a new version, that parser would have quietly retired a column
+    the site still publishes, and every row after it would have lost `card_city_region`
+    with nothing raised. A subset is the signature of a bad sample or a broken parser,
+    never of a site adding information.
+
+    A RENAME LOOKS LIKE A SUBSET PLUS A SUPERSET and is therefore refused, which is
+    the honest outcome: nothing here can tell `card_city` renamed to `card_town` from
+    one field vanishing and another appearing, and guessing would silently orphan
+    every value already stored under the old key.
+    """
+    approved = {
+        str(row["field_key"]) for row in conn.execute(
+            "SELECT f.field_key FROM schema_version_field AS svf "
+            "  JOIN field_definition AS f "
+            "    ON f.field_definition_id = svf.field_definition_id "
+            " WHERE svf.schema_version_id = ?", (active_version_id,))
+    }
+    now = {one.field_key for one in approval.fields}
+    lost = sorted(approved - now)
+    if lost:
+        raise ExtractionConflict(
+            f"This dataset's approved schema has {len(approved)} field(s) and this "
+            f"page declares {len(now)}, dropping {lost!r}. A field the site still "
+            "publishes must not be retired by one page's sample — that is how "
+            "region_id=0's 74 pages refused 823 others (#234). Fix the parser, or "
+            "use a new dataset key if the directory really has changed shape."
+        )
+    gained = sorted(now - approved)
+    conn.execute(
+        "UPDATE dataset_schema_version "
+        "   SET valid_to = strftime('%Y-%m-%dT%H:%M:%SZ','now'), status = 'retired' "
+        " WHERE schema_version_id = ?", (active_version_id,))
+    logging.getLogger(__name__).info(
+        "schema grew by %s; version %s retired, a new one opens",
+        gained, active_version_id)
+
+
 def _ensure_schema(
     conn: sqlite3.Connection,
     dataset_id: int,
@@ -274,10 +330,7 @@ def _ensure_schema(
         (dataset_id,),
     ).fetchone()
     if active is not None:
-        raise ExtractionConflict(
-            "This dataset already has a different approved schema. Use a new dataset "
-            "key, or wait for schema-drift review support before retrying."
-        )
+        _retire_or_refuse(conn, int(active["schema_version_id"]), approval)
     version_row = conn.execute(
         "SELECT COALESCE(MAX(version_number), 0) + 1 AS next_version "
         "FROM dataset_schema_version WHERE dataset_definition_id = ? LIMIT 1",

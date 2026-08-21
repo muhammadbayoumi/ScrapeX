@@ -63,7 +63,7 @@ demanded more than it needed, and 823 pages refused by one column.
 The residual crawl of the nine heavy cells is **live** and resumable
 ([R-26](RULINGS.md#r-26)). As of 2026-08-21 08:06 it had stored **3,563 listing
 pages** across all 56 cells; by 07:13 it was **5,458**, and the ledger held
-**15,782 distinct ids of the listing's 17,414 — 90.6%**. Stored *records* remain 1,172 because `OP-25`'s
+**THE LISTING IS COMPLETE: 17,414 of 17,414 distinct ids, `D = 0`** (2026-08-21). Stored *records* are 15,707 and climbing, because `OP-25` was
 extraction route is deferred by `R-25`; the gap between the two numbers, 14,101, is
 exactly the question the sightings ledger exists to answer.
 
@@ -321,6 +321,29 @@ cells proven complete 47 of 56          1,982 snapshots, all zstd-raw-dict
 **The exhaustiveness audit came back 0 on live data** and 47 cells closed with `D=0`.
 The deficit is concentrated in the **6 cells above the 31-page witness ceiling**
 (D=3,680) plus three small cells short by 1, 1 and 8.
+
+**CLOSED 2026-08-21: `D = 0`. 17,414 of 17,414 distinct ids.** The plan opened this
+track at a deficit of 3,690.
+
+The last 633 were held by a defect in the stop condition, not by the site. **A resumed
+cell reads its ids back off disk** — that is what storing pages is for — so `gained == 0`
+was true of a pure replay, and the dry-stop believed it:
+
+```
+region_id_1-company_size_verysmall: 3,125 of 4,699, D=1,574 [3 attempt(s), 5 requests]
+```
+
+Five requests for a cell holding 4,699 rows. The report was telling the truth and
+nothing compared its two numbers. An attempt now counts as dry only if
+`attempt.pages_read > 0`, in the loop and in `went_dry` both — and the five heavy cells
+went and asked. Recorded in [LESSONS](LESSONS.md): *a stop condition that measures
+progress must exclude the work it replays.*
+
+**And conditional requests will not make the recurring pass cheap on this source.**
+Measured with one request: no `ETag`, no `Last-Modified`, `Cache-Control: no-cache,
+private` — a Laravel app minting a fresh XSRF token per response. `fetch_validator`
+holding 0 rows is correct. `R-20`'s `content_hash` comparison still spares the history;
+the bandwidth is not reducible here.
 
 **And the 3,690 was partly the method's own fault, which is the finding.**
 `provably_complete` required the witness AND the count — so a cell too large to hold

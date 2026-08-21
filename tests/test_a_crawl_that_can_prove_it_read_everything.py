@@ -33,6 +33,7 @@ import pytest
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.pagesource import WHOLE, Cell
 from scrapex.partitioncrawl import (
+    DRY_ATTEMPTS,
     NotASubdivision,
     ScopeNotPartitionable,
     crawl_partition,
@@ -1076,3 +1077,253 @@ def test_a_top_level_run_still_audits_against_the_whole_listing(conn):
     assert outcome.whole.declared == 8
     assert outcome.exhaustiveness_deficit == 0
     assert "PROVABLY COMPLETE for the listing as published" in str(outcome)
+
+
+# ---- a cell is left alone when the reads stop returning anything -------------
+#
+# MEASURED ON THE OWNER'S OWN CRAWL, which is the whole reason this exists. The
+# residual run fetched 7,898 pages against the first crawl's 1,982, and its last 43
+# minutes of continuous fetching produced ZERO new ids: 1,125 -> 459 -> 50 -> 7 -> 1
+# -> 902 -> 87 -> 2 -> nothing. `HEAVY_ATTEMPTS` is an ALLOWANCE, not a stopping rule,
+# so a cell that had converged kept being read until the allowance ran out.
+
+
+def never_converges(directory, label, hidden):
+    """A fetch that rolls after every read AND never serves ONE PARTICULAR row.
+
+    Rolling is the existing idiom in this file: no read is internally consistent, so
+    the witness can never carry the cell. Withholding a row is what stops the COUNT
+    proof too, so the union can only ever reach `declared - 1` — the exact shape a
+    fixed allowance burns ten reads on for nothing.
+
+    A FIXED ROW, AND THE FIRST ATTEMPT AT THIS GOT IT WRONG. Dropping "one card from
+    page 2" drops a DIFFERENT id each read once the order is rolling, so every id
+    appears eventually and the union reaches the declared count after all. It has to
+    be the same row every time.
+
+    SIZING IS UNAFFECTED because `hidden` starts on a middle page: `size_cell` reads
+    page 1 and the last page before anything has rolled, so the cell still declares
+    its true size.
+    """
+    anchor = f'<a href="/en/row/{hidden}/143">row</a>'
+
+    def fetch(url: str) -> str:
+        html = directory.fetch(url)
+        order = directory._order[label]
+        directory.roll(label, order[1:] + order[:1])
+        return html.replace(anchor, "", 1)
+    return fetch
+
+
+def test_a_cell_whose_reads_go_dry_is_not_read_to_its_allowance(conn):
+    """Two consecutive reads that add nothing end it, however much allowance is left."""
+    register(conn)
+    ids = [str(400 + n) for n in range(12)]
+    one = cell(region_id=1)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+    partition = Partition(directory, cells=(one,))
+
+    outcome = crawl_partition(
+        conn, partition, BASE, fetch=never_converges(directory, one.label, ids[5]),
+        run_ref="run-1", dataset_key="rows", retry_page_ceiling=1,
+        heavy_attempts=10, resize_at_end=False)
+
+    only = outcome.cells[0]
+    assert not only.provably_complete, "the fixture must not let it close"
+    assert len(only.attempts) < 10, "it used its whole allowance"
+    assert len(only.attempts) >= DRY_ATTEMPTS + 1, "it stopped before it had evidence"
+    assert only.went_dry()
+
+
+def test_a_cell_that_closes_on_a_proof_is_never_reported_as_dry(conn):
+    """The proof is why it stopped. Reporting dryness would misstate the reason."""
+    register(conn)
+    ids = [str(500 + n) for n in range(8)]
+    one = cell(region_id=2)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+    partition = Partition(directory, cells=(one,))
+
+    outcome = run(conn, partition, directory, cells=(one,))
+
+    only = outcome.cells[0]
+    assert only.provably_complete
+    assert not only.went_dry()
+
+
+def test_dry_attempts_decides_how_long_it_keeps_reading(conn):
+    """One dry read is not evidence: a cell is a randomised ordering, so a pass can
+    repeat the last one and the next can still surface new ids. The parameter has to
+    actually change the behaviour, or it is a comment pretending to be a setting."""
+    register(conn)
+    lengths = {}
+    for wanted in (1, 3):
+        ids = [str(600 + n) for n in range(12)]
+        one = cell(region_id=3 + wanted)
+        directory = Directory({"whole": list(ids), one.label: list(ids)})
+        outcome = crawl_partition(
+            conn, Partition(directory, cells=(one,)), BASE,
+            fetch=never_converges(directory, one.label, ids[5]),
+            run_ref=f"run-{wanted}", dataset_key="rows", retry_page_ceiling=1,
+            heavy_attempts=10, dry_attempts=wanted, resize_at_end=False)
+        lengths[wanted] = len(outcome.cells[0].attempts)
+
+    # NOT AN EXACT COUNT, and the first version of this asserted one and was wrong.
+    # The fixture rolls after EVERY fetch, so a single attempt reads its three pages
+    # across three different orderings and does not see the whole cell — which is
+    # what a rolling cache really does. The number of attempts therefore depends on
+    # the fixture's rotation arithmetic, and pinning it would test the fake. What
+    # matters is that the parameter DECIDES, and that neither value burns the
+    # allowance.
+    assert lengths[1] < lengths[3], lengths
+    assert max(lengths.values()) < 10, lengths
+
+
+def test_the_ids_it_did_find_are_still_recorded(conn):
+    """Stopping early must not cost coverage of what WAS seen — filling the ledger is
+    the thing the whole method exists for."""
+    register(conn)
+    ids = [str(700 + n) for n in range(12)]
+    one = cell(region_id=6)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+
+    crawl_partition(conn, Partition(directory, cells=(one,)), BASE,
+                    fetch=never_converges(directory, one.label, ids[5]), run_ref="run-1",
+                    dataset_key="rows", retry_page_ceiling=1, heavy_attempts=10,
+                    resize_at_end=False)
+
+    stored = {row[0] for row in conn.execute(
+        "SELECT external_id FROM dataset_sighting")}
+    assert len(stored) == 11, f"saw {len(stored)} of 12 — one row is never served"
+    assert stored < set(ids)
+
+
+# ---- cells crawled concurrently, and the rate NOT raised --------------------
+#
+# The wall clock of a real crawl is muqawil's ~6 s latency, not our 1 s pace, and the
+# cells are independent — which is the same property that makes each one provable. So
+# overlapping them is the whole win. `HttpFetcher._throttle` had to become
+# thread-safe first: measured 2026-08-21, four workers made 20 requests in 1.02 s
+# where 3.80 s was owed. Concurrency without that would have quadrupled the real
+# request rate against a live site and reported itself as a speedup.
+
+
+def _pool_run(conn, registry, partition, directory, cells, **kwargs):
+    return crawl_partition(
+        conn, partition, BASE, fetch=directory.fetch, run_ref="run-1",
+        dataset_key="rows", cells=cells, connect=registry.engine.connect, **kwargs)
+
+
+@pytest.fixture()
+def registry(tmp_path: Path):
+    one = DatabaseRegistry(EngineDatabase(tmp_path / "pool-engine.db"),
+                           pointer_file=tmp_path / "pool.json")
+    one.initialize()
+    return one
+
+
+def _four_cells(directory_cells):
+    return tuple(cell(region_id=n) for n in range(1, 5)), directory_cells
+
+
+def test_every_cell_is_crawled_when_the_work_is_shared(registry):
+    """Four workers, four cells, and nothing may be dropped or done twice."""
+    conn = registry.engine.connect()
+    try:
+        conn.execute(
+            "INSERT INTO site_profile (site_key, display_name, base_url, crawl_scope) "
+            "VALUES ('site_test','A site',?, 'listing_only')", (BASE,))
+        conn.commit()
+        ids = {n: [str(n * 100 + k) for k in range(8)] for n in range(1, 5)}
+        cells = tuple(cell(region_id=n) for n in range(1, 5))
+        directory = Directory({"whole": [x for v in ids.values() for x in v],
+                               **{c.label: list(ids[n]) for n, c in
+                                  zip(range(1, 5), cells, strict=True)}})
+        partition = Partition(directory, cells=cells)
+
+        outcome = _pool_run(conn, registry, partition, directory, cells, workers=4)
+
+        assert [one.size.cell.label for one in outcome.cells] == [
+            c.label for c in cells], "cells must be reported in the PLAN's order"
+        assert all(one.provably_complete for one in outcome.cells)
+        assert len(outcome.ids) == 32
+    finally:
+        conn.close()
+
+
+def test_the_sightings_of_every_worker_reach_the_ledger(registry):
+    """Each worker writes on its own connection; none may be lost to the others."""
+    conn = registry.engine.connect()
+    try:
+        conn.execute(
+            "INSERT INTO site_profile (site_key, display_name, base_url, crawl_scope) "
+            "VALUES ('site_test','A site',?, 'listing_only')", (BASE,))
+        conn.commit()
+        ids = {n: [str(n * 100 + k) for k in range(8)] for n in range(1, 5)}
+        cells = tuple(cell(region_id=n) for n in range(1, 5))
+        directory = Directory({"whole": [x for v in ids.values() for x in v],
+                               **{c.label: list(ids[n]) for n, c in
+                                  zip(range(1, 5), cells, strict=True)}})
+
+        _pool_run(conn, registry, Partition(directory, cells=cells), directory,
+                  cells, workers=4)
+
+        stored = {row[0] for row in conn.execute(
+            "SELECT external_id FROM dataset_sighting")}
+        assert stored == {x for v in ids.values() for x in v}
+    finally:
+        conn.close()
+
+
+def test_without_a_connect_factory_it_stays_sequential(conn):
+    """`workers` alone must not silently share one connection across threads —
+    `sqlite3` refuses that, and refusing to try is better than discovering it."""
+    register(conn)
+    ids = [str(800 + n) for n in range(8)]
+    one = cell(region_id=1)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+
+    outcome = crawl_partition(conn, Partition(directory, cells=(one,)), BASE,
+                              fetch=directory.fetch, run_ref="run-1",
+                              dataset_key="rows", cells=(one,), workers=8)
+
+    assert outcome.cells[0].provably_complete
+
+
+def test_a_replayed_attempt_does_not_count_as_a_dry_read(conn):
+    """FOUND BY RUNNING IT ON HIS OWN RESUMED CRAWL, not by reading the code.
+
+    A resumed attempt has its already-stored pages removed by `_Unstored` and its
+    ids recovered off disk, so it returns EXACTLY what the previous attempt did. It
+    gains zero **by construction**, not because the site has run out — and counting
+    that as a dry read made the stop fire on the first two replays and abandon the
+    cell:
+
+        region_id_1-company_size_verysmall: 3,125 of 4,699, D=1,574
+                                            [3 attempt(s), 5 REQUESTS]
+
+    Five requests for a cell of 1,291 pages. `pages_read` is the FETCHED count, so
+    zero means the attempt asked the site nothing and can say nothing about it.
+    """
+    register(conn)
+    ids = [str(900 + n) for n in range(12)]
+    one = cell(region_id=9)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+
+    # A first run stores every page of the cell.
+    crawl_partition(conn, Partition(directory, cells=(one,)), BASE,
+                    fetch=directory.fetch, run_ref="first", dataset_key="rows",
+                    cells=(one,), resize_at_end=False)
+
+    # A SECOND run with the SAME ref: every page is already stored under it, so each
+    # attempt is a pure replay — `pages_read` is 0 and no attempt may be called dry.
+    outcome = crawl_partition(
+        conn, Partition(directory, cells=(one,)), BASE, fetch=directory.fetch,
+        run_ref="first", dataset_key="rows", cells=(one,), resize_at_end=False,
+        retry_page_ceiling=1, heavy_attempts=4)
+
+    only = outcome.cells[0]
+    replays = [a for a in only.attempts if a.pages_read == 0]
+    assert replays, "the fixture must actually produce a replayed attempt"
+    assert not only.went_dry(), (
+        "a replayed attempt fetched nothing and cannot be evidence that the site "
+        "has nothing left")

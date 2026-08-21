@@ -81,7 +81,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
 | [REQ-24](#req-24--a-shipped-command-so-a-new-user-can-crawl-the-directory-at-all) | A shipped command, so a new user can crawl the directory at all | **Done** — `scrapex contractors`; the panel path is still missing | 2026-08-21 |
 | [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — half exists (`active: false`, `TBD-probe`); the category and the single registry do not | 2026-08-21 |
-| [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **Planned** — blocked on `Q-14`: no account concept exists at all | 2026-08-21 |
+| [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **In flight** — `Q-14` answered (`R-34`): the account is the signed-in address, and his warehouse records it; the per-account layout remains | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
 
 ---
@@ -938,9 +938,9 @@ Built as **one parameter and one refusal**:
 
 | | where | what it does |
 |---|---|---|
-| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:811` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
+| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:972` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
 | `Cell.is_under(other)` | `scrapex/pagesource.py:146` | subset-hood expressed in filters — adding a filter can only narrow, so a child carrying all of the parent's name/value pairs selects a subset, **in any order** |
-| `NotASubdivision` | `scrapex/partitioncrawl.py:804` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
+| `NotASubdivision` | `scrapex/partitioncrawl.py:965` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
 | `PartitionOutcome.parent` / `.scope` / `.nested` | | so the report says what it audited, and a nested proof reads *"PROVABLY COMPLETE FOR cell … — AND FOR THAT CELL ONLY"* rather than claiming the listing |
 
 Guarded by seven tests in `tests/test_a_crawl_that_can_prove_it_read_everything.py`
@@ -1106,7 +1106,15 @@ views over one table. Merging is correct and is a migration over live rows.
 ---
 
 ## REQ-26 · A database per account, not per machine
-**Captured 2026-08-21 · Planned · blocked on `Q-14`**
+**Captured 2026-08-21 · In flight — the identity is settled, the layout is not**
+
+> **`Q-14` ANSWERED 2026-08-21 → [R-34](RULINGS.md#r-34--an-account-is-the-signed-in-address-and-a-warehouse-records-whose-it-is).**
+> The account is the **signed-in address**, and his own warehouse now records it in
+> `scrapex_meta.account_owner`. What remains is engineering rather than a decision:
+> `DATABASE_ROOT` is still `~/.scrapex`, one directory per operating-system user, so
+> a per-account root is the next step — and enforcement waits for it, because
+> refusing a warehouse claimed by someone else before there is anywhere else to go
+> would lock him out of the only one there is.
 
 > «كيف تتعامل الاداة مع الحسابات المختلفة يعنى انا لو عامل sign in بكذا حساب
 > المفروض قاعدة البيانات تخص حساب واحد لا تخص الجميع لكل حساب قاعدة بيانات · وايضا

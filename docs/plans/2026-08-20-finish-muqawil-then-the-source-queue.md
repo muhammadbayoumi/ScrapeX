@@ -103,6 +103,42 @@ performance defect measured on 2026-08-21 (see below).
 
 ---
 
+## HOW MUCH IS LEFT — asked 2026-08-21, answered by counting
+
+> «قولى ناقص اد اى للانتهاء من خطة مقاول»
+
+Thirty boxes. **Eighteen are done, two are answered by measurement rather than built,
+and ten are open — of which only SIX are muqawil engineering.**
+
+| | | |
+|---|---|---|
+| **done** | 18 | including the listing crawl, now `D = 0` |
+| **answered, not built** | 2 | conditional requests (the site sends no validator); `detail_urls` (the claim was wrong) |
+| **open — muqawil engineering** | **6** | below |
+| **open — elsewhere** | 1 | the panel path, tracked in [the tool's plan](2026-08-21-the-tool-itself.md) |
+| **open — his to rule** | 3 | `STORAGE.md` §5, `O-2` (parked by him), `DEC-10` |
+
+**The six, in the order they should be taken, with the cost measured not guessed:**
+
+| | item | cost | why this order |
+|---|---|---|---|
+| 1 | `status = 'unavailable'` on a departed row | **~1 h** | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
+| 2 | State the resume cost in the tool's output | **~20 min** | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
+| 3 | `is_enabled` has 0 callers | **~1 h** | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
+| 4 | The slice scope, unused for muqawil | **~1 h** | Built and tested; wiring it is what makes a partial re-read addressable. |
+| 5 | The profile crawl — 34,806 pages | **~2 h to wire, ~17.4 h to run** | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
+| 6 | `R-19` child tables, all five groups | **~1 day** | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
+
+**So: about a day and a half of work, plus roughly eighteen hours of crawling that runs
+unattended.** Two of the six are under an hour each and one of those is already ruled.
+
+**What could still move that number:** `DEC-10`. Without a row-aware idempotency key, a
+corrected parser re-run over stored snapshots reports `recovered=True` and writes
+nothing — so a mistake in item 5 or 6 costs a re-crawl instead of a re-parse. It is the
+one open decision that changes the *cost* of the remaining work rather than its scope.
+
+---
+
 ## THE CHECKLIST — everything open on muqawil, and whose turn it is
 
 **His instruction, 2026-08-21:** «احصر كل التعديلات المطلوبة فى مقاول ولم يتم تنفيذها
@@ -156,10 +192,16 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 - [x] The provable partitioned listing crawl (#233)
 - [x] Both completeness proofs, witness and count (#234, open)
 - [x] `--only` so the residual is addressable without re-reading proven cells
-- [ ] **Close the 3,690 deficit.** Running in the background under
-      [R-26](../RULINGS.md#r-26--the-residual-crawl-runs-in-the-background-while-development-continues-and-must-be-stoppable).
-      Three cells cannot be witnessed at any size — RIYADH twice, JEDDAH — and close by
-      counting or report their deficit exactly.
+- [x] **Close the deficit — `D = 0`. 17,414 of 17,414, a PROVABLE 100%** (2026-08-21).
+      Three cells cannot be witnessed at any size — RIYADH twice, JEDDAH — and they
+      closed by **counting**, exactly as [R-26](../RULINGS.md#r-26--the-residual-crawl-runs-in-the-background-while-development-continues-and-must-be-stoppable)
+      allowed.
+      **What actually took the last 633: the dry-stop was counting REPLAYED attempts.**
+      A resumed cell read its ids back off disk, gained nothing new, and the crawl
+      called that "dry" after two such rounds — so the five heaviest cells stopped
+      without ever asking the site. Fixed by requiring `attempt.pages_read > 0` before
+      an attempt can count as dry, in the loop **and** in `went_dry`. Then 631 new
+      contractors arrived: `D` fell **633 → 0**. The number the plan opened with was 3,690.
 - [x] **`REQ-21`: the nested audit** — `crawl_partition(..., parent=Cell)` audits
       `Σ N_child` against the parent cell, `Cell.is_under` decides membership as a set
       question so filter order cannot matter, and `NotASubdivision` refuses a child
@@ -224,26 +266,50 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       **30 hierarchical interest values in 6 groups** — about 500K rows. Ruled, unbuilt.
 - [ ] **The profile crawl**, 34,806 pages both locales. Must run with `body_class` set
       so the pages arrive compressed — `snapshotcrawl` already does it.
-- [ ] **Conditional requests on the recurring pass.** `HttpFetcher` replays `ETag`, so
-      an unchanged profile answers **304 with no body**. This is what makes maintaining
-      48 columns affordable, and it has never been exercised on this source.
+- [~] **Conditional requests on the recurring pass — BUILT, AND THIS SOURCE CANNOT USE
+      THEM.** Measured 2026-08-21 against the live site, one request:
+
+      | header | muqawil.org sends |
+      |---|---|
+      | `ETag` | **absent** |
+      | `Last-Modified` | **absent** |
+      | `Cache-Control` | `no-cache, private` |
+
+      It is a Laravel application that mints a fresh `XSRF-TOKEN` per response, so there
+      is no stable entity to validate and `no-cache` says so explicitly. `fetch_validator`
+      holding **0 rows after 727 fetched pages** is therefore CORRECT BEHAVIOUR, not a
+      wiring bug — and it is why this was checked before anything was blamed.
+
+      **The line this list carried — "this is what makes maintaining 48 columns
+      affordable" — was an assumption, and it is false here.** A recurring profile pass
+      re-downloads all 34,806 pages in full. What survives of the idea is the part that
+      never depended on the server: `R-20` compares `content_hash` **after** the fetch,
+      so an unchanged profile still writes no revision. Bandwidth is not reducible on
+      this source; storage and history already are.
+
+      The code stays — `sources.yaml` sites do send validators, and the seam is generic.
+      Recorded as evidence against the plan's own premise, per **C5**.
 
 ### D · In the code and NOT WIRED — measured, not guessed
 
 - [ ] **`is_enabled` has 0 callers.** `GENERIC_DATASET_CATALOG` and
       `GENERIC_EXTRACTION` are lit at `PARTIAL` and nothing reads them, so lighting one
       is a *claim* about a capability rather than a switch.
-- [ ] **`missing_ids`, `sighting_frequencies`: 0 callers each.** See A.
-- [ ] **`detail_urls` and `SELF_BUILD_SEGMENT`: referenced only by tests.** The profile
-      frontier is built and nothing walks it. The `143` segment is load-bearing — it is
-      what makes the self-build price section render at all.
+- [x] **`missing_ids`, `sighting_frequencies` have a caller** — `--coverage`. Listed
+      twice; it is section A's item and it shipped there.
+- [~] **`detail_urls`: the "referenced only by tests" claim was WRONG.** Measured:
+      `pagewalk.py:145` and `partitioncrawl.py:639` both call it. What is true is
+      narrower and is the same item as the profile crawl above — **nothing walks the
+      frontier for muqawil**. The `143` segment stays load-bearing: it is what makes the
+      self-build price section render at all.
 - [ ] **`belongs_to_slice` / `crawl_slice` / `LISTING_PLUS_SLICE`:** the slice scope is
       built, tested, and never used for muqawil.
 - [ ] **`generic_record.status` offers `unavailable` and `retired` and nothing ever sets either.** Detection is built (`sightings.departures`); the WRITE needs his ruling on which of the two a delisted contractor gets — see [OP-26](../BACKLOG.md)
-- [ ] **`dataset_schema_version.version_number` and `valid_to` exist** and
-      `approve_candidate` never creates a version 2 — it raises `ExtractionConflict` and
-      points at "schema-drift review support" that does not exist. This is
-      [DEC-10](../BACKLOG.md) and [OP-25](../BACKLOG.md) route (c).
+- [x] **`approve_candidate` creates a version 2 now** — `_retire_or_refuse`, and the
+      direction decides: a **superset** of the approved fields retires v1 and approves
+      v2, while a subset or a rename is still refused, because those two are how a
+      broken parser looks and a silent narrowing is the failure worth keeping. Proven on
+      the live warehouse: v1 retired, v2 approved with **28 fields**. `R-31`.
 - [x] **A SHIPPED COMMAND — `scrapex contractors`** (`REQ-24`, 2026-08-21). Measured
       first: `pyproject.toml` ships `include = ["scrapex*"]`, so `tools/` never reaches
       an installed user; `scrapex crawl` wants a `source_key from sources.yaml` and
@@ -259,10 +325,12 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 
 ### E · Held by him, deliberately
 
-- [ ] **`OP-25`** — which of three routes reconciles the 74 approved pages. Deferred by
-      [R-25](../RULINGS.md#r-25--the-crawl-method-is-settled-first-the-schema-and-retention-questions-come-last).
-      **Until it is settled, coverage stays at 1,172 rows** — limited by a decision, not
-      by the crawl, whose result is 13,727 sighted ids and 1,982 stored pages.
+- [x] **`OP-25` — RULED AND EXECUTED 2026-08-21.** He chose «امسح وأعِد الاعتماد من
+      القرص»: re-approve from stored snapshots, which the
+      [GENERIC-FETCH-SEAM](../GENERIC-FETCH-SEAM.md) makes a **zero-network** operation.
+      `generic_record` went **1,172 → 13,892** (15,707 as the residual crawl continues).
+      The wipe R-28 had thought necessary was not needed in the end — `R-31` gave the
+      upgrade path, and `R-28` is marked superseded rather than edited, per **C4**.
 - [ ] **`STORAGE.md` §5** — is a snapshot evidence, or a parse cache? Also deferred.
       Tonight's measurement changed its numbers: **47× not 187×**, mean page **448 KB
       not 363 KB**, 0.91 GB → 19.4 MB.

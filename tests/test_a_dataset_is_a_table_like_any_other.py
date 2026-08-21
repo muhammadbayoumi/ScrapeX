@@ -905,6 +905,12 @@ def test_gone_and_new_are_measured_against_the_most_recent_crawl(conn):
                  " WHERE generic_record_id = ?", (ids[0],))
     conn.execute("UPDATE generic_record SET last_seen_at = '2026-08-21T12:00:00Z' "
                  " WHERE generic_record_id != ?", (ids[0],))
+    # EVERY ROW'S `first_seen_at` IS SET, and leaving the others at their default
+    # made this test depend on the TIME OF DAY. `new` is
+    # `first_seen_at >= newest`, and `newest` here is 12:00:00Z — so a row inserted
+    # with `strftime('now')` counts as new for the whole afternoon and not at all in
+    # the morning. It passed locally before noon and failed on CI at 13:05.
+    conn.execute("UPDATE generic_record SET first_seen_at = '2026-01-01T00:00:00Z'")
     # And one row that FIRST appeared in that newest crawl.
     conn.execute("UPDATE generic_record SET first_seen_at = '2026-08-21T12:00:00Z' "
                  " WHERE generic_record_id = ?", (ids[-1],))

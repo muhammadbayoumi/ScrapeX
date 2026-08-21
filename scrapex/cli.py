@@ -218,6 +218,19 @@ def _cmd_export_version(args: argparse.Namespace) -> int:
     )
     print(f"wrote {vectors} (the compatibility rule, for the JavaScript copy)")
     print(_write_capability_baseline())
+    # R-35: the contract baseline the version gate compares against. Written by the
+    # SAME command, because a baseline the release procedure does not maintain is a
+    # baseline that goes stale and then has to be argued with.
+    from . import contractstamp
+    contract_path = CONTRACTS_DIR / "contract-baseline.json"
+    contract, written = contractstamp.write(contract_path, version.VERSION)
+    if written:
+        print(f"wrote {contract_path} ({len(contract['schema'])} migrations, "
+              f"{len(contract['endpoints'])} routes, "
+              f"protocol {contract['protocol']})")
+    else:
+        print(f"kept {contract_path} (the {version.VERSION} contract stands; a "
+              "baseline is never rewritten for the version it describes)")
     changelog = ROOT_DIR / "CHANGELOG.md"
     changelog.write_text(_render_changelog(), encoding="utf-8")
     print(f"wrote {changelog} (generated from scrapex/version.py — do not hand-edit)")
