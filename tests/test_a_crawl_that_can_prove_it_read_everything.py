@@ -1287,3 +1287,43 @@ def test_without_a_connect_factory_it_stays_sequential(conn):
                               dataset_key="rows", cells=(one,), workers=8)
 
     assert outcome.cells[0].provably_complete
+
+
+def test_a_replayed_attempt_does_not_count_as_a_dry_read(conn):
+    """FOUND BY RUNNING IT ON HIS OWN RESUMED CRAWL, not by reading the code.
+
+    A resumed attempt has its already-stored pages removed by `_Unstored` and its
+    ids recovered off disk, so it returns EXACTLY what the previous attempt did. It
+    gains zero **by construction**, not because the site has run out — and counting
+    that as a dry read made the stop fire on the first two replays and abandon the
+    cell:
+
+        region_id_1-company_size_verysmall: 3,125 of 4,699, D=1,574
+                                            [3 attempt(s), 5 REQUESTS]
+
+    Five requests for a cell of 1,291 pages. `pages_read` is the FETCHED count, so
+    zero means the attempt asked the site nothing and can say nothing about it.
+    """
+    register(conn)
+    ids = [str(900 + n) for n in range(12)]
+    one = cell(region_id=9)
+    directory = Directory({"whole": list(ids), one.label: list(ids)})
+
+    # A first run stores every page of the cell.
+    crawl_partition(conn, Partition(directory, cells=(one,)), BASE,
+                    fetch=directory.fetch, run_ref="first", dataset_key="rows",
+                    cells=(one,), resize_at_end=False)
+
+    # A SECOND run with the SAME ref: every page is already stored under it, so each
+    # attempt is a pure replay — `pages_read` is 0 and no attempt may be called dry.
+    outcome = crawl_partition(
+        conn, Partition(directory, cells=(one,)), BASE, fetch=directory.fetch,
+        run_ref="first", dataset_key="rows", cells=(one,), resize_at_end=False,
+        retry_page_ceiling=1, heavy_attempts=4)
+
+    only = outcome.cells[0]
+    replays = [a for a in only.attempts if a.pages_read == 0]
+    assert replays, "the fixture must actually produce a replayed attempt"
+    assert not only.went_dry(), (
+        "a replayed attempt fetched nothing and cannot be evidence that the site "
+        "has nothing left")

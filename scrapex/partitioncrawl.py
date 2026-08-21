@@ -348,8 +348,17 @@ class CellOutcome:
         gains = []
         for attempt in self.attempts:
             fresh = set(attempt.ids)
-            gains.append(len(fresh - union))
+            gain = len(fresh - union)
             union |= fresh
+            # ONLY ATTEMPTS THAT ASKED THE SITE COUNT, which is the same rule the
+            # loop applies and has to be: this property describes that decision and
+            # would otherwise contradict it. A resumed attempt has its stored pages
+            # removed before the fetch and its ids recovered off disk, so it returns
+            # exactly what the previous one did — zero gain by construction.
+            if attempt.pages_read > 0:
+                gains.append(gain)
+        if len(gains) <= dry_attempts:
+            return False
         return all(gain == 0 for gain in gains[-dry_attempts:])
 
     @property
