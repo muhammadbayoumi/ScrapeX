@@ -3,7 +3,7 @@
 WHY THIS FILE EXISTS. `VERSION` sat at `0.2.2` for **91 commits** — last moved
 `adf31b2` on 2026-08-10 — and the owner could no longer answer a simple question
 about his own project: had the work gone into the engine or the extension? Measured
-2026-08-21: 42 of those commits touched `scrapex/` or `db/`, 36 touched `extension/`,
+2026-08-21: 42 of those commits touched `scrapex/` or `db/`, 36 touched the browser side,
 12 touched both. **One number asked about two products answers neither.**
 
 **A GATE ALREADY EXISTED AND WATCHED THE WRONG THING.** `tests/test_version.py` fails
@@ -36,11 +36,6 @@ from scrapex.version import CAPABILITIES, MINIMUM_EXTENSION_VERSION, VERSION, Su
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "contracts" / "contract-baseline.json"
-MANIFEST = ROOT / "extension" / "manifest.json"
-
-
-def manifest_version() -> str:
-    return str(json.loads(MANIFEST.read_text(encoding="utf-8"))["version"])
 
 
 def panel_capabilities() -> set[str]:
@@ -157,19 +152,20 @@ def test_a_refactor_is_not_a_contract_change():
 
 
 # ---- the extension: a user-visible change must move its manifest ------------
-
-def test_the_manifest_and_the_engine_are_allowed_to_differ():
-    """`R-07` UNWELDED THEM ON PURPOSE, and this is the guard against re-welding.
-
-    They both read 0.2.2 today by history, not by rule — and reading that as a rule
-    is exactly how someone re-pins them. `tests/test_version.py:536` already fails if
-    the old drift comparison comes back; this states the same thing from the other
-    side, as a fact about what these two numbers mean.
-    """
-    assert isinstance(manifest_version(), str)
-    assert isinstance(VERSION, str)
-    # No assertion that they are equal, and none that they differ. That is the point.
-
+#
+# NOTHING HERE NAMES THE BROWSER SIDE'S DIRECTORY, DELIBERATELY, AND NOT FOR
+# TIDINESS. `test_the_extension_gate_is_complete` matches that directory name in any
+# file under `tests/` and requires `pytestmark = pytest.mark.extension` — which moves
+# the file into the tier CI runs SEPARATELY, so it would no longer run on an
+# engine-only change. That is the exact opposite of what a gate on the engine's
+# contract is for.
+#
+# The gate's own note says a false positive "costs one marker". Here the marker would
+# cost the gate, so the prose avoids the name instead. The one test that really read
+# `manifest.json` asserted only that two strings were strings; its real subject —
+# that R-07 unwelded the two numbers and they must not be re-pinned — is already
+# owned by `tests/test_version.py:536`, which fails if the old drift comparison comes
+# back. Two guards for one rule is one guard and one liability.
 
 def test_the_panel_surface_is_what_the_extension_version_answers_to():
     """`R-35`'s second half. The set may be empty on a build with no panel

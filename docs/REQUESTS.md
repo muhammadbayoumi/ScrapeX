@@ -938,9 +938,9 @@ Built as **one parameter and one refusal**:
 
 | | where | what it does |
 |---|---|---|
-| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:963` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
+| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:972` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
 | `Cell.is_under(other)` | `scrapex/pagesource.py:146` | subset-hood expressed in filters — adding a filter can only narrow, so a child carrying all of the parent's name/value pairs selects a subset, **in any order** |
-| `NotASubdivision` | `scrapex/partitioncrawl.py:956` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
+| `NotASubdivision` | `scrapex/partitioncrawl.py:965` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
 | `PartitionOutcome.parent` / `.scope` / `.nested` | | so the report says what it audited, and a nested proof reads *"PROVABLY COMPLETE FOR cell … — AND FOR THAT CELL ONLY"* rather than claiming the listing |
 
 Guarded by seven tests in `tests/test_a_crawl_that_can_prove_it_read_everything.py`
