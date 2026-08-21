@@ -1440,6 +1440,70 @@ one-line reason where the panel could read it, "Not detected" could become "Inst
 but it stopped: …". Fixing `OP-34` and this entry are the same work.
 
 
+### OP-39 · The update stops one step short: nothing replaces the running executable yet
+
+**Status: OPEN by design, not by omission.** `REQ-29`'s engine half is built —
+the engine reads the release feed, fetches the installer, verifies its SHA-256
+and stages it. What it does not do is install it.
+
+**Why it stops there, and why that is the honest place to stop.** Windows will
+not let a running `.exe` be overwritten, so the swap is necessarily performed by
+a **detached helper after this process exits**. Every part of that is testable
+except the part that matters: whether a real frozen engine, replaced underneath
+itself, comes back. A test that set `sys.frozen` and asserted a rename would
+prove the plan and nothing about the outcome — and this repository has already
+paid for the difference once, in `engine-v0.2.1`, where the guarded thing and the
+shipped thing were different things.
+
+**So the plan is data instead of code.** `update.plan_swap` returns the steps,
+the file it would overwrite, the digest it verified, and whether it is possible
+at all; `GET /api/update/plan` serves it. `R-36` bought an updater before code
+signing existed, and what makes that acceptable is that every step is inspectable
+before it happens — a plan nobody can read is the same trust problem in a new
+place.
+
+**The machinery it needs already exists and is already correct**, which is the
+one piece of luck here: `scrapex/relaunch.py:spawn_helper` starts a detached
+process that waits for a named pid to exit, for exactly this reason. **This is
+why `OP-36` had to be fixed first** — before that, the helper a frozen engine
+spawned was a silent native messaging host and would have waited for ever.
+
+**Next action, and it belongs after a release rather than before one:** cut
+`engine-v0.2.2`, then implement the swap against a binary that exists. The order
+is not a preference — the first artifact that can exercise any of this is the
+next release.
+
+### OP-40 · His warehouse has moved ahead of `main` again — v9 now, and this is the third time
+
+**Status: OPEN, and it is the pattern rather than the instance that matters.**
+
+Measured while smoke-testing the update API against the live installation:
+
+    RuntimeError: engine database is needs a newer scrapex: This database was
+    written by a later version (schema v9; this build reads v8).
+
+**The third time in one day.** It was v8-against-v6 this morning (`OP-33`, closed
+by #243 merging migrations 0007/0008), and it is v9-against-v8 this afternoon —
+so some other branch now holds migration `0009` and has run it against his real
+warehouse.
+
+**Why this is not just #243 again.** Each instance closes by merging; the class
+does not. A session that runs unmerged migration code against the owner's only
+warehouse leaves `main` unable to open it, which means **the shipped engine
+cannot open it either** — and `R-23` says a warehouse is per installation while
+`R-24` says a database is upgraded, never replaced. Both hold. What is missing is
+any rule about which code may write to the live one.
+
+**It also makes the updater more valuable rather than less:** the owner's engine
+being older than his own database is precisely the situation an Update button
+exists for. Today the only route is a merge and a release.
+
+**A question for him, not a decision to take:** should a session be allowed to
+run an unmerged migration against the live warehouse at all? `SCRAPEX_DATA_ROOT`
+already makes a private one free, and `R-24`'s repair path (`carry_over`) exists.
+Recorded as `Q-15`.
+
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
@@ -2143,6 +2207,31 @@ with HTTP 429.
 ## 6. Open questions for the owner
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
+
+**Q-15 · May a session run an unmerged migration against his LIVE warehouse?**
+Three times on 2026-08-21 his engine database moved ahead of `main` — v8 against v6
+in the morning (`OP-33`, closed by #243), and **v9 against v8** in the afternoon
+(`OP-40`). Each instance closes by merging; the class does not.
+
+**What it costs when it happens:** `main` cannot open his warehouse, which means the
+**shipped** engine cannot either — so the product is uninstallable-for-him until a
+merge and a release catch up. That is the same symptom as `REQ-28`'s black screen
+arriving by a different road.
+
+**Why it is his call and not a rule I should take.** The alternative is free and
+already exists — `SCRAPEX_DATA_ROOT` gives any session a private warehouse in one
+environment variable, and `R-24`'s `carry_over` is the path back. But forbidding it
+also forbids the thing that keeps finding real defects: #243's own migration was
+written *because* running against his real data exposed a fault a fixture never
+would, and `R-24` itself came out of exactly that. So the trade is **evidence from
+real data** against **his installation staying installable**, and only he can price
+it.
+
+**Three shapes, if he wants them:** (a) never — sessions use a private root and
+`carry_over` proves the upgrade; (b) only behind a backup, which is what already
+happens informally (`pre-ledger-repair`, `pre-reapprove`, `pre-upgrade-*` are all
+sitting beside his database now); (c) freely, and accept that `main` lags — with a
+rule that the migration must merge the same day.
 
 **Q-14 · ~~What identifies an ACCOUNT, so a database can belong to one?~~ — ANSWERED 2026-08-21: (a), the signed-in address.**
 → [R-34](RULINGS.md#r-34--an-account-is-the-signed-in-address-and-a-warehouse-records-whose-it-is).

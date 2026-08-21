@@ -42,6 +42,47 @@ crawl. If a session wants work that depends on nobody: `REQ-20`, or run
 > entries are renumbered **`OP-32`–`OP-37`**, and `OP-38` is new.
 
 
+### The updater — 2026-08-21 (evening) · `REQ-29` in flight
+
+**He asked for the engine's updater and the panel's `downloads` slice, and both
+are built.** *«ابدأ بالمحدث داخل الـEngine وشريحة downloads»*, under
+[R-36](RULINGS.md#r-36--the-engine-updates-itself-the-panel-only-asks-and-a-published-sha-256-over-https-is-enough-to-trust-a-download).
+
+| new | what it is |
+|---|---|
+| `scrapex/release.py` | the engine's own reading of the release feed — the **third** reader of one file, so `tests/test_the_engine_reads_the_same_release_feed.py` holds it to `releases.js` and the workflow |
+| `scrapex/update.py` | fetch, **verify**, stage. Four rules, none of which a caller can switch off |
+| `scrapex/webui/update_api.py` | `GET`/`POST /api/update`, `GET /api/update/plan` — wired **unconditionally**, because a database this build cannot open is a reason to want a newer engine, not a reason to hide the way to get one |
+| `extension/` | `downloads` permission; the first install now has a live percentage and a **Show in folder** |
+
+**Verified end to end against the real manifest**, and the answer it gives is
+itself the story:
+
+```
+installed 0.2.2 · latest ok 0.2.1 · verifiable true
+update_available false
+POST /api/update -> "0.2.2 is already the published version."
+```
+
+The published release is **older than what is installed**, because 0.2.2 was
+never cut. The updater is correct and has nothing to do until it is.
+
+**Seventeen mutations, seventeen killed — after two survived.** Both survivors
+were the same weakness and it was the most security-relevant one: every test
+supplied a digest that differed from the truth *everywhere*, so shortening the
+comparison to `expected[:8]` or a `startswith` refused them all and passed. A
+digest that shares a long prefix and differs late is the only thing that catches
+that, and it exists now.
+
+**What is NOT built, and it is one step:** replacing the running executable.
+`OP-39` says why stopping here is honest rather than incomplete — the swap cannot
+be tested without a frozen build, so the plan is returned as inspectable data and
+performs nothing.
+
+**And a new finding, measured while testing:** his warehouse is at **schema v9**
+and `main` reads v8 — the third time in one day that an unmerged branch has moved
+his live database ahead of `main`. `OP-40`, with `Q-15` for him.
+
 ### In flight now — 2026-08-21 (afternoon) · [#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244)
 
 **The Engine would not install on his machine, and the cause is not the installer.**

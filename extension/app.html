@@ -1587,6 +1587,18 @@
               <span>SHA-256</span>
               <code class="tech" id="engine-download-checksum"></code>
             </div>
+            <!-- WHO CHECKS THE NUMBER ABOVE, said out loud. It used to sit
+                 there unattributed, and a checksum nobody verifies is worse
+                 than none: it reads as a guarantee and is decoration. A panel
+                 CANNOT verify it — Chrome grants an extension no way to read a
+                 downloaded file — so for this first install the number is
+                 yours to compare if you want to. Every update after this one
+                 is fetched and verified by the engine itself before anything
+                 is replaced (R-36). -->
+            <p class="text-sm" id="engine-checksum-note">
+              Compare this if you wish. From here on the Engine downloads and
+              checks its own updates against this number before installing.
+            </p>
           </div>
         </details>
       </div>

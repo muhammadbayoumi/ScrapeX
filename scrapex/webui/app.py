@@ -162,6 +162,7 @@ from ..vocab import (
 )
 from .catalog_api import create_catalog_router
 from .database_api import create_database_router, create_domain_health_router
+from .update_api import create_update_router
 
 
 def _appearance_value(body: dict | None) -> dict:
@@ -522,6 +523,12 @@ def create_app(
     if databases is not None:
         app.include_router(create_database_router(lambda: app.state.databases))
         app.include_router(create_domain_health_router(lambda: app.state.databases))
+
+    # UNCONDITIONAL, unlike the two above. Update is the one surface that has to
+    # answer when everything else is broken: a database this build cannot open is
+    # a reason to want a newer engine, not a reason to hide the way to get one.
+    # It touches no database at all -- see scrapex/webui/update_api.py.
+    app.include_router(create_update_router())
 
     # A database can become unusable while the engine is running: a drive is
     # unplugged, a file is replaced, a schema stops being the one this build
