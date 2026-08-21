@@ -140,8 +140,9 @@ def test_an_unknown_argument_is_chrome_rather_than_cli_usage():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    assert "ui" in module.KNOWN_COMMANDS and "native-host" in module.KNOWN_COMMANDS
-    assert "chrome-extension://abcdef/" not in module.KNOWN_COMMANDS
+    known = module.known_commands()
+    assert "ui" in known and "native-host" in known
+    assert "chrome-extension://abcdef/" not in known
 
 
 def test_the_frozen_entry_answers_what_version_it_is_without_starting_the_host():

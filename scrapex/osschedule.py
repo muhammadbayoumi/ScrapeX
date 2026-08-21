@@ -24,6 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from . import enginelaunch
+
 TASK_NAME = "ScrapeX schedules"
 DEFAULT_INTERVAL_MINUTES = 15
 # /SC MINUTE tops out one minute short of a day; anything longer is a different
@@ -60,9 +62,11 @@ def _runner() -> Path:
     window at the owner all day; pythonw.exe has no console to show. Falls back
     to the plain interpreter only where pythonw genuinely does not exist.
     """
-    interpreter = Path(sys.executable)
-    windowless = interpreter.with_name("pythonw.exe")
-    return windowless if windowless.exists() else interpreter
+    # And for a frozen build this probe could never succeed: there is no
+    # pythonw.exe beside scrapex-engine.exe, so the console this exists to
+    # hide was shown every fifteen minutes anyway. `enginelaunch.runner`
+    # says so in one place instead of failing quietly in four (`OP-36`).
+    return enginelaunch.runner()
 
 
 def task_command() -> str:
@@ -77,7 +81,7 @@ def task_command() -> str:
     the interpreter's own site-packages (`pip install -e .`), which is also how
     the engine is started, so the task needs no working directory of its own.
     """
-    return f'"{_runner()}" -m scrapex.cli run-due'
+    return enginelaunch.engine_command("run-due")
 
 
 def _refusal(result: subprocess.CompletedProcess, argv: list[str]) -> str:

@@ -1014,6 +1014,30 @@ def _cmd_run_due(args) -> int:
     return 0
 
 
+def subcommands() -> frozenset[str]:
+    """Every name `build_parser` accepts as a first positional argument.
+
+    ASKED OF THE PARSER, NEVER LISTED. `packaging/engine_entry.py` has to know
+    which arguments mean "the CLI" and which mean "Chrome started us", and it
+    kept a hand-written copy of this set. The copy drifted to HALF: twelve of
+    twenty-four subcommands were missing, so `scrapex-engine.exe
+    database-status` fell through to the native messaging host and printed
+    nothing at all -- measured on the published 0.2.1, zero bytes and exit 0,
+    while the listed `status` answered in 94 (`OP-35`). Among the twelve were
+    `database-status`, which is the one command that explains a warehouse the
+    engine will not open, and `backup-databases`, `restore-database` and
+    `carry-over`, which exist to protect the user's data.
+
+    Reaching into `_actions` for the subparsers is the one private-argparse poke
+    in this codebase, and it is HERE rather than in the entry point on purpose:
+    if argparse ever changes shape, one function knows.
+    """
+    for action in build_parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return frozenset(action.choices)
+    raise AssertionError("build_parser() has no subparsers; the CLI has no commands")
+
+
 def build_parser() -> argparse.ArgumentParser:
     from .native import PROTOCOL_VERSION  # local, as everywhere else here
 

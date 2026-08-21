@@ -14,13 +14,119 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
-**None.** Four merged this morning and nothing is waiting.
+**[#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244) — the engine he
+downloaded was built before its own fix.** `REQ-28`. The release gate now runs the
+binary the way a person runs it; the three things that actually unblock him are
+`OP-37`, `OP-32` and `OP-33`, and **all three are his**. See the section below.
 
 **THE NEXT MOVE IS HIS, NOT THE CODE'S.** `Q-13` in [BACKLOG.md](BACKLOG.md) asks how
 `R-19` should be implemented, and `R-19` is the largest thing he has ruled on that is
 not built. Everything else on Track 2 either waits behind it or waits behind the
 crawl. If a session wants work that depends on nobody: `REQ-20`, or run
 `--coverage` over what the crawl has already gathered.
+
+> **`main` MOVED WHILE THIS BRANCH WAS OPEN, and it changed the answer — read this
+> before the section below.** [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243)
+> (`eb691d9`) merged `claude/his-four-rulings`, and it closed **two** of the three
+> things that were blocking him:
+>
+> - **engine migrations 0007/0008 are on `main`**, so a released engine can open his
+> warehouse. `OP-33` closed — verified read-only against his live file: `"status":
+> "Healthy", "schema_version": 8`.
+> - **the red suite is fixed**, by the identical one line this branch wrote at the same
+> time. `OP-37` closed. Two sessions reached the same repair without seeing each
+> other; #243's own comment calls it a time-of-day fault, which undersells it, and
+> the correction is recorded per **C5**.
+>
+> It also took `OP-30` and `OP-31` for two different findings, so this branch's six
+> entries are renumbered **`OP-32`–`OP-37`**, and `OP-38` is new.
+
+
+### In flight now — 2026-08-21 (afternoon) · [#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244)
+
+**The Engine would not install on his machine, and the cause is not the installer.**
+[REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
+He downloaded it, got a black screen, and could not install it. His download is
+perfect — 70,872,447 bytes, sha256 `df7a00ee…`, matching the hub manifest exactly.
+**The only installable engine is the build made before the fix for this exact
+symptom.** `engine-v0.2.1` is commit `4386d25`, where
+`4386d25:packaging/engine_entry.py:62` sends a double-click to the native
+messaging host (today's line 62 is a comment);
+`_first_run` landed six hours later at `7a067c5` and has never been released.
+Reproduced on his file: **0 bytes printed, still alive at 20 s.**
+
+**Built here:** the release now runs the binary **the way a person runs it** —
+`.github/workflows/release-engine.yml`, a step that launches it with no arguments at
+all, bounded by a timeout because a good first run never returns, and refuses a build
+that prints nothing or cannot get past preparing a database. Guarded by
+`tests/test_the_release_proves_the_double_click.py`; **eleven mutations, eleven
+killed**, one of which caught the guard accepting a data root that was named but
+never assigned.
+
+**HE THEN AUTHORISED THE NEXT TWO AND KEPT THE MERGE.** *«ابدأ بـ OP-36 و OP-35
+وضمهم لنفس tree واترك الدمج للمبرمج الرئيسيى»* — both are built in this same tree, and
+the merge is his. **That last clause is a process ruling, not a preference about one
+branch: [R-37](RULINGS.md#r-37--the-agent-does-not-merge-the-main-programmer-does)
+supersedes [R-18](RULINGS.md#r-18--merge-it-when-it-is-green)**, and R-18 stays in
+place, marked, per **C4**. What changed is who presses the button; R-18's reading of
+*green* is now the report rather than the action.
+
+**`OP-36` and `OP-35` are FIXED, and they were one defect wearing two faces.**
+`scrapex/enginelaunch.py` is new — `nativehost.py:57`'s three lines generalised — and
+`relaunch`, `native`, `autostart` and `osschedule` all call it instead of each
+deciding the `-m scrapex.cli` question for itself. `KNOWN_COMMANDS` is gone:
+`known_commands()` asks `scrapex.cli.subcommands()`, which reads the choices off
+`build_parser()`, so **24 of 24** subcommands are reachable from the shipped binary
+against 12 before. **Ten mutations, ten killed**, and the tenth caught my own test
+passing for the wrong reason.
+
+**WHAT R-36 UNBLOCKS.** Its part 4 said an Update button on top of these two would
+lie. It no longer would. **But it is not yet proved against a real frozen build** —
+the guards set `sys.frozen` and `sys.executable`, which is what makes them possible
+at all, and the first artifact to exercise them for real is the next release.
+
+**STILL HIS, AND NOW ONLY TWO:**
+
+1. ~~`OP-37`~~ **— fixed, and by #243 in parallel rather than by this branch.** So
+   the release is no longer blocked by a red suite. The pattern was not invented:
+   `tests/test_a_crawl_says_what_it_saw.py:215` already pins every row and then
+   overrides one, for the same column.
+2. **Cut `engine-v0.2.2`.** `VERSION` is already 0.2.2, so nothing needs bumping —
+   `git tag engine-v0.2.2 && git push origin engine-v0.2.2`. `OP-32`.
+3. **`claude/his-four-rulings` must merge, or the release will not help him.** His
+   warehouse is at schema **v8**; `main` reads **v6**, so `scrapex ui` exits 1 before
+   it binds a port. Migrations 0007/0008 exist only in that unmerged worktree, whose
+   code *did* run against his live database today. `OP-33`.
+
+**Until then, the engine that runs on this machine is that worktree's**, verified —
+`/api/health` 200, `worker_alive: true`, in about 16 s:
+
+```
+cd .claude/worktrees/determined-liskov-0c89fe
+python -m scrapex.cli ui --no-open
+```
+
+**AND HE ASKED FOR THE NEXT THING IN THE SAME BREATH — `REQ-29`:** an install
+surface *«تشبه اى برنامج محترف»* and an update anyone can apply. **Measured before
+designing: the surface is largely built — nineteen elements, six states, a verdict
+badge and a label that says what the button will do. What is missing is the
+MECHANICS**, and the finding that decides the design is that the panel *cannot*
+supply them: Chrome gives it no `downloads` permission, no file read and no way to
+launch a process, so `app.js:3564` hands a URL to the browser and lets go. **The
+engine can do all three.** So the first install goes through the browser because
+nothing is installed yet, and every update after it belongs to the engine. That is
+blocked on `OP-36` first, then a ruling from him on what makes a download
+trustworthy without a signing certificate. The full study is in `REQ-29`.
+
+Also found and filed, not fixed — all three are the SAME silent fall-through to
+`serve()` that produced the black window. **`OP-35`:** twelve of the CLI's
+twenty-four subcommands are unreachable from the shipped engine and print nothing,
+`database-status` among them — the one command that names `OP-33` in a line.
+**`OP-36`:** a frozen engine cannot restart itself, because `relaunch.py` puts
+`-m scrapex.cli` in front of an executable that does not honour it. And **`OP-34`** — a launch that dies in a console writes
+**nothing** to `~/.scrapex/engine.log`, because `_bind_log_streams` deliberately
+no-ops when it has real streams. That log is dated 2026-08-01 and is not evidence
+about anything that happened since.
 
 ### Merged 2026-08-21
 

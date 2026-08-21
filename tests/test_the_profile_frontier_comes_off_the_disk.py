@@ -36,7 +36,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "muqawil"
 
 @pytest.fixture(autouse=True)
 def _log_somewhere_harmless(tmp_path, monkeypatch):
-    """`say` appends to the owner's real crawl log otherwise — `OP-32`."""
+    """`say` appends to the owner's real crawl log otherwise — `OP-39`."""
     from scrapex import contractors
 
     monkeypatch.setattr(contractors, "LOG", tmp_path / "contractors.log")

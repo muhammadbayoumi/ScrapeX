@@ -83,6 +83,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — half exists (`active: false`, `TBD-probe`); the category and the single registry do not | 2026-08-21 |
 | [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **In flight** — `Q-14` answered (`R-34`): the account is the signed-in address, and his warehouse records it; the per-account layout remains | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
+| [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
+| [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **Ruled** — [R-36](RULINGS.md#r-36): the engine updates itself, the panel asks. Blocked on `OP-36`, `OP-35` | 2026-08-21 |
 
 ---
 
@@ -938,9 +940,9 @@ Built as **one parameter and one refusal**:
 
 | | where | what it does |
 |---|---|---|
-| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:1012` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
+| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:1019` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
 | `Cell.is_under(other)` | `scrapex/pagesource.py:146` | subset-hood expressed in filters — adding a filter can only narrow, so a child carrying all of the parent's name/value pairs selects a subset, **in any order** |
-| `NotASubdivision` | `scrapex/partitioncrawl.py:1005` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
+| `NotASubdivision` | `scrapex/partitioncrawl.py:1012` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
 | `PartitionOutcome.parent` / `.scope` / `.nested` | | so the report says what it audited, and a nested proof reads *"PROVABLY COMPLETE FOR cell … — AND FOR THAT CELL ONLY"* rather than claiming the listing |
 
 Guarded by seven tests in `tests/test_a_crawl_that_can_prove_it_read_everything.py`
@@ -1175,6 +1177,173 @@ docstrings citing where a number was measured, not code. So what is missing is t
 
 **Open for him:** whether `ConnectorFamily` grows contractor families or the category
 gets its own enum. Planned in [the platform plan](plans/2026-08-21-the-platform-not-a-price-tracker.md).
+
+---
+
+## REQ-28 · The Engine would not install, and showed a black screen
+**Captured 2026-08-21 · In flight — the release gate is fixed; cutting 0.2.2 is his**
+
+> He downloaded the Engine, it did not install, he got a **BLACK SCREEN**, and he
+> does not know how to install it. The panel read: *"ScrapeX Engine — Not detected —
+> Available to install — The panel could not reach the Engine."*
+
+**Recorded in English, and that is a departure from rule 2 below.** His own words
+did not reach this session; writing an Arabic quote to satisfy the format would put
+words in his mouth, which is the one thing this file exists to prevent. If he said
+it in Arabic, that quote replaces the paragraph above.
+
+**NOTHING WAS WRONG WITH HIS DOWNLOAD**, proved before anything else was touched.
+Both copies he saved are **70,872,447 bytes** with sha256 `df7a00ee6a0d5360…`,
+matching `ScrapeX/json/version.json` on the hub to the byte.
+
+**The cause: the only installable engine is the build made BEFORE the fix for this
+exact symptom.** `engine-v0.2.1` is commit `4386d25`; at that commit
+`4386d25:packaging/engine_entry.py:62` reads `return serve()` for bare invocation
+(today's line 62 is a comment), so a
+double-click became the Chrome native messaging host, waiting on stdin for framed
+JSON. `_first_run` landed six hours later at `7a067c5`, the unpack splash the next
+day at `756fa39`, and **no release has been cut since**. `git tag` lists exactly one
+engine tag. Reproduced on his machine, on his file:
+
+    ./scrapex-engine.exe --version   ->  ScrapeX-Engine 0.2.1 (protocol 1)
+    ./scrapex-engine.exe             ->  0 bytes, exit 0 (stdin closed)
+    ./scrapex-engine.exe             ->  0 bytes, still alive at 20s (stdin open)
+
+**And a second cause stands behind it, which the release will not fix.** His
+warehouse is at schema **v8**; `main` ships engine migrations to **0006** and reads
+v6, so `scrapex ui` exits 1 before binding a port. Both are recorded as `OP-32` and
+`OP-33` in [BACKLOG.md](BACKLOG.md).
+
+**What is his to decide:** whether to cut `engine-v0.2.2` now. The gate that let
+0.2.1 through is closed in this PR — the release now runs the binary the way a
+person runs it and refuses a build that prints nothing.
+
+**But `OP-37` has to go first.** `main` has been red since 12:00Z on 2026-08-21 for
+a reason unrelated to any of this, and the release workflow runs the whole suite
+before it builds — so the tag would fail before it reached the compiler. The repair
+is one line and is written out in that entry; it was not applied here because it
+changes what somebody else's merged test asserts.
+
+---
+
+## REQ-29 · An install surface that looks like a professional program, and an update anyone can apply
+**Captured 2026-08-21 · Ruled — [R-36](RULINGS.md#r-36--the-engine-updates-itself-the-panel-only-asks-and-a-published-sha-256-over-https-is-enough-to-trust-a-download)**
+
+> **Ruled the same day.** He answered the study below with «اوافق على اقتراحاتك
+> وتوصياتك», and the four parts of what he approved are written out in `R-36` rather
+> than left in the conversation. Build order: `OP-36` and `OP-35` first, because an
+> Update button on top of them would report success and change nothing.
+
+> «انا اريد واجهة التثبيت واجهة تشبه اى برنامج محترف واضحة بها كل ما يجب ان
+> يظهر للمستخدم · لو حصل update يقدر يعمل update بسهولة»
+
+**He said it in the same message that closed `OP-37`, and it is the direct
+consequence of `REQ-28`:** he met the install surface as a black window, and what he
+is asking for is that the surface exist at all as a product rather than as a
+download link plus a hope.
+
+**TWO REQUESTS, NOT ONE**, and they fail differently:
+
+1. **The install surface** — what a person sees from "I want this" to "it is
+   running", including every state that can go wrong on the way.
+2. **The update** — a version already installed, a newer one published, and one
+   press between them.
+
+**Do not start from zero: a real amount of this exists and is measured below.**
+Writing a second install surface beside it is the mistake `REQ-27` names —
+*«منخترعش الذرة»*. What exists, and what it cannot do, is the study this request
+needs before a line is written.
+
+**MEASURED 2026-08-21, BEFORE ANY DESIGN — most of the *surface* exists; what is
+missing is the *mechanics*.** The Engine detail screen already renders nineteen
+elements. Counting them honestly is what stops this request becoming a second
+install page beside the first:
+
+| what a professional installer shows | in ScrapeX today |
+|---|---|
+| a state, in words, for every case | **built** — six: Checking / Running / Not running / Installed-not-running / Check timed out / Incompatible / Not detected |
+| installed version vs latest published | **built** — `engine-installed-version`, `engine-latest-version` |
+| a verdict | **built** — badge: *Available to install* / *Update available* / *Up to date* / *Update status unavailable* |
+| an action whose label says what it will do | **built** — the button reads `Update to 1.0.2` when a version is installed |
+| what it will refuse to talk to | **built** — `protocol_version` and `minimum_extension_version` are published beside the release and read *before* installing |
+| release-feed polling that survives a CDN and a rate limit | **built** — `extension/releases.js`, minute-bucket cache key, own timeout, four named states |
+| instructions, and the SmartScreen warning named in advance | **built** — and they auto-open on Download (`app.js:3565`) |
+| diagnostics, a setup guide, copyable technical details | **built and wired** |
+| **download progress** | **CANNOT BE BUILT AS IT STANDS** — see below |
+| **verifying the checksum it displays** | **never checked — the SHA-256 on screen is decorative** — nothing compares anything to it |
+| **handing the file over** ("here it is, press it") | **not built** — the user must find it in Downloads |
+| **replacing a running engine in place** | **not built, and broken underneath** — `OP-36` |
+| **not needing a window left open** | **not built** — `B6` (tray icon, log window), never started |
+| **a signed binary** | **not built**, and only he can supply the certificate |
+
+**THE ARCHITECTURAL FINDING, and it decides the whole design.** The panel is a
+Chrome extension, and Chrome will not let an extension do the three things an
+installer does:
+
+    manifest.json permissions: activeTab, identity, nativeMessaging,
+                               sidePanel, storage, tabs        <- no `downloads`
+
+    download.onclick = () => { window.open(installer.url, "_blank"); }   app.js:3564
+
+It hands a URL to the browser and lets go. It cannot show progress, it cannot read
+the file off disk to hash it, and it can never launch a process. **So the panel can
+never be the professional installer — not because nobody wrote it, but because the
+sandbox forbids it.**
+
+**The engine can.** It is a local process with a filesystem and a network stack. The
+division that follows is the recommendation:
+
+| | first install | every update after |
+|---|---|---|
+| **who does the work** | the browser — unavoidable, there is nothing installed yet | **the engine** |
+| **what the panel does** | shows state, verdict, instructions; starts the download | shows state and verdict; **asks** the engine to update |
+| **what is possible** | progress + reveal-in-folder, if `downloads` is added | download, **verify sha256**, swap, relaunch, report — all of it |
+
+That inverts the obvious plan. "Make the install page better" buys a progress bar
+and a Show-in-folder button. **"Let the engine update itself" buys the whole
+professional experience, and it is the half that is not sandboxed.**
+
+**THREE THINGS BLOCK THE SECOND HALF, and they are in order:**
+
+1. **`OP-36`** — a frozen engine cannot restart itself today, so any *Update* button
+   would lie. It has to be fixed first; there is no way around it.
+2. **`OP-35`** — the shipped binary cannot even be asked `database-status`, so an
+   updater that needs to talk to its own CLI has half a CLI.
+3. **A ruling from him on what makes a download trustworthy.**
+   `packaging/build_engine.py` already refuses to guess: *"shipping an updater that
+   fetches and executes unsigned code would be worse than none."* The available
+   chain is a `sha256` published in the manifest, fetched over HTTPS from
+   `raw.githubusercontent.com`, checked before the swap — no certificate needed.
+   Whether that is enough is his call, and the answer decides whether an updater
+   can exist before code signing does.
+
+**What is cheap and visible today, if he wants a first slice:** add the `downloads`
+permission, replace `window.open` with `chrome.downloads.download()` plus
+`chrome.downloads.show()`, and the first install becomes a progress bar and a file
+handed over instead of a tab that opens somewhere. It does **not** solve the
+checksum — an extension cannot read a downloaded file — so the honest options there
+are to have the engine verify it after the fact, or to stop displaying a number
+nothing checks.
+
+**And one thing is already dead on that screen and should be named:**
+`engine-power-switch` has no listener anywhere in `app.js`. Its own label says
+*"Control is not connected yet."* A switch that does nothing is worse on a
+professional surface than no switch.
+
+**Open for him, and these are the questions the design turns on:**
+
+- **Where does the surface live?** The panel's Engine page, the standalone
+  onboarding page, or the engine's own window? Each is a different product.
+- **What does "install" mean for a 60 MB unsigned one-file binary?** Today it is
+  *"run the .exe and leave the window open"*, which is honest but is not what a
+  professional program looks like. A tray icon and a service are `B6` in
+  [STATE.md](STATE.md) and were never built.
+- **Does an update replace a running engine?** `scrapex/relaunch.py` exists for
+  exactly that and **is broken in the frozen build** (`OP-36`), so "update easily"
+  has a defect underneath it that must be fixed first or the button will lie.
+- **Code signing.** `packaging/build_engine.py` states plainly that it is not
+  implemented and needs a certificate only he can hold. Every install will show
+  SmartScreen's blue warning until it exists, and no UI can hide that.
 
 ---
 

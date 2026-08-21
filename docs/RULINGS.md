@@ -414,9 +414,52 @@ rule wastes a session.
 
 ---
 
+### R-37 · The agent does not merge. The main programmer does
+
+**2026-08-21 · process · supersedes [R-18](#r-18--merge-it-when-it-is-green)**
+
+> «واترك الدمج للمبرمج الرئيسيى»
+
+**Said in the same message that authorised two fixes**, which is what makes it a
+process rule rather than an instruction about one pull request: he asked for
+`OP-36` and `OP-35` to be built and pushed to one tree, and for the merge to stay
+with him. A session that read that as "this once" would be back to guessing next
+time, which is the ambiguity `R-18` itself was written to end.
+
+**WHAT CHANGED FROM `R-18`, AND WHY IT IS NOT A REVERSAL.** `R-18` was given on
+2026-08-20 while four ready pull requests sat waiting for a separate instruction
+each, and it fixed a real cost — a merge-ready branch idling for a day. Between
+then and now the reason for the delegation weakened and the reason against it grew:
+
+| | |
+|---|---|
+| **`main` still has no branch protection** — 404 on the protection endpoint | Under `R-18` the agent's judgement was the *entire* gate. Under this ruling a person is |
+| **Several sessions now run at once** | On 2026-08-21 `#243` merged while this branch was open, took `OP-30`/`OP-31`, and closed two findings out from under it. Merge order across parallel sessions is not a thing any single session can see |
+| **`ac3a5af` reached `main` with no pull request** and left it red for two days | Recorded in `STATE.md`. The cost of one bad merge here is measured in days, not minutes |
+
+**How to apply.** Build it, push it, wait for the checks to conclude, and then
+**report** — naming every check, every failure, and whether each failure ran at
+all. Then stop. Do not merge, do not squash, do not close a pull request as
+superseded. `R-18`'s reading of *green* still governs the report: a `SKIPPED`
+required check is not satisfied, an absent run is not a red one, and a tick from
+before the last push describes a tree nobody is merging.
+
+**This does not make a red branch acceptable.** The obligation to arrive green is
+unchanged (`R-22` still requires the full suite before a pull request opens); what
+moves is only the last step.
+
+---
+
 ### R-18 · Merge it when it is green
 
-**2026-08-20 · process**
+**2026-08-20 · process · ~~active~~ SUPERSEDED 2026-08-21 by [R-37](#r-37--the-agent-does-not-merge-the-main-programmer-does)**
+
+> **Kept in full because the three traps below did not go away.** What `R-37`
+> removes is *who presses the button*, not one word of what green means. A
+> session must still establish that every check concluded, that a failure ran
+> at all, and that the tick describes the tree in front of it — and then say
+> so and stop. Everything under "How to apply" is now the report, not the
+> action.
 
 > «ادمج لما يخضر»
 
@@ -812,6 +855,59 @@ the rule with a mechanical one that needs no judgement.
 changed.
 
 ---
+
+### R-36 · The engine updates itself; the panel only asks. And a published SHA-256 over HTTPS is enough to trust a download
+
+**2026-08-21 · install & update · answers `REQ-29`, and supersedes nothing**
+
+> «اوافق على اقتراحاتك وتوصياتك»
+
+**WHAT HE APPROVED WAS A RECOMMENDATION, AND THE RECOMMENDATION IS RECORDED HERE
+RATHER THAN IN A CONVERSATION** — because he approved it in general terms and this
+file is where the specific version has to live, so he can correct any part of it.
+The four parts, in the order they were put to him:
+
+**1. The panel can never be the installer, and this is a limit rather than a
+backlog item.** Measured 2026-08-21: `extension/manifest.json` grants
+`activeTab, identity, nativeMessaging, sidePanel, storage, tabs` and **no
+`downloads`**, so `extension/app.js:3564` is `window.open(installer.url)` — it hands
+a URL to the browser and lets go. Chrome will not let an extension show download
+progress it does not own, read a file off disk to hash it, or launch a process.
+**No amount of UI work changes any of those three.**
+
+**2. So the division is: first install through the browser, every update through
+the engine.** The first install has no choice — nothing is installed yet. After
+that the engine is a local process with a filesystem and a network stack, and it
+can do the whole job: download, verify, swap, relaunch, report. The panel's role
+shrinks to what it is good at — showing the state and the verdict, and asking.
+
+**3. A `sha256` published in the release manifest, fetched over HTTPS from
+`raw.githubusercontent.com`, and checked before the swap, IS enough to trust a
+download.** This is the part with real consequences, so it is stated at its
+narrowest. `packaging/build_engine.py` refused to guess and said so: *"shipping an
+updater that fetches and executes unsigned code would be worse than none."* The
+chain now available is not nothing — the manifest is written by the release
+workflow from the artifact it just built, served over TLS from a host the panel
+already declares, and the digest is compared to the bytes on disk before anything
+is executed. **It is NOT code signing and does not replace it**: SmartScreen will
+still warn on first install until a certificate exists, which only he can supply
+(`Decision 22` already accepts an unsigned binary). What this ruling buys is that
+an updater may exist *before* signing does.
+
+**4. Two defects come first, because an Update button on top of them would lie.**
+`OP-36` — a frozen engine cannot restart itself at all today. `OP-35` — twelve of
+the CLI's twenty-four subcommands are unreachable from the shipped binary. An
+updater built before those is a button that reports success and changes nothing.
+
+**And the cheap slice was approved with it:** add the `downloads` permission and
+replace `window.open` with `chrome.downloads.download()` + `show()`, so the first
+install becomes a progress bar and a file handed over. It does **not** solve the
+checksum — an extension cannot read a downloaded file — so the SHA-256 now on
+screen either becomes the engine's job to verify after the fact, or stops being
+displayed. **A number nothing checks is worse than no number.**
+
+**If any of the four is not what he meant, this entry is the one to correct** — in
+particular part 3, which is the only one with a security consequence.
 
 ### R-38 · `R-19`'s five groups are a TAXONOMY plus a link table, not five datasets — shape D
 
