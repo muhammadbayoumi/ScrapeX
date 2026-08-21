@@ -250,7 +250,53 @@ until it has been mutated — including the two that would have made the method
 worthless while looking like it worked: a witness comparing **bytes**, and one
 comparing **sets** instead of sequences.
 
-**IT IS RUNNING, and getting there took two rulings of his and a fixed upgrade path.**
+**IT HAS RUN, and the result corrected the method. 115 minutes, 2,141 requests:**
+
+```
+listing declared 17,417 rows over 871 pages
+partition declared 17,417 over 56 cells — exhaustiveness deficit 0
+distinct ids seen 13,727 — D = 3,690
+cells proven complete 47 of 56          1,982 snapshots, all zstd-raw-dict
+```
+
+**The exhaustiveness audit came back 0 on live data** and 47 cells closed with `D=0`.
+The deficit is concentrated in the **6 cells above the 31-page witness ceiling**
+(D=3,680) plus three small cells short by 1, 1 and 8.
+
+**And the 3,690 was partly the method's own fault, which is the finding.**
+`provably_complete` required the witness AND the count — so a cell too large to hold
+one cache generation was unprovable **by construction**, and the six heavy cells had
+no route to closure at all. There are two independent proofs and only one was
+implemented:
+
+| | |
+|---|---|
+| **witness** | page 1 returns the same id sequence ⇒ one generation ⇒ pages disjoint |
+| **count** | `distinct == declared`. A cell holding `N` cannot show `N` distinct ids without showing all of them — **no generation needed** |
+
+Both now count, the report says which carried each cell (`[by witness]` / `[by count]`),
+and a heavy cell gets `HEAVY_ATTEMPTS = 10` reads to close by counting. Written up in
+[LESSONS](LESSONS.md) — *a proof that demands more than it needs fails exactly where it
+is needed most*, and twenty-one killed mutations all agreed with each other because
+they were all checking the same wrong rule.
+
+**Two more report defects the run exposed:** it said *"the listing grew by -25 rows"*
+(it **shrank**, 17,417 → 17,392 overnight), and a cell ending `235 of 236` could not be
+told from a cell that lost a contractor. Both fixed; short cells are now re-sized so a
+deficit inside the churn is named as churn.
+
+**And the approval path could not take the crawl.** 897 stored page-pairs, **74
+approved and 823 refused** — `region_id=0`'s four cells are exactly 74 pages, and they
+are the contractors with no location, so they taught the dataset a 21-field schema and
+every located contractor's page had 22. [OP-25](BACKLOG.md). The parser now declares
+`CARD_FIELDS` the way `BILINGUAL_CARD_FIELDS` was already declared, for the same
+stated reason; which of three routes reconciles the 74 pages already landed is
+deferred by [R-25](RULINGS.md#r-25--the-crawl-method-is-settled-first-the-schema-and-retention-questions-come-last).
+
+**Coverage is therefore 1,172 records — limited by an unresolved schema decision, not
+by the crawl.** The crawl's own result is 13,727 sighted ids and 1,982 stored pages.
+
+**Getting it a warehouse took two rulings of his and a fixed upgrade path.**
 Priced from its own measurement: **897 pages × 2 locales + 170 = ~1,964 requests**, and
 at the 2.51 s a request the sizing pass actually paid, about **1.4 hours**.
 

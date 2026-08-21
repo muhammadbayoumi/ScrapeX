@@ -706,6 +706,44 @@ mutations killed.
 
 ---
 
+### R-25 · The crawl method is settled first; the schema and retention questions come last
+
+**2026-08-21 · sequencing, and it decides what several open questions are waiting for**
+
+> «صعب حسم هذا الامر الان سنتركه النهاية بعد معالجة كل مشاكل مقاول والاستقرار على
+> افضل طرق ومسارت عمل crawl الخاصة به»
+
+**What he was asked.** Two decisions were put to him together: which route
+[OP-25](BACKLOG.md) should take (the parser's schema had refused 823 of 897 pages),
+and `STORAGE.md` §5 — is a snapshot evidence or only a parse cache. He declined to
+settle either **now**, and gave the order instead: finish muqawil's problems and
+settle **the best methods and work-paths for its crawl**, then decide these.
+
+**And the sequencing is right for a reason worth writing down.** Both deferred
+questions are about **interpreting** stored pages; neither changes what is on disk.
+`docs/GENERIC-FETCH-SEAM.md`'s central rule is that one page in gives one snapshot
+out, unparsed, so interpretation can be re-run against the evidence at any time. That
+was demonstrated twice on 2026-08-21: the 897 stored page-pairs were re-interpreted
+**from disk, twice, with not one network request** — a wrong schema cost 20 minutes
+where a re-crawl is two hours. So deferring an interpretation decision costs nothing,
+while deferring a **collection** decision costs a re-crawl. Collection first is the
+cheaper order, not merely the one he chose.
+
+**How to apply.** Until he settles them:
+
+- **Do not force either question to be answered by a default.** OP-25's three routes
+  and §5's two readings stay open and stay written down.
+- **Coverage stays at whatever the current schema admits** — 1,172 records tonight —
+  and that number must be reported as *"limited by an unresolved schema decision"*
+  rather than as the crawl's coverage. The crawl's own result is the **13,727 sighted
+  ids and 1,982 stored pages**, which is complete and independent of it.
+- **Work the crawl:** the 3,690 deficit, the counting proof, the `city_id`
+  subdivision, per-cell re-sizing. That is what "أفضل طرق ومسارات عمل crawl" names.
+- Anything needed by **all** routes may still be built — the `CARD_FIELDS`
+  declaration is, because none of the three routes works without it.
+
+---
+
 ## Superseded
 
 Kept per **C4**. Do not follow these; they are here so the current rule can be

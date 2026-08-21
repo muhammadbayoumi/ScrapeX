@@ -64,6 +64,46 @@ BILINGUAL_CARD_FIELDS = (
     "card_training_credit_hours",
 )
 
+#: EVERY FIELD A LISTING CARD CAN CARRY, declared rather than derived — and the
+#: reason is the same one `BILINGUAL_CARD_FIELDS` above states for the `_ar` half,
+#: applied to the half it did not cover.
+#:
+#: THE FAILURE THAT FORCED IT, measured 2026-08-21 on the first partitioned crawl:
+#: 897 stored page-pairs went through the approval path and **74 were accepted and
+#: 823 refused** with `ExtractionConflict`. 74 is not a round number — it is
+#: `region_id=0`'s four cells, `1 + 4 + 10 + 59`. And `region_id=0` IS the 1,438
+#: contractors who publish no location, so their cards carry no location box:
+#:
+#:     region_id=0 & company_size=big   21 fields, no card_city_region
+#:     region_id=1 & company_size=big   22 fields
+#:
+#: Those 74 pages taught the dataset a 21-field schema and every located
+#: contractor's page after them was refused for having one more column.
+#:
+#: THE CAUSE IS THE PARTITION, WHICH IS WHY DERIVING THE LIST CANNOT WORK. The old
+#: unfiltered crawl mixed every kind of contractor onto every page, so the union of
+#: a page's cards always held every field and the schema was stable across 864
+#: pages. A partition **groups like with like** — that is exactly what makes a cell
+#: provably complete — so the first cell is systematically unrepresentative. The
+#: property that makes the crawl trustworthy makes a per-page field list wrong.
+#:
+#: MEASURED ACROSS PAGE 1 OF EVERY CELL: 15 fields, of which 14 appear wherever
+#: there is a card at all and only `card_city_region` varies (58 of 64 pages). One
+#: cell — `region_id=8 & company_size=big` — publishes no contractors whatsoever,
+#: so a derived list would be EMPTY there.
+#:
+#: An absent value is now a NULL in a column that is always there, which is what
+#: the bilingual note already says and what the owner's ~70 columns need: a column
+#: count that does not depend on which twenty contractors a page happened to show.
+CARD_FIELDS = (
+    "contractor_id", "company_name", "membership_level", "logo_url",
+    "customer_rating_score", "customer_rating_count",
+    "contractor_classification", "contractor_classification_grade",
+    "card_city_region", "card_company_size", "card_main_contractor",
+    "card_membership_number", "card_status", "card_sub_contractor",
+    "card_training_credit_hours",
+)
+
 #: `label -> field_key`, in the page's own order. English only, on purpose —
 #: see the module docstring. A label this map does not know is KEPT, under a
 #: slug of its own, rather than dropped: a field the site adds is news, and a
@@ -349,11 +389,14 @@ def _candidate_from(rows: list[dict[str, str]], *,
     # A fixed lead for the ones a reader looks for first, then sorted. Column
     # order on screen is `display_order`'s business and the owner's to set;
     # this only has to be the SAME every time.
-    lead = ["contractor_id", "company_name", "membership_level", "logo_url",
-            "customer_rating_score", "customer_rating_count",
-            "contractor_classification", "contractor_classification_grade"]
+    # DECLARED, NOT DERIVED. `CARD_FIELDS` is the list and its note carries the
+    # measurement that forced it: deriving `present` from this page's own cards made
+    # the schema depend on which twenty contractors the page showed, and a partition
+    # groups like with like — so 823 of 897 pages were refused. A field the site
+    # ADDS is still kept, appended after the declared ones, because a new column is
+    # news and a parser that silently drops it is how it stays news for a year.
     present = {key for row in rows for key in row}
-    names = [key for key in lead if key in present]
+    names = list(CARD_FIELDS)
     names += sorted(present - set(names))
 
     fields = tuple(

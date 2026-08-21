@@ -551,3 +551,126 @@ def test_a_dataset_exports_a_workbook_instead_of_refusing_one(conn):
 
     with pytest.raises(ValueError, match="nothing to publish"):
         workbook_tables(conn, "NOT_A_SOURCE_OR_DATASET")
+
+
+# ---- the FIFTH leak, and the partition is what exposed it --------------------
+
+def _without_the_location_box(html: str) -> str:
+    """The same page as a `region_id=0` contractor publishes it: no location box.
+
+    Built by REMOVING the box that carries the location icon, which is what a card
+    with no location actually looks like — not by deleting the value and leaving an
+    empty cell. The distinction matters: `read_listing` names a field after the
+    box's label, so a missing box removes the FIELD, while an empty value would
+    leave the field present and blank.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    for icon in soup.select(".info-icon span.icon-locaion"):
+        box = icon.find_parent(class_="info-box")
+        if box is not None:
+            box.decompose()
+    return str(soup)
+
+
+def test_a_card_with_no_location_does_not_change_the_schema():
+    """THE DEFECT THAT REFUSED 823 OF 897 PAGES, measured 2026-08-21.
+
+    `region_id=0` is the 1,438 contractors who publish no location at all, and its
+    four cells are the first `1 + 4 + 10 + 59 = 74` pages a partitioned crawl reads.
+    Their cards carry no location box, so a field list derived from the page's own
+    cards had 21 entries; page 75 was `region_id=1` with 22, a different
+    `schema_hash`, and every page after it was refused.
+
+    AND THE PARTITION IS THE CAUSE, which is why this could never be a per-page
+    computation. The old unfiltered crawl mixed every kind of contractor onto every
+    page, so the union always held every field. A partition groups like with like —
+    the very property that makes a cell provably complete — so its first cell is
+    systematically unrepresentative.
+    """
+    stripped = _without_the_location_box(LISTING)
+    assert "icon-locaion" not in stripped, "the fixture must really lose the box"
+
+    from scrapex.extract.muqawil import read_listing
+    rows = read_listing(stripped)
+    assert rows, "the cards must still be cards"
+    assert not any("card_city_region" in row for row in rows), (
+        "no card in this fixture should publish a location any more")
+
+    assert _keys(stripped) == _keys(LISTING), (
+        "a page whose contractors publish no location declared a different schema, "
+        "so a partitioned crawl approves its first cell and refuses the rest")
+    assert "card_city_region" in _keys(stripped), (
+        "the column must still be THERE and simply be NULL — an absent value is a "
+        "null in a column that is always present")
+
+
+def test_the_declared_card_fields_are_what_a_real_page_publishes():
+    """A DECLARATION CAN GO STALE IN THE OTHER DIRECTION, so it is checked against
+    the committed fixture rather than trusted. Every field a real page publishes
+    must be declared; a field the site ADDS later is still kept, appended after the
+    declared ones, because a new column is news."""
+    from scrapex.extract.muqawil import CARD_FIELDS, read_listing
+
+    published = {key for row in read_listing(LISTING) for key in row}
+    undeclared = published - set(CARD_FIELDS)
+
+    assert not undeclared, (
+        f"a real listing page publishes {sorted(undeclared)}, which CARD_FIELDS "
+        "does not declare — so those columns move position from page to page")
+    assert len(CARD_FIELDS) == len(set(CARD_FIELDS)), "a field is declared twice"
+
+
+def test_an_empty_listing_page_still_declares_nothing_rather_than_a_short_schema():
+    """`region_id=8 & company_size=big` publishes ZERO contractors and still serves
+    a paginator. A derived field list is empty there; the candidate must refuse
+    rather than approve a schema of no columns."""
+    candidate = listing_candidate("<html><body>no cards at all</body></html>")
+
+    assert not candidate.approvable
+    assert candidate.fields == ()
+    assert "No contractor cards" in candidate.warnings[0]
+
+
+def test_a_field_the_site_adds_is_kept_and_not_silently_dropped():
+    """DECLARING THE LIST MUST NOT MAKE THE PARSER DEAF, and this guard exists
+    because a mutation proved it was missing. `CARD_FIELDS` was declared with a
+    comment promising that a new field is "appended after the declared ones", and
+    deleting the line that appends it left every test green — the claim had no guard
+    behind it at all, and the promise was the only thing holding it up.
+
+    The rule this protects is `PROFILE_FIELDS`' own: a label the map does not know
+    is KEPT under a slug of its own rather than dropped, because a field the site
+    adds is news, and a parser that discards what it was not told about is how it
+    stays news for a year.
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(LISTING, "html.parser")
+    card = soup.select_one("div.section-card")
+    assert card is not None, "the fixture must have a card to add a box to"
+    # A box shaped exactly like the site's own, carrying a label nothing knows.
+    box = soup.new_tag("div", attrs={"class": "info-box"})
+    name = soup.new_tag("div", attrs={"class": "info-name"})
+    name.string = "Green Building Points"
+    value = soup.new_tag("div", attrs={"class": "info-value"})
+    value.string = "42"
+    box.append(name)
+    box.append(value)
+    # NOT LAST. `read_listing` reads the classification from the FINAL box by
+    # position, so appending at the end would displace it and this test would be
+    # measuring the wrong thing.
+    existing = card.select_one(".info-box")
+    existing.insert_before(box)
+
+    keys = _keys(str(soup))
+    assert "card_green_building_points" in keys, (
+        f"the site added a field and the parser dropped it: {keys}")
+    assert list(keys[:len(CARD_FIELDS_FOR_TEST())]) == list(CARD_FIELDS_FOR_TEST()), (
+        "the declared fields must keep their positions; a new one is APPENDED")
+
+
+def CARD_FIELDS_FOR_TEST():
+    from scrapex.extract.muqawil import CARD_FIELDS
+    return CARD_FIELDS
