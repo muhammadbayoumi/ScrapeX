@@ -291,9 +291,24 @@ def test_later_snapshot_updates_current_record_and_appends_revision(conn):
     page = service.browse_records(conn, first["dataset_definition_id"])
 
     assert page["records"][0]["data"]["population"] == 7100000
+    # THREE, NOT FOUR, AND THIS ASSERTION USED TO SAY FOUR. Two rows were approved,
+    # then ONE value changed. `R-20`: an unchanged row is confirmed, not
+    # re-recorded — so the second approval appends one revision, not two. The old
+    # expectation encoded the defect that produced 34,550 revisions for 11,059
+    # contractors.
     assert conn.execute(
         "SELECT COUNT(*) FROM generic_record_revision LIMIT 1"
-    ).fetchone()[0] == 4
+    ).fetchone()[0] == 3
+    # And it is the CHANGED row that gained the history, which a total cannot show.
+    per_record = dict(conn.execute(
+        "SELECT generic_record_id, COUNT(*) FROM generic_record_revision "
+        " GROUP BY generic_record_id"))
+    assert sorted(per_record.values()) == [1, 2], (
+        f"one row changed and one did not: {per_record}")
+    # Both rows were SEEN, though, and `last_seen_at` is where a confirmation goes.
+    assert conn.execute(
+        "SELECT COUNT(*) FROM generic_record WHERE status = 'active'"
+    ).fetchone()[0] == 2
     assert conn.execute(
         "SELECT COUNT(*) FROM generic_ingestion LIMIT 1"
     ).fetchone()[0] == 2
@@ -331,3 +346,79 @@ def test_generic_ingestion_and_price_ingestion_share_one_database(
         assert conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM generic_record").fetchone()[0] == 2, (
             "ingesting prices disturbed the generic records sharing the file")
+
+
+def test_an_unchanged_row_is_confirmed_and_writes_no_history(conn):
+    """`R-20` · «مراجعة عند التغير فقط» — an unchanged contractor is CONFIRMED, not
+    re-recorded.
+
+    THE MEASUREMENT THAT FORCED IT: 34,550 revisions for 11,059 contractors, from two
+    crawls of a directory that barely moved. `content_hash` was on the table and was
+    never consulted on ingest, so every crawl wrote a row of history for every record
+    whether anything had changed or not — and the ruling records that as a change to
+    the write path rather than a description of it.
+
+    It is `SR-6` applied to a directory instead of a price — *"an unchanged price is
+    confirmed, not appended"* — and a year of identical rows is not history.
+    """
+    snapshot = save(conn)
+    candidate = service._candidate(
+        conn, service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0)
+    request = approval(candidate)
+    service.approve_candidate(conn, snapshot["page_snapshot_id"], request)
+    conn.commit()
+
+    before = conn.execute(
+        "SELECT COUNT(*) FROM generic_record_revision").fetchone()[0]
+    seen_at = [row[0] for row in conn.execute(
+        "SELECT last_seen_at FROM generic_record ORDER BY generic_record_id")]
+
+    # The SAME rows arriving again on a DIFFERENT page — a second crawl of a
+    # directory where nothing moved.
+    again = save(conn, TABLE_HTML, "https://example.com/report?page=99")
+    service.approve_candidate(conn, again["page_snapshot_id"], request)
+    conn.commit()
+
+    after = conn.execute(
+        "SELECT COUNT(*) FROM generic_record_revision").fetchone()[0]
+    assert after == before, (
+        f"nothing changed and {after - before} revision(s) were written anyway — "
+        "this is the defect R-20 exists to end")
+
+    # CONFIRMED, THOUGH — the record is still marked as seen, which is the whole
+    # distinction the ruling draws. A row that stopped being confirmed would be
+    # indistinguishable from one that had vanished.
+    now = [row[0] for row in conn.execute(
+        "SELECT last_seen_at FROM generic_record ORDER BY generic_record_id")]
+    assert len(now) == len(seen_at)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM generic_record WHERE status = 'active'"
+    ).fetchone()[0] == len(now)
+    # And the newer snapshot IS the record's source now, so the evidence a reader
+    # would open is the most recent page that showed the row.
+    sources = {row[0] for row in conn.execute(
+        "SELECT source_snapshot_id FROM generic_record")}
+    assert sources == {again["page_snapshot_id"]}
+
+
+def test_a_changed_row_still_writes_its_revision(conn):
+    """The other half, so the fix cannot be "never write history". A real change must
+    still be recorded, or "when did this classification change" stops being
+    answerable — which is the question the revisions exist for."""
+    snapshot = save(conn)
+    candidate = service._candidate(
+        conn, service._snapshot_row(conn, snapshot["page_snapshot_id"]), 0)
+    request = approval(candidate)
+    service.approve_candidate(conn, snapshot["page_snapshot_id"], request)
+    conn.commit()
+    before = conn.execute(
+        "SELECT COUNT(*) FROM generic_record_revision").fetchone()[0]
+
+    changed = save(conn, TABLE_HTML.replace("7000000", "7250000"),
+                   "https://example.com/report?page=100")
+    service.approve_candidate(conn, changed["page_snapshot_id"], request)
+    conn.commit()
+
+    after = conn.execute(
+        "SELECT COUNT(*) FROM generic_record_revision").fetchone()[0]
+    assert after == before + 1, "one row changed, so exactly one revision"

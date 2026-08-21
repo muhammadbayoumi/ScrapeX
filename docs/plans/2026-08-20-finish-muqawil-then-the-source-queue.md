@@ -41,6 +41,213 @@ set before the crawl has been cleared.
 
 ---
 
+## EVERY STATE A ROW CAN BE IN — enumerated first, on his instruction
+
+> «حل هذه المشكلة بحيث المستخدم يقدر يعرف حالة الصف فى اى حالة ذكرناها او ممكن تحدث
+> اجمع كل الحالات واحصرهم اولا … حتى حالة اذا تم ابديت لصف»
+
+`R-27` says the row never leaves the screen and its state becomes a column. That is
+only safe if the vocabulary is **closed** — a state nobody enumerated is a row
+displaying something the reader cannot interpret. So: every state, and honestly
+marked where it cannot be computed today.
+
+**The reference point is `newest` — the latest `last_seen_at` in the dataset, i.e.
+"the last crawl".** Every state below is relative to it.
+
+| state | what happened | how it is known |
+|---|---|---|
+| **`new`** | first appeared in the last crawl | `first_seen_at >= newest` |
+| **`updated`** | seen in the last crawl **and its data changed** | a `generic_record_revision` with `observed_at >= newest`. **This is only meaningful because of `R-20`**: now that an unchanged row writes no revision, the presence of a fresh revision *is* the change |
+| **`confirmed`** | seen in the last crawl, nothing changed | `last_seen_at >= newest` and no fresh revision |
+| **`absent`** | stored, and the last crawl did **not** show it | `last_seen_at < newest`. A departure **only if that crawl covered it** — a partial crawl produces this too |
+| **`unsighted`** | stored, and not in the sighting ledger at all | no `dataset_sighting` row. A gap in the LEDGER (these predate #227), **not** a contractor leaving |
+| **`returned`** | proved absent in an earlier crawl, and here again | `last_absent_at` — **added by migration 0006**, because absence cannot be recomputed later |
+| **`retired`** / **`unavailable`** | someone marked the record | `generic_record.status`. Informational only — never a filter, per `R-27` |
+
+**All seven are computed today, in one place** — `sightings.row_state`, with the
+precedence written down. Eight names in the vocabulary: these seven plus
+`unavailable`.
+
+### `returned` needed a migration, and that is the interesting one
+
+Absence leaves **no trace** in `dataset_sighting`: a row simply stops being touched,
+and a `last_seen_at` two crawls old is identical whether the id was missed once and
+came back or has been gone throughout. "Was this absent at some point" is a question
+about a moment that has already passed — so it cannot be derived after the fact and
+had to be **written when a crawl proved it**. Migration 0006 adds `last_absent_at`
+and `last_absent_run_ref` (the run that proved it, so the evidence can be checked
+rather than the timestamp trusted).
+
+**And it is only ever written from a proof** — a cell that closed with `D = 0`. A
+crawl misses contractors for its own reasons: a dead page, a rolled generation, a cell
+above the witness ceiling. Recording those as absences would retire contractors
+because the crawler had a bad afternoon, which is `R-27`'s failure arriving from the
+other side.
+
+### Two states that still cannot be computed, and why
+
+- **`seen but never stored`** — the site showed us a contractor and no row exists.
+  `sightings.missing_ids` counts them, but under `R-27` "the row stays visible" has no
+  meaning when **there is no row**. Whether such a contractor should appear as an
+  empty row is a design question, not a defect.
+- **`never seen at all`** — not in the warehouse and never shown to us. **Unreachable
+  by construction**, and his own correction: only the crawl's deficit `D` counts these.
+  Membership 10001274 was this case.
+
+### And one number that gates all of it
+
+`newest` is a single `MAX(last_seen_at)` over the dataset, so it is one indexed
+aggregate rather than a per-row question — which matters, because the naive way to
+answer these states is a correlated subquery per row and that is exactly the
+performance defect measured on 2026-08-21 (see below).
+
+---
+
+## THE CHECKLIST — everything open on muqawil, and whose turn it is
+
+**His instruction, 2026-08-21:** «احصر كل التعديلات المطلوبة فى مقاول ولم يتم تنفيذها
+وكل التطويرات المطلوبة ولم يتم البدء فيها وكل ما هو موجود فى الكود وغير موصل بشكل
+صحيح» — as a checklist he can track. Anything tool-wide goes to
+[the tool's own plan](2026-08-21-the-tool-itself.md) instead, per the same
+instruction. **And: «اريد الانتهاء من كل المكاسب السريعة وخطة مقاول فى المقام الاول».**
+
+Tick a box only when it is MERGED. `⚡` marks a quick win — under about an hour.
+
+### A · Quick wins — do these first, by his instruction
+
+**All five are BUILT, and the boxes stay unticked until the pull request merges.**
+
+- [x] ⚡ **`R-20`: an unchanged row writes no revision.** `content_hash` is now read
+      **before** the upsert, because the upsert overwrites the evidence and the
+      comparison is impossible afterwards. It was 34,550 revisions for 11,059
+      contractors; now history is a timeline of real changes. **Four mutations killed**,
+      and one of them exposed an existing test demanding *four* revisions where one row
+      of two had changed — the expectation encoded the defect.
+- [x] ⚡ **`DSN-05`: City and Region are separate columns.** The published
+      `"RIYADH - Riyadh"` is **kept** beside them, because source truth is never edited.
+      The Arabic halves are derived from the **positionally aligned** value, not the
+      Arabic row: `_slug` filters every Arabic label to nothing, so `card_city_region`
+      is absent there and splitting that row gave two empty strings for every
+      contractor in the country — silently.
+- [x] ⚡ **`DSN-04`: the URL columns.** Taken from the card's own **absolute** href
+      rather than built, so no hostname is duplicated out of `sites/muqawil.py`, and the
+      `143` tail is **rebuilt** rather than carried over — it is what makes the
+      self-build price section render at all. `contract_request_url` is **not**
+      invented: its pattern column in the design is empty, and a guessed URL is worse
+      than an absent one because it looks answered.
+- [x] ⚡ **Detect the disappeared** — `sightings.departures`, **read-only**. Two lists
+      kept apart: departed, and a gap in our own ledger. The WRITE still needs his
+      ruling on `unavailable` vs `retired` ([OP-26](../BACKLOG.md)). It answers
+      *disappeared*, never *never-seen* — only `D` reaches those.
+- [x] ⚡ **`missing_ids` and `sighting_frequencies` have a caller** — `--coverage` in
+      the crawl tool, which also surfaces departures. All three had **zero callers**
+      between them: the answer to "what are we missing", written for the 10001274
+      incident, and nothing asked it.
+- [x] ⚡ **`R-27`: the row never leaves the screen; its state is a column.** The
+      `status = 'active'` filter is gone from the grid payload, and eight states are
+      named in one closed vocabulary with a sentence each.
+- [x] ⚡ **The coverage queries were 1,600× too slow** — 49.7 s and 48.8 s, together
+      past the two-minute limit, because the site's own id is inside `data_json` and no
+      index can serve a `json_extract`. Now 0.03 s each. Root cause recorded as
+      [OP-27](../BACKLOG.md); this routes around it.
+
+### B · The crawl method — in flight
+
+- [x] The provable partitioned listing crawl (#233)
+- [x] Both completeness proofs, witness and count (#234, open)
+- [x] `--only` so the residual is addressable without re-reading proven cells
+- [ ] **Close the 3,690 deficit.** Running in the background under
+      [R-26](../RULINGS.md#r-26--the-residual-crawl-runs-in-the-background-while-development-continues-and-must-be-stoppable).
+      Three cells cannot be witnessed at any size — RIYADH twice, JEDDAH — and close by
+      counting or report their deficit exactly.
+- [ ] **`REQ-21`: the nested audit.** `crawl_partition` audits against the WHOLE
+      listing, not against a parent cell, so the 151 city cells cannot be run as a
+      subdivision today. Measured: the city list from partial evidence accounts for
+      4,665 of 4,697 — a deficit of **32**, which the audit must name.
+- [ ] **Make sizing resumable**, or state its cost in the tool's own output. A resumed
+      run re-pays ~112 requests (5.7%).
+
+### C · The 48 columns — further along than this list said
+
+> **CORRECTION, 2026-08-21.** This section said *"Nothing extracts a profile page
+> today"* and that was **wrong**. Measured against the committed fixtures:
+>
+> | | |
+> |---|---|
+> | `read_profile` | reads **11 fields** per locale — the `.info-box` pairs |
+> | `read_email` | decodes Cloudflare's XOR'd `data-cfemail` ✓ |
+> | `read_coordinates` | returns `24.6717 / 46.3942` from the inline script ✓ |
+> | `merge_locales` | gives **20 merged keys** including both `_ar` halves ✓ |
+> | `profile_candidate` | **does not exist** ← the actual gap |
+> | `profile-en.html` / `profile-ar.html` | both committed ✓ |
+>
+> So the reading works end to end and what is missing is the **adapter** to a
+> `TableCandidate` — the profile's equivalent of `bilingual_listing_candidate`.
+> A wrong checklist is worse than no checklist: it sends the next session to build
+> what is already built.
+>
+> **And a defect found on the way:** `_candidate_from` hardcodes `CARD_FIELDS` as the
+> declared lead, so a profile row put through it comes out carrying **17 empty listing
+> columns** — measured, 39 fields where the profile has 20. The declared list has to
+> become a parameter, not a constant.
+>
+> **Where the other ~28 columns are, so nobody hunts for them in `read_profile`:** the
+> profile page carries **five real `<table>` elements** — the licences and their
+> readiness, the two contractor lists, the technical rating, the contract counts. Those
+> go through `detect_html_tables` like any other site's tables, and they are exactly
+> the multi-valued groups `R-19` wants in child tables. That is why `R-19` is a
+> separate item and not part of the parser.
+
+- [ ] **`profile_candidate`** — the adapter, plus `_candidate_from` taking its declared
+      field list as a parameter instead of always leading with `CARD_FIELDS`.
+- [ ] **A declared `PROFILE_FIELD_ORDER`**, for the reason `CARD_FIELDS` exists: a
+      profile page that happens to omit a box must not produce a different schema.
+- [ ] **`R-19`: child tables for all five multi-valued groups** — «جداول أبناء للخمس
+      كلّها»: Interests, Licensed Activities, Qualification Programs, Balady Services,
+      contractor relations. Not JSON, not `Activity 1, 2, 3`. A measured profile carried
+      **30 hierarchical interest values in 6 groups** — about 500K rows. Ruled, unbuilt.
+- [ ] **The profile crawl**, 34,806 pages both locales. Must run with `body_class` set
+      so the pages arrive compressed — `snapshotcrawl` already does it.
+- [ ] **Conditional requests on the recurring pass.** `HttpFetcher` replays `ETag`, so
+      an unchanged profile answers **304 with no body**. This is what makes maintaining
+      48 columns affordable, and it has never been exercised on this source.
+
+### D · In the code and NOT WIRED — measured, not guessed
+
+- [ ] **`is_enabled` has 0 callers.** `GENERIC_DATASET_CATALOG` and
+      `GENERIC_EXTRACTION` are lit at `PARTIAL` and nothing reads them, so lighting one
+      is a *claim* about a capability rather than a switch.
+- [ ] **`missing_ids`, `sighting_frequencies`: 0 callers each.** See A.
+- [ ] **`detail_urls` and `SELF_BUILD_SEGMENT`: referenced only by tests.** The profile
+      frontier is built and nothing walks it. The `143` segment is load-bearing — it is
+      what makes the self-build price section render at all.
+- [ ] **`belongs_to_slice` / `crawl_slice` / `LISTING_PLUS_SLICE`:** the slice scope is
+      built, tested, and never used for muqawil.
+- [ ] **`generic_record.status` offers `unavailable` and `retired` and nothing ever sets either.** Detection is built (`sightings.departures`); the WRITE needs his ruling on which of the two a delisted contractor gets — see [OP-26](../BACKLOG.md)
+- [ ] **`dataset_schema_version.version_number` and `valid_to` exist** and
+      `approve_candidate` never creates a version 2 — it raises `ExtractionConflict` and
+      points at "schema-drift review support" that does not exist. This is
+      [DEC-10](../BACKLOG.md) and [OP-25](../BACKLOG.md) route (c).
+- [ ] **No path from the panel.** `jobs.py` contains no reference to `muqawil`,
+      `generic_record`, `partitioncrawl` or `snapshotcrawl`. Pressing update runs the
+      price connectors. → tracked in [the tool's plan](2026-08-21-the-tool-itself.md).
+
+### E · Held by him, deliberately
+
+- [ ] **`OP-25`** — which of three routes reconciles the 74 approved pages. Deferred by
+      [R-25](../RULINGS.md#r-25--the-crawl-method-is-settled-first-the-schema-and-retention-questions-come-last).
+      **Until it is settled, coverage stays at 1,172 rows** — limited by a decision, not
+      by the crawl, whose result is 13,727 sighted ids and 1,982 stored pages.
+- [ ] **`STORAGE.md` §5** — is a snapshot evidence, or a parse cache? Also deferred.
+      Tonight's measurement changed its numbers: **47× not 187×**, mean page **448 KB
+      not 363 KB**, 0.91 GB → 19.4 MB.
+- [ ] **`O-2`** — does the contractor entity belong in the mbiX workbook, or stay
+      engine-only until it has proved itself?
+- [ ] **`DEC-10`** — the row-aware idempotency key. Without it a corrected parser
+      re-run over stored snapshots returns `recovered=True` and writes nothing.
+
+---
+
 ## The build order, and why it is this order
 
 ### 1 · The listing crawl — closes coverage to a *provable* 100%
@@ -120,6 +327,42 @@ but has **no known URL pattern** and is not on the card. It cannot be built from
 relations), not JSON and not `Activity 1, 2, 3…`. A measured profile carried **30
 hierarchical interest values in 6 groups**, so this is ~500K rows and the decision is
 his and already taken.
+
+### Why listing-first is the strategy, confirmed 2026-08-21
+
+He asked whether the provable crawl is applied to the **listing** stage because it is
+cheaper, with the rest of the data as a second step — **«هل هذا مطبق ام هناك استراتجية
+اقوى»**. It is, and it is right:
+
+| stage | what it yields | cost |
+|---|---|---|
+| listing | **identity + 22 columns** | 897 pages |
+| profile | **the other 48 columns** | 34,806 pages — **39×** |
+
+Separating them means *who exists* is settled cheaply, and the expensive stage then
+starts from a **known, complete work-list** instead of searching and collecting at the
+same time. **There is no cheaper route to identity**: DEC-11 recorded three dead ends
+(the sitemap is 20 static pages, `/contractors/map` carries no contractor markers, no
+stable sort exists) and no open dataset.
+
+**But the profile stage has a much stronger strategy available, already built and
+never used:**
+
+- **Conditional requests.** `HttpFetcher` replays `ETag`/`Last-Modified`, so an
+  unchanged profile answers **304 with no body** — the cheapest answer a server can
+  give. The FIRST profile pass is ~17 hours; every pass after it is mostly 304s. That
+  is what makes maintaining 48 columns affordable at all, and it is the same mechanism
+  #210 had to protect from being gamed by a 404 storm.
+- **The work-list is `dataset_sighting`**, which already holds every id seen and is
+  resumable by nature.
+- **Crawl by CHANGE, not by size.** Fetch the profile of a contractor whose listing row
+  changed, or who is new. Recurring cost then scales with the *change* in the directory
+  rather than with the directory.
+
+**That third one needs [R-20](../RULINGS.md#r-20--an-unchanged-contractor-is-confirmed-not-re-recorded)
+implemented first**, because change detection is what selects the work. So R-20 is not
+tidying: it is the precondition for the profile stage being cheap. See
+[OP-26](../BACKLOG.md).
 
 ### 4 · The profile crawl — 34,806 pages, ~17.4 hours
 

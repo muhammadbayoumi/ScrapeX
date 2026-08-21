@@ -56,12 +56,18 @@ from scrapex.extract import service
 from scrapex.extract.models import ApprovalField, CandidateApproval
 from scrapex.extract.muqawil import bilingual_listing_candidate
 from scrapex.partitioncrawl import (
+    HEAVY_ATTEMPTS,
     RETRY_PAGE_CEILING,
     CellOutcome,
     crawl_partition,
     size_cell,
 )
-from scrapex.sightings import coverage
+from scrapex.sightings import (
+    coverage,
+    departures,
+    missing_ids,
+    sighting_frequencies,
+)
 from scrapex.sites.muqawil import MuqawilPartition
 from scrapex.snapshotbody import decode
 
@@ -170,23 +176,96 @@ def plan(partition: MuqawilPartition, fetch, started: float) -> None:
 # ---- --crawl: the partition, witnessed --------------------------------------
 
 def crawl(conn, partition: MuqawilPartition, fetch, fetcher, run_ref: str,
-          max_attempts: int) -> None:
+          max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS
+          ) -> None:
+    """The partition, or NAMED CELLS OF IT.
+
+    `--only` is what makes the residual addressable on its own, which
+    `R-26` requires: the first run proved 47 of 56 cells, and a crawl that can only
+    run the whole partition would re-read all 47 to reach the 9 that are open. It is
+    matched on the cell LABEL — the same string the report prints and the run ref
+    carries — so a cell can be copied straight out of the log into the next command.
+    """
+    chosen = None
+    if only:
+        wanted = {name.strip() for name in only.split(",") if name.strip()}
+        chosen = tuple(one for one in partition.cells() if one.label in wanted)
+        unknown = wanted - {one.label for one in chosen}
+        if unknown:
+            # REFUSED, NOT IGNORED. A mistyped label would otherwise crawl fewer
+            # cells than asked for and report success over the ones it did.
+            raise SystemExit(
+                f"--only names {sorted(unknown)}, which are not cells of this "
+                f"partition. A label looks like "
+                f"{partition.cells()[0].label!r}.")
+        say(f"crawling {len(chosen)} named cell(s) of {len(partition.cells())}")
+
+    total = len(chosen) if chosen is not None else len(partition.cells())
     done = {"cells": 0}
 
     def report(outcome: CellOutcome) -> None:
         done["cells"] += 1
-        say(f"  [{done['cells']}/56] {outcome}")
+        say(f"  [{done['cells']}/{total}] {outcome}")
         if not outcome.provably_complete:
             say(f"        {outcome.attempts[-1].note}")
 
     say(f"crawl {run_ref} starting")
     outcome = crawl_partition(conn, partition, BASE, fetch=fetch, run_ref=run_ref,
                               dataset_key=DATASET, max_attempts=max_attempts,
+                              heavy_attempts=heavy_attempts, cells=chosen,
                               fetcher=fetcher, on_cell=report)
     say("")
     say(str(outcome))
     say("")
     say(str(coverage(conn, DATASET)))
+
+
+# ---- --coverage: what the warehouse knows about its own gaps ------------------
+
+def report_coverage(conn, not_seen_since: str) -> None:
+    """Every coverage question this warehouse can answer, in one place.
+
+    WHY THIS EXISTS: `missing_ids`, `sighting_frequencies` and `departures` had
+    **zero callers between them**. They are the answer to "what are we missing", they
+    were written for the 10001274 incident, and nothing ever asked them — which is
+    the same defect as `crawl_to_snapshots` having no caller, one layer up. A
+    capability with no caller is a claim.
+
+    THE FOUR QUESTIONS ARE NOT THE SAME QUESTION, and the report keeps them apart
+    because conflating them is how "we are missing 3,690" turns into a hunt for rows
+    that were never lost:
+
+        stored vs sighted   what the site showed us and we did not keep
+        the frequencies     the capture-recapture sample itself
+        departures          what we hold that the site stopped showing
+        NEVER SEEN          not here at all — only the crawl's own D reaches those
+    """
+    say(str(coverage(conn, DATASET)))
+    say("")
+
+    frequencies = sighting_frequencies(conn, DATASET)
+    if frequencies:
+        say("how many ids the site showed us N times — the sample itself:")
+        for times in sorted(frequencies):
+            say(f"    seen {times:>2}x   {frequencies[times]:>7,}")
+        say("  (kept as observations. Turning this into a population estimate is a "
+            "statistical choice — Chao1 and Lincoln-Petersen disagree — and this "
+            "module does not pick a school.)")
+        say("")
+
+    gap = missing_ids(conn, DATASET, limit=20)
+    say(f"sighted and never stored: {len(gap)} shown (ordered by how often the site "
+        "showed it — one seen six times and still unstored is a stronger signal "
+        "than one glimpsed once)")
+    if gap:
+        say(f"    {', '.join(gap)}")
+    say("")
+
+    say(str(departures(conn, DATASET, not_seen_since=not_seen_since)))
+    say("")
+    say("AND WHAT NONE OF THIS REACHES: a contractor the site has never shown us. "
+        "Only the crawl's own deficit D counts those, and membership 10001274 was "
+        "that case — found because he knew the company, which does not scale.")
 
 
 # ---- --approve: interpret what is on disk, re-fetching nothing ---------------
@@ -298,6 +377,15 @@ def main() -> None:
                        help="size all 56 cells and price the crawl. Costs ~114 "
                             "requests and answers 'what will this cost today'")
     parser.add_argument("--crawl", action="store_true")
+    parser.add_argument("--coverage", action="store_true",
+                       help="what the warehouse knows about its own gaps: stored "
+                            "vs sighted, the frequency sample, sighted-and-never-"
+                            "stored, and departures. Reads nothing from the network")
+    parser.add_argument("--not-seen-since", default="",
+                       help="for --coverage: a contractor stored and active whose "
+                            "last sighting predates this is a DEPARTURE, but only "
+                            "if the crawl covering it was provably complete. "
+                            "Defaults to the newest sighting in the ledger")
     parser.add_argument("--approve", action="store_true",
                        help="interpret the stored pages of --run-ref into rows. "
                             "Re-fetches nothing")
@@ -309,10 +397,18 @@ def main() -> None:
                        help="minimum seconds between requests, at the transport")
     parser.add_argument("--max-attempts", type=int, default=2,
                        help="reads of a cell before its witness is given up on")
+    parser.add_argument("--only", default="",
+                       help="crawl ONLY these cells, by label, comma-separated "
+                            "(e.g. region_id_1-company_size_verysmall). This is how "
+                            "the residual is closed without re-reading the cells "
+                            "already proven — 47 of 56 on the first run")
+    parser.add_argument("--heavy-attempts", type=int, default=HEAVY_ATTEMPTS,
+                       help="reads allowed to a cell too big to witness, so the "
+                            "counting proof has a chance to close it")
     args = parser.parse_args()
 
-    if not (args.plan or args.crawl or args.approve):
-        parser.error("choose --plan, --crawl or --approve")
+    if not (args.plan or args.crawl or args.approve or args.coverage):
+        parser.error("choose --plan, --crawl, --approve or --coverage")
     if (args.crawl or args.approve) and not args.run_ref:
         parser.error("--crawl and --approve need --run-ref: it is what makes an "
                      "interrupted crawl resumable and what --approve reads")
@@ -328,9 +424,25 @@ def main() -> None:
     try:
         if args.crawl:
             fetcher, fetch = make_fetch(args.pace)
-            crawl(conn, partition, fetch, fetcher, args.run_ref, args.max_attempts)
+            crawl(conn, partition, fetch, fetcher, args.run_ref,
+                  args.max_attempts, only=args.only,
+                  heavy_attempts=args.heavy_attempts)
         if args.approve:
             approve(conn, args.run_ref)
+        if args.coverage:
+            # THE DEFAULT WINDOW IS THE LEDGER'S OWN NEWEST SIGHTING, so running this
+            # straight after a crawl asks "who did THAT crawl not show us" without
+            # anyone having to type a timestamp — and a mistyped one silently reports
+            # every contractor as departed.
+            since = args.not_seen_since or (conn.execute(
+                "SELECT MAX(last_seen_at) FROM dataset_sighting WHERE dataset_key = ?",
+                (DATASET,)).fetchone()[0] or "")
+            if not since:
+                say("no sightings recorded for this dataset, so there is no window "
+                    "to measure departures against. Crawl first.")
+            else:
+                say(f"departures measured against sightings on or after {since}")
+                report_coverage(conn, since)
     finally:
         conn.close()
     say(f"took {(time.monotonic() - started) / 60:.1f} min")

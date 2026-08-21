@@ -150,14 +150,22 @@ def test_the_bilingual_pairs_are_derived_from_the_ar_suffix(conn):
     the orientation is {ar: en} and must stay that way."""
     payload = stored(conn, extra={"city": "RIYADH", "city_ar": "الرياض"})
 
-    assert payload["bilingual"] == {"city_ar": "city"}
+    # ASSERTED ON THE PAIR, NOT ON THE WHOLE DICT, and the change is an improvement
+    # rather than a concession. These three tests exercise the PAYLOAD's derivation,
+    # and an exact-equality assertion tied them to whatever field list the PARSER
+    # happened to produce — so adding `profile_url_ar` (DSN-04) broke three tests
+    # that have nothing to do with URLs. The orientation is what matters:
+    # `grid.js:1905` destructures `for (const [arabic, english] of pairs)`.
+    assert payload["bilingual"]["city_ar"] == "city"
 
 
 def test_a_lonely_ar_column_is_not_offered_as_a_pair(conn):
     """A toggle that flipped a column with nothing to flip TO would blank it."""
     payload = stored(conn, extra={"city_ar": "الرياض"})
 
-    assert payload["bilingual"] == {}
+    assert "city_ar" not in payload["bilingual"], (
+        "an `_ar` column with no partner was offered as a pair, and flipping it "
+        "would blank the cell")
 
 
 def test_nothing_here_is_a_hand_written_field_list(conn):
@@ -166,7 +174,28 @@ def test_nothing_here_is_a_hand_written_field_list(conn):
     without anyone editing anything."""
     payload = stored(conn, extra={"brand_new": "x", "brand_new_ar": "س"})
 
-    assert payload["bilingual"] == {"brand_new_ar": "brand_new"}
+    assert payload["bilingual"]["brand_new_ar"] == "brand_new"
+
+
+def test_the_url_and_city_halves_pair_as_languages_too(conn):
+    """DSN-04 AND DSN-05 PRODUCE REAL LANGUAGE PAIRS, and the toggle should flip
+    them: the Arabic view of a contractor should link the Arabic profile and name
+    the city in Arabic. This is asserted rather than left as an accident, because
+    the pairing is derived from a suffix and nobody chose it deliberately."""
+    # `profile_url_ar` exists WITHOUT the Arabic page, because both halves are built
+    # from the one absolute href the card publishes — so it pairs even here, where
+    # `stored` approves the English-only candidate.
+    assert stored(conn)["bilingual"].get("profile_url_ar") == "profile_url"
+
+    # The city halves need the Arabic PAGE, since the Arabic value is paired by
+    # position — so they are checked where they are produced.
+    from scrapex.extract.muqawil import bilingual_listing_candidate
+
+    arabic = (FIXTURES / "listing-ar.html").read_text(encoding="utf-8")
+    keys = {f.field_key for f in bilingual_listing_candidate(LISTING, arabic).fields}
+    for pair in ("card_city", "card_region"):
+        assert pair in keys and f"{pair}_ar" in keys, (
+            f"{pair} has no Arabic half, so the toggle has nothing to flip")
 
 
 # ---- one schema for every page, which cost three bugs to learn ---------------
@@ -674,3 +703,247 @@ def test_a_field_the_site_adds_is_kept_and_not_silently_dropped():
 def CARD_FIELDS_FOR_TEST():
     from scrapex.extract.muqawil import CARD_FIELDS
     return CARD_FIELDS
+
+
+# ---- DSN-05 · one cell held two facts ---------------------------------------
+
+def test_the_city_and_the_region_are_separate_columns():
+    """HIS REQUEST, AND A COLUMN COUNT CALLED IT DONE. The card publishes both in
+    one cell — `"RIYADH - Riyadh"` — so a warehouse with 22 columns had 21 facts."""
+    from scrapex.extract.muqawil import read_listing
+
+    row = read_listing(LISTING)[0]
+    assert row["card_city_region"] == "RIYADH - Riyadh"
+    assert row["card_city"] == "RIYADH"
+    assert row["card_region"] == "Riyadh"
+
+
+def test_the_published_value_is_kept_beside_the_split():
+    """SOURCE TRUTH IS NEVER EDITED — the first rule this project has. The split is
+    ADDED; the cell the site wrote stays exactly as it wrote it, so a reader can
+    check the derivation against the page."""
+    keys = _keys(LISTING)
+
+    assert "card_city_region" in keys, "the published cell must survive"
+    assert "card_city" in keys
+    assert "card_region" in keys
+
+
+def test_the_arabic_halves_come_from_the_ALIGNED_value_not_the_arabic_row():
+    """THE FOURTH LEAK ALL OVER AGAIN, and it was caught by running it.
+
+    `read_listing` keys a card's boxes by `card_{_slug(label)}`, and `_slug` keeps
+    `[a-z0-9]` only — so on the ARABIC page every label filters down to nothing and
+    `card_city_region` is ABSENT from that row. Measured on this fixture: `None`.
+    Splitting the Arabic row therefore yields two empty strings for every contractor
+    in the country, silently — which is precisely the failure `_card_boxes` exists
+    to prevent, arriving through a new door.
+
+    The honest source is the value paired BY POSITION.
+    """
+    from scrapex.extract.muqawil import bilingual_listing_candidate, read_listing
+
+    arabic_html = (FIXTURES / "listing-ar.html").read_text(encoding="utf-8")
+    # The premise: the Arabic ROW genuinely does not carry the combined field.
+    assert read_listing(arabic_html)[0].get("card_city_region") is None, (
+        "if the Arabic row ever does carry it, this test's reason is gone")
+
+    row = bilingual_listing_candidate(LISTING, arabic_html).rows[0]
+    assert row["card_city_region_ar"], "the aligned pair must have a value"
+    assert row["card_city_ar"], "and its city half must be derived from it"
+    assert row["card_region_ar"], "and its region half"
+    # Arabic, not a copy of the English.
+    assert row["card_city_ar"] != row["card_city"]
+
+
+def test_a_contractor_with_no_location_splits_into_two_empty_strings():
+    """1,438 contractors publish no location at all. An empty cell must give two
+    empty columns, not raise and not a stray dash."""
+    from scrapex.extract.muqawil import _split_city_region
+
+    assert _split_city_region("") == ("", "")
+    assert _split_city_region("   ") == ("", "")
+    # A value with no dash is all city and no region.
+    assert _split_city_region("DAMMAM") == ("DAMMAM", "")
+    # And the real shape, written across lines with padding as the card writes it.
+    assert _split_city_region("RIYADH\n            -   Riyadh") == \
+        ("RIYADH", "Riyadh")
+
+
+# ---- DSN-04 · the URL columns ------------------------------------------------
+
+def test_the_profile_url_is_taken_from_the_card_and_not_invented():
+    """The design marks it `u` — built from the id. Measured on the fixture and on a
+    stored live page, the site writes the href ABSOLUTE, so the host does not have to
+    be invented and this parser stays free of a hostname it would duplicate from
+    `sites/muqawil.py`."""
+    from scrapex.extract.muqawil import read_listing
+
+    row = read_listing(LISTING)[0]
+    contractor = row["contractor_id"]
+    assert row["profile_url"] == \
+        f"https://muqawil.org/en/contractors/{contractor}/143"
+    assert row["profile_url_ar"] == \
+        f"https://muqawil.org/ar/contractors/{contractor}/143"
+
+
+def test_the_self_build_segment_is_rebuilt_in_the_stored_url_too():
+    """`143` IS LOAD-BEARING AND NOT NOISE. `/881/1` and `/881/999` return the same
+    contractor, but the section `العقود سعر البناء (برنامج البناء الذاتي)` renders
+    only under `143` — so three of his columns are permanently empty if a stored URL
+    carries some other tail. `detail_urls` rebuilds it and so must this."""
+    from scrapex.extract.muqawil import read_listing
+
+    moved = LISTING.replace("/143\"", "/999\"")
+    row = read_listing(moved)[0]
+    assert row["profile_url"].endswith("/143"), (
+        f"the card linked /999 and the stored URL kept it: {row['profile_url']}")
+
+
+def test_contract_request_url_is_NOT_invented():
+    """Its pattern column in `docs/CONTRACTOR-SOURCE.md` is EMPTY — no URL pattern is
+    known and the card does not carry one. A column filled with a guess is worse than
+    a column that is absent, because it looks answered."""
+    from scrapex.extract.muqawil import CARD_FIELDS, read_listing
+
+    assert "contract_request_url" not in CARD_FIELDS
+    assert "contract_request_url" not in read_listing(LISTING)[0]
+
+
+def test_a_card_whose_href_has_no_id_gets_an_empty_url_not_a_broken_one():
+    from scrapex.extract.muqawil import _profile_url
+
+    assert _profile_url("https://muqawil.org/en/about", "en") == ""
+    # A relative href — which this site does not write today — stays relative rather
+    # than being given a host this function has no business choosing.
+    assert _profile_url("/en/contractors/881/1", "ar") == \
+        "/ar/contractors/881/143"
+
+
+# ---- R-27 · the row stays; its state becomes a column ------------------------
+
+def test_a_row_the_site_stopped_showing_is_still_on_his_screen(conn):
+    """`R-27` · «يجب ان يظل الصف ظاهر للمستخدم مهما اختلف حالة الرصد».
+
+    THE DEFECT THIS ENDS: `dataset_table_payload` filtered `AND status = 'active'` on
+    both the count and the rows, so the moment anything marked a departed contractor
+    the row VANISHED — and the disappearance he wants to see would be the one thing
+    he could not see. The row stays; a column says what happened.
+    """
+    stored(conn)
+    conn.execute("UPDATE generic_record SET status = 'retired' "
+                 " WHERE generic_record_id = (SELECT MIN(generic_record_id) "
+                 "                              FROM generic_record)")
+    conn.commit()
+
+    payload = service.dataset_table_payload(conn, "contractors")
+    total = conn.execute("SELECT COUNT(*) FROM generic_record").fetchone()[0]
+
+    assert payload["total"] == total, "a retired row vanished from the count"
+    assert len(payload["rows"]) == total, "and from the rows"
+    assert any(row["observed_status"] == "retired" for row in payload["rows"]), (
+        "the row is there and nothing says it is retired")
+
+
+def test_the_state_is_STATED_and_never_left_to_be_inferred(conn):
+    """«عمود يوضح الحالة الجديدة لا تدع المستخدم يستنتج الحالة».
+
+    THE FIRST ATTEMPT WAS TWO BOOLEANS — `observed_gone_in_last_crawl` and
+    `observed_new_in_last_crawl` — and it asked the reader to combine them and then
+    read `retired`, `returned`, `unsighted` and `updated` out of a status and three
+    dates. **Eight states do not fit in two yes/no columns.** So the state itself is a
+    column, decided in one place, and the dates stay beside it as the evidence.
+    """
+    payload = stored(conn)
+
+    keys = [column["key"] for column in payload["columns"]]
+    for expected in ("observed_state", "observed_state_meaning",
+                     "observed_first_seen", "observed_last_seen",
+                     "observed_last_changed", "observed_status"):
+        assert expected in keys, f"{expected} is not a column"
+    labels = {c["key"]: c["label"] for c in payload["columns"]}
+    assert labels["observed_state"] == "State"
+    assert labels["observed_last_seen"] == "Last seen"
+
+    # Every row carries a state, and it is a WORD rather than something to work out.
+    for row in payload["rows"]:
+        assert row["observed_state"] in {
+            "new", "updated", "confirmed", "returned", "absent", "unsighted",
+            "retired", "unavailable"}, row["observed_state"]
+        assert row["observed_state_meaning"], "a state with no explanation"
+
+
+def test_the_observation_is_never_written_into_the_sites_own_data(conn):
+    """`data_json` IS SOURCE TRUTH. A fact about our observation is not a fact the
+    site published, and mixing the two is how a warehouse stops being able to say
+    where a value came from."""
+    stored(conn)
+
+    for row in conn.execute("SELECT data_json FROM generic_record"):
+        published = json.loads(row["data_json"])
+        assert not [k for k in published if k.startswith("observed_")], (
+            f"observation metadata was written into source truth: {published.keys()}")
+
+
+def test_gone_and_new_are_measured_against_the_most_recent_crawl(conn):
+    """DERIVED, NOT STORED. Written into the row they would be stale the moment the
+    next crawl ran, so they are a comparison made at read time."""
+    stored(conn)
+    # SIGHTINGS FIRST, or every row is `unsighted` — which is correct and outranks
+    # `absent`, because a row with no sighting says something about OUR ledger and not
+    # about the site. The first draft of this test omitted them and measured that
+    # instead.
+    from scrapex.sightings import record_sightings
+
+    held = [json.loads(row[0])["contractor_id"] for row in conn.execute(
+        "SELECT data_json FROM generic_record ORDER BY generic_record_id")]
+    record_sightings(conn, "contractors", held)
+    ids = [row[0] for row in conn.execute(
+        "SELECT generic_record_id FROM generic_record ORDER BY generic_record_id")]
+    # One row last seen long ago; the rest seen in the newest crawl.
+    conn.execute("UPDATE generic_record SET last_seen_at = '2026-01-01T00:00:00Z' "
+                 " WHERE generic_record_id = ?", (ids[0],))
+    conn.execute("UPDATE generic_record SET last_seen_at = '2026-08-21T12:00:00Z' "
+                 " WHERE generic_record_id != ?", (ids[0],))
+    # And one row that FIRST appeared in that newest crawl.
+    conn.execute("UPDATE generic_record SET first_seen_at = '2026-08-21T12:00:00Z' "
+                 " WHERE generic_record_id = ?", (ids[-1],))
+    conn.commit()
+
+    rows = service.dataset_table_payload(conn, "contractors")["rows"]
+    by_state: dict[str, list] = {}
+    for row in rows:
+        by_state.setdefault(row["observed_state"], []).append(row)
+
+    assert len(by_state.get("absent", [])) == 1, (
+        f"the row not seen in the newest crawl is the absent one: "
+        f"{ {k: len(v) for k, v in by_state.items()} }")
+    assert len(by_state.get("new", [])) == 1, "and the one that first appeared is new"
+    assert by_state["absent"][0]["observed_last_seen"] == "2026-01-01T00:00:00Z"
+    # And each says what it means, so nothing has to be looked up.
+    assert "did not show" in by_state["absent"][0]["observed_state_meaning"]
+
+
+def test_a_site_label_cannot_collide_with_an_observed_key():
+    """A site publishing a column called `status` or `first_seen_at` would overwrite
+    one of these silently, with nothing to say which value won.
+
+    AND MY FIRST REASON FOR WHY IT CANNOT WAS WRONG. I wrote that `_slug` keeps
+    `[a-z0-9]` only so an underscore-bearing key is unreachable from a label — it is
+    not: `_slug("Observed Last Seen")` is exactly `observed_last_seen`. The real
+    protection is that **every site-derived key is itself prefixed**: a card box
+    becomes `card_{slug}` and an unrecognised profile label becomes `x_{slug}`, so no
+    label of any wording produces a bare `observed_*` key.
+    """
+    from scrapex.extract.muqawil import CARD_FIELDS, _slug
+
+    # The claim I had it backwards about, asserted so it cannot be re-asserted.
+    assert _slug("Observed Last Seen") == "observed_last_seen", (
+        "_slug does produce underscores; the prefix is what protects these keys")
+
+    for key, _ in service.OBSERVED_COLUMNS:
+        assert key.startswith("observed_")
+        assert key not in CARD_FIELDS
+        # A card label of ANY wording lands under `card_`, so it cannot reach here.
+        assert f"card_{_slug('Observed Last Seen')}" != key
+        assert f"x_{_slug('Observed Last Seen')}" != key

@@ -744,7 +744,38 @@ cheaper order, not merely the one he chose.
 
 ---
 
-## Superseded
+### R-26 · The residual crawl runs in the background while development continues, and must be stoppable
+
+**2026-08-21 · process, and it settles a cost question I had put to him**
+
+> «لا مشكلة من تشغيل الزحف فى الخلفية أثناء التطوير وكلما يعود بنتيجة نفحصها ونطور
+> اكتر المهم يكون قابل للايقاف والاستكمال»
+
+I priced closing the 3,690 deficit at **~8,000 requests and about 5.5 hours** and put
+it to him as a cost decision — close it all, or only the cheap part. He declined the
+framing: **run it in the background while development continues**, examine each result
+as it comes back, and keep improving. The condition is the whole ruling: **stoppable
+and resumable.**
+
+**What that requires, and it is not automatic:**
+
+- **Stoppable at any moment without losing what it read.** `snapshotcrawl` commits
+  every page as it arrives and `crawl_partition` writes sightings per attempt, so a
+  killed crawl keeps every page and every id it saw. That much is already true and was
+  demonstrated on 2026-08-20, when a crawl stopped after six cells kept all six.
+- **Resumable without paying for what is on disk.** The same `--run-ref` again skips
+  the pages that ref already stored and reads their ids back off the evidence rather
+  than off the wire. **Sizing is NOT resumable** — a resumed run re-pays ~112 requests,
+  about 5.7% of a full pass. That is stated rather than hidden, and `--plan` exists so
+  it can be paid deliberately.
+- **Restartable in pieces**, which is what makes "examine each result and improve"
+  possible at all: a crawl that can only run all 56 cells re-reads 47 proven ones to
+  reach the 9 that are not. The residual has to be addressable on its own.
+
+**How to apply.** A long crawl is started detached, never inside a tool call that can
+time out — the 10-minute limit killed one already, and the fix is `Start-Process` with
+its output redirected to a log, not a shorter crawl. Report what it found when it
+returns; do not wait on it.
 
 Kept per **C4**. Do not follow these; they are here so the current rule can be
 understood.
@@ -763,6 +794,56 @@ the rule with a mechanical one that needs no judgement.
 **Still live from the old ruling:** the capability ledger itself, the derived
 `MINIMUM_EXTENSION_VERSION`, and the generated `CHANGELOG.md`. Only the *trigger*
 changed.
+
+---
+
+### R-27 · A row never disappears from the user's view; its state becomes a column
+
+**2026-08-21 · data model and UI, and it answers a question I had put to him**
+
+> «يجب ان يظل الصف ظاهر للمستخدم مهما اختلف حالة الرصد بينما يكون واضح فى عمود اخر
+> مرة تم رؤيته اول مرة تم رؤيته هل اختفى فى اخر زحفة هل ظهر صف جديد لكنه يظل ظاهر
+> للمستخدم»
+
+**A contractor's row stays on screen whatever the crawl did or did not see.** What
+changes is not its visibility but four facts, each of which is a COLUMN:
+
+| | |
+|---|---|
+| **first seen** | when this contractor first appeared |
+| **last seen** | when a crawl last showed us this contractor |
+| **disappeared in the last crawl?** | the site has stopped showing it |
+| **is this row new?** | it appeared in the most recent crawl |
+
+**AND IT SETTLES A QUESTION I HAD RAISED.** I had asked him to choose between
+`unavailable` and `retired` for a delisted contractor — the two values
+`generic_record.status` offers. Under this ruling the choice matters far less, because
+**status is informational and never a filter**: whichever value a departed row
+carries, the row is still there and the column says what happened. A schema that can
+express "gone" must not be wired to a reader that means "hidden".
+
+**MEASURED THE SAME DAY, and the answer was no.** Two readers disagree, and the one
+behind the user's grid is the wrong one:
+
+- `browse_records` already returns `status`, `first_seen_at` and `last_seen_at` and
+  filters on none of them. Correct by this ruling.
+- `dataset_table_payload` — what the grid actually renders — filters
+  **`AND status = 'active'`** on both the count and the rows, and builds each row from
+  `data_json` alone, so all three facts are dropped. **A row that ever stopped being
+  `active` would simply vanish from his screen**, which is what he is ruling out, and
+  the two "did it change" columns exist nowhere at all.
+
+**How to apply.**
+
+- **Never filter a reader on `status`** to decide visibility. A caller that wants only
+  the present rows filters explicitly and says so on screen.
+- **Carry the record's own metadata into the payload**, beside the schema's fields.
+  It is not part of the approved schema and must **not** be merged into `data_json`: a
+  fact about our OBSERVATION is not a fact the site published, and this project does
+  not edit source truth.
+- **"New" and "disappeared" are DERIVED, not stored.** Both are a comparison against
+  the most recent crawl, so they are computed for display rather than written into the
+  row, where they would be stale the moment the next crawl ran.
 
 ---
 

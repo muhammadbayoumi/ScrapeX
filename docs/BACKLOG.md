@@ -694,6 +694,134 @@ ways out, and the choice has data consequences:
 
 *Recommended: (a), and it is only cheap because nothing has to be re-fetched.*
 
+### OP-26 · The contractor directory can be COLLECTED but not MAINTAINED
+
+**MEASURED 2026-08-21**, answering [REQ-22](REQUESTS.md#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update).
+Collection is in good order after this session — provable, evidence-stored,
+resumable, and every id seen is recorded. **Everything that happens after the first
+crawl is missing**, and these are four separate defects that share one cause: nothing
+has ever run a SECOND crawl of this source through to rows.
+
+> **FIRST, A DISTINCTION HE HAD TO CORRECT ME ON, 2026-08-21.** I wrote this entry as
+> though "missing" and "disappeared" were one problem. They are two, and only one of
+> them is detectable:
+>
+> > «لو تقصد المقاول الذى سالت عنه برقم العضوية فهذا لانى اعرف هذا المقاول بالتحديد
+> > وبعد اول زحفة لم اجده ضمن المقاولين ولكن هذا لا يعنى بالضرورة انى اعرف باقى
+> > المختفيين»
+>
+> | | what it is | can it be detected? |
+> |---|---|---|
+> | **never seen** | no pass has ever shown this contractor. **10001274's case** | **no — not who, only how many.** That number is the deficit `D`, which is why closing `D` is the only thing that addresses it |
+> | **disappeared** | seen and STORED, then absent from a pass that proved it read every row of that contractor's cell | yes, by query — and nothing does it |
+>
+> **He found 10001274 because he happened to know that company.** That is exactly what
+> does not scale: the rest have nobody to ask after them. So the sighting ledger and
+> `missing_ids` answer "stored vs sighted" — a real question — and neither of them
+> reaches a contractor the site has never shown us at all. Only `D` does.
+
+**1 · A contractor that disappears is invisible** — **DETECTION BUILT 2026-08-21, the
+write still open.** No production code moves a `generic_record` out of `'active'`, so
+a delisted contractor keeps `status='active'` with a frozen `last_seen_at` and is
+**indistinguishable from one this run did not crawl**. That matters more than it
+looks: the listing SHRANK by 25 rows on the night of 2026-08-20, so departures are
+routine.
+
+> **A CORRECTION TO THIS ENTRY, and it changes what has to be decided.** It said no
+> code sets `status = 'superseded'`. **`generic_record` does not accept that value at
+> all** — its CHECK is `status IN ('active','unavailable','retired')`
+> ([db/engine/schema.sql:303](../db/engine/schema.sql)). `'superseded'` belongs to
+> `source_offer` and `source_variant`, which is where I read it from. Found by a test
+> raising `IntegrityError` on the value this entry recommended.
+>
+> **So the schema anticipated departure and offered TWO words for it**, and choosing
+> between them is a decision rather than a detail:
+>
+> | | |
+> |---|---|
+> | `unavailable` | the site is not showing this contractor **right now** — reversible, and the row comes back on the next crawl that sees it |
+> | `retired` | it is gone, and the row is history |
+>
+> A directory that reorders and churns by 25 rows a night will produce both, and
+> reading one as the other either loses a real delisting or retires a contractor over
+> a page the crawl happened to miss. **His call.**
+
+**`sightings.departures` is the detection**, and it is read-only on purpose: a cell
+closed with `D=0` proves the crawl saw every row it publishes, so a stored row of
+that cell missing from the run **has left**. A query, not a re-crawl — and it keeps
+two lists apart, because a row with no sighting at all is a gap in the LEDGER (it
+predates #227) and not a contractor leaving. It reaches only rows we already HOLD; a
+contractor never shown to us is in neither list, which is the distinction he had to
+correct me on above.
+
+**2 · An unchanged contractor still writes history**, contrary to
+[R-20](RULINGS.md#r-20--an-unchanged-contractor-is-confirmed-not-re-recorded). The
+ruling says a second crawl finding no change updates `last_seen_at` and writes no
+revision; `content_hash` is on the table and **is not consulted on ingest**. 34,550
+revisions for 11,059 contractors, from two crawls of a directory that barely moved.
+R-20 records this as a change to the write path rather than a description of it, and
+it is still unwritten.
+
+**3 · There is no path from the product's own interface.** `scrapex/jobs.py` — what
+the panel drives through `POST /api/jobs` — contains **no reference to** `muqawil`,
+`generic_record`, `partitioncrawl` or `snapshotcrawl`. Pressing the panel's update
+button runs the price connectors and does nothing whatever to the contractors. They
+can be crawled only by `tools/crawl_muqawil_listing.py` from a terminal. Same family
+as [REQ-20](REQUESTS.md#req-20--the-database-rename-must-reach-every-user-not-just-this-machine):
+a capability that exists and that the product cannot reach.
+
+**4 · And the schema question gates the rows**, [OP-25](#op-25--the-partition-made-the-crawl-provable-and-broke-the-approval-for-the-same-reason),
+deferred by [R-25](RULINGS.md#r-25--the-crawl-method-is-settled-first-the-schema-and-retention-questions-come-last).
+
+**Why all four were invisible until tonight.** Every test of this path approves a
+page or two into an empty database. The defects are all in the SECOND pass — what
+happens to a row that already exists, or that should stop existing — and
+`LESSONS.md` already says it in those words: *"test the second crawl, never the first
+ingest."* This source had never had a second crawl reach rows at all.
+
+### OP-27 · A site's own id has no indexed column, so every coverage question is a table scan
+
+**MEASURED 2026-08-21 on the live warehouse**, and the numbers are not marginal:
+
+| | before | after |
+|---|---|---|
+| `coverage` | **49.74 s** | 0.03 s |
+| `missing_ids` | **48.81 s** | 0.03 s |
+
+The two together exceeded the two-minute limit, so `--coverage` simply never
+returned. **~1,600×**, for the same answers.
+
+**The cause is that the warehouse has nowhere to put a site's own identifier.**
+
+- `generic_record.record_key` is `_digest(_canonical(identity))` — a **SHA-256**.
+  Measured: it equals the contractor id on **0 of 1,172 rows** (`'ff88670d…'` against
+  `'20044482'`).
+- The id itself lives **inside `data_json`**, reachable only as
+  `json_extract(data_json, '$.contractor_id')`, and **no index can serve that**.
+
+So every question of the form "do we hold the row for this id" was a correlated
+`EXISTS` scanning `generic_record` once per sighting: 14,180 × 1,172 = **16.6M**
+comparisons.
+
+**What was done, and what it is not.** `sightings.stored_ids` reads each side once and
+intersects in Python — O(n+m). That is a route around the problem and it scales to the
+17,403 contractors, **not** to `R-19`'s child tables, which are projected at ~500K
+rows across five groups. At that size the set fits in memory but the full scan of
+`generic_record` per call does not stay cheap.
+
+**The structural fix is an indexed `external_id` on `generic_record`**, written at
+approval time from the dataset's declared identity field. It is a migration plus a
+write-path change, it would make every one of these an index seek, and it benefits
+every future source — which is why it is here and not folded into a performance patch.
+
+**And it hid a correctness defect, which is the part worth remembering.** Because
+`record_key` looks like it should be the id, the first draft of `departures` joined on
+it and would have reported **every stored row as unsighted**. The tests passed: the
+fixture wrote `record_key = contractor_id`, which production never does. The fixture
+is fixed (it now hashes exactly as the write path does) and reverting the join fails
+four tests — but a column named for what it actually holds would have made the mistake
+unavailable in the first place.
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
