@@ -14,7 +14,10 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
-**None.** Four merged this morning and nothing is waiting.
+**[#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244) — the engine he
+downloaded was built before its own fix.** `REQ-28`. The release gate now runs the
+binary the way a person runs it; the three things that actually unblock him are
+`OP-35`, `OP-30` and `OP-31`, and **all three are his**. See the section below.
 
 **THE NEXT MOVE IS HIS, NOT THE CODE'S.** `Q-13` in [BACKLOG.md](BACKLOG.md) asks how
 `R-19` should be implemented, and `R-19` is the largest thing he has ruled on that is
@@ -32,7 +35,7 @@ crawl. If a session wants work that depends on nobody: `REQ-20`, or run
 > by any open PR. Diagnosed with the one-line repair in `OP-35`; **not applied**,
 > because it is a change to the meaning of somebody else's merged test.
 
-### In flight now — 2026-08-21 (afternoon)
+### In flight now — 2026-08-21 (afternoon) · [#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244)
 
 **The Engine would not install on his machine, and the cause is not the installer.**
 [REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
