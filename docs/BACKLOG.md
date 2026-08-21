@@ -824,7 +824,11 @@ unavailable in the first place.
 
 ---
 
-### OP-28 · The muqawil crawl driver has 306 lines and no tests at all
+### OP-28 · The muqawil crawl driver had 452 lines and no tests at all
+**Status: ADDRESSED 2026-08-21** — 19 tests in `tests/test_the_crawl_driver_cannot_lose_a_run.py`, eleven mutations killed.
+The account below is kept because the exposure it describes is the reason the tests are shaped the way they are.
+
+> **Corrected:** first written as *"306 lines"*, which was wrong — the number was read off a line in a traceback rather than off `wc -l`. It is **452**.
 
 Found 2026-08-21 while scoping what a Windows-only failure could hide.
 `tools/crawl_muqawil_listing.py` — the driver for `--plan`, `--crawl`, `--approve`,
@@ -844,8 +848,28 @@ regression: CI is **ubuntu-only**, and `tools/` is not even in the linted path
 
 So the exposure is specific rather than theoretical: **argument handling, resume
 selection and console output in the one file whose failure mode is invisible to CI.**
-Not urgent — it is a developer tool, not shipped code — but it is the cheapest test
-debt on the board, and `say()` in particular is one parametrised test.
+
+### What the tests cover, and what they found
+
+Nineteen tests, grouped by the way hours get lost rather than by function:
+
+| | |
+|---|---|
+| a log line kills the run | a real `cp1252` stream (`TextIOWrapper`, `errors="strict"`), not a mock — `say` must not raise, the **log must keep** the character the console could not show, and a line cp1252 *can* encode must not be degraded to ASCII |
+| a crawl into a warehouse that is not there | `open_engine` exits 2 and **the file is not created** (`R-24`) |
+| a mistyped `--only` | refused, and refused **before the connection is touched** — `conn=None` is passed deliberately, so a late refusal would raise the wrong error |
+| `--approve` reading another run's evidence | `_` is a `LIKE` wildcard: unescaped, `my_run-%` also matches `myXrun-…` |
+| the two locales of one page | paired on the URL with the locale removed, never on arrival order; and the **later** read wins for a page a retry stored twice |
+| an empty departure window | says *"Crawl first"* rather than reporting every contractor as departed |
+
+**And the mutation run found two defects in itself, which is the part worth keeping.**
+Three of the first twelve mutations printed `NOT APPLIED` — their literal source
+strings had their backslashes mangled passing through a shell heredoc — and they were
+the valuable three: the `LIKE` escaping, the last-read-wins ordering, and the log
+keeping an unshowable character. A fourth applied but was a **no-op** (a trailing comma
+added to a call), "survived", and meant nothing. **A mutation that does not apply is
+not a passing guard**, and reporting it beside real results is a harness lying quietly.
+Re-authored by line number, with the anchor lines asserted before anything is written.
 
 ---
 
