@@ -1201,9 +1201,54 @@ and this cannot happen a third time. Then the guard is one line comparing the tw
 
 **Next action:** derive `KNOWN_COMMANDS`, add the comparison test, and mutate it.
 
-### OP-36 · A frozen engine cannot restart itself — it spawns a silent native host instead
+### OP-36 · FOUR spawn sites put `-m scrapex.cli` in front of an executable that ignores it
 
-**Status: OPEN, filed not fixed. Bigger than OP-35 and probably worse.** Not
+**Status: OPEN, filed not fixed. Bigger than OP-35 and probably worse.**
+
+> **RE-MEASURED 2026-08-21 AFTER THE #243 MERGE, AND IT IS FOUR SITES, NOT TWO.**
+> The first pass named `relaunch.py` alone. A sweep of every `sys.executable` in
+> `scrapex/` found the same two bugs repeated at four of the five places that start
+> a child process:
+>
+> | site | what it starts | frozen? |
+> |---|---|---|
+> | `scrapex/relaunch.py:52` | the engine a relaunch brings back | **broken** |
+> | `scrapex/relaunch.py:146` | the detached helper that does the relaunch | **broken** |
+> | `scrapex/native.py:286` | the engine Chrome's native host starts | **broken** |
+> | `scrapex/autostart.py:48` | the Startup entry | **broken, twice over** |
+> | `scrapex/osschedule.py:65` | the Scheduled Task's interpreter | **broken** |
+> | `scrapex/nativehost.py:57` | Chrome's launcher | **CORRECT — and it is the precedent** |
+>
+> **THE FIX IS ALREADY WRITTEN, ONCE, IN THIS REPOSITORY.** `nativehost.py:57` is
+> three lines and says exactly the right thing:
+>
+> ```python
+> if getattr(sys, "frozen", False):        # the PyInstaller build: run ourselves
+>     return sys.executable
+> ```
+>
+> So this is not a design problem. It is one helper the other four never got, and
+> the repair is to give them it rather than to write a fifth variation.
+>
+> **AND THE SECOND BUG AT EVERY SITE, which is quieter:**
+> `interpreter.with_name("pythonw.exe")`. Beside `scrapex-engine.exe` there is no
+> `pythonw.exe`, so `windowless.exists()` is always false and the console-hiding
+> falls back to the visible executable. That one degrades rather than breaks — but
+> it means a frozen autostart or Scheduled Task flashes a window on every tick,
+> which is the exact thing both of those comments say they exist to prevent.
+>
+> **`autostart.py:48` IS BROKEN A THIRD WAY, and it is the worst of them:**
+>
+> ```
+> cmd /c cd /d "{repo}" && "{runner}" -m scrapex.cli ui --port N >> engine.log
+> ```
+>
+> `repo` is `Path(__file__).resolve().parent.parent`. Inside a one-file build that
+> is the PyInstaller unpack directory under `%TEMP%`, **which is deleted when the
+> process exits.** So a frozen install that turns on autostart writes a Startup
+> entry pointing at a directory that will not exist at the next boot. `OP-34` is
+> why nobody would ever see why.
+ Not
 reproduced against a running frozen engine — read from the code and stated as such,
 because saying so is cheaper than a release to find out.
 

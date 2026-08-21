@@ -183,6 +183,12 @@ PINNED = (
     # a plain subprocess call and nothing wrong with it.
     ("docs/BACKLOG.md", "scrapex/relaunch.py", 52, '"-m", "scrapex.cli", "ui"'),
     ("docs/BACKLOG.md", "scrapex/relaunch.py", 146, '"-m", "scrapex.cli", "relaunch"'),
+    # OP-36 · the two other broken spawns, and THE PRECEDENT. The entry's whole
+    # argument is "the fix is already written once in this repository, give it to
+    # the other four" -- which is only checkable standing at the one that is right.
+    ("docs/BACKLOG.md", "scrapex/native.py", 286, '"-m", "scrapex.cli", "ui"'),
+    ("docs/BACKLOG.md", "scrapex/autostart.py", 48, "-m scrapex.cli ui"),
+    ("docs/BACKLOG.md", "scrapex/nativehost.py", 57, 'getattr(sys, "frozen", False)'),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and
