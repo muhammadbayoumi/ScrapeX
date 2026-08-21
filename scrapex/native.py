@@ -35,6 +35,8 @@ from typing import BinaryIO
 from . import __version__
 from . import db as dbmod
 
+from . import enginelaunch
+
 # Bumped only on a BREAKING change to the contract between the extension and
 # this machine — BOTH paths, not just this one. /api/health publishes this same
 # number so the HTTP path, which carries all the data traffic, can refuse a
@@ -270,9 +272,10 @@ def _spawn_engine(port: int) -> None:
 
     from .relaunch import open_engine_log
 
-    interpreter = Path(sys.executable)
-    windowless = interpreter.with_name("pythonw.exe")
-    runner = str(windowless if windowless.exists() else interpreter)
+    # `enginelaunch` owns the `-m scrapex.cli` question, which this got wrong
+    # for the shipped binary: a frozen build ignores `-m` and the child became
+    # a silent native messaging host instead of an engine (`OP-36`).
+    command = enginelaunch.engine_argv("ui", "--port", str(port))
     # Rotated at the one place it is opened: four writers append to this file and
     # none of them used to bound it, while every failure message in the panel
     # sends the owner to read it.
@@ -283,7 +286,7 @@ def _spawn_engine(port: int) -> None:
                  subprocess.CREATE_NEW_PROCESS_GROUP)
     try:
         subprocess.Popen(
-            [runner, "-m", "scrapex.cli", "ui", "--port", str(port)],
+            command,
             cwd=str(Path(__file__).resolve().parent.parent),
             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             creationflags=flags)

@@ -177,18 +177,18 @@ PINNED = (
     # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.
-    ("docs/BACKLOG.md", "packaging/engine_entry.py", 19, "KNOWN_COMMANDS = frozenset("),
-    # OP-36 · the two command builders that put `-m scrapex.cli` in front of a
-    # frozen executable. Both lines ARE the finding -- a reader one line off sees
-    # a plain subprocess call and nothing wrong with it.
-    ("docs/BACKLOG.md", "scrapex/relaunch.py", 52, '"-m", "scrapex.cli", "ui"'),
-    ("docs/BACKLOG.md", "scrapex/relaunch.py", 146, '"-m", "scrapex.cli", "relaunch"'),
-    # OP-36 · the two other broken spawns, and THE PRECEDENT. The entry's whole
-    # argument is "the fix is already written once in this repository, give it to
-    # the other four" -- which is only checkable standing at the one that is right.
-    ("docs/BACKLOG.md", "scrapex/native.py", 286, '"-m", "scrapex.cli", "ui"'),
-    ("docs/BACKLOG.md", "scrapex/autostart.py", 48, "-m scrapex.cli ui"),
+    ("docs/BACKLOG.md", "packaging/engine_entry.py", 19, "def known_commands("),
+    # OP-36 · THE PRECEDENT, and it is the only one of these that survived the fix.
+    # Four rows here used to pin the `-m scrapex.cli` lines in relaunch.py,
+    # native.py and autostart.py -- they were holding a DEFECT still, so that a
+    # reader sent one line off would not conclude the entry was wrong. OP-36 is
+    # fixed and those lines are gone, so the rows went with the citation rather
+    # than being loosened to keep passing. This one stays because
+    # `nativehost.py:57` is still there and is still the argument: the fix was
+    # already written once in this repository, and the other four were given it.
     ("docs/BACKLOG.md", "scrapex/nativehost.py", 57, 'getattr(sys, "frozen", False)'),
+    # And the module that generalised it, cited by OP-36's closing note.
+    ("docs/BACKLOG.md", "scrapex/enginelaunch.py", 74, "def engine_argv("),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and

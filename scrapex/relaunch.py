@@ -29,6 +29,8 @@ import sys
 import time
 from pathlib import Path
 
+from . import enginelaunch
+
 # How long to wait for the old process to release the port before starting the
 # new one. Generous: an engine mid-request keeps the socket a moment, and
 # starting a second engine on a busy port is a failure with no recovery.
@@ -45,11 +47,15 @@ def port_busy(port: int, host: str = "127.0.0.1") -> bool:
 
 
 def _engine_command(port: int) -> list[str]:
-    """The same engine the Startup launcher runs, windowless where possible."""
-    interpreter = Path(sys.executable)
-    windowless = interpreter.with_name("pythonw.exe")
-    runner = windowless if windowless.exists() else interpreter
-    return [str(runner), "-m", "scrapex.cli", "ui", "--port", str(int(port)), "--no-open"]
+    """The same engine the Startup launcher runs, windowless where possible.
+
+    Built by `enginelaunch` rather than here, because the `-m scrapex.cli`
+    pair this used to hardcode is exactly wrong for the shipped binary:
+    PyInstaller does not honour `-m`, so a frozen engine asking to be
+    replaced got a mute native messaging host instead of an engine
+    (`OP-36`).
+    """
+    return enginelaunch.engine_argv("ui", "--port", str(int(port)), "--no-open")
 
 
 # One file, four writers (this module twice, native._spawn_engine, and the
@@ -142,9 +148,12 @@ def engine_log() -> Path:
 
 def spawn_helper(port: int, pid: int | None = None) -> int:
     """Start the detached helper that will bring the engine back. Returns its pid."""
-    interpreter = Path(sys.executable)
-    command = [str(interpreter), "-m", "scrapex.cli", "relaunch",
-               "--port", str(int(port)), "--wait-pid", str(int(pid or os.getpid()))]
+    # `windowless=False` deliberately: this helper's whole job is to narrate
+    # what it is doing into engine.log, and pythonw has no streams to narrate
+    # with. The engine it starts is windowless; the narrator is not.
+    command = enginelaunch.engine_argv(
+        "relaunch", "--port", str(int(port)),
+        "--wait-pid", str(int(pid or os.getpid())), windowless=False)
     return _spawn_detached(command, repo_root(), engine_log())
 
 

@@ -63,9 +63,31 @@ that prints nothing or cannot get past preparing a database. Guarded by
 killed**, one of which caught the guard accepting a data root that was named but
 never assigned.
 
-**THREE THINGS ARE HIS, AND ONLY THE FIRST IS ORDINARY CODE:**
+**HE THEN AUTHORISED THE NEXT TWO AND KEPT THE MERGE.** *«ابدأ بـ OP-36 و OP-35
+وضمهم لنفس tree واترك الدمج للمبرمج الرئيسيى»* — both are built in this same tree, and
+the merge is his. **That last clause is a process ruling, not a preference about one
+branch: [R-37](RULINGS.md#r-37--the-agent-does-not-merge-the-main-programmer-does)
+supersedes [R-18](RULINGS.md#r-18--merge-it-when-it-is-green)**, and R-18 stays in
+place, marked, per **C4**. What changed is who presses the button; R-18's reading of
+*green* is now the report rather than the action.
 
-1. ~~`OP-37`~~ **— fixed in this PR.** He said *«ابدأ بـ OP-37»* and it is fixed, so
+**`OP-36` and `OP-35` are FIXED, and they were one defect wearing two faces.**
+`scrapex/enginelaunch.py` is new — `nativehost.py:57`'s three lines generalised — and
+`relaunch`, `native`, `autostart` and `osschedule` all call it instead of each
+deciding the `-m scrapex.cli` question for itself. `KNOWN_COMMANDS` is gone:
+`known_commands()` asks `scrapex.cli.subcommands()`, which reads the choices off
+`build_parser()`, so **24 of 24** subcommands are reachable from the shipped binary
+against 12 before. **Ten mutations, ten killed**, and the tenth caught my own test
+passing for the wrong reason.
+
+**WHAT R-36 UNBLOCKS.** Its part 4 said an Update button on top of these two would
+lie. It no longer would. **But it is not yet proved against a real frozen build** —
+the guards set `sys.frozen` and `sys.executable`, which is what makes them possible
+at all, and the first artifact to exercise them for real is the next release.
+
+**STILL HIS, AND NOW ONLY TWO:**
+
+1. ~~`OP-37`~~ **— fixed, and by #243 in parallel rather than by this branch.** So
    the release is no longer blocked by a red suite. The pattern was not invented:
    `tests/test_a_crawl_says_what_it_saw.py:215` already pins every row and then
    overrides one, for the same column.

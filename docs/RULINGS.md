@@ -414,9 +414,52 @@ rule wastes a session.
 
 ---
 
+### R-37 · The agent does not merge. The main programmer does
+
+**2026-08-21 · process · supersedes [R-18](#r-18--merge-it-when-it-is-green)**
+
+> «واترك الدمج للمبرمج الرئيسيى»
+
+**Said in the same message that authorised two fixes**, which is what makes it a
+process rule rather than an instruction about one pull request: he asked for
+`OP-36` and `OP-35` to be built and pushed to one tree, and for the merge to stay
+with him. A session that read that as "this once" would be back to guessing next
+time, which is the ambiguity `R-18` itself was written to end.
+
+**WHAT CHANGED FROM `R-18`, AND WHY IT IS NOT A REVERSAL.** `R-18` was given on
+2026-08-20 while four ready pull requests sat waiting for a separate instruction
+each, and it fixed a real cost — a merge-ready branch idling for a day. Between
+then and now the reason for the delegation weakened and the reason against it grew:
+
+| | |
+|---|---|
+| **`main` still has no branch protection** — 404 on the protection endpoint | Under `R-18` the agent's judgement was the *entire* gate. Under this ruling a person is |
+| **Several sessions now run at once** | On 2026-08-21 `#243` merged while this branch was open, took `OP-30`/`OP-31`, and closed two findings out from under it. Merge order across parallel sessions is not a thing any single session can see |
+| **`ac3a5af` reached `main` with no pull request** and left it red for two days | Recorded in `STATE.md`. The cost of one bad merge here is measured in days, not minutes |
+
+**How to apply.** Build it, push it, wait for the checks to conclude, and then
+**report** — naming every check, every failure, and whether each failure ran at
+all. Then stop. Do not merge, do not squash, do not close a pull request as
+superseded. `R-18`'s reading of *green* still governs the report: a `SKIPPED`
+required check is not satisfied, an absent run is not a red one, and a tick from
+before the last push describes a tree nobody is merging.
+
+**This does not make a red branch acceptable.** The obligation to arrive green is
+unchanged (`R-22` still requires the full suite before a pull request opens); what
+moves is only the last step.
+
+---
+
 ### R-18 · Merge it when it is green
 
-**2026-08-20 · process**
+**2026-08-20 · process · ~~active~~ SUPERSEDED 2026-08-21 by [R-37](#r-37--the-agent-does-not-merge-the-main-programmer-does)**
+
+> **Kept in full because the three traps below did not go away.** What `R-37`
+> removes is *who presses the button*, not one word of what green means. A
+> session must still establish that every check concluded, that a failure ran
+> at all, and that the tick describes the tree in front of it — and then say
+> so and stop. Everything under "How to apply" is now the report, not the
+> action.
 
 > «ادمج لما يخضر»
 

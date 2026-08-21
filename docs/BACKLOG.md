@@ -1164,11 +1164,26 @@ reading a three-week-old log as though it were evidence.
 failure and names where it stopped. What is missing is the **record afterwards**,
 for the machine the owner is not sitting at.
 
-### OP-35 · Half the CLI is unreachable from the shipped engine, and says nothing about it
+### OP-35 · ~~Half the CLI is unreachable from the shipped engine, and says nothing about it~~ — FIXED 2026-08-21
 
-**Status: OPEN, filed not fixed — it is a behaviour change to the artifact and
-belongs in its own PR, per `R-01` and his "one step at a time".** Found while
-diagnosing `OP-32`; it is the SAME defect, one layer along.
+> **CLOSED ON HIS INSTRUCTION — *«ابدأ بـ OP-36 و OP-35 وضمهم لنفس tree»*.**
+> `KNOWN_COMMANDS` is gone. `packaging/engine_entry.py:18` now calls
+> `known_commands()`, which asks `scrapex.cli.subcommands()` — and that reads the
+> subparser choices off `build_parser()` itself. **Derived, not extended:** a longer
+> literal would have fixed today and drifted again.
+>
+> Measured after: **24 of 24** reachable, against 12 before. `database-status` and
+> `relaunch` among the twelve recovered.
+>
+> Guarded by `tests/test_the_frozen_engine_can_start_itself.py`, which asserts the
+> two sets are equal AND names the twelve casualties separately — because equality
+> alone would still pass if both sides shrank together. The one private-argparse
+> poke lives in `cli.py`, and `subcommands()` **raises** rather than returning an
+> empty set if argparse ever changes shape: an empty set would make every argument
+> look like Chrome, which is this defect total instead of partial.
+
+**The diagnosis, kept as written.** Found while diagnosing `OP-32`; it is the SAME
+defect, one layer along.
 
 `packaging/engine_entry.py:19` hand-maintains the set of subcommands the frozen
 binary will forward to the CLI. Anything not in it is assumed to be Chrome and goes
@@ -1203,21 +1218,52 @@ and this cannot happen a third time. Then the guard is one line comparing the tw
 
 ### OP-36 · FOUR spawn sites put `-m scrapex.cli` in front of an executable that ignores it
 
-**Status: OPEN, filed not fixed. Bigger than OP-35 and probably worse.**
+**Status: ~~OPEN~~ FIXED 2026-08-21, on his instruction — *«ابدأ بـ OP-36 و OP-35
+وضمهم لنفس tree»*.**
+
+> **ONE MODULE, FOUR CALL SITES.** `scrapex/enginelaunch.py:74`
+> (`engine_argv`) is the one that answers the `-m` question, and the module is
+> `nativehost.py:57`'s three lines generalised: `frozen()`, `runner()`,
+> `engine_argv()`, `engine_command()` and `working_directory()`. `relaunch`,
+> `native`, `autostart` and `osschedule` all call it and none of them decides the
+> `-m` question any more. It imports nothing from `scrapex`, so the two callers
+> reached while the engine is still coming up cannot meet an import cycle.
+>
+> **All three bugs closed, and the mirrors asserted too** — a fix that made the
+> frozen path right by breaking the source path would pass a one-sided test:
+>
+> | | frozen | source |
+> |---|---|---|
+> | `-m scrapex.cli` | **absent** | **present** |
+> | `pythonw.exe` preference | ignored, with a real decoy beside a real exe | honoured |
+> | `cd /d <repo>` in the Startup entry | **absent** | present |
+>
+> **Ten mutations, ten killed** — and the tenth is why the count is worth quoting.
+> The `pythonw` test first passed for the wrong reason: it pointed `sys.executable`
+> at a path that did not exist, so re-adding the probe changed nothing and the
+> assertion held anyway. Only a **real** `pythonw.exe` beside a **real** `.exe`
+> can tell "frozen returns itself" from "the probe happened to miss".
+
+**The diagnosis, kept as written. It was bigger than OP-35 and probably worse.**
 
 > **RE-MEASURED 2026-08-21 AFTER THE #243 MERGE, AND IT IS FOUR SITES, NOT TWO.**
 > The first pass named `relaunch.py` alone. A sweep of every `sys.executable` in
 > `scrapex/` found the same two bugs repeated at four of the five places that start
 > a child process:
 >
-> | site | what it starts | frozen? |
-> |---|---|---|
-> | `scrapex/relaunch.py:52` | the engine a relaunch brings back | **broken** |
-> | `scrapex/relaunch.py:146` | the detached helper that does the relaunch | **broken** |
-> | `scrapex/native.py:286` | the engine Chrome's native host starts | **broken** |
-> | `scrapex/autostart.py:48` | the Startup entry | **broken, twice over** |
-> | `scrapex/osschedule.py:65` | the Scheduled Task's interpreter | **broken** |
-> | `scrapex/nativehost.py:57` | Chrome's launcher | **CORRECT — and it is the precedent** |
+> **The five sites as they were before the fix.** The line numbers are the
+> pre-fix ones and are kept as the record of what was measured; four of them no
+> longer name what they named, which is why their pins were retired rather than
+> re-aimed.
+>
+> | site (pre-fix) | what it starts | then | now |
+> |---|---|---|---|
+> | `relaunch.py:52` | the engine a relaunch brings back | broken | `enginelaunch.engine_argv` |
+> | `relaunch.py:146` | the detached helper that does the relaunch | broken | `enginelaunch.engine_argv` |
+> | `native.py:286` | the engine Chrome's native host starts | broken | `enginelaunch.engine_argv` |
+> | `autostart.py:48` | the Startup entry | broken ×3 | `engine_command` + conditional `cd` |
+> | `osschedule.py:65` | the Scheduled Task's interpreter | broken | `enginelaunch.runner` |
+> | `nativehost.py:57` | Chrome's launcher | **CORRECT — the precedent** | unchanged |
 >
 > **THE FIX IS ALREADY WRITTEN, ONCE, IN THIS REPOSITORY.** `nativehost.py:57` is
 > three lines and says exactly the right thing:

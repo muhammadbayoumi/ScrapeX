@@ -15,12 +15,29 @@ from __future__ import annotations
 import sys
 
 
-# The CLI's subcommands. Anything NOT in here means Chrome launched us.
-KNOWN_COMMANDS = frozenset({
-    "init-db", "validate-manifest", "export-contract", "funnel-test", "crawl",
-    "ingest", "peek", "export", "ui", "native-host",
-    "install-native-host", "status",
-})
+def known_commands() -> frozenset[str]:
+    """The CLI's subcommands. Anything NOT in here means Chrome launched us.
+
+    A FUNCTION, AND DERIVED, because the frozenset that used to sit here was
+    written by hand and drifted to half the CLI. It listed twelve names;
+    `scrapex.cli` had twenty-four. The other twelve -- `database-status`,
+    `autostart`, `backup-databases`, `restore-database`, `carry-over`,
+    `contractors`, `export-version`, `relaunch`, `restore-database`, `run-due`,
+    `schedule`, `sources`, `wipe-source` -- fell through to `serve()`, the Chrome
+    native messaging host, which waits on stdin and prints nothing. Measured on
+    the published 0.2.1: `status` answered in 94 bytes, `database-status` in
+    ZERO. `OP-35`.
+
+    `relaunch` being on that list is the sharpest of them: the engine spawns
+    itself with that very subcommand in order to restart, so a frozen engine
+    could not restart itself even once the argv was right (`OP-36`).
+
+    Deriving it means a subcommand added tomorrow is reachable from the shipped
+    binary the same day, with nobody having to remember this file exists.
+    """
+    from scrapex.cli import subcommands
+
+    return subcommands()
 
 
 #: Asked BEFORE anything else, because the rule below deliberately sends every
@@ -79,7 +96,7 @@ def main() -> int:
     # usage to a pipe Chrome expects framed JSON on and exit. So: dispatch to the
     # CLI ONLY for a known subcommand; everything else is the native host.
     argv = [a for a in sys.argv[1:] if not a.startswith("-")]
-    if argv and argv[0] in KNOWN_COMMANDS:
+    if argv and argv[0] in known_commands():
         return cli_main()
     return serve()
 
