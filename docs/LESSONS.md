@@ -125,7 +125,7 @@ may differ.
 **And the same fact bites the frozen engine from the other side:** when there is no
 Python on PATH at all, the shipped `.exe` is the ONLY way in. That is the argument
 for the one-file binary, and the reason its silence when double-clicked
-(`OP-30`) cost the owner the whole afternoon rather than a minute at a terminal.
+(`OP-32`) cost the owner the whole afternoon rather than a minute at a terminal.
 
 ---
 
@@ -923,12 +923,14 @@ return SRC.read_text(encoding="utf-8") == original
 ```
 
 That comparison **cannot see a line-ending change**, because `read_text` opens in
-text mode and universal newlines turns `
+text mode and universal newlines turns `
+
 ` into `
 ` on the way in. Both sides
 are normalised, so both sides match — while `write_text` has meanwhile translated
 every `
-` back to `
+` back to `
+
 ` on Windows. A run that reports `restored: True` can
 therefore leave a file whose **452 lines all changed ending**.
 
@@ -941,7 +943,8 @@ git diff    ->  (nothing)
 
 `.gitattributes` sets `* text=auto`, so `diff` normalises the endings away and shows
 an empty change, while `status` still reports the file modified. Nothing was wrong
-with the content — measured: identical after `b"
+with the content — measured: identical after `b"
+
 " -> b"
 "` on both sides — and
 `git checkout --` on the file settles it.
@@ -1009,6 +1012,65 @@ claim looks exactly like missing data — so it sends someone hunting for rows t
 never lost. Both proofs are now computed, and the report says which one carried each
 cell (`[by witness]` / `[by count]`), because a claim whose grounds are invisible is a
 claim nobody can re-check.
+
+### A stop condition that measures progress must exclude the work it replays
+
+**A resumed crawl gains nothing new, by design.** The partitioned crawl stores each
+page it fetches, so resuming a cell reads its ids back **off disk** rather than off the
+wire — that is the point of it. The dry-stop then compared `gained == 0` and concluded
+the site had nothing left:
+
+```
+region_id_1-company_size_verysmall: 3,125 of 4,699, D=1,574 [3 attempt(s), 5 requests]
+```
+
+**Five requests, and it declared the cell exhausted.** Two of the three attempts were
+pure replay. The five heaviest cells all stopped this way, and the run *looked* correct
+— it reported its deficit honestly, it just never went and asked. The tell was in the
+report all along: `3 attempt(s)` beside `5 requests` cannot both be true of a cell
+holding thousands of rows, and nothing was comparing those two numbers.
+
+The fix is one clause in two places — an attempt counts as dry only if it **asked**:
+
+```python
+asked_the_site = attempt.pages_read > 0
+dry = dry + 1 if number > 1 and asked_the_site and gained == 0 else dry
+```
+
+`went_dry()` needed the same filter, because a stop condition evaluated in two places
+is two stop conditions. Afterwards: **631 new contractors in 727 pages, `D` 633 → 2.**
+
+**The general shape.** Any "we are done because nothing changed" test is invalid over
+work that is *defined* to change nothing. Cache hits, replays, no-op migrations,
+idempotent writes: they satisfy the condition without being evidence for it. Gate the
+condition on the work having actually happened, and make the two numbers — attempts
+and requests — sit next to each other where a reader can see them disagree.
+
+### Measure whether the server sends a validator before designing around `304`
+
+`fetch_validator` held **0 rows after 727 fetched pages** and the obvious reading was a
+wiring bug. One request settled it instead:
+
+| header | muqawil.org sends |
+|---|---|
+| `ETag` | **absent** |
+| `Last-Modified` | **absent** |
+| `Cache-Control` | `no-cache, private` |
+
+It is a Laravel application minting a fresh `XSRF-TOKEN` per response. There is no
+stable entity to validate, `no-cache` says so, and an empty table is **correct
+behaviour**. An hour of debugging a working feature was one `urlopen` away.
+
+**The cost is that a written plan carried a false premise.** It said conditional
+requests are *"what makes maintaining 48 columns affordable"* — and on this source they
+are worth nothing. A recurring pass re-downloads all 34,806 pages in full. What
+survives is the half that never needed the server: `R-20` compares `content_hash`
+**after** the fetch, so an unchanged page still writes no revision. Bandwidth is not
+reducible here; history and storage already are.
+
+So: **a server-side optimisation is a property of the server, and it is one request to
+check.** Do it before it becomes a line in a plan, and keep the client-side half
+separate — that half works everywhere.
 
 ### A facet's controls may not be a `<select>`, and its null class may have a value
 

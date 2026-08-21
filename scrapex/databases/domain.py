@@ -447,10 +447,43 @@ class DomainDatabase(Generic[T]):
         return applied
 
     def _stamp_and_verify_checksums(self, conn: sqlite3.Connection) -> None:
+        """Record each migration's digest, and refuse a file that changed under us.
+
+        KEYED ON THE NAME, NOT THE NUMBER, and `OP-30` is why. `database_migration`
+        is `migration_number INTEGER PRIMARY KEY` -- ONE number space -- and a
+        warehouse that carried over from the price database holds TWO streams in it:
+        this one at 1-5, and the price stream's fifty rows at 6-55. Engine migration
+        `0006` was the first number this stream had ever wanted, and number 6 was
+        already `0006_change_event.sql`, so the digests of two unrelated files were
+        compared and the owner's live warehouse reported
+
+            engine migration 0006_... checksum changed; restore the original
+            migration file and retry
+
+        while no file had changed at all. It could not be opened by any build.
+
+        THE NAME IS UNIQUE ACROSS BOTH STREAMS, so a foreign row becomes invisible
+        rather than fatal: this stream looks up only its own names, finds nothing for
+        a name it has never stamped, and stamps it. The number stops carrying a
+        meaning it had already lost -- with two streams sharing the space it never
+        was "position in this stream" -- so a new row takes the next free one.
+
+        WHY NOT A `stream` COLUMN, which is the model this deserves: that is a
+        migration, and it would have to run BEFORE the verification that is failing.
+        Recorded as the real fix in `OP-30`; this is the one that opens a warehouse
+        today without a schema change, and it makes the collision impossible rather
+        than deferred.
+
+        NO TEST COULD HAVE CAUGHT THE ORIGINAL, and that is the part worth keeping: a
+        fresh `init-db` writes only this stream's rows, so the space above 5 is empty
+        and nothing collides. CI always starts from a fresh database. The collision
+        needs a carried-over warehouse, and no fixture had one -- until the one beside
+        this change.
+        """
         for migration in self._migrations:
             stored = conn.execute(
-                "SELECT sha256 FROM database_migration WHERE migration_number = ? LIMIT 1",
-                (migration.number,),
+                "SELECT sha256 FROM database_migration WHERE migration_name = ? LIMIT 1",
+                (migration.name,),
             ).fetchone()
             if stored is not None and not migration.matches(stored[0]):
                 raise DatabaseMigrationError(
@@ -463,14 +496,20 @@ class DomainDatabase(Generic[T]):
                 # already owns the ledger, so the mixed state converges instead
                 # of every reader having to know about both forms forever.
                 conn.execute(
-                    "UPDATE database_migration SET sha256 = ? WHERE migration_number = ?",
-                    (migration.sha256, migration.number),
+                    "UPDATE database_migration SET sha256 = ? WHERE migration_name = ?",
+                    (migration.sha256, migration.name),
                 )
             if stored is None:
+                # THE NEXT FREE NUMBER, because this stream's own number may be held
+                # by a foreign row. `migration_number` is the table's primary key and
+                # stays one, so it still identifies a row -- it just stops pretending
+                # to say where in this stream the row belongs.
                 conn.execute(
                     "INSERT INTO database_migration "
-                    "(migration_number, migration_name, sha256) VALUES (?,?,?)",
-                    (migration.number, migration.name, migration.sha256),
+                    "(migration_number, migration_name, sha256) VALUES "
+                    "((SELECT COALESCE(MAX(migration_number), 0) + 1 "
+                    "    FROM database_migration), ?, ?)",
+                    (migration.name, migration.sha256),
                 )
         conn.commit()
 
@@ -489,10 +528,13 @@ class DomainDatabase(Generic[T]):
             )
 
     def _verify_checksums(self, conn: sqlite3.Connection) -> None:
+        """The same lookup as the stamping path, and it has to be. `OP-30`: keyed on
+        the number, this is what refused to open the owner's warehouse on every
+        connection, not only on upgrade."""
         for migration in self._migrations:
             stored = conn.execute(
-                "SELECT sha256 FROM database_migration WHERE migration_number = ? LIMIT 1",
-                (migration.number,),
+                "SELECT sha256 FROM database_migration WHERE migration_name = ? LIMIT 1",
+                (migration.name,),
             ).fetchone()
             if stored is None:
                 raise DatabaseMigrationError(

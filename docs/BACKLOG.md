@@ -694,6 +694,12 @@ ways out, and the choice has data consequences:
 
 *Recommended: (a), and it is only cheap because nothing has to be re-fetched.*
 
+**RULED 2026-08-21 — (a).** → [R-28](RULINGS.md#r-28--the-74-approved-pages-are-wiped-and-re-approved-from-disk).
+**What remains of OP-25 is option (c) alone**: schema-drift review still does not
+exist, the error message still points at it, and it was passed over for timing
+rather than on merit. It stays open here as the part that serves every future
+source.
+
 ### OP-26 · The contractor directory can be COLLECTED but not MAINTAINED
 
 **MEASURED 2026-08-21**, answering [REQ-22](REQUESTS.md#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update).
@@ -739,7 +745,7 @@ routine.
 >
 > | | |
 > |---|---|
-> | `unavailable` | the site is not showing this contractor **right now** — reversible, and the row comes back on the next crawl that sees it |
+> | `unavailable` | the site is not showing this contractor **right now** — reversible, and the row comes back on the next crawl that sees it. **RULED 2026-08-21: this one** → [R-29](RULINGS.md#r-29--a-contractor-the-site-stops-showing-is-unavailable-not-retired) |
 > | `retired` | it is gone, and the row is history |
 >
 > A directory that reorders and churns by 25 rows a night will produce both, and
@@ -925,7 +931,127 @@ this a `SyntaxError`**, and then the file stops importing. The fix is one charac
 warning that has been printing for a while is not an emergency, and because a
 docstring quoting a path is exactly the case that will recur.
 
-### OP-30 · The fix for the black window has sat in the repository for twelve days, unreleased
+### OP-30 · Two migration ledgers, one number space — and engine `0006` is the first to collide
+
+**Found on the owner's LIVE warehouse, 2026-08-21, while upgrading it at his
+instruction.** The upgrade backed the file up, applied both migrations correctly, and
+then **refused to stamp them**, leaving a warehouse no current build can open.
+
+```
+engine migration 0006_a_row_says_when_it_was_last_proved_absent.sql
+checksum changed; restore the original migration file and retry
+```
+
+**The message is wrong about the cause, which is what made this take a while.** No
+migration file changed. `database_migration` is `migration_number INTEGER PRIMARY
+KEY` — **one number space** — and the collapsed warehouse carries **two streams** in
+it:
+
+| numbers | stream | applied |
+|---|---|---|
+| 1–5 | the **engine**: `schema.sql`, `0002…` – `0005_a_snapshot_says_how_it_is_encoded.sql` | 2026-08-20 |
+| 6–55 | the **price** database, carried over: `0006_change_event.sql` – `0057_the_weight…` | 2026-07-31 |
+
+So `_verify_checksums` looks up **number 6**, finds `0006_change_event.sql`'s digest,
+compares it against engine `0006`'s, and reports a changed checksum. The row keyed 6
+is not engine migration 6 — **it is a foreign row.**
+
+**WHY THIS WAS LATENT UNTIL NOW, EXACTLY.** Engine migrations had only ever reached
+`0005`. Number 6 is the first the engine has ever wanted, and #235 is what introduced
+it. Every earlier engine migration fitted below the carried-over range by luck.
+
+**WHY NO TEST AND NO CI RUN COULD HAVE CAUGHT IT, which is the part worth keeping.**
+A fresh `init-db` writes only the engine's own rows, so the number space is empty
+above 5 and nothing collides. **CI always starts from a fresh database**, and 273
+tracked test files plus the `migration-authority` job — which runs the whole suite
+against the real migration stream — all pass. The collision needs a warehouse that
+*carried over from marketlens*, and no test has one. That is the same class of gap as
+`R-24`: the upgrade path is only exercised by a real user's file.
+
+**WHO IT HITS.** Every installation that carried over from the price database, the
+moment it upgrades past engine `0005`. A fresh installation is unaffected.
+
+### What the state actually is, measured rather than feared
+
+| | |
+|---|---|
+| `PRAGMA integrity_check` | **ok** |
+| both migrations | **applied** — `dataset_sighting.last_absent_at` and `generic_record.node_id` are both there, `generic_record_field_change` exists |
+| `user_version` | **7**, correct for the applied schema |
+| rows | **every one of 53 tables unchanged** except `generic_page_snapshot` +6, which is the crawl writing six more pages before it was stopped |
+| the backup | verified restorable: integrity ok, v5, 16,781 sightings, 9,526 snapshots, 1,172 records |
+
+**So no data was lost and the schema is right.** What is wrong is four fields in a
+ledger — and `connect()` verifies that ledger, so the warehouse is unopenable until it
+is fixed. **The crawl cannot resume until then either**, because `open_engine` goes
+through the same `connect()`.
+
+### The fix, and why it is not "renumber and move on"
+
+The engine's verification keys on a number that another stream also owns. The honest
+reading is that **it should key on the migration NAME**, which is unique across both
+streams, and that a name with no row is simply unstamped. Three ways, and the choice
+has data consequences:
+
+- **(a) Verify and stamp by `migration_name`.** Smallest change, and it makes the
+  foreign rows harmless rather than fatal. `migration_number INTEGER PRIMARY KEY`
+  means a new row cannot reuse 6, so the number becomes `MAX(number)+1` and stops
+  meaning "position in the stream" — which it already does not mean, given two streams
+  share it.
+- **(b) Namespace the ledger** with a `stream` column, keyed `(stream, number)`, and
+  backfill the carried-over rows as `price`. Correct, and it is a migration that has
+  to run *before* verification — the ordering is the whole difficulty.
+- **(c) Have `carry_over` not bring the price ledger across at all,** and repair
+  existing warehouses. Cleanest in the long run and the largest change; it also
+  discards a record of what the price database did, which `C4` reasoning says to keep.
+
+*Recommended: (a) now, because it unblocks a live warehouse and makes the failure
+impossible rather than deferred; (b) or (c) as the real model, once he rules.*
+**Not started — his call, on live data.**
+
+### OP-31 · Six crawl workers starve another process out of the warehouse
+
+**Measured 2026-08-21, minutes after `--workers` was built, by using it.** The owner
+asked for the Engine to be started while a six-worker crawl was running. It refused:
+
+```
+sqlite3.OperationalError: database is locked
+  scrapex/jobs.py:932  record_worker_failure
+```
+
+Every connection sets `busy_timeout = 5000`, so a writer waits five seconds before
+giving up. **Six concurrent writers kept it waiting longer than that** — so the
+failure is not a missing timeout, it is a timeout that is too short for the load the
+new flag can create.
+
+**THIS IS A COST OF `--workers`, NOT A DEFECT IN THE ENGINE**, and it was not measured
+before the flag was written. `R-21` is about pacing outbound requests per site and it
+says nothing about how many writers one SQLite file will tolerate — the concurrency
+was designed against the site's tolerance and not the warehouse's.
+
+**What is NOT wrong:** the crawl itself. WAL lets readers proceed throughout, the
+workers wait for each other correctly, and no row was lost — `integrity_check` is ok
+and 53 table counts were unchanged across the whole run. The contention is with
+*other processes*, which is exactly what a background crawl is supposed not to do.
+
+Three ways out, and the choice is a trade:
+
+- **(a) Raise `busy_timeout` for the crawl's own connections only.** Smallest, and it
+  makes the crawl wait for the Engine rather than the reverse — the right priority,
+  since the Engine is what the user is looking at. Does not help a third process.
+- **(b) Serialise the crawl's WRITES behind one lock** while leaving the fetches
+  concurrent. The DB work is milliseconds against a six-second fetch, so this costs
+  almost nothing and bounds the contention at one writer regardless of `--workers`.
+  Larger change to `snapshotcrawl`'s write path.
+- **(c) Cap `--workers` by measurement** rather than by the latency ratio alone, and
+  say in the help what it costs. Cheapest to write, weakest guarantee.
+
+*Recommended: (b) — it is the only one that makes the guarantee independent of how
+many workers are asked for, and the cost is bounded by arithmetic rather than by
+hoping. (a) as an immediate mitigation.*
+**Not started.**
+
+### OP-32 · The fix for the black window has sat in the repository for twelve days, unreleased
 
 **Status: OPEN. The gate that let it happen is closed in this PR; publishing is his.**
 Reported by the owner on 2026-08-21 as *"it did not install — black screen"*, and
@@ -971,9 +1097,23 @@ this guard accepting a data root that was named but never assigned.
 Track 3 in [STATE.md](STATE.md) holds `VERSION` at 0.2.2 behind `R-07`, so the number
 is already right and nothing needs bumping to release it.
 
-### OP-31 · The owner's own warehouse is ahead of `main`, so the engine refuses to start on his machine
+### OP-33 · ~~The owner's own warehouse is ahead of `main`, so the engine refuses to start on his machine~~ — FIXED 2026-08-21 by #243
 
-**Status: OPEN, and it outlives OP-30 — cutting the release does not fix this.**
+> **CLOSED BY THE MERGE, NOT BY THIS WORK.** `claude/his-four-rulings` landed as
+> [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243) (`eb691d9`) and brought
+> engine migrations **0007** and **0008** with it, so `main` reads schema v8. Verified
+> against his live file from the merged tree, read-only:
+>
+> ```
+> "status": "Healthy",  "schema_version": 8,  "ok": true
+> ```
+>
+> So a released engine built from `main` can now open his warehouse. **What is NOT
+> closed is the panel's sentence**: an engine that refuses to start still never binds
+> a port, so `extension/app.js:3416` still reports "Not detected" for a schema fault,
+> a permissions fault and an absent engine alike. That half is now `OP-38`.
+
+**The diagnosis, kept as written — it is why the merge mattered.**
 
     $ scrapex database-status
     "status": "Needs a newer ScrapeX",
@@ -1005,16 +1145,16 @@ sentence; there is no channel that carries it to a panel.
 **Next action:** merge `claude/his-four-rulings` before, or with, the release. Until
 then the only engine that runs on this machine is that worktree's.
 
-### OP-32 · A launch that dies in a console writes nothing to `engine.log`
+### OP-34 · A launch that dies in a console writes nothing to `engine.log`
 
 **Status: OPEN, filed not fixed, per `R-01`.** Found while looking for the black
 window's trace and finding none.
 
-`_bind_log_streams` (`scrapex/cli.py:927`) says it plainly: *"run it from a terminal
+`_bind_log_streams` (`scrapex/cli.py:940`) says it plainly: *"run it from a terminal
 and this does nothing at all."* It exists for the `pythonw` autostart path, which
 has no streams. A double-click **does** get a console, so the redirect no-ops and
 the failure goes to a window that is closing. `~/.scrapex/engine.log` is dated
-**2026-08-01** across every launch attempt described in `OP-30`.
+**2026-08-01** across every launch attempt described in `OP-32`.
 
 The instinct — *"a black screen very likely wrote something to engine.log"* — is
 therefore wrong for the one path a user actually takes, and an hour can be spent
@@ -1024,11 +1164,11 @@ reading a three-week-old log as though it were evidence.
 failure and names where it stopped. What is missing is the **record afterwards**,
 for the machine the owner is not sitting at.
 
-### OP-33 · Half the CLI is unreachable from the shipped engine, and says nothing about it
+### OP-35 · Half the CLI is unreachable from the shipped engine, and says nothing about it
 
 **Status: OPEN, filed not fixed — it is a behaviour change to the artifact and
 belongs in its own PR, per `R-01` and his "one step at a time".** Found while
-diagnosing `OP-30`; it is the SAME defect, one layer along.
+diagnosing `OP-32`; it is the SAME defect, one layer along.
 
 `packaging/engine_entry.py:19` hand-maintains the set of subcommands the frozen
 binary will forward to the CLI. Anything not in it is assumed to be Chrome and goes
@@ -1049,7 +1189,7 @@ off the source. One of the three is in the set; two are not:
 | `autostart` | no | 0 | **0** |
 
 The listed one answers, correctly and usefully. The unlisted ones are the black
-window again. **`OP-31` was
+window again. **`OP-33` was
 diagnosed with `database-status`** — the command that names a schema-ahead warehouse
 in one line — and it is on that list, so the shipped engine cannot answer the
 question a stuck user most needs answered. So are `backup-databases`,
@@ -1061,9 +1201,9 @@ and this cannot happen a third time. Then the guard is one line comparing the tw
 
 **Next action:** derive `KNOWN_COMMANDS`, add the comparison test, and mutate it.
 
-### OP-34 · A frozen engine cannot restart itself — it spawns a silent native host instead
+### OP-36 · A frozen engine cannot restart itself — it spawns a silent native host instead
 
-**Status: OPEN, filed not fixed. Bigger than OP-33 and probably worse.** Not
+**Status: OPEN, filed not fixed. Bigger than OP-35 and probably worse.** Not
 reproduced against a running frozen engine — read from the code and stated as such,
 because saying so is cheaper than a release to find out.
 
@@ -1086,20 +1226,23 @@ arrives instead. `pythonw.exe` beside a frozen executable does not exist either,
 Everything `tests/test_relaunch_log.py` and
 `tests/test_the_engine_survives_being_killed.py` assert is true of the SOURCE tree,
 where `sys.executable` really is a Python. The frozen case has never been exercised —
-same shape as `OP-30`, where the guarded thing and the shipped thing were different
+same shape as `OP-32`, where the guarded thing and the shipped thing were different
 things.
 
 **Next action:** make the two command builders frozen-aware (`sys.frozen` →
-`[exe, "ui", ...]` with no `-m`), and have `OP-33`'s derived dispatch accept it. Then
+`[exe, "ui", ...]` with no `-m`), and have `OP-35`'s derived dispatch accept it. Then
 one test per builder asserting the frozen shape, which needs no real binary — only a
 patched `sys.frozen` and `sys.executable`.
 
-### OP-35 · ~~`main` went red at 12:00Z today and stays red, which blocks the engine release~~ — FIXED 2026-08-21
+### OP-37 · ~~`main` went red at 12:00Z today and stays red, which blocks the engine release~~ — FIXED 2026-08-21
 
-> **CLOSED THE SAME DAY, on his instruction — *«ابدأ بـ OP-35»*, 2026-08-21.** The
-> repair is the one below, and it turned out not to be an invention: **the sibling
-> test in this same file's neighbour already uses the correct pattern for the same
-> column.** `tests/test_a_crawl_says_what_it_saw.py:215` pins every row's
+> **CLOSED THE SAME DAY — AND TWICE, INDEPENDENTLY, WHICH IS THE INTERESTING PART.**
+> He instructed *«ابدأ بـ OP-35»* (its number before the #243 merge renumbered it),
+> and while this branch was writing the fix, [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243)
+> landed **the identical one line** on `main` from another session. Two sessions
+> reached the same repair without seeing each other, which is corroboration rather
+> than waste — and it is not an invention either: **the sibling test in this same
+> file's neighbour already uses the correct pattern for the same column.** `tests/test_a_crawl_says_what_it_saw.py:215` pins every row's
 > `last_seen_at` with a bare `UPDATE` and *then* overrides the one it is about. The
 > broken test pinned both sides of `last_seen_at` and only one side of
 > `first_seen_at`. One line closes the gap.
@@ -1114,14 +1257,22 @@ patched `sys.frozen` and `sys.executable`.
 > | `row_state`: stop calling an unseen row `absent` (**production code**) | **KILLED** — the `absent` rule is still guarded |
 >
 > The two production mutations are the ones that matter: a test edited into
-> passing would have survived them. All 40 tests in the file pass, and the class
+> passing would have survived them.
+>
+> **AND ONE CORRECTION TO #243'S ACCOUNT, per C5.** Its comment calls this a
+> dependency on the TIME OF DAY — *"new for the whole afternoon and not at all in
+> the morning"*. That is true of **2026-08-21 alone**. From the next day onward
+> `now` is past `12:00:00Z` at every hour, so the test could never have passed
+> again at any time of day. The distinction decides what a reader does: told it is
+> time-of-day, they wait for the morning, and the morning never fixes it. The
+> comment in the test now says so. All 40 tests in the file pass, and the class
 > was swept — the other 13 files holding a hardcoded 2026 timestamp pass every
 > value to `row_state()` explicitly, so no `now` is involved, and **no
 > future-dated literal exists anywhere in `tests/`** that would arm the same bomb
 > for a later date.
 
 **The diagnosis, kept as written — the present tense below is that afternoon's.**
-It was the most urgent entry in this file, because `OP-30`'s next action could not
+It was the most urgent entry in this file, because `OP-32`'s next action could not
 be taken while it stood.
 
     FAILED tests/test_a_dataset_is_a_table_like_any_other.py::
@@ -1154,7 +1305,7 @@ now on.** It passed every run before 12:00Z, which is why #235 merged green.
 
 **Why it blocks the release.** `.github/workflows/release-engine.yml` runs the whole
 suite in *"The engine must pass its own tests before it is shipped"* **before** it
-builds. So `git tag engine-v0.2.2` fails at that step, and `OP-30` — the thing the
+builds. So `git tag engine-v0.2.2` fails at that step, and `OP-32` — the thing the
 owner actually asked for — cannot ship until this is repaired. `R-18` (merge it when
 it is green) is also unsatisfiable for every open pull request while this stands.
 
@@ -1170,6 +1321,33 @@ side too, rather than leaving it at insertion time:
 **The class, and it is worth a `LESSONS` line if it recurs:** a test that compares a
 literal timestamp against `now` is only asserting anything while `now` is on the right
 side of it. Every such literal is a date on which the suite changes its mind.
+### OP-38 · "Not detected" is what the panel says about an engine that is installed and refusing
+
+**Status: OPEN.** The half of `OP-33` the #243 merge did not close, split out so it
+is not filed as fixed with it.
+
+An engine that refuses to start never binds a port. So `checkEngine` in
+`extension/engine.js` gets a connection error, and
+`extension/app.js:3416` reports:
+
+    text: "Not detected"      detail: "The panel could not reach the Engine."
+
+**That sentence is false in every case except one**, and it sends the reader to
+reinstall software that is already installed. The engine knew exactly what was
+wrong — *"This database was written by a later version (schema v8; this build reads
+v6)"* — and there was no channel to carry it. Same for a locked database, a busy
+port, a permissions fault, or a half-written config.
+
+**The states are already distinguished where they CAN be**: `Not running`,
+`Installed, not running`, `Check timed out` and `Incompatible` all exist and are
+reasoned about in `engineStatusFromState`. The gap is only the case where nothing
+answers at all — and it is the case a stuck user is in.
+
+**The cheapest honest fix is not a protocol.** A refusal already knows how to write
+a line; it just has nowhere durable to write it (`OP-34`). If a failed start left a
+one-line reason where the panel could read it, "Not detected" could become "Installed,
+but it stopped: …". Fixing `OP-34` and this entry are the same work.
+
 
 ## 3. Decided, not yet built
 
@@ -1875,7 +2053,14 @@ with HTTP 429.
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
 
-**Q-14 · What identifies an ACCOUNT, so a database can belong to one?**
+**Q-14 · ~~What identifies an ACCOUNT, so a database can belong to one?~~ — ANSWERED 2026-08-21: (a), the signed-in address.**
+→ [R-34](RULINGS.md#r-34--an-account-is-the-signed-in-address-and-a-warehouse-records-whose-it-is).
+He settled it by naming one: «اجعلها تخص حساب muhammad.bayoumi.ali@gmail.com», and
+his own warehouse now carries it in `scrapex_meta.account_owner`. The options and
+the reasoning are kept below, because the trade-off is the only place the two
+rejected halves are written down.
+
+**Q-14 (as asked) · What identifies an ACCOUNT, so a database can belong to one?**
 `REQ-26`. He ruled that a database belongs to one account and not to everyone on the
 machine, and that two Chrome profiles with two accounts get two databases. Measured:
 **no account concept exists** — `DATABASE_ROOT` is `~/.scrapex` per operating-system
@@ -1927,6 +2112,9 @@ built. Costs ~235 MB and ~28 s per full re-extraction.
 **7x faster to write** than (b), at the price of (a)'s bespoke work everywhere.
 *Recommended: (b). It wins or ties every operational criterion; (c) is the fallback if
 the storage figure is judged too high.*
+
+**RULED 2026-08-21 — (b)**, after he asked for the three to be compared **on time**
+specifically. → [R-30](RULINGS.md#r-30--r-19-is-built-as-child-datasets-whose-value-references-a-taxonomy).
 
 **Two things found on the way that need his eye regardless of the option chosen:**
 R-19's own sample reported the licensed-activities table as *"one row — the header

@@ -191,15 +191,21 @@ def test_only_refuses_an_unknown_label_before_touching_the_database(
     assert spy.calls == []
 
 
-def test_only_passes_exactly_the_named_cells_and_no_others(driver, directory,
+def test_only_passes_exactly_the_named_cells_and_no_others(driver, directory, conn,
                                                            monkeypatch):
     """47 of 56 cells were already proven; re-reading them is the cost this avoids.
-    Whitespace around a label is tolerated because these are pasted out of a log."""
+    Whitespace around a label is tolerated because these are pasted out of a log.
+
+    A REAL CONNECTION HERE, unlike the refusal test above: `crawl` now loads the
+    stored conditional validators before it starts, so a run that gets PAST the
+    refusal legitimately touches the database. Only the refusal itself has to happen
+    with nothing open, and that test still passes `None` to prove it.
+    """
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
     monkeypatch.setattr(driver, "coverage", lambda *a, **k: "coverage")
 
-    driver.crawl(None, directory, None, None, "run-1", 2,
+    driver.crawl(conn, directory, None, None, "run-1", 2,
                  only=" region_id_2-company_size_big ,region_id_5-company_size_small")
 
     assert [one.label for one in spy.calls[0]["cells"]] == [
@@ -207,13 +213,13 @@ def test_only_passes_exactly_the_named_cells_and_no_others(driver, directory,
 
 
 def test_without_only_the_partition_decides_which_cells_to_crawl(driver, directory,
-                                                                monkeypatch):
+                                                                conn, monkeypatch):
     """`cells=None` is how `crawl_partition` is told to use the whole partition."""
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
     monkeypatch.setattr(driver, "coverage", lambda *a, **k: "coverage")
 
-    driver.crawl(None, directory, None, None, "run-1", 2)
+    driver.crawl(conn, directory, None, None, "run-1", 2)
 
     assert spy.calls[0]["cells"] is None
 

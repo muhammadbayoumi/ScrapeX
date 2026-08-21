@@ -17,7 +17,7 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 **[#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244) — the engine he
 downloaded was built before its own fix.** `REQ-28`. The release gate now runs the
 binary the way a person runs it; the three things that actually unblock him are
-`OP-35`, `OP-30` and `OP-31`, and **all three are his**. See the section below.
+`OP-37`, `OP-32` and `OP-33`, and **all three are his**. See the section below.
 
 **THE NEXT MOVE IS HIS, NOT THE CODE'S.** `Q-13` in [BACKLOG.md](BACKLOG.md) asks how
 `R-19` should be implemented, and `R-19` is the largest thing he has ruled on that is
@@ -25,18 +25,22 @@ not built. Everything else on Track 2 either waits behind it or waits behind the
 crawl. If a session wants work that depends on nobody: `REQ-20`, or run
 `--coverage` over what the crawl has already gathered.
 
-> **`main` WAS RED, AND IT IS FIXED IN THIS PR — `OP-35`, on his instruction
-> *«ابدأ بـ OP-35»*.** One line, and three mutations prove it did not neuter the test —
-> including two against `row_state` in **production code**, both killed. The account
-> below is why it mattered. At 12:00Z today
-> `test_gone_and_new_are_measured_against_the_most_recent_crawl` began failing on
-> `main` at `38a1e24`, reproduced on the untouched checkout. It hardcodes the newest
-> crawl at `2026-08-21T12:00:00Z` and compares it against rows whose `first_seen_at`
-> is *now*, so from that minute onward every row reads as `new` — **permanently, not
-> for a day.** The release workflow runs the whole suite before it builds, so
-> `engine-v0.2.2` cannot be cut until it is repaired, and `R-18` cannot be satisfied
-> by any open PR. Diagnosed with the one-line repair in `OP-35`; **not applied**,
-> because it is a change to the meaning of somebody else's merged test.
+> **`main` MOVED WHILE THIS BRANCH WAS OPEN, and it changed the answer — read this
+> before the section below.** [#243](https://github.com/muhammadbayoumi/ScrapeX/pull/243)
+> (`eb691d9`) merged `claude/his-four-rulings`, and it closed **two** of the three
+> things that were blocking him:
+>
+> - **engine migrations 0007/0008 are on `main`**, so a released engine can open his
+> warehouse. `OP-33` closed — verified read-only against his live file: `"status":
+> "Healthy", "schema_version": 8`.
+> - **the red suite is fixed**, by the identical one line this branch wrote at the same
+> time. `OP-37` closed. Two sessions reached the same repair without seeing each
+> other; #243's own comment calls it a time-of-day fault, which undersells it, and
+> the correction is recorded per **C5**.
+>
+> It also took `OP-30` and `OP-31` for two different findings, so this branch's six
+> entries are renumbered **`OP-32`–`OP-37`**, and `OP-38` is new.
+
 
 ### In flight now — 2026-08-21 (afternoon) · [#244](https://github.com/muhammadbayoumi/ScrapeX/pull/244)
 
@@ -61,16 +65,16 @@ never assigned.
 
 **THREE THINGS ARE HIS, AND ONLY THE FIRST IS ORDINARY CODE:**
 
-1. ~~`OP-35`~~ **— fixed in this PR.** He said *«ابدأ بـ OP-35»* and it is fixed, so
+1. ~~`OP-37`~~ **— fixed in this PR.** He said *«ابدأ بـ OP-37»* and it is fixed, so
    the release is no longer blocked by a red suite. The pattern was not invented:
    `tests/test_a_crawl_says_what_it_saw.py:215` already pins every row and then
    overrides one, for the same column.
 2. **Cut `engine-v0.2.2`.** `VERSION` is already 0.2.2, so nothing needs bumping —
-   `git tag engine-v0.2.2 && git push origin engine-v0.2.2`. `OP-30`.
+   `git tag engine-v0.2.2 && git push origin engine-v0.2.2`. `OP-32`.
 3. **`claude/his-four-rulings` must merge, or the release will not help him.** His
    warehouse is at schema **v8**; `main` reads **v6**, so `scrapex ui` exits 1 before
    it binds a port. Migrations 0007/0008 exist only in that unmerged worktree, whose
-   code *did* run against his live database today. `OP-31`.
+   code *did* run against his live database today. `OP-33`.
 
 **Until then, the engine that runs on this machine is that worktree's**, verified —
 `/api/health` 200, `worker_alive: true`, in about 16 s:
@@ -89,15 +93,15 @@ supply them: Chrome gives it no `downloads` permission, no file read and no way 
 launch a process, so `app.js:3564` hands a URL to the browser and lets go. **The
 engine can do all three.** So the first install goes through the browser because
 nothing is installed yet, and every update after it belongs to the engine. That is
-blocked on `OP-34` first, then a ruling from him on what makes a download
+blocked on `OP-36` first, then a ruling from him on what makes a download
 trustworthy without a signing certificate. The full study is in `REQ-29`.
 
 Also found and filed, not fixed — all three are the SAME silent fall-through to
-`serve()` that produced the black window. **`OP-33`:** twelve of the CLI's
+`serve()` that produced the black window. **`OP-35`:** twelve of the CLI's
 twenty-four subcommands are unreachable from the shipped engine and print nothing,
-`database-status` among them — the one command that names `OP-31` in a line.
-**`OP-34`:** a frozen engine cannot restart itself, because `relaunch.py` puts
-`-m scrapex.cli` in front of an executable that does not honour it. And **`OP-32`** — a launch that dies in a console writes
+`database-status` among them — the one command that names `OP-33` in a line.
+**`OP-36`:** a frozen engine cannot restart itself, because `relaunch.py` puts
+`-m scrapex.cli` in front of an executable that does not honour it. And **`OP-34`** — a launch that dies in a console writes
 **nothing** to `~/.scrapex/engine.log`, because `_bind_log_streams` deliberately
 no-ops when it has real streams. That log is dated 2026-08-01 and is not evidence
 about anything that happened since.
@@ -143,7 +147,7 @@ demanded more than it needed, and 823 pages refused by one column.
 The residual crawl of the nine heavy cells is **live** and resumable
 ([R-26](RULINGS.md#r-26)). As of 2026-08-21 08:06 it had stored **3,563 listing
 pages** across all 56 cells; by 07:13 it was **5,458**, and the ledger held
-**15,782 distinct ids of the listing's 17,414 — 90.6%**. Stored *records* remain 1,172 because `OP-25`'s
+**THE LISTING IS COMPLETE: 17,414 of 17,414 distinct ids, `D = 0`** (2026-08-21). Stored *records* are 15,707 and climbing, because `OP-25` was
 extraction route is deferred by `R-25`; the gap between the two numbers, 14,101, is
 exactly the question the sightings ledger exists to answer.
 
@@ -401,6 +405,29 @@ cells proven complete 47 of 56          1,982 snapshots, all zstd-raw-dict
 **The exhaustiveness audit came back 0 on live data** and 47 cells closed with `D=0`.
 The deficit is concentrated in the **6 cells above the 31-page witness ceiling**
 (D=3,680) plus three small cells short by 1, 1 and 8.
+
+**CLOSED 2026-08-21: `D = 0`. 17,414 of 17,414 distinct ids.** The plan opened this
+track at a deficit of 3,690.
+
+The last 633 were held by a defect in the stop condition, not by the site. **A resumed
+cell reads its ids back off disk** — that is what storing pages is for — so `gained == 0`
+was true of a pure replay, and the dry-stop believed it:
+
+```
+region_id_1-company_size_verysmall: 3,125 of 4,699, D=1,574 [3 attempt(s), 5 requests]
+```
+
+Five requests for a cell holding 4,699 rows. The report was telling the truth and
+nothing compared its two numbers. An attempt now counts as dry only if
+`attempt.pages_read > 0`, in the loop and in `went_dry` both — and the five heavy cells
+went and asked. Recorded in [LESSONS](LESSONS.md): *a stop condition that measures
+progress must exclude the work it replays.*
+
+**And conditional requests will not make the recurring pass cheap on this source.**
+Measured with one request: no `ETag`, no `Last-Modified`, `Cache-Control: no-cache,
+private` — a Laravel app minting a fresh XSRF token per response. `fetch_validator`
+holding 0 rows is correct. `R-20`'s `content_hash` comparison still spares the history;
+the bandwidth is not reducible here.
 
 **And the 3,690 was partly the method's own fault, which is the finding.**
 `provably_complete` required the witness AND the count — so a cell too large to hold

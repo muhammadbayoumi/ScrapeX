@@ -104,9 +104,9 @@ PINNED = (
     # REQ-21's nested audit. The whole request is that `Sum N_child` is compared
     # against the PARENT, and these are the two lines that make it so -- one that
     # sizes the parent, one that refuses cells outside it before a request is spent.
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 811,
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 972,
      "whole = size_cell(fetch, partition, base_url, parent)"),
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 804, "raise NotASubdivision("),
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 965, "raise NotASubdivision("),
     ("docs/REQUESTS.md", "scrapex/pagesource.py", 146,
      "return set(other.params) <= set(self.params)"),
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
@@ -165,20 +165,20 @@ PINNED = (
     # file outright; this row turns that back into a failing test.
     ("docs/BACKLOG.md", "tests/test_relaunch_log.py", 85,
      'r"""Reproduced on the owner'),
-    # OP-31 · the panel says "Not detected" about an engine that IS installed and
+    # OP-33 · the panel says "Not detected" about an engine that IS installed and
     # is refusing to start for a nameable reason. The entry's argument is that this
     # exact branch is the one a schema-ahead warehouse lands in, so a reader sent
     # to the wrong line reads the timeout branch and concludes the entry is wrong.
     ("docs/BACKLOG.md", "extension/app.js", 3416, 'text: "Not detected"'),
-    # OP-32 · why a black window leaves no trace. The whole finding is that this
+    # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
-    ("docs/BACKLOG.md", "scrapex/cli.py", 927, "def _bind_log_streams("),
-    # OP-33 · the hand-maintained command set that drifted to half the CLI.
+    ("docs/BACKLOG.md", "scrapex/cli.py", 940, "def _bind_log_streams("),
+    # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.
     ("docs/BACKLOG.md", "packaging/engine_entry.py", 19, "KNOWN_COMMANDS = frozenset("),
-    # OP-34 · the two command builders that put `-m scrapex.cli` in front of a
+    # OP-36 · the two command builders that put `-m scrapex.cli` in front of a
     # frozen executable. Both lines ARE the finding -- a reader one line off sees
     # a plain subprocess call and nothing wrong with it.
     ("docs/BACKLOG.md", "scrapex/relaunch.py", 52, '"-m", "scrapex.cli", "ui"'),

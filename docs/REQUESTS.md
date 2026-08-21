@@ -81,10 +81,10 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
 | [REQ-24](#req-24--a-shipped-command-so-a-new-user-can-crawl-the-directory-at-all) | A shipped command, so a new user can crawl the directory at all | **Done** — `scrapex contractors`; the panel path is still missing | 2026-08-21 |
 | [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — half exists (`active: false`, `TBD-probe`); the category and the single registry do not | 2026-08-21 |
-| [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **Planned** — blocked on `Q-14`: no account concept exists at all | 2026-08-21 |
+| [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **In flight** — `Q-14` answered (`R-34`): the account is the signed-in address, and his warehouse records it; the per-account layout remains | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
 | [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
-| [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **Captured** — measured against what exists; the design is his call | 2026-08-21 |
+| [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **Ruled** — [R-36](RULINGS.md#r-36): the engine updates itself, the panel asks. Blocked on `OP-36`, `OP-35` | 2026-08-21 |
 
 ---
 
@@ -940,9 +940,9 @@ Built as **one parameter and one refusal**:
 
 | | where | what it does |
 |---|---|---|
-| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:811` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
+| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:972` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
 | `Cell.is_under(other)` | `scrapex/pagesource.py:146` | subset-hood expressed in filters — adding a filter can only narrow, so a child carrying all of the parent's name/value pairs selects a subset, **in any order** |
-| `NotASubdivision` | `scrapex/partitioncrawl.py:804` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
+| `NotASubdivision` | `scrapex/partitioncrawl.py:965` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
 | `PartitionOutcome.parent` / `.scope` / `.nested` | | so the report says what it audited, and a nested proof reads *"PROVABLY COMPLETE FOR cell … — AND FOR THAT CELL ONLY"* rather than claiming the listing |
 
 Guarded by seven tests in `tests/test_a_crawl_that_can_prove_it_read_everything.py`
@@ -1108,7 +1108,15 @@ views over one table. Merging is correct and is a migration over live rows.
 ---
 
 ## REQ-26 · A database per account, not per machine
-**Captured 2026-08-21 · Planned · blocked on `Q-14`**
+**Captured 2026-08-21 · In flight — the identity is settled, the layout is not**
+
+> **`Q-14` ANSWERED 2026-08-21 → [R-34](RULINGS.md#r-34--an-account-is-the-signed-in-address-and-a-warehouse-records-whose-it-is).**
+> The account is the **signed-in address**, and his own warehouse now records it in
+> `scrapex_meta.account_owner`. What remains is engineering rather than a decision:
+> `DATABASE_ROOT` is still `~/.scrapex`, one directory per operating-system user, so
+> a per-account root is the next step — and enforcement waits for it, because
+> refusing a warehouse claimed by someone else before there is anywhere else to go
+> would lock him out of the only one there is.
 
 > «كيف تتعامل الاداة مع الحسابات المختلفة يعنى انا لو عامل sign in بكذا حساب
 > المفروض قاعدة البيانات تخص حساب واحد لا تخص الجميع لكل حساب قاعدة بيانات · وايضا
@@ -1203,14 +1211,14 @@ engine tag. Reproduced on his machine, on his file:
 
 **And a second cause stands behind it, which the release will not fix.** His
 warehouse is at schema **v8**; `main` ships engine migrations to **0006** and reads
-v6, so `scrapex ui` exits 1 before binding a port. Both are recorded as `OP-30` and
-`OP-31` in [BACKLOG.md](BACKLOG.md).
+v6, so `scrapex ui` exits 1 before binding a port. Both are recorded as `OP-32` and
+`OP-33` in [BACKLOG.md](BACKLOG.md).
 
 **What is his to decide:** whether to cut `engine-v0.2.2` now. The gate that let
 0.2.1 through is closed in this PR — the release now runs the binary the way a
 person runs it and refuses a build that prints nothing.
 
-**But `OP-35` has to go first.** `main` has been red since 12:00Z on 2026-08-21 for
+**But `OP-37` has to go first.** `main` has been red since 12:00Z on 2026-08-21 for
 a reason unrelated to any of this, and the release workflow runs the whole suite
 before it builds — so the tag would fail before it reached the compiler. The repair
 is one line and is written out in that entry; it was not applied here because it
@@ -1219,12 +1227,17 @@ changes what somebody else's merged test asserts.
 ---
 
 ## REQ-29 · An install surface that looks like a professional program, and an update anyone can apply
-**Captured 2026-08-21 · Captured — nothing designed yet**
+**Captured 2026-08-21 · Ruled — [R-36](RULINGS.md#r-36--the-engine-updates-itself-the-panel-only-asks-and-a-published-sha-256-over-https-is-enough-to-trust-a-download)**
+
+> **Ruled the same day.** He answered the study below with «اوافق على اقتراحاتك
+> وتوصياتك», and the four parts of what he approved are written out in `R-36` rather
+> than left in the conversation. Build order: `OP-36` and `OP-35` first, because an
+> Update button on top of them would report success and change nothing.
 
 > «انا اريد واجهة التثبيت واجهة تشبه اى برنامج محترف واضحة بها كل ما يجب ان
 > يظهر للمستخدم · لو حصل update يقدر يعمل update بسهولة»
 
-**He said it in the same message that closed `OP-35`, and it is the direct
+**He said it in the same message that closed `OP-37`, and it is the direct
 consequence of `REQ-28`:** he met the install surface as a black window, and what he
 is asking for is that the surface exist at all as a product rather than as a
 download link plus a hope.
@@ -1259,7 +1272,7 @@ install page beside the first:
 | **download progress** | **CANNOT BE BUILT AS IT STANDS** — see below |
 | **verifying the checksum it displays** | **never checked — the SHA-256 on screen is decorative** — nothing compares anything to it |
 | **handing the file over** ("here it is, press it") | **not built** — the user must find it in Downloads |
-| **replacing a running engine in place** | **not built, and broken underneath** — `OP-34` |
+| **replacing a running engine in place** | **not built, and broken underneath** — `OP-36` |
 | **not needing a window left open** | **not built** — `B6` (tray icon, log window), never started |
 | **a signed binary** | **not built**, and only he can supply the certificate |
 
@@ -1292,9 +1305,9 @@ professional experience, and it is the half that is not sandboxed.**
 
 **THREE THINGS BLOCK THE SECOND HALF, and they are in order:**
 
-1. **`OP-34`** — a frozen engine cannot restart itself today, so any *Update* button
+1. **`OP-36`** — a frozen engine cannot restart itself today, so any *Update* button
    would lie. It has to be fixed first; there is no way around it.
-2. **`OP-33`** — the shipped binary cannot even be asked `database-status`, so an
+2. **`OP-35`** — the shipped binary cannot even be asked `database-status`, so an
    updater that needs to talk to its own CLI has half a CLI.
 3. **A ruling from him on what makes a download trustworthy.**
    `packaging/build_engine.py` already refuses to guess: *"shipping an updater that
@@ -1326,7 +1339,7 @@ professional surface than no switch.
   professional program looks like. A tray icon and a service are `B6` in
   [STATE.md](STATE.md) and were never built.
 - **Does an update replace a running engine?** `scrapex/relaunch.py` exists for
-  exactly that and **is broken in the frozen build** (`OP-34`), so "update easily"
+  exactly that and **is broken in the frozen build** (`OP-36`), so "update easily"
   has a defect underneath it that must be fixed first or the button will lie.
 - **Code signing.** `packaging/build_engine.py` states plainly that it is not
   implemented and needs a certificate only he can hold. Every install will show
