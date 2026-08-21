@@ -127,7 +127,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 | 3 | ~~`is_enabled` has 0 callers~~ **DONE** | ~1 h | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
 | 4 | The slice scope — **defect fixed**; the walk moves into item 5 | ~2 h so far | Built and tested; wiring it is what makes a partial re-read addressable. |
 | 5 | The profile crawl — **wired**; 34,834 pages, measured at **11.1 h** to run | ~3 h | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
-| 6 | `R-19` child tables, all five groups | **~1 day** | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
+| 6 | `R-19` — **reader built**; the write awaits his ruling AND profile pages | ~2 h so far | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
 
 **So: about a day and a half of work, plus roughly eighteen hours of crawling that runs
 unattended.** Two of the six are under an hour each and one of those is already ruled.
@@ -262,9 +262,30 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 > **Where the other ~28 columns are, so nobody hunts for them in `read_profile`:** the
 > profile page carries **five real `<table>` elements** — the licences and their
 > readiness, the two contractor lists, the technical rating, the contract counts. Those
-> go through `detect_html_tables` like any other site's tables, and they are exactly
-> the multi-valued groups `R-19` wants in child tables. That is why `R-19` is a
+> go through `detect_html_tables` like any other site's tables. That is why `R-19` is a
 > separate item and not part of the parser.
+>
+> **CORRECTION, 2026-08-21.** That paragraph used to end *"and they are exactly the
+> multi-valued groups `R-19` wants in child tables"*, and they are not. Measured against
+> the committed profile:
+>
+> | | |
+> |---|---|
+> | `<table>` elements | **5** |
+> | …of which are Interests | **0** |
+> | Interests is | a nested `<ul class="list list-numerical">` inside a `div.section-card` |
+> | tables with **no data rows** for this contractor | **3** of 5 |
+> | names `detect_html_tables` returns | `Table 1` … `Table 5` |
+> | tables sharing one nearest heading | **3** |
+>
+> `R-19`'s five groups are Interests, Licensed Activities, Qualification Programs,
+> Balady Services and contractor relations. **Interests is the biggest** — the study
+> priced it at ~235 MB at full scale — and it is not a table at all, so building on the
+> five-tables premise would have produced four groups and silently missed the largest.
+> Three of the five tables are empty on the only committed profile, which is `R-19`'s
+> own *"one contractor"* evidence limit arriving from the other side. And the groups
+> cannot be named from the markup by position or by the nearest heading, so whatever
+> `R-19` is built on needs a naming rule that is neither.
 
 - [x] **`profile_candidate`** — `bilingual_profile_candidate`, plus `_candidate_from`
       taking its declared field list as a parameter instead of always leading with
@@ -274,10 +295,30 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 - [x] **A declared `PROFILE_FIELD_ORDER`**, for the reason `CARD_FIELDS` exists: a
       profile page that happens to omit a box must not produce a different schema.
       **#235.**
-- [ ] **`R-19`: child tables for all five multi-valued groups** — «جداول أبناء للخمس
-      كلّها»: Interests, Licensed Activities, Qualification Programs, Balady Services,
-      contractor relations. Not JSON, not `Activity 1, 2, 3`. A measured profile carried
-      **30 hierarchical interest values in 6 groups** — about 500K rows. Ruled, unbuilt.
+- [~] **`R-19`: child tables for all five multi-valued groups** — «جداول أبناء للخمس
+      كلّها». **The READING is built; the WRITING waits on him, and on pages that do not
+      exist yet.**
+      Two things block the write and neither is engineering. (1)
+      [R19-CHILD-TABLES-MEASURED](../R19-CHILD-TABLES-MEASURED.md) recommends **shape F**
+      — a child dataset per group whose value references `classification_node` — and its
+      own last line reads *"Not built. Awaiting his ruling."* Building either shape ahead
+      of that is the defect **C1** exists to prevent. (2) The content comes from profile
+      pages and **not one is stored**: his registration is `listing_only`, and item 5
+      measured the crawl at 11.1 hours.
+      **So what is built is what BOTH candidate shapes need — `read_interests`** — and
+      building it is what found the plan's premise to be wrong (the correction in section
+      C above). It returns every node as a **path from the root**, because the study
+      measured that a leaf name is not unique and an identity built from it merges two
+      different activities — this fixture repeats `Construction of buildings` at two
+      levels, so one profile already proves it. Interior nodes come back too, since
+      `classification_node.parent_node_id` means a leaf cannot be written before the node
+      above it.
+      **And a locale bug was caught by a parity assertion rather than by review.** The
+      first version matched the heading `"Interests"` and read **25 nodes from English
+      and 0 from Arabic** — the Arabic heading is `الأنشطة`, "Activities", not a
+      translation. The card is now identified by holding the list, and two such lists are
+      **refused** rather than guessed. Both locales: 25 nodes, depths `{1:3, 2:5, 3:17}`.
+      Ten tests.
 - [~] **The profile crawl — BUILT, not yet run.** `scrapex contractors --details`
       fetches the profile page of every contractor the **registered scope** asks for,
       with `body_class` set so each arrives under the profile dictionary (`STORAGE.md`

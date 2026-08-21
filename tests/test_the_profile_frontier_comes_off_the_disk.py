@@ -190,20 +190,52 @@ def test_a_slice_reads_the_pages_because_the_city_is_on_the_card(conn):
     assert all("/contractors/" in url and url.endswith("/143") for url in urls)
 
 
-def test_the_same_contractor_on_two_listing_pages_is_fetched_once(conn):
-    """A LIVE LISTING REORDERS BETWEEN REQUESTS — that is the whole reason the witness
-    compares id sequences — so one contractor can sit on two stored pages. Fetching the
-    profile twice is a wasted request and a second snapshot of the same page."""
+def test_the_ledger_holds_one_row_however_often_a_contractor_is_seen(conn):
+    """THE FULL PATH CANNOT PRODUCE A DUPLICATE, and saying so is worth a test because
+    it explains why the deduplication below is about the SLICE path.
+
+    `record_sightings` upserts, so being seen five times is still one ledger row. A
+    mutation removing `dict.fromkeys` from the frontier survived against this path for
+    exactly that reason — the guard is real, and this is not where it acts.
+    """
     from scrapex.contractors import detail_frontier
 
     _registered(conn, "full_then_listing")
     record_sightings(conn, "contractors", ["1004"])
-    record_sightings(conn, "contractors", ["1004"])     # seen again, one ledger row
+    record_sightings(conn, "contractors", ["1004"])
 
     urls, _ = detail_frontier(conn, get_directory(None),
                               CrawlScope.FULL_THEN_LISTING, "")
 
     assert len(urls) == 2, "one per locale, not four"
+
+
+def test_a_contractor_on_two_stored_listing_pages_is_fetched_once(conn):
+    """WHERE THE DEDUPLICATION ACTUALLY EARNS ITS PLACE. A live listing reorders between
+    requests — the entire reason the witness compares id sequences rather than counts —
+    so the same contractor really does end up on two stored pages. On the slice path the
+    frontier is built by reading those pages, so without this the profile is fetched
+    twice: a wasted request and a second snapshot of the same page, times however many
+    contractors the reorder touched.
+    """
+    from scrapex.contractors import detail_frontier
+
+    _registered(conn, "listing_plus_slice", "RIYADH")
+    listing = (FIXTURES / "listing-en.html").read_text(encoding="utf-8")
+    for page in (1, 2):
+        # THE SAME PAGE UNDER TWO URLS, which is what a reorder looks like from disk:
+        # two stored listing pages whose card sets overlap.
+        conn.execute(
+            "INSERT INTO generic_page_snapshot (source_url, html_content, "
+            " content_hash, crawl_run_ref) VALUES (?,?,?,'listing-1')",
+            (f"https://muqawil.org/en/contractors?page={page}", listing, f"h{page}"))
+    conn.commit()
+
+    urls, _ = detail_frontier(conn, get_directory(None),
+                              CrawlScope.LISTING_PLUS_SLICE, "RIYADH")
+
+    assert urls, "the committed listing has Riyadh contractors"
+    assert len(urls) == len(set(urls)), "the same profile URL twice"
 
 
 # ---- the walk ------------------------------------------------------------------

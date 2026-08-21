@@ -134,7 +134,7 @@ engine carries the extension.
 
 **The defect, found by trying the bump and reverting it the same day:**
 `version_report` sends `"latest_extension_version": VERSION`
-(`scrapex/version.py:477`, again in `scrapex/webui/app.py:1439`, drawn by
+(`scrapex/version.py:477`, again in `scrapex/webui/app.py:1459`, drawn by
 `extension/app.js:595` and `:629`). The moment the engine moves ahead of
 `extension/manifest.json`, the panel draws *"This ScrapeX extension is older than
 the engine it is talking to"*. Measured at 320×440: the profile page's legal line

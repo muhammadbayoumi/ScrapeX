@@ -207,3 +207,38 @@ storage figures will move when they arrive.
 
 **Not built. Awaiting his ruling**, recorded as a question in
 [BACKLOG.md](BACKLOG.md).
+
+---
+
+## 7 · Measured after the recommendation: interests are not a table
+
+**2026-08-21, while building the reader both candidate shapes need.** This document and
+the plan both assumed the five groups arrive through `detect_html_tables`. Measured
+against `tests/fixtures/muqawil/profile-en.html`:
+
+| | |
+|---|---|
+| `<table>` elements on the page | **5** |
+| …of which are Interests | **0** |
+| Interests is | a nested `<ul class="list list-numerical">` inside `div.section-card` |
+| tables with no data rows for this contractor | **3** of 5 |
+| names `detect_html_tables` returns | `Table 1` … `Table 5` |
+| tables sharing one nearest heading | **3** |
+
+**The recommendation is unaffected and one of its arguments is strengthened.** Shape F
+turns on the parent repeating and on the leaf name not being an identity; the interests
+markup shows both directly — three levels deep, and `Construction of buildings` appearing
+as a level-1 node and again as a level-2 node beneath itself.
+
+**What changes is the build.** Interests are the largest of the five and cannot be read
+by the table detector at all, so a build following the old premise would have produced
+four groups and missed the biggest. `read_interests` in `scrapex/extract/muqawil.py`
+returns every node as a path from the root, which is the input either shape needs.
+
+**And a naming rule is now an open sub-question.** The detector returns positional names,
+and the nearest heading is shared by three of the five tables — so "which group is this"
+cannot be answered from either. Whatever shape is ruled will need that rule.
+
+**One locale trap, recorded because it nearly shipped.** Selecting the card by its
+heading text read 25 nodes from English and **0 from Arabic**: the Arabic heading is
+`الأنشطة` — "Activities" — not a translation of "Interests". Selection is structural now.
