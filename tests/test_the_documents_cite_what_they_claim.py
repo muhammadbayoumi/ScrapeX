@@ -159,6 +159,12 @@ PINNED = (
     # does not.
     ("docs/BACKLOG.md", "db/migrations/0058_a_unit_that_can_name_who_said_it.sql",
      90, "'legacy_unwitnessed'"),
+    # OP-29. The `r` IS the fix, and a docstring quoting a Windows path is the
+    # case that recurs -- so the prefix is pinned rather than remembered. Drop
+    # it and 3.12 warns on an invalid escape while a later Python refuses the
+    # file outright; this row turns that back into a failing test.
+    ("docs/BACKLOG.md", "tests/test_relaunch_log.py", 85,
+     'r"""Reproduced on the owner'),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and

@@ -82,7 +82,7 @@ def test_a_rotation_that_cannot_happen_never_stops_a_start(tmp_path: Path, monke
 
 
 def test_a_log_the_live_engine_is_holding_does_not_block_the_restart(tmp_path, monkeypatch):
-    """Reproduced on the owner's machine: the button answered 500 with
+    r"""Reproduced on the owner's machine: the button answered 500 with
     "could not start the helper ([Errno 13] Permission denied:
     ...\.scrapex\engine.log)".
 
