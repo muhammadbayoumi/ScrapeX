@@ -813,6 +813,88 @@ changed.
 
 ---
 
+### R-35 · The engine's version moves on a CONTRACT change; the extension's on a USER-VISIBLE one
+
+**2026-08-21 · release · settles the trigger R-05 lost and R-07 left open**
+
+> «كل تطويرتنا كانت تخص extension ام engine انا لا اعلم الان لان مشكل version غير
+> محلولة · فكل منهم لهم version وهم لا يتحركوا طبقا للقاعدة اجعلها ديناميكية 100%»
+> · «الثالث للمحرّك والثانى للإضافة، نفذ»
+
+**He could not answer a basic question about his own project**, and that is the
+defect: had the last two weeks' work gone into the engine or the extension? Measured
+2026-08-21, over the 91 commits since `VERSION` last moved (`adf31b2`, 2026-08-10):
+
+| | |
+|---|---|
+| touched `extension/` | **36** |
+| touched `scrapex/` or `db/` | **42** |
+| touched **both** | **12** |
+| today's work alone | 9 commits, **0** touching `extension/` |
+
+**One number asked about two products answers neither.** `scrapex/version.py` reads
+`0.2.2` and `extension/manifest.json` reads `0.2.2` — equal **by history, not by
+rule**: [R-07](#r-07--the-engine-keeps-the-version-gate-and-drops-the-advert)
+unwelded them deliberately and `tests/test_version.py:536` fails if anyone re-pins
+them. So their agreement today is a coincidence, which is precisely why the question
+had no answer.
+
+**A GATE ALREADY EXISTED AND WATCHED THE WRONG THING.** `tests/test_version.py` fails
+when the *capability set* changes without `VERSION` moving. Capabilities had not
+changed in 91 commits, so it stayed quiet while **three engine migrations landed in a
+single day** — each one a change an older build cannot read.
+
+### The two criteria, and why not one rule for both
+
+    engine     a CONTRACT change: schema, protocol, or endpoint
+    extension  a USER-VISIBLE change
+
+A contract break stops **another program** working, which is what an engine consumer
+needs warned about. Chrome shows the extension's number **to people**, so it should
+move when what those people can *do* changes. One rule for both would either
+announce releases the extension's users cannot see, or leave an engine consumer with
+no signal that the schema moved.
+
+**"USER-VISIBLE" IS NOT INVENTED HERE.** It is read off `version.Surface`, the
+distinction `R-07` already relies on: a capability the **panel** executes raises the
+minimum extension version, one the engine executes alone does not. Seven of the eight
+capabilities are panel-executed.
+
+### What "100% dynamic" was taken to mean, and what it was not
+
+**Not** a number that moves with every commit — that is a commit counter, it is what
+`R-05` was superseded for being, and it would break
+`MINIMUM_EXTENSION_VERSION`, which `R-07` keeps as a **gate**: a gate that moves every
+commit refuses everything.
+
+**Instead: the criterion is enforced, so the number cannot fall 91 commits behind
+again.** `scrapex/contractstamp.py` fingerprints the three parts and
+`contracts/contract-baseline.json` records them against the version they describe. A
+contract change with `VERSION` unmoved **fails the build**, naming the part:
+
+```
+the engine contract changed while VERSION stayed at 0.2.2:
+  "schema": { "added": ["0008_a_page_remembers_how_to_ask_whether_it_changed.sql"] }
+```
+
+**The fingerprint is a sorted list and not a digest**, so the failure can say *which*
+part moved. A digest can only say that something did, which is the report that sends
+the next session reading three subsystems to find out.
+
+**AND A REFACTOR IS EXPLICITLY NOT A CONTRACT CHANGE.** Moving code between files,
+adding tests, writing documents — none of it changes anything another program can
+observe, and a guard asserts the fingerprint cannot grow a part that a refactor moves.
+
+**Proven by being made to fail**: the baseline was rolled back one migration and the
+gate fired with the migration named. Twelve guards, and `tests/test_version.py`'s
+forty-four still pass beside them.
+
+**What this does not do:** it does not bump anything for him. The human part stays two
+numbers and one command — `scrapex export-version` — which is what he measured it at.
+What changed is that forgetting it is now a red build rather than a silent drift.
+
+---
+
 ### R-34 · An account is the signed-in address, and a warehouse records whose it is
 
 **2026-08-21 · architecture · answers [Q-14](BACKLOG.md), unblocks [REQ-26](REQUESTS.md)**

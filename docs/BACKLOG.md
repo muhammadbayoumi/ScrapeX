@@ -1009,6 +1009,48 @@ has data consequences:
 impossible rather than deferred; (b) or (c) as the real model, once he rules.*
 **Not started — his call, on live data.**
 
+### OP-31 · Six crawl workers starve another process out of the warehouse
+
+**Measured 2026-08-21, minutes after `--workers` was built, by using it.** The owner
+asked for the Engine to be started while a six-worker crawl was running. It refused:
+
+```
+sqlite3.OperationalError: database is locked
+  scrapex/jobs.py:932  record_worker_failure
+```
+
+Every connection sets `busy_timeout = 5000`, so a writer waits five seconds before
+giving up. **Six concurrent writers kept it waiting longer than that** — so the
+failure is not a missing timeout, it is a timeout that is too short for the load the
+new flag can create.
+
+**THIS IS A COST OF `--workers`, NOT A DEFECT IN THE ENGINE**, and it was not measured
+before the flag was written. `R-21` is about pacing outbound requests per site and it
+says nothing about how many writers one SQLite file will tolerate — the concurrency
+was designed against the site's tolerance and not the warehouse's.
+
+**What is NOT wrong:** the crawl itself. WAL lets readers proceed throughout, the
+workers wait for each other correctly, and no row was lost — `integrity_check` is ok
+and 53 table counts were unchanged across the whole run. The contention is with
+*other processes*, which is exactly what a background crawl is supposed not to do.
+
+Three ways out, and the choice is a trade:
+
+- **(a) Raise `busy_timeout` for the crawl's own connections only.** Smallest, and it
+  makes the crawl wait for the Engine rather than the reverse — the right priority,
+  since the Engine is what the user is looking at. Does not help a third process.
+- **(b) Serialise the crawl's WRITES behind one lock** while leaving the fetches
+  concurrent. The DB work is milliseconds against a six-second fetch, so this costs
+  almost nothing and bounds the contention at one writer regardless of `--workers`.
+  Larger change to `snapshotcrawl`'s write path.
+- **(c) Cap `--workers` by measurement** rather than by the latency ratio alone, and
+  say in the help what it costs. Cheapest to write, weakest guarantee.
+
+*Recommended: (b) — it is the only one that makes the guarantee independent of how
+many workers are asked for, and the cost is bounded by arithmetic rather than by
+hoping. (a) as an immediate mitigation.*
+**Not started.**
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product

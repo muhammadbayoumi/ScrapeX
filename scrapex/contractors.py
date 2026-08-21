@@ -208,7 +208,12 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
     # callers anywhere**, so the dict died with the process and every re-crawl asked
     # for full bodies for pages that had not changed. A capability with no caller is
     # a claim; this is the claim being made true.
-    kept = validator_store.load(conn)
+    # GUARDED ON THE FETCHER, because `crawl_partition` already accepts
+    # `fetcher=None` — it is optional for `declare_frontier` — and a crawl driven by
+    # a plain callable has no validators to replay. Crashing on that would make the
+    # conditional-request work a precondition for crawling at all, which is the
+    # opposite of an optimisation.
+    kept = validator_store.load(conn) if fetcher is not None else {}
     if kept:
         fetcher.remember_validators(kept)
         say(f"replaying {len(kept):,} conditional validator(s) — an unchanged page "
@@ -225,7 +230,8 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
     # KEPT AFTER THE CRAWL AND NOT DURING IT, deliberately: a validator is only
     # worth storing if the page it describes was actually read, and writing them per
     # page would put a commit between every fetch on a path that already has one.
-    written = validator_store.save(conn, fetcher.validators())
+    written = (validator_store.save(conn, fetcher.validators())
+               if fetcher is not None else 0)
     say("")
     say(str(outcome))
     if written:
