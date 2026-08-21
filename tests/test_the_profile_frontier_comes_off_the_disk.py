@@ -322,20 +322,35 @@ def test_a_ceiling_on_the_wrong_phase_is_refused_not_ignored(conn):
     assert raised.value.code == 2
 
 
-def test_the_stored_profile_is_labelled_as_a_profile(conn):
-    """`body_class` PICKS THE COMPRESSION DICTIONARY, and `docs/STORAGE.md` measured the
-    difference at 46x on profiles against zlib's 7.7x — because zlib's 32 KB window
-    never sees across a 121 KB page. On 34,834 pages that is the difference between
-    gigabytes and megabytes, so a profile stored under the listing's dictionary is a
-    real cost rather than a tidiness point."""
+def test_the_stored_profile_is_labelled_as_a_profile(conn, monkeypatch):
+    """`body_class` PICKS THE COMPRESSION DICTIONARY. `docs/STORAGE.md` measured 46x on
+    profiles against zlib's 7.7x, because zlib's 32 KB window never sees across a 121 KB
+    page — so on 34,834 pages a profile stored under the listing's dictionary is
+    gigabytes, not untidiness.
+
+    THIS TEST USED TO ASSERT `html_codec is not None` AND IT PASSED WITH `body_class=None`
+    — a mutation that survived being committed and was caught by the lint gate noticing
+    an unused import, not by this file. A test that holds under the defect it is named
+    for proves nothing.
+
+    So it asserts the LABEL that was passed, which is the decision being made:
+    `muqawil.org/detail` and never `muqawil.org/listing` or the `muqawil.org/page`
+    fallback that `label_for` returns when no kind is given.
+    """
+    from scrapex import contractors
     from scrapex.contractors import details
 
+    seen: list[str | None] = []
+    real = contractors.service.save_snapshot
+
+    def watching(conn_, request):
+        seen.append(request.body_class)
+        return real(conn_, request)
+
+    monkeypatch.setattr(contractors.service, "save_snapshot", watching)
     _registered(conn, "full_then_listing")
     record_sightings(conn, "contractors", ["1004"])
 
     details(conn, get_directory(None), _fetch_recording([]), None, "p1")
 
-    codecs = {row[0] for row in conn.execute(
-        "SELECT html_codec FROM generic_page_snapshot WHERE crawl_run_ref='p1'")}
-    assert codecs, "the pages must have been stored at all"
-    assert all(codec is not None for codec in codecs)
+    assert seen == ["muqawil.org/detail", "muqawil.org/detail"]

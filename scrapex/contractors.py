@@ -434,7 +434,7 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         say("listing_only, so there are no profile pages to fetch. Change "
             "site_profile.crawl_scope to ask for them.")
         return
-    if False and scope is CrawlScope.LISTING_PLUS_SLICE:
+    if scope is CrawlScope.LISTING_PLUS_SLICE and not slice_of.strip():
         _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
                 "named, so there is nothing to select. Set site_profile.crawl_slice")
 
@@ -469,7 +469,7 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         try:
             service.save_snapshot(conn, SnapshotCreate(
                 source_url=url, html_content=html, crawl_run_ref=run_ref,
-                body_class=None))
+                body_class=label_for(url, PageKind.DETAIL)))
             conn.commit()
             stored += 1
         except Exception as exc:
