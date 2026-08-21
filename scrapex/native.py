@@ -32,10 +32,8 @@ import sys
 from pathlib import Path
 from typing import BinaryIO
 
-from . import __version__
+from . import __version__, enginelaunch
 from . import db as dbmod
-
-from . import enginelaunch
 
 # Bumped only on a BREAKING change to the contract between the extension and
 # this machine — BOTH paths, not just this one. /api/health publishes this same

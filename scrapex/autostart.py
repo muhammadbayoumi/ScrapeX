@@ -13,7 +13,6 @@ says in its own header who wrote it and how to remove it.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 from . import enginelaunch
