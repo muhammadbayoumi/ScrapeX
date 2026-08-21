@@ -112,7 +112,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 
 | | | |
 |---|---|---|
-| **done** | 18 | |
+| **done** | 18 | including the listing crawl, now `D = 0` |
 | **answered, not built** | 2 | conditional requests (the site sends no validator); `detail_urls` (the claim was wrong) |
 | **open — muqawil engineering** | **6** | below |
 | **open — elsewhere** | 1 | the panel path, tracked in [the tool's plan](2026-08-21-the-tool-itself.md) |
@@ -192,7 +192,7 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 - [x] The provable partitioned listing crawl (#233)
 - [x] Both completeness proofs, witness and count (#234, open)
 - [x] `--only` so the residual is addressable without re-reading proven cells
-- [x] **Close the deficit — 17,412 of 17,414 sighted, `D = 2`, 99.99%** (2026-08-21).
+- [x] **Close the deficit — `D = 0`. 17,414 of 17,414, a PROVABLE 100%** (2026-08-21).
       Three cells cannot be witnessed at any size — RIYADH twice, JEDDAH — and they
       closed by **counting**, exactly as [R-26](../RULINGS.md#r-26--the-residual-crawl-runs-in-the-background-while-development-continues-and-must-be-stoppable)
       allowed.
@@ -201,7 +201,7 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       called that "dry" after two such rounds — so the five heaviest cells stopped
       without ever asking the site. Fixed by requiring `attempt.pages_read > 0` before
       an attempt can count as dry, in the loop **and** in `went_dry`. Then 631 new
-      contractors arrived in 727 pages: `D` fell **633 → 2**.
+      contractors arrived: `D` fell **633 → 0**. The number the plan opened with was 3,690.
 - [x] **`REQ-21`: the nested audit** — `crawl_partition(..., parent=Cell)` audits
       `Σ N_child` against the parent cell, `Cell.is_under` decides membership as a set
       question so filter order cannot matter, and `NotASubdivision` refuses a child
