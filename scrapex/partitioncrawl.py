@@ -91,7 +91,9 @@ requests is thirty-three minutes — and neither layer would know about the othe
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -126,6 +128,24 @@ RETRY_PAGE_CEILING = 31
 #: a loop that runs until it succeeds. A cell that has not closed in ten reads reports
 #: its deficit, which is the honest outcome and the input to a finer partition.
 HEAVY_ATTEMPTS = 10
+
+#: Consecutive reads that add NOT ONE new id before a cell is left alone. `N.e^(-k)`
+#: says the returns fall away; this is where they are measured instead of assumed.
+#:
+#: MEASURED ON THE OWNER'S OWN CRAWL, 2026-08-21, which is why this exists. The
+#: residual run fetched **7,898 pages** against the first crawl's 1,982, and the ids
+#: it found per hour went
+#:
+#:     1,125 -> 459 -> 50 -> 7 -> 1 -> 902 -> 87 -> 2
+#:
+#: and then **43 minutes of continuous fetching produced zero**. `HEAVY_ATTEMPTS` is a
+#: fixed count, so a cell that had converged kept being read until its allowance ran
+#: out. Two dry reads is the evidence that the tail has been reached.
+#:
+#: TWO AND NOT ONE, because a single dry read is not evidence. A cell is a randomised
+#: ordering: one pass can legitimately repeat a previous pass's rows and the next can
+#: still surface new ones. Two in a row is the cheapest number that is not noise.
+DRY_ATTEMPTS = 2
 
 
 class NotASubdivision(ValueError):
@@ -313,6 +333,24 @@ class CellOutcome:
         """Whether this cell's shortfall is fully explained by rows leaving it."""
         return (not self.provably_complete
                 and 0 < self.observed_deficit <= self.departures)
+
+    def went_dry(self, dry_attempts: int = DRY_ATTEMPTS) -> bool:
+        """Did this cell stop because its last reads returned nothing new?
+
+        DERIVED FROM THE ATTEMPTS RATHER THAN RECORDED, so it cannot disagree with
+        them — the same reasoning `provably_complete` follows. A cell that stopped on
+        a proof is not dry, however much its last read repeated: the proof is the
+        reason it stopped and saying otherwise would misreport why.
+        """
+        if self.provably_complete or len(self.attempts) <= dry_attempts:
+            return False
+        union: set[str] = set()
+        gains = []
+        for attempt in self.attempts:
+            fresh = set(attempt.ids)
+            gains.append(len(fresh - union))
+            union |= fresh
+        return all(gain == 0 for gain in gains[-dry_attempts:])
 
     @property
     def counted_complete(self) -> bool:
@@ -748,12 +786,108 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
         witness_requests=0 if baseline is None else 1)
 
 
+def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
+                    partition: PartitionedListing, base_url: str, fetch: Fetch,
+                    run_ref: str, dataset_key: str, max_attempts: int,
+                    heavy_attempts: int, dry_attempts: int,
+                    retry_page_ceiling: int, resize_cells: bool
+                    ) -> tuple[CellOutcome, int]:
+    """One cell, read until it is proven, counted out, or dry.
+
+    LIFTED OUT OF THE LOOP SO IT CAN RUN IN A WORKER, and it took no rewriting to
+    do it: a cell was already self-contained, which is the same property that makes
+    each one provable on its own. It touches `conn` and nothing else shared, so a
+    worker with its own connection has no shared state at all.
+
+    Returns the outcome and how many ids were newly sighted, because the caller adds
+    those up and a worker cannot.
+    """
+    attempts: list[Attempt] = []
+    newly_sighted = 0
+    # A HEAVY CELL GETS ITS RETRIES BACK, and that is the whole point of the
+    # counting proof. `RETRY_PAGE_CEILING` used to cut such a cell to ONE
+    # attempt, on the reasoning that a second read "buys ids it already has and
+    # no proof" — true of the witness, false of the count. Measured 2026-08-21:
+    # the six cells above the ceiling were read once each and left a deficit of
+    # 3,680 with no route to close it. Accumulating distinct ids IS the route,
+    # so the ceiling now decides how many reads a cell is ALLOWED, not whether
+    # it gets more than one.
+    allowed = (heavy_attempts if size.last_page > retry_page_ceiling
+               else max_attempts)
+    union: set[str] = set()
+    dry = 0
+    for number in range(1, allowed + 1):
+        attempt = _read_cell(
+            conn, partition, base_url, size, fetch=fetch,
+            run_ref=f"{run_ref}-{size.cell.label}-a{number}")
+        attempts.append(attempt)
+        # WRITTEN PER ATTEMPT, not once at the end — the same reasoning
+        # `snapshotcrawl` applies to a page and `sweep_muqawil` to a pass. A
+        # crawl killed in cell forty leaves thirty-nine cells of sightings.
+        newly_sighted += record_sightings(conn, dataset_key, attempt.ids,
+                                          run_ref=attempt.run_ref)
+        # `ids` IS A TUPLE, not a set: it is the PUBLISHED ORDER with
+        # duplicates kept, because that is what the witness compares. The
+        # conversion is here rather than in `Attempt` for that reason.
+        fresh = set(attempt.ids)
+        gained = len(fresh - union)
+        union |= fresh
+        # STOP ON EITHER PROOF. Witnessed-and-counted ends it in one pass; the
+        # union reaching the declared count ends it however many it took.
+        if attempt.witnessed and attempt.distinct == size.declared:
+            break
+        if len(union) == size.declared:
+            break
+        # AND STOP WHEN THE READS GO DRY, which is the third reason and the one
+        # that was missing. Counted from the SECOND attempt: the first cannot be
+        # dry, since an empty union means everything it read was new.
+        dry = dry + 1 if number > 1 and gained == 0 else 0
+        if dry >= dry_attempts:
+            break
+    # RE-SIZED ONLY WHEN IT MATTERS. One request a cell over 56 cells is 56
+    # requests spent to explain a deficit most cells do not have, so it is asked
+    # for exactly the cells that fell short.
+    seen_here = {one for a in attempts for one in a.ids}
+    at_end = None
+    if resize_cells and len(seen_here) != size.declared:
+        try:
+            at_end = size_cell(fetch, partition, base_url, size.cell)
+        except Exception:
+            # Failing to explain a deficit is not a reason to lose the cell.
+            at_end = None
+    return (CellOutcome(size=size, attempts=tuple(attempts), size_at_end=at_end),
+            newly_sighted)
+
+
+def _run_and_close(body, index, size, connect) -> None:
+    """Open a connection IN THIS THREAD, run one cell on it, and close it.
+
+    THE FACTORY IS PASSED, NOT A CONNECTION, and the first attempt got that wrong:
+    calling `connect()` on the submitting thread and handing the result to a worker
+    raises `SQLite objects created in a thread can only be used in that same thread`
+    — on the `close()`, after the cell had already been crawled. So the connection is
+    created here, inside the worker, which is the only thread that will touch it.
+
+    CLOSED IN A `finally`, because a pool that leaks one connection per cell leaks
+    fifty-six over a crawl, and on Windows an unclosed SQLite handle keeps the `-wal`
+    file alive after the process believes it is done.
+    """
+    worker_conn = connect()
+    try:
+        body(index, size, worker_conn)
+    finally:
+        worker_conn.close()
+
+
 def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
                     base_url: str, *, fetch: Fetch, run_ref: str,
                     dataset_key: str, cells: Sequence[Cell] | None = None,
                     parent: Cell = WHOLE,
                     max_attempts: int = 2,
                     heavy_attempts: int = HEAVY_ATTEMPTS,
+                    dry_attempts: int = DRY_ATTEMPTS,
+                    workers: int = 1,
+                    connect: Callable[[], sqlite3.Connection] | None = None,
                     retry_page_ceiling: int = RETRY_PAGE_CEILING,
                     fetcher: object | None = None,
                     resize_at_end: bool = True,
@@ -771,6 +905,24 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     re-fetch rather than be skipped as already stored. The second copy costs
     almost nothing — the store compresses a listing page 187× against its own
     kind — and it is evidence of two generations rather than a duplicate.
+
+    `workers` CRAWLS CELLS CONCURRENTLY, and it needs `connect` because each worker
+    must have its own `sqlite3` connection — one is refused across threads. Default
+    1, so nothing changes for a caller that does not ask.
+
+    WHAT IT BUYS AND WHAT IT MUST NOT. muqawil answers in about six seconds while
+    the pace is one request a second, so the wall clock is latency and not
+    politeness: overlapping the waits is the whole win. It does NOT raise the rate —
+    `HttpFetcher._throttle` holds a lock across its sleep, and without that lock,
+    measured on 2026-08-21, four workers made twenty requests in 1.02 s where 3.80 s
+    was owed. Concurrency without that fix would have quadrupled the real request
+    rate against a live site and called itself a speedup.
+
+    A CELL IS LEFT ALONE FOR THREE REASONS, not one: it was witnessed and counted;
+    its union reached the declared count; or `dry_attempts` consecutive reads added
+    not one new id. The third is `DRY_ATTEMPTS`, and it exists because the owner's
+    residual crawl fetched 7,898 pages — four times the first crawl's 1,982 — to
+    find nothing in its last 43 minutes. An allowance is not a stopping rule.
 
     IT REFUSES A SCOPE IT CANNOT HONOUR rather than narrowing one. See
     `ScopeNotPartitionable`.
@@ -831,52 +983,54 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     declare_frontier(fetcher, sum(size.last_page * len(partition.locales) + 1
                                   for size in sizes))
 
-    outcomes: list[CellOutcome] = []
+    per_cell = {
+        "partition": partition, "base_url": base_url, "fetch": fetch,
+        "run_ref": run_ref, "dataset_key": dataset_key,
+        "max_attempts": max_attempts, "heavy_attempts": heavy_attempts,
+        "dry_attempts": dry_attempts, "retry_page_ceiling": retry_page_ceiling,
+        "resize_cells": resize_cells}
     newly_sighted = 0
-    for size in sizes:
-        attempts: list[Attempt] = []
-        # A HEAVY CELL GETS ITS RETRIES BACK, and that is the whole point of the
-        # counting proof. `RETRY_PAGE_CEILING` used to cut such a cell to ONE
-        # attempt, on the reasoning that a second read "buys ids it already has and
-        # no proof" — true of the witness, false of the count. Measured 2026-08-21:
-        # the six cells above the ceiling were read once each and left a deficit of
-        # 3,680 with no route to close it. Accumulating distinct ids IS the route,
-        # so the ceiling now decides how many reads a cell is ALLOWED, not whether
-        # it gets more than one.
-        allowed = (heavy_attempts if size.last_page > retry_page_ceiling
-                   else max_attempts)
-        for number in range(1, allowed + 1):
-            attempt = _read_cell(
-                conn, partition, base_url, size, fetch=fetch,
-                run_ref=f"{run_ref}-{size.cell.label}-a{number}")
-            attempts.append(attempt)
-            # WRITTEN PER ATTEMPT, not once at the end — the same reasoning
-            # `snapshotcrawl` applies to a page and `sweep_muqawil` to a pass. A
-            # crawl killed in cell forty leaves thirty-nine cells of sightings.
-            newly_sighted += record_sightings(conn, dataset_key, attempt.ids,
-                                              run_ref=attempt.run_ref)
-            # STOP ON EITHER PROOF. Witnessed-and-counted ends it in one pass; the
-            # union reaching the declared count ends it however many it took.
-            if attempt.witnessed and attempt.distinct == size.declared:
-                break
-            if len({one for a in attempts for one in a.ids}) == size.declared:
-                break
-        # RE-SIZED ONLY WHEN IT MATTERS. One request a cell over 56 cells is 56
-        # requests spent to explain a deficit most cells do not have, so it is asked
-        # for exactly the cells that fell short.
-        seen_here = {one for a in attempts for one in a.ids}
-        at_end = None
-        if resize_cells and len(seen_here) != size.declared:
-            try:
-                at_end = size_cell(fetch, partition, base_url, size.cell)
-            except Exception:
-                # Failing to explain a deficit is not a reason to lose the cell.
-                at_end = None
-        outcome = CellOutcome(size=size, attempts=tuple(attempts),
-                              size_at_end=at_end)
-        outcomes.append(outcome)
-        if on_cell is not None:
-            on_cell(outcome)
+    found: dict[int, CellOutcome] = {}
+    # ONE LOCK FOR THE CALLBACK AND THE COUNTER, so `on_cell` does not have to be
+    # thread-safe. A caller's progress reporter writes to a log and a dict; making
+    # every caller learn that is how a convenience becomes a defect.
+    guard = threading.Lock()
+
+    def one(index: int, size: CellSize, worker_conn: sqlite3.Connection) -> None:
+        nonlocal newly_sighted
+        outcome, sighted = _crawl_one_cell(size, conn=worker_conn, **per_cell)
+        with guard:
+            found[index] = outcome
+            newly_sighted += sighted
+            if on_cell is not None:
+                on_cell(outcome)
+
+    if workers > 1 and connect is not None:
+        # A CONNECTION PER WORKER, NOT A SHARED ONE. `sqlite3` refuses a connection
+        # used from a thread it was not created on, and the alternative — one
+        # connection behind a lock — would serialise the writes AND the reads that
+        # sit between the fetches. Every connection sets `journal_mode=WAL` and
+        # `busy_timeout=5000`, so concurrent writers wait for each other instead of
+        # failing, which is the property that makes this safe.
+        #
+        # THE PACE IS STILL ONE REQUEST PER INTERVAL. `HttpFetcher._throttle` holds
+        # a lock across its sleep, measured 2026-08-21 — without it four workers
+        # made 20 requests in 1.02 s where 3.80 s was owed. The concurrency buys
+        # OVERLAP on a six-second latency, never a higher rate.
+        with ThreadPoolExecutor(max_workers=workers,
+                                thread_name_prefix="cell") as pool:
+            futures = [
+                pool.submit(_run_and_close, one, index, size, connect)
+                for index, size in enumerate(sizes)]
+            for future in futures:
+                future.result()        # re-raise anything a worker hit
+    else:
+        for index, size in enumerate(sizes):
+            one(index, size, conn)
+
+    # ORDERED BY THE PLAN, not by which worker finished first, so two runs of the
+    # same partition produce the same report.
+    outcomes: list[CellOutcome] = [found[i] for i in sorted(found)]
 
     # THE SAME SCOPE, so `arrivals` measures the movement of what was audited. A
     # nested run re-sizing the whole listing would report the site's churn as the

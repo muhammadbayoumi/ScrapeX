@@ -1713,7 +1713,14 @@ with HTTP 429.
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
 
-**Q-14 · What identifies an ACCOUNT, so a database can belong to one?**
+**Q-14 · ~~What identifies an ACCOUNT, so a database can belong to one?~~ — ANSWERED 2026-08-21: (a), the signed-in address.**
+→ [R-34](RULINGS.md#r-34--an-account-is-the-signed-in-address-and-a-warehouse-records-whose-it-is).
+He settled it by naming one: «اجعلها تخص حساب muhammad.bayoumi.ali@gmail.com», and
+his own warehouse now carries it in `scrapex_meta.account_owner`. The options and
+the reasoning are kept below, because the trade-off is the only place the two
+rejected halves are written down.
+
+**Q-14 (as asked) · What identifies an ACCOUNT, so a database can belong to one?**
 `REQ-26`. He ruled that a database belongs to one account and not to everyone on the
 machine, and that two Chrome profiles with two accounts get two databases. Measured:
 **no account concept exists** — `DATABASE_ROOT` is `~/.scrapex` per operating-system

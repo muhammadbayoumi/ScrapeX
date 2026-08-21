@@ -104,9 +104,9 @@ PINNED = (
     # REQ-21's nested audit. The whole request is that `Sum N_child` is compared
     # against the PARENT, and these are the two lines that make it so -- one that
     # sizes the parent, one that refuses cells outside it before a request is spent.
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 811,
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 963,
      "whole = size_cell(fetch, partition, base_url, parent)"),
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 804, "raise NotASubdivision("),
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 956, "raise NotASubdivision("),
     ("docs/REQUESTS.md", "scrapex/pagesource.py", 146,
      "return set(other.params) <= set(self.params)"),
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without

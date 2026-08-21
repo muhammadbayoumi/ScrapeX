@@ -813,6 +813,89 @@ changed.
 
 ---
 
+### R-34 · An account is the signed-in address, and a warehouse records whose it is
+
+**2026-08-21 · architecture · answers [Q-14](BACKLOG.md), unblocks [REQ-26](REQUESTS.md)**
+
+> «ايضا databse الموجودة حاليا اجعلها تخص حساب muhammad.bayoumi.ali@gmail.com»
+
+`Q-14` asked what identifies an account, and it was put to him **without a
+recommendation** because the Google address and the Chrome profile each fail exactly
+one half of what he had described, and the answer decides where other people's data
+lands. He settled it by naming one: **the signed-in address**, option (a).
+
+**HIS OWN WAREHOUSE IS NOW CLAIMED BY IT** — `scrapex_meta.account_owner` reads
+`muhammad.bayoumi.ali@gmail.com`.
+
+| | |
+|---|---|
+| `scrapex_meta`, not a new table | it already holds exactly this kind of fact — `database_kind`, `migration_stream`, `contract_version`. One row, one truth about the file, **no migration** |
+| the address is stored as he writes it | surrounding space is trimmed, and the **local part keeps its case**: email local parts are case-sensitive by specification, and folding them would quietly merge two addresses a provider considers different |
+| re-claiming takes `force` | handing a warehouse from one account to another moves someone's data under another's name. `R-24`'s reasoning about a user's database, applied to its owner: deliberately, never behind his back |
+| an unclaimed warehouse passes any account | every file that predates this is unclaimed, and none may stop working because a rule arrived after it (`R-23`) |
+
+**WHAT IS DELIBERATELY NOT ENFORCED YET, and saying so is the point.**
+`assert_owner` exists and **nothing calls it on the connect path**. `DATABASE_ROOT`
+is still `~/.scrapex` — one directory per operating-system user — so a second account
+on this machine has nowhere else to go, and refusing a warehouse claimed by someone
+else *before* the per-account layout exists would lock him out of the only warehouse
+there is. The rule has one definition ready for `REQ-26`; the layout is `REQ-26`.
+
+**So this ruling answers the identity question and leaves the layout open** — the
+half that was blocked on him is unblocked, and the half that is engineering is named.
+
+---
+
+### R-33 · The migration ledger is keyed on the migration's NAME, not its number
+
+**2026-08-21 · data · answers [OP-30](BACKLOG.md), chosen from three options**
+
+> «نفذ أ»
+
+Found on his LIVE warehouse while upgrading it at his instruction, and it left the
+file unopenable by any build — on `connect()` as well as on upgrade.
+`database_migration` is `migration_number INTEGER PRIMARY KEY` — **one number
+space** — and a warehouse carried over from the price database holds two streams
+in it:
+
+| number | name | whose |
+|---|---|---|
+| 6 | `0006_a_row_says_when_it_was_last_proved_absent.sql` | the engine's |
+| 1006 | `0006_change_event.sql` | the price stream's, renumbered by the repair |
+
+Engine migration `0006` was **the first number this stream had ever wanted**, so the
+digests of two unrelated files were compared and it reported *"checksum changed;
+restore the original migration file and retry"* — **with no file having changed.**
+
+**THE NUMBER WAS ALREADY MEANINGLESS AND THE NAME NEVER WAS.** `migration_number`
+claimed to say where in its stream a migration sits; with two streams sharing the
+space it says only which row came first, and who holds a number is a question of
+precedence rather than identity. A file's name is its identity, unique across both
+streams, so a foreign row becomes invisible instead of fatal.
+
+**WHAT `user_version` ALREADY GUARANTEED** is why this is safe: the ledger does not
+decide what to apply — `PRAGMA user_version` does. It is purely a checksum record.
+
+**WHAT THE FIX WAS NOT ALLOWED TO COST.** Two guards hold the line: a file whose
+digest really differs is still refused, and a ledger missing a row for one of *our
+own* migrations is still reported. Otherwise the fix would have turned a detectable
+state into a silent one.
+
+**AND WHY NOTHING CAUGHT IT, which is the part worth keeping.** A fresh `init-db`
+writes only this stream's rows, so nothing collides — and **CI always starts from a
+fresh database.** 273 tracked test files and the `migration-authority` job, which
+runs the whole suite against the real migration stream, all passed while this sat
+there. The collision needs a warehouse that **carried over**, and no fixture had
+one. Same class of gap as [R-24](#r-24--a-users-database-is-upgraded-never-replaced):
+the upgrade path is exercised only by a real user's file. There is a test that owns
+it now.
+
+**A `stream` column keyed `(stream, number)` is the model this deserves** and stays
+in `OP-30` as the real fix: it is a migration, and it would have to run *before* the
+verification that was failing.
+
+---
+
 ### R-32 · ScrapeX is a collection platform. Price is ONE category, and filing it as the whole thing was a mistake
 
 **2026-08-21 · architecture · corrects `pyproject.toml`, `CLAUDE.md` and `README.md`**
@@ -947,6 +1030,18 @@ not a detail of it.
 **2026-08-21 · data · answers [OP-25](BACKLOG.md)**
 
 > «امسح وأعِد الاعتماد من القرص» — chosen from three options
+
+> **THE WIPE TURNED OUT TO BE UNNECESSARY, and it was his own later ruling that
+> made it so.** `R-31`'s directional versioning landed after this, and measured on
+> 2026-08-21 the parser emits **28 fields against the stored 21, a strict superset
+> losing nothing** — so re-approving RETIRES v1 and opens v2 instead of needing the
+> dataset destroyed. The re-approval was run without the wipe and took
+> `generic_record` from **1,172 to 8,936** with v1 kept as history: the 823 pages
+> the old schema refused landed, and nothing was thrown away.
+>
+> **This ruling is not withdrawn** — it decided correctly on what was known, and
+> route (a) is still the answer if a genuine schema conflict ever needs it. Recorded
+> per **C4**: the decision stands, and what changed is what it implies.
 
 `region_id=0`'s 74 pages taught a 21-field schema, so every page declaring the
 declared 22 is refused. The `contractors` dataset is **wiped and re-approved from the

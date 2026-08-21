@@ -38,6 +38,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import validators as validator_store
 from .connectors.base import HttpFetcher
 from .databases import DatabaseRegistry
 from .directories import Directory
@@ -167,8 +168,8 @@ def plan(directory: Directory, fetch, started: float) -> None:
 # ---- --crawl: the partition, witnessed --------------------------------------
 
 def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
-          max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS
-          ) -> None:
+          max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS,
+          workers: int = 1, connect=None) -> None:
     """The partition, or NAMED CELLS OF IT.
 
     `--only` is what makes the residual addressable on its own, which
@@ -201,15 +202,36 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
         if not outcome.provably_complete:
             say(f"        {outcome.attempts[-1].note}")
 
+    # ITEM 2, AND THE CALLER THAT NEVER EXISTED. `HttpFetcher` has kept every
+    # response's ETag and replayed it on the next visit since it was written — its
+    # docstring says so — but `remember_validators` and `validators()` had **zero
+    # callers anywhere**, so the dict died with the process and every re-crawl asked
+    # for full bodies for pages that had not changed. A capability with no caller is
+    # a claim; this is the claim being made true.
+    kept = validator_store.load(conn)
+    if kept:
+        fetcher.remember_validators(kept)
+        say(f"replaying {len(kept):,} conditional validator(s) — an unchanged page "
+            "answers 304 with no body")
+
     say(f"crawl {run_ref} starting")
     outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
                               run_ref=run_ref,
                               dataset_key=directory.dataset_key,
                               max_attempts=max_attempts,
                               heavy_attempts=heavy_attempts, cells=chosen,
+                              workers=workers, connect=connect,
                               fetcher=fetcher, on_cell=report)
+    # KEPT AFTER THE CRAWL AND NOT DURING IT, deliberately: a validator is only
+    # worth storing if the page it describes was actually read, and writing them per
+    # page would put a commit between every fetch on a path that already has one.
+    written = validator_store.save(conn, fetcher.validators())
     say("")
     say(str(outcome))
+    if written:
+        saved = getattr(fetcher, "not_modified_count", 0)
+        say(f"kept {written:,} validator(s) for the next crawl; this one was "
+            f"answered 304 for {saved:,} page(s)")
     say("")
     say(str(coverage(conn, directory.dataset_key)))
 
@@ -409,6 +431,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                             "(e.g. region_id_1-company_size_verysmall). This is how "
                             "the residual is closed without re-reading the cells "
                             "already proven — 47 of 56 on the first run")
+    parser.add_argument("--workers", type=int, default=1,
+                       help="crawl this many cells at once. The site answers in "
+                            "about six seconds while the pace is one request a "
+                            "second, so overlapping the waits is the win — the "
+                            "RATE does not change, the transport still allows one "
+                            "request per interval however many workers there are")
     parser.add_argument("--heavy-attempts", type=int, default=HEAVY_ATTEMPTS,
                        help="reads allowed to a cell too big to witness, so the "
                             "counting proof has a chance to close it")
@@ -448,9 +476,19 @@ def run(args: argparse.Namespace) -> int:
     try:
         if args.crawl:
             fetcher, fetch = make_fetch(args.pace)
+            # THE FACTORY, NOT A CONNECTION: `sqlite3` refuses one across
+            # threads, so each worker opens its own. Only passed when it is
+            # actually needed, so a single-worker crawl keeps using `conn`.
+            factory = None
+            if args.workers > 1:
+                registry = DatabaseRegistry.defaults()
+                factory = registry.engine.connect
+                say(f"crawling with {args.workers} workers — the pace is unchanged, "
+                    "the waits overlap")
             crawl(conn, directory, fetch, fetcher, args.run_ref,
                   args.max_attempts, only=args.only,
-                  heavy_attempts=args.heavy_attempts)
+                  heavy_attempts=args.heavy_attempts,
+                  workers=args.workers, connect=factory)
         if args.approve:
             approve(conn, directory, args.run_ref)
         if args.coverage:
