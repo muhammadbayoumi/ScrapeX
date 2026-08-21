@@ -1,6 +1,6 @@
 # State — where the work stands
 
-**Last updated: 2026-08-21 (morning).** `main` is at `9e0610a` (#236).
+**Last updated: 2026-08-21 (morning).** `main` is at `e5af340` (#238).
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -14,10 +14,29 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
-**None.** Next up is `OP-28` on `claude/the-crawl-driver-gets-tests`: the crawl
-driver had 452 lines and no tests, 19 now, eleven mutations killed.
+**None.** Four merged this morning and nothing is waiting.
+
+**THE NEXT MOVE IS HIS, NOT THE CODE'S.** `Q-13` in [BACKLOG.md](BACKLOG.md) asks how
+`R-19` should be implemented, and `R-19` is the largest thing he has ruled on that is
+not built. Everything else on Track 2 either waits behind it or waits behind the
+crawl. If a session wants work that depends on nobody: `REQ-20`, or run
+`--coverage` over what the crawl has already gathered.
 
 ### Merged 2026-08-21
+
+**[#238](https://github.com/muhammadbayoumi/ScrapeX/pull/238) — his ruling tested
+before it was built.** `REQ-23`: eleven criteria fixed before measuring, five shapes,
+518,490 rows. **`R-19` is upheld** — JSON costs 1,168 ms on the query it names against
+0.6 ms for the best shape. It also decided only half the question, and the half it
+left open turns on a criterion nobody had raised: relabelling a category costs 103,698
+rows in 5.9 s one way and 1 row in 0.1 ms the other. Recommendation recorded as
+`Q-13`; **nothing built.**
+
+**[#237](https://github.com/muhammadbayoumi/ScrapeX/pull/237) — the file that starts
+every crawl had no tests.** `OP-28`: `tools/crawl_muqawil_listing.py`, 452 lines, zero
+tests, and CI cannot see it (ubuntu-only, and `tools/` is outside the linted path).
+Nineteen tests, eleven mutations killed — after four of the first twelve mutations
+turned out not to have applied at all.
 
 **[#236](https://github.com/muhammadbayoumi/ScrapeX/pull/236) — a subdivision is
 checked against its parent.** `REQ-21`: `crawl_partition` takes a `parent` cell and
@@ -43,8 +62,8 @@ demanded more than it needed, and 823 pages refused by one column.
 
 The residual crawl of the nine heavy cells is **live** and resumable
 ([R-26](RULINGS.md#r-26)). As of 2026-08-21 08:06 it had stored **3,563 listing
-pages** across all 56 cells; by 06:13 it was **4,561**, and the ledger held
-**15,273 distinct ids of the listing's 17,414 — 87.7%**. Stored *records* remain 1,172 because `OP-25`'s
+pages** across all 56 cells; by 07:13 it was **5,458**, and the ledger held
+**15,782 distinct ids of the listing's 17,414 — 90.6%**. Stored *records* remain 1,172 because `OP-25`'s
 extraction route is deferred by `R-25`; the gap between the two numbers, 14,101, is
 exactly the question the sightings ledger exists to answer.
 
