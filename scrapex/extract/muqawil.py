@@ -286,6 +286,136 @@ def _card_boxes(html: str) -> dict[str, tuple[tuple[str, str], ...]]:
 
 
 
+
+@dataclass(frozen=True)
+class MultiValuedGroup:
+    """One of `R-19`'s repeating groups, and how to find it on a profile page.
+
+    `R-39`: a group is named by a DECLARED map, never by position and never by its
+    heading. The alternatives were measured and all three fail —
+
+        the detector's own name    `Table 1` … `Table 5`, which is position
+        the nearest heading        three of the five tables share one, and for two of
+                                   them the nearest heading is a TAB BUTTON that
+                                   belongs to a different section entirely
+        the column signature       two tables carry the same `# / الإسم` pair
+
+    THE SELECTOR IS THE DECLARATION, and it is chosen for stability rather than for
+    brevity. Where the page gives an id, the id is used: `#contractor-tab2` and
+    `#contractor-tab3` are the only thing that separates two tables with identical
+    headers and no rows. Where it does not, a header the site does not translate is
+    used — see `published_as` below for why that is safe here and would not be
+    elsewhere.
+    """
+
+    #: Our stable name. Not the site's — the site's is `published_as`.
+    key: str
+    #: `table` goes through `detect_html_tables`; `tree` is a nested list and does not.
+    kind: str
+    #: A CSS selector locating the container, resolved with soupsieve.
+    selector: str
+    #: What the SITE calls it, kept for the record and for a reader comparing with the
+    #: page. **Arabic even on the English profile** — measured: every table header and
+    #: every contractor tab label is identical in both locales, so a selector built on
+    #: this text is locale-stable. That is a property of THIS site and not a rule: the
+    #: interests card IS translated (`Interests` / `الأنشطة`), which is why that one is
+    #: located structurally instead.
+    published_as: str
+
+
+#: The groups `R-19` asks for, as they are actually published. Measured against
+#: `tests/fixtures/muqawil/profile-{en,ar}.html` on 2026-08-21.
+MULTI_VALUED_GROUPS: tuple[MultiValuedGroup, ...] = (
+    MultiValuedGroup(
+        key="interests",
+        kind="tree",
+        # STRUCTURAL, BECAUSE THIS CARD'S TITLE *IS* TRANSLATED — `Interests` in English
+        # and `الأنشطة` in Arabic, which is not even a translation of it. A title-based
+        # selector read 25 nodes from one locale and 0 from the other. The card is the
+        # one holding the nested list, and `read_interests` refuses if two ever do.
+        selector="div.section-card:has(ul.list-numerical li.list-item)",
+        published_as="Interests / الأنشطة"),
+    MultiValuedGroup(
+        key="licensed_activities",
+        kind="table",
+        selector='table:has(th:-soup-contains("الأنشطة المرخصة"))',
+        published_as="الأنشطة المرخصة"),
+    MultiValuedGroup(
+        key="sub_contractors",
+        kind="table",
+        # THE ID IS THE ONLY THING THAT WORKS HERE. This table and `main_contractors`
+        # have the same two headers, `# / الإسم`, and both are EMPTY for the committed
+        # contractor — so neither a signature nor a row can tell them apart. The tab
+        # button naming this pane reads `المقاولين بالباطن`.
+        selector="div#contractor-tab2 table",
+        published_as="المقاولين بالباطن"),
+    MultiValuedGroup(
+        key="main_contractors",
+        kind="table",
+        selector="div#contractor-tab3 table",
+        published_as="المقاولين الرئيسيين"),
+    MultiValuedGroup(
+        key="contract_counts",
+        kind="table",
+        selector='table:has(th:-soup-contains("عدد العقود النموذجية"))',
+        published_as="عدد العقود النموذجية / عدد العقود المسجلة"),
+)
+
+#: WHAT `R-19` NAMES AND THE PROFILE DOES NOT PUBLISH, recorded rather than guessed at.
+#:
+#: `R-19` lists *"Interests, Licensed Activities, Qualification Programs, Balady
+#: Services, contractor relations"*. Measured against the committed profile, two of
+#: those five are not on the page at all, and one is two:
+#:
+#:   * **Qualification Programs** and **Balady Services** appear as LISTING FILTER
+#:     axes — `lc_program_list_id` (13 values) and `balady_service_id` (8) — and not as
+#:     profile sections. They may be a facet of the search rather than a property of a
+#:     contractor, or they may render only for contractors that hold one. One profile
+#:     cannot tell those apart, which is `R-19`'s own stated evidence limit.
+#:   * **contractor relations** is TWO groups on the page: main contractors and sub
+#:     contractors, in separate tabs.
+#:   * And the **technical rating** — `contractor-tab4`, `التقييم الفني` — is a tab with
+#:     **no table in it** on this profile, so there is nothing to declare a selector for.
+#:
+#: Kept as a declaration so that "we could not find it" is a recorded fact rather than a
+#: silently shorter list, which is how a build ends up covering four of five groups and
+#: reporting success.
+GROUPS_NOT_LOCATED: tuple[tuple[str, str], ...] = (
+    ("qualification_programs",
+     "a listing filter axis (lc_program_list_id, 13 values), not a profile section on "
+     "the committed contractor"),
+    ("balady_services",
+     "a listing filter axis (balady_service_id, 8 values), not a profile section on the "
+     "committed contractor"),
+    ("technical_rating",
+     "tab contractor-tab4 (التقييم الفني) carries no table for this contractor"),
+)
+
+
+def locate_group(html: str, key: str) -> Tag | None:
+    """The element one declared group lives in, or `None` if this page has not got it.
+
+    `None` IS AN ANSWER AND NOT A FAILURE. Three of the five declared groups are empty
+    for the committed contractor and two of those render no rows at all, so a profile
+    without a section is the common case rather than the exception.
+
+    MORE THAN ONE MATCH IS REFUSED, though, because a selector that has stopped being
+    unique has stopped being a declaration — and picking the first would read one
+    group's values as another's, which is the failure `R-39` exists to prevent.
+    """
+    group = next((one for one in MULTI_VALUED_GROUPS if one.key == key), None)
+    if group is None:
+        raise KeyError(
+            f"{key!r} is not a declared group. Declared: "
+            f"{[one.key for one in MULTI_VALUED_GROUPS]}. Groups R-19 names that this "
+            f"profile does not publish: {[name for name, _ in GROUPS_NOT_LOCATED]}")
+    found = BeautifulSoup(html, "html.parser").select(group.selector)
+    if len(found) > 1:
+        raise ValueError(
+            f"{key!r} matched {len(found)} elements, so its selector is no longer a "
+            f"declaration: {group.selector}. The layout has changed.")
+    return found[0] if found else None
+
 #: The interests block is a nested list, and the nesting is the taxonomy. A child `<ul>`
 #: is a SIBLING of the `<li>` it hangs under, not its child — so a parent is the nearest
 #: preceding `<li>` at one level up, which is what `read_interests` walks.

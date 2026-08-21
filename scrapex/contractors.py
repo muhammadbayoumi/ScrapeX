@@ -365,6 +365,19 @@ def listing_pages(conn) -> Iterator[FetchedPage]:
         yield FetchedPage(url=url, html=decode(conn, row), kind=PageKind.LISTING)
 
 
+def _locale_of(url: str) -> str:
+    """`en` or `ar`, from the path. The only two muqawil publishes.
+
+    READ FROM THE URL because that is where the fact is: the crawl fetches
+    `/en/contractors` and `/ar/contractors` as separate pages, so the locale is part of
+    the identity of a stored snapshot rather than something to infer from its content.
+    """
+    for locale in ("en", "ar"):
+        if f"/{locale}/" in url:
+            return locale
+    return "?"
+
+
 def detail_frontier(conn, directory: Directory, scope: CrawlScope,
                     slice_of: str) -> tuple[list[str], int]:
     """The profile URLs this scope earns. Returns `(urls, rows_outside_the_slice)`.
@@ -396,12 +409,61 @@ def detail_frontier(conn, directory: Directory, scope: CrawlScope,
         for contractor_id in sighted_ids(conn, directory.dataset_key):
             wanted.extend(source.profile_urls(directory.base_url, contractor_id))
         return list(dict.fromkeys(wanted)), 0
+    # ONE PASS, KEPT PER LOCALE, AND THE LOCALE DECIDED AT THE END. A slice is named in
+    # the language of the page — `MuqawilPageSource.belongs_to_slice` says so, and
+    # measured against the committed fixtures: `RIYADH` matches 3 of 4 cards on the
+    # English listing and **0 of 4** on the Arabic, and `الرياض` the reverse.
+    #
+    # So scanning every stored page against one slice value counts every row of the other
+    # locale as *outside the slice* — a report that is simply false — and makes the whole
+    # frontier depend on that locale's pages happening to be on disk. `R-37` records the
+    # measurement; this is the code it asked for.
+    #
+    # ONE PASS AND NOT TWO, because the scan is the expensive half: a slice must parse
+    # stored listing pages, and doing it twice to choose a locale first would double the
+    # cost of the only frontier that cannot come off the ledger.
+    per_locale: dict[str, tuple[list[str], int]] = {}
     for page in listing_pages(conn):
+        locale = _locale_of(page.url)
+        matched, missed = per_locale.setdefault(locale, ([], 0))
+        # GROUPED BY ROW BEFORE ASKING, for two reasons that both matter.
+        #
+        # THE COUNT IS ABOUT ROWS. `slice_rows` yields one entry per URL and muqawil
+        # publishes one URL per LOCALE, so asking per entry counted two skips for one
+        # card — measured, a four-card page reported eight rows examined. "Rows outside
+        # the slice" then meant nothing a reader could compare with the page.
+        #
+        # AND `belongs_to_slice` RE-PARSES THE PAGE EVERY CALL: it runs `_cards(html)`
+        # from scratch, so asking twice per card is two full BeautifulSoup parses of the
+        # same page for one answer. On the stored listing that doubling is the difference
+        # this frontier already had to route around once.
+        by_row: dict[int, list[str]] = {}
         for row_index, url in slice_rows(source, page):
+            by_row.setdefault(row_index, []).append(url)
+        for row_index, urls in by_row.items():
             if source.belongs_to_slice(page, row_index, slice_of):
-                wanted.append(url)
+                matched.extend(urls)
             else:
-                outside += 1
+                missed += 1
+        per_locale[locale] = (matched, missed)
+
+    answered = {locale: pair for locale, pair in per_locale.items() if pair[0]}
+    if len(answered) > 1:
+        # A SLICE VALUE THAT MATCHES IN TWO LANGUAGES is either a name that happens to be
+        # written the same way in both, or a marker that has moved. Either way the counts
+        # below would be the sum of two different questions, so it is refused rather than
+        # added up.
+        raise ValueError(
+            f"the slice {slice_of!r} matched rows in more than one locale "
+            f"({sorted(answered)}), so 'outside the slice' has two different meanings. "
+            "Name the slice in one language.")
+    if not answered:
+        # NOT AN ERROR, AND NOT SILENT EITHER. A city with no contractors is a real
+        # answer; so is a slice named in the wrong language, and the caller's report says
+        # how many rows were examined so the two can be told apart.
+        return [], sum(missed for _, missed in per_locale.values())
+    matched, outside = next(iter(answered.values()))
+    wanted.extend(matched)
     # DEDUPLICATED HERE, NOT IN THE SOURCE. One contractor can appear on two stored
     # listing pages — a live listing reorders between requests, which is the entire
     # reason the witness compares id sequences — and fetching a profile twice is a
@@ -593,6 +655,7 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
     say(f"approve {run_ref}: {len(pairs)} page(s) on disk")
     made = 0
     recovered = 0
+    reparsed = 0
     lonely = 0
     refused: list[tuple[str, str]] = []
     for key, halves in sorted(pairs.items()):
@@ -621,14 +684,20 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
         conn.commit()
         made += 1
         if result.get("recovered"):
-            # ALREADY APPROVED, AND IT WROTE NOTHING. `DEC-10`: the idempotency
-            # key is `(snapshot, locator)` plus the schema hash, so a corrected
-            # parser re-run over stored pages returns `recovered=True` and
-            # changes not one row. Counted out loud so a re-run that repaired
-            # nothing cannot be mistaken for one that did.
+            # ALREADY APPROVED AND IDENTICAL, so it wrote nothing — and since `R-38`
+            # that is a claim about the ROWS and not just the request. The digest of
+            # what the parser produced is compared against the digest the previous
+            # ingestion stored, so this count now means "nothing had changed" rather
+            # than the old "we did not look".
             recovered += 1
-    say(f"approved {made} page(s), of which {recovered} were already approved and "
-        f"wrote nothing (DEC-10); {lonely} page(s) missing a locale half")
+        elif result.get("reparsed"):
+            # THE CASE DEC-10 EXISTED FOR. Same page, same schema, DIFFERENT values —
+            # a parser that was corrected. It used to be indistinguishable from the
+            # line above and wrote nothing at all.
+            reparsed += 1
+    say(f"approved {made} page(s): {recovered} unchanged and wrote nothing, "
+        f"{reparsed} re-parsed with new values (DEC-10 / R-38); "
+        f"{lonely} page(s) missing a locale half")
     for key, why in refused[:20]:
         say(f"  refused {key}: {why}")
     if len(refused) > 20:

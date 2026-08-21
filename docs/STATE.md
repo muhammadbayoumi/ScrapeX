@@ -678,7 +678,7 @@ written and 58 two days ago. It grows every time this is deferred.
 
 **The blocker, verified 2026-08-17 and still present:**
 `"latest_extension_version": VERSION` at
-[scrapex/version.py:477](../scrapex/version.py) and
+[scrapex/version.py:483](../scrapex/version.py) and
 [scrapex/webui/app.py:1459](../scrapex/webui/app.py), drawn by
 [extension/app.js:599](../extension/app.js) and `:633`.
 

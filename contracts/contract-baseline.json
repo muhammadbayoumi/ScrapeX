@@ -1,5 +1,5 @@
 {
-  "version": "0.2.2",
+  "version": "0.3.0",
   "schema": [
     "0002_the_price_source_key_is_named_for_what_it_is.sql",
     "0003_a_source_says_how_deep_its_crawl_goes.sql",
@@ -7,7 +7,8 @@
     "0005_a_snapshot_says_how_it_is_encoded.sql",
     "0006_a_row_says_when_it_was_last_proved_absent.sql",
     "0007_a_taxonomy_says_which_site_it_belongs_to.sql",
-    "0008_a_page_remembers_how_to_ask_whether_it_changed.sql"
+    "0008_a_page_remembers_how_to_ask_whether_it_changed.sql",
+    "0009_a_contractor_points_at_a_taxonomy_instead_of_repeating_it.sql"
   ],
   "protocol": "1",
   "endpoints": [

@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 
 class Surface(StrEnum):
@@ -141,7 +141,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         # The setting is only the DEFAULT. The per-source choice lives on the
         # source itself (SourceEntry.robots), which is why the panel control
         # named here is on the source editor and not the Settings page.
-        commit="",
+        #
+        # FILLED IN WHEN 0.3.0 ARRIVED, and read out of `git log` as the ledger
+        # requires rather than remembered: `git log -S robots_per_source --reverse`
+        # names `adf31b2`, "robots.txt becomes the owner's decision, per site (#153)"
+        # — which is also the commit that last moved VERSION before this one. It was
+        # allowed to be empty only while `since` equalled `VERSION`.
+        commit="adf31b2",
     ),
     Capability(
         key="crawl_parallel_sources",
