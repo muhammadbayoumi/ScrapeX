@@ -822,6 +822,48 @@ is fixed (it now hashes exactly as the write path does) and reverting the join f
 four tests — but a column named for what it actually holds would have made the mistake
 unavailable in the first place.
 
+---
+
+### OP-28 · The muqawil crawl driver has 306 lines and no tests at all
+
+Found 2026-08-21 while scoping what a Windows-only failure could hide.
+`tools/crawl_muqawil_listing.py` — the driver for `--plan`, `--crawl`, `--approve`,
+`--coverage`, `--only`, `--heavy-attempts`, `--not-seen-since` — is referenced by
+**zero tests**:
+
+```
+grep -rln "crawl_muqawil_listing" tests/   ->   no matches
+```
+
+It is also the file where the one Windows-only defect of this whole track lived: a
+`UnicodeEncodeError` on `→` in `say()` killed a run **after all 114 requests had
+succeeded**, because the console codepage is cp1252 and the arrow is not in it. The
+fix (a `say` that cannot raise) is guarded by nothing, and CI cannot catch a
+regression: CI is **ubuntu-only**, and `tools/` is not even in the linted path
+(`ruff check scrapex/`).
+
+So the exposure is specific rather than theoretical: **argument handling, resume
+selection and console output in the one file whose failure mode is invisible to CI.**
+Not urgent — it is a developer tool, not shipped code — but it is the cheapest test
+debt on the board, and `say()` in particular is one parametrised test.
+
+---
+
+### OP-29 · An invalid escape sequence in a test docstring is a future `SyntaxError`
+
+Every full suite prints `<unknown>:85: SyntaxWarning: invalid escape sequence '\.'`,
+raised by both gate tests because they compile the suite's own sources to count it.
+Traced 2026-08-21 to a **non-raw** docstring at `tests/test_relaunch_log.py:84`, which
+quotes a Windows path verbatim:
+
+    ...\.scrapex\engine.log
+
+`\.` and `\e` are not escape sequences. Python 3.12 warns; **a future Python makes
+this a `SyntaxError`**, and then the file stops importing. The fix is one character —
+`r"""` — and it is filed rather than folded into an unrelated pull request because a
+warning that has been printing for a while is not an emergency, and because a
+docstring quoting a path is exactly the case that will recur.
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product

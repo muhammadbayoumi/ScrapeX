@@ -33,6 +33,7 @@ import pytest
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.pagesource import WHOLE, Cell
 from scrapex.partitioncrawl import (
+    NotASubdivision,
     ScopeNotPartitionable,
     crawl_partition,
     size_cell,
@@ -928,3 +929,150 @@ def test_a_listing_that_shrank_says_shrank_and_not_grew_by_minus(conn):
     report = str(outcome)
     assert "SHRANK by 3 rows" in report
     assert "grew by -" not in report, "a negative growth is a shrinkage, in words"
+
+
+# ---- REQ-21 · a subdivision is audited against its parent ---------------------
+#
+# THE FIFTH WAY IT COULD LIE, and it is the one the owner named. A heavy cell can
+# only be subdivided by a value read off evidence we already have — muqawil's
+# `city_id`, chosen from the two thirds of contractors seen so far — and the site
+# is live, so «ماذا لو تم اضافة مقاول جديد بمدينة جديدة». A new city must cost
+# EFFICIENCY AND NEVER COVERAGE, which holds only if the shortfall is measured
+# against the PARENT. Audited against the whole listing instead, 151 city cells of
+# one region would be compared to 17,414 and report a deficit of thirteen thousand
+# rows that were never in scope — a number nobody can act on, which is a check that
+# has stopped being one.
+
+PARENT = cell(region_id=1, company_size="verysmall")
+
+
+def _nested(*, child_rows: dict[int, list[str]], parent_rows: list[str],
+            listing_rows: int = 100):
+    """A listing far bigger than the parent, so auditing the wrong one shows."""
+    cells = {"whole": [str(9000 + n) for n in range(listing_rows)],
+             PARENT.label: list(parent_rows)}
+    children = []
+    for city, rows in child_rows.items():
+        child = cell(region_id=1, company_size="verysmall", city_id=city)
+        cells[child.label] = list(rows)
+        children.append(child)
+    directory = Directory(cells)
+    return directory, Partition(directory, cells=tuple(children)), tuple(children)
+
+
+def test_a_subdivision_is_audited_against_its_parent_and_not_the_listing(conn):
+    """`Σ N_child == N_parent` is the claim, and the listing is not the yardstick."""
+    register(conn)
+    rows = [str(100 + n) for n in range(8)]
+    directory, partition, children = _nested(
+        child_rows={21: rows[:4], 22: rows[4:]}, parent_rows=rows)
+
+    outcome = run(conn, partition, directory, cells=children, parent=PARENT)
+
+    # The parent declares 8 and the children declare 8 between them.
+    assert outcome.whole.declared == 8
+    assert outcome.declared_sum == 8
+    assert outcome.exhaustiveness_deficit == 0
+    # Audited against the listing this would have been 100 - 8 = 92.
+    assert outcome.nested and outcome.scope == f"cell {PARENT.label}"
+    assert outcome.provably_complete
+
+
+def test_a_subdivision_short_of_its_parent_names_the_deficit_against_the_parent(conn):
+    """The 32-of-4,697 shape: a city the evidence never showed, counted."""
+    register(conn)
+    rows = [str(100 + n) for n in range(8)]
+    directory, partition, children = _nested(
+        child_rows={21: rows[:4], 22: rows[4:6]}, parent_rows=rows)
+
+    outcome = run(conn, partition, directory, cells=children, parent=PARENT)
+
+    assert outcome.declared_sum == 6
+    assert outcome.exhaustiveness_deficit == 2      # and NOT 94
+    assert outcome.deficit == 2
+    assert not outcome.provably_complete
+    assert f"NOT proven complete for cell {PARENT.label}" in str(outcome)
+
+
+def test_a_child_that_dropped_a_parents_filter_is_refused_before_any_request(conn):
+    """Refused on a set comparison, not discovered after hours of fetching."""
+    register(conn)
+    rows = [str(100 + n) for n in range(8)]
+    directory, partition, children = _nested(
+        child_rows={21: rows[:4], 22: rows[4:]}, parent_rows=rows)
+    # Carries `city_id` but has LOST `company_size`, so it selects more than the
+    # parent — and a sum over it could clear the parent's count while covering
+    # none of it.
+    wider = cell(region_id=1, city_id=21)
+
+    with pytest.raises(NotASubdivision) as raised:
+        run(conn, partition, directory, cells=(*children, wider), parent=PARENT)
+
+    assert wider.label in str(raised.value)
+    assert directory.fetched == []
+
+
+def test_a_nested_run_never_claims_the_listing_is_complete(conn):
+    """A proof about one cell must not read as a proof about the site."""
+    register(conn)
+    rows = [str(100 + n) for n in range(8)]
+    directory, partition, children = _nested(
+        child_rows={21: rows[:4], 22: rows[4:]}, parent_rows=rows)
+
+    said = str(run(conn, partition, directory, cells=children, parent=PARENT))
+
+    assert "AND FOR THAT CELL ONLY" in said
+    assert "PROVABLY COMPLETE for the listing as published" not in said
+
+
+def test_a_nested_run_never_sizes_the_unfiltered_listing(conn):
+    """So `arrivals` is the parent's movement and not the site's churn.
+
+    A nested run that re-sized the whole listing would excuse a child ending one
+    id short by a departure that happened in another region entirely.
+    """
+    register(conn)
+    rows = [str(100 + n) for n in range(8)]
+    directory, partition, children = _nested(
+        child_rows={21: rows[:4], 22: rows[4:]}, parent_rows=rows)
+
+    outcome = run(conn, partition, directory, cells=children, parent=PARENT)
+
+    assert all("region_id=1" in url for url in directory.fetched)
+    assert outcome.arrivals == 0
+
+
+def test_the_order_of_a_parents_filters_does_not_decide_what_is_under_it(conn):
+    """The params are ordered for the URL's sake; membership is a set question."""
+    register(conn)
+    rows = [str(100 + n) for n in range(4)]
+    child = cell(region_id=1, company_size="verysmall", city_id=21)
+    directory = Directory({"whole": [str(9000 + n) for n in range(100)],
+                           PARENT.label: list(rows),
+                           child.label: list(rows)})
+    partition = Partition(directory, cells=(child,))
+    reversed_parent = cell(company_size="verysmall", region_id=1)
+    assert reversed_parent.label != PARENT.label     # the URL really does differ
+
+    directory.roll(reversed_parent.label, list(rows))
+    outcome = run(conn, partition, directory, cells=(child,),
+                  parent=reversed_parent)
+
+    assert outcome.exhaustiveness_deficit == 0
+
+
+def test_a_top_level_run_still_audits_against_the_whole_listing(conn):
+    """The default has to be exactly what it was, or #229-#234 are undone."""
+    register(conn)
+    rows = [str(100 + n) for n in range(8)]
+    left, right = cell(region_id=1), cell(region_id=2)
+    directory = Directory({"whole": list(rows),
+                           left.label: rows[:4], right.label: rows[4:]})
+    partition = Partition(directory, cells=(left, right))
+
+    outcome = run(conn, partition, directory)
+
+    assert not outcome.nested and outcome.scope == "listing"
+    assert outcome.whole.declared == 8
+    assert outcome.exhaustiveness_deficit == 0
+    assert "PROVABLY COMPLETE for the listing as published" in str(outcome)
