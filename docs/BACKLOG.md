@@ -1592,6 +1592,46 @@ with HTTP 429.
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
 
+**Q-13 · R-19: child tables — as five bespoke tables, or as five child DATASETS
+referencing a taxonomy?**
+He asked for his own ruling to be tested before it was built — *«ادرس حكمى اولا هل هو
+صحيح ام هناك الافضل»*, captured as
+[REQ-23](REQUESTS.md#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria)
+— against strict criteria. Measured in
+[R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md): 11 criteria, 5 shapes,
+518,490 rows.
+
+**The ruling's substance is upheld.** JSON costs **1,168 ms** on the query R-19 names
+against **0.6 ms** for the best shape — 47x worse than even a bespoke table, and
+nothing in the measurements favours it.
+
+**What the ruling did not decide** is how the value itself is stored, and one
+criterion nobody had raised turns out to be the biggest gap in the table: when the
+site **relabels a category**, a shape holding the string per row rewrites **103,698
+rows in 5.9 s**; a shape holding it once rewrites **1 row in 0.1 ms** — about
+59,000x. A live directory relabels things.
+
+Options:
+**(a)** R-19 read literally — five bespoke SQL tables. Five migrations, five read
+paths, and bespoke work in the export, the API, the panel and the CLI, because none
+of them speak "bespoke table".
+**(b)** Five child **datasets** in `generic_record`, value as a `classification_node`
+reference. **Zero migrations**; `dataset_relationship` and `classification_node`
+already exist and hold **0 rows each**; provenance is *enforced* by
+`source_snapshot_id NOT NULL`; one export tab per dataset from machinery already
+built. Costs ~235 MB and ~28 s per full re-extraction.
+**(c)** `classification_node` + one bespoke link table — **4.7x less storage** and
+**7x faster to write** than (b), at the price of (a)'s bespoke work everywhere.
+*Recommended: (b). It wins or ties every operational criterion; (c) is the fallback if
+the storage figure is judged too high.*
+
+**Two things found on the way that need his eye regardless of the option chosen:**
+R-19's own sample reported the licensed-activities table as *"one row — the header
+only"*, and the committed fixture for a different contractor has **six** — so "empty"
+was never general. And `dataset_workbook_tables` returns exactly one tab, justified in
+its docstring by *"a contractor directory has one flat table"*, **which any of these
+options makes false**; no test anywhere references that function.
+
 **Q-6 · Topology: is the TypeScript engine still the plan?**
 You chose Topology A on 2026-07-18 and nothing has been built toward it since; the Python
 product has instead become the whole thing. Options:

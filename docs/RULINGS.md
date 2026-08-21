@@ -492,6 +492,22 @@ values.
 handful more profiles, which the crawl study will produce. But the direction is
 unambiguous and nothing in it favours JSON.
 
+> **MEASURED 2026-08-21, at his instruction to test this ruling before building it.**
+> [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md) puts 5 shapes against
+> 11 criteria at 518,490 rows. **This ruling is upheld and by a wider margin than it
+> claimed** — JSON costs 1,168 ms on the query named above against 0.6 ms for the
+> best shape.
+>
+> Two corrections to the evidence above, kept visible per **C4**: the
+> licensed-activities table is **not** generally empty — the committed fixture for a
+> different contractor has **six rows**, so "empty for this contractor" was exactly
+> that. And the value is not a flat string but a **two-level bilingual path** whose
+> parent repeats three times inside one contractor's six activities.
+>
+> The study proposes a refinement of *how* — child **datasets** referencing
+> `classification_node` rather than five bespoke tables — which is **his to rule on**,
+> recorded as `Q-13`. Nothing has been built.
+
 **What it costs.** Five tables and their migration; a read path per table; and the
 dataset payload has to carry them, which today it cannot. That last part is the real
 work and it is not yet designed — and it would have been needed for JSON too.

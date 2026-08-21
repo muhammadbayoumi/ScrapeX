@@ -146,6 +146,12 @@ broken under load (**T2**).
 
 ## Track 2 · The muqawil.org contractor directory
 
+> **The R-19 data-model study is [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md)**
+> — 11 criteria against 5 shapes at 518,490 rows, written because the owner asked for
+> his own ruling to be tested before it was built. It upholds the ruling against JSON
+> (47x) and recommends a refinement of how it is implemented. **Not built — his call,
+> recorded as `Q-13` in [BACKLOG.md](BACKLOG.md).**
+
 **Design:** [CONTRACTOR-SOURCE.md](CONTRACTOR-SOURCE.md) · **Storage:**
 [STORAGE.md](STORAGE.md) — **the mechanism is built** (`scrapex/snapshotbody.py`,
 engine migration 0005), so nothing gates the crawl any more · **Seam:**

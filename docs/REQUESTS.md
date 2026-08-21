@@ -78,6 +78,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-20](#req-20--the-database-rename-must-reach-every-user-not-just-this-machine) | The database rename must reach every user | **Captured** — measured; a release blocker under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema) | 2026-08-20 |
 | [REQ-21](#req-21--the-nested-audit--a-subdivision-must-be-checked-against-its-parent) | The nested audit — a subdivision checked against its parent | **In flight** — the audit is built and guarded; no subdivision is wired to a site yet | 2026-08-21 |
 | [REQ-22](#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update) | What happens on a new / vanished / changed contractor, and on "update" | **Captured** — answered by measurement; 3 of 4 are gaps ([OP-26](BACKLOG.md)) | 2026-08-21 |
+| [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
 
 ---
 
@@ -995,6 +996,38 @@ its evidence, resumes, and records every id seen. What is missing is everything 
 happens *after* the first crawl: disappearance is invisible, an unchanged row still
 writes history, there is no path from the product's own interface, and the schema
 question is open. Filed as [OP-26](BACKLOG.md).
+
+---
+
+## REQ-23 · Test my own ruling before building it, with strict review criteria
+**Captured 2026-08-21 · Done — measured; the ruling is upheld and a refinement is
+proposed for him to rule on**
+
+> «ادمج لما يخضر وابدأ R-19 (ادرس حكمى اولا هل هو صحيح ام هناك الافضل ضع معايير
+> صارمة للمراجعة مثل الاداء والسرعة والاحترافية الخ)»
+
+Said when `R-19` came up for building. It is the second time he has asked for a
+ruling of his own to be challenged rather than obeyed — `R-19` itself records
+«ربما يكون قرار خاطى» — and it is now clearly a standing preference rather than a
+one-off: **a ruling is a decision, not an instruction to stop measuring.**
+
+### What he asked for, and what it produced
+
+"Strict criteria" was taken literally: eleven of them, **set before any shape was
+measured** so that no shape could be judged on whichever number happened to flatter
+it. Five shapes, 518,490 rows.
+[R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md) is the study.
+
+| | |
+|---|---|
+| **his ruling is upheld** | JSON costs **1,168 ms** on the query `R-19` names, against **0.6 ms** for the best shape — 47x worse than even a bespoke table |
+| **and it decided only half the question** | *where* the child rows live was ruled; *how the value is stored* was never put to him |
+| **the criterion nobody had raised** | the site **relabels a category**: 103,698 rows rewritten in 5.9 s, against 1 row in 0.1 ms — about 59,000x |
+| **two errors in the ruling's own evidence** | the licensed-activities table is not generally empty (a different contractor has six rows), and the value is a two-level bilingual path, not a flat string |
+
+Recorded as **`Q-13`** in [BACKLOG.md](BACKLOG.md) with three options and a
+recommendation. **Nothing was built** — the choice is his, which is the whole point
+of the request.
 
 ---
 
