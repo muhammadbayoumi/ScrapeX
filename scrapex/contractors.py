@@ -45,6 +45,7 @@ from .directories import Directory
 from .directories import get as get_directory
 from .extract import service
 from .extract.models import ApprovalField, CandidateApproval
+from .features import FeatureKey, is_enabled
 from .partitioncrawl import (
     HEAVY_ATTEMPTS,
     RETRY_PAGE_CEILING,
@@ -534,6 +535,19 @@ def validate(args: argparse.Namespace) -> None:
     if (args.crawl or args.approve) and not args.run_ref:
         _refuse("--crawl and --approve need --run-ref: it is what makes an "
                 "interrupted crawl resumable and what --approve reads")
+    # THE SECOND CALLER `is_enabled` NEVER HAD, and the reason it belongs here rather
+    # than beside the API routes: those are mounted on 127.0.0.1 so the slice can be
+    # exercised and tested, and `is_enabled`'s docstring excludes them on purpose. This
+    # is the SHIPPED COMMAND — `REQ-24` made it one — so it is a user-facing surface in
+    # the same category as navigation, and a command that performs a capability the
+    # manifest calls unavailable is the inflated claim the flag exists to stop.
+    #
+    # IT REFUSES RATHER THAN SKIPPING. A run that quietly did nothing would look like a
+    # crawl with nothing to approve, and those are opposite facts.
+    if args.approve and not is_enabled(FeatureKey.GENERIC_EXTRACTION):
+        _refuse("generic extraction is disabled in this build "
+                "(scrapex/features.py), so --approve would write rows the feature "
+                "manifest says are not available. Nothing was read or written")
 
 
 def _refuse(message: str) -> None:

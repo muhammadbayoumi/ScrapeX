@@ -124,7 +124,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 |---|---|---|---|
 | 1 | ~~`status = 'unavailable'` on a departed row~~ **DONE** | ~3 h, not 1 | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
 | 2 | ~~State the resume cost in the tool's output~~ **DONE** | ~40 min | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
-| 3 | `is_enabled` has 0 callers | **~1 h** | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
+| 3 | ~~`is_enabled` has 0 callers~~ **DONE** | ~1 h | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
 | 4 | The slice scope, unused for muqawil | **~1 h** | Built and tested; wiring it is what makes a partial re-read addressable. |
 | 5 | The profile crawl — 34,806 pages | **~2 h to wire, ~17.4 h to run** | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
 | 6 | `R-19` child tables, all five groups | **~1 day** | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
@@ -306,9 +306,25 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 
 ### D · In the code and NOT WIRED — measured, not guessed
 
-- [ ] **`is_enabled` has 0 callers.** `GENERIC_DATASET_CATALOG` and
-      `GENERIC_EXTRACTION` are lit at `PARTIAL` and nothing reads them, so lighting one
-      is a *claim* about a capability rather than a switch.
+- [x] **`is_enabled` has two callers, and they are not symmetrical.** The function
+      calls itself *"the gate that NAVIGATION and UI must call before advertising a
+      capability"*, so the callers are the two ADVERTISEMENTS: `_dataset_rows`, which
+      puts a dataset in the source listing the panel draws, and
+      `scrapex contractors --approve`, which `REQ-24` made a shipped user-facing
+      command. **The API routes stay outside the flag**, as that docstring requires —
+      they are mounted on 127.0.0.1 so the slice can be exercised, and gating them
+      would make the flag a kill switch for development instead of a switch over what
+      is announced. A test pins that distinction, because it is the one a later reader
+      would tidy away.
+      **And `CRAWL_FRONTIER` looked stale and is not.** Measured against its own
+      written condition: limits shipped, checkpoint recovery shipped for the
+      partitioned crawl (`already_stored` skips pages a resume holds), and **persistent
+      discovery did not** — `declare_frontier` hands the fetcher an in-memory
+      denominator for the Activity panel and writes nothing, so no new process could
+      resume a frontier. Two of three, so `False` is correct; the measurement is in the
+      flag's own detail so nobody repeats the investigation. Ten tests, **five
+      mutations killed**, and one of them is a guard that counts call sites so the
+      zero-caller state cannot return silently.
 - [x] **`missing_ids`, `sighting_frequencies` have a caller** — `--coverage`. Listed
       twice; it is section A's item and it shipped there.
 - [~] **`detail_urls`: the "referenced only by tests" claim was WRONG.** Measured:
