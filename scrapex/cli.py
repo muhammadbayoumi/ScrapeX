@@ -19,8 +19,8 @@ import os
 import sys
 from pathlib import Path
 
+from . import contractors, localinbox, version
 from . import db as dbmod
-from . import localinbox, version
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
 from .databases import DatabaseRegistry
@@ -464,6 +464,16 @@ def _cmd_funnel_test(args: argparse.Namespace) -> int:
     print(f"funnel accepted the self-test payload ({chunks} chunk[s]). "
           "Check the staging sheet _INBOX tab for a FUNNEL_SELFTEST row.")
     return 0
+
+
+def _cmd_contractors(args: argparse.Namespace) -> int:
+    """One line, because the implementation is shipped code and not a script.
+
+    `contractors.run` is the same function `python -m scrapex.contractors` calls,
+    so the subcommand cannot behave differently from the module — which is the
+    failure `tools/crawl_muqawil_listing.py` was one copy away from.
+    """
+    return contractors.run(args)
 
 
 def _cmd_crawl(args: argparse.Namespace) -> int:
@@ -1034,6 +1044,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--endpoint", help="funnel URL (default: env SCRAPEX_FUNNEL_URL)")
     p.add_argument("--token", help="funnel token (default: env SCRAPEX_FUNNEL_TOKEN)")
     p.set_defaults(func=_cmd_funnel_test)
+
+    # THE CONTRACTOR DIRECTORY, AND WHY IT IS HERE RATHER THAN IN `tools/`.
+    # `pyproject.toml` ships `include = ["scrapex*"]`, so a `tools/` script never
+    # reaches an installed user: measured, `scrapex crawl` takes a `source_key from
+    # sources.yaml`, muqawil is not in `sources.yaml`, and `cli.py` had zero
+    # references to `muqawil`, `partitioncrawl`, `snapshotcrawl` or
+    # `generic_record`. Everything built for the directory — the provable
+    # partition, the sightings ledger, the resume, the approval from disk — was
+    # reachable only by cloning the repository. That is the gap this closes.
+    p = sub.add_parser(
+        "contractors",
+        help="the contractor directory: plan, crawl, approve, or report coverage",
+        description="A provable crawl of a contractor directory, and the "
+                    "interpretation of it. Run --plan first: it prices the crawl "
+                    "against the live directory before hours are spent.")
+    contractors.add_arguments(p)
+    p.set_defaults(func=_cmd_contractors)
 
     p = sub.add_parser("crawl", help="fetch a source into the local inbox (dev loop)")
     p.add_argument("source", help="source_key from sources.yaml")

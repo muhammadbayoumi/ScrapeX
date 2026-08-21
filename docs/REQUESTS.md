@@ -79,6 +79,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-21](#req-21--the-nested-audit--a-subdivision-must-be-checked-against-its-parent) | The nested audit — a subdivision checked against its parent | **In flight** — the audit is built and guarded; no subdivision is wired to a site yet | 2026-08-21 |
 | [REQ-22](#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update) | What happens on a new / vanished / changed contractor, and on "update" | **Captured** — answered by measurement; 3 of 4 are gaps ([OP-26](BACKLOG.md)) | 2026-08-21 |
 | [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
+| [REQ-24](#req-24--a-shipped-command-so-a-new-user-can-crawl-the-directory-at-all) | A shipped command, so a new user can crawl the directory at all | **Done** — `scrapex contractors`; the panel path is still missing | 2026-08-21 |
 
 ---
 
@@ -1028,6 +1029,46 @@ it. Five shapes, 518,490 rows.
 Recorded as **`Q-13`** in [BACKLOG.md](BACKLOG.md) with three options and a
 recommendation. **Nothing was built** — the choice is his, which is the whole point
 of the request.
+
+---
+
+## REQ-24 · A shipped command, so a new user can crawl the directory at all
+**Captured 2026-08-21 · Done**
+
+> «لو انا مستخدم جديد زحف مقاول هيتعمل ازاى للحصول على كل البيانات بشكل صحيح»
+> · «نفذ البند ١ الامر المشحون»
+
+He asked how a **new user** would run the crawl, and the measured answer was that
+they could not — not by any supported path:
+
+| | |
+|---|---|
+| `pyproject.toml` | `include = ["scrapex*"]`, so **`tools/` is never shipped**. `pip install` does not put the script on their machine |
+| `scrapex crawl` | takes a `source_key from sources.yaml`, and **muqawil is not in `sources.yaml`** |
+| `cli.py` | **zero** references to `muqawil`, `partitioncrawl`, `snapshotcrawl` or `generic_record` |
+| `jobs.py` and the panel | zero references — the update button runs the price connectors |
+
+**That is why his own screenshot showed the Engine as "not detected" while a crawl
+was running.** The crawl was `python tools/crawl_muqawil_listing.py`, a developer
+script writing straight into SQLite. It never went near the Engine, and did not need
+to. Everything built for this directory — the provable partition, the sightings
+ledger, the resume, the approval from disk — was reachable only by cloning the
+repository.
+
+**Built:** `scrapex/contractors.py`, shipped inside the package, with
+`scrapex contractors --plan / --crawl / --approve / --coverage`.
+`tools/crawl_muqawil_listing.py` is now a four-line pointer, kept because six
+documents and one running command name that path.
+
+**One implementation, two front doors.** `add_arguments` and `run` are shared by the
+subcommand and by `python -m scrapex.contractors`, so neither can grow a flag the
+other lacks — the same rule `publish.workbook_tables` follows. Guarded by a test
+that the flag set is declared in one place, and by another that the module is inside
+the package rather than in `tools/`.
+
+**What this does NOT do:** there is still **no path from the panel**. `jobs.py` does
+not know this crawl, so it cannot be started, paused or resumed from the product's
+own interface. That is the next item, and it is separate.
 
 ---
 

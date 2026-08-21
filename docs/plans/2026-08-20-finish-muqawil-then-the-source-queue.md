@@ -244,7 +244,16 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       `approve_candidate` never creates a version 2 — it raises `ExtractionConflict` and
       points at "schema-drift review support" that does not exist. This is
       [DEC-10](../BACKLOG.md) and [OP-25](../BACKLOG.md) route (c).
-- [ ] **No path from the panel.** `jobs.py` contains no reference to `muqawil`,
+- [x] **A SHIPPED COMMAND — `scrapex contractors`** (`REQ-24`, 2026-08-21). Measured
+      first: `pyproject.toml` ships `include = ["scrapex*"]`, so `tools/` never reaches
+      an installed user; `scrapex crawl` wants a `source_key from sources.yaml` and
+      muqawil is not in it; `cli.py` had **zero** references to `muqawil`,
+      `partitioncrawl`, `snapshotcrawl` or `generic_record`. The implementation moved
+      to `scrapex/contractors.py`, `tools/crawl_muqawil_listing.py` is a four-line
+      pointer, and both front doors share `add_arguments`/`run` so they cannot drift.
+      **This is why the panel said "Engine not detected" while a crawl ran:** the
+      crawl was a developer script that never went near the Engine.
+- [ ] **No path from the PANEL, still.** `jobs.py` contains no reference to `muqawil`,
       `generic_record`, `partitioncrawl` or `snapshotcrawl`. Pressing update runs the
       price connectors. → tracked in [the tool's plan](2026-08-21-the-tool-itself.md).
 

@@ -1,10 +1,15 @@
 """The driver that runs the listing crawl, and the ways it could throw hours away.
 
-WHY THIS FILE EXISTS. `tools/crawl_muqawil_listing.py` is 452 lines and had **zero
-tests** -- `grep -rln crawl_muqawil_listing tests/` returned nothing -- while being
-the only way the crawl is ever started. It is also the file where this track's single
-Windows-only defect lived, and CI cannot see it: CI is ubuntu-only and `tools/` is not
-even in the linted path. Recorded as `OP-28` in `docs/BACKLOG.md`.
+WHY THIS FILE EXISTS. The implementation had 452 lines and **zero tests** --
+`grep -rln crawl_muqawil_listing tests/` returned nothing -- while being the only way
+the crawl is ever started. It is also where this track's single Windows-only defect
+lived, and CI cannot see that: CI is ubuntu-only. Recorded as `OP-28`.
+
+IT NOW TESTS `scrapex/contractors.py`, WHICH IS THE POINT. The code moved out of
+`tools/` because `pyproject.toml` ships `include = ["scrapex*"]` and nothing under
+`tools/` reaches an installed user — so these tests were guarding a script no user
+could run. They now guard the shipped module, reached through `scrapex contractors`
+and `python -m scrapex.contractors` alike.
 
 The four ways, each of which has happened or was one keystroke away:
 
@@ -24,7 +29,6 @@ and a suite that writes to a real home is a suite that cannot be trusted twice.
 """
 from __future__ import annotations
 
-import importlib.util
 import io
 import sqlite3
 import sys
@@ -32,21 +36,22 @@ from pathlib import Path
 
 import pytest
 
+from scrapex import contractors
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.sites.muqawil import MuqawilPartition
 
-DRIVER = Path(__file__).resolve().parent.parent / "tools" / "crawl_muqawil_listing.py"
 #: The exact shape of the line that killed a run: U+2192 is not in cp1252.
 ARROW = "sized 56 cells → about 1,065 requests"
 
 
 @pytest.fixture(scope="module")
 def driver():
-    """The tool, imported by path -- `tools/` is deliberately not a package."""
-    spec = importlib.util.spec_from_file_location("crawl_muqawil_listing", DRIVER)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """The shipped module, imported like any other. No path games any more.
+
+    It used to be loaded from `tools/` by `importlib.util.spec_from_file_location`,
+    which is what testing an unshipped script forces on you.
+    """
+    return contractors
 
 
 @pytest.fixture(autouse=True)
@@ -347,11 +352,32 @@ def test_an_explicit_window_overrides_the_ledgers_newest(driver, conn, monkeypat
 
 # ---- the trap CLAUDE.md opens with -------------------------------------------
 
-def test_the_driver_puts_its_own_worktree_on_the_path(driver):
-    """`CLAUDE.md`'s first trap: `pip install -e` points at the MAIN checkout, so a
-    tool run from a worktree would import main's code and prove nothing about its own.
+def test_the_crawl_is_shipped_code_and_not_a_script(driver):
+    """WHAT `OP-28` WAS REALLY ABOUT, and the reason the module moved.
+
+    `pyproject.toml` ships `include = ["scrapex*"]`. A crawl living in `tools/` is a
+    crawl no installed user has, which is why the owner's panel could report the
+    Engine "not detected" while a crawl ran: the crawl was a developer script that
+    never went near the product. This asserts the file is inside the package.
     """
-    assert sys.path[0] == str(DRIVER.parent.parent)
+    here = Path(driver.__file__).resolve()
+    assert here.parent.name == "scrapex"
+    assert "tools" not in here.parts
+
+
+def test_both_front_doors_share_one_flag_set(driver):
+    """`scrapex contractors` and `python -m scrapex.contractors` must not drift.
+
+    Two argparse setups for one operation is how a subcommand grows a flag the
+    module lacks — so both call `add_arguments`, and this checks the flags a run
+    cannot do without are actually declared by it.
+    """
+    import argparse
+    parser = argparse.ArgumentParser()
+    driver.add_arguments(parser)
+    declared = {action.dest for action in parser._actions}
+    assert {"plan", "crawl", "approve", "coverage", "run_ref", "only",
+            "pace", "heavy_attempts", "max_attempts", "not_seen_since"} <= declared
 
 
 def test_pairs_can_read_a_row_by_column_name(conn):
