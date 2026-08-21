@@ -19,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import contractors, localinbox, version
+from . import contractors, localinbox, version, vocab
 from . import db as dbmod
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
@@ -464,6 +464,53 @@ def _cmd_funnel_test(args: argparse.Namespace) -> int:
     print(f"funnel accepted the self-test payload ({chunks} chunk[s]). "
           "Check the staging sheet _INBOX tab for a FUNNEL_SELFTEST row.")
     return 0
+
+
+def _cmd_sources(args: argparse.Namespace) -> int:
+    """`scrapex sources` -- his «اى الجديد واى الى خلص», as a query.
+
+    THE WAREHOUSE IS OPTIONAL, and that is the point rather than a nicety: a new
+    installation has no database (`R-23` calls that the normal first run), and a
+    report that needs data before it can list what could produce data is a report a
+    new user cannot use. So the products half comes from the contract file and the
+    contractors half is added only if a warehouse is actually there.
+    """
+    from . import sourceboard
+
+    conn = None
+    registry = DatabaseRegistry.defaults()
+    if registry.engine.path.is_file():
+        conn = registry.engine.connect()
+    try:
+        category = (vocab.SourceCategory(args.category) if args.category else None)
+        found = sourceboard.board(conn, category=category)
+        if args.json:
+            print(json.dumps([{
+                "key": one.key, "category": one.category.value, "name": one.name,
+                "base_url": one.base_url, "collector": one.collector,
+                "state": one.state, "registry": one.registry} for one in found],
+                ensure_ascii=False, indent=2))
+            return 0
+        if conn is None:
+            print("no warehouse yet, so only the contract file is listed. "
+                  "Run 'scrapex init-db' to create one.\n")
+        print(f"{'state':<11} {'category':<12} {'source':<18} "
+              f"{'collector':<26} registry")
+        for one in found:
+            print(one)
+        print()
+        for category_name, states in sorted(sourceboard.summary(found).items()):
+            counts = ", ".join(f"{n} {state}" for state, n in sorted(states.items()))
+            print(f"  {category_name:<12} {counts}")
+        # SAID OUT LOUD, because it is the answer to half his question: the state
+        # that means "on the list, waiting its turn" is implemented and empty.
+        if not any(one.state == "registered" for one in found):
+            print("\n  nothing is in the 'registered' state — every source on "
+                  "the list has a collector")
+        return 0
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _cmd_contractors(args: argparse.Namespace) -> int:
@@ -1044,6 +1091,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--endpoint", help="funnel URL (default: env SCRAPEX_FUNNEL_URL)")
     p.add_argument("--token", help="funnel token (default: env SCRAPEX_FUNNEL_TOKEN)")
     p.set_defaults(func=_cmd_funnel_test)
+
+    # WHAT SOURCES DOES THIS INSTALLATION HAVE, AND WHERE DOES EACH STAND. He asked
+    # «اى الجديد واى الى خلص» and, measured 2026-08-21, no command could answer it:
+    # eighteen subcommands and not one listed the sources. `R-32` / `REQ-25`.
+    p = sub.add_parser(
+        "sources", help="every source and its state, across both registries",
+        description="Every source this installation has, whichever registry it "
+                    "lives in, with its category and how far along it is. Works "
+                    "without a warehouse: the products half is the contract file.")
+    p.add_argument("--category", choices=[one.value for one in vocab.SourceCategory],
+                   help="list only this category")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.set_defaults(func=_cmd_sources)
 
     # THE CONTRACTOR DIRECTORY, AND WHY IT IS HERE RATHER THAN IN `tools/`.
     # `pyproject.toml` ships `include = ["scrapex*"]`, so a `tools/` script never

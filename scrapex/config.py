@@ -41,7 +41,16 @@ try:
 except ImportError:                          # PyYAML built without libyaml
     from yaml import SafeLoader as _ManifestLoader
 
-from .vocab import Authority, Cadence, ConnectorFamily, ExtractKind, ExtractScope, Fetcher, VatMode
+from .vocab import (
+    Authority,
+    Cadence,
+    ConnectorFamily,
+    ExtractKind,
+    ExtractScope,
+    Fetcher,
+    SourceCategory,
+    VatMode,
+)
 
 MANIFEST_FILE = Path(__file__).resolve().parent.parent / "sources.yaml"
 
@@ -336,6 +345,11 @@ class SourceEntry(BaseModel):
     # can never overwrite a real answer with a guess.
     brand: str = ""
     base_url: str
+    # WHAT KIND of thing this source publishes (`R-32`). Defaults to `products`
+    # because every one of the thirteen sources in the manifest today IS a products
+    # source -- so the default is a statement of fact, not a convenience, and no
+    # existing entry has to be edited. A future contractors entry states it.
+    category: SourceCategory = SourceCategory.PRODUCTS
     family: ConnectorFamily
     cadence: Cadence = Cadence.MANUAL
     authority: Authority = Authority.SHOP

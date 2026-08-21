@@ -813,6 +813,45 @@ changed.
 
 ---
 
+### R-32 · ScrapeX is a collection platform. Price is ONE category, and filing it as the whole thing was a mistake
+
+**2026-08-21 · architecture · corrects `pyproject.toml`, `CLAUDE.md` and `README.md`**
+
+> «الاداة فى المقام الاول scrape او crawl · تسميتها او ادراجها تحت بند واحد الا وهو
+> متابعة الاسعار دا خطا تماما» · «ونعمل category للمصادر لدينا الان 2 منتجات ومقاولين»
+
+The tool is **collection first**. Price tracking was the first category, not the
+category. His categories, in his words: **`products`** and **`contractors`** today,
+with `jobs` and `tenders` named as coming.
+
+**`products`, NOT `prices`, and the distinction is load-bearing.** A price is an
+attribute of a product observed at a time. Naming the category "prices" would repeat
+this very mistake one level down.
+
+**THIS IS NOT A RENAME, AND THE MEASUREMENTS ARE WHY.** The framing is built in, and
+it shows up as missing function:
+
+| where | what the framing did |
+|---|---|
+| `retention.py`, `compaction.py` | measured: they touch **`price_observation` only**. The contractor dataset — 16,761 sighted ids — has no retention policy and no compaction, because nothing generic was ever written |
+| two source registries | `source_site` holds 4 price sources, `site_profile` holds `muqawil_org`, and **muqawil is not in `sources.yaml` at all** — so a source lands in one or the other by accident of pipeline |
+| `ConnectorFamily` | every value is a shop or price shape (`shopify-json`, `salla-html`, `heidelberg-price-matrix`). A directory, a tender board or a job board cannot be named in it |
+| `pyproject.toml` | *"into a SQLite **price-tracking** warehouse"*, repeated in `CLAUDE.md` and `README.md` |
+
+**WHY THE DESCRIPTION MATTERS MORE HERE THAN IT WOULD ELSEWHERE.** `CLAUDE.md` exists
+because the repository is the only memory between two machines. A session that reads
+*"price-tracking warehouse"* builds one. This framing is self-perpetuating in a way a
+wrong comment is not — which is why correcting it is first in the plan and not last.
+
+**What this settles, and what it does not.** Settled: price is a category, a source
+names its category, and the platform's own documents say so. **Not** settled: whether
+`source_site` and `site_profile` merge, whether `ConnectorFamily` grows or splits, and
+what identifies an account (`Q-14`). Those are
+[the plan](plans/2026-08-21-the-platform-not-a-price-tracker.md), and none of it is
+built.
+
+---
+
 ### R-27 · A row never disappears from the user's view; its state becomes a column
 
 **2026-08-21 · data model and UI, and it answers a question I had put to him**

@@ -1,8 +1,13 @@
 # ScrapeX Ecosystem
 
-Contract-driven web data collection into a SQLite price-tracking warehouse,
-publishing curated data to the Google Sheet the mbiX Excel add-in reads.
+Contract-driven web data collection into a SQLite warehouse, publishing curated
+data to the Google Sheet the mbiX Excel add-in reads.
 **The add-in is never touched** — the two systems meet only at the sheets.
+
+It collects in **categories** — `products` (shops and price sources) and
+`contractors` (directories) today, with `jobs` and `tenders` to come. Price tracking
+was the first category, not the category: see
+[R-32](docs/RULINGS.md#r-32--scrapex-is-a-collection-platform-price-is-one-category-and-filing-it-as-the-whole-thing-was-a-mistake).
 
 > **Working on this project? Start at [CLAUDE.md](CLAUDE.md)** — the entry point
 > for where the work stands, what the owner has ruled, and the lessons that are

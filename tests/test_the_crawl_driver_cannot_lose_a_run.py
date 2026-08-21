@@ -36,9 +36,8 @@ from pathlib import Path
 
 import pytest
 
-from scrapex import contractors
+from scrapex import contractors, directories
 from scrapex.databases import DatabaseRegistry, EngineDatabase
-from scrapex.sites.muqawil import MuqawilPartition
 
 #: The exact shape of the line that killed a run: U+2192 is not in cp1252.
 ARROW = "sized 56 cells → about 1,065 requests"
@@ -52,6 +51,14 @@ def driver():
     which is what testing an unshipped script forces on you.
     """
     return contractors
+
+
+@pytest.fixture()
+def directory():
+    """The one directory this build has. `REQ-27`: the crawl takes a `Directory`
+    rather than a partition plus three module constants, so a second contractor
+    source is a registry entry instead of a copy of the module."""
+    return directories.get()
 
 
 @pytest.fixture(autouse=True)
@@ -170,41 +177,43 @@ class _Spy:
         return "an outcome"
 
 
-def test_only_refuses_an_unknown_label_before_touching_the_database(driver,
-                                                                   monkeypatch):
+def test_only_refuses_an_unknown_label_before_touching_the_database(
+        driver, directory, monkeypatch):
     """`conn` is None here on purpose: the refusal has to come first."""
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
 
     with pytest.raises(SystemExit) as raised:
-        driver.crawl(None, MuqawilPartition(), None, None, "run-1", 2,
+        driver.crawl(None, directory, None, None, "run-1", 2,
                      only="region_id_1-company_size_enormous")
 
     assert "region_id_1-company_size_enormous" in str(raised.value)
     assert spy.calls == []
 
 
-def test_only_passes_exactly_the_named_cells_and_no_others(driver, monkeypatch):
+def test_only_passes_exactly_the_named_cells_and_no_others(driver, directory,
+                                                           monkeypatch):
     """47 of 56 cells were already proven; re-reading them is the cost this avoids.
     Whitespace around a label is tolerated because these are pasted out of a log."""
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
     monkeypatch.setattr(driver, "coverage", lambda *a, **k: "coverage")
 
-    driver.crawl(None, MuqawilPartition(), None, None, "run-1", 2,
+    driver.crawl(None, directory, None, None, "run-1", 2,
                  only=" region_id_2-company_size_big ,region_id_5-company_size_small")
 
     assert [one.label for one in spy.calls[0]["cells"]] == [
         "region_id_2-company_size_big", "region_id_5-company_size_small"]
 
 
-def test_without_only_the_partition_decides_which_cells_to_crawl(driver, monkeypatch):
+def test_without_only_the_partition_decides_which_cells_to_crawl(driver, directory,
+                                                                monkeypatch):
     """`cells=None` is how `crawl_partition` is told to use the whole partition."""
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
     monkeypatch.setattr(driver, "coverage", lambda *a, **k: "coverage")
 
-    driver.crawl(None, MuqawilPartition(), None, None, "run-1", 2)
+    driver.crawl(None, directory, None, None, "run-1", 2)
 
     assert spy.calls[0]["cells"] is None
 
@@ -263,14 +272,15 @@ def _field(key: str, name: str):
     return type("_Field", (), {"field_key": key, "source_name": name})()
 
 
-def test_every_field_is_text_and_only_contractor_id_is_the_identity(driver):
+def test_every_field_is_text_and_only_contractor_id_is_the_identity(driver,
+                                                                    directory):
     """Inference would guess `integer` for a rating reading `4.5` on the next page,
     the schema hash would then differ per page, and every approval after the first is
     refused. That is #234's 823 refusals in a different disguise."""
     candidate = type("_Candidate", (), {
         "fields": [_field("contractor_id", "ID"), _field("rating", "Rating")]})()
 
-    approval = driver._approval(candidate)
+    approval = driver._approval(directory, candidate)
 
     assert {one.field_key: one.data_type for one in approval.fields} == {
         "contractor_id": "text", "rating": "text"}
@@ -329,7 +339,7 @@ def test_coverage_measures_against_the_newest_sighting_without_being_told(
     monkeypatch.setattr(sys, "argv", ["crawl_muqawil_listing.py", "--coverage"])
     monkeypatch.setattr(driver, "open_engine", lambda: conn)
     monkeypatch.setattr(driver, "report_coverage",
-                        lambda _conn, since: windows.append(since))
+                        lambda _conn, _directory, since: windows.append(since))
 
     driver.main()
 
@@ -343,7 +353,7 @@ def test_an_explicit_window_overrides_the_ledgers_newest(driver, conn, monkeypat
                                       "--not-seen-since", "2026-07-01T00:00:00Z"])
     monkeypatch.setattr(driver, "open_engine", lambda: conn)
     monkeypatch.setattr(driver, "report_coverage",
-                        lambda _conn, since: windows.append(since))
+                        lambda _conn, _directory, since: windows.append(since))
 
     driver.main()
 
@@ -384,3 +394,36 @@ def test_pairs_can_read_a_row_by_column_name(conn):
     """`_pairs` reads `row["source_url"]`. A tuple row factory would raise TypeError
     on the first page, and only ever under `--approve`."""
     assert conn.row_factory is sqlite3.Row
+
+
+# ---- REQ-27: a second directory is a registry entry, not a copy of this module
+
+def test_a_mistyped_source_is_refused_and_not_silently_defaulted(driver):
+    """There is one directory, so a fallback would look harmless and cost hours.
+
+    A `--source` typo that quietly crawled muqawil would collect the wrong site and
+    report success — the same reasoning `--only` refuses an unknown cell label
+    instead of ignoring it.
+    """
+    with pytest.raises(KeyError) as raised:
+        directories.get("nosuchdirectory")
+
+    assert "muqawil_org" in str(raised.value), "the refusal must name what IS known"
+
+
+def test_the_crawl_takes_its_four_facts_from_the_registry(driver, directory):
+    """The four constants that used to be module-level are the reason a second
+    directory would have needed a copy of the file."""
+    assert directory.base_url == "https://muqawil.org"
+    assert directory.dataset_key == "contractors"
+    assert directory.identity_field == "contractor_id"
+    assert directory.display_name
+    assert not hasattr(driver, "BASE"), "a module constant came back"
+    assert not hasattr(driver, "DATASET")
+    assert not hasattr(driver, "SITE_NAME")
+
+
+def test_the_partition_is_built_per_access_and_not_shared(directory):
+    """Two runs must not share a `PartitionedListing`. It carries no state today,
+    which is exactly when accidental sharing is cheapest to prevent."""
+    assert directory.partition() is not directory.partition()

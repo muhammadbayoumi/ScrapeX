@@ -2,10 +2,29 @@
 
 **Read this file before writing a line of code. Every session, every machine.**
 
-ScrapeX is contract-driven web data collection into a SQLite price-tracking
-warehouse, publishing curated data to the Google Sheet the mbiX Excel add-in
-reads. The add-in is never touched; the two systems meet only at the sheets.
-See [README.md](README.md) for setup and the data flow.
+ScrapeX is **contract-driven web data collection** into a SQLite warehouse,
+publishing curated data to the Google Sheet the mbiX Excel add-in reads. The add-in
+is never touched; the two systems meet only at the sheets. See
+[README.md](README.md) for setup and the data flow.
+
+**It collects in CATEGORIES, and price tracking is one of them — not the whole
+thing.** The owner corrected this on 2026-08-21
+([R-32](docs/RULINGS.md#r-32--scrapex-is-a-collection-platform-price-is-one-category-and-filing-it-as-the-whole-thing-was-a-mistake)):
+*«الاداة فى المقام الاول scrape او crawl · تسميتها او ادراجها تحت بند واحد الا وهو
+متابعة الاسعار دا خطا تماما»*.
+
+| category | what it collects | state |
+|---|---|---|
+| `products` | shops and price sources — **12 registered, 7 active, 5 built** | the settled one; a new shop needs no new module |
+| `contractors` | the muqawil.org directory, provably | collection works; `scrapex contractors` |
+| `jobs`, `tenders` | named by him as coming | not started |
+
+**Why this paragraph is worth its space:** this file is the first thing every session
+reads, so a description saying *"price-tracking warehouse"* produced sessions that
+built one. That framing was not only written down — it was built in, and it showed up
+as missing function: `retention.py` and `compaction.py` touch `price_observation`
+only, so the contractor dataset has no retention at all. The plan is
+[docs/plans/2026-08-21-the-platform-not-a-price-tracker.md](docs/plans/2026-08-21-the-platform-not-a-price-tracker.md).
 
 ---
 

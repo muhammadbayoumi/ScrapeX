@@ -7,7 +7,7 @@ name = "scrapex"
 # A MIRROR of scrapex/version.py:VERSION — setuptools cannot import the package
 # to ask. tests/test_version.py reads this line back and fails when they drift.
 version = "0.2.2"
-description = "ScrapeX ecosystem: contract-driven web data collection into a SQLite price-tracking warehouse"
+description = "ScrapeX ecosystem: contract-driven web data collection into a SQLite warehouse. Categories: products, contractors"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
@@ -110,7 +110,7 @@ select = [
     "I",      # import order
     "B",      # bugbear: mutable defaults, loop-variable closures, zip lengths
     "C4",     # comprehensions
-    "DTZ",    # naive datetimes -- a price warehouse crosses timezones
+    "DTZ",    # naive datetimes -- this warehouse crosses timezones
     "ISC",    # implicit string concatenation, i.e. the missing comma in a list
     "PIE", "PLE", "PLW",
     "SIM", "UP", "FURB", "RUF",

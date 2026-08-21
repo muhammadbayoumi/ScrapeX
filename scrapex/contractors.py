@@ -1,4 +1,4 @@
-"""The provable listing crawl of muqawil.org, and the interpretation of it.
+"""The provable listing crawl of a DIRECTORY, and the interpretation of it.
 
 WHY THIS FILE EXISTS AT ALL, and it is the finding rather than the feature. Every
 piece of the pipeline that produced the warehouse is committed — `snapshotcrawl`,
@@ -40,9 +40,10 @@ from pathlib import Path
 
 from .connectors.base import HttpFetcher
 from .databases import DatabaseRegistry
+from .directories import Directory
+from .directories import get as get_directory
 from .extract import service
 from .extract.models import ApprovalField, CandidateApproval
-from .extract.muqawil import bilingual_listing_candidate
 from .partitioncrawl import (
     HEAVY_ATTEMPTS,
     RETRY_PAGE_CEILING,
@@ -56,12 +57,13 @@ from .sightings import (
     missing_ids,
     sighting_frequencies,
 )
-from .sites.muqawil import MuqawilPartition
 from .snapshotbody import decode
 
-BASE = "https://muqawil.org"
-DATASET = "contractors"
-SITE_NAME = "Saudi Contractors Authority"
+# THE FOUR CONSTANTS THAT USED TO BE HERE were `BASE`, `DATASET`, `SITE_NAME` and
+# a `MuqawilPartition()`, and they are why a second contractor directory would have
+# needed a copy of this file (`REQ-27`). They now come from
+# `scrapex/directories.py`, which is to this module what `connectors/factory.py` is
+# to a products source.
 LOG = Path.home() / ".scrapex" / "contractors.log"
 
 
@@ -130,14 +132,15 @@ def make_fetch(pace_s: float):
 
 # ---- --plan: what the crawl will cost, against today's live directory --------
 
-def plan(partition: MuqawilPartition, fetch, started: float) -> None:
-    whole = size_cell(fetch, partition, BASE)
+def plan(directory: Directory, fetch, started: float) -> None:
+    partition = directory.partition()
+    whole = size_cell(fetch, partition, directory.base_url)
     say(f"listing now: {whole}")
     pages = 0
     declared = 0
     over = []
     for cell in partition.cells():
-        size = size_cell(fetch, partition, BASE, cell)
+        size = size_cell(fetch, partition, directory.base_url, cell)
         pages += size.last_page
         declared += size.declared
         if size.last_page > RETRY_PAGE_CEILING:
@@ -163,7 +166,7 @@ def plan(partition: MuqawilPartition, fetch, started: float) -> None:
 
 # ---- --crawl: the partition, witnessed --------------------------------------
 
-def crawl(conn, partition: MuqawilPartition, fetch, fetcher, run_ref: str,
+def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
           max_attempts: int, only: str = "", heavy_attempts: int = HEAVY_ATTEMPTS
           ) -> None:
     """The partition, or NAMED CELLS OF IT.
@@ -174,6 +177,7 @@ def crawl(conn, partition: MuqawilPartition, fetch, fetcher, run_ref: str,
     matched on the cell LABEL — the same string the report prints and the run ref
     carries — so a cell can be copied straight out of the log into the next command.
     """
+    partition = directory.partition()
     chosen = None
     if only:
         wanted = {name.strip() for name in only.split(",") if name.strip()}
@@ -198,19 +202,21 @@ def crawl(conn, partition: MuqawilPartition, fetch, fetcher, run_ref: str,
             say(f"        {outcome.attempts[-1].note}")
 
     say(f"crawl {run_ref} starting")
-    outcome = crawl_partition(conn, partition, BASE, fetch=fetch, run_ref=run_ref,
-                              dataset_key=DATASET, max_attempts=max_attempts,
+    outcome = crawl_partition(conn, partition, directory.base_url, fetch=fetch,
+                              run_ref=run_ref,
+                              dataset_key=directory.dataset_key,
+                              max_attempts=max_attempts,
                               heavy_attempts=heavy_attempts, cells=chosen,
                               fetcher=fetcher, on_cell=report)
     say("")
     say(str(outcome))
     say("")
-    say(str(coverage(conn, DATASET)))
+    say(str(coverage(conn, directory.dataset_key)))
 
 
 # ---- --coverage: what the warehouse knows about its own gaps ------------------
 
-def report_coverage(conn, not_seen_since: str) -> None:
+def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
     """Every coverage question this warehouse can answer, in one place.
 
     WHY THIS EXISTS: `missing_ids`, `sighting_frequencies` and `departures` had
@@ -228,10 +234,10 @@ def report_coverage(conn, not_seen_since: str) -> None:
         departures          what we hold that the site stopped showing
         NEVER SEEN          not here at all — only the crawl's own D reaches those
     """
-    say(str(coverage(conn, DATASET)))
+    say(str(coverage(conn, directory.dataset_key)))
     say("")
 
-    frequencies = sighting_frequencies(conn, DATASET)
+    frequencies = sighting_frequencies(conn, directory.dataset_key)
     if frequencies:
         say("how many ids the site showed us N times — the sample itself:")
         for times in sorted(frequencies):
@@ -241,7 +247,7 @@ def report_coverage(conn, not_seen_since: str) -> None:
             "module does not pick a school.)")
         say("")
 
-    gap = missing_ids(conn, DATASET, limit=20)
+    gap = missing_ids(conn, directory.dataset_key, limit=20)
     say(f"sighted and never stored: {len(gap)} shown (ordered by how often the site "
         "showed it — one seen six times and still unstored is a stronger signal "
         "than one glimpsed once)")
@@ -249,7 +255,7 @@ def report_coverage(conn, not_seen_since: str) -> None:
         say(f"    {', '.join(gap)}")
     say("")
 
-    say(str(departures(conn, DATASET, not_seen_since=not_seen_since)))
+    say(str(departures(conn, directory.dataset_key, not_seen_since=not_seen_since)))
     say("")
     say("AND WHAT NONE OF THIS REACHES: a contractor the site has never shown us. "
         "Only the crawl's own deficit D counts those, and membership 10001274 was "
@@ -293,8 +299,8 @@ def _pairs(conn, run_ref: str) -> dict[str, dict[str, tuple[int, str]]]:
     return found
 
 
-def _approval(candidate) -> CandidateApproval:
-    """The owner's answer, every field text-typed, `contractor_id` the identity.
+def _approval(directory: Directory, candidate) -> CandidateApproval:
+    """The owner's answer, every field text-typed, the directory's id the identity.
 
     TEXT FOR EVERYTHING, and it is not laziness: type inference over twenty rows
     of one page guesses `integer` for a rating that reads `4.5` on the next page,
@@ -302,16 +308,18 @@ def _approval(candidate) -> CandidateApproval:
     is refused. `listing_candidate` already declines to guess for the same reason.
     """
     return CandidateApproval(
-        table_index=0, site_key=MuqawilPartition.site_key,
-        site_display_name=SITE_NAME, dataset_key=DATASET,
-        dataset_name="Contractors",
+        table_index=0, site_key=directory.key,
+        site_display_name=directory.display_name,
+        dataset_key=directory.dataset_key,
+        dataset_name=directory.display_name,
         fields=[ApprovalField(field_key=one.field_key, display_name=one.source_name,
                               data_type="text",
-                              identity=(one.field_key == "contractor_id"))
+                              identity=(one.field_key
+                                        == directory.identity_field))
                 for one in candidate.fields])
 
 
-def approve(conn, run_ref: str) -> None:
+def approve(conn, directory: Directory, run_ref: str) -> None:
     pairs = _pairs(conn, run_ref)
     say(f"approve {run_ref}: {len(pairs)} page(s) on disk")
     made = 0
@@ -329,13 +337,14 @@ def approve(conn, run_ref: str) -> None:
             continue
         if arabic is None:
             lonely += 1
-        candidate = bilingual_listing_candidate(english[1], arabic[1] if arabic else "")
+        candidate = directory.candidate(english[1], arabic[1] if arabic else "")
         if not candidate.approvable:
             refused.append((key, candidate.warnings[0] if candidate.warnings else "?"))
             continue
         try:
-            result = service.approve_candidate(conn, english[0], _approval(candidate),
-                                               candidate=candidate)
+            result = service.approve_candidate(
+                conn, english[0], _approval(directory, candidate),
+                candidate=candidate)
         except Exception as exc:
             conn.rollback()
             refused.append((key, f"{type(exc).__name__}: {exc}"))
@@ -356,7 +365,7 @@ def approve(conn, run_ref: str) -> None:
     if len(refused) > 20:
         say(f"  … and {len(refused) - 20} more")
     say("")
-    say(str(coverage(conn, DATASET)))
+    say(str(coverage(conn, directory.dataset_key)))
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -367,6 +376,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     `publish.workbook_tables` gives for being the one place that decides what an
     export contains (P1). A flag added here appears in both.
     """
+    parser.add_argument("--source", default=None,
+                       help="which directory to crawl, by site key. Defaults to "
+                            "the only one this build has. A mistyped name is "
+                            "REFUSED, never quietly replaced by the default")
     parser.add_argument("--plan", action="store_true",
                        help="size all 56 cells and price the crawl. Costs ~114 "
                             "requests and answers 'what will this cost today'")
@@ -424,22 +437,22 @@ def _refuse(message: str) -> None:
 def run(args: argparse.Namespace) -> int:
     """Do what the arguments ask. THE ONE IMPLEMENTATION both front doors call."""
     validate(args)
-    partition = MuqawilPartition()
+    directory = get_directory(getattr(args, "source", None))
     started = time.monotonic()
     if args.plan:
         _, fetch = make_fetch(args.pace)
-        plan(partition, fetch, started)
+        plan(directory, fetch, started)
         return 0
 
     conn = open_engine()
     try:
         if args.crawl:
             fetcher, fetch = make_fetch(args.pace)
-            crawl(conn, partition, fetch, fetcher, args.run_ref,
+            crawl(conn, directory, fetch, fetcher, args.run_ref,
                   args.max_attempts, only=args.only,
                   heavy_attempts=args.heavy_attempts)
         if args.approve:
-            approve(conn, args.run_ref)
+            approve(conn, directory, args.run_ref)
         if args.coverage:
             # THE DEFAULT WINDOW IS THE LEDGER'S OWN NEWEST SIGHTING, so running this
             # straight after a crawl asks "who did THAT crawl not show us" without
@@ -447,13 +460,13 @@ def run(args: argparse.Namespace) -> int:
             # every contractor as departed.
             since = args.not_seen_since or (conn.execute(
                 "SELECT MAX(last_seen_at) FROM dataset_sighting WHERE dataset_key = ?",
-                (DATASET,)).fetchone()[0] or "")
+                (directory.dataset_key,)).fetchone()[0] or "")
             if not since:
                 say("no sightings recorded for this dataset, so there is no window "
                     "to measure departures against. Crawl first.")
             else:
                 say(f"departures measured against sightings on or after {since}")
-                report_coverage(conn, since)
+                report_coverage(conn, directory, since)
     finally:
         conn.close()
     say(f"took {(time.monotonic() - started) / 60:.1f} min")
