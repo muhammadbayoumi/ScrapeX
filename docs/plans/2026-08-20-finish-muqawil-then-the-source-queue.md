@@ -125,7 +125,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 | 1 | ~~`status = 'unavailable'` on a departed row~~ **DONE** | ~3 h, not 1 | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
 | 2 | ~~State the resume cost in the tool's output~~ **DONE** | ~40 min | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
 | 3 | ~~`is_enabled` has 0 callers~~ **DONE** | ~1 h | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
-| 4 | The slice scope, unused for muqawil | **~1 h** | Built and tested; wiring it is what makes a partial re-read addressable. |
+| 4 | The slice scope — **defect fixed**; the walk moves into item 5 | ~2 h so far | Built and tested; wiring it is what makes a partial re-read addressable. |
 | 5 | The profile crawl — 34,806 pages | **~2 h to wire, ~17.4 h to run** | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
 | 6 | `R-19` child tables, all five groups | **~1 day** | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
 
@@ -332,8 +332,25 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       narrower and is the same item as the profile crawl above — **nothing walks the
       frontier for muqawil**. The `143` segment stays load-bearing: it is what makes the
       self-build price section render at all.
-- [ ] **`belongs_to_slice` / `crawl_slice` / `LISTING_PLUS_SLICE`:** the slice scope is
-      built, tested, and never used for muqawil.
+- [~] **The slice scope was built, tested, never used — AND WRONG.** Half done: the
+      defect is fixed, the walk that would use it is item 5's build.
+      **`enumerate(detail_urls(page))` was guessing the row index.** `belongs_to_slice`
+      indexes listing ROWS; `detail_urls` yields URLs; every caller paired them by
+      position, which is right only when a page yields one URL per row. muqawil yields
+      one **per locale**. Measured on a stored page before anything was changed:
+      **17 cards, 34 URLs** — url index 1 is contractor 0's *Arabic* page and was being
+      asked about card 1, a different contractor, and **17 of the 34 indices pointed
+      past the last card** and were dropped. A slice would have fetched a set that is
+      neither the slice nor its complement, and it reads as a smaller city.
+      **Nothing caught it because nothing used it**, and because every fake in the
+      walker's own slice tests yields one URL per row — the case the assumption fits.
+      Fixed in two halves: `detail_rows` has the source pair each URL with its row
+      (optional, since most sources need nothing — a Protocol member would have broken
+      `test_a_fake_site_satisfies_the_protocol`), and `belongs_to_slice` now **refuses**
+      a row past its last instead of answering `False`, which is what made the overshoot
+      invisible. Verified on the same real page: **0 mismatches of 34**. Ten tests,
+      **six mutations killed**, and one of them found that the walker had no test for
+      its own slice path at all.
 - [x] **`generic_record.status` is written now, and the mark can be taken back.**
       `OP-26` ruled: `unavailable`. **The whole chain had no caller** — not the status
       write, and not `record_absences` either, which writes the one fact that cannot be

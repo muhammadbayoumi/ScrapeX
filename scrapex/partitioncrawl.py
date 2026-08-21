@@ -667,6 +667,17 @@ class _Unstored:
     def detail_urls(self, page):
         return self._inner.detail_urls(page)
 
+    def detail_rows(self, page):
+        """FORWARDED, and forgetting to would have been silent.
+
+        This wrapper exists to hide already-stored listing URLs from a resume, and
+        every other method of the source is delegated. A `detail_rows` that was NOT
+        delegated would make `slice_rows` fall through to its `enumerate` default and
+        reinstate exactly the off-by-a-locale pairing this method was added to remove —
+        for the wrapped source only, which is the one production actually uses.
+        """
+        return self._inner.detail_rows(page)
+
     def belongs_to_slice(self, page, row_index: int, slice_of: str) -> bool:
         return self._inner.belongs_to_slice(page, row_index, slice_of)
 
