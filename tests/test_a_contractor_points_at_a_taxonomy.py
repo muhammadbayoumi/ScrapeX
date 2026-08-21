@@ -1,4 +1,4 @@
-"""`R-36`: the five multi-valued groups are a taxonomy plus a link table — shape D.
+"""`R-38`: the five multi-valued groups are a taxonomy plus a link table — shape D.
 
 HE OVERRULED THE STUDY'S RECOMMENDATION AND WAS RIGHT. The study recommended shape F, a
 child dataset per group inside `generic_record`, because it reuses machinery the warehouse
@@ -17,9 +17,9 @@ WHAT THIS FILE GUARDS, in the order the reasons matter:
   * the STRING IS STORED ONCE. That is the whole of shape D; if a path's names are
     repeated per membership it has become shape A, which the study measured at 4.7x.
   * PROVENANCE IS ENFORCED, not remembered. `source_snapshot_id NOT NULL` is F's one
-    real advantage and `R-36` says explicitly it must be carried over.
+    real advantage and `R-38` says explicitly it must be carried over.
   * IDEMPOTENCY IS THE PRIMARY KEY, so a re-parse cannot duplicate — which is why D
-    needs nothing like the repair `R-38` had to make to `approve_candidate`.
+    needs nothing like the repair `R-40` had to make to `approve_candidate`.
   * `group_key` IS IN THE KEY, because one node can be held as an interest AND as a
     licensed activity, and merging those two facts would be silent.
 """
@@ -189,7 +189,7 @@ def test_one_node_can_be_held_in_two_groups_at_once(conn):
 # ---- what F's advantage was, carried over ------------------------------------
 
 def test_a_membership_without_its_evidence_is_refused_by_the_schema(conn):
-    """F'S ONE REAL ADVANTAGE, AND `R-36` SAYS IT MUST BE CARRIED OVER.
+    """F'S ONE REAL ADVANTAGE, AND `R-38` SAYS IT MUST BE CARRIED OVER.
     `generic_record.source_snapshot_id NOT NULL` is what makes provenance enforced rather
     than remembered; the link table carries the same column under the same constraint."""
     scheme = _scheme(conn)
@@ -232,8 +232,8 @@ def test_deleting_a_contractor_takes_its_memberships(conn):
 # ---- idempotency, by construction --------------------------------------------
 
 def test_a_second_identical_pass_writes_nothing_new(conn):
-    """`R-36`'s fourth reason for D. Shape F would have gone through
-    `approve_candidate`, whose idempotency key `R-38` had to repair; here the primary key
+    """`R-38`'s fourth reason for D. Shape F would have gone through
+    `approve_candidate`, whose idempotency key `R-40` had to repair; here the primary key
     makes a duplicate impossible even for a caller that forgot to check."""
     first = _store_the_interests(conn)
     second = _store_the_interests(conn)

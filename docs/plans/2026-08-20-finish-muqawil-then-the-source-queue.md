@@ -297,7 +297,7 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       **#235.**
 - [x] **`R-19`: child tables for all five groups — BUILT, as shape D** — «جداول أبناء
       للخمس كلّها».
-      **RULED 2026-08-21, [R-36](../RULINGS.md#r-36--r-19s-five-groups-are-a-taxonomy-plus-a-link-table--not-five-datasets--shape-d).**
+      **RULED 2026-08-21, [R-38](../RULINGS.md#r-38--r-19s-five-groups-are-a-taxonomy-plus-a-link-table--not-five-datasets--shape-d).**
       He chose **D** — a taxonomy plus a link table — over the study's recommended F, and
       the recommendation was wrong: F's argument was that it reuses machinery this
       warehouse already contains, and `classification_node`, `classification_scheme`,
@@ -480,7 +480,7 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       not 363 KB**, 0.91 GB → 19.4 MB.
 - [ ] **`O-2`** — does the contractor entity belong in the mbiX workbook, or stay
       engine-only until it has proved itself?
-- [x] **`DEC-10` — RULED 2026-08-21, [R-38](../RULINGS.md#r-38--dec-10-is-built-before-the-profile-crawl-not-after-it):
+- [x] **`DEC-10` — RULED 2026-08-21, [R-40](../RULINGS.md#r-40--dec-10-is-built-before-the-profile-crawl-not-after-it):
       built BEFORE the profile crawl.** It is the one open item that changed the COST of
       the remaining work rather than its scope: on 34,834 pages a parser defect found
       after the crawl costs 11 hours of re-fetching to repair what should be minutes of

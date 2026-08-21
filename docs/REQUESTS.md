@@ -272,7 +272,7 @@ Options:
 **(a)** Migrate `SR-1..SR-23` into `RULINGS.md`; BACKLOG.md §1 becomes a pointer.
 One home, with the C4 supersession discipline applied to all of them. BACKLOG.md
 keeps what it is genuinely best at — `OP`, `DEC`, `DEBT`, `Q`.
-**(b)** Fold `R-01..R-13` back into BACKLOG.md §1 as `SR-24..SR-36`, delete
+**(b)** Fold `R-01..R-13` back into BACKLOG.md §1 as `SR-24..SR-38`, delete
 `RULINGS.md`. Fewer files; but the rulings then live inside a 1,151-line document
 that **C1** tells every session to read before designing anything.
 **(c)** Keep both with a documented split by subject. Rejected — a boundary

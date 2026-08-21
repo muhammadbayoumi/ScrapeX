@@ -358,7 +358,7 @@ def test_the_stored_profile_is_labelled_as_a_profile(conn, monkeypatch):
 
 # ---- a slice is named in ONE language, and the scan has to know that ----------
 #
-# `R-37` RECORDS THE MEASUREMENT THAT PRODUCED THIS. `belongs_to_slice` compares the
+# `R-39` RECORDS THE MEASUREMENT THAT PRODUCED THIS. `belongs_to_slice` compares the
 # slice value against the card's own city text, and the card is in the page's language:
 #
 #     en page, slice 'RIYADH'  -> 3 of 4 cards match

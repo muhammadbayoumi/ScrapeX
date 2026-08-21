@@ -813,7 +813,7 @@ changed.
 
 ---
 
-### R-36 · `R-19`'s five groups are a TAXONOMY plus a link table, not five datasets — shape D
+### R-38 · `R-19`'s five groups are a TAXONOMY plus a link table, not five datasets — shape D
 
 **2026-08-21 · data model · refines [R-19](#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json), and overrules the study's own recommendation**
 
@@ -856,7 +856,7 @@ A membership fact — *this contractor holds this node* — is two integers. At 
 The contractor dataset has no retention today. F would have added five more datasets to
 that same gap rather than inheriting a solution.
 
-**A fourth reason, which crosses [R-38](#r-38--dec-10-is-built-before-the-profile-crawl-not-after-it):**
+**A fourth reason, which crosses [R-40](#r-40--dec-10-is-built-before-the-profile-crawl-not-after-it):**
 F routes five groups through `approve_candidate`, the function that answers
 `recovered=True` and writes nothing. D writes directly, so idempotency is one constraint
 — `UNIQUE (contractor, node)` — correct by construction instead of by later repair.
@@ -873,7 +873,7 @@ all, is parked by him, so the export half of that cost is not owed yet.
 
 ---
 
-### R-37 · muqawil is registered `listing_plus_slice`, and one city is crawled before eleven hours are spent
+### R-39 · muqawil is registered `listing_plus_slice`, and one city is crawled before eleven hours are spent
 
 **2026-08-21 · crawl scope · answers the registration `PLATFORM-PLAN` Decision 23 left to him**
 
@@ -912,7 +912,7 @@ the report says which.
 
 ---
 
-### R-38 · DEC-10 is built BEFORE the profile crawl, not after it
+### R-40 · DEC-10 is built BEFORE the profile crawl, not after it
 
 **2026-08-21 · idempotency · closes [DEC-10](BACKLOG.md) as a decision**
 
@@ -930,7 +930,7 @@ wrong parse costs minutes; an idempotency key that refuses to rewrite a correcte
 hands the cost straight back.
 
 **It is also the one open item that changes the COST of the remaining work rather than
-its scope**, which is why building it first is not sequencing preference. `R-36`'s link
+its scope**, which is why building it first is not sequencing preference. `R-38`'s link
 table depends on it twice over: the five groups are parsed from the same profile pages,
 and a first parse of a five-level taxonomy is unlikely to be the last.
 
@@ -940,13 +940,13 @@ It works and it destroys history every time, which is what a row-aware key repla
 
 ---
 
-### R-39 · A multi-valued group is named by a DECLARED per-site map, never by position or by its heading
+### R-41 · A multi-valued group is named by a DECLARED per-site map, never by position or by its heading
 
 **2026-08-21 · extraction · answers a question the measurement raised**
 
 > «كيف تُسمّى المجموعات الخمس؟» → **«خريطة مُعلَنة لكل موقع»**
 
-`R-36` needs to know which group a row belongs to, and neither obvious answer works.
+`R-38` needs to know which group a row belongs to, and neither obvious answer works.
 Measured against the committed profile:
 
 | candidate rule | why it fails |

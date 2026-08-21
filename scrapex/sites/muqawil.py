@@ -360,6 +360,21 @@ class MuqawilPageSource:
                 "use `detail_rows`, because this listing yields one URL per locale.")
 
         icon = cards[row_index].select_one(f".info-icon span.{_CITY_ICON}")
+        if icon is None and any(
+                card.select_one(f".info-icon span.{_CITY_ICON}") is not None
+                for card in cards):
+            # A REAL ABSENCE, NOT A MOVED MARKER, and telling them apart is what this
+            # page can answer for itself. Measured 2026-08-21 on a stored listing:
+            # `region_id=1&company_size=verysmall&page=11` has **20 cards, 19 with the
+            # city icon and one without** — so that contractor publishes no city, and it
+            # is in no named city. It is not in this slice.
+            #
+            # THE REFUSAL BELOW STOPPED A CRAWL BECAUSE IT COULD NOT TELL. Conflating the
+            # two states made one contractor without a city fatal to the whole run — and
+            # the reasoning the refusal was written for is still right: a marker that has
+            # moved must not read as a smaller city. The difference is measurable, so it
+            # is measured: if NO card on the page has the icon, the layout moved.
+            return False
         if icon is None:
             # The card carries no city. NOT an answer of False, which would
             # quietly drop a contractor from every slice and read as a smaller

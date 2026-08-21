@@ -486,7 +486,7 @@ def approve_candidate(
                 "This table candidate was already approved with a different identity "
                 "or schema. Open the existing dataset instead of approving it again."
             )
-        # DEC-10 / `R-38`: SAME REQUEST IS NOT SAME ROWS. Everything checked above is
+        # DEC-10 / `R-40`: SAME REQUEST IS NOT SAME ROWS. Everything checked above is
         # about identity and shape, and none of it moves when a parser is CORRECTED — so
         # a fixed parse of the same page matched here, answered `recovered=True` and
         # wrote nothing. On 34,834 profile pages that would cost a re-crawl to repair

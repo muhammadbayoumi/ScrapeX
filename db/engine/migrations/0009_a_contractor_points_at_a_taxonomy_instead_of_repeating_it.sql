@@ -1,7 +1,7 @@
 -- =====================================================================
 -- 0009 — A CONTRACTOR POINTS AT A TAXONOMY INSTEAD OF REPEATING IT
 --
--- `R-36`, his ruling of 2026-08-21: `R-19`'s five multi-valued groups are a
+-- `R-38`, his ruling of 2026-08-21: `R-19`'s five multi-valued groups are a
 -- TAXONOMY plus a link table — shape D — and not five child datasets inside
 -- `generic_record`, which was shape F and what the study recommended.
 --
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS generic_record_node (
     node_id            INTEGER NOT NULL
         REFERENCES classification_node(node_id),
 
-    -- `R-39`: the DECLARED name of the group this membership belongs to, from
+    -- `R-41`: the DECLARED name of the group this membership belongs to, from
     -- `MULTI_VALUED_GROUPS`. Never the table's position and never its heading —
     -- the detector returns `Table 1`…`Table 5`, three of the five tables share
     -- one heading, and two share a column signature while both being empty.
@@ -77,9 +77,9 @@ CREATE TABLE IF NOT EXISTS generic_record_node (
     -- extra read and no dependence on a clock.
     seen_count         INTEGER NOT NULL DEFAULT 1 CHECK (seen_count >= 1),
 
-    -- IDEMPOTENT BY CONSTRUCTION, which is `R-36`'s fourth reason for choosing
+    -- IDEMPOTENT BY CONSTRUCTION, which is `R-38`'s fourth reason for choosing
     -- D. Shape F would have written these through `approve_candidate` — the
-    -- function whose idempotency key `R-38` had to repair. Here a re-parse that
+    -- function whose idempotency key `R-40` had to repair. Here a re-parse that
     -- finds the same membership hits this key and updates `last_seen_at`; it
     -- cannot write a duplicate, and no later fix is needed to make that true.
     PRIMARY KEY (generic_record_id, node_id, group_key)

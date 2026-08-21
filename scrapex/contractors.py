@@ -416,7 +416,7 @@ def detail_frontier(conn, directory: Directory, scope: CrawlScope,
     #
     # So scanning every stored page against one slice value counts every row of the other
     # locale as *outside the slice* — a report that is simply false — and makes the whole
-    # frontier depend on that locale's pages happening to be on disk. `R-37` records the
+    # frontier depend on that locale's pages happening to be on disk. `R-39` records the
     # measurement; this is the code it asked for.
     #
     # ONE PASS AND NOT TWO, because the scan is the expensive half: a slice must parse
@@ -684,7 +684,7 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
         conn.commit()
         made += 1
         if result.get("recovered"):
-            # ALREADY APPROVED AND IDENTICAL, so it wrote nothing — and since `R-38`
+            # ALREADY APPROVED AND IDENTICAL, so it wrote nothing — and since `R-40`
             # that is a claim about the ROWS and not just the request. The digest of
             # what the parser produced is compared against the digest the previous
             # ingestion stored, so this count now means "nothing had changed" rather
@@ -696,7 +696,7 @@ def approve(conn, directory: Directory, run_ref: str) -> None:
             # line above and wrote nothing at all.
             reparsed += 1
     say(f"approved {made} page(s): {recovered} unchanged and wrote nothing, "
-        f"{reparsed} re-parsed with new values (DEC-10 / R-38); "
+        f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
     for key, why in refused[:20]:
         say(f"  refused {key}: {why}")

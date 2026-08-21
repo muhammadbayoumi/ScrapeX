@@ -118,7 +118,8 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
                        slice_pages: int = 0, pace_s: float = 1.0,
                        max_requests: int | None = None,
                        fetcher: object | None = None,
-                       run_ref: str | None = None) -> CrawlOutcome:
+                       run_ref: str | None = None,
+                       listing_phase_only: bool = False) -> CrawlOutcome:
     """Walk this site at its registered scope, storing every page as evidence.
 
     `listing_pages` and `detail_pages` are MEASURED BY THE CALLER and passed in,
@@ -130,6 +131,13 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
     passed through `declare_frontier`, which tolerates a fetcher that cannot
     hear it: reaching for `expect_requests` directly once turned a progress
     display into an AttributeError that failed real crawls.
+
+    `listing_phase_only` IS NOT A SECOND SCOPE, which is what lets it exist beside the
+    rule above. The scope still comes from the database and only from there; this says
+    which PHASE the caller is running. The partitioned listing crawl is the listing phase
+    by construction — it partitions, witnesses and counts listing pages, and no detail
+    page enters any of its proofs — and on 2026-08-21 the absence of this distinction let
+    a live change to `crawl_scope` break a crawl that was already four cells in.
     """
     scope, slice_of = read_scope(conn, source.site_key)
 
@@ -188,7 +196,8 @@ def crawl_to_snapshots(conn: sqlite3.Connection, source: PageSource,
 
     walker = PageWalker(source, fetch, pace_s=pace_s)
     report = walker.walk(base_url, scope, slice_of=slice_of,
-                         max_requests=max_requests, on_page=store)
+                         max_requests=max_requests, on_page=store,
+                         listing_phase_only=listing_phase_only)
 
     return CrawlOutcome(plan=intended, report=report,
                         snapshots=tuple(snapshots), unstored=tuple(unstored),

@@ -291,7 +291,7 @@ def _card_boxes(html: str) -> dict[str, tuple[tuple[str, str], ...]]:
 class MultiValuedGroup:
     """One of `R-19`'s repeating groups, and how to find it on a profile page.
 
-    `R-39`: a group is named by a DECLARED map, never by position and never by its
+    `R-41`: a group is named by a DECLARED map, never by position and never by its
     heading. The alternatives were measured and all three fail —
 
         the detector's own name    `Table 1` … `Table 5`, which is position
@@ -401,7 +401,7 @@ def locate_group(html: str, key: str) -> Tag | None:
 
     MORE THAN ONE MATCH IS REFUSED, though, because a selector that has stopped being
     unique has stopped being a declaration — and picking the first would read one
-    group's values as another's, which is the failure `R-39` exists to prevent.
+    group's values as another's, which is the failure `R-41` exists to prevent.
     """
     group = next((one for one in MULTI_VALUED_GROUPS if one.key == key), None)
     if group is None:

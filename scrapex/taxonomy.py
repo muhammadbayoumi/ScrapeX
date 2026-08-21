@@ -1,6 +1,6 @@
 """A site's own vocabulary, stored once, and the contractors that point at it.
 
-`R-36`. `R-19` ruled that the five multi-valued contractor groups go in child tables
+`R-38`. `R-19` ruled that the five multi-valued contractor groups go in child tables
 rather than JSON, and every measurement upheld it. What it left open was *how*, and he
 settled it: a **taxonomy plus a link table** — shape D — not five child datasets inside
 `generic_record`, which was the study's recommendation.
@@ -18,7 +18,7 @@ alongside it — which means the two locales' readings have to be PAIRED before 
 is written, and `ensure_path` refuses a pair it cannot align.
 
 WHAT IS DELIBERATELY NOT HERE. Nothing decides which groups exist or where they are on
-a page — that is `R-39`'s declared map in `extract/muqawil.py`. Nothing decides what a
+a page — that is `R-41`'s declared map in `extract/muqawil.py`. Nothing decides what a
 group's values MEAN. This module stores a tree and the memberships in it, for any site.
 """
 from __future__ import annotations
@@ -129,8 +129,8 @@ def link(conn: sqlite3.Connection, *, generic_record_id: int, node_id: int,
 
     IDEMPOTENT BY THE PRIMARY KEY, not by a check here — `(generic_record_id, node_id,
     group_key)` is the table's key, so a repeat cannot be written even by a caller that
-    forgot to look. `R-36` chose shape D partly for this: shape F would have written
-    these through `approve_candidate`, the function whose idempotency key `R-38` had to
+    forgot to look. `R-38` chose shape D partly for this: shape F would have written
+    these through `approve_candidate`, the function whose idempotency key `R-40` had to
     repair.
 
     `last_seen_at` MOVES ON A REPEAT AND `first_seen_at` DOES NOT, which is the same

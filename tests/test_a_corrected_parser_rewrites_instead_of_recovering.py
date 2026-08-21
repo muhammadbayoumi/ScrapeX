@@ -6,8 +6,8 @@ that had been corrected — same page, same columns, different data — matched 
 ingestion, answered `recovered=True` and wrote not one row.
 
 WHY IT IS FIXED NOW RATHER THAN LATER, and it is his ruling
-[R-38](../docs/RULINGS.md): on the listing it was survivable, because 871 pages are cheap
-to fetch again. `R-37` registers the profile crawl, and that is **34,834 pages at about
+[R-40](../docs/RULINGS.md): on the listing it was survivable, because 871 pages are cheap
+to fetch again. `R-39` registers the profile crawl, and that is **34,834 pages at about
 11.1 hours measured** — so a parser defect found afterwards would cost a re-crawl to
 repair what should be a re-parse. `docs/GENERIC-FETCH-SEAM.md` exists exactly so a wrong
 parse costs minutes; a key that refuses to rewrite a corrected row hands the cost back.
@@ -128,7 +128,7 @@ def test_a_corrected_parser_writes_its_new_values(conn):
 
 
 def test_the_change_is_recorded_as_history(conn):
-    """`R-20` MEETS `R-38`. A re-parse that changed values writes a revision per changed
+    """`R-20` MEETS `R-40`. A re-parse that changed values writes a revision per changed
     row, so "when did this column change" stays answerable — which is the whole reason
     R-20 stopped writing a revision for every unchanged row."""
     snapshot = _snapshot(conn)

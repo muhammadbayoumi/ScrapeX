@@ -805,7 +805,14 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
         # PACED BY THE FETCHER AND NOWHERE ELSE — see the module docstring. And
         # `fetcher=None` so the frontier is declared ONCE for the whole
         # partition rather than reset fifty-six times.
-        pace_s=0, fetcher=None, run_ref=run_ref)
+        pace_s=0, fetcher=None, run_ref=run_ref,
+        # THE LISTING PHASE, DECLARED. This crawl's whole product is a proof about the
+        # LISTING — the witness compares id sequences and the count compares distinct
+        # against declared — and a detail page takes part in neither. Without saying so,
+        # a registered `listing_plus_slice` made the walker ask `belongs_to_slice` about
+        # listing rows mid-run: measured 2026-08-21, four cells closed with D=0 and the
+        # fifth ended on one card that publishes no city.
+        listing_phase_only=True)
 
     # BOTH SETS, and they should not overlap. `_Unstored` removes a page before it
     # is fetched; `outcome.skipped` is a page the walker fetched and the store

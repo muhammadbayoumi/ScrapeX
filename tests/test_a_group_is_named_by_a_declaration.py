@@ -1,6 +1,6 @@
-"""`R-39`: a repeating group is named by a DECLARED map, and all three alternatives fail.
+"""`R-41`: a repeating group is named by a DECLARED map, and all three alternatives fail.
 
-`R-36` needs to know which of `R-19`'s groups a row belongs to. Three rules suggest
+`R-38` needs to know which of `R-19`'s groups a row belongs to. Three rules suggest
 themselves and every one of them was measured against the committed profile:
 
 | rule | why it fails |
