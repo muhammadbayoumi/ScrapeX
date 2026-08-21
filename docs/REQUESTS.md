@@ -79,6 +79,10 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-21](#req-21--the-nested-audit--a-subdivision-must-be-checked-against-its-parent) | The nested audit — a subdivision checked against its parent | **In flight** — the audit is built and guarded; no subdivision is wired to a site yet | 2026-08-21 |
 | [REQ-22](#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update) | What happens on a new / vanished / changed contractor, and on "update" | **Captured** — answered by measurement; 3 of 4 are gaps ([OP-26](BACKLOG.md)) | 2026-08-21 |
 | [REQ-23](#req-23--test-my-own-ruling-before-building-it-with-strict-review-criteria) | Test my own ruling before building it, with strict review criteria | **Done** — [R19-CHILD-TABLES-MEASURED.md](R19-CHILD-TABLES-MEASURED.md); ruling upheld, a refinement proposed as `Q-13` | 2026-08-21 |
+| [REQ-24](#req-24--a-shipped-command-so-a-new-user-can-crawl-the-directory-at-all) | A shipped command, so a new user can crawl the directory at all | **Done** — `scrapex contractors`; the panel path is still missing | 2026-08-21 |
+| [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — half exists (`active: false`, `TBD-probe`); the category and the single registry do not | 2026-08-21 |
+| [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **Planned** — blocked on `Q-14`: no account concept exists at all | 2026-08-21 |
+| [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
 
 ---
 
@@ -1028,6 +1032,141 @@ it. Five shapes, 518,490 rows.
 Recorded as **`Q-13`** in [BACKLOG.md](BACKLOG.md) with three options and a
 recommendation. **Nothing was built** — the choice is his, which is the whole point
 of the request.
+
+---
+
+## REQ-24 · A shipped command, so a new user can crawl the directory at all
+**Captured 2026-08-21 · Done**
+
+> «لو انا مستخدم جديد زحف مقاول هيتعمل ازاى للحصول على كل البيانات بشكل صحيح»
+> · «نفذ البند ١ الامر المشحون»
+
+He asked how a **new user** would run the crawl, and the measured answer was that
+they could not — not by any supported path:
+
+| | |
+|---|---|
+| `pyproject.toml` | `include = ["scrapex*"]`, so **`tools/` is never shipped**. `pip install` does not put the script on their machine |
+| `scrapex crawl` | takes a `source_key from sources.yaml`, and **muqawil is not in `sources.yaml`** |
+| `cli.py` | **zero** references to `muqawil`, `partitioncrawl`, `snapshotcrawl` or `generic_record` |
+| `jobs.py` and the panel | zero references — the update button runs the price connectors |
+
+**That is why his own screenshot showed the Engine as "not detected" while a crawl
+was running.** The crawl was `python tools/crawl_muqawil_listing.py`, a developer
+script writing straight into SQLite. It never went near the Engine, and did not need
+to. Everything built for this directory — the provable partition, the sightings
+ledger, the resume, the approval from disk — was reachable only by cloning the
+repository.
+
+**Built:** `scrapex/contractors.py`, shipped inside the package, with
+`scrapex contractors --plan / --crawl / --approve / --coverage`.
+`tools/crawl_muqawil_listing.py` is now a four-line pointer, kept because six
+documents and one running command name that path.
+
+**One implementation, two front doors.** `add_arguments` and `run` are shared by the
+subcommand and by `python -m scrapex.contractors`, so neither can grow a flag the
+other lacks — the same rule `publish.workbook_tables` follows. Guarded by a test
+that the flag set is declared in one place, and by another that the module is inside
+the package rather than in `tools/`.
+
+**What this does NOT do:** there is still **no path from the panel**. `jobs.py` does
+not know this crawl, so it cannot be started, paused or resumed from the product's
+own interface. That is the next item, and it is separate.
+
+---
+
+## REQ-25 · One source registry, with a category, visible to every user
+**Captured 2026-08-21 · Planned**
+
+> «اى مصدر اعطيه لك ونشتغل عليه لازم يظهر ضمن المصادر المسجلة لاى مستخدم ويستطيع
+> عمل زحف عليه · اى مصدر ادتهولك ولم ناسس له زحف يحفظ فقط فى قائمة مصادر حتى ياتى
+> دوره» · «ونعمل category للمصادر لدينا الان 2 منتجات ومقاولين»
+
+**Half of this is already built, and finding that out first is the point.**
+`sources.yaml`'s own header says sources start `active: false` and are activated only
+when their collector lands with tests, and `family: TBD-probe` already means
+*registered, no collector yet* — validation **refuses** `active: true` while the
+family is unproven: *"A source that has not been probed cannot be active."* So
+*"waits in the list until its turn"* exists — measured with the new `scrapex sources`:
+**twelve** registered, seven active, five built, and **nothing in the `registered`
+state**, so the mechanism is real and currently empty.
+
+**What does NOT exist is one registry and a category.** Measured: `source_site` holds
+the four price sources, `site_profile` holds `muqawil_org`, and **muqawil is not in
+`sources.yaml` at all**. A source lands in one or the other by accident of which
+pipeline collected it, so nothing answers *"what sources does this installation have,
+and what state is each in"* — which is the question he asked.
+
+Categories, in his words: **`products`** and **`contractors`**, with `jobs` and
+`tenders` named as coming. Planned in [the platform plan](plans/2026-08-21-the-platform-not-a-price-tracker.md).
+
+**Open for him:** whether `site_profile` merges into `source_site`, or both become
+views over one table. Merging is correct and is a migration over live rows.
+
+---
+
+## REQ-26 · A database per account, not per machine
+**Captured 2026-08-21 · Planned · blocked on `Q-14`**
+
+> «كيف تتعامل الاداة مع الحسابات المختلفة يعنى انا لو عامل sign in بكذا حساب
+> المفروض قاعدة البيانات تخص حساب واحد لا تخص الجميع لكل حساب قاعدة بيانات · وايضا
+> اذا كنت مثبت الاداة على كذا كروم بروفيل بكذا حساب اى حساب مختلف له قاعدة خاصة به»
+
+**Measured: there is no account concept anywhere.**
+
+    DATABASE_ROOT = os.environ.get("SCRAPEX_DATA_ROOT", Path.home() / ".scrapex")
+
+One database per **operating-system user**. A grep for `google_account`,
+`user_email`, `signed_in` and `def account` returns nothing across `scrapex/`. So two
+Google accounts on one Windows user share one database, and so do two Chrome profiles
+with different accounts. The only isolation available is an environment variable,
+which is a workaround rather than a design.
+
+**`R-23` and `R-24` already point the right way** — a warehouse is per installation,
+an empty one is the normal first-run state, and a database is upgraded rather than
+replaced. A per-account root is that rule one level finer, and `carry_over` already
+exists to move a warehouse forward rather than starting over.
+
+**Blocked, deliberately, on `Q-14`: what identifies an account?** It decides where
+other people's data lands, so it is not a default to be guessed.
+
+---
+
+## REQ-27 · A second source of a category reuses the first's machinery
+**Captured 2026-08-21 · Done — `scrapex/directories.py`**
+
+> **Built the same day.** A directory is now four facts and a partition in a
+> registry — `key`, `display_name`, `base_url`, `dataset_key`,
+> `identity_field`, `candidate`, `partition_factory` — and `--source` names it.
+> The crawl itself is **inherited**: the provable partition, the sightings
+> ledger, the resume and the approval-from-disk are untouched, because the
+> engine was already protocol-shaped. A mistyped `--source` is **refused** and
+> names what is known, rather than falling back to the only directory there is
+> and collecting the wrong site for hours. Three guards, and 23 tests on the
+> module.
+
+> «علشان لما اديك مصدر لمقاولين تانى فى المستقبل منخترعش الذرة نكمل على الى موجود
+> بالمثل كالمنتجات اعتقد انها مستقرة الى حد ما»
+
+**And the wheel in question is the one shipped this morning.** `REQ-24` closed a real
+gap — no user could run any crawl — and closed it by hardcoding the one site we have:
+
+    BASE = "https://muqawil.org"      DATASET = "contractors"
+    SITE_NAME = "Saudi Contractors Authority"     partition = MuqawilPartition()
+
+A second contractor directory today would need a **copy of that file**. Stated
+plainly because it is a defect introduced hours earlier, for a good reason, and it
+must not survive contact with a second source.
+
+**He is right that products are the shape to copy.** A products source is a contract
+entry naming a `family`, and `build_connector(entry)` returns its collector — a second
+Shopify shop needs no new module. The engine underneath is already protocol-shaped:
+`partitioncrawl.PartitionedListing` is a `Protocol`, and its muqawil mentions are
+docstrings citing where a number was measured, not code. So what is missing is the
+**registry entry and the factory**, not the crawler.
+
+**Open for him:** whether `ConnectorFamily` grows contractor families or the category
+gets its own enum. Planned in [the platform plan](plans/2026-08-21-the-platform-not-a-price-tracker.md).
 
 ---
 

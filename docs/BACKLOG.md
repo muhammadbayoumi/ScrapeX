@@ -1629,6 +1629,26 @@ with HTTP 429.
 
 Each is phrased as a question with its options. Nothing below can be answered by code.
 
+**Q-14 · What identifies an ACCOUNT, so a database can belong to one?**
+`REQ-26`. He ruled that a database belongs to one account and not to everyone on the
+machine, and that two Chrome profiles with two accounts get two databases. Measured:
+**no account concept exists** — `DATABASE_ROOT` is `~/.scrapex` per operating-system
+user, and a grep for `google_account`, `user_email`, `signed_in` or `def account`
+returns nothing. Options:
+**(a)** the **Google address** signed into the panel — matches how he described it
+(«لو عامل sign in بكذا حساب») and survives a Chrome profile being recreated, but ties
+the warehouse's location to an identity the tool does not yet read anywhere.
+**(b)** the **Chrome profile** the extension runs in — matches the second half of what
+he said, needs no sign-in at all, and is what the native-messaging host already knows;
+but two accounts used in ONE profile would share a database, which is the case he
+objected to.
+**(c)** an **explicit choice in the panel**, a named workspace the user picks. No
+guessing, works with no browser at all, and it is the only option that lets one person
+keep two warehouses deliberately — at the cost of a first-run question.
+*No recommendation offered: this decides where other people's data lands, and (a) and
+(b) each fail exactly one half of what he described. It needs his intent, not a
+default.*
+
 **Q-13 · R-19: child tables — as five bespoke tables, or as five child DATASETS
 referencing a taxonomy?**
 He asked for his own ruling to be tested before it was built — *«ادرس حكمى اولا هل هو

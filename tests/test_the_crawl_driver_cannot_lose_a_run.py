@@ -1,10 +1,15 @@
 """The driver that runs the listing crawl, and the ways it could throw hours away.
 
-WHY THIS FILE EXISTS. `tools/crawl_muqawil_listing.py` is 452 lines and had **zero
-tests** -- `grep -rln crawl_muqawil_listing tests/` returned nothing -- while being
-the only way the crawl is ever started. It is also the file where this track's single
-Windows-only defect lived, and CI cannot see it: CI is ubuntu-only and `tools/` is not
-even in the linted path. Recorded as `OP-28` in `docs/BACKLOG.md`.
+WHY THIS FILE EXISTS. The implementation had 452 lines and **zero tests** --
+`grep -rln crawl_muqawil_listing tests/` returned nothing -- while being the only way
+the crawl is ever started. It is also where this track's single Windows-only defect
+lived, and CI cannot see that: CI is ubuntu-only. Recorded as `OP-28`.
+
+IT NOW TESTS `scrapex/contractors.py`, WHICH IS THE POINT. The code moved out of
+`tools/` because `pyproject.toml` ships `include = ["scrapex*"]` and nothing under
+`tools/` reaches an installed user — so these tests were guarding a script no user
+could run. They now guard the shipped module, reached through `scrapex contractors`
+and `python -m scrapex.contractors` alike.
 
 The four ways, each of which has happened or was one keystroke away:
 
@@ -24,7 +29,6 @@ and a suite that writes to a real home is a suite that cannot be trusted twice.
 """
 from __future__ import annotations
 
-import importlib.util
 import io
 import sqlite3
 import sys
@@ -32,21 +36,29 @@ from pathlib import Path
 
 import pytest
 
+from scrapex import contractors, directories
 from scrapex.databases import DatabaseRegistry, EngineDatabase
-from scrapex.sites.muqawil import MuqawilPartition
 
-DRIVER = Path(__file__).resolve().parent.parent / "tools" / "crawl_muqawil_listing.py"
 #: The exact shape of the line that killed a run: U+2192 is not in cp1252.
 ARROW = "sized 56 cells → about 1,065 requests"
 
 
 @pytest.fixture(scope="module")
 def driver():
-    """The tool, imported by path -- `tools/` is deliberately not a package."""
-    spec = importlib.util.spec_from_file_location("crawl_muqawil_listing", DRIVER)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """The shipped module, imported like any other. No path games any more.
+
+    It used to be loaded from `tools/` by `importlib.util.spec_from_file_location`,
+    which is what testing an unshipped script forces on you.
+    """
+    return contractors
+
+
+@pytest.fixture()
+def directory():
+    """The one directory this build has. `REQ-27`: the crawl takes a `Directory`
+    rather than a partition plus three module constants, so a second contractor
+    source is a registry entry instead of a copy of the module."""
+    return directories.get()
 
 
 @pytest.fixture(autouse=True)
@@ -165,41 +177,43 @@ class _Spy:
         return "an outcome"
 
 
-def test_only_refuses_an_unknown_label_before_touching_the_database(driver,
-                                                                   monkeypatch):
+def test_only_refuses_an_unknown_label_before_touching_the_database(
+        driver, directory, monkeypatch):
     """`conn` is None here on purpose: the refusal has to come first."""
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
 
     with pytest.raises(SystemExit) as raised:
-        driver.crawl(None, MuqawilPartition(), None, None, "run-1", 2,
+        driver.crawl(None, directory, None, None, "run-1", 2,
                      only="region_id_1-company_size_enormous")
 
     assert "region_id_1-company_size_enormous" in str(raised.value)
     assert spy.calls == []
 
 
-def test_only_passes_exactly_the_named_cells_and_no_others(driver, monkeypatch):
+def test_only_passes_exactly_the_named_cells_and_no_others(driver, directory,
+                                                           monkeypatch):
     """47 of 56 cells were already proven; re-reading them is the cost this avoids.
     Whitespace around a label is tolerated because these are pasted out of a log."""
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
     monkeypatch.setattr(driver, "coverage", lambda *a, **k: "coverage")
 
-    driver.crawl(None, MuqawilPartition(), None, None, "run-1", 2,
+    driver.crawl(None, directory, None, None, "run-1", 2,
                  only=" region_id_2-company_size_big ,region_id_5-company_size_small")
 
     assert [one.label for one in spy.calls[0]["cells"]] == [
         "region_id_2-company_size_big", "region_id_5-company_size_small"]
 
 
-def test_without_only_the_partition_decides_which_cells_to_crawl(driver, monkeypatch):
+def test_without_only_the_partition_decides_which_cells_to_crawl(driver, directory,
+                                                                monkeypatch):
     """`cells=None` is how `crawl_partition` is told to use the whole partition."""
     spy = _Spy()
     monkeypatch.setattr(driver, "crawl_partition", spy)
     monkeypatch.setattr(driver, "coverage", lambda *a, **k: "coverage")
 
-    driver.crawl(None, MuqawilPartition(), None, None, "run-1", 2)
+    driver.crawl(None, directory, None, None, "run-1", 2)
 
     assert spy.calls[0]["cells"] is None
 
@@ -258,14 +272,15 @@ def _field(key: str, name: str):
     return type("_Field", (), {"field_key": key, "source_name": name})()
 
 
-def test_every_field_is_text_and_only_contractor_id_is_the_identity(driver):
+def test_every_field_is_text_and_only_contractor_id_is_the_identity(driver,
+                                                                    directory):
     """Inference would guess `integer` for a rating reading `4.5` on the next page,
     the schema hash would then differ per page, and every approval after the first is
     refused. That is #234's 823 refusals in a different disguise."""
     candidate = type("_Candidate", (), {
         "fields": [_field("contractor_id", "ID"), _field("rating", "Rating")]})()
 
-    approval = driver._approval(candidate)
+    approval = driver._approval(directory, candidate)
 
     assert {one.field_key: one.data_type for one in approval.fields} == {
         "contractor_id": "text", "rating": "text"}
@@ -324,7 +339,7 @@ def test_coverage_measures_against_the_newest_sighting_without_being_told(
     monkeypatch.setattr(sys, "argv", ["crawl_muqawil_listing.py", "--coverage"])
     monkeypatch.setattr(driver, "open_engine", lambda: conn)
     monkeypatch.setattr(driver, "report_coverage",
-                        lambda _conn, since: windows.append(since))
+                        lambda _conn, _directory, since: windows.append(since))
 
     driver.main()
 
@@ -338,7 +353,7 @@ def test_an_explicit_window_overrides_the_ledgers_newest(driver, conn, monkeypat
                                       "--not-seen-since", "2026-07-01T00:00:00Z"])
     monkeypatch.setattr(driver, "open_engine", lambda: conn)
     monkeypatch.setattr(driver, "report_coverage",
-                        lambda _conn, since: windows.append(since))
+                        lambda _conn, _directory, since: windows.append(since))
 
     driver.main()
 
@@ -347,14 +362,68 @@ def test_an_explicit_window_overrides_the_ledgers_newest(driver, conn, monkeypat
 
 # ---- the trap CLAUDE.md opens with -------------------------------------------
 
-def test_the_driver_puts_its_own_worktree_on_the_path(driver):
-    """`CLAUDE.md`'s first trap: `pip install -e` points at the MAIN checkout, so a
-    tool run from a worktree would import main's code and prove nothing about its own.
+def test_the_crawl_is_shipped_code_and_not_a_script(driver):
+    """WHAT `OP-28` WAS REALLY ABOUT, and the reason the module moved.
+
+    `pyproject.toml` ships `include = ["scrapex*"]`. A crawl living in `tools/` is a
+    crawl no installed user has, which is why the owner's panel could report the
+    Engine "not detected" while a crawl ran: the crawl was a developer script that
+    never went near the product. This asserts the file is inside the package.
     """
-    assert sys.path[0] == str(DRIVER.parent.parent)
+    here = Path(driver.__file__).resolve()
+    assert here.parent.name == "scrapex"
+    assert "tools" not in here.parts
+
+
+def test_both_front_doors_share_one_flag_set(driver):
+    """`scrapex contractors` and `python -m scrapex.contractors` must not drift.
+
+    Two argparse setups for one operation is how a subcommand grows a flag the
+    module lacks — so both call `add_arguments`, and this checks the flags a run
+    cannot do without are actually declared by it.
+    """
+    import argparse
+    parser = argparse.ArgumentParser()
+    driver.add_arguments(parser)
+    declared = {action.dest for action in parser._actions}
+    assert {"plan", "crawl", "approve", "coverage", "run_ref", "only",
+            "pace", "heavy_attempts", "max_attempts", "not_seen_since"} <= declared
 
 
 def test_pairs_can_read_a_row_by_column_name(conn):
     """`_pairs` reads `row["source_url"]`. A tuple row factory would raise TypeError
     on the first page, and only ever under `--approve`."""
     assert conn.row_factory is sqlite3.Row
+
+
+# ---- REQ-27: a second directory is a registry entry, not a copy of this module
+
+def test_a_mistyped_source_is_refused_and_not_silently_defaulted(driver):
+    """There is one directory, so a fallback would look harmless and cost hours.
+
+    A `--source` typo that quietly crawled muqawil would collect the wrong site and
+    report success — the same reasoning `--only` refuses an unknown cell label
+    instead of ignoring it.
+    """
+    with pytest.raises(KeyError) as raised:
+        directories.get("nosuchdirectory")
+
+    assert "muqawil_org" in str(raised.value), "the refusal must name what IS known"
+
+
+def test_the_crawl_takes_its_four_facts_from_the_registry(driver, directory):
+    """The four constants that used to be module-level are the reason a second
+    directory would have needed a copy of the file."""
+    assert directory.base_url == "https://muqawil.org"
+    assert directory.dataset_key == "contractors"
+    assert directory.identity_field == "contractor_id"
+    assert directory.display_name
+    assert not hasattr(driver, "BASE"), "a module constant came back"
+    assert not hasattr(driver, "DATASET")
+    assert not hasattr(driver, "SITE_NAME")
+
+
+def test_the_partition_is_built_per_access_and_not_shared(directory):
+    """Two runs must not share a `PartitionedListing`. It carries no state today,
+    which is exactly when accidental sharing is cheapest to prevent."""
+    assert directory.partition() is not directory.partition()

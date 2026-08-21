@@ -374,8 +374,32 @@ class Fetcher(StrEnum):
     BROWSER = "browser"
 
 
+class SourceCategory(StrEnum):
+    """WHAT KIND of thing a source publishes. His words, 2026-08-21:
+    «ونعمل category للمصادر لدينا الان 2 منتجات ومقاولين».
+
+    `R-32`: the tool is collection first, and price tracking was the FIRST category
+    rather than the category. `jobs` and `tenders` are named as coming and are not
+    here yet -- an enum value with nothing behind it is a promise, not a vocabulary.
+
+    PRODUCTS, NOT PRICES, AND THE DISTINCTION IS LOAD-BEARING. A price is an
+    attribute of a product observed at a time. Naming this category "prices" would
+    repeat the exact mistake `R-32` corrects, one level down.
+    """
+
+    PRODUCTS = "products"
+    CONTRACTORS = "contractors"
+
+
 class ConnectorFamily(StrEnum):
-    """The proven connector families (one per probed platform contract)."""
+    """The proven connector families (one per probed platform contract).
+
+    EVERY VALUE HERE IS A SHOP OR PRICE SHAPE, which is `R-32`'s framing showing up
+    in a vocabulary: a contractor directory, a tender board or a job board cannot be
+    named in it. Whether this enum grows those families or each category gets its own
+    is open and is his -- see the platform plan. Until then a non-products source
+    lives in `site_profile`, which is the split `REQ-25` exists to close.
+    """
 
     MAGENTO_GRAPHQL = "magento-graphql"
     SHOPIFY_JSON = "shopify-json"

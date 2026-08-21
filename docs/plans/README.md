@@ -53,3 +53,4 @@ and add a row above. If it governs live work, add it to the **Current** table an
 link it from [../STATE.md](../STATE.md).
 
 A plan the other machine cannot open does not exist.
+- [2026-08-21 · the platform, not a price tracker](2026-08-21-the-platform-not-a-price-tracker.md) — `R-32`: categories (`products`, `contractors`), one source registry, a database per account. **Nothing built; `Q-14` is his.**
