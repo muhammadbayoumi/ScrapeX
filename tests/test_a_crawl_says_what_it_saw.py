@@ -21,9 +21,9 @@ import pytest
 
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.sightings import (
-    departures,
     Coverage,
     coverage,
+    departures,
     missing_ids,
     record_sightings,
     sighting_frequencies,
@@ -412,8 +412,8 @@ def test_a_changed_row_reads_updated_and_not_confirmed():
     from scrapex.sightings import STATE_CONFIRMED, STATE_UPDATED, row_state
 
     crawl = "2026-08-21T12:00:00Z"
-    common = dict(status="active", first_seen_at="2026-01-01T00:00:00Z",
-                  last_seen_at=crawl, newest=crawl, sighted_at=crawl)
+    common = {"status": "active", "first_seen_at": "2026-01-01T00:00:00Z",
+              "last_seen_at": crawl, "newest": crawl, "sighted_at": crawl}
 
     # A revision written by THAT crawl: the row changed.
     assert row_state(**common, changed_at=crawl) == STATE_UPDATED
@@ -428,7 +428,10 @@ def test_updated_outranks_confirmed_but_not_new_or_absent():
     changed on the crawl that introduced it is `new`; one that changed and is now
     missing is `absent`. Both matter more to a reader than the change."""
     from scrapex.sightings import (
-        STATE_ABSENT, STATE_NEW, STATE_UPDATED, row_state,
+        STATE_ABSENT,
+        STATE_NEW,
+        STATE_UPDATED,
+        row_state,
     )
 
     crawl = "2026-08-21T12:00:00Z"

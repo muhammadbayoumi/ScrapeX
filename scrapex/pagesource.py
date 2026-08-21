@@ -123,6 +123,28 @@ class Cell:
             return "whole"
         return "-".join(f"{name}_{value}" for name, value in self.params)
 
+    def is_under(self, other: Cell) -> bool:
+        """Is this cell entirely inside `other`?
+
+        A CELL IS A SET, AND THIS IS SUBSET-HOOD EXPRESSED IN FILTERS. Adding a
+        filter can only ever narrow, so a cell carrying every one of `other`'s
+        name/value pairs selects a subset of what `other` selects — whatever the
+        extra filters are and whatever order they are written in.
+
+        WHY THE AUDIT NEEDS IT. A nested crawl asks whether `Sum N_child` equals
+        `N_parent`, and that question is only meaningful when the children really
+        are inside the parent. Children that dropped one of the parent's filters
+        would answer it over a LARGER set and could report a comfortable zero
+        deficit while covering none of the parent — a false completeness claim,
+        which is the one kind of wrong answer this module exists to prevent.
+
+        THE EMPTY CELL IS UNDER EVERY CELL'S PARENT AND UNDER NONE OF ITS
+        CHILDREN, both of which fall out of the subset rule rather than being
+        special-cased: `WHOLE` carries no pairs, so every cell is under `WHOLE`
+        and `WHOLE` is under nothing but itself.
+        """
+        return set(other.params) <= set(self.params)
+
     def __str__(self) -> str:
         return self.label
 

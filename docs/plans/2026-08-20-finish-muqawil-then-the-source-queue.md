@@ -160,10 +160,22 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       [R-26](../RULINGS.md#r-26--the-residual-crawl-runs-in-the-background-while-development-continues-and-must-be-stoppable).
       Three cells cannot be witnessed at any size — RIYADH twice, JEDDAH — and close by
       counting or report their deficit exactly.
-- [ ] **`REQ-21`: the nested audit.** `crawl_partition` audits against the WHOLE
-      listing, not against a parent cell, so the 151 city cells cannot be run as a
-      subdivision today. Measured: the city list from partial evidence accounts for
-      4,665 of 4,697 — a deficit of **32**, which the audit must name.
+- [x] **`REQ-21`: the nested audit** — `crawl_partition(..., parent=Cell)` audits
+      `Σ N_child` against the parent cell, `Cell.is_under` decides membership as a set
+      question so filter order cannot matter, and `NotASubdivision` refuses a child
+      that dropped one of the parent's filters **before a single request** — such a
+      child is measured over a larger set and could clear the parent's count while
+      covering none of it. A nested proof now reads *"AND FOR THAT CELL ONLY"* rather
+      than claiming the listing. Seven tests, **eight mutations killed**.
+      Measured target: the city list from partial evidence accounts for 4,665 of
+      4,697 — a deficit of **32** the audit now names instead of drowning in 17,414.
+      **A nested crawl runs today** — `listing_url` builds from `cell.query`
+      generically, so `?region_id=1&company_size=verysmall&city_id=21&page=3` is a URL
+      like any other and `in_cell` yields both locales; verified, not assumed. What is
+      missing is a **published** city-cell generator: `cells()` still returns only the
+      56, and deriving cities means querying the warehouse for what we have seen. Not
+      built ahead of his ruling, because for Riyadh it buys 9% (4,697 → 4,268) and
+      the counting proof remains the route.
 - [ ] **Make sizing resumable**, or state its cost in the tool's own output. A resumed
       run re-pays ~112 requests (5.7%).
 
@@ -178,7 +190,7 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 > | `read_email` | decodes Cloudflare's XOR'd `data-cfemail` ✓ |
 > | `read_coordinates` | returns `24.6717 / 46.3942` from the inline script ✓ |
 > | `merge_locales` | gives **20 merged keys** including both `_ar` halves ✓ |
-> | `profile_candidate` | **does not exist** ← the actual gap |
+> | `profile_candidate` | **built 2026-08-21** as `bilingual_profile_candidate` (#235) — it was the actual gap |
 > | `profile-en.html` / `profile-ar.html` | both committed ✓ |
 >
 > So the reading works end to end and what is missing is the **adapter** to a
@@ -198,10 +210,14 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 > the multi-valued groups `R-19` wants in child tables. That is why `R-19` is a
 > separate item and not part of the parser.
 
-- [ ] **`profile_candidate`** — the adapter, plus `_candidate_from` taking its declared
-      field list as a parameter instead of always leading with `CARD_FIELDS`.
-- [ ] **A declared `PROFILE_FIELD_ORDER`**, for the reason `CARD_FIELDS` exists: a
+- [x] **`profile_candidate`** — `bilingual_profile_candidate`, plus `_candidate_from`
+      taking its declared field list as a parameter instead of always leading with
+      `CARD_FIELDS`. Verified on the committed fixtures: 21 fields, approvable, one
+      row, no `card_*` leakage, identity `881`, coordinates `24.6717 / 46.3942`.
+      Five mutations killed. **#235.**
+- [x] **A declared `PROFILE_FIELD_ORDER`**, for the reason `CARD_FIELDS` exists: a
       profile page that happens to omit a box must not produce a different schema.
+      **#235.**
 - [ ] **`R-19`: child tables for all five multi-valued groups** — «جداول أبناء للخمس
       كلّها»: Interests, Licensed Activities, Qualification Programs, Balady Services,
       contractor relations. Not JSON, not `Activity 1, 2, 3`. A measured profile carried

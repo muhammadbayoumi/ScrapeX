@@ -813,6 +813,45 @@ Reading the code found almost none of these. What found them:
 - **When a fix looks like it did nothing, suspect the environment before the
   logic** — §1 above.
 
+### A mutation harness that trusts `finally` will leave a mutation in the tree
+
+The method above depends on a harness that **mutates the source, runs the tests,
+and puts the source back**. The putting-back is the dangerous half, and it has now
+failed twice on the same day, in two different disguises:
+
+| attempt | how the restore was written | what killed it | what it left behind |
+|---|---|---|---|
+| first | a `for` loop in **bash**, restoring after each mutation | the tool's two-minute timeout | a mutation in `scrapex/sightings.py` |
+| second | a **Python** script restoring in `finally` | the same timeout | `outside = []` in `scrapex/partitioncrawl.py` |
+
+The second is the instructive one, because `finally` *looks* like the fix for the
+first. It is not. **A timeout arrives as `SIGTERM`, and Python's default
+disposition for `SIGTERM` terminates the interpreter without unwinding the stack**
+— so no `finally` block runs, no `atexit` handler runs, and the file stays
+mutated. `try/finally` protects against exceptions, which is a different hazard
+from being killed.
+
+What it leaves behind is the worst possible artefact: **the check whose guard was
+under test, deleted**, in a working tree where every other test still passes. The
+next thing to run is a full suite that reports green on code with a hole in it, and
+`git diff` shows a one-line change that reads like something you meant.
+
+Two protections, and both are needed:
+
+```python
+def _on_signal(number, _frame):
+    print("restored:", restore())
+    sys.exit(128 + number)
+
+for _sig in (signal.SIGTERM, signal.SIGINT, signal.SIGBREAK):
+    signal.signal(_sig, _on_signal)
+```
+
+and **run the harness in the background**, where no timeout is counting. The
+handler is the belt; the background is the braces. And after any mutation run that
+did not print its own `restored: True`, **grep the tree for the mutations** rather
+than assuming — that check is what caught this one.
+
 ---
 
 ## 9 · A measurement is only as good as the instrument

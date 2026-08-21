@@ -128,6 +128,19 @@ RETRY_PAGE_CEILING = 31
 HEAVY_ATTEMPTS = 10
 
 
+class NotASubdivision(ValueError):
+    """The cells handed in are not all inside the parent they claim to subdivide.
+
+    REFUSED RATHER THAN AUDITED, for the same reason `ScopeNotPartitionable`
+    refuses rather than narrowing. The nested audit's whole claim is
+    `Sum N_child == N_parent`, and a child that dropped one of the parent's
+    filters is measured over a different, larger set. Such a run could report a
+    zero deficit while covering none of the parent — a completeness claim that is
+    false rather than merely weak, and the one failure this module is built to
+    make impossible.
+    """
+
+
 class ScopeNotPartitionable(ValueError):
     """This site is registered for a scope a listing partition cannot honour.
 
@@ -377,11 +390,18 @@ class CellOutcome:
 class PartitionOutcome:
     """What the whole partition read, and what it can and cannot claim."""
 
-    #: The unfiltered listing, sized before the first cell.
+    #: THE SCOPE THIS RUN AUDITS AGAINST, sized before the first cell. The
+    #: unfiltered listing for a top-level run; the PARENT CELL for a nested one.
+    #: Named `whole` because it is the whole of whatever is being accounted for,
+    #: and `parent` below says which — read the two together, never this alone.
     whole: CellSize
     cells: tuple[CellOutcome, ...] = ()
-    #: The unfiltered listing, sized again at the end. `None` if it was not asked.
+    #: The scope, sized again at the end. `None` if it was not asked.
     whole_at_end: CellSize | None = None
+    #: The cell being subdivided. `WHOLE` for a top-level run, and then `whole`
+    #: above is the unfiltered listing and a completeness claim is site-wide.
+    #: Anything else means every claim here is ABOUT THAT CELL ONLY.
+    parent: Cell = WHOLE
     #: Ids recorded into `dataset_sighting`, cumulatively, as the run went.
     newly_sighted: int = 0
     #: Cells whose OWN PAGINATOR could not be read, with why. They were not read at
@@ -392,15 +412,34 @@ class PartitionOutcome:
     notes: tuple[str, ...] = ()
 
     @property
+    def nested(self) -> bool:
+        """Is this a subdivision of ONE cell rather than a run over the listing?"""
+        return bool(self.parent.params)
+
+    @property
+    def scope(self) -> str:
+        """What every number here is about, in words fit for a report line."""
+        return f"cell {self.parent.label}" if self.nested else "listing"
+
+    @property
     def declared_sum(self) -> int:
         return sum(cell.size.declared for cell in self.cells)
 
     @property
     def exhaustiveness_deficit(self) -> int:
-        """`N_whole − Σ N_cell`. Above zero means rows in NO cell — the case that
+        """`N_scope − Σ N_cell`. Above zero means rows in NO cell — the case that
         makes a partition method unsound, counted rather than assumed away. On
         muqawil it was 1,437 until `region_id=0` was found to address exactly
-        them."""
+        them.
+
+        NESTED, THIS IS THE WHOLE OF REQ-21: `Σ N_child` against `N_parent`, so a
+        subdivision chosen from incomplete evidence says by HOW MUCH it is
+        incomplete instead of being trusted. Measured on the worst cell, the 48
+        city cells derived from two thirds of the contractors declared 4,665
+        against the parent's 4,697 — a deficit of 32, which is 0.68% and is
+        NAMED rather than lost. A subdivision is an optimisation; the parent
+        remains the fallback and the counting proof on it needs no child list.
+        """
         return self.whole.declared - self.declared_sum
 
     @property
@@ -431,7 +470,12 @@ class PartitionOutcome:
 
     @property
     def provably_complete(self) -> bool:
-        """Every cell proven, and no row outside every cell.
+        """Every cell proven, and no row outside every cell — WITHIN `parent`.
+
+        IT IS A CLAIM ABOUT `scope` AND NEVER MORE. True on a nested run means
+        the parent cell is fully accounted for; it says nothing whatever about
+        the rest of the listing. `__str__` spells that out, because `True` read
+        off this property alone is the one way this method could mislead.
 
         BOTH HALVES ARE REQUIRED. Fifty-six proven cells that together declare
         fewer rows than the listing prove fifty-six things and not the one that
@@ -452,7 +496,7 @@ class PartitionOutcome:
     def __str__(self) -> str:
         proven = sum(1 for cell in self.cells if cell.provably_complete)
         lines = [
-            f"listing declared {self.whole.declared:,} rows over "
+            f"{self.scope} declared {self.whole.declared:,} rows over "
             f"{self.whole.last_page} pages",
             f"partition declared {self.declared_sum:,} over {len(self.cells)} cells "
             f"— exhaustiveness deficit {self.exhaustiveness_deficit:,}",
@@ -460,22 +504,29 @@ class PartitionOutcome:
             f"cells proven complete {proven} of {len(self.cells)}",
             f"requests {self.requests:,}",
         ]
-        if self.provably_complete:
+        if self.provably_complete and self.nested:
+            lines.append(
+                f"PROVABLY COMPLETE FOR {self.scope} — AND FOR THAT CELL ONLY. It "
+                "says nothing about the rest of the listing, which still needs its "
+                "own accounting; this run subdivided one cell and proved that cell.")
+        elif self.provably_complete:
             lines.append(
                 "PROVABLY COMPLETE for the listing as published. This is a claim "
                 "about what the listing PUBLISHES and never about every "
                 "contractor the site knows.")
         else:
             lines.append(
-                "NOT proven complete. The deficit above is a floor on what is "
-                "missing, not an estimate of it.")
+                f"NOT proven complete for {self.scope}. The deficit above is a "
+                "floor on what is missing, not an estimate of it.")
         if self.arrivals > 0:
             lines.append(
-                f"and the listing GREW by {self.arrivals:,} rows while this ran, so "
+                f"and the {self.scope} GREW by {self.arrivals:,} rows while this "
+                "ran, so "
                 "the claim is 'complete as of the start, with those deferred'")
         elif self.arrivals < 0:
             lines.append(
-                f"and the listing SHRANK by {-self.arrivals:,} rows while this ran "
+                f"and the {self.scope} SHRANK by {-self.arrivals:,} rows while "
+                f"this ran "
                 f"({self.whole.declared:,} -> {self.whole_at_end.declared:,}), so a "
                 "cell ending one or two short of its declared count may have lost a "
                 "contractor rather than missed one")
@@ -700,6 +751,7 @@ def _read_cell(conn: sqlite3.Connection, partition: PartitionedListing,
 def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
                     base_url: str, *, fetch: Fetch, run_ref: str,
                     dataset_key: str, cells: Sequence[Cell] | None = None,
+                    parent: Cell = WHOLE,
                     max_attempts: int = 2,
                     heavy_attempts: int = HEAVY_ATTEMPTS,
                     retry_page_ceiling: int = RETRY_PAGE_CEILING,
@@ -722,6 +774,17 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
 
     IT REFUSES A SCOPE IT CANNOT HONOUR rather than narrowing one. See
     `ScopeNotPartitionable`.
+
+    `parent` IS THE NESTED AUDIT, AND IT IS ONE SIZING REQUEST. Every number this
+    returns is measured against `parent`: pass `WHOLE` (the default) and the
+    accounting is against the unfiltered listing exactly as before; pass a cell
+    and `Σ N_child` is compared against THAT CELL's declared count instead.
+    Without it a subdivision could only be audited against the whole listing —
+    running the 151 city cells of one region would have compared them to 17,414
+    and reported a deficit of thirteen thousand rows that were never in scope, a
+    number so wrong it would have to be ignored, which is how a check stops being
+    one. The cells must actually lie inside `parent` or this raises
+    `NotASubdivision`.
     """
     scope, _slice = read_scope(conn, partition.site_key)
     if scope is not CrawlScope.LISTING_ONLY:
@@ -732,8 +795,20 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
             f"for. Register it as {CrawlScope.LISTING_ONLY.value!r} for this "
             "crawl, or run the detail crawl deliberately.")
 
-    whole = size_cell(fetch, partition, base_url)
     plan = tuple(cells) if cells is not None else partition.cells()
+
+    # CHECKED BEFORE A SINGLE REQUEST IS SPENT. The alternative is discovering it
+    # after hours of fetching, and the cost of the check is a set comparison.
+    outside = [cell.label for cell in plan if not cell.is_under(parent)]
+    if outside:
+        raise NotASubdivision(
+            f"{len(outside)} of {len(plan)} cell(s) are not inside "
+            f"{parent.label!r}, so `Σ N_child == N_parent` would be measured over "
+            f"a different set than the parent: {', '.join(outside[:6])}"
+            + (f" and {len(outside) - 6} more" if len(outside) > 6 else "")
+            + ". A subdividing cell must carry every one of the parent's filters.")
+
+    whole = size_cell(fetch, partition, base_url, parent)
 
     # ONE UNSIZEABLE CELL MUST NOT END A TWO-THOUSAND-REQUEST CRAWL. `size_cell`
     # raises when a cell's page 1 does not arrive or publishes no paginator, and
@@ -803,7 +878,11 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
         if on_cell is not None:
             on_cell(outcome)
 
-    at_end = size_cell(fetch, partition, base_url) if resize_at_end else None
+    # THE SAME SCOPE, so `arrivals` measures the movement of what was audited. A
+    # nested run re-sizing the whole listing would report the site's churn as the
+    # parent cell's, and then a child ending one short would be excused by a
+    # departure that happened somewhere else entirely.
+    at_end = size_cell(fetch, partition, base_url, parent) if resize_at_end else None
     notes: list[str] = []
     above = [size.cell.label for size in sizes if size.last_page > retry_page_ceiling]
     if above:
@@ -818,5 +897,6 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
             f"{len(unsized)} cell(s) could not be sized and were NOT READ: "
             + "; ".join(f"{label} ({why})" for label, why in unsized))
     return PartitionOutcome(whole=whole, cells=tuple(outcomes),
-                            whole_at_end=at_end, newly_sighted=newly_sighted,
+                            whole_at_end=at_end, parent=parent,
+                            newly_sighted=newly_sighted,
                             unsized=tuple(unsized), notes=tuple(notes))

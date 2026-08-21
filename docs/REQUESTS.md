@@ -76,7 +76,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-18](#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) | Bitumen 60/70 prices — the first source that cannot be crawled | **Captured** — 5 of 7 need a written quotation | 2026-08-20 |
 | [REQ-19](#req-19--reinforced-concrete-material-prices--its-turn-will-come) | Reinforced-concrete material prices — its turn will come | **Captured** — a provenance-typed price model | 2026-08-20 |
 | [REQ-20](#req-20--the-database-rename-must-reach-every-user-not-just-this-machine) | The database rename must reach every user | **Captured** — measured; a release blocker under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema) | 2026-08-20 |
-| [REQ-21](#req-21--the-nested-audit--a-subdivision-must-be-checked-against-its-parent) | The nested audit — a subdivision checked against its parent | **Captured** — measured (deficit 32 of 4,697); not built | 2026-08-21 |
+| [REQ-21](#req-21--the-nested-audit--a-subdivision-must-be-checked-against-its-parent) | The nested audit — a subdivision checked against its parent | **In flight** — the audit is built and guarded; no subdivision is wired to a site yet | 2026-08-21 |
 | [REQ-22](#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update) | What happens on a new / vanished / changed contractor, and on "update" | **Captured** — answered by measurement; 3 of 4 are gaps ([OP-26](BACKLOG.md)) | 2026-08-21 |
 
 ---
@@ -885,7 +885,7 @@ exactly why a manual-only remedy looked finished.
 ---
 
 ## REQ-21 · The nested audit — a subdivision must be checked against its parent
-**Captured 2026-08-21 · Measured; not built**
+**Captured 2026-08-21 · In flight — the audit is built; the subdivision is not**
 
 > «اريد تسجيل التدقيق المتشعب ضمن الطلبات»
 
@@ -922,12 +922,44 @@ cities are few and contractors cluster in them: city coverage saturates far fast
 than contractor coverage. That is why choosing a subdivision from partial evidence
 works at all, and the audit is what makes relying on it safe.
 
-### What is missing, and it is a gap in my own plan
+### What was missing, and it was a gap in my own plan — now built
 
-**`crawl_partition`'s audit compares `Σ N_cell` against the WHOLE listing, not against
-a parent cell.** Running the 151 city cells as a partition today would compare them to
-17,417 and report a meaningless deficit. The nested comparison has to be built:
-a partition needs to know its parent, and the audit has to be relative to it.
+**`crawl_partition`'s audit compared `Σ N_cell` against the WHOLE listing, not against
+a parent cell.** Running the 151 city cells as a partition would have compared them to
+17,414 and reported a deficit of thirteen thousand rows that were never in scope — a
+number so wrong it would have to be ignored, which is how a check stops being one.
+
+Built as **one parameter and one refusal**:
+
+| | where | what it does |
+|---|---|---|
+| `crawl_partition(..., parent=Cell)` | `scrapex/partitioncrawl.py:811` | sizes the PARENT, so every number is measured against it; `WHOLE` is the default and top-level runs are unchanged |
+| `Cell.is_under(other)` | `scrapex/pagesource.py:146` | subset-hood expressed in filters — adding a filter can only narrow, so a child carrying all of the parent's name/value pairs selects a subset, **in any order** |
+| `NotASubdivision` | `scrapex/partitioncrawl.py:804` | raised **before a single request** when a cell is not inside the parent. A child that dropped a parent filter is measured over a larger set and could report a comfortable zero deficit while covering none of the parent |
+| `PartitionOutcome.parent` / `.scope` / `.nested` | | so the report says what it audited, and a nested proof reads *"PROVABLY COMPLETE FOR cell … — AND FOR THAT CELL ONLY"* rather than claiming the listing |
+
+Guarded by seven tests in `tests/test_a_crawl_that_can_prove_it_read_everything.py`
+and **eight mutations, all killed** — including the reversed subset test, the ordered
+comparison, and the nested proof claiming the listing.
+
+The re-size at the end follows the same scope, which is not cosmetic: a nested run
+that re-sized the whole listing would report the site's churn as the parent's, and a
+child ending one id short would then be excused by a departure that happened in
+another region entirely.
+
+**A nested crawl is runnable today, and that was worth checking rather than
+assuming.** Measured 2026-08-21: `listing_url` builds from `cell.query`
+generically, so a city cell is a URL like any other —
+`?region_id=1&company_size=verysmall&city_id=21&page=3` — and `in_cell` yields its
+pages in both locales. So `crawl_partition(cells=<city cells>, parent=<the cell>)`
+works end to end now.
+
+What is **not** built is a *published* city-cell generator: `cells()` still returns
+only the 56 `region_id x company_size` cells, and the 151 city cells were computed
+in a scratchpad from stored evidence. Deriving them inside the source module means
+querying the warehouse for what we have seen, which is a design decision — and the
+measurement below says it would buy 9% for the cell that motivated it, so it is not
+being built ahead of his ruling ([R-25](RULINGS.md#r-25--the-crawl-method-is-settled-first-the-schema-and-retention-questions-come-last)).
 
 ### And the subdivision turned out to be worth less than I claimed
 
