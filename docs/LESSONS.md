@@ -852,6 +852,45 @@ handler is the belt; the background is the braces. And after any mutation run th
 did not print its own `restored: True`, **grep the tree for the mutations** rather
 than assuming — that check is what caught this one.
 
+### And `restored: True` can be true while the file on disk has changed
+
+The harness proves it restored by comparing what it wrote back:
+
+```python
+return SRC.read_text(encoding="utf-8") == original
+```
+
+That comparison **cannot see a line-ending change**, because `read_text` opens in
+text mode and universal newlines turns `
+` into `
+` on the way in. Both sides
+are normalised, so both sides match — while `write_text` has meanwhile translated
+every `
+` back to `
+` on Windows. A run that reports `restored: True` can
+therefore leave a file whose **452 lines all changed ending**.
+
+On this repository that surfaces as the confusing pair:
+
+```
+git status  ->  M tools/crawl_muqawil_listing.py
+git diff    ->  (nothing)
+```
+
+`.gitattributes` sets `* text=auto`, so `diff` normalises the endings away and shows
+an empty change, while `status` still reports the file modified. Nothing was wrong
+with the content — measured: identical after `b"
+" -> b"
+"` on both sides — and
+`git checkout --` on the file settles it.
+
+**This is CLAUDE.md's second trap seen from the other side.** That one says never hash
+a tracked file's raw bytes, because CRLF-vs-LF makes equal files look different. This
+is the same fact making *different* files look equal: **normalise when you are asking
+"is the content the same", and compare bytes when you are asking "did I put the file
+back".** The two questions have different right answers, and one function cannot serve
+both.
+
 ---
 
 ## 9 · A measurement is only as good as the instrument
