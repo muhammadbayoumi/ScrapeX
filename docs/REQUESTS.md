@@ -84,6 +84,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **Planned** — blocked on `Q-14`: no account concept exists at all | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
 | [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
+| [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **Captured** — measured against what exists; the design is his call | 2026-08-21 |
 
 ---
 
@@ -1214,6 +1215,122 @@ a reason unrelated to any of this, and the release workflow runs the whole suite
 before it builds — so the tag would fail before it reached the compiler. The repair
 is one line and is written out in that entry; it was not applied here because it
 changes what somebody else's merged test asserts.
+
+---
+
+## REQ-29 · An install surface that looks like a professional program, and an update anyone can apply
+**Captured 2026-08-21 · Captured — nothing designed yet**
+
+> «انا اريد واجهة التثبيت واجهة تشبه اى برنامج محترف واضحة بها كل ما يجب ان
+> يظهر للمستخدم · لو حصل update يقدر يعمل update بسهولة»
+
+**He said it in the same message that closed `OP-35`, and it is the direct
+consequence of `REQ-28`:** he met the install surface as a black window, and what he
+is asking for is that the surface exist at all as a product rather than as a
+download link plus a hope.
+
+**TWO REQUESTS, NOT ONE**, and they fail differently:
+
+1. **The install surface** — what a person sees from "I want this" to "it is
+   running", including every state that can go wrong on the way.
+2. **The update** — a version already installed, a newer one published, and one
+   press between them.
+
+**Do not start from zero: a real amount of this exists and is measured below.**
+Writing a second install surface beside it is the mistake `REQ-27` names —
+*«منخترعش الذرة»*. What exists, and what it cannot do, is the study this request
+needs before a line is written.
+
+**MEASURED 2026-08-21, BEFORE ANY DESIGN — most of the *surface* exists; what is
+missing is the *mechanics*.** The Engine detail screen already renders nineteen
+elements. Counting them honestly is what stops this request becoming a second
+install page beside the first:
+
+| what a professional installer shows | in ScrapeX today |
+|---|---|
+| a state, in words, for every case | **built** — six: Checking / Running / Not running / Installed-not-running / Check timed out / Incompatible / Not detected |
+| installed version vs latest published | **built** — `engine-installed-version`, `engine-latest-version` |
+| a verdict | **built** — badge: *Available to install* / *Update available* / *Up to date* / *Update status unavailable* |
+| an action whose label says what it will do | **built** — the button reads `Update to 1.0.2` when a version is installed |
+| what it will refuse to talk to | **built** — `protocol_version` and `minimum_extension_version` are published beside the release and read *before* installing |
+| release-feed polling that survives a CDN and a rate limit | **built** — `extension/releases.js`, minute-bucket cache key, own timeout, four named states |
+| instructions, and the SmartScreen warning named in advance | **built** — and they auto-open on Download (`app.js:3565`) |
+| diagnostics, a setup guide, copyable technical details | **built and wired** |
+| **download progress** | **CANNOT BE BUILT AS IT STANDS** — see below |
+| **verifying the checksum it displays** | **never checked — the SHA-256 on screen is decorative** — nothing compares anything to it |
+| **handing the file over** ("here it is, press it") | **not built** — the user must find it in Downloads |
+| **replacing a running engine in place** | **not built, and broken underneath** — `OP-34` |
+| **not needing a window left open** | **not built** — `B6` (tray icon, log window), never started |
+| **a signed binary** | **not built**, and only he can supply the certificate |
+
+**THE ARCHITECTURAL FINDING, and it decides the whole design.** The panel is a
+Chrome extension, and Chrome will not let an extension do the three things an
+installer does:
+
+    manifest.json permissions: activeTab, identity, nativeMessaging,
+                               sidePanel, storage, tabs        <- no `downloads`
+
+    download.onclick = () => { window.open(installer.url, "_blank"); }   app.js:3564
+
+It hands a URL to the browser and lets go. It cannot show progress, it cannot read
+the file off disk to hash it, and it can never launch a process. **So the panel can
+never be the professional installer — not because nobody wrote it, but because the
+sandbox forbids it.**
+
+**The engine can.** It is a local process with a filesystem and a network stack. The
+division that follows is the recommendation:
+
+| | first install | every update after |
+|---|---|---|
+| **who does the work** | the browser — unavoidable, there is nothing installed yet | **the engine** |
+| **what the panel does** | shows state, verdict, instructions; starts the download | shows state and verdict; **asks** the engine to update |
+| **what is possible** | progress + reveal-in-folder, if `downloads` is added | download, **verify sha256**, swap, relaunch, report — all of it |
+
+That inverts the obvious plan. "Make the install page better" buys a progress bar
+and a Show-in-folder button. **"Let the engine update itself" buys the whole
+professional experience, and it is the half that is not sandboxed.**
+
+**THREE THINGS BLOCK THE SECOND HALF, and they are in order:**
+
+1. **`OP-34`** — a frozen engine cannot restart itself today, so any *Update* button
+   would lie. It has to be fixed first; there is no way around it.
+2. **`OP-33`** — the shipped binary cannot even be asked `database-status`, so an
+   updater that needs to talk to its own CLI has half a CLI.
+3. **A ruling from him on what makes a download trustworthy.**
+   `packaging/build_engine.py` already refuses to guess: *"shipping an updater that
+   fetches and executes unsigned code would be worse than none."* The available
+   chain is a `sha256` published in the manifest, fetched over HTTPS from
+   `raw.githubusercontent.com`, checked before the swap — no certificate needed.
+   Whether that is enough is his call, and the answer decides whether an updater
+   can exist before code signing does.
+
+**What is cheap and visible today, if he wants a first slice:** add the `downloads`
+permission, replace `window.open` with `chrome.downloads.download()` plus
+`chrome.downloads.show()`, and the first install becomes a progress bar and a file
+handed over instead of a tab that opens somewhere. It does **not** solve the
+checksum — an extension cannot read a downloaded file — so the honest options there
+are to have the engine verify it after the fact, or to stop displaying a number
+nothing checks.
+
+**And one thing is already dead on that screen and should be named:**
+`engine-power-switch` has no listener anywhere in `app.js`. Its own label says
+*"Control is not connected yet."* A switch that does nothing is worse on a
+professional surface than no switch.
+
+**Open for him, and these are the questions the design turns on:**
+
+- **Where does the surface live?** The panel's Engine page, the standalone
+  onboarding page, or the engine's own window? Each is a different product.
+- **What does "install" mean for a 60 MB unsigned one-file binary?** Today it is
+  *"run the .exe and leave the window open"*, which is honest but is not what a
+  professional program looks like. A tray icon and a service are `B6` in
+  [STATE.md](STATE.md) and were never built.
+- **Does an update replace a running engine?** `scrapex/relaunch.py` exists for
+  exactly that and **is broken in the frozen build** (`OP-34`), so "update easily"
+  has a defect underneath it that must be fixed first or the button will lie.
+- **Code signing.** `packaging/build_engine.py` states plainly that it is not
+  implemented and needs a certificate only he can hold. Every install will show
+  SmartScreen's blue warning until it exists, and no UI can hide that.
 
 ---
 

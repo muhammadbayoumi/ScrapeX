@@ -905,6 +905,21 @@ def test_gone_and_new_are_measured_against_the_most_recent_crawl(conn):
                  " WHERE generic_record_id = ?", (ids[0],))
     conn.execute("UPDATE generic_record SET last_seen_at = '2026-08-21T12:00:00Z' "
                  " WHERE generic_record_id != ?", (ids[0],))
+    # BOTH SIDES OF `first_seen_at` ARE PINNED, and only one used to be.
+    #
+    # `stored()` writes `first_seen_at` as NOW, and `row_state` calls a row
+    # `new` when `first_seen_at >= newest`. So once real time passed the
+    # literal above, every row satisfied it and all three read as `new`
+    # instead of one. This test passed until 2026-08-21T12:00Z and could
+    # never pass again after it -- `now` only increases, so it was not a
+    # flake for a day, it was permanent from that minute.
+    #
+    # The floor is what the two `last_seen_at` lines above already do, and
+    # what `test_a_crawl_says_what_it_saw.py:215` does for the same column:
+    # pin every row, then override the one the assertion is about. A test
+    # that compares a literal timestamp against `now` is only asserting
+    # anything while `now` is on the expected side of it.
+    conn.execute("UPDATE generic_record SET first_seen_at = '2026-01-01T00:00:00Z'")
     # And one row that FIRST appeared in that newest crawl.
     conn.execute("UPDATE generic_record SET first_seen_at = '2026-08-21T12:00:00Z' "
                  " WHERE generic_record_id = ?", (ids[-1],))

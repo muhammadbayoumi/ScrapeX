@@ -25,7 +25,10 @@ not built. Everything else on Track 2 either waits behind it or waits behind the
 crawl. If a session wants work that depends on nobody: `REQ-20`, or run
 `--coverage` over what the crawl has already gathered.
 
-> **`main` IS RED, AND NOT BECAUSE OF THIS WORK — `OP-35`.** At 12:00Z today
+> **`main` WAS RED, AND IT IS FIXED IN THIS PR — `OP-35`, on his instruction
+> *«ابدأ بـ OP-35»*.** One line, and three mutations prove it did not neuter the test —
+> including two against `row_state` in **production code**, both killed. The account
+> below is why it mattered. At 12:00Z today
 > `test_gone_and_new_are_measured_against_the_most_recent_crawl` began failing on
 > `main` at `38a1e24`, reproduced on the untouched checkout. It hardcodes the newest
 > crawl at `2026-08-21T12:00:00Z` and compares it against rows whose `first_seen_at`
@@ -58,10 +61,10 @@ never assigned.
 
 **THREE THINGS ARE HIS, AND ONLY THE FIRST IS ORDINARY CODE:**
 
-1. **`OP-35` first, because it blocks the other two.** `main` has been red since
-   12:00Z today and the release workflow runs the suite before it builds. The
-   repair is one line and it is written out in `OP-35`; it was not applied here
-   because it changes what somebody else's merged test asserts.
+1. ~~`OP-35`~~ **— fixed in this PR.** He said *«ابدأ بـ OP-35»* and it is fixed, so
+   the release is no longer blocked by a red suite. The pattern was not invented:
+   `tests/test_a_crawl_says_what_it_saw.py:215` already pins every row and then
+   overrides one, for the same column.
 2. **Cut `engine-v0.2.2`.** `VERSION` is already 0.2.2, so nothing needs bumping —
    `git tag engine-v0.2.2 && git push origin engine-v0.2.2`. `OP-30`.
 3. **`claude/his-four-rulings` must merge, or the release will not help him.** His
@@ -76,6 +79,18 @@ never assigned.
 cd .claude/worktrees/determined-liskov-0c89fe
 python -m scrapex.cli ui --no-open
 ```
+
+**AND HE ASKED FOR THE NEXT THING IN THE SAME BREATH — `REQ-29`:** an install
+surface *«تشبه اى برنامج محترف»* and an update anyone can apply. **Measured before
+designing: the surface is largely built — nineteen elements, six states, a verdict
+badge and a label that says what the button will do. What is missing is the
+MECHANICS**, and the finding that decides the design is that the panel *cannot*
+supply them: Chrome gives it no `downloads` permission, no file read and no way to
+launch a process, so `app.js:3564` hands a URL to the browser and lets go. **The
+engine can do all three.** So the first install goes through the browser because
+nothing is installed yet, and every update after it belongs to the engine. That is
+blocked on `OP-34` first, then a ruling from him on what makes a download
+trustworthy without a signing certificate. The full study is in `REQ-29`.
 
 Also found and filed, not fixed — all three are the SAME silent fall-through to
 `serve()` that produced the black window. **`OP-33`:** twelve of the CLI's

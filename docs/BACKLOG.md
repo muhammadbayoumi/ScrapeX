@@ -1094,11 +1094,35 @@ things.
 one test per builder asserting the frozen shape, which needs no real binary — only a
 patched `sys.frozen` and `sys.executable`.
 
-### OP-35 · `main` went red at 12:00Z today and stays red, which blocks the engine release
+### OP-35 · ~~`main` went red at 12:00Z today and stays red, which blocks the engine release~~ — FIXED 2026-08-21
 
-**Status: OPEN, diagnosed and NOT fixed — the one-line repair is below and it is his
-call, per "diagnose, confirm, then fix".** This is the most urgent entry in this file
-today, because `OP-30`'s next action cannot be taken while it stands.
+> **CLOSED THE SAME DAY, on his instruction — *«ابدأ بـ OP-35»*, 2026-08-21.** The
+> repair is the one below, and it turned out not to be an invention: **the sibling
+> test in this same file's neighbour already uses the correct pattern for the same
+> column.** `tests/test_a_crawl_says_what_it_saw.py:215` pins every row's
+> `last_seen_at` with a bare `UPDATE` and *then* overrides the one it is about. The
+> broken test pinned both sides of `last_seen_at` and only one side of
+> `first_seen_at`. One line closes the gap.
+>
+> **AND THE FIX WAS PROVED NOT TO HAVE NEUTERED THE TEST**, which is the real risk
+> when a red test goes green. Three mutations, three killed:
+>
+> | mutation | result |
+> |---|---|
+> | remove the new pin | **KILLED** — the bomb returns, so the fix is load-bearing |
+> | `row_state`: `first_seen_at >= newest` → `>` (**production code**) | **KILLED** — the `new` rule is still guarded |
+> | `row_state`: stop calling an unseen row `absent` (**production code**) | **KILLED** — the `absent` rule is still guarded |
+>
+> The two production mutations are the ones that matter: a test edited into
+> passing would have survived them. All 40 tests in the file pass, and the class
+> was swept — the other 13 files holding a hardcoded 2026 timestamp pass every
+> value to `row_state()` explicitly, so no `now` is involved, and **no
+> future-dated literal exists anywhere in `tests/`** that would arm the same bomb
+> for a later date.
+
+**The diagnosis, kept as written — the present tense below is that afternoon's.**
+It was the most urgent entry in this file, because `OP-30`'s next action could not
+be taken while it stood.
 
     FAILED tests/test_a_dataset_is_a_table_like_any_other.py::
            test_gone_and_new_are_measured_against_the_most_recent_crawl
