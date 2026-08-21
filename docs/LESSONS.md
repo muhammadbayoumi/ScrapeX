@@ -835,6 +835,41 @@ so the comparison is the id sequence. The bytes are a proxy that is strictly str
 than the property, and a proxy stronger than the property is not a conservative choice —
 it is a check that can never pass.
 
+### A proof that demands more than it needs fails exactly where it is needed most
+
+2026-08-21. `partitioncrawl` had one completeness rule: a cell is complete when its
+witness held **and** its distinct ids equalled the declared count. The witness proves
+the pages were read inside one cache generation, so they were disjoint.
+
+**A cell above the generation's reach can never satisfy that, by construction.** The
+first real crawl measured six such cells — worst 236 pages against a 31-page ceiling —
+and reported a deficit of **3,690 with no route to close it**. Not a bug in the code;
+the rule itself had made those cells unprovable.
+
+**And the second proof was there the whole time.** A cell that declares `N` rows
+cannot show `N` DISTINCT ids unless it has shown all of them, and the ids may be
+accumulated over any number of reads. No generation, no witness, no single pass. Both
+proofs rest on the same assumption — that the paginator's `N` is true — so the witness
+adds no *completeness* the count does not.
+
+**What made it hard to see is worth more than the fix.** The module docstring stated
+the opposite as settled fact — *"the union can reach N by luck across two generations
+and that proves nothing"* — and a test was named
+`test_a_union_across_two_generations_is_not_a_proof` and asserted it. Nine guards and
+twenty-one killed mutations all agreed with each other, because they were all
+checking the same wrong rule. **Mutation testing cannot find a mistake in what you
+decided to prove**; it only checks that you still prove it. The error surfaced only
+when a live run produced a deficit and the question became "how would we ever close
+this?"
+
+**Apply:** when a check combines conditions with `and`, ask which of them the claim
+actually needs, and what class of input the extra condition excludes **permanently**.
+An over-strict proof reports false negatives, and a false negative on a completeness
+claim looks exactly like missing data — so it sends someone hunting for rows that were
+never lost. Both proofs are now computed, and the report says which one carried each
+cell (`[by witness]` / `[by count]`), because a claim whose grounds are invisible is a
+claim nobody can re-check.
+
 ### A facet's controls may not be a `<select>`, and its null class may have a value
 
 Two beliefs about muqawil's listing were recorded from a search of its `<select>`

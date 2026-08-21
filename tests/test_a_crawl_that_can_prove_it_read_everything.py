@@ -307,12 +307,16 @@ def test_a_rolled_generation_fails_the_witness_and_the_ids_still_count(conn):
                               run_ref="run-1", dataset_key="rows",
                               max_attempts=1)
     only = outcome.cells[0]
-    assert not only.provably_complete
+    assert not any(a.witnessed for a in only.attempts), "the generation rolled"
     assert len(only.ids) == 9, "the ids it read still count"
     assert only.observed_deficit == 0
-    assert "observed, not proven" in str(only)
-    assert not outcome.provably_complete
-    assert "NOT proven complete" in str(outcome)
+    # THE WITNESS FAILED AND THE CELL IS STILL COMPLETE, by the count. This test
+    # used to assert `not provably_complete` here, which was the wrong claim — see
+    # `test_a_union_across_two_generations_IS_a_proof`.
+    assert only.provably_complete
+    assert only.proof_kind == "count"
+    assert "[by count]" in str(only)
+    assert outcome.provably_complete
 
 
 def test_a_retry_after_a_rolled_generation_earns_the_proof(conn):
@@ -328,30 +332,46 @@ def test_a_retry_after_a_rolled_generation_earns_the_proof(conn):
     ids = [str(n) for n in range(1, 10)]
     directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
     partition = Partition(directory, cells=(cell(region_id=1),))
+    # THE ROLL MUST LAND BEFORE THE LAST PAGE, not after it. Rolling after page 3
+    # left the first read holding all nine ids, so the COUNTING proof closed the cell
+    # on attempt one and there was no retry to observe. Rolling before page 2 makes
+    # the first read genuinely partial — 5 distinct of 9 — which is the case a retry
+    # exists for.
     hits: list[str] = []
 
     def rolling(url: str) -> str:
-        html = directory.fetch(url)
-        if url.endswith("region_id=1&page=3"):
+        if url.endswith("region_id=1&page=2"):
             hits.append(url)
-            if len(hits) == 2:
+            if len(hits) == 1:
                 directory.roll("region_id_1", list(reversed(ids)))
-        return html
+        return directory.fetch(url)
 
     outcome = crawl_partition(conn, partition, BASE, fetch=rolling,
                               run_ref="run-1", dataset_key="rows")
     only = outcome.cells[0]
     assert len(only.attempts) == 2
     assert not only.attempts[0].witnessed, "the first read straddled two generations"
+    assert only.attempts[0].distinct < only.size.declared, "and was partial"
     assert only.provably_complete
-    assert only.proof is only.attempts[1]
+    assert only.proof is only.attempts[1], "the second read held one generation"
+    assert only.proof_kind == "witness"
     assert outcome.provably_complete
 
 
-def test_a_union_across_two_generations_is_not_a_proof(conn):
-    """THE SWEEP'S ANSWER, REFUSED. Two reads that between them account for every
-    row prove nothing about either read. `provably_complete` must come from ONE
-    attempt whose witness held, never from the union."""
+def test_a_union_across_two_generations_IS_a_proof(conn):
+    """THIS TEST ASSERTED THE OPPOSITE AND THE ASSERTION WAS WRONG.
+
+    It was written as *"a union across two generations is NOT a proof"*, on the
+    reasoning that the union "can reach N by luck". There is no luck in it: every id
+    came off this cell's own filtered pages, so the cell contains at least the
+    distinct ids seen, and it declares exactly eight. Eight distinct of eight
+    declared IS complete, whether one read produced them or five did.
+
+    THE ERROR WAS NOT FREE, which is why it is corrected in place rather than
+    quietly. Requiring the witness made the six cells above the 31-page ceiling
+    unprovable BY CONSTRUCTION — no single read of them can hold one generation — and
+    the first real run reported a 3,690 deficit with no route to close it.
+    """
     register(conn)
     everyone = [str(n) for n in range(1, 9)]
     directory = Directory({"whole": list(everyone), "region_id_1": list(everyone)})
@@ -380,9 +400,20 @@ def test_a_union_across_two_generations_is_not_a_proof(conn):
                               run_ref="run-1", dataset_key="rows")
     only = outcome.cells[0]
     assert len(only.attempts) == 2, "a failed witness must earn the retry"
-    assert len(only.ids) == 8, "the union does account for every row"
+    assert len(only.ids) == 8, "the union accounts for every row"
     assert only.observed_deficit == 0
-    assert not only.provably_complete, "and that is not a proof"
+    # AND IT IS A PROOF, WHICH IS THE OPPOSITE OF WHAT THIS TEST FIRST ASSERTED.
+    # Neither read held a generation, so neither is witnessed — and it does not
+    # matter: eight distinct ids came off a cell that declares eight, so the cell
+    # contains exactly them. See `counted_complete`.
+    assert only.provably_complete
+    assert only.proof_kind == "count"
+    assert only.proof is None, "no single attempt accounted for the whole cell"
+    # AND EACH ATTEMPT'S OWN WITNESS HELD, which is what makes this the subtle case
+    # rather than an obvious one: both reads were internally consistent and neither
+    # covered the cell. The witness is not the thing that was missing.
+    assert all(a.witnessed for a in only.attempts)
+    assert all(a.distinct < only.size.declared for a in only.attempts)
 
 
 def test_a_retry_stores_its_own_evidence_rather_than_being_skipped(conn):
@@ -390,11 +421,15 @@ def test_a_retry_stores_its_own_evidence_rather_than_being_skipped(conn):
     run ref would let `already_stored` skip every page and the retry would witness
     the same stale ordering for ever."""
     register(conn)
-    ids = [str(n) for n in range(1, 5)]
+    # NINE IDS, NOT FOUR. A four-id cell is one page, so the first read closes it by
+    # counting and there is no second attempt whose evidence to check.
+    ids = [str(n) for n in range(1, 10)]
     directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
     partition = Partition(directory, cells=(cell(region_id=1),))
 
     def rolling(url: str) -> str:
+        # Rolled on EVERY fetch, so no read can ever be complete or witnessed —
+        # which is what forces both attempts to happen and be observable.
         html = directory.fetch(url)
         directory.roll("region_id_1", list(reversed(directory._order["region_id_1"])))
         return html
@@ -557,7 +592,7 @@ def test_arrivals_during_the_crawl_are_reported_and_not_absorbed(conn):
     outcome = crawl_partition(conn, partition, BASE, fetch=arriving,
                               run_ref="run-1", dataset_key="rows")
     assert outcome.arrivals == 2
-    assert "grew by 2 rows" in str(outcome)
+    assert "GREW by 2 rows" in str(outcome)
 
 
 def test_a_parse_failure_is_not_reported_as_a_dead_page(conn):
@@ -748,6 +783,148 @@ def test_a_witness_that_cannot_be_read_is_a_verdict_and_not_an_end(conn):
     partition = Brittle(directory, cells=(cell(region_id=1),))
     outcome = run(conn, partition, directory, max_attempts=1, resize_at_end=False)
     only = outcome.cells[0]
-    assert not only.provably_complete
+    # THE POINT IS THAT NOTHING RAISED. An unguarded witness would have thrown out of
+    # `crawl_partition` and discarded every cell already read.
     assert "the witness could not be read" in only.attempts[0].note
+    assert not only.attempts[0].witnessed
     assert len(only.ids) == 4, "the pages it did read still count"
+    # And the cell is still complete — by COUNTING, which needs no witness at all.
+    # That is the correct outcome: the witness being unreadable costs the cheaper
+    # single-pass proof, not the coverage.
+    assert only.provably_complete
+    assert only.proof_kind == "count"
+
+
+# ---- the counting proof, and what it costs a heavy cell ----------------------
+
+def test_a_cell_too_big_to_witness_is_closed_by_counting(conn):
+    """THE 3,690 DEFICIT'S ROUTE OUT, and the reason the old rule was wrong.
+
+    Six cells were measured above the 31-page ceiling on 2026-08-21 — the worst 236
+    pages — so no single read of them can hold one cache generation and the witness
+    can never carry them. Under the old rule they were unprovable BY CONSTRUCTION.
+    Read repeatedly, their distinct ids accumulate to the declared count, and that is
+    a proof.
+    """
+    register(conn)
+    ids = [str(n) for n in range(1, 13)]
+    directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
+    partition = Partition(directory, cells=(cell(region_id=1),))
+    # Rolled on every fetch, so no read is ever internally consistent — the exact
+    # condition of a cell larger than one generation.
+    def rolling(url: str) -> str:
+        html = directory.fetch(url)
+        order = directory._order["region_id_1"]
+        directory.roll("region_id_1", order[1:] + order[:1])
+        return html
+
+    outcome = crawl_partition(conn, partition, BASE, fetch=rolling, run_ref="run-1",
+                              dataset_key="rows", retry_page_ceiling=1,
+                              heavy_attempts=8, resize_at_end=False)
+    only = outcome.cells[0]
+    assert not any(a.witnessed for a in only.attempts), "no read held a generation"
+    assert only.provably_complete, "and the cell is complete anyway"
+    assert only.proof_kind == "count"
+    assert len(only.ids) == only.size.declared == 12
+    assert len(only.attempts) > 1, "it took more than one read"
+    assert "[by count]" in str(only)
+
+
+def test_a_heavy_cell_gets_more_than_one_read(conn):
+    """`RETRY_PAGE_CEILING` used to cut a heavy cell to a SINGLE attempt, on the
+    reasoning that a second read "buys ids it already has and no proof" — true of the
+    witness, false of the count. That one line is why the first real run left six
+    cells with a deficit and no way to close them."""
+    register(conn)
+    ids = [str(n) for n in range(1, 41)]
+    directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
+    partition = Partition(directory, cells=(cell(region_id=1),))
+
+    def never_settles(url: str) -> str:
+        html = directory.fetch(url)
+        order = directory._order["region_id_1"]
+        directory.roll("region_id_1", order[3:] + order[:3])
+        return html
+
+    outcome = crawl_partition(conn, partition, BASE, fetch=never_settles,
+                              run_ref="run-1", dataset_key="rows",
+                              retry_page_ceiling=2, heavy_attempts=3,
+                              resize_at_end=False)
+    only = outcome.cells[0]
+    assert len(only.attempts) == 3, "a heavy cell must get its retries"
+    assert "closed by COUNTING" in str(outcome)
+    assert f"{2}-page witness ceiling" in str(outcome)
+
+
+# ---- a deficit that is churn, not a gap -------------------------------------
+
+def test_a_cell_that_lost_a_row_says_so_instead_of_reporting_a_gap(conn):
+    """THREE CELLS FINISHED ONE OR TWO SHORT on the first real run — `235 of 236`,
+    `148 of 149`, `405 of 413` — and nothing could say whether a contractor had been
+    missed or had LEFT. The listing shrank by 25 rows that same night, so departure
+    was the likelier reading and there was no way to prefer it. One request per short
+    cell settles it."""
+    register(conn)
+    ids = [str(n) for n in range(1, 10)]
+    directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
+    partition = Partition(directory, cells=(cell(region_id=1),))
+    reads: list[str] = []
+
+    def losing_one(url: str) -> str:
+        html = directory.fetch(url)
+        reads.append(url)
+        # One contractor leaves the cell after it has been sized and read once, so
+        # the re-size finds 8 where the read was counted against 9.
+        if len(reads) == 4:
+            directory.roll("region_id_1", ids[:-1])
+        return html
+
+    outcome = crawl_partition(conn, partition, BASE, fetch=losing_one,
+                              run_ref="run-1", dataset_key="rows",
+                              max_attempts=1, resize_at_end=False)
+    only = outcome.cells[0]
+    assert only.size_at_end is not None, "a short cell must be re-sized"
+    assert only.departures >= 1
+    assert only.deficit_is_churn, (
+        f"D={only.observed_deficit} against {only.departures} departure(s) is churn")
+    assert "which accounts for it: nothing was missed" in str(only)
+
+
+def test_a_cell_that_closed_is_not_re_sized_at_all(conn):
+    """One request a cell over 56 cells is 56 requests spent explaining a deficit
+    that most cells do not have. It is asked for exactly the cells that fell short."""
+    register(conn)
+    ids = [str(n) for n in range(1, 10)]
+    directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
+    partition = Partition(directory, cells=(cell(region_id=1),))
+
+    outcome = run(conn, partition, directory, resize_at_end=False)
+    only = outcome.cells[0]
+    assert only.provably_complete
+    assert only.size_at_end is None, "a complete cell must not cost a re-size"
+    assert only.departures == 0
+    assert not only.deficit_is_churn
+
+
+def test_a_listing_that_shrank_says_shrank_and_not_grew_by_minus(conn):
+    """THE REPORT SAID "the listing grew by -25 rows" ON THE FIRST REAL RUN, because
+    `arrivals` was named for one direction. A directory can shrink — that one did,
+    17,417 -> 17,392 overnight — and a departure is the more interesting event,
+    because it is why a cell can end short without anything being missed."""
+    register(conn)
+    ids = [str(n) for n in range(1, 9)]
+    directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
+    partition = Partition(directory, cells=(cell(region_id=1),))
+
+    def leaving(url: str) -> str:
+        html = directory.fetch(url)
+        if url.endswith("region_id=1&page=1"):
+            directory.roll("whole", ids[:-3])
+        return html
+
+    outcome = crawl_partition(conn, partition, BASE, fetch=leaving, run_ref="run-1",
+                              dataset_key="rows")
+    assert outcome.arrivals == -3
+    report = str(outcome)
+    assert "SHRANK by 3 rows" in report
+    assert "grew by -" not in report, "a negative growth is a shrinkage, in words"

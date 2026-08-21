@@ -40,11 +40,32 @@ THE METHOD, and `docs/BACKLOG.md` DEC-11 carries its measurements:
       and names its size; `D == 0` with a held witness proves every published row
       position was read.
 
-TWO NUMBERS PER CELL, BECAUSE THERE ARE TWO QUESTIONS. What we OBSERVED (the
-union of ids over every attempt) and what we can PROVE (one attempt whose witness
-held and whose own ids accounted for the cell). The union can reach N by luck
-across two generations and that proves nothing, so `provably_complete` is never
-computed from it.
+TWO PROOFS, AND THE SECOND ONE IS A CORRECTION OF THIS FILE'S FIRST CLAIM.
+
+  * THE WITNESS PROOF — page 1 returns the same id sequence after the read, so the
+    generation never rolled, so the pages were disjoint and one pass covered the
+    cell.
+  * THE COUNTING PROOF — `|distinct| == N`. A cell that declares N rows cannot show
+    N DISTINCT ids unless it has shown all of them, and the ids may be accumulated
+    over any number of reads.
+
+**This module originally said the union "can reach N by luck … and that proves
+nothing", and required the witness. That was wrong.** There is no luck in it: every
+id came off that cell's own filtered pages, so the cell contains at least the
+distinct ids seen, and it declares exactly N. Both proofs rest on the SAME
+assumption — that the paginator's N is true — and the witness adds no completeness
+that the count does not.
+
+The error was not free. It made the six cells measured above the 31-page ceiling
+unprovable **by construction** — no single read of them can hold one generation — so
+the first real run reported a 3,690 deficit with no route to close it. The counting
+proof is the route, and `HEAVY_ATTEMPTS` is how far it is pursued.
+
+WHAT THE WITNESS STILL EARNS. It says a cell was closed in ONE pass rather than
+several, which is the difference between 12 requests and 120; it detects the
+generation rolling, which is how a cell is known to be too big; and it is the only
+check that would notice a paginator declaring FEWER rows than the cell holds, since a
+too-small N makes the count agree for the wrong reason.
 
 WHAT THIS STILL CANNOT SEE, and it is the most important paragraph here. It
 proves it read every row the paginated listing PUBLISHES. It cannot prove the
@@ -92,6 +113,19 @@ Fetch = Callable[[str], str]
 #: contributes every id it read, so reading such a cell twice buys ids we already
 #: have. The verdict is reported honestly instead of bought expensively.
 RETRY_PAGE_CEILING = 31
+
+#: How many reads a cell ABOVE that ceiling is allowed, so the counting proof has a
+#: chance to close it. MODELLED, and the model is the one the blind sweep validated:
+#: a pass over a cell read across generations sees about `N(1 − 1/e)` of it, so the
+#: expected unseen after `k` passes is `N·e^(−k)`. It predicted 42.9 unseen after six
+#: passes where the sweep observed 38.
+#:
+#: Ten gives an expected unseen below 1 for the worst cell measured — `region_id=1 ×
+#: verysmall`, 4,704 rows: `4704·e^(−10) ≈ 0.2`. It also bounds the cost: ten reads of
+#: a 236-page cell is 2,360 requests, which is why this is a CEILING on effort and not
+#: a loop that runs until it succeeds. A cell that has not closed in ten reads reports
+#: its deficit, which is the honest outcome and the input to a finer partition.
+HEAVY_ATTEMPTS = 10
 
 
 class ScopeNotPartitionable(ValueError):
@@ -216,6 +250,16 @@ class CellOutcome:
 
     size: CellSize
     attempts: tuple[Attempt, ...] = ()
+    #: The cell, sized again after it was read. `None` when it was not asked.
+    #:
+    #: WHY A CELL NEEDS ITS OWN RE-SIZE AND NOT JUST THE LISTING'S. On the first real
+    #: run three cells finished one or two ids short — `235 of 236`, `148 of 149`,
+    #: `405 of 413` — and nothing could say whether a contractor had been MISSED or
+    #: had LEFT. The listing shrank by 25 rows that same night, so departure was the
+    #: likelier explanation and there was no way to prefer it. One request per cell
+    #: settles it, and a deficit that turns out to be churn is not a gap to go
+    #: hunting for.
+    size_at_end: CellSize | None = None
 
     @property
     def ids(self) -> frozenset[str]:
@@ -233,15 +277,67 @@ class CellOutcome:
 
     @property
     def proof(self) -> Attempt | None:
-        """The attempt that proves this cell complete, if one did."""
+        """The attempt that proves this cell complete by the WITNESS, if one did."""
         for attempt in self.attempts:
             if attempt.witnessed and attempt.distinct == self.size.declared:
                 return attempt
         return None
 
     @property
+    def departures(self) -> int:
+        """How many rows the cell LOST between being sized and being re-sized.
+
+        A deficit no larger than this is churn rather than a gap: the cell declared
+        `N` when it was measured and holds fewer now, so ids counted against the
+        original `N` were never all there to be read.
+        """
+        if self.size_at_end is None:
+            return 0
+        return max(0, self.size.declared - self.size_at_end.declared)
+
+    @property
+    def deficit_is_churn(self) -> bool:
+        """Whether this cell's shortfall is fully explained by rows leaving it."""
+        return (not self.provably_complete
+                and 0 < self.observed_deficit <= self.departures)
+
+    @property
+    def counted_complete(self) -> bool:
+        """THE SECOND PROOF, AND THE ONLY ONE AVAILABLE TO A HEAVY CELL.
+
+        A cell that declares `N` rows cannot show `N` DISTINCT ids unless it has
+        shown all of them. That is a complete proof of coverage and it needs no
+        generation, no witness, and no single pass — the ids may be accumulated
+        across any number of reads.
+
+        WHY THIS WAS MISSING, and it is a correction rather than an addition.
+        `provably_complete` originally required the witness AND the count, which is
+        stricter than the logic needs and is exactly the wrong constraint for the six
+        cells measured above the 31-page ceiling on 2026-08-21: those can never hold
+        one generation, so under the old rule they were unprovable **by
+        construction**, and the method reported a 3,690 deficit it had no route to
+        close. The counting proof is the route.
+
+        WHAT THE WITNESS STILL EARNS, so it is not now redundant: it proves the pages
+        were DISJOINT, which is what makes `distinct == declared` reachable in a
+        single pass instead of by repetition — and it is the only check that would
+        notice a paginator declaring fewer rows than the cell holds, because a
+        too-small `N` makes the count agree for the wrong reason.
+        """
+        return bool(self.attempts) and len(self.ids) == self.size.declared
+
+    @property
     def provably_complete(self) -> bool:
-        return self.proof is not None
+        """Either proof suffices, and the report says which one carried it."""
+        return self.proof is not None or self.counted_complete
+
+    @property
+    def proof_kind(self) -> str:
+        if self.proof is not None:
+            return "witness"
+        if self.counted_complete:
+            return "count"
+        return ""
 
     @property
     def requests(self) -> int:
@@ -263,10 +359,13 @@ class CellOutcome:
             # say so.
             verdict = "EMPTY — the site publishes no rows in this cell"
         elif self.provably_complete:
-            verdict = f"COMPLETE, D=0 over {self.size.declared:,}"
-        elif self.observed_deficit == 0:
-            verdict = (f"{len(self.ids):,} of {self.size.declared:,} seen and none "
-                       "missing, but no witness held — observed, not proven")
+            verdict = (f"COMPLETE, D=0 over {self.size.declared:,} "
+                       f"[by {self.proof_kind}]")
+        elif self.deficit_is_churn:
+            verdict = (f"{len(self.ids):,} of {self.size.declared:,}, "
+                       f"D={self.observed_deficit:,} — and the cell LOST "
+                       f"{self.departures:,} row(s) while it was read, which accounts "
+                       "for it: nothing was missed")
         else:
             verdict = (f"{len(self.ids):,} of {self.size.declared:,}, "
                        f"D={self.observed_deficit:,}")
@@ -316,7 +415,16 @@ class PartitionOutcome:
 
     @property
     def arrivals(self) -> int:
-        """How much the listing grew while the crawl ran. `0` if not re-sized."""
+        """How the listing's size MOVED while the crawl ran. `0` if not re-sized.
+
+        SIGNED, AND IT GOES BOTH WAYS — which the first real run proved and the first
+        wording denied. This was called "how much the listing grew", and the report
+        said *"the listing grew by -25 rows"*, because a directory can shrink: over
+        the night of 2026-08-20 it went 17,417 → 17,392 as twenty-five contractors
+        left. A number named for one direction hides the other, and a departure is
+        the more interesting event of the two — it is the reason a cell can end one
+        id short of its own declared count without anything having been missed.
+        """
         if self.whole_at_end is None:
             return 0
         return self.whole_at_end.declared - self.whole.declared
@@ -361,10 +469,16 @@ class PartitionOutcome:
             lines.append(
                 "NOT proven complete. The deficit above is a floor on what is "
                 "missing, not an estimate of it.")
-        if self.arrivals:
+        if self.arrivals > 0:
             lines.append(
-                f"and the listing grew by {self.arrivals:,} rows while this ran, so "
+                f"and the listing GREW by {self.arrivals:,} rows while this ran, so "
                 "the claim is 'complete as of the start, with those deferred'")
+        elif self.arrivals < 0:
+            lines.append(
+                f"and the listing SHRANK by {-self.arrivals:,} rows while this ran "
+                f"({self.whole.declared:,} -> {self.whole_at_end.declared:,}), so a "
+                "cell ending one or two short of its declared count may have lost a "
+                "contractor rather than missed one")
         lines.extend(self.notes)
         return "\n".join(lines)
 
@@ -587,9 +701,11 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
                     base_url: str, *, fetch: Fetch, run_ref: str,
                     dataset_key: str, cells: Sequence[Cell] | None = None,
                     max_attempts: int = 2,
+                    heavy_attempts: int = HEAVY_ATTEMPTS,
                     retry_page_ceiling: int = RETRY_PAGE_CEILING,
                     fetcher: object | None = None,
                     resize_at_end: bool = True,
+                    resize_cells: bool = True,
                     on_cell: Callable[[CellOutcome], None] | None = None,
                     ) -> PartitionOutcome:
     """Read every cell, witness each one, and report what can be proven.
@@ -644,9 +760,16 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     newly_sighted = 0
     for size in sizes:
         attempts: list[Attempt] = []
-        # ONE ATTEMPT FOR A CELL TOO BIG TO WITNESS. See RETRY_PAGE_CEILING: a
-        # second read of a 235-page cell buys ids it already has and no proof.
-        allowed = 1 if size.last_page > retry_page_ceiling else max_attempts
+        # A HEAVY CELL GETS ITS RETRIES BACK, and that is the whole point of the
+        # counting proof. `RETRY_PAGE_CEILING` used to cut such a cell to ONE
+        # attempt, on the reasoning that a second read "buys ids it already has and
+        # no proof" — true of the witness, false of the count. Measured 2026-08-21:
+        # the six cells above the ceiling were read once each and left a deficit of
+        # 3,680 with no route to close it. Accumulating distinct ids IS the route,
+        # so the ceiling now decides how many reads a cell is ALLOWED, not whether
+        # it gets more than one.
+        allowed = (heavy_attempts if size.last_page > retry_page_ceiling
+                   else max_attempts)
         for number in range(1, allowed + 1):
             attempt = _read_cell(
                 conn, partition, base_url, size, fetch=fetch,
@@ -657,9 +780,25 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
             # crawl killed in cell forty leaves thirty-nine cells of sightings.
             newly_sighted += record_sightings(conn, dataset_key, attempt.ids,
                                               run_ref=attempt.run_ref)
+            # STOP ON EITHER PROOF. Witnessed-and-counted ends it in one pass; the
+            # union reaching the declared count ends it however many it took.
             if attempt.witnessed and attempt.distinct == size.declared:
                 break
-        outcome = CellOutcome(size=size, attempts=tuple(attempts))
+            if len({one for a in attempts for one in a.ids}) == size.declared:
+                break
+        # RE-SIZED ONLY WHEN IT MATTERS. One request a cell over 56 cells is 56
+        # requests spent to explain a deficit most cells do not have, so it is asked
+        # for exactly the cells that fell short.
+        seen_here = {one for a in attempts for one in a.ids}
+        at_end = None
+        if resize_cells and len(seen_here) != size.declared:
+            try:
+                at_end = size_cell(fetch, partition, base_url, size.cell)
+            except Exception:
+                # Failing to explain a deficit is not a reason to lose the cell.
+                at_end = None
+        outcome = CellOutcome(size=size, attempts=tuple(attempts),
+                              size_at_end=at_end)
         outcomes.append(outcome)
         if on_cell is not None:
             on_cell(outcome)
@@ -670,8 +809,10 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     if above:
         notes.append(
             f"{len(above)} cell(s) were above the {retry_page_ceiling}-page witness "
-            f"ceiling and were read once without a retry: {', '.join(above)}. "
-            "Their ids count; their completeness is not claimed.")
+            f"ceiling, so no single read of them can hold one cache generation and "
+            f"the witness cannot carry them: {', '.join(above)}. They were read up to "
+            f"{heavy_attempts} times each and closed by COUNTING instead — "
+            "`distinct == declared` — or reported with the deficit they were left at.")
     if unsized:
         notes.append(
             f"{len(unsized)} cell(s) could not be sized and were NOT READ: "

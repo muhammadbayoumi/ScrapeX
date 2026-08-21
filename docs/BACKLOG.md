@@ -634,6 +634,66 @@ under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-d
 it is a **release blocker** rather than debt — so it is his call whether it goes in its
 own session now or immediately after the crawl lands.
 
+### OP-25 · The partition made the crawl provable and broke the approval, for the SAME reason
+
+**MEASURED 2026-08-21 on the first partitioned crawl.** 897 stored page-pairs went
+through `--approve`. **74 approved, 823 refused** with
+`ExtractionConflict: This dataset already has a different approved schema.`
+
+**74 is not a round number and it is not random.** `region_id=0`'s four cells are
+`1 + 4 + 10 + 59 = 74` pages, and `region_id=0` **is** the 1,438 contractors who
+publish no location at all. Their cards carry no location box, so:
+
+| page | fields |
+|---|---|
+| `region_id=0 & company_size=big` | **21** — no `card_city_region` |
+| `region_id=1 & company_size=big` | **22** |
+
+Those 74 pages taught the dataset a 21-field schema, and every located contractor's
+page after them presented 22 and was refused.
+
+**The cause is the partition itself, which is what makes this worth writing down.**
+`_candidate_from` derives the field list from the union of THAT PAGE's cards. The old
+unfiltered crawl mixed every kind of contractor onto every page, so
+`card_city_region` was always in the union and the schema was stable — 864 pages
+approved into 11,059 records. The partition deliberately **groups like with like**, so
+the first cell is systematically unrepresentative. The same property that makes a cell
+provably complete makes its schema a bad sample.
+
+**The full card field set, measured across page 1 of every cell:** 15 fields, of which
+14 appear on every page that has any cards, and only `card_city_region` varies (58 of
+64 pages). The intersection reads 0 because one cell — `region_id=8 &
+company_size=big` — publishes **no contractors at all**, so its page contributes an
+empty set.
+
+**The fix is already written in the same file, for the same reason, applied to only
+half the problem.** `extract/muqawil.py` declares `BILINGUAL_CARD_FIELDS` and says why:
+
+> Emitting `_ar` only where an Arabic value happened to be found made the column list
+> depend on which contractors that page's Arabic half showed — and the listing
+> reorders, so 118 pages in 119 were refused as a different schema. Which fields the
+> SITE translates is a fact about the site, so it is declared here … and an absent
+> value is a NULL in a column that is always there.
+
+That argument is identical and covers the `_ar` half only. **The base card fields need
+the same declaration**: which boxes a card can carry is a fact about the site, not
+about which twenty contractors a page happened to show.
+
+**AND IT NEEDS A DECISION, because the 74 pages already landed.** A parser that always
+emits 22 fields produces a different `schema_hash`, so those 74 are refused too. Three
+ways out, and the choice has data consequences:
+
+- **(a) Wipe the `contractors` dataset and re-approve all 897 pages from disk.** ~20
+  minutes, **no re-fetching** — the snapshots are stored, which is the whole economics
+  of the seam. Cleanest, and destroys 1,172 rows that would be immediately rebuilt.
+- **(b) A new dataset key.** Keeps the 74 pages' dataset, and leaves two datasets
+  describing one directory — which `R-11` would not thank anyone for.
+- **(c) Schema-drift review support**, which the error message itself points at and
+  which does not exist. The largest option and the one that would help every future
+  source.
+
+*Recommended: (a), and it is only cheap because nothing has to be re-fetched.*
+
 ## 3. Decided, not yet built
 
 ### DEC-1 · Topology A — the TypeScript extension as the public product
