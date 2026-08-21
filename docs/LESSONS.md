@@ -426,6 +426,42 @@ own report was confidently wrong. Recorded as DEC-10, because the fix is a rulin
 
 ---
 
+### A release gate that asks only what no user types will pass a black window
+
+The engine was published with a defect that made it unusable, and every check the
+release ran was green. The gate asked the built binary one question:
+
+    built=$(./dist/scrapex-engine.exe --version)
+
+`--version` is the argument **nobody types**. A person double-clicks the file, which
+passes none — a different branch of `packaging/engine_entry.py:main`, and in the
+build that shipped as `engine-v0.2.1` that branch fell through to the Chrome native
+messaging host, which waits on stdin for framed JSON and prints nothing at all.
+Measured on the published artifact: **zero bytes, and still running after twenty
+seconds.** The owner met a black window, concluded the engine had not installed, and
+was right that something was broken.
+
+**The source had been guarded the whole time**, which is the uncomfortable part.
+`test_the_entry_point_tells_its_three_callers_apart` pins bare argv to `_first_run`
+and has since #141. It was written *because of* this defect. It could not help: the
+artifact was built from a commit six hours older than the fix, and no test in ~2,200
+had ever run the built binary at all.
+
+**Apply:** when something is shipped rather than imported, the gate must exercise
+**the caller that exists in the world**, not the one that is convenient to assert on.
+The convenient caller is usually a flag; the real one is usually a person, and its
+signature is that it produces no exit code worth reading — a working first run never
+returns, and a broken one exits 0 in silence. So judge the OUTPUT. "It printed
+nothing" is the whole defect, and it is invisible to every check that reads a status.
+
+**And a stale artifact is not a stale number.** `VERSION` had already moved to
+0.2.2, `docs/STATE.md` tracked the gap as *version debt*, and `OP-15` recorded the
+panel showing "Installed 0.2.2 / Latest released 0.2.1" as a **wording** problem
+about the two meanings of "installed". Three documents held the evidence and all
+three read it as bookkeeping. The number was telling the truth: no release carrying
+the fix had ever been cut, and the only thing installable was the broken one — for
+twelve days.
+
 ## 5 · The design system: a token has four homes
 
 A new semantic colour is **not one edit**. It must land in `design/tokens.css`

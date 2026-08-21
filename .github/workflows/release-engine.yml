@@ -255,6 +255,55 @@ jobs:
           echo "the built engine says: $built"
           echo "$built" | grep -q "$ENGINE_VERSION"
 
+      - name: And it must speak when a person double-clicks it
+        # THE GATE 0.2.1 WALKED STRAIGHT THROUGH, which is the whole reason this
+        # step exists beside the one above rather than inside it.
+        #
+        # That check asks the binary `--version`. NOBODY EVER TYPES THAT. A
+        # person double-clicks the file, which passes no arguments at all — a
+        # different branch of `packaging/engine_entry.py:main`, and the branch
+        # that was wrong. In the published 0.2.1 (tag engine-v0.2.1, commit
+        # 4386d25) bare invocation fell through to the native messaging host,
+        # which waits on stdin for framed JSON and prints nothing whatsoever.
+        # The release gate passed it, because `--version` worked.
+        #
+        # MEASURED ON THAT EXACT PUBLISHED ARTIFACT on 2026-08-21, byte-for-byte
+        # the file the panel hands a user: bare invocation with stdin closed
+        # printed ZERO bytes and exited 0; with stdin held open it was still
+        # sitting there, silent, after twenty seconds. That is the black window
+        # the owner reported, and it was the only thing installable for twelve
+        # days while the repository already held the fix.
+        #
+        # SO THE RELEASE NOW RUNS IT THE WAY A PERSON RUNS IT, and requires it
+        # to SAY something. A successful first run NEVER RETURNS — the window
+        # being open is the same fact as the engine being up — so the timeout is
+        # how this step passes rather than a fault, and what is judged is the
+        # output, never the exit code.
+        #
+        # `Starting the engine` is the last of the three and is reached only
+        # after the database step succeeded, so asking for it also proves the
+        # first run can prepare a warehouse — the step that has the most ways to
+        # fail on somebody else's machine.
+        #
+        # ITS OWN DATA ROOT, because this genuinely creates a database. A release
+        # check must not find, open or migrate anything but what it made itself.
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SCRAPEX_DATA_ROOT=".double-click-root"
+          mkdir -p "$SCRAPEX_DATA_ROOT"
+          spoke=$(timeout 120 ./dist/scrapex-engine.exe < /dev/null 2>&1 || true)
+          echo "$spoke"
+          if [ -z "$spoke" ]; then
+            echo "REFUSED: double-clicking the engine printed NOTHING, which is" >&2
+            echo "the black window 0.2.1 shipped with. Bare invocation must reach" >&2
+            echo "_first_run in packaging/engine_entry.py, never the native host." >&2
+            exit 1
+          fi
+          echo "$spoke" | grep -q "ScrapeX-Engine"
+          echo "$spoke" | grep -q "Preparing your database"
+          echo "$spoke" | grep -q "Starting the engine"
+
       - name: Checksum, so a download can be proved whole
         shell: bash
         run: |

@@ -22,6 +22,68 @@ not built. Everything else on Track 2 either waits behind it or waits behind the
 crawl. If a session wants work that depends on nobody: `REQ-20`, or run
 `--coverage` over what the crawl has already gathered.
 
+> **`main` IS RED, AND NOT BECAUSE OF THIS WORK — `OP-35`.** At 12:00Z today
+> `test_gone_and_new_are_measured_against_the_most_recent_crawl` began failing on
+> `main` at `38a1e24`, reproduced on the untouched checkout. It hardcodes the newest
+> crawl at `2026-08-21T12:00:00Z` and compares it against rows whose `first_seen_at`
+> is *now*, so from that minute onward every row reads as `new` — **permanently, not
+> for a day.** The release workflow runs the whole suite before it builds, so
+> `engine-v0.2.2` cannot be cut until it is repaired, and `R-18` cannot be satisfied
+> by any open PR. Diagnosed with the one-line repair in `OP-35`; **not applied**,
+> because it is a change to the meaning of somebody else's merged test.
+
+### In flight now — 2026-08-21 (afternoon)
+
+**The Engine would not install on his machine, and the cause is not the installer.**
+[REQ-28](REQUESTS.md#req-28--the-engine-would-not-install-and-showed-a-black-screen).
+He downloaded it, got a black screen, and could not install it. His download is
+perfect — 70,872,447 bytes, sha256 `df7a00ee…`, matching the hub manifest exactly.
+**The only installable engine is the build made before the fix for this exact
+symptom.** `engine-v0.2.1` is commit `4386d25`, where
+`4386d25:packaging/engine_entry.py:62` sends a double-click to the native
+messaging host (today's line 62 is a comment);
+`_first_run` landed six hours later at `7a067c5` and has never been released.
+Reproduced on his file: **0 bytes printed, still alive at 20 s.**
+
+**Built here:** the release now runs the binary **the way a person runs it** —
+`.github/workflows/release-engine.yml`, a step that launches it with no arguments at
+all, bounded by a timeout because a good first run never returns, and refuses a build
+that prints nothing or cannot get past preparing a database. Guarded by
+`tests/test_the_release_proves_the_double_click.py`; **eleven mutations, eleven
+killed**, one of which caught the guard accepting a data root that was named but
+never assigned.
+
+**THREE THINGS ARE HIS, AND ONLY THE FIRST IS ORDINARY CODE:**
+
+1. **`OP-35` first, because it blocks the other two.** `main` has been red since
+   12:00Z today and the release workflow runs the suite before it builds. The
+   repair is one line and it is written out in `OP-35`; it was not applied here
+   because it changes what somebody else's merged test asserts.
+2. **Cut `engine-v0.2.2`.** `VERSION` is already 0.2.2, so nothing needs bumping —
+   `git tag engine-v0.2.2 && git push origin engine-v0.2.2`. `OP-30`.
+3. **`claude/his-four-rulings` must merge, or the release will not help him.** His
+   warehouse is at schema **v8**; `main` reads **v6**, so `scrapex ui` exits 1 before
+   it binds a port. Migrations 0007/0008 exist only in that unmerged worktree, whose
+   code *did* run against his live database today. `OP-31`.
+
+**Until then, the engine that runs on this machine is that worktree's**, verified —
+`/api/health` 200, `worker_alive: true`, in about 16 s:
+
+```
+cd .claude/worktrees/determined-liskov-0c89fe
+python -m scrapex.cli ui --no-open
+```
+
+Also found and filed, not fixed — all three are the SAME silent fall-through to
+`serve()` that produced the black window. **`OP-33`:** twelve of the CLI's
+twenty-four subcommands are unreachable from the shipped engine and print nothing,
+`database-status` among them — the one command that names `OP-31` in a line.
+**`OP-34`:** a frozen engine cannot restart itself, because `relaunch.py` puts
+`-m scrapex.cli` in front of an executable that does not honour it. And **`OP-32`** — a launch that dies in a console writes
+**nothing** to `~/.scrapex/engine.log`, because `_bind_log_streams` deliberately
+no-ops when it has real streams. That log is dated 2026-08-01 and is not evidence
+about anything that happened since.
+
 ### Merged 2026-08-21
 
 **[#238](https://github.com/muhammadbayoumi/ScrapeX/pull/238) — his ruling tested

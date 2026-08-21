@@ -83,6 +83,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-25](#req-25--one-source-registry-with-a-category-visible-to-every-user) | One source registry, with a category, visible to every user | **Planned** — half exists (`active: false`, `TBD-probe`); the category and the single registry do not | 2026-08-21 |
 | [REQ-26](#req-26--a-database-per-account-not-per-machine) | A database per account, not per machine | **Planned** — blocked on `Q-14`: no account concept exists at all | 2026-08-21 |
 | [REQ-27](#req-27--a-second-source-of-a-category-reuses-the-firsts-machinery) | A second source of a category reuses the first's machinery | **Done** — `scrapex/directories.py`; `--source`, and the crawl is inherited | 2026-08-21 |
+| [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
 
 ---
 
@@ -1167,6 +1168,52 @@ docstrings citing where a number was measured, not code. So what is missing is t
 
 **Open for him:** whether `ConnectorFamily` grows contractor families or the category
 gets its own enum. Planned in [the platform plan](plans/2026-08-21-the-platform-not-a-price-tracker.md).
+
+---
+
+## REQ-28 · The Engine would not install, and showed a black screen
+**Captured 2026-08-21 · In flight — the release gate is fixed; cutting 0.2.2 is his**
+
+> He downloaded the Engine, it did not install, he got a **BLACK SCREEN**, and he
+> does not know how to install it. The panel read: *"ScrapeX Engine — Not detected —
+> Available to install — The panel could not reach the Engine."*
+
+**Recorded in English, and that is a departure from rule 2 below.** His own words
+did not reach this session; writing an Arabic quote to satisfy the format would put
+words in his mouth, which is the one thing this file exists to prevent. If he said
+it in Arabic, that quote replaces the paragraph above.
+
+**NOTHING WAS WRONG WITH HIS DOWNLOAD**, proved before anything else was touched.
+Both copies he saved are **70,872,447 bytes** with sha256 `df7a00ee6a0d5360…`,
+matching `ScrapeX/json/version.json` on the hub to the byte.
+
+**The cause: the only installable engine is the build made BEFORE the fix for this
+exact symptom.** `engine-v0.2.1` is commit `4386d25`; at that commit
+`4386d25:packaging/engine_entry.py:62` reads `return serve()` for bare invocation
+(today's line 62 is a comment), so a
+double-click became the Chrome native messaging host, waiting on stdin for framed
+JSON. `_first_run` landed six hours later at `7a067c5`, the unpack splash the next
+day at `756fa39`, and **no release has been cut since**. `git tag` lists exactly one
+engine tag. Reproduced on his machine, on his file:
+
+    ./scrapex-engine.exe --version   ->  ScrapeX-Engine 0.2.1 (protocol 1)
+    ./scrapex-engine.exe             ->  0 bytes, exit 0 (stdin closed)
+    ./scrapex-engine.exe             ->  0 bytes, still alive at 20s (stdin open)
+
+**And a second cause stands behind it, which the release will not fix.** His
+warehouse is at schema **v8**; `main` ships engine migrations to **0006** and reads
+v6, so `scrapex ui` exits 1 before binding a port. Both are recorded as `OP-30` and
+`OP-31` in [BACKLOG.md](BACKLOG.md).
+
+**What is his to decide:** whether to cut `engine-v0.2.2` now. The gate that let
+0.2.1 through is closed in this PR — the release now runs the binary the way a
+person runs it and refuses a build that prints nothing.
+
+**But `OP-35` has to go first.** `main` has been red since 12:00Z on 2026-08-21 for
+a reason unrelated to any of this, and the release workflow runs the whole suite
+before it builds — so the tag would fail before it reached the compiler. The repair
+is one line and is written out in that entry; it was not applied here because it
+changes what somebody else's merged test asserts.
 
 ---
 
