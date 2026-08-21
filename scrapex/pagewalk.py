@@ -29,7 +29,13 @@ from dataclasses import dataclass, field
 
 from .crawlscope import CrawlScope
 from .crawlscope import plan as plan_scope
-from .pagesource import FetchedPage, PageKind, PageSource, SliceNotSupported
+from .pagesource import (
+    FetchedPage,
+    PageKind,
+    PageSource,
+    SliceNotSupported,
+    slice_rows,
+)
 
 #: What the fetcher is: a url in, the page's text out. Anything that raises is
 #: a failed page, and the walk goes on — see `WalkReport.failures`.
@@ -142,11 +148,16 @@ class PageWalker:
     def _details_wanted(self, page: FetchedPage, scope: CrawlScope,
                         slice_of: str, report: WalkReport) -> Iterable[str]:
         """Which detail pages this listing page earns, under this scope."""
-        urls = list(self._source.detail_urls(page))
         if scope is CrawlScope.FULL_THEN_LISTING:
-            return urls
+            # NO PAIRING NEEDED: every URL is wanted, so which row it came from does
+            # not matter and `detail_urls` is the honest thing to ask.
+            return list(self._source.detail_urls(page))
+        # A SLICE NEEDS THE ROW, AND `enumerate` WAS GUESSING IT. muqawil yields a URL
+        # per locale, so index 1 was contractor 0's Arabic page being asked about card 1
+        # — a different contractor — and half the indices pointed past the last card.
+        # `slice_rows` gets the pairing from the source, or refuses.
         wanted = []
-        for index, url in enumerate(urls):
+        for index, url in slice_rows(self._source, page):
             try:
                 if self._source.belongs_to_slice(page, index, slice_of):
                     wanted.append(url)

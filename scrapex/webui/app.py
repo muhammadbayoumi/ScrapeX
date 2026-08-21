@@ -46,6 +46,7 @@ from ..databases import (
 )
 from ..extract import service as extract_service
 from ..extract.api import create_extraction_router
+from ..features import FeatureKey, is_enabled
 from ..features import manifest as feature_manifest
 from ..fields import (
     arranged,
@@ -607,7 +608,24 @@ def create_app(
         Wipe and Rename, and every one of those is a price-path action that would
         answer 400 or worse for a dataset. A button that cannot work is worse
         than no button, so the panel hides them on this marker.
+
+        AND THIS IS THE CALLER `is_enabled` WAS WRITTEN FOR. That function describes
+        itself as *"the gate that NAVIGATION and UI must call before advertising a
+        capability"* and it had **zero callers anywhere** — so `GENERIC_DATASET_CATALOG`
+        being lit was a CLAIM about a capability rather than a switch over it, and
+        turning it off would have changed nothing at all.
+
+        THIS FUNCTION IS THE ADVERTISEMENT. It is what puts a dataset in the source
+        listing the panel draws, which is precisely *telling a user the capability
+        exists* — the claim `is_enabled`'s docstring says spec section 40 forbids
+        inflating. The ROUTES stay mounted whatever the flag says, deliberately and as
+        that docstring requires: `/api/table/contractors` and `/source/contractors`
+        exist so the slice can be exercised and tested on a server bound to 127.0.0.1.
+        Gating the routes would make the flag a kill switch for development; gating the
+        listing makes it a switch over what is announced.
         """
+        if not is_enabled(FeatureKey.GENERIC_DATASET_CATALOG):
+            return []
         general = general_read_conn()
         try:
             return [{

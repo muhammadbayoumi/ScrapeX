@@ -104,18 +104,18 @@ PINNED = (
     # REQ-21's nested audit. The whole request is that `Sum N_child` is compared
     # against the PARENT, and these are the two lines that make it so -- one that
     # sizes the parent, one that refuses cells outside it before a request is spent.
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 972,
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1012,
      "whole = size_cell(fetch, partition, base_url, parent)"),
-    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 965, "raise NotASubdivision("),
+    ("docs/REQUESTS.md", "scrapex/partitioncrawl.py", 1005, "raise NotASubdivision("),
     ("docs/REQUESTS.md", "scrapex/pagesource.py", 146,
      "return set(other.params) <= set(self.params)"),
     # The version-gate blocker. Track 3 of STATE.md cannot be worked without
     # these three, and two of them are the citations that drifted.
     ("docs/STATE.md", "scrapex/version.py", 477, '"latest_extension_version": VERSION'),
-    ("docs/STATE.md", "scrapex/webui/app.py", 1439, '"latest_extension_version": VERSION'),
+    ("docs/STATE.md", "scrapex/webui/app.py", 1459, '"latest_extension_version": VERSION'),
     ("docs/STATE.md", "extension/app.js", 599, "latest_extension_version"),
     ("docs/STATE.md", "scrapex/version.py", 76, 'VERSION = "'),
-    ("docs/RULINGS.md", "scrapex/webui/app.py", 1439, '"latest_extension_version": VERSION'),
+    ("docs/RULINGS.md", "scrapex/webui/app.py", 1459, '"latest_extension_version": VERSION'),
     ("docs/RULINGS.md", "scrapex/version.py", 477, '"latest_extension_version": VERSION'),
     # The two flags whose condition is met and whose lighting is the owner's call.
     ("docs/STATE.md", "scrapex/features.py", 54, "True"),
@@ -133,8 +133,8 @@ PINNED = (
      'assert.equal(manifest.version, VECTORS.version)'),
     ("docs/RULINGS.md", "tests/test_version.py", 79, "pyproject"),
     # OP-2's two worker_alive computations, one of which the fix never reached.
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1450, '"worker_alive"'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2438, "def _about("),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 1470, '"worker_alive"'),
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2458, "def _about("),
     ("docs/BACKLOG.md", "scrapex/webui/templates/settings.html", 162, "about.worker_alive"),
     # BV-3's chain, end to end: the panel posts it, capture reads it.
     ("docs/BACKLOG.md", "extension/app.js", 840, "crawl_honour_delay:"),

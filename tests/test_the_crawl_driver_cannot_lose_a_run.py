@@ -167,14 +167,35 @@ def test_open_engine_refuses_a_database_that_does_not_exist(driver, tmp_path,
 # ---- a mistyped --only must not quietly crawl less ---------------------------
 
 class _Spy:
-    """Stands in for `crawl_partition`, recording what it was asked to crawl."""
+    """Stands in for `crawl_partition`, recording what it was asked to crawl.
+
+    IT USED TO RETURN THE STRING `"an outcome"`, and that stopped being harmless the
+    moment `crawl` began reading the outcome to decide whether departures may be
+    marked. Two tests here failed with `'str' object has no attribute 'nested'` — the
+    right failure, caught by the right tests, and the fix belongs in the stub rather
+    than in a `getattr` that would let the real code accept anything.
+
+    So it returns something SHAPED like a `PartitionOutcome`, and deliberately one that
+    is NOT provably complete: these tests are about which cells `--only` selects, and a
+    stub that claimed a proof would have the driver write absences from a fake crawl.
+    """
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
     def __call__(self, *args, **kwargs):
         self.calls.append(kwargs)
-        return "an outcome"
+        return _unproven_outcome()
+
+
+def _unproven_outcome():
+    """An outcome with no cells: `provably_complete` is False, so nothing is marked."""
+    from scrapex.partitioncrawl import WHOLE, CellSize, PartitionOutcome
+
+    return PartitionOutcome(
+        whole=CellSize(cell=WHOLE, last_page=1, cards_per_page=1, tail_cards=1,
+                       requests=1),
+        cells=(), whole_at_end=None, parent=WHOLE)
 
 
 def test_only_refuses_an_unknown_label_before_touching_the_database(
@@ -433,3 +454,70 @@ def test_the_partition_is_built_per_access_and_not_shared(directory):
     """Two runs must not share a `PartitionedListing`. It carries no state today,
     which is exactly when accidental sharing is cheapest to prevent."""
     assert directory.partition() is not directory.partition()
+
+
+# ---- the cost of sizing, stated where somebody can read it -------------------
+#
+# ITEM 2 OF SIX. The module header of `partitioncrawl` has always said what
+# sizing-before-storing costs — *"the first ~112 requests store nothing … ~5.7% overhead
+# on each resume"* — and a person running the command never reads a module header. Worse,
+# `~112` is muqawil on one day: it moves with the partition and a constant in prose
+# cannot follow it.
+
+def test_the_report_names_what_sizing_cost_and_calls_it_unrecoverable():
+    """The number reaches the OUTPUT, computed from the run rather than remembered."""
+    outcome = _outcome_with(sizing_whole=7, sizing_cell=5, pages_read=20, declared=20)
+
+    said = str(outcome)
+
+    assert outcome.sizing_requests == 12
+    assert "12 (36.4%) sized cells and stored nothing" in said
+    assert "a resumed run pays them again" in said
+
+
+def test_sizing_is_counted_separately_from_the_pages_it_priced():
+    """`CellOutcome.requests` already folds sizing in with pages and witnesses, so the
+    resume cost cannot be read off it. `sizing_requests` is the part that buys nothing
+    but a denominator."""
+    outcome = _outcome_with(sizing_whole=7, sizing_cell=5, pages_read=20, declared=20)
+
+    assert outcome.sizing_requests < outcome.requests
+    assert outcome.requests - outcome.sizing_requests == 21   # 20 pages + 1 witness
+
+
+def test_a_run_that_stored_nothing_but_sizing_does_not_divide_by_zero():
+    """A partition with no cells at all: `share` has no denominator, and the report
+    still has to render rather than raise inside a summary line."""
+    from scrapex.partitioncrawl import WHOLE, CellSize, PartitionOutcome
+
+    empty = PartitionOutcome(
+        whole=CellSize(cell=WHOLE, last_page=1, cards_per_page=0, tail_cards=0,
+                       requests=0),
+        cells=(), whole_at_end=None, parent=WHOLE)
+
+    assert empty.sizing_requests == 0
+    assert "sized cells and stored nothing" not in str(empty)
+
+
+def _outcome_with(*, sizing_whole: int, sizing_cell: int, pages_read: int,
+                  declared: int):
+    from scrapex.pagesource import Cell
+    from scrapex.partitioncrawl import (
+        WHOLE,
+        Attempt,
+        CellOutcome,
+        CellSize,
+        PartitionOutcome,
+    )
+
+    cell = Cell(params=(("region_id", "1"),))
+    return PartitionOutcome(
+        whole=CellSize(cell=WHOLE, last_page=10, cards_per_page=2, tail_cards=2,
+                       requests=sizing_whole),
+        cells=(CellOutcome(
+            size=CellSize(cell=cell, last_page=1, cards_per_page=declared,
+                          tail_cards=declared, requests=sizing_cell),
+            attempts=(Attempt(ids=tuple(str(i) for i in range(declared)),
+                              pages_read=pages_read, witnessed=True, note="",
+                              run_ref="r"),)),),
+        whole_at_end=None, parent=WHOLE)

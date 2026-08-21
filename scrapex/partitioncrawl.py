@@ -540,6 +540,29 @@ class PartitionOutcome:
         return self.whole.requests + sum(cell.requests for cell in self.cells) \
             + (self.whole_at_end.requests if self.whole_at_end else 0)
 
+    @property
+    def sizing_requests(self) -> int:
+        """Requests that MEASURED and stored nothing — the ones a resume pays twice.
+
+        THIS NUMBER ONLY EVER EXISTED IN A DOCSTRING, which is the defect this closes.
+        The module header above states the price of sizing-before-storing — *"the first
+        ~112 requests store nothing … ~5.7% overhead on each resume"* — and somebody
+        running the command never reads a module header.
+
+        WORSE, `~112` IS A MEASUREMENT OF ONE SITE ON ONE DAY. It moves with the
+        partition: a source with 12 cells or 500 pays something else entirely, and a
+        constant written into prose cannot follow it. So this is computed from what the
+        run actually paid, and `__str__` prints it.
+
+        That is the checklist item taking its second branch on purpose — *"make sizing
+        resumable, OR state its cost in the tool's own output"*. Making it resumable
+        changes what the progress denominator MEANS, because the frontier is declared
+        once after sizing and that is what makes it a count rather than an estimate.
+        Stating the cost only stops hiding a number.
+        """
+        return self.whole.requests + sum(cell.size.requests for cell in self.cells) \
+            + (self.whole_at_end.requests if self.whole_at_end else 0)
+
     def __str__(self) -> str:
         proven = sum(1 for cell in self.cells if cell.provably_complete)
         lines = [
@@ -551,6 +574,12 @@ class PartitionOutcome:
             f"cells proven complete {proven} of {len(self.cells)}",
             f"requests {self.requests:,}",
         ]
+        if self.sizing_requests:
+            share = self.sizing_requests / self.requests if self.requests else 0.0
+            lines.append(
+                f"  of those, {self.sizing_requests:,} ({share:.1%}) sized cells and "
+                "stored nothing — a resumed run pays them again, because sizing is "
+                "not resumable. `--plan` pays them once, on purpose, and prints them")
         if self.provably_complete and self.nested:
             lines.append(
                 f"PROVABLY COMPLETE FOR {self.scope} — AND FOR THAT CELL ONLY. It "
@@ -637,6 +666,17 @@ class _Unstored:
 
     def detail_urls(self, page):
         return self._inner.detail_urls(page)
+
+    def detail_rows(self, page):
+        """FORWARDED, and forgetting to would have been silent.
+
+        This wrapper exists to hide already-stored listing URLs from a resume, and
+        every other method of the source is delegated. A `detail_rows` that was NOT
+        delegated would make `slice_rows` fall through to its `enumerate` default and
+        reinstate exactly the off-by-a-locale pairing this method was added to remove —
+        for the wrapped source only, which is the one production actually uses.
+        """
+        return self._inner.detail_rows(page)
 
     def belongs_to_slice(self, page, row_index: int, slice_of: str) -> bool:
         return self._inner.belongs_to_slice(page, row_index, slice_of)

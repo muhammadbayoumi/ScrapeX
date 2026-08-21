@@ -264,8 +264,8 @@ And only one of the **two** `worker_alive` computations was fixed:
 
 | where | what it calls | verdict |
 |---|---|---|
-| `scrapex/webui/app.py:1450` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
-| `scrapex/webui/app.py:2438` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
+| `scrapex/webui/app.py:1470` — `/api/health` | the new two-heartbeat `worker` verdict | correct; the panel reads this one (`extension/engine.js:38`) |
+| `scrapex/webui/app.py:2458` — `_about` | `worker_is_alive(conn)`, single heartbeat | **the function the fix superseded** |
 
 `_about` renders the engine's own `/settings` page
 (`scrapex/webui/templates/settings.html:162-167`), so **the engine still shows
@@ -273,7 +273,7 @@ And only one of the **two** `worker_alive` computations was fixed:
 engine is started at all.
 
 **Next action:** three separate things — the second `worker_alive` at
-`app.py:2438`; the heartbeat's behaviour under a held write lock; and the 409 on
+`app.py:2458`; the heartbeat's behaviour under a held write lock; and the 409 on
 `/api/storage/restore` with a mirror of
 `test_start_fresh_is_refused_while_a_crawl_runs`.
 
@@ -1008,6 +1008,34 @@ has data consequences:
 *Recommended: (a) now, because it unblocks a live warehouse and makes the failure
 impossible rather than deferred; (b) or (c) as the real model, once he rules.*
 **Not started — his call, on live data.**
+
+### OP-32 · The test suite writes into the owner's live crawl log
+
+**Found 2026-08-21, by reading the log to check on a crawl.**
+
+`contractors.say` appends every line to `Path.home()/".scrapex"/"contractors.log"` with
+no way to redirect it, so any test that reaches it writes to the **real** file. What
+surfaced it: two lines saying *"departures not marked: the crawl is not provably
+complete"* sat at the tail of the live log while a real crawl was running, and they came
+from the gate tests, not from the crawl. A log read to find out what a crawl did is
+worth nothing if a test can write to it.
+
+It predates the work that found it — `test_the_crawl_driver_cannot_lose_a_run.py` has
+been calling `crawl()` and therefore `say()` since it was written. Two things follow
+from it, and the second is the reason this is recorded rather than patched:
+
+* **Wrong content in a file used for diagnosis.** The lines are indistinguishable from
+  a real run's, and this one nearly cost a wrong conclusion about a live crawl.
+* **A path derived from `HOME` at import time.** In CI that is a container's home and
+  harmless; on a developer's machine it is the file they read. The fix is to make the
+  destination injectable rather than to monkeypatch it per test file — which is a small
+  change to a module that is currently being edited by the six-item track, so it waits
+  until that lands rather than colliding with it.
+
+Mitigated where it was found: the new tests redirect `contractors.LOG` to `tmp_path`.
+The general fix is still open.
+
+---
 
 ### OP-31 · Six crawl workers starve another process out of the warehouse
 
@@ -2305,7 +2333,7 @@ date it was measured.
 1. **ALSWEED is being refused with HTTP 429**, five times on 2026-08-11, because
    `crawl_honour_delay` is `'0'`. **BV-3**.
 2. **The engine's own Settings page says "Not running" while it crawls** — a
-   second `worker_alive` computation at `app.py:2438` that the fix never reached
+   second `worker_alive` computation at `app.py:2458` that the fix never reached
    — and the runtime heartbeat freezes under `database is locked` when a job
    holds a write transaction. **OP-6 · ت2**.
 3. **The diagnostic-page guard is still blind**, and this file said it had been

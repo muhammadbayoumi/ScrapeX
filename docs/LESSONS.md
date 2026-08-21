@@ -813,6 +813,40 @@ Reading the code found almost none of these. What found them:
 - **When a fix looks like it did nothing, suspect the environment before the
   logic** — §1 above.
 
+### The check for a leftover mutation ran while the killed harness was still alive
+
+**This is the same failure as the one above, and the guard written for it did not catch
+it.** A mutation run was killed by a two-minute timeout. The tree was checked
+immediately: `grep` for every mutant string found nothing, so the run was declared clean
+and the work was committed.
+
+**`body_class=None` shipped anyway.** The killed process had not finished dying. It
+applied its next mutation *after* the grep, and nothing looked again.
+
+What found it, two commits later, was **not** the test named for that behaviour —
+`test_the_stored_profile_is_labelled_as_a_profile` asserted `html_codec is not None` and
+passed happily with `body_class=None`. It was the **lint gate**, complaining that
+`label_for` was imported and unused. A defect caught by an unused import is a defect that
+had no test.
+
+Two things follow, and the second is the one that generalises.
+
+**A killed harness has to leave a trace on disk.** `finally` does not run on SIGTERM and
+a signal handler is best effort, so neither can be the record. A marker file written at
+the start and deleted on a clean exit can be: if it exists and nothing is running, a
+mutation is in the tree, and it names which file. The harness now refuses to start while
+one is there.
+
+**And a test that survives the mutation it is named for is not a weak test, it is not a
+test.** `html_codec is not None` was true either way, because a default codec is still a
+codec. Asserting the DECISION — the label actually passed to `save_snapshot` — kills both
+`None` and the plausible wrong answer of the listing's dictionary. The rule that comes out
+of it: assert the choice, not a downstream effect that something else also produces.
+
+**And do not run a mutation harness in the foreground under a timeout at all.** Background
+it. A foreground timeout kills the parent and leaves the work half done, which is exactly
+the state no one thinks to look for.
+
 ### A mutation harness that trusts `finally` will leave a mutation in the tree
 
 The method above depends on a harness that **mutates the source, runs the tests,
@@ -851,6 +885,61 @@ and **run the harness in the background**, where no timeout is counting. The
 handler is the belt; the background is the braces. And after any mutation run that
 did not print its own `restored: True`, **grep the tree for the mutations** rather
 than assuming — that check is what caught this one.
+
+### A mutation harness needs a control run, or every result it prints is a guess
+
+Six mutations, six kills, `all 6 killed`. The harness was passing its subprocess
+`env={"PYTHONPATH": ..., "PATH": ""}` — and an empty `PATH` breaks `anyio`'s backend
+lookup at import time, so **every** run crashed identically before collecting a test.
+Each crash was a non-zero exit, each non-zero exit was read as a mutant dying, and the
+report was unanimous and worthless.
+
+**The missing piece was one run of the unmutated tree**, under exactly the command and
+environment the mutants get:
+
+```python
+control = run_tests()
+if control.returncode != 0:
+    raise SystemExit("the clean tree does not pass; every result below is meaningless")
+```
+
+The clue was there and easy to skim past: the per-case line printed no `N passed`
+summary, because there was no summary to print. **A kill is only evidence when the same
+harness can demonstrate a pass.**
+
+### And the anchor a mutation replaces has to be UNIQUE, or it mutates something else
+
+`str.replace(old, new, 1)` takes the FIRST match in the file, and
+`"    if not outcome.provably_complete:"` matched twice — once at four spaces as the
+gate being tested, and once at **eight** spaces as a per-cell note, because a
+four-space anchor is a substring of an eight-space line. The note got mutated, the gate
+was never touched, and the harness reported a survivor that did not exist. Two hours
+were nearly spent strengthening a test that was already correct.
+
+Both failures point the same way, and it is the opposite of the intuitive one:
+
+| the harness said | what was true |
+|---|---|
+| `all 6 killed` | nothing ran at all |
+| `1 SURVIVED` | the mutation never reached the code under test |
+
+**So a mutation result is a measurement and needs its instrument checked.** Three cheap
+assertions catch all of it: the clean tree passes; the anchor occurs **exactly once**;
+and the file is byte-identical to the original after every restore. Without them the
+harness reports with total confidence in both directions — which is worse than not
+running it, because a false `killed` retires a real concern.
+
+**And the third assertion collides with the second.** Comparing BYTES is what makes the
+restore check trustworthy — `read_text()` normalises newlines, so a text comparison can
+report a clean restore over a file whose line endings changed. But reading bytes means
+the anchors are matched against CRLF, because `.gitattributes` sets `* text=auto` and
+Windows checks out `
+
+`. Every anchor written with `
+` then finds nothing, and the
+harness says `anchor occurs 0x` about code that is plainly on the screen. Translate the
+ANCHORS to the file's line endings; normalising the file would rewrite every line in it
+and defeat the restore check the bytes were for.
 
 ### And `restored: True` can be true while the file on disk has changed
 

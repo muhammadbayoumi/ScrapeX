@@ -122,12 +122,12 @@ and ten are open — of which only SIX are muqawil engineering.**
 
 | | item | cost | why this order |
 |---|---|---|---|
-| 1 | `status = 'unavailable'` on a departed row | **~1 h** | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
-| 2 | State the resume cost in the tool's output | **~20 min** | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
-| 3 | `is_enabled` has 0 callers | **~1 h** | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
-| 4 | The slice scope, unused for muqawil | **~1 h** | Built and tested; wiring it is what makes a partial re-read addressable. |
-| 5 | The profile crawl — 34,806 pages | **~2 h to wire, ~17.4 h to run** | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
-| 6 | `R-19` child tables, all five groups | **~1 day** | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
+| 1 | ~~`status = 'unavailable'` on a departed row~~ **DONE** | ~3 h, not 1 | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
+| 2 | ~~State the resume cost in the tool's output~~ **DONE** | ~40 min | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
+| 3 | ~~`is_enabled` has 0 callers~~ **DONE** | ~1 h | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
+| 4 | The slice scope — **defect fixed**; the walk moves into item 5 | ~2 h so far | Built and tested; wiring it is what makes a partial re-read addressable. |
+| 5 | The profile crawl — **wired**; 34,834 pages, measured at **11.1 h** to run | ~3 h | The adapter exists (`bilingual_profile_candidate`, #235). This is mostly *runtime*, and it is the item that turns 21 columns into 48. |
+| 6 | `R-19` — **reader built**; the write awaits his ruling AND profile pages | ~2 h so far | The largest, and last on purpose: ~500K rows, five tables, and it depends on profile pages being on disk — which is item 5. |
 
 **So: about a day and a half of work, plus roughly eighteen hours of crawling that runs
 unattended.** Two of the six are under an hour each and one of those is already ruled.
@@ -218,8 +218,22 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       56, and deriving cities means querying the warehouse for what we have seen. Not
       built ahead of his ruling, because for Riyadh it buys 9% (4,697 → 4,268) and
       the counting proof remains the route.
-- [ ] **Make sizing resumable**, or state its cost in the tool's own output. A resumed
-      run re-pays ~112 requests (5.7%).
+- [x] **Sizing states its cost, in the output, computed.** The item offered two
+      branches and this takes the second: making sizing resumable would change what the
+      progress denominator MEANS — the frontier is declared once after sizing, and that
+      is what makes it a count rather than an estimate — while stating the cost only
+      stops hiding a number.
+      `PartitionOutcome.sizing_requests` is the requests that measured and stored
+      nothing, and the report names them with their share: *"of those, 118 (5.7%) sized
+      cells and stored nothing — a resumed run pays them again"*. **`~112` was a
+      measurement of one site on one day** and it lived in a module header no user
+      reads; it moves with the partition and a constant in prose cannot follow it.
+      Two things fell out. `--plan` now says what IT spent, because the crawl's report
+      points at it as the cheaper route and a route that never states its price is not
+      an answer. And the hours estimate divided by `whole.requests + len(cells) * 2` —
+      two requests per cell, **assumed** — where `size_cell` reports what each actually
+      cost; a cell needing a third probe made the divisor too small and inflated every
+      hour figure derived from it. Four mutations killed.
 
 ### C · The 48 columns — further along than this list said
 
@@ -248,9 +262,30 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 > **Where the other ~28 columns are, so nobody hunts for them in `read_profile`:** the
 > profile page carries **five real `<table>` elements** — the licences and their
 > readiness, the two contractor lists, the technical rating, the contract counts. Those
-> go through `detect_html_tables` like any other site's tables, and they are exactly
-> the multi-valued groups `R-19` wants in child tables. That is why `R-19` is a
+> go through `detect_html_tables` like any other site's tables. That is why `R-19` is a
 > separate item and not part of the parser.
+>
+> **CORRECTION, 2026-08-21.** That paragraph used to end *"and they are exactly the
+> multi-valued groups `R-19` wants in child tables"*, and they are not. Measured against
+> the committed profile:
+>
+> | | |
+> |---|---|
+> | `<table>` elements | **5** |
+> | …of which are Interests | **0** |
+> | Interests is | a nested `<ul class="list list-numerical">` inside a `div.section-card` |
+> | tables with **no data rows** for this contractor | **3** of 5 |
+> | names `detect_html_tables` returns | `Table 1` … `Table 5` |
+> | tables sharing one nearest heading | **3** |
+>
+> `R-19`'s five groups are Interests, Licensed Activities, Qualification Programs,
+> Balady Services and contractor relations. **Interests is the biggest** — the study
+> priced it at ~235 MB at full scale — and it is not a table at all, so building on the
+> five-tables premise would have produced four groups and silently missed the largest.
+> Three of the five tables are empty on the only committed profile, which is `R-19`'s
+> own *"one contractor"* evidence limit arriving from the other side. And the groups
+> cannot be named from the markup by position or by the nearest heading, so whatever
+> `R-19` is built on needs a naming rule that is neither.
 
 - [x] **`profile_candidate`** — `bilingual_profile_candidate`, plus `_candidate_from`
       taking its declared field list as a parameter instead of always leading with
@@ -260,12 +295,53 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 - [x] **A declared `PROFILE_FIELD_ORDER`**, for the reason `CARD_FIELDS` exists: a
       profile page that happens to omit a box must not produce a different schema.
       **#235.**
-- [ ] **`R-19`: child tables for all five multi-valued groups** — «جداول أبناء للخمس
-      كلّها»: Interests, Licensed Activities, Qualification Programs, Balady Services,
-      contractor relations. Not JSON, not `Activity 1, 2, 3`. A measured profile carried
-      **30 hierarchical interest values in 6 groups** — about 500K rows. Ruled, unbuilt.
-- [ ] **The profile crawl**, 34,806 pages both locales. Must run with `body_class` set
-      so the pages arrive compressed — `snapshotcrawl` already does it.
+- [~] **`R-19`: child tables for all five multi-valued groups** — «جداول أبناء للخمس
+      كلّها». **The READING is built; the WRITING waits on him, and on pages that do not
+      exist yet.**
+      Two things block the write and neither is engineering. (1)
+      [R19-CHILD-TABLES-MEASURED](../R19-CHILD-TABLES-MEASURED.md) recommends **shape F**
+      — a child dataset per group whose value references `classification_node` — and its
+      own last line reads *"Not built. Awaiting his ruling."* Building either shape ahead
+      of that is the defect **C1** exists to prevent. (2) The content comes from profile
+      pages and **not one is stored**: his registration is `listing_only`, and item 5
+      measured the crawl at 11.1 hours.
+      **So what is built is what BOTH candidate shapes need — `read_interests`** — and
+      building it is what found the plan's premise to be wrong (the correction in section
+      C above). It returns every node as a **path from the root**, because the study
+      measured that a leaf name is not unique and an identity built from it merges two
+      different activities — this fixture repeats `Construction of buildings` at two
+      levels, so one profile already proves it. Interior nodes come back too, since
+      `classification_node.parent_node_id` means a leaf cannot be written before the node
+      above it.
+      **And a locale bug was caught by a parity assertion rather than by review.** The
+      first version matched the heading `"Interests"` and read **25 nodes from English
+      and 0 from Arabic** — the Arabic heading is `الأنشطة`, "Activities", not a
+      translation. The card is now identified by holding the list, and two such lists are
+      **refused** rather than guessed. Both locales: 25 nodes, depths `{1:3, 2:5, 3:17}`.
+      Ten tests.
+- [~] **The profile crawl — BUILT, not yet run.** `scrapex contractors --details`
+      fetches the profile page of every contractor the **registered scope** asks for,
+      with `body_class` set so each arrives under the profile dictionary (`STORAGE.md`
+      measured 46x against zlib's 7.7x, because zlib's 32 KB window never sees across a
+      121 KB page).
+      **THE FRONTIER COMES OFF THE LEDGER, AND THE FIRST ANSWER WAS 1,500x SLOWER.**
+      Deriving it from stored listing pages means decoding and BeautifulSoup-parsing
+      14,727 of them: measured at **over 120 s and still running when it was killed**.
+      `dataset_sighting` already holds every id the site has ever shown us, so the full
+      frontier is one indexed SELECT — **0.08 s for 34,834 URLs**. A slice still needs
+      the pages, because the city is on the card and the ledger holds ids alone.
+      **And it must be `sighted_ids`, not `stored_ids`:** 17,417 against 15,707 on the
+      live warehouse, because a row exists only once its page is approved — so a
+      frontier from rows would skip the 1,710 contractors seen and not yet interpreted,
+      which is the population this crawl most needs.
+      **THE RUNTIME ESTIMATE WAS WRONG IN BOTH DIRECTIONS.** This list said ~17.4 h; the
+      single-threaded study's 5.84 s a request says 56.5 h. Measured over **87 minutes
+      of real crawling with six workers: 52.5 pages a minute, 1.14 s a page → 11.1 h**.
+      `--ceiling` stops a first run early and says PARTIAL, and the same `--run-ref`
+      continues it.
+      **What is left is to RUN it**, which is his call, and the profile approval path —
+      `bilingual_profile_candidate` exists (#235) and nothing calls it yet. Twelve
+      tests.
 - [~] **Conditional requests on the recurring pass — BUILT, AND THIS SOURCE CANNOT USE
       THEM.** Measured 2026-08-21 against the live site, one request:
 
@@ -292,9 +368,25 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
 
 ### D · In the code and NOT WIRED — measured, not guessed
 
-- [ ] **`is_enabled` has 0 callers.** `GENERIC_DATASET_CATALOG` and
-      `GENERIC_EXTRACTION` are lit at `PARTIAL` and nothing reads them, so lighting one
-      is a *claim* about a capability rather than a switch.
+- [x] **`is_enabled` has two callers, and they are not symmetrical.** The function
+      calls itself *"the gate that NAVIGATION and UI must call before advertising a
+      capability"*, so the callers are the two ADVERTISEMENTS: `_dataset_rows`, which
+      puts a dataset in the source listing the panel draws, and
+      `scrapex contractors --approve`, which `REQ-24` made a shipped user-facing
+      command. **The API routes stay outside the flag**, as that docstring requires —
+      they are mounted on 127.0.0.1 so the slice can be exercised, and gating them
+      would make the flag a kill switch for development instead of a switch over what
+      is announced. A test pins that distinction, because it is the one a later reader
+      would tidy away.
+      **And `CRAWL_FRONTIER` looked stale and is not.** Measured against its own
+      written condition: limits shipped, checkpoint recovery shipped for the
+      partitioned crawl (`already_stored` skips pages a resume holds), and **persistent
+      discovery did not** — `declare_frontier` hands the fetcher an in-memory
+      denominator for the Activity panel and writes nothing, so no new process could
+      resume a frontier. Two of three, so `False` is correct; the measurement is in the
+      flag's own detail so nobody repeats the investigation. Ten tests, **five
+      mutations killed**, and one of them is a guard that counts call sites so the
+      zero-caller state cannot return silently.
 - [x] **`missing_ids`, `sighting_frequencies` have a caller** — `--coverage`. Listed
       twice; it is section A's item and it shipped there.
 - [~] **`detail_urls`: the "referenced only by tests" claim was WRONG.** Measured:
@@ -302,9 +394,40 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       narrower and is the same item as the profile crawl above — **nothing walks the
       frontier for muqawil**. The `143` segment stays load-bearing: it is what makes the
       self-build price section render at all.
-- [ ] **`belongs_to_slice` / `crawl_slice` / `LISTING_PLUS_SLICE`:** the slice scope is
-      built, tested, and never used for muqawil.
-- [ ] **`generic_record.status` offers `unavailable` and `retired` and nothing ever sets either.** Detection is built (`sightings.departures`); the WRITE needs his ruling on which of the two a delisted contractor gets — see [OP-26](../BACKLOG.md)
+- [~] **The slice scope was built, tested, never used — AND WRONG.** Half done: the
+      defect is fixed, the walk that would use it is item 5's build.
+      **`enumerate(detail_urls(page))` was guessing the row index.** `belongs_to_slice`
+      indexes listing ROWS; `detail_urls` yields URLs; every caller paired them by
+      position, which is right only when a page yields one URL per row. muqawil yields
+      one **per locale**. Measured on a stored page before anything was changed:
+      **17 cards, 34 URLs** — url index 1 is contractor 0's *Arabic* page and was being
+      asked about card 1, a different contractor, and **17 of the 34 indices pointed
+      past the last card** and were dropped. A slice would have fetched a set that is
+      neither the slice nor its complement, and it reads as a smaller city.
+      **Nothing caught it because nothing used it**, and because every fake in the
+      walker's own slice tests yields one URL per row — the case the assumption fits.
+      Fixed in two halves: `detail_rows` has the source pair each URL with its row
+      (optional, since most sources need nothing — a Protocol member would have broken
+      `test_a_fake_site_satisfies_the_protocol`), and `belongs_to_slice` now **refuses**
+      a row past its last instead of answering `False`, which is what made the overshoot
+      invisible. Verified on the same real page: **0 mismatches of 34**. Ten tests,
+      **six mutations killed**, and one of them found that the walker had no test for
+      its own slice path at all.
+- [x] **`generic_record.status` is written now, and the mark can be taken back.**
+      `OP-26` ruled: `unavailable`. **The whole chain had no caller** — not the status
+      write, and not `record_absences` either, which writes the one fact that cannot be
+      recomputed. So `mark_departures` in the crawl is the caller `record_absences`
+      always said it needed, gated on `outcome.provably_complete`.
+      **Three findings on the way.** (1) `row_state` puts a marked row FIRST in its
+      precedence, so marking without ever unmarking would have made `returned`
+      unreachable — migration 0006's whole purpose, silently switched off. The restore
+      direction is not a nicety. (2) A `retired` guard at the top of the loop was **dead
+      code**: both branches already name the status they act on, and a mutation deleted
+      the guard with every test passing. Removed, with the reason written where it acts —
+      a line that reads like protection and cannot fail is worse than no line. (3) A
+      nested outcome reports `provably_complete = True` *correctly* — it is a claim about
+      `scope` — so the `nested` check is load-bearing: without it one cell's proof
+      delists the rest of the country. Sixteen tests, **nine mutations killed**.
 - [x] **`approve_candidate` creates a version 2 now** — `_retire_or_refuse`, and the
       direction decides: a **superset** of the approved fields retires v1 and approves
       v2, while a subset or a rename is still refused, because those two are how a

@@ -76,7 +76,15 @@ _FEATURES = (
         FeatureKey.CRAWL_FRONTIER,
         False,
         DeliveryStage.NOT_STARTED,
-        "Enabled only after persistent discovery, limits, and checkpoint recovery ship.",
+        "Enabled only after persistent discovery, limits, and checkpoint recovery "
+        "ship. MEASURED 2026-08-21, because the partitioned crawl made this look "
+        "close: limits SHIPPED (rate limit with jitter, Retry-After, a circuit "
+        "breaker, max_attempts, a page ceiling) and checkpoint recovery SHIPPED for "
+        "the partitioned crawl (`already_stored` lets a resume skip pages it holds). "
+        "Persistent discovery did NOT: `declare_frontier` hands a fetcher an "
+        "in-memory denominator for the Activity panel and writes nothing, so there "
+        "is no frontier a new process could resume from. Two of three, so the flag "
+        "stays down — recorded here to save the next reader the same investigation.",
     ),
     FeatureState(
         FeatureKey.SITE_DATA_MODEL,

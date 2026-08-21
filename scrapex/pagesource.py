@@ -183,6 +183,7 @@ class PageSource(Protocol):
     def detail_urls(self, page: FetchedPage) -> Iterable[str]:
         """The detail links this listing page points at."""
 
+
     def belongs_to_slice(self, page: FetchedPage, row_index: int,
                          slice_of: str) -> bool:
         """Whether one row of this listing page is in the named slice.
@@ -192,6 +193,32 @@ class PageSource(Protocol):
         slice is chosen without fetching a single detail page. A site that
         cannot answer must raise SliceNotSupported.
         """
+
+
+def slice_rows(source: PageSource, page: FetchedPage) -> list[tuple[int, str]]:
+    """`(row_index, url)` for slicing, from the source's own pairing.
+
+    ONE URL PER ROW IS AN ASSUMPTION, AND IT WAS WRONG. Callers wrote
+    `enumerate(source.detail_urls(page))`, which is correct only when the counts match.
+    muqawil yields a URL per locale, so the pairing was off by a factor of two and half
+    the URLs indexed past the last card.
+
+    `detail_rows` IS AN OPTIONAL CAPABILITY AND NOT A PROTOCOL MEMBER, for the reason
+    `test_a_fake_site_satisfies_the_protocol` states: *"a Protocol nothing can implement
+    is a design, not a seam."* Most sources publish one URL per row and must not have to
+    write a method to say so — the same shape as `expect_requests` on a fetcher, which
+    `declare_frontier` treats exactly this way.
+
+    AND THE DEFAULT IS NOT TRUSTED BLIND. `belongs_to_slice` REFUSES a row index past
+    its last row, so a source that yields several URLs per row and forgets this method
+    fails loudly on the first URL that overshoots, rather than dropping the overshooting
+    half and reporting a smaller city. The guard belongs there because that is the only
+    place the row count is known.
+    """
+    own = getattr(source, "detail_rows", None)
+    if own is not None:
+        return list(own(page))
+    return list(enumerate(source.detail_urls(page)))
 
 
 def supports_slices(source: PageSource, *, base_url: str = "") -> bool:

@@ -34,17 +34,23 @@ three different readings.
 from __future__ import annotations
 
 import argparse
+import re
+import sqlite3
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from . import validators as validator_store
-from .connectors.base import HttpFetcher
+from .connectors.base import HttpFetcher, declare_frontier
+from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
 from .directories import Directory
 from .directories import get as get_directory
 from .extract import service
-from .extract.models import ApprovalField, CandidateApproval
+from .extract.models import ApprovalField, CandidateApproval, SnapshotCreate
+from .features import FeatureKey, is_enabled
+from .pagesource import FetchedPage, PageKind, slice_rows
 from .partitioncrawl import (
     HEAVY_ATTEMPTS,
     RETRY_PAGE_CEILING,
@@ -55,10 +61,15 @@ from .partitioncrawl import (
 from .sightings import (
     coverage,
     departures,
+    mark_unavailable,
     missing_ids,
+    record_absences,
+    sighted_ids,
     sighting_frequencies,
 )
-from .snapshotbody import decode
+from .sites.muqawil import MuqawilPageSource
+from .snapshotbody import decode, label_for
+from .snapshotcrawl import already_stored, read_scope
 
 # THE FOUR CONSTANTS THAT USED TO BE HERE were `BASE`, `DATASET`, `SITE_NAME` and
 # a `MuqawilPartition()`, and they are why a second contractor directory would have
@@ -140,16 +151,27 @@ def plan(directory: Directory, fetch, started: float) -> None:
     pages = 0
     declared = 0
     over = []
+    sizing = whole.requests
     for cell in partition.cells():
         size = size_cell(fetch, partition, directory.base_url, cell)
         pages += size.last_page
         declared += size.declared
+        sizing += size.requests
         if size.last_page > RETRY_PAGE_CEILING:
             over.append(size)
         say(f"  {size}")
     locales = len(partition.locales)
     requests = pages * locales + len(partition.cells()) * 3 + 2
     say("")
+    # WHAT THIS COMMAND JUST SPENT, and the reason to print it is that `--crawl` now
+    # names the same cost in its own report and points here. Every cell is sized before
+    # any page is stored, and a resumed crawl pays that again because sizing is not
+    # resumable — so `--plan` is the way to pay it once, deliberately, and read the
+    # answer. A pointer to a cheaper route is worth nothing if the route never says
+    # what it cost.
+    say(f"this plan cost {sizing:,} request(s) sizing {len(partition.cells())} cells "
+        f"and the listing; a crawl re-pays that, and this run has now measured it "
+        f"rather than estimating it")
     say(f"cells {len(partition.cells())}  pages {pages} "
         f"(+{pages - whole.last_page} over the unfiltered {whole.last_page})")
     say(f"declared {declared:,} against the listing's {whole.declared:,} — "
@@ -158,7 +180,13 @@ def plan(directory: Directory, fetch, started: float) -> None:
     # PRICED FROM THIS RUN'S OWN LATENCY, not from a number in a document. The
     # study measured 5.84 s a request; the sizing just made 100-odd requests, so
     # the honest estimate is the one it just paid for.
-    per = (time.monotonic() - started) / max(1, whole.requests + len(partition.cells()) * 2)
+    #
+    # AND THE DIVISOR IS NOW COUNTED RATHER THAN GUESSED. It was
+    # `whole.requests + len(cells) * 2` — two requests per cell, assumed. `size_cell`
+    # reports what each one actually cost, and a cell that needed a third probe made
+    # the old divisor too small, which inflated the seconds-per-request and every hour
+    # figure derived from it. Same expression, real numerator and real denominator.
+    per = (time.monotonic() - started) / max(1, sizing)
     say(f"measured {per:.2f} s a request just now -> about {requests * per / 3600:.1f} h")
     if over:
         say(f"{len(over)} cell(s) above the {RETRY_PAGE_CEILING}-page witness ceiling, "
@@ -239,8 +267,221 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
         say(f"kept {written:,} validator(s) for the next crawl; this one was "
             f"answered 304 for {saved:,} page(s)")
     say("")
+    mark_departures(conn, directory, outcome, run_ref)
     say(str(coverage(conn, directory.dataset_key)))
 
+
+def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
+    """Write down who left, but ONLY off the back of a proof.
+
+    `OP-26`, RULED 2026-08-21: a delisted contractor becomes `unavailable`. The
+    schema has offered that value since the table was created and **the whole chain
+    had no caller** — not `record_absences`, which writes the one fact that cannot be
+    recomputed, and not the status write that depends on it. So a contractor the
+    directory removed kept `status='active'` with a frozen `last_seen_at`, which is
+    indistinguishable from one this crawl did not reach.
+
+    THE GATE IS THE POINT OF THIS FUNCTION. `record_absences` says its caller must
+    guarantee the crawl was complete, because it cannot see that from inside. Here is
+    that caller, and the guarantee is `outcome.provably_complete` — which already
+    means every cell proven, none unsized, and no row outside every cell.
+
+    AND `nested` IS CHECKED SEPARATELY BECAUSE `provably_complete` IS DELIBERATELY
+    NARROWER THAN IT LOOKS. Its own docstring: *"IT IS A CLAIM ABOUT `scope` AND NEVER
+    MORE"* — true on a nested run it means the PARENT CELL is accounted for and says
+    nothing about the rest of the listing. Marking absences from a nested proof would
+    delist every contractor outside that one cell.
+
+    `--only` IS REFUSED BY THE SAME PROPERTY, AND THE TEST SAYS SO OUT LOUD. A subset
+    run sizes the whole listing and sums only the cells it was given, so its
+    `exhaustiveness_deficit` is the thousands of rows in the cells it skipped and
+    `provably_complete` is False. That is the right answer arrived at indirectly, so
+    it is asserted rather than assumed — an implicit safety property with no test is
+    one refactor away from being gone.
+
+    IT SAYS WHY IT DECLINED. A crawl that silently marked nothing would be
+    indistinguishable from one that found no departures, and those are opposite facts.
+    """
+    if outcome.nested:
+        say(f"departures not marked: this crawl proves {outcome.scope} only, and a "
+            f"cell's proof says nothing about the rest of the listing")
+        return
+    if not outcome.provably_complete:
+        say(f"departures not marked: the crawl is not provably complete "
+            f"(deficit {outcome.deficit:,}, exhaustiveness "
+            f"{outcome.exhaustiveness_deficit:,}). A partial crawl misses "
+            f"contractors for its own reasons and marking those as gone would "
+            f"delist them because the crawler had a bad afternoon")
+        return
+
+    proven = record_absences(conn, directory.dataset_key,
+                            seen=outcome.ids, run_ref=run_ref,
+                            id_field=directory.identity_field)
+    marking = mark_unavailable(conn, directory.dataset_key,
+                               id_field=directory.identity_field)
+    say(f"the crawl is provably complete, so absence is evidence: "
+        f"{proven:,} row(s) proved absent by {run_ref}")
+    say(f"  {marking}")
+
+
+
+# ---- --details: the profile frontier, built from disk ------------------------
+
+#: A stored page is a LISTING if its path ends at `contractors`, with or without a
+#: query. A profile carries the contractor id and the self-build tail after it.
+#: Derived from the URL because `generic_page_snapshot` has no kind column —
+#: `body_class` is chosen at write time to pick a compression dictionary and is not
+#: kept.
+_LISTING = re.compile(r"/(?:en|ar)/contractors(?:\?|$)")
+
+
+def listing_pages(conn) -> Iterator[FetchedPage]:
+    """Every listing page on disk, decoded, latest write per URL.
+
+    **NO NETWORK, AND THAT IS THE POINT.** `docs/GENERIC-FETCH-SEAM.md` separates
+    fetching from interpreting so that a wrong parse costs minutes. A frontier IS an
+    interpretation, so it comes off the evidence rather than off the wire — rebuilding
+    it by re-crawling 871 listing pages would cost an hour to learn what is on disk.
+
+    IT IS ALSO WHY THIS FRONTIER SURVIVES A RESTART. `features.CRAWL_FRONTIER` is
+    disabled for exactly one missing piece, persistent discovery, and discovery that
+    reads stored snapshots persists because they do. It does not light that flag on its
+    own: the flag covers the price side's frontier too.
+
+    ACROSS EVERY RUN, NOT ONE. The question is *which contractors has the site ever
+    shown us*, and one first seen three crawls ago still counts. A run ref scopes a
+    RESUME, which is a different question and is asked separately below.
+    """
+    latest: dict[str, sqlite3.Row] = {}
+    for row in conn.execute(
+            "SELECT page_snapshot_id, source_url, html_content, html_codec, "
+            "       html_dict_id "
+            "  FROM generic_page_snapshot ORDER BY page_snapshot_id"):
+        if _LISTING.search(row["source_url"]):
+            # LAST WRITE WINS, the rule `_pairs` already follows: a retried cell stored
+            # the same page twice and the later read is the current one.
+            latest[row["source_url"]] = row
+    for url, row in latest.items():
+        yield FetchedPage(url=url, html=decode(conn, row), kind=PageKind.LISTING)
+
+
+def detail_frontier(conn, directory: Directory, scope: CrawlScope,
+                    slice_of: str) -> tuple[list[str], int]:
+    """The profile URLs this scope earns. Returns `(urls, rows_outside_the_slice)`.
+
+    THE SCOPE COMES FROM THE DATABASE AND A CALLER MAY NOT PASS ONE.
+    `site_profile.crawl_scope` is the owner's answer for this source
+    (`PLATFORM-PLAN` Decision 23), and a scope enforced in two places is a scope
+    enforced in neither.
+
+    A SLICE ASKS EACH URL'S OWN ROW, through `slice_rows`. The reason is measured
+    rather than defensive: muqawil yields one URL per LOCALE, so pairing by position
+    asked the wrong card about every URL but the first and dropped the half that
+    indexed past the last card.
+    """
+    source = MuqawilPageSource(last_page=1)
+    wanted: list[str] = []
+    outside = 0
+    if scope is CrawlScope.FULL_THEN_LISTING:
+        # OFF THE SIGHTING LEDGER, NOT OFF THE PAGES, and it is a 40x difference rather
+        # than a tidy-up. `dataset_sighting` already holds every contractor id the site
+        # has ever shown us — that is what it is for — so the full frontier is a SELECT.
+        # Deriving it from the pages instead means decoding and BeautifulSoup-parsing
+        # 14,727 stored listings, which took **over two minutes** and was still running
+        # when it was killed; the ledger answers in well under a second.
+        #
+        # A SLICE STILL NEEDS THE PAGES, because the city is on the card and the ledger
+        # holds ids alone. That asymmetry is the reason this is an `if` and not a
+        # refactor of both paths onto one source.
+        for contractor_id in sighted_ids(conn, directory.dataset_key):
+            wanted.extend(source.profile_urls(directory.base_url, contractor_id))
+        return list(dict.fromkeys(wanted)), 0
+    for page in listing_pages(conn):
+        for row_index, url in slice_rows(source, page):
+            if source.belongs_to_slice(page, row_index, slice_of):
+                wanted.append(url)
+            else:
+                outside += 1
+    # DEDUPLICATED HERE, NOT IN THE SOURCE. One contractor can appear on two stored
+    # listing pages — a live listing reorders between requests, which is the entire
+    # reason the witness compares id sequences — and fetching a profile twice is a
+    # wasted request and a second snapshot of the same page.
+    return list(dict.fromkeys(wanted)), outside
+
+
+def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
+            ceiling: int = 0) -> None:
+    """Fetch the profile pages the registered scope asks for, each stored as evidence.
+
+    WHY THIS IS A PHASE OF ITS OWN AND NOT PART OF `--crawl`. The listing crawl is
+    PROVABLE: it partitions, witnesses and counts, and its whole worth is the claim
+    that it read everything the listing publishes. A profile crawl has no such theorem
+    to offer — the frontier is a list, and reading a list proves nothing. Folding them
+    together would also put a seventeen-hour walk behind the command somebody runs to
+    check coverage.
+
+    `--ceiling` EXISTS BECAUSE 34,806 PAGES IS ABOUT SEVENTEEN HOURS. A first run that
+    only wants to see the shape of the data must be able to stop, and a run that
+    stopped has to say so rather than look finished.
+    """
+    scope, slice_of = read_scope(conn, directory.key)
+    say(f"registered scope: {scope.value}"
+        + (f", slice {slice_of!r}" if slice_of else ""))
+    if scope is CrawlScope.LISTING_ONLY:
+        # NOT AN ERROR. The registration is his answer, and a command that fetched
+        # profiles anyway would be answering for him — which is what Decision 23 made
+        # the column for.
+        say("listing_only, so there are no profile pages to fetch. Change "
+            "site_profile.crawl_scope to ask for them.")
+        return
+    if scope is CrawlScope.LISTING_PLUS_SLICE and not slice_of.strip():
+        _refuse(f"{directory.key} is registered listing_plus_slice and no slice is "
+                "named, so there is nothing to select. Set site_profile.crawl_slice")
+
+    frontier, outside = detail_frontier(conn, directory, scope, slice_of)
+    held = already_stored(conn, run_ref)
+    todo = [url for url in frontier if url not in held]
+    resumed = len(frontier) - len(todo)
+    say(f"frontier {len(frontier):,} profile page(s), read from disk with no network")
+    if outside:
+        say(f"  {outside:,} row(s) outside the slice, not fetched")
+    if resumed:
+        # COUNTED, NEVER SILENT: the difference is the hours a resume saved, and a
+        # resume that says nothing is indistinguishable from a crawl that fetched
+        # everything.
+        say(f"  {resumed:,} already stored under {run_ref} — resuming")
+    if ceiling and len(todo) > ceiling:
+        todo = todo[:ceiling]
+        say(f"  stopping at the {ceiling:,}-page ceiling, so this run is PARTIAL")
+    declare_frontier(fetcher, len(todo))
+
+    stored = failed = 0
+    for number, url in enumerate(todo, start=1):
+        try:
+            html = fetch(url)
+        except Exception as exc:
+            # NOT RAISED. One dead profile out of thirty-four thousand must not discard
+            # the rest — the walker's own rule — and a crawl that stops at the first
+            # 404 of a seventeen-hour run is a crawl nobody can finish.
+            failed += 1
+            say(f"  [{number}/{len(todo)}] {url}: {type(exc).__name__}: {exc}")
+            continue
+        try:
+            service.save_snapshot(conn, SnapshotCreate(
+                source_url=url, html_content=html, crawl_run_ref=run_ref,
+                body_class=label_for(url, PageKind.DETAIL)))
+            conn.commit()
+            stored += 1
+        except Exception as exc:
+            conn.rollback()
+            failed += 1
+            say(f"  [{number}/{len(todo)}] storing {url}: {type(exc).__name__}: {exc}")
+        if number % 200 == 0:
+            say(f"  [{number:,}/{len(todo):,}] stored {stored:,}, failed {failed}")
+    say("")
+    say(f"profiles stored {stored:,}, failed {failed}, resumed {resumed:,}")
+    if len(todo) + resumed < len(frontier):
+        say("PARTIAL: the ceiling stopped this run. The same --run-ref continues it.")
 
 # ---- --coverage: what the warehouse knows about its own gaps ------------------
 
@@ -412,6 +653,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                        help="size all 56 cells and price the crawl. Costs ~114 "
                             "requests and answers 'what will this cost today'")
     parser.add_argument("--crawl", action="store_true")
+    parser.add_argument("--details", action="store_true",
+                       help="fetch the PROFILE page of every contractor the "
+                            "registered scope asks for. The frontier is built from "
+                            "stored listing pages with no network; the scope comes "
+                            "from site_profile.crawl_scope and never from a flag")
+    parser.add_argument("--ceiling", type=int, default=0,
+                       help="for --details: stop after this many profile pages. "
+                            "34,806 pages is about seventeen hours, and a first run "
+                            "that only wants the shape of the data should be able to "
+                            "stop. A stopped run says PARTIAL and the same --run-ref "
+                            "continues it")
     parser.add_argument("--coverage", action="store_true",
                        help="what the warehouse knows about its own gaps: stored "
                             "vs sighted, the frequency sample, sighted-and-never-"
@@ -456,11 +708,28 @@ def validate(args: argparse.Namespace) -> None:
     that would have to raise it, and a usage error printed by the wrong parser
     prints the wrong usage line.
     """
-    if not (args.plan or args.crawl or args.approve or args.coverage):
-        _refuse("choose one of --plan, --crawl, --approve or --coverage")
-    if (args.crawl or args.approve) and not args.run_ref:
-        _refuse("--crawl and --approve need --run-ref: it is what makes an "
+    if not (args.plan or args.crawl or args.details or args.approve or args.coverage):
+        _refuse("choose one of --plan, --crawl, --details, --approve or --coverage")
+    if (args.crawl or args.details or args.approve) and not args.run_ref:
+        _refuse("--crawl, --details and --approve need --run-ref: it is what makes an "
                 "interrupted crawl resumable and what --approve reads")
+    if args.ceiling and not args.details:
+        # REFUSED RATHER THAN IGNORED. A ceiling silently dropped on the wrong phase
+        # would let somebody believe a full crawl was bounded when it was not.
+        _refuse("--ceiling applies to --details only")
+    # THE SECOND CALLER `is_enabled` NEVER HAD, and the reason it belongs here rather
+    # than beside the API routes: those are mounted on 127.0.0.1 so the slice can be
+    # exercised and tested, and `is_enabled`'s docstring excludes them on purpose. This
+    # is the SHIPPED COMMAND — `REQ-24` made it one — so it is a user-facing surface in
+    # the same category as navigation, and a command that performs a capability the
+    # manifest calls unavailable is the inflated claim the flag exists to stop.
+    #
+    # IT REFUSES RATHER THAN SKIPPING. A run that quietly did nothing would look like a
+    # crawl with nothing to approve, and those are opposite facts.
+    if args.approve and not is_enabled(FeatureKey.GENERIC_EXTRACTION):
+        _refuse("generic extraction is disabled in this build "
+                "(scrapex/features.py), so --approve would write rows the feature "
+                "manifest says are not available. Nothing was read or written")
 
 
 def _refuse(message: str) -> None:
@@ -495,6 +764,10 @@ def run(args: argparse.Namespace) -> int:
                   args.max_attempts, only=args.only,
                   heavy_attempts=args.heavy_attempts,
                   workers=args.workers, connect=factory)
+        if args.details:
+            fetcher, fetch = make_fetch(args.pace)
+            details(conn, directory, fetch, fetcher, args.run_ref,
+                    ceiling=args.ceiling)
         if args.approve:
             approve(conn, directory, args.run_ref)
         if args.coverage:

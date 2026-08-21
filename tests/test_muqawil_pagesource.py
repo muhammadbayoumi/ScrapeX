@@ -242,8 +242,23 @@ def test_a_city_that_is_not_this_row_is_a_plain_no(source):
     assert source.belongs_to_slice(listing("en"), 0, "JEDDAH") is False
 
 
-def test_a_row_past_the_end_of_the_page_is_not_in_any_slice(source):
-    assert source.belongs_to_slice(listing("en"), 99, "RIYADH") is False
+def test_a_row_past_the_end_of_the_page_is_refused_not_answered(source):
+    """THIS TEST USED TO ASSERT `is False`, AND THAT EXPECTATION ENCODED A DEFECT.
+
+    Answering `False` means "this row is not in the slice", which is a claim about a row
+    that does not exist. It made a real off-by-a-locale bug invisible:
+    `enumerate(detail_urls(page))` handed indices up to 33 for a page with 17 cards, and
+    every index past the last card was quietly dropped — seventeen contractors vanished
+    from the slice and the result read as a smaller city.
+
+    An index past the last row is a CALLER error, so it is the one thing this method must
+    not have an opinion about. Same reasoning as the two tests below it: a refusal is the
+    only answer that cannot be mistaken for data.
+    """
+    with pytest.raises(SliceNotSupported) as raised:
+        source.belongs_to_slice(listing("en"), 99, "RIYADH")
+
+    assert "does not exist" in str(raised.value)
 
 
 def test_naming_no_city_refuses_rather_than_answering_no(source):

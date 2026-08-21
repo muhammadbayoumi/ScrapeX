@@ -222,3 +222,79 @@ def test_a_walk_that_finished_does_not_claim_to_have_stopped_early():
     report = w.walk("https://fake.test", CrawlScope.LISTING_ONLY, max_requests=99)
 
     assert report.stopped_early == ""
+
+
+# ---- a site whose listing yields more than one URL per row -------------------
+#
+# THE CASE `FakeSite` ABOVE CANNOT REACH, and the reason the real defect survived here.
+# `FakeSite.detail_urls` returns two URLs for a page and `belongs_to_slice` is asked
+# about `row_index` 0 and 1 — so `enumerate(detail_urls(page))` is correct for it, and
+# every slice test above passed under a pairing that was wrong for muqawil. Measured
+# there: 17 rows, 34 URLs, and every URL after the first asked about the wrong row.
+
+class BilingualSite:
+    """One row, two URLs — the shape muqawil has and every fake here did not.
+
+    `detail_rows` is what says which row a URL came from. Without it the walker's
+    `enumerate` would pair url index 1 (row 0's second locale) with ROW 1.
+    """
+
+    site_key = "bilingual"
+
+    #: Two rows per page, each with an English and an Arabic detail page.
+    ROWS = ("first", "second")
+
+    def __init__(self) -> None:
+        self.asked_about: list[int] = []
+
+    def listing_urls(self, base_url: str):
+        yield f"{base_url}/list?page=1"
+
+    def detail_rows(self, page: FetchedPage):
+        for row_index, name in enumerate(self.ROWS):
+            for locale in ("en", "ar"):
+                yield row_index, f"https://fake.test/{locale}/{name}"
+
+    def detail_urls(self, page: FetchedPage):
+        return [url for _, url in self.detail_rows(page)]
+
+    def belongs_to_slice(self, page: FetchedPage, row_index: int, slice_of: str) -> bool:
+        if row_index >= len(self.ROWS):
+            raise SliceNotSupported(
+                f"row {row_index} does not exist: the page has {len(self.ROWS)}")
+        self.asked_about.append(row_index)
+        return row_index == 0
+
+
+def test_a_slice_asks_the_row_each_url_came_from_not_its_position():
+    """THE TEST THE WALKER DID NOT HAVE, and a mutation proved it: reverting this line
+    to `enumerate(self._source.detail_urls(page))` broke nothing at all.
+
+    With two rows and four URLs, `enumerate` asks about rows 0,1,2,3 — and rows 2 and 3
+    do not exist. Here it must ask about 0,0,1,1: each URL's own row.
+    """
+    site = BilingualSite()
+    fetch = Recorder()
+    walk, _ = walker(site, fetch)
+
+    walk.walk("https://fake.test", CrawlScope.LISTING_PLUS_SLICE, slice_of="Cairo")
+
+    assert site.asked_about == [0, 0, 1, 1]
+    # Row 0 is in the slice, so BOTH of its locales are fetched and neither of row 1's.
+    fetched = [url for url in fetch.asked if "/entity/" not in url and "list?" not in url]
+    assert fetched == ["https://fake.test/en/first", "https://fake.test/ar/first"]
+
+
+def test_the_position_pairing_would_have_asked_about_rows_that_do_not_exist():
+    """PINS WHY, so the fix cannot be undone as a simplification. This is the walker's
+    old expression, run directly against the same site."""
+    site = BilingualSite()
+    page = FetchedPage(url="https://fake.test/list?page=1", html="",
+                       kind=PageKind.LISTING)
+
+    overshooting = [index for index, _ in enumerate(site.detail_urls(page))
+                    if index >= len(site.ROWS)]
+
+    assert overshooting == [2, 3]
+    with pytest.raises(SliceNotSupported):
+        site.belongs_to_slice(page, 2, "Cairo")

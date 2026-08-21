@@ -286,15 +286,46 @@ class MuqawilPageSource:
         it today, and rebuilding means a page that ever links some other value
         still gets crawled at the one that renders every section.
         """
+        for _, url in self.detail_rows(page):
+            yield url
+
+    def detail_rows(self, page: FetchedPage) -> Iterable[tuple[int, str]]:
+        """`(card_index, url)`, and it is `detail_urls`' authority rather than a
+        parallel enumeration of the same thing.
+
+        THE INDEX IS THE CARD'S, NOT THE URL'S, and that distinction is the whole point.
+        This yields one URL PER LOCALE, so there are twice as many URLs as cards —
+        measured on a stored page, 17 cards and 34 URLs. `enumerate(detail_urls(page))`
+        therefore handed `belongs_to_slice` an index that pointed at a different
+        contractor for every URL but the first, and dropped the 17 that indexed past
+        the last card.
+
+        THE INDEX IS TAKEN BEFORE DEDUPLICATION, deliberately. `read_ids` is in card
+        order and `_cards` is the same order, so position IS the card. Numbering the
+        deduplicated list instead would shift every index after the first repeated id —
+        and a page that lists one contractor twice is exactly the case nobody would
+        think to test.
+        """
         base = _origin(page.url)
-        seen: list[str] = []
-        for contractor_id in read_ids(page.html):
-            if contractor_id not in seen:
-                seen.append(contractor_id)
-        for contractor_id in seen:
-            for locale in self._locales:
-                yield (f"{base}/{locale}/contractors/"
-                       f"{contractor_id}/{SELF_BUILD_SEGMENT}")
+        emitted: set[str] = set()
+        for row_index, contractor_id in enumerate(read_ids(page.html)):
+            if contractor_id in emitted:
+                continue
+            emitted.add(contractor_id)
+            for url in self.profile_urls(base, contractor_id):
+                yield row_index, url
+
+    def profile_urls(self, base_url: str, contractor_id: str) -> Iterable[str]:
+        """The profile pages of ONE contractor, one per locale.
+
+        THE ONE PLACE THAT KNOWS THE SHAPE. A frontier can be built two ways — off the
+        listing pages on disk, or off the ids in `dataset_sighting` — and both need this
+        URL. Two copies of the pattern is two places to forget `SELF_BUILD_SEGMENT`,
+        which is the segment that makes the self-build price section render at all.
+        """
+        for locale in self._locales:
+            yield (f"{base_url.rstrip('/')}/{locale}/contractors/"
+                   f"{contractor_id}/{SELF_BUILD_SEGMENT}")
 
     def belongs_to_slice(self, page: FetchedPage, row_index: int,
                          slice_of: str) -> bool:
@@ -315,7 +346,18 @@ class MuqawilPageSource:
 
         cards = _cards(page.html)
         if row_index >= len(cards):
-            return False
+            # REFUSED, NOT `False`. This used to answer False, and that made the
+            # off-by-a-locale pairing invisible: `enumerate(detail_urls(page))` handed
+            # this method indices up to 33 for a page with 17 cards, and every one past
+            # the last card was quietly dropped. Seventeen contractors vanished from the
+            # slice and the result read as a smaller city.
+            #
+            # An index past the last row is a CALLER error — there is no row to answer
+            # about — so it is the one thing this method must not have an opinion on.
+            raise SliceNotSupported(
+                f"row {row_index} of {page.url} does not exist: the page has "
+                f"{len(cards)} card(s). A caller pairing URLs to rows by position must "
+                "use `detail_rows`, because this listing yields one URL per locale.")
 
         icon = cards[row_index].select_one(f".info-icon span.{_CITY_ICON}")
         if icon is None:

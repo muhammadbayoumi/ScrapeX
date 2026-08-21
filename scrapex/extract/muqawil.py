@@ -285,6 +285,120 @@ def _card_boxes(html: str) -> dict[str, tuple[tuple[str, str], ...]]:
     return boxes
 
 
+
+#: The interests block is a nested list, and the nesting is the taxonomy. A child `<ul>`
+#: is a SIBLING of the `<li>` it hangs under, not its child — so a parent is the nearest
+#: preceding `<li>` at one level up, which is what `read_interests` walks.
+#:
+#: FOUND BY STRUCTURE AND NEVER BY ITS HEADING. The first draft matched the title text
+#: `"Interests"`, and it read 25 nodes from the English profile and **0 from the
+#: Arabic** — because the Arabic heading is `الأنشطة`, "Activities", not a translation
+#: of the English one. Titles are content and they are not parallel between locales;
+#: `DSN-05` cost a day to the same class of mistake, where `_slug` filtered every Arabic
+#: label to nothing and split a column into two empty strings for every contractor in
+#: the country.
+#:
+#: The list is the thing that identifies the card. Measured on both committed profiles:
+#: exactly one `div.section-card` contains `ul.list-numerical` items — 25 of them — and
+#: the other two contain none.
+_INTEREST_LIST = "div.section-card:has(ul.list-numerical li.list-item)"
+
+
+def read_interests(html: str) -> tuple[tuple[str, ...], ...]:
+    """Every interest as a PATH from root, in document order. One tuple per node.
+
+    WHY THIS EXISTS, AND IT CORRECTS A WRITTEN PREMISE. The plan for `R-19` says the
+    five multi-valued groups *"go through `detect_html_tables` like any other site's
+    tables"*. Measured against the committed profile: the page holds exactly **five
+    `<table>` elements and none of them is Interests**. It is a nested `<ul
+    class="list list-numerical">` inside `<div class="section-card">`, under an
+    `<h3 class="card-title">Interests</h3>`.
+
+    That matters because interests are the BIGGEST of the five — the `R-19` study
+    measured 30 values in 6 groups for one contractor and priced the group at ~235 MB at
+    full scale. Building on the five-tables premise would have produced four groups and
+    silently missed the largest.
+
+    THE SHAPE IS `classification_node`'S, WHICH IS WHY PATHS AND NOT NAMES. Measured on
+    the fixture, three levels deep, and the leaf name is **not unique** — the study found
+    `الصرف الصحي` under more than one parent, so an identity built from the leaf name
+    merges two different activities. A path is the identity; the name is not.
+
+    EVERY NODE, NOT ONLY THE LEAVES. A taxonomy needs its interior nodes to exist before
+    a leaf can reference one, and `Construction of buildings` is both a level-1 node and
+    a level-2 node with different children — visible in this one fixture. Returning
+    leaves alone would leave the parents to be inferred, which is the guessing this
+    function removes.
+
+    IT DOES NOT WRITE ANYTHING. Which storage shape these become is `R-19`'s open
+    question — a child dataset referencing `classification_node` is the study's
+    recommendation and is **awaiting his ruling**. Reading is what both candidate shapes
+    need, so it is what gets built ahead of the decision.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    cards = [card for card in soup.select("div.section-card")
+             if card.select_one("ul.list-numerical li.list-item") is not None]
+    if len(cards) > 1:
+        # AMBIGUOUS IS NOT A GUESS. Measured today there is exactly one such card in
+        # each locale; a page that grows a second numerical list would make "the one
+        # with the list" mean two things, and picking the first would read one group's
+        # values as another's. The layout moved, and that is a fact the caller needs.
+        raise ValueError(
+            f"{len(cards)} section-cards carry a numerical list, so the interests "
+            "block can no longer be identified by structure. The layout has changed.")
+    card = cards[0] if cards else None
+    if card is None:
+        # ABSENT IS NOT EMPTY, and the caller cannot tell them apart from a tuple — but
+        # it can from the count, and a contractor with no interests is a real state. An
+        # exception here would make a profile without the section unreadable.
+        return ()
+
+    found: list[tuple[str, ...]] = []
+    for item in card.select("li.list-item"):
+        path = _path_to(item, card)
+        if path:
+            found.append(path)
+    return tuple(found)
+
+
+def _path_to(item: Tag, card: Tag) -> tuple[str, ...]:
+    """The ancestry of one `<li>`, root first.
+
+    THE PARENT IS A SIBLING, NOT AN ANCESTOR. The markup nests as
+
+        <ul><li>Civil engineering</li>
+            <ul><li>Construction of roads and railways</li>
+                <ul><li>…</li></ul></ul></ul>
+
+    so the `<ul>` holding a child sits BESIDE the `<li>` it belongs to. Walking
+    `parents` alone therefore finds the right depth and never the right names: it would
+    report every leaf as a child of nothing. Each step up takes the enclosing `<ul>` and
+    then its nearest preceding `<li>` sibling, which is the node it hangs under.
+    """
+    name = item.find(string=True, recursive=False)
+    name = (name or "").strip()
+    if not name:
+        return ()
+    path = [name]
+    node: Tag | None = item
+    while True:
+        holder = node.find_parent("ul")
+        if holder is None or not _within(holder, card):
+            break
+        parent_item = holder.find_previous_sibling("li")
+        if parent_item is None:
+            break
+        parent_name = parent_item.find(string=True, recursive=False)
+        parent_name = (parent_name or "").strip()
+        if parent_name:
+            path.append(parent_name)
+        node = parent_item
+    return tuple(reversed(path))
+
+
+def _within(node: Tag, card: Tag) -> bool:
+    return any(one is card for one in node.parents)
+
 def read_profile(html: str) -> Reading:
     """One profile page, in whichever language it was fetched.
 
