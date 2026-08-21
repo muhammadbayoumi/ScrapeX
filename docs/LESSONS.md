@@ -101,6 +101,32 @@ same-content-modulo-newlines), then upgrade it in place. Hashing in-memory
 strings or DB rows is unaffected: `normalize.py`, `funnel.py`, `retention.py` and
 `split.py::_table_hash` are all immune.
 
+### On the owner's machine, neither `scrapex` nor `python` is on PATH
+
+`scrapex ui` is the documented single launch path, and **it cannot be typed on the
+machine where the owner works.** Measured 2026-08-21 on the Muhammad account:
+
+| typed | what happens |
+|---|---|
+| `scrapex` | not found. `Scripts\` is not on PATH at all, though `scrapex.exe` is in it |
+| `python` | the **Microsoft Store stub** — *"Python was not found; run without arguments to install from the Microsoft Store"* |
+| `py` | works, and resolves to `…\Programs\Python\Python312\python.exe` |
+
+The cause is PATH order, not a missing install: `…\Microsoft\WindowsApps` (the
+Store aliases) sits at position 22 and `…\Programs\Python\Python312` at 26, so the
+stub wins. `…\Python\Launcher` is at 21, which is why `py` is the one that works.
+
+**Apply:** an instruction that begins `scrapex …` or `python -m scrapex.cli …` will
+fail for him before it does anything, and the failure looks like a broken tool
+rather than a PATH. Write `py -m scrapex.cli …` when handing him a command, and
+remember the two-machine rule — the other account's PATH has not been measured and
+may differ.
+
+**And the same fact bites the frozen engine from the other side:** when there is no
+Python on PATH at all, the shipped `.exe` is the ONLY way in. That is the argument
+for the one-file binary, and the reason its silence when double-clicked
+(`OP-30`) cost the owner the whole afternoon rather than a minute at a terminal.
+
 ---
 
 ## 2 · The warehouse, and reading it without breaking it
