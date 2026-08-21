@@ -459,8 +459,11 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       not 363 KB**, 0.91 GB → 19.4 MB.
 - [ ] **`O-2`** — does the contractor entity belong in the mbiX workbook, or stay
       engine-only until it has proved itself?
-- [ ] **`DEC-10`** — the row-aware idempotency key. Without it a corrected parser
-      re-run over stored snapshots returns `recovered=True` and writes nothing.
+- [x] **`DEC-10` — RULED 2026-08-21, [R-38](../RULINGS.md#r-38--dec-10-is-built-before-the-profile-crawl-not-after-it):
+      built BEFORE the profile crawl.** It is the one open item that changed the COST of
+      the remaining work rather than its scope: on 34,834 pages a parser defect found
+      after the crawl costs 11 hours of re-fetching to repair what should be minutes of
+      re-parsing — which hands back exactly what the seam exists to save.
 
 ---
 

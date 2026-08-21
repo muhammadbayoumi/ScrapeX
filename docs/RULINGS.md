@@ -813,6 +813,163 @@ changed.
 
 ---
 
+### R-36 · `R-19`'s five groups are a TAXONOMY plus a link table, not five datasets — shape D
+
+**2026-08-21 · data model · refines [R-19](#r-19--the-five-multi-valued-contractor-groups-go-in-child-tables-not-json), and overrules the study's own recommendation**
+
+> «شكل تخزين مجموعات R-19 الخمس … أيّها؟» → **«D — تصنيف خالص + جدول ربط مخصَّص»**
+
+`R-19` ruled child tables over JSON and every measurement upheld it. What it did not
+settle was *how* — [the study](R19-CHILD-TABLES-MEASURED.md) put five shapes side by side
+and recommended **F**, a child dataset per group inside `generic_record` whose value
+references `classification_node`. **He chose D**: the taxonomy plus a bespoke link table.
+
+**He is right, and the recommendation was wrong for a reason worth writing down.** F's
+headline argument was that it reuses machinery the warehouse already contains. Measured
+on the live warehouse the same day:
+
+| the machinery F would be the first tenant of | rows |
+|---|---|
+| `classification_node` | **0** |
+| `classification_scheme` | **0** |
+| `dataset_relationship` | **0** |
+| `relationship_field_pair` | **0** |
+
+**Existing machinery that has never carried a row is not an asset.** This one session
+proved that three times: `is_enabled` called itself *"the gate navigation must call"* and
+had zero callers; `record_absences` had zero callers; and the slice scope was *"built,
+tested, and never used"* and turned out to be **wrong** — 17 cards paired against 34
+URLs. The recommendation weighed whether the machinery EXISTED. What matters is whether
+it RUNS.
+
+**And F pays a full record's overhead for a two-integer join row.** Measured per row of
+`generic_record`: `data_json` averages **1,049 bytes**, `record_key` is a 64-character
+SHA-256, `content_hash` another 64, plus two timestamps, a status and four foreign keys.
+A membership fact — *this contractor holds this node* — is two integers. At the study's
+~500K rows that is the measured 4.7×, and it is conservative.
+
+**"It inherits the lifecycle" was not true either:**
+
+    retention.py     16 references to price_observation, 0 to generic_record
+    compaction.py     7 references to price_observation, 0 to generic_record
+
+The contractor dataset has no retention today. F would have added five more datasets to
+that same gap rather than inheriting a solution.
+
+**A fourth reason, which crosses [R-38](#r-38--dec-10-is-built-before-the-profile-crawl-not-after-it):**
+F routes five groups through `approve_candidate`, the function that answers
+`recovered=True` and writes nothing. D writes directly, so idempotency is one constraint
+— `UNIQUE (contractor, node)` — correct by construction instead of by later repair.
+
+**WHAT D MUST NOT LOSE, and it is one line.** F's one surviving advantage was that
+`generic_record.source_snapshot_id NOT NULL` makes provenance **enforced by the schema**
+rather than remembered. The link table carries the same column under the same constraint.
+Then D is 4.7× smaller *and* provenance is still enforced.
+
+**What D genuinely costs:** bespoke work in the export, the API, the panel and the CLI,
+because a link table is not a dataset and nothing reads it for free. Noted rather than
+discounted — and `O-2`, whether the contractor entity belongs in the mbiX workbook at
+all, is parked by him, so the export half of that cost is not owed yet.
+
+---
+
+### R-37 · muqawil is registered `listing_plus_slice`, and one city is crawled before eleven hours are spent
+
+**2026-08-21 · crawl scope · answers the registration `PLATFORM-PLAN` Decision 23 left to him**
+
+> «نطاق زحف مقاول مسجَّل listing_only … ماذا أُسجِّل؟» → **«listing_plus_slice لمدينة واحدة أوّلاً»**
+
+The profile pages carry the ~28 columns the listing does not, and the full crawl is
+**34,834 pages — 11.1 hours**, measured over 87 minutes of real six-worker crawling at
+52.5 pages a minute. He chose to see one city first.
+
+**The city is read off the listing card, so a slice costs nothing to select.** Measured
+from the live warehouse, the cities that a first slice could be:
+
+| city | contractors | profile pages | at 1.14 s a page |
+|---|---|---|---|
+| RIYADH | 5,406 | 10,812 | ~3.4 h |
+| JEDDAH | 2,206 | 4,412 | ~1.4 h |
+| DAMMAM | 739 | 1,478 | ~28 min |
+| AL MADINAH AL MUNAWWARAH | 499 | 998 | ~19 min |
+| TABUK | 191 | 382 | ~7 min |
+
+**A DEFECT THIS RULING EXPOSED BEFORE IT WAS IMPLEMENTED.** A slice is named in the
+language of the page — `MuqawilPageSource.belongs_to_slice` says so — and measured
+against the committed fixtures:
+
+    en page, slice 'RIYADH'  → 3 of 4 cards match
+    en page, slice 'الرياض'  → 0 of 4
+    ar page, slice 'RIYADH'  → 0 of 4
+    ar page, slice 'الرياض'  → 3 of 4
+
+So a single `crawl_slice` value matches **one locale's pages only**. The frontier still
+comes out correct, because `detail_rows` yields both locales' profile URLs for a matched
+row — but every Arabic listing row is counted as *outside the slice*, which makes the
+report a lie, and the whole slice would depend on the English pages happening to be on
+disk. The frontier scan is therefore restricted to the locale the slice is named in, and
+the report says which.
+
+---
+
+### R-38 · DEC-10 is built BEFORE the profile crawl, not after it
+
+**2026-08-21 · idempotency · closes [DEC-10](BACKLOG.md) as a decision**
+
+> «هل نبنيه قبل زحفة الملفّات؟» → **«نعم، قبل الزحفة»**
+
+`approve_candidate`'s idempotency key is `(snapshot, locator)` plus the schema hash, so a
+**corrected** parser re-run over stored pages returns `recovered=True` and changes not one
+row. On the listing that was survivable — the pages are cheap to re-read. On 34,834
+profile pages it is not: a parser defect found after the crawl costs **11 hours of
+re-fetching** to fix what should be minutes of re-parsing.
+
+**That is a direct contradiction of why the seam exists.**
+`docs/GENERIC-FETCH-SEAM.md` separates fetching from interpreting precisely so that a
+wrong parse costs minutes; an idempotency key that refuses to rewrite a corrected row
+hands the cost straight back.
+
+**It is also the one open item that changes the COST of the remaining work rather than
+its scope**, which is why building it first is not sequencing preference. `R-36`'s link
+table depends on it twice over: the five groups are parsed from the same profile pages,
+and a first parse of a five-level taxonomy is unlikely to be the last.
+
+The route already proven on live data — wipe and re-approve from disk, which took
+`generic_record` from 1,172 to 13,892 with zero network on 2026-08-21 — stays available.
+It works and it destroys history every time, which is what a row-aware key replaces.
+
+---
+
+### R-39 · A multi-valued group is named by a DECLARED per-site map, never by position or by its heading
+
+**2026-08-21 · extraction · answers a question the measurement raised**
+
+> «كيف تُسمّى المجموعات الخمس؟» → **«خريطة مُعلَنة لكل موقع»**
+
+`R-36` needs to know which group a row belongs to, and neither obvious answer works.
+Measured against the committed profile:
+
+| candidate rule | why it fails |
+|---|---|
+| the detector's own name | it returns `Table 1` … `Table 5` — position, which moves when a section does |
+| the nearest heading | **three of the five tables sit under one heading** |
+| the column signature | two tables carry the same `الإسم / القيمة` pair, and three are **empty** for this contractor, so there are no columns to read |
+
+So each site declares it, the way `CARD_FIELDS` and `PROFILE_FIELD_ORDER` already declare
+what a listing and a profile publish. Explicit, tested against a committed fixture, and
+unchanged when the site moves a section.
+
+**And the heading rule fails for a second reason that would have been worse.** The
+interests card is titled `Interests` in English and **`الأنشطة`** — "Activities" — in
+Arabic. Not a translation. A heading-based rule read 25 nodes from the English profile and
+**0 from the Arabic**, which is `DSN-05`'s failure again: a locale-dependent selector that
+silently produces nothing for half the data.
+
+**The price, stated:** one declaration per group per site. That is the cost of a rule that
+cannot drift, and this file already records what the alternative costs.
+
+---
+
 ### R-35 · The engine's version moves on a CONTRACT change; the extension's on a USER-VISIBLE one
 
 **2026-08-21 · release · settles the trigger R-05 lost and R-07 left open**

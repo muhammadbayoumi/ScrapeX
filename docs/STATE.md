@@ -453,11 +453,52 @@ with nothing stored for them. Their written conditions were measured, not quoted
 
 > **And the reason given for lighting them was wrong, so it is corrected here
 > rather than deleted.** This file used to say lighting them "makes `/datasets`
-> appear in navigation". It does not. `is_enabled` has **no production caller** in
-> the engine or the panel, and there is no `/datasets` route — measured, not
-> assumed. What the flags govern is what `/api/features` **publishes**, so lighting
-> one is a *claim* about a capability rather than a switch that reveals it. The
-> capability itself already works without them: `/source/contractors` serves today.
+> appear in navigation". It does not, and there is no `/datasets` route — measured,
+> not assumed.
+>
+> **SUPERSEDED 2026-08-21 (#245): they are switches now.** The paragraph above went
+> on to say `is_enabled` has *"no production caller"*, which was true and is the
+> defect item 3 of the six closed. The two callers are the two ADVERTISEMENTS, and
+> they are not symmetrical: `_dataset_rows` puts a dataset in the source listing the
+> panel draws, and `scrapex contractors --approve` is a shipped user-facing command
+> since `REQ-24`. **The API routes stay outside the flags on purpose** — they are
+> mounted on 127.0.0.1 so the slice can be exercised, and gating them would make a
+> flag a kill switch for development instead of a switch over what is announced. A
+> test asserts that distinction on the route table, because it is the line a later
+> reader would tidy away.
+
+### The six that finish muqawil, merged 2026-08-21 (#245)
+
+His instruction after #243: run the six remaining muqawil engineering items in order.
+Five are done. The sixth is built as far as a ruling of his allows.
+
+| | item | outcome |
+|---|---|---|
+| 1 | `status = 'unavailable'` on a departed row | **done** — the whole chain had no caller, not even `record_absences` |
+| 2 | the cost of sizing, in the output | **done** — computed, not the `~112` a module header remembered |
+| 3 | `is_enabled` becomes a switch | **done** — two callers, and the routes stay outside |
+| 4 | the slice scope | **the defect is fixed**; the walk moved into item 5 |
+| 5 | the profile crawl | **wired, not run** — 34,834 pages, measured at **11.1 h** |
+| 6 | `R-19` child tables | **the reader only** — the write is his to rule |
+
+**Item 6's two blockers are not engineering.**
+[R19-CHILD-TABLES-MEASURED](R19-CHILD-TABLES-MEASURED.md) recommends shape F and its own
+last line says *"Not built. Awaiting his ruling"*; and the content comes from profile
+pages, of which **none is stored**, because the registration is `listing_only`.
+
+**Three written premises that measurement contradicted, all recorded where they were
+written:**
+
+| the premise | what was measured |
+|---|---|
+| the slice scope is "built, tested, never used" | it was also **wrong** — 17 cards paired against 34 URLs, and 17 indices pointed past the last card |
+| the profile's five `<table>`s "are exactly" `R-19`'s five groups | five tables, **none of them Interests** — which is the biggest group, and not a table at all |
+| the profile crawl is ~17.4 h | **11.1 h**, over 87 minutes of real six-worker crawling |
+
+**And a new sub-question of his to answer:** how are the five groups NAMED? The table
+detector returns `Table 1`…`Table 5`, and three of the five share one nearest heading —
+so neither position nor the heading above them answers it. Whichever shape is ruled needs
+that rule, and it does not exist.
 
 **Four questions are open and are his** — O-1 to O-4 in
 [RULINGS.md](RULINGS.md#open--awaiting-the-owners-ruling).

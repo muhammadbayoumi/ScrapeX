@@ -1596,6 +1596,12 @@ What was considered and is worse:
 TEXT. That is a migration plus every reader of the column.
 
 ### DEC-10 · "Fix the parser and re-run over the snapshots" does not actually work
+
+> **RULED 2026-08-21 — [R-38](RULINGS.md#r-38--dec-10-is-built-before-the-profile-crawl-not-after-it):
+> built BEFORE the profile crawl.** On 34,834 profile pages a parser defect found
+> afterwards costs 11 hours of re-fetching to fix what should be minutes of
+> re-parsing, which is a direct contradiction of why the seam exists. Kept here
+> rather than deleted, because the measurement below is what produced the ruling.
 The seam's stated product is that a wrong parse is re-run against stored snapshots with
 nothing re-fetched (`GENERIC-FETCH-SEAM.md`). **It was tried on 2026-08-20 and wrote
 nothing at all.**
