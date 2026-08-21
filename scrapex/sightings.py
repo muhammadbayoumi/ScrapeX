@@ -157,7 +157,22 @@ def stored_ids(conn: sqlite3.Connection, dataset_key: str, *,
     `external_id` column written at approval time — a migration, recorded in
     `docs/BACKLOG.md` rather than smuggled in behind a performance patch.
     """
-    found: dict[str, str] = {}
+    return {external_id: record_key
+            for external_id, (record_key, status)
+            in _records_with_status(conn, dataset_key, id_field).items()
+            if not active_only or status == "active"}
+
+
+def _records_with_status(conn: sqlite3.Connection, dataset_key: str,
+                         id_field: str) -> dict[str, tuple[str, str]]:
+    """`external_id -> (record_key, status)`. The one pass `stored_ids` documents.
+
+    KEPT AS ONE QUERY WITH TWO READERS rather than two similar queries, because the
+    `json_extract` here is the expensive part — see `stored_ids` for the 800x — and a
+    second copy of it is a second chance for the two to drift on which rows they
+    count.
+    """
+    found: dict[str, tuple[str, str]] = {}
     for record_key, external_id, status in conn.execute(
             "SELECT r.record_key, json_extract(r.data_json, '$.' || ?), r.status "
             "  FROM generic_record AS r "
@@ -166,9 +181,7 @@ def stored_ids(conn: sqlite3.Connection, dataset_key: str, *,
             " WHERE d.dataset_key = ?", (id_field, dataset_key)):
         if external_id is None:
             continue
-        if active_only and status != "active":
-            continue
-        found[str(external_id)] = record_key
+        found[str(external_id)] = (record_key, status)
     return found
 
 
@@ -416,6 +429,133 @@ def record_absences(conn: sqlite3.Connection, dataset_key: str, *,
         [(run_ref, dataset_key, one) for one in missing])
     conn.commit()
     return len(missing)
+
+
+@dataclass(frozen=True)
+class Marking:
+    """What one `mark_unavailable` pass changed, both directions named separately.
+
+    TWO NUMBERS AND NOT A TOTAL, because they are opposite facts and a caller that
+    prints `7 changed` has told the reader nothing: seven contractors leaving the
+    directory and seven coming back are the same total and different news.
+    """
+
+    dataset_key: str
+    marked: tuple[str, ...] = ()
+    restored: tuple[str, ...] = ()
+
+    def __str__(self) -> str:
+        if not self.marked and not self.restored:
+            return f"{self.dataset_key}: no status change"
+        parts = []
+        if self.marked:
+            parts.append(f"{len(self.marked):,} marked unavailable")
+        if self.restored:
+            parts.append(f"{len(self.restored):,} restored to active")
+        return f"{self.dataset_key}: " + ", ".join(parts)
+
+
+def mark_unavailable(conn: sqlite3.Connection, dataset_key: str, *,
+                     id_field: str = "contractor_id") -> Marking:
+    """Write the status a proven absence earns, and take it back when the row returns.
+
+    `OP-26`, RULED BY HIM ON 2026-08-21: a delisted contractor becomes
+    **`unavailable`**, not `retired`. The two were both in the schema's `CHECK` from
+    the beginning and **nothing ever set either** — so a delisted contractor kept
+    `status='active'` with a frozen `last_seen_at` and was indistinguishable from one
+    the last crawl simply had not reached.
+
+    `retired` IS DELIBERATELY UNREACHABLE FROM HERE. `row_state` calls a marked row *"a
+    decision somebody took"*, and that is the difference: `unavailable` is what the
+    SITE did, so a crawl may write it, while `retired` is what a PERSON decided and no
+    crawl should be able to reach it. One vocabulary, two authors.
+
+    That rule is enforced by the two branch conditions naming their own status, **not**
+    by a guard at the top of the loop. There was one, and a mutation removed it without
+    a single test failing — because `retired` is neither `'active'` nor `'unavailable'`
+    and the branches had already excluded it. It is recorded here because deleting an
+    untestable guard looks like weakening the code and is the opposite.
+
+    THE PROOF IS `last_absent_at`, AND THAT IS WHY THIS FUNCTION CAN CHECK ITSELF.
+    `record_absences` says its caller must guarantee the crawl was complete, because it
+    cannot see the proof from inside. This function is downstream of it and therefore
+    can: `last_absent_at` is written **only** from a crawl whose cells closed with
+    `D = 0`, so a row carrying one has already been proven absent by a crawl that could
+    have found it. A row with no `last_absent_at` is never marked, and the reason is
+    the failure `R-27` exists to prevent from the other side — a crawler having a bad
+    afternoon must not delist contractors.
+
+    THE BOUNDARY IS THE EXACT COMPLEMENT OF `row_state`'S, deliberately. That function
+    reads `last_seen_at >= last_absent_at` as `returned`, with a written reason for the
+    `>=`: both timestamps come from `strftime(...,'now')` at SECOND resolution, so a
+    crawl finishing in the same second as the absence it answers produces two equal
+    strings. "Still absent" is therefore `last_seen_at < last_absent_at` and nothing
+    else. **If these two ever disagree, a row is marked unavailable and displays
+    `returned`, or the reverse** — so they are written as one comparison in two places
+    rather than two comparisons that happen to agree today.
+
+    AND THE RESTORE IS NOT OPTIONAL — WITHOUT IT `returned` IS UNREACHABLE. `row_state`
+    puts a marked row FIRST in its precedence, above every observation. So a
+    contractor marked `unavailable` who reappears would keep displaying `unavailable`
+    for as long as the row exists, and the `returned` state that migration 0006 was
+    written for would never be seen by anyone. Marking without restoring would not be
+    half of this feature; it would be a regression that silently disables another.
+
+    A ROW WITH NO SIGHTING IS NEVER TOUCHED. That is `unsighted` — a gap in **our**
+    ledger, from rows predating `dataset_sighting` — and calling it a departure would
+    invent one out of our own history.
+
+    Returns a `Marking` naming both directions. Idempotent: a second pass over an
+    unchanged warehouse reports nothing, because it compares the status it would write
+    against the one already there.
+    """
+    sighted = {
+        str(external_id): (last_seen_at, last_absent_at)
+        for external_id, last_seen_at, last_absent_at in conn.execute(
+            "SELECT external_id, last_seen_at, last_absent_at "
+            "  FROM dataset_sighting WHERE dataset_key = ?", (dataset_key,))}
+
+    marked: list[str] = []
+    restored: list[str] = []
+    for external_id, (record_key, status) in _records_with_status(
+            conn, dataset_key, id_field).items():
+        seen = sighted.get(external_id)
+        if seen is None:
+            continue                      # unsighted: our gap, not a departure
+        last_seen_at, last_absent_at = seen
+        if last_absent_at is None:
+            still_absent = False          # nothing ever proved this row absent
+        else:
+            # THE COMPLEMENT OF `row_state`'s `returned` test. See the docstring.
+            still_absent = str(last_seen_at or "") < str(last_absent_at)
+        # BOTH BRANCHES NAME THE STATUS THEY ACT ON, and that is what keeps `retired`
+        # out rather than a guard above the loop. There WAS such a guard, and a mutation
+        # deleted it with every test still passing: `retired` is neither `'active'` nor
+        # `'unavailable'`, so these two conditions had already excluded it and the guard
+        # was decoration. A line that reads like protection and cannot fail is worse than
+        # no line, because the next reader believes it is what protects the row.
+        #
+        # So the rule lives where it acts: `unavailable` is what the SITE did and a crawl
+        # may write it; `retired` is what a PERSON decided and no crawl may reach it, in
+        # either direction.
+        if still_absent and status == "active":
+            marked.append(record_key)
+        elif not still_absent and status == STATE_UNAVAILABLE:
+            restored.append(record_key)
+
+    for new_status, keys in ((STATE_UNAVAILABLE, marked), ("active", restored)):
+        if keys:
+            conn.executemany(
+                "UPDATE generic_record SET status = ? "
+                " WHERE record_key = ? AND dataset_definition_id = ("
+                "   SELECT dataset_definition_id FROM dataset_definition "
+                "    WHERE dataset_key = ?)",
+                [(new_status, key, dataset_key) for key in keys])
+    if marked or restored:
+        conn.commit()
+    return Marking(dataset_key=dataset_key,
+                   marked=tuple(sorted(marked)),
+                   restored=tuple(sorted(restored)))
 
 
 def sighting_frequencies(conn: sqlite3.Connection,

@@ -122,7 +122,7 @@ and ten are open — of which only SIX are muqawil engineering.**
 
 | | item | cost | why this order |
 |---|---|---|---|
-| 1 | `status = 'unavailable'` on a departed row | **~1 h** | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
+| 1 | ~~`status = 'unavailable'` on a departed row~~ **DONE** | ~3 h, not 1 | **already ruled** — he chose `unavailable` over `retired`; detection is built, only the WRITE is missing. A ruled-and-unbuilt item is the exact shape of `REQ-04`, which is why **C7** exists. |
 | 2 | State the resume cost in the tool's output | **~20 min** | It is in a docstring at `partitioncrawl.py:81`, which is not where a user of the command looks. |
 | 3 | `is_enabled` has 0 callers | **~1 h** | Two capabilities are lit at `PARTIAL` and nothing reads them, so lighting one is a *claim*, not a switch. |
 | 4 | The slice scope, unused for muqawil | **~1 h** | Built and tested; wiring it is what makes a partial re-read addressable. |
@@ -304,7 +304,21 @@ Tick a box only when it is MERGED. `⚡` marks a quick win — under about an ho
       self-build price section render at all.
 - [ ] **`belongs_to_slice` / `crawl_slice` / `LISTING_PLUS_SLICE`:** the slice scope is
       built, tested, and never used for muqawil.
-- [ ] **`generic_record.status` offers `unavailable` and `retired` and nothing ever sets either.** Detection is built (`sightings.departures`); the WRITE needs his ruling on which of the two a delisted contractor gets — see [OP-26](../BACKLOG.md)
+- [x] **`generic_record.status` is written now, and the mark can be taken back.**
+      `OP-26` ruled: `unavailable`. **The whole chain had no caller** — not the status
+      write, and not `record_absences` either, which writes the one fact that cannot be
+      recomputed. So `mark_departures` in the crawl is the caller `record_absences`
+      always said it needed, gated on `outcome.provably_complete`.
+      **Three findings on the way.** (1) `row_state` puts a marked row FIRST in its
+      precedence, so marking without ever unmarking would have made `returned`
+      unreachable — migration 0006's whole purpose, silently switched off. The restore
+      direction is not a nicety. (2) A `retired` guard at the top of the loop was **dead
+      code**: both branches already name the status they act on, and a mutation deleted
+      the guard with every test passing. Removed, with the reason written where it acts —
+      a line that reads like protection and cannot fail is worse than no line. (3) A
+      nested outcome reports `provably_complete = True` *correctly* — it is a claim about
+      `scope` — so the `nested` check is load-bearing: without it one cell's proof
+      delists the rest of the country. Sixteen tests, **nine mutations killed**.
 - [x] **`approve_candidate` creates a version 2 now** — `_retire_or_refuse`, and the
       direction decides: a **superset** of the approved fields retires v1 and approves
       v2, while a subset or a rename is still refused, because those two are how a

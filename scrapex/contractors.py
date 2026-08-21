@@ -55,7 +55,9 @@ from .partitioncrawl import (
 from .sightings import (
     coverage,
     departures,
+    mark_unavailable,
     missing_ids,
+    record_absences,
     sighting_frequencies,
 )
 from .snapshotbody import decode
@@ -239,7 +241,61 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
         say(f"kept {written:,} validator(s) for the next crawl; this one was "
             f"answered 304 for {saved:,} page(s)")
     say("")
+    mark_departures(conn, directory, outcome, run_ref)
     say(str(coverage(conn, directory.dataset_key)))
+
+
+def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
+    """Write down who left, but ONLY off the back of a proof.
+
+    `OP-26`, RULED 2026-08-21: a delisted contractor becomes `unavailable`. The
+    schema has offered that value since the table was created and **the whole chain
+    had no caller** — not `record_absences`, which writes the one fact that cannot be
+    recomputed, and not the status write that depends on it. So a contractor the
+    directory removed kept `status='active'` with a frozen `last_seen_at`, which is
+    indistinguishable from one this crawl did not reach.
+
+    THE GATE IS THE POINT OF THIS FUNCTION. `record_absences` says its caller must
+    guarantee the crawl was complete, because it cannot see that from inside. Here is
+    that caller, and the guarantee is `outcome.provably_complete` — which already
+    means every cell proven, none unsized, and no row outside every cell.
+
+    AND `nested` IS CHECKED SEPARATELY BECAUSE `provably_complete` IS DELIBERATELY
+    NARROWER THAN IT LOOKS. Its own docstring: *"IT IS A CLAIM ABOUT `scope` AND NEVER
+    MORE"* — true on a nested run it means the PARENT CELL is accounted for and says
+    nothing about the rest of the listing. Marking absences from a nested proof would
+    delist every contractor outside that one cell.
+
+    `--only` IS REFUSED BY THE SAME PROPERTY, AND THE TEST SAYS SO OUT LOUD. A subset
+    run sizes the whole listing and sums only the cells it was given, so its
+    `exhaustiveness_deficit` is the thousands of rows in the cells it skipped and
+    `provably_complete` is False. That is the right answer arrived at indirectly, so
+    it is asserted rather than assumed — an implicit safety property with no test is
+    one refactor away from being gone.
+
+    IT SAYS WHY IT DECLINED. A crawl that silently marked nothing would be
+    indistinguishable from one that found no departures, and those are opposite facts.
+    """
+    if outcome.nested:
+        say(f"departures not marked: this crawl proves {outcome.scope} only, and a "
+            f"cell's proof says nothing about the rest of the listing")
+        return
+    if not outcome.provably_complete:
+        say(f"departures not marked: the crawl is not provably complete "
+            f"(deficit {outcome.deficit:,}, exhaustiveness "
+            f"{outcome.exhaustiveness_deficit:,}). A partial crawl misses "
+            f"contractors for its own reasons and marking those as gone would "
+            f"delist them because the crawler had a bad afternoon")
+        return
+
+    proven = record_absences(conn, directory.dataset_key,
+                            seen=outcome.ids, run_ref=run_ref,
+                            id_field=directory.identity_field)
+    marking = mark_unavailable(conn, directory.dataset_key,
+                               id_field=directory.identity_field)
+    say(f"the crawl is provably complete, so absence is evidence: "
+        f"{proven:,} row(s) proved absent by {run_ref}")
+    say(f"  {marking}")
 
 
 # ---- --coverage: what the warehouse knows about its own gaps ------------------
