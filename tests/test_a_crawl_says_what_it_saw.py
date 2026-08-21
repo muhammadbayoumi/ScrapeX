@@ -21,6 +21,7 @@ import pytest
 
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.sightings import (
+    departures,
     Coverage,
     coverage,
     missing_ids,
@@ -39,6 +40,27 @@ def conn(tmp_path: Path):
         yield connection
     finally:
         connection.close()
+
+
+def _record_key(contractor_id: str) -> str:
+    """`record_key` AS PRODUCTION BUILDS IT — a hash, not the id.
+
+    THIS HELPER USED TO WRITE THE CONTRACTOR ID STRAIGHT INTO `record_key`, and that
+    single shortcut hid a real defect for as long as it existed. `approve_candidate`
+    builds the key as `_digest(_canonical(identity))`, so on the live warehouse
+    `record_key` is `'ff88670d…'` where the contractor id is `'20044482'` — measured,
+    they match on **0 of 1,172 rows**. A function joining sightings to records on
+    `record_key` therefore reports every row as unsighted in production and passes
+    every test here.
+
+    So the fixture now hashes it exactly as the write path does. It is one line, and
+    it is the difference between a test that proves something and a test that agrees
+    with itself. `LESSONS.md`: build the fixture from the shipped behaviour, never
+    from memory.
+    """
+    from scrapex.extract.service import _canonical, _digest
+
+    return _digest(_canonical([contractor_id]))
 
 
 def _stored(conn, *contractor_ids: str) -> None:
@@ -70,7 +92,7 @@ def _stored(conn, *contractor_ids: str) -> None:
             " first_seen_at, last_seen_at, status) "
             "VALUES (1, ?, 1, ?, 1, 'x', ?, "
             "        '2026-08-20T00:00:00Z','2026-08-20T00:00:00Z','active')",
-            (one, json.dumps({"contractor_id": one}), f"h{one}"))
+            (_record_key(one), json.dumps({"contractor_id": one}), f"h{one}"))
     conn.commit()
 
 
@@ -177,3 +199,246 @@ def test_a_sighting_is_not_a_record_with_holes(conn):
 def test_coverage_of_nothing_is_not_a_division_by_zero(conn):
     assert Coverage("contractors", seen=0, stored=0).fraction == 1.0
     assert Coverage("contractors", seen=4, stored=1).fraction == 0.25
+
+
+# ---- the other half of coverage: what we hold and the site stopped showing ----
+
+def test_a_stored_contractor_the_site_stopped_showing_is_named(conn):
+    """THE QUESTION NOTHING ASKED. `missing_ids` answers "what did the site show us
+    that we never stored". This is the reverse — "what did we store that the site has
+    stopped showing" — and no code set `generic_record.status='superseded'`, so a
+    delisted contractor kept `status='active'` with a frozen `last_seen_at` and was
+    indistinguishable from one this run did not crawl."""
+    _stored(conn, "1301", "1302", "1303")
+    # All three sighted long ago; only two sighted again since.
+    record_sightings(conn, "contractors", ["1301", "1302", "1303"])
+    conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-01-01T00:00:00Z'")
+    conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-08-21T10:00:00Z' "
+                 " WHERE external_id IN ('1301','1302')")
+    conn.commit()
+
+    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+
+    assert gap.gone == ("1303",)
+    assert gap.unsighted == ()
+    assert "1 stored contractor(s) were not sighted" in str(gap)
+    assert "ONLY IF THE CRAWL COVERED THEM" in str(gap)
+
+
+def test_a_row_that_predates_the_ledger_is_not_called_a_departure(conn):
+    """TWO DIFFERENT FACTS, and merging them gives a number nobody can act on. A
+    stored row with NO sighting at all is a gap in the LEDGER — those rows predate
+    `dataset_sighting`, which arrived with #227 — not a contractor leaving."""
+    _stored(conn, "1301", "1302")
+    record_sightings(conn, "contractors", ["1301"])
+    conn.commit()
+
+    gap = departures(conn, "contractors", not_seen_since="2000-01-01T00:00:00Z")
+
+    assert gap.gone == (), "1301 was sighted after the window and has not left"
+    assert gap.unsighted == ("1302",), "and 1302 was never in the ledger at all"
+    assert "are not in the sighting ledger at all" in str(gap)
+    assert "NOT departures" in str(gap)
+
+
+def test_a_contractor_never_seen_at_all_is_in_NEITHER_list(conn):
+    """HIS CORRECTION, 2026-08-21: «لم يُرَ قطّ» is not «اختفى».
+
+    Membership 10001274 was never shown to us — so it is not stored, not sighted, and
+    reachable by neither of these lists. Only the crawl's own deficit `D` counts
+    those, and he found that one because he happened to know the company, which does
+    not scale. A function that appeared to answer it would be worse than one that
+    does not.
+    """
+    _stored(conn, "1301")
+    record_sightings(conn, "contractors", ["1301"])
+    conn.commit()
+
+    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+
+    assert "10001274" not in gap.gone
+    assert "10001274" not in gap.unsighted
+    assert gap.gone == () and gap.unsighted == ()
+
+
+def test_departures_never_writes(conn):
+    """Marking a row superseded is a change to his data and a decision he has not
+    been asked. Detection first; the write is OP-26."""
+    _stored(conn, "1301")
+    record_sightings(conn, "contractors", ["1301"])
+    conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-01-01T00:00:00Z'")
+    conn.commit()
+    before = conn.execute(
+        "SELECT status, last_seen_at FROM generic_record").fetchall()
+
+    departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+
+    after = conn.execute("SELECT status, last_seen_at FROM generic_record").fetchall()
+    assert [tuple(r) for r in after] == [tuple(r) for r in before]
+    assert all(row["status"] == "active" for row in after)
+
+
+def test_a_retired_record_is_not_reported_as_a_departure(conn):
+    """A row already marked `retired` has been dealt with. Reporting it again
+    every run would make the list grow for ever and stop being actionable."""
+    _stored(conn, "1301", "1302")
+    record_sightings(conn, "contractors", ["1301", "1302"])
+    conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-01-01T00:00:00Z'")
+    conn.execute("UPDATE generic_record SET status = 'retired' "
+                 " WHERE record_key = ?", (_record_key("1302"),))
+    conn.commit()
+
+    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+
+    assert gap.gone == ("1301",)
+
+
+# ---- the eight states, and the one that needed a migration --------------------
+
+def test_every_state_is_named_and_explained():
+    """A CLOSED VOCABULARY IS WHAT MAKES `R-27` SAFE. The rule is that a row never
+    leaves the screen and its state becomes a column — so a state nobody enumerated is
+    a row showing something its reader cannot interpret, which is worse than a hidden
+    row because it looks like information."""
+    from scrapex.sightings import STATE_MEANING
+
+    assert len(STATE_MEANING) == 8
+    for state, meaning in STATE_MEANING.items():
+        assert state.islower() and " " not in state, state
+        assert meaning and meaning[0].isupper(), f"{state} has no sentence"
+
+
+def test_a_row_absent_then_seen_again_reads_returned(conn):
+    """THE STATE THAT COULD NOT BE DERIVED, and the reason migration 0006 exists.
+
+    Absence leaves NO trace in `dataset_sighting`: a row simply stops being touched,
+    and a `last_seen_at` two crawls old is identical whether the id was missed once
+    and seen again or has been gone throughout. "Was this absent at some point" is a
+    question about a moment that has passed, so it must have been WRITTEN when a crawl
+    proved it — which is what `last_absent_at` is.
+    """
+    from scrapex.sightings import STATE_RETURNED, record_absences, row_state
+
+    _stored(conn, "1301", "1302")
+    record_sightings(conn, "contractors", ["1301", "1302"])
+    conn.commit()
+
+    # A crawl that PROVED it saw only 1301. 1302's absence is written down.
+    assert record_absences(conn, "contractors", seen=["1301"],
+                           run_ref="proved-run-1") == 1
+
+    # The next crawl shows 1302 again.
+    record_sightings(conn, "contractors", ["1301", "1302"])
+    conn.commit()
+    row = conn.execute(
+        "SELECT last_seen_at, last_absent_at FROM dataset_sighting "
+        " WHERE external_id = '1302'").fetchone()
+
+    assert row["last_absent_at"] is not None, "the absence was recorded"
+    assert row_state(status="active", first_seen_at="2026-08-20T00:00:00Z",
+                     last_seen_at=row["last_seen_at"], newest=row["last_seen_at"],
+                     sighted_at=row["last_seen_at"],
+                     last_absent_at=row["last_absent_at"]) == STATE_RETURNED
+
+
+def test_an_absence_is_only_written_for_the_rows_a_crawl_did_not_see(conn):
+    """`record_absences` marks the complement of what was seen, and nothing else."""
+    from scrapex.sightings import record_absences
+
+    _stored(conn, "1301", "1302", "1303")
+    record_sightings(conn, "contractors", ["1301", "1302", "1303"])
+    conn.commit()
+
+    assert record_absences(conn, "contractors", seen=["1301", "1302", "1303"],
+                           run_ref="r") == 0, "a full crawl marks nobody absent"
+    assert record_absences(conn, "contractors", seen=["1301"], run_ref="r2") == 2
+
+    marked = {row[0] for row in conn.execute(
+        "SELECT external_id FROM dataset_sighting WHERE last_absent_at IS NOT NULL")}
+    assert marked == {"1302", "1303"}
+    run = conn.execute(
+        "SELECT last_absent_run_ref FROM dataset_sighting "
+        " WHERE external_id = '1302'").fetchone()[0]
+    assert run == "r2", "the run that proved it is recorded, so it can be checked"
+
+
+def test_a_marked_row_outranks_an_observation(conn):
+    """PRECEDENCE, and it is a decision rather than an accident. A row can be both
+    absent and retired; the retirement is what somebody DECIDED, and a decision
+    outranks an observation."""
+    from scrapex.sightings import STATE_RETIRED, row_state
+
+    assert row_state(status="retired", first_seen_at="2026-01-01T00:00:00Z",
+                     last_seen_at="2026-01-01T00:00:00Z",
+                     newest="2026-08-21T00:00:00Z",
+                     sighted_at="2026-01-01T00:00:00Z") == STATE_RETIRED
+
+
+def test_a_new_row_is_not_called_updated_or_returned(conn):
+    """A row cannot have changed or come back on the crawl that introduced it, so
+    `new` is checked before both."""
+    from scrapex.sightings import STATE_NEW, row_state
+
+    assert row_state(status="active", first_seen_at="2026-08-21T12:00:00Z",
+                     last_seen_at="2026-08-21T12:00:00Z",
+                     newest="2026-08-21T12:00:00Z",
+                     changed_at="2026-08-21T12:00:00Z",
+                     sighted_at="2026-08-21T12:00:00Z",
+                     last_absent_at="2026-01-01T00:00:00Z") == STATE_NEW
+
+
+def test_nothing_crawled_yet_is_not_reported_as_absent(conn):
+    """`newest` is None when nothing has been crawled, so there is no "last crawl" to
+    be missing from. Calling every row absent would be an artefact of an empty
+    ledger."""
+    from scrapex.sightings import STATE_CONFIRMED, row_state
+
+    assert row_state(status="active", first_seen_at="2026-08-20T00:00:00Z",
+                     last_seen_at="2026-08-20T00:00:00Z", newest=None,
+                     sighted_at="2026-08-20T00:00:00Z") == STATE_CONFIRMED
+
+
+def test_a_changed_row_reads_updated_and_not_confirmed():
+    """THE STATE HE ASKED FOR BY NAME — «حتى حالة اذا تم ابديت لصف» — AND IT HAD NO
+    GUARD. A mutation collapsing `updated` into `confirmed` survived every test in
+    this file and every test of the payload: five of six mutations died and this one
+    walked through, so the one state he singled out was the one nothing checked.
+
+    IT IS ONLY KNOWABLE BECAUSE OF `R-20`. A revision is now written only when the
+    content actually changed, so a revision dated in the last crawl IS the change.
+    Before that fix every row had one every crawl and this state would have been
+    every row, permanently — which is why R-20 was a precondition and not tidying.
+    """
+    from scrapex.sightings import STATE_CONFIRMED, STATE_UPDATED, row_state
+
+    crawl = "2026-08-21T12:00:00Z"
+    common = dict(status="active", first_seen_at="2026-01-01T00:00:00Z",
+                  last_seen_at=crawl, newest=crawl, sighted_at=crawl)
+
+    # A revision written by THAT crawl: the row changed.
+    assert row_state(**common, changed_at=crawl) == STATE_UPDATED
+    # A revision from an earlier crawl: seen again, unchanged since.
+    assert row_state(**common, changed_at="2026-01-01T00:00:00Z") == STATE_CONFIRMED
+    # Never revised at all — only ever its first write.
+    assert row_state(**common, changed_at=None) == STATE_CONFIRMED
+
+
+def test_updated_outranks_confirmed_but_not_new_or_absent():
+    """Precedence, asserted rather than left to the order of the `if`s. A row that
+    changed on the crawl that introduced it is `new`; one that changed and is now
+    missing is `absent`. Both matter more to a reader than the change."""
+    from scrapex.sightings import (
+        STATE_ABSENT, STATE_NEW, STATE_UPDATED, row_state,
+    )
+
+    crawl = "2026-08-21T12:00:00Z"
+    assert row_state(status="active", first_seen_at=crawl, last_seen_at=crawl,
+                     newest=crawl, changed_at=crawl,
+                     sighted_at=crawl) == STATE_NEW
+    assert row_state(status="active", first_seen_at="2026-01-01T00:00:00Z",
+                     last_seen_at="2026-08-01T00:00:00Z", newest=crawl,
+                     changed_at="2026-08-01T00:00:00Z",
+                     sighted_at="2026-08-01T00:00:00Z") == STATE_ABSENT
+    assert row_state(status="active", first_seen_at="2026-01-01T00:00:00Z",
+                     last_seen_at=crawl, newest=crawl, changed_at=crawl,
+                     sighted_at=crawl) == STATE_UPDATED

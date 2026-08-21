@@ -76,6 +76,8 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-18](#req-18--bitumen-6070-prices--the-first-source-that-cannot-be-crawled) | Bitumen 60/70 prices — the first source that cannot be crawled | **Captured** — 5 of 7 need a written quotation | 2026-08-20 |
 | [REQ-19](#req-19--reinforced-concrete-material-prices--its-turn-will-come) | Reinforced-concrete material prices — its turn will come | **Captured** — a provenance-typed price model | 2026-08-20 |
 | [REQ-20](#req-20--the-database-rename-must-reach-every-user-not-just-this-machine) | The database rename must reach every user | **Captured** — measured; a release blocker under [R-24](RULINGS.md#r-24--a-database-is-upgraded-never-replaced--the-users-data-survives-the-schema) | 2026-08-20 |
+| [REQ-21](#req-21--the-nested-audit--a-subdivision-must-be-checked-against-its-parent) | The nested audit — a subdivision checked against its parent | **Captured** — measured (deficit 32 of 4,697); not built | 2026-08-21 |
+| [REQ-22](#req-22--what-happens-on-a-new-contractor-a-vanished-one-a-changed-one-and-on-update) | What happens on a new / vanished / changed contractor, and on "update" | **Captured** — answered by measurement; 3 of 4 are gaps ([OP-26](BACKLOG.md)) | 2026-08-21 |
 
 ---
 
@@ -879,6 +881,88 @@ running on half its data.
 **A test that a split installation STARTS.** Every carry-over test to date calls
 `carry_over` directly, so nothing ever exercised the path a user takes — which is
 exactly why a manual-only remedy looked finished.
+
+---
+
+## REQ-21 · The nested audit — a subdivision must be checked against its parent
+**Captured 2026-08-21 · Measured; not built**
+
+> «اريد تسجيل التدقيق المتشعب ضمن الطلبات»
+
+He asked for this by name after the weak point of subdividing a heavy cell by
+`city_id` was put to him: the city list is chosen from **incomplete** evidence, and
+the site is live, so **«ماذا لو تم اضافة مقاول جديد بمدينة جديدة»** — a new
+contractor in a city we have never seen.
+
+### The principle, which is the durable part
+
+**A subdivision is an optimisation, never a source of truth.** Correctness comes from
+the parent cell, which always remains the fallback. So for every subdivision:
+
+    Σ N_child  ==  N_parent   ⇒ the child list is complete FOR THIS RUN
+    short by k               ⇒ k rows live in children we do not know about,
+                               named as a deficit and closed by the counting
+                               proof on the PARENT, which needs no child list
+
+A new city therefore costs **efficiency, never coverage**. And it self-heals between
+runs: the next run re-derives the child list from updated evidence.
+
+### Measured on the worst cell, 2026-08-21
+
+| | |
+|---|---|
+| evidence showed | 3,094 contractors in 49 cities (**66%** of the cell) |
+| the site publishes | 669 cities for that region |
+| `Σ N` over the 48 matched city cells | **4,665** |
+| the parent declares | **4,697** |
+| **deficit — rows in cities the evidence never showed** | **32 (0.68%)** |
+
+**Seeing two thirds of the contractors revealed 99.3% of the rows' cities**, because
+cities are few and contractors cluster in them: city coverage saturates far faster
+than contractor coverage. That is why choosing a subdivision from partial evidence
+works at all, and the audit is what makes relying on it safe.
+
+### What is missing, and it is a gap in my own plan
+
+**`crawl_partition`'s audit compares `Σ N_cell` against the WHOLE listing, not against
+a parent cell.** Running the 151 city cells as a partition today would compare them to
+17,417 and report a meaningless deficit. The nested comparison has to be built:
+a partition needs to know its parent, and the audit has to be relative to it.
+
+### And the subdivision turned out to be worth less than I claimed
+
+`RIYADH × verysmall` alone is **4,268 of that cell's 4,697 rows over 214 pages** — so
+subdividing by city moves the unprovable part from 4,697 to 4,268, a **9% improvement**.
+DEC-11 was right that no fourth axis is fine enough. The counting proof is not an
+optimisation for Riyadh and Jeddah; it is the only route. See
+[R-25](RULINGS.md#r-25--the-crawl-method-is-settled-first-the-schema-and-retention-questions-come-last)
+for why this is being settled before the schema questions.
+
+---
+
+## REQ-22 · What happens on a new contractor, a vanished one, a changed one, and on "update"
+**Captured 2026-08-21 · Answered by measurement; three of the four answers are gaps**
+
+> «اريد معرفة ماذا سيحدث اذا ظهر مقاول جديد اذا اختفى ماقول اذا تغيرت بيانات مقاول ·
+> ماذا سيحدث عندما يضغط المستخدم على update · ايضا هل طريقة البحث والحفظ هى المثالية
+> فى مصدر مقاول ام هناك ثغرات كثيرة»
+
+Measured against the code rather than reasoned about:
+
+| event | what happens today |
+|---|---|
+| **a new contractor appears** | seen, sighted, and upserted on `(dataset_definition_id, record_key)` with a revision. **Works** |
+| **a contractor disappears** | **nothing at all.** No production code sets `status='superseded'` on `generic_record` — grep returns zero callers. The row stays `active` with a frozen `last_seen_at`, and is indistinguishable from a contractor this run did not crawl |
+| **a contractor's data changes** | `content_hash` differs, `data_json` is replaced and a revision written. Works — but a revision is written **whether or not anything changed**: 34,550 revisions for 11,059 contractors. That contradicts [R-20](RULINGS.md#r-20--an-unchanged-contractor-is-confirmed-not-re-recorded), which is a ruling not yet implemented |
+| **the user presses "update"** | **nothing happens to contractors.** `scrapex/jobs.py` — what the panel drives — contains no reference to muqawil, `generic_record`, `partitioncrawl` or `snapshotcrawl`. It runs the price connectors. Contractors can only be crawled from a terminal command |
+
+### The answer to his last question
+
+**The collection is sound; the lifecycle is not.** Gathering is now provable, stores
+its evidence, resumes, and records every id seen. What is missing is everything that
+happens *after* the first crawl: disappearance is invisible, an unchanged row still
+writes history, there is no path from the product's own interface, and the schema
+question is open. Filed as [OP-26](BACKLOG.md).
 
 ---
 

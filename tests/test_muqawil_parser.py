@@ -233,3 +233,106 @@ def test_the_impostor_card_is_not_read_as_a_contractor():
         "<div class='container'><div class='section-card'>an advert</div>")
 
     assert len(read_listing(padded)) == len(read_listing(html("listing-en.html")))
+
+
+# ---- the profile reaches the approval path --------------------------------
+
+def _profile_pair():
+    from pathlib import Path
+    here = Path(__file__).resolve().parent / "fixtures" / "muqawil"
+    return ((here / "profile-en.html").read_text(encoding="utf-8"),
+            (here / "profile-ar.html").read_text(encoding="utf-8"))
+
+
+def test_a_profile_becomes_a_candidate_the_approval_path_accepts():
+    """THE ONLY THING THAT WAS MISSING, and the plan said otherwise.
+
+    `read_profile`, `read_email`, `read_coordinates` and `merge_locales` were all
+    built and tested; the checklist said *"nothing extracts a profile page today"* and
+    that was wrong. What did not exist was the step from a merged reading to a
+    `TableCandidate` — which is what puts the profile columns on the approval path at
+    all, and therefore into a row.
+    """
+    from scrapex.extract.muqawil import (
+        PROFILE_FIELD_ORDER, bilingual_profile_candidate,
+    )
+
+    english, arabic = _profile_pair()
+    candidate = bilingual_profile_candidate(english, arabic, contractor_id="881")
+
+    assert candidate.approvable
+    assert len(candidate.rows) == 1, "a profile is one contractor, not twenty"
+    keys = [f.field_key for f in candidate.fields]
+    assert keys[:len(PROFILE_FIELD_ORDER)] == list(PROFILE_FIELD_ORDER)
+    assert candidate.name == "contractor_profiles"
+    assert candidate.locator == "div.info-box", (
+        "the locator has to name somewhere a person could go and look")
+
+
+def test_a_profile_row_does_not_carry_the_listings_columns():
+    """THE DEFECT THAT BLOCKED THIS. `_candidate_from` hardcoded `CARD_FIELDS` as the
+    declared lead, so a profile row came out with **17 empty listing columns** —
+    measured, 39 fields where the profile has 21. Every page kind has its own declared
+    list, and it is now a parameter rather than a constant."""
+    from scrapex.extract.muqawil import bilingual_profile_candidate
+
+    english, arabic = _profile_pair()
+    keys = [f.field_key
+            for f in bilingual_profile_candidate(
+                english, arabic, contractor_id="881").fields]
+
+    leaked = [key for key in keys if key.startswith("card_")]
+    assert not leaked, f"listing columns leaked into a profile row: {leaked}"
+    assert len(keys) == 21, f"21 declared fields, got {len(keys)}: {keys}"
+
+
+def test_the_identity_is_passed_in_and_not_parsed_out():
+    """A profile is reached BY id — the crawl builds `/{lang}/contractors/{id}/143` —
+    so the id is what the caller already knows. A page that failed to repeat it in its
+    own body would otherwise produce a row with no identity and be refused at
+    approval, and the listing uses the same key, which is what lets the two join."""
+    from scrapex.extract.muqawil import bilingual_profile_candidate
+
+    english, arabic = _profile_pair()
+    row = bilingual_profile_candidate(english, arabic,
+                                      contractor_id="20044482").rows[0]
+
+    assert row["contractor_id"] == "20044482"
+
+
+def test_the_two_silent_profile_fields_survive_the_adapter():
+    """THE EMAIL AND THE COORDINATES ARE THE TWO SILENT FAILURES this module's own
+    docstring names: Cloudflare XORs the address under a key that rotates per render,
+    and the coordinates live in an inline script where a layout change produces no
+    error, only two columns quietly going NULL. Both must arrive in the ROW, not
+    merely be readable."""
+    from scrapex.extract.muqawil import bilingual_profile_candidate
+
+    english, arabic = _profile_pair()
+    row = bilingual_profile_candidate(english, arabic, contractor_id="881").rows[0]
+
+    assert "@" in str(row["organization_email"]), (
+        f"the email did not survive as a decoded address: {row['organization_email']!r}")
+    assert "[email" not in str(row["organization_email"]), (
+        "Cloudflare's placeholder was stored instead of the address")
+    assert float(row["latitude"]) == pytest.approx(24.6717, abs=0.001)
+    assert float(row["longitude"]) == pytest.approx(46.3942, abs=0.001)
+
+
+def test_a_profile_missing_a_box_keeps_the_same_schema():
+    """The reason `PROFILE_FIELD_ORDER` is declared at all: a page that omits a box
+    must not produce a different `schema_hash`, or the second profile approved is
+    refused and the crawl stops at one — which is exactly what happened to the
+    listing, 823 pages of it."""
+    from scrapex.extract.muqawil import bilingual_profile_candidate
+
+    english, arabic = _profile_pair()
+    full = [f.field_key for f in bilingual_profile_candidate(
+        english, arabic, contractor_id="881").fields]
+    # Strip the whole City box out, as a contractor with no city publishes it.
+    thinner = english.replace("City", "Somewhere Else", 1)
+    reduced = [f.field_key for f in bilingual_profile_candidate(
+        thinner, arabic, contractor_id="881").fields]
+
+    assert reduced[:len(full)] == full, (
+        "a profile with a different set of boxes declared a different schema")

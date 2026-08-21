@@ -99,7 +99,9 @@ CARD_FIELDS = (
     "contractor_id", "company_name", "membership_level", "logo_url",
     "customer_rating_score", "customer_rating_count",
     "contractor_classification", "contractor_classification_grade",
-    "card_city_region", "card_company_size", "card_main_contractor",
+    "card_city_region", "card_city", "card_region",
+    "profile_url", "profile_url_ar",
+    "card_company_size", "card_main_contractor",
     "card_membership_number", "card_status", "card_sub_contractor",
     "card_training_credit_hours",
 )
@@ -122,6 +124,38 @@ PROFILE_FIELDS: dict[str, str] = {
     "Address": "address",
     "Activity": "activity",
 }
+
+#: Where a profile's non-table facts sit, in the same shape `_LOCATOR` names for a
+#: card. A profile has no repeating row, so the locator is the page's own info block.
+_PROFILE_LOCATOR = "div.info-box"
+
+#: EVERY FIELD A PROFILE PAGE CAN CARRY, declared for the reason `CARD_FIELDS` is:
+#: a page that happens to omit a box must not produce a different schema, or the
+#: second profile approved is refused and the crawl stops at one.
+#:
+#: MEASURED on the two committed fixtures, `merge_locales` producing 20 keys: the
+#: eleven labelled boxes, their five Arabic halves, the two coordinates, the decoded
+#: email and the Saudi-contractor flag. `contractor_id` LEADS because it is the
+#: identity and the listing already uses it as one — a profile row that could not be
+#: joined to its listing row would be a second table about the same company.
+#:
+#: WHAT IS NOT HERE, and it is most of his 48. The profile carries **five real
+#: `<table>` elements** — the licences and their readiness, the two contractor lists,
+#: the technical rating, the contract counts — and those go through
+#: `detect_html_tables` like any other site's tables. They are the multi-valued groups
+#: `R-19` rules belong in CHILD tables, not columns, so they are deliberately absent
+#: from this list rather than forgotten.
+PROFILE_FIELD_ORDER = (
+    "contractor_id",
+    "membership_number", "membership_type", "membership_type_ar",
+    "member_since", "is_saudi_contractor",
+    "company_size", "company_size_ar",
+    "training_credit_hours", "training_credit_hours_ar",
+    "city", "city_ar", "region", "region_ar", "address",
+    "activity", "activity_ar",
+    "organization_mobile_number", "organization_email",
+    "latitude", "longitude",
+)
 
 #: Fields whose Arabic value is a DIFFERENT value rather than the same one
 #: written twice. Everything else pairs by default; these are the exceptions
@@ -335,8 +369,91 @@ def read_listing(html: str) -> list[dict[str, str]]:
             name, value = boxes[-1]
             row["contractor_classification"] = name
             row["contractor_classification_grade"] = value
+
+        # DSN-05 · ONE CELL HOLDS TWO FACTS, and his request to separate them was
+        # not met while a column count called it done. The card publishes city and
+        # region together — `"RIYADH - Riyadh"`, and in Arabic `"الرياض - الرياض"`
+        # where the two happen to be the same word.
+        #
+        # THE PUBLISHED VALUE IS KEPT. `card_city_region` stays exactly as the site
+        # wrote it, and the two halves are ADDED beside it, because source truth is
+        # never edited — the first rule this project has. A reader who wants to check
+        # the split against what the page said still can.
+        city, region = _split_city_region(row.get("card_city_region", ""))
+        row["card_city"] = city
+        row["card_region"] = region
+
+        # DSN-04 · THE PROFILE URL, AND IT IS TAKEN FROM THE CARD RATHER THAN BUILT.
+        # The design marks it `u` — "built from the id" — as `/{lang}/contractors/
+        # {id}/143`. Measured on the fixture AND on a stored live page: the site
+        # writes the href ABSOLUTE, `https://muqawil.org/en/contractors/881/143`. So
+        # the host does not have to be invented here, and this parser stays free of a
+        # hostname it would otherwise duplicate from `sites/muqawil.py`.
+        #
+        # THE TAIL IS REBUILT AS `143` AND NOT CARRIED OVER, the same rule
+        # `MuqawilPageSource.detail_urls` states: `143` is what makes the self-build
+        # price section render at all, and a page that ever links some other value
+        # would otherwise store a URL that renders three of his columns empty.
+        href = str(link["href"])
+        row["profile_url"] = _profile_url(href, "en")
+        row["profile_url_ar"] = _profile_url(href, "ar")
         rows.append(row)
     return rows
+
+
+#: The trailing path segment that makes a profile render its self-build prices.
+#: The same literal `sites/muqawil.py` documents, and for the same measured reason:
+#: `/881/1` and `/881/999` return the same contractor, but the section
+#: `العقود سعر البناء (برنامج البناء الذاتي)` appears only under `143`.
+_SELF_BUILD_SEGMENT = "143"
+
+
+def _profile_url(href: str, locale: str) -> str:
+    """This contractor's profile in the named locale, from the card's own href.
+
+    `contract_request_url` IS NOT BUILT HERE, and its absence is deliberate rather
+    than an omission. The design marks it `u` as well, but its pattern column in
+    `docs/CONTRACTOR-SOURCE.md` is **empty** — no URL pattern is known and the card
+    does not carry one. A column filled with a guessed URL is worse than a column
+    that is not there: it looks answered.
+    """
+    found = _PROFILE_HREF.search(href)
+    if found is None:
+        return ""
+    contractor = found.group(1)
+    scheme, _, rest = href.partition("://")
+    host = rest.split("/", 1)[0] if rest else ""
+    if not host:
+        # A relative href, which this site does not write today. Kept relative
+        # rather than given a host this function has no business choosing.
+        return f"/{locale}/contractors/{contractor}/{_SELF_BUILD_SEGMENT}"
+    return (f"{scheme}://{host}/{locale}/contractors/"
+            f"{contractor}/{_SELF_BUILD_SEGMENT}")
+
+
+def _split_city_region(value: str) -> tuple[str, str]:
+    """`"RIYADH - Riyadh"` into its two halves, whitespace collapsed first.
+
+    THE SEPARATOR IS ONLY RECOGNISABLE ONCE THE WHITESPACE IS GONE. The card writes
+    it across lines with a great deal of padding:
+
+        RIYADH
+                                    - Riyadh
+
+    SPLIT ON THE FIRST DASH, which assumes no Saudi city name carries one. That held
+    for every city seen — RIYADH, JEDDAH, DAMMAM, AL KHOBAR — and `sites/muqawil.py`
+    makes the same assumption in `_city_of` for the slice scope, so if a city ever
+    does, these are the two lines that will be wrong together.
+
+    A VALUE WITH NO DASH IS ALL CITY AND NO REGION, not a failure: 1,438 contractors
+    publish no location at all and arrive here as an empty string, which must give
+    two empty strings rather than raise.
+    """
+    text = " ".join(value.split())
+    if not text:
+        return "", ""
+    city, _, region = text.partition("-")
+    return city.strip(), region.strip()
 
 
 def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
@@ -365,13 +482,25 @@ def listing_candidate(html: str, *, table_index: int = 0) -> TableCandidate:
 
 
 def _candidate_from(rows: list[dict[str, str]], *,
-                    table_index: int = 0) -> TableCandidate:
-    """Rows already read, in the shape the approval path speaks."""
+                    table_index: int = 0,
+                    declared: tuple[str, ...] = CARD_FIELDS,
+                    name: str = "contractors",
+                    locator: str = _LOCATOR,
+                    empty_warning: str = "No contractor cards on this page."
+                    ) -> TableCandidate:
+    """Rows already read, in the shape the approval path speaks.
+
+    `declared` IS A PARAMETER AND WAS A CONSTANT, and that was a real defect rather
+    than a tidiness point. It always led with `CARD_FIELDS` — the LISTING's columns —
+    so a profile row put through this came out carrying **17 empty listing columns**:
+    measured on the committed fixture, 39 fields where the profile has 20. Every page
+    kind has its own declared list, for the reason `CARD_FIELDS` itself exists.
+    """
     if not rows:
         return TableCandidate(
-            table_index=table_index, name="contractors", locator=_LOCATOR,
+            table_index=table_index, name=name, locator=locator,
             fields=(), rows=(), confidence=0.0,
-            warnings=("No contractor cards on this page.",),
+            warnings=(empty_warning,),
             approvable=False, truncated=False)
 
     # THE UNION, NOT THE FIRST ROW'S KEYS. A contractor with no rating carries
@@ -396,7 +525,7 @@ def _candidate_from(rows: list[dict[str, str]], *,
     # ADDS is still kept, appended after the declared ones, because a new column is
     # news and a parser that silently drops it is how it stays news for a year.
     present = {key for row in rows for key in row}
-    names = list(CARD_FIELDS)
+    names = list(declared)
     names += sorted(present - set(names))
 
     fields = tuple(
@@ -419,7 +548,7 @@ def _candidate_from(rows: list[dict[str, str]], *,
         for position, name in enumerate(names)
     )
     return TableCandidate(
-        table_index=table_index, name="contractors", locator=_LOCATOR,
+        table_index=table_index, name=name, locator=locator,
         fields=fields,
         # EVERY FIELD ON EVERY ROW, with absent ones as None rather than
         # missing: `_validated_rows` walks the FIELD list, and a row that
@@ -673,5 +802,51 @@ def bilingual_listing_candidate(english: str, arabic: str, *,
             # needed a label: the title, the membership badge, the grade.
             value = aligned.get(key) or other.get(key) or ""
             both[f"{key}_ar"] = value if value != row.get(key) else ""
+
+        # DSN-05's ARABIC HALF IS DERIVED FROM THE ALIGNED VALUE, NEVER FROM THE
+        # ARABIC ROW, and the difference is the fourth leak all over again.
+        # `read_listing` keys a card's boxes by `card_{_slug(label)}`, and `_slug`
+        # keeps `[a-z0-9]` only — so on the ARABIC page every label filters down to
+        # nothing and `card_city_region` is simply absent from that row. Measured on
+        # the committed fixture: `None`. So splitting the Arabic ROW gives two empty
+        # strings for every contractor in the country, silently.
+        #
+        # `both["card_city_region_ar"]` is the value paired BY POSITION just above,
+        # which is the only honest source for it — and it is the same reasoning
+        # `_card_boxes` was written for.
+        city_ar, region_ar = _split_city_region(both.get("card_city_region_ar", ""))
+        both["card_city_ar"] = city_ar
+        both["card_region_ar"] = region_ar
         merged.append(both)
     return _candidate_from(merged, table_index=table_index)
+
+
+def bilingual_profile_candidate(english: str, arabic: str, *,
+                                contractor_id: str,
+                                table_index: int = 0) -> TableCandidate:
+    """One contractor's profile, both locales, in the shape the approval path speaks.
+
+    THE MISSING ADAPTER, and it was the only thing missing. `read_profile`,
+    `read_email`, `read_coordinates` and `merge_locales` were all built and tested —
+    the plan said "nothing extracts a profile page today" and that was wrong. What did
+    not exist was the step from a merged reading to a `TableCandidate`, which is what
+    puts the 48 columns on the approval path at all.
+
+    `contractor_id` IS PASSED IN, not parsed out. A profile page is reached BY id — the
+    crawl builds `/{lang}/contractors/{id}/143` — so the id is what the caller already
+    knows, and a page that failed to repeat it in its own body would otherwise produce
+    a row with no identity and be refused at approval. The listing's `contractor_id` is
+    the same key, which is what lets a profile row join its listing row instead of
+    becoming a second table about one company.
+
+    ONE ROW, NOT TWENTY. A listing page holds twenty cards; a profile holds one
+    contractor. The approval path does not care — a candidate is rows with named
+    columns — but the locator says `div.info-box` rather than `div.section-card`
+    because that is where a person would go to look.
+    """
+    merged = merge_locales(read_profile(english), read_profile(arabic))
+    merged["contractor_id"] = str(contractor_id)
+    return _candidate_from(
+        [merged], table_index=table_index, declared=PROFILE_FIELD_ORDER,
+        name="contractor_profiles", locator=_PROFILE_LOCATOR,
+        empty_warning="No profile fields on this page.")

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from .. import catalog
 from ..catalog_models import DatasetCreate, FieldCreate, SiteCreate
+from ..sightings import STATE_MEANING, row_state
 from ..snapshotbody import decode, encode
 from .html_table import TableCandidate, candidate_by_index, detect_html_tables
 from .models import (
@@ -22,6 +23,43 @@ from .models import (
     ExtractionConflict,
     ExtractionNotFound,
     SnapshotCreate,
+)
+
+#: What WE observed, as against what the site published. `R-27`: «يجب ان يظل الصف
+#: ظاهر للمستخدم مهما اختلف حالة الرصد» — the row never disappears, and its state is a
+#: column instead.
+#:
+#: PREFIXED, AND THE PREFIX IS THE POINT. These keys go into the row the grid renders,
+#: beside the dataset's own fields, and a site that ever publishes a column called
+#: `status` or `first_seen_at` would otherwise collide with them silently — one value
+#: overwriting the other with nothing to say which won. `observed_` is not a name any
+#: site's own label would slug to.
+#:
+#: AND THEY ARE NEVER WRITTEN BACK INTO `data_json`. That column is source truth. A
+#: fact about our observation is not a fact the site stated, and mixing the two is how
+#: a warehouse stops being able to say where a value came from.
+OBSERVED_STATE = "observed_state"
+OBSERVED_STATE_MEANING = "observed_state_meaning"
+OBSERVED_FIRST_SEEN = "observed_first_seen"
+OBSERVED_LAST_SEEN = "observed_last_seen"
+OBSERVED_CHANGED = "observed_last_changed"
+OBSERVED_STATUS = "observed_status"
+
+#: THE STATE COLUMN LEADS, on his instruction: «عمود يوضح الحالة الجديدة لا تدع
+#: المستخدم يستنتج الحالة». The dates stay — they are the evidence behind the state and
+#: a reader who wants to check it can — but the state itself is stated, not implied.
+#:
+#: Two columns replaced by one: `observed_gone_in_last_crawl` and
+#: `observed_new_in_last_crawl` were a first attempt that asked the reader to combine
+#: two yes/no answers and read `retired`, `returned` and `unsighted` out of a status
+#: and three dates. Eight states do not fit in two booleans.
+OBSERVED_COLUMNS: tuple[tuple[str, str], ...] = (
+    (OBSERVED_STATE, "State"),
+    (OBSERVED_STATE_MEANING, "What that means"),
+    (OBSERVED_LAST_SEEN, "Last seen"),
+    (OBSERVED_FIRST_SEEN, "First seen"),
+    (OBSERVED_CHANGED, "Last changed"),
+    (OBSERVED_STATUS, "Record status"),
 )
 
 
@@ -399,11 +437,37 @@ def approve_candidate(
     schema_version_id = _ensure_schema(
         conn, dataset_id, candidate, approval, schema_hash
     )
+    # WHAT EACH OF THESE ROWS ALREADY LOOKS LIKE, in ONE query rather than one per
+    # row. `R-20`: an unchanged contractor is CONFIRMED, not re-recorded — so the
+    # write path has to know whether anything changed before it writes history, and
+    # `content_hash` is the column that answers it. It existed and was never read:
+    # measured at 34,550 revisions for 11,059 contractors, roughly three apiece from
+    # two crawls of a directory that barely moved.
+    #
+    # KEYED ON THIS PAGE'S RECORDS ONLY. Loading every record of the dataset would
+    # be a full scan per page — 897 pages against 17,000 rows — where twenty
+    # look-ups on the unique `(dataset_definition_id, record_key)` index cost
+    # nothing.
+    already = {}
+    if record_keys:
+        holes = ",".join("?" * len(record_keys))
+        already = {
+            found["record_key"]: found["content_hash"]
+            for found in conn.execute(
+                "SELECT record_key, content_hash FROM generic_record "
+                f" WHERE dataset_definition_id = ? AND record_key IN ({holes})",
+                (dataset_id, *record_keys))
+        }
+
     for row_position, (row, record_key) in enumerate(
         zip(rows, record_keys, strict=True), start=1
     ):
         data_json = _canonical(row)
         content_hash = _digest(data_json)
+        # UNCHANGED IS DECIDED BEFORE THE UPSERT OVERWRITES THE EVIDENCE. Once the
+        # row is written, `content_hash` holds the NEW value and the comparison is
+        # impossible — which is why this cannot be a `RETURNING` clause.
+        unchanged = already.get(record_key) == content_hash
         row_locator = f"{candidate.locator}::row({row_position})"
         cursor = conn.execute(
             "INSERT INTO generic_record "
@@ -426,12 +490,22 @@ def approve_candidate(
             ),
         )
         record_id = int(cursor.fetchone()["generic_record_id"])
-        conn.execute(
-            "INSERT INTO generic_record_revision "
-            "(generic_record_id, schema_version_id, source_snapshot_id, data_json, "
-            "content_hash) VALUES (?,?,?,?,?)",
-            (record_id, schema_version_id, snapshot_id, data_json, content_hash),
-        )
+        if not unchanged:
+            # A REVISION PER REAL CHANGE, which is what makes "when did this
+            # classification change" answerable. `R-20`, and it is `SR-6` applied to
+            # a directory instead of a price — *"an unchanged price is confirmed, not
+            # appended"* — because a year of identical rows is not history, it is a
+            # table that grows with every crawl and says nothing.
+            #
+            # `last_seen_at` still moved: the upsert above sets it unconditionally, so
+            # a confirmation is recorded on the RECORD and not in its history. That is
+            # the distinction the ruling draws.
+            conn.execute(
+                "INSERT INTO generic_record_revision "
+                "(generic_record_id, schema_version_id, source_snapshot_id, data_json, "
+                "content_hash) VALUES (?,?,?,?,?)",
+                (record_id, schema_version_id, snapshot_id, data_json, content_hash),
+            )
     ingestion = conn.execute(
         "INSERT INTO generic_ingestion "
         "(dataset_definition_id, schema_version_id, source_snapshot_id, "
@@ -590,7 +664,8 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
 
     dataset_id = int(found["id"])
     fields = conn.execute(
-        "SELECT f.field_key, f.display_name, f.original_name, f.data_type "
+        "SELECT f.field_key, f.display_name, f.original_name, f.data_type, "
+        "       f.identity_role "
         "FROM dataset_schema_version AS sv "
         "JOIN schema_version_field AS svf "
         "ON svf.schema_version_id = sv.schema_version_id "
@@ -600,24 +675,90 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
         "ORDER BY svf.field_order",
         (dataset_id,)).fetchall()
 
+    # THE DATASET'S OWN IDENTITY FIELD, asked of the schema rather than hardcoded.
+    # `contractor_id` is muqawil's answer; Balady's and the UAE's will not be, and
+    # this function is the one the panel calls for every generic source.
+    identity = [row["field_key"] for row in fields
+                if row["identity_role"] == "key_part"]
+    identity_field = identity[0] if len(identity) == 1 else None
+
+    # NO `status` FILTER, AND THAT IS `R-27`. «يجب ان يظل الصف ظاهر للمستخدم مهما
+    # اختلف حالة الرصد» — a row stays on screen whatever the crawl saw. It used to
+    # read `AND status = 'active'` on both this count and the rows below, so a
+    # contractor the site stopped publishing would simply VANISH from his screen the
+    # moment anything marked the row, and the disappearance he wants to see would be
+    # the one thing he could not.
     total = conn.execute(
-        "SELECT count(*) FROM generic_record WHERE dataset_definition_id = ? "
-        "AND status = 'active'", (dataset_id,)).fetchone()[0]
+        "SELECT count(*) FROM generic_record WHERE dataset_definition_id = ?",
+        (dataset_id,)).fetchone()[0]
     # LIMIT only when a caller asked for one. `LIMIT -1` is SQLite's own idiom
     # for no limit and is used rather than building two query strings, so the
     # bounded and unbounded paths cannot drift apart.
+    # EVERY FACT THE STATE NEEDS, IN ONE QUERY. `changed_at` is the newest revision
+    # for this record, which is what makes `updated` knowable — and it is only
+    # meaningful because `R-20` stopped writing a revision when nothing changed.
+    # Before that every row had one every crawl and `updated` would have been every
+    # row. `LEFT JOIN`, because a record whose only revision is its first has none
+    # after it and must not vanish from its own table.
     stored = conn.execute(
-        "SELECT data_json FROM generic_record WHERE dataset_definition_id = ? "
-        "AND status = 'active' ORDER BY generic_record_id LIMIT ?",
+        "SELECT r.generic_record_id, r.record_key, r.data_json, r.status, "
+        "       r.first_seen_at, r.last_seen_at, "
+        "       (SELECT MAX(v.observed_at) FROM generic_record_revision AS v "
+        "         WHERE v.generic_record_id = r.generic_record_id) AS changed_at "
+        "  FROM generic_record AS r WHERE r.dataset_definition_id = ? "
+        " ORDER BY r.generic_record_id LIMIT ?",
         (dataset_id, -1 if cap is None else int(cap))).fetchall()
-    rows = [json.loads(row["data_json"]) for row in stored]
+
+    # WHEN THE MOST RECENT CRAWL SAW ANYTHING — one aggregate, not a per-row
+    # question. Derived, never stored: written into the row it would be stale the
+    # moment the next crawl ran (`R-27`).
+    newest = conn.execute(
+        "SELECT MAX(last_seen_at) FROM generic_record WHERE dataset_definition_id = ?",
+        (dataset_id,)).fetchone()[0]
+
+    # THE SIGHTING SIDE, READ ONCE. `unsighted` and `returned` are the two states that
+    # cannot be answered from `generic_record` alone, and joining per row would be the
+    # correlated-subquery defect `OP-27` measured at 49s all over again.
+    sighted: dict[str, tuple[str | None, str | None]] = {}
+    if dataset_key:
+        sighted = {
+            key: (seen, absent)
+            for key, seen, absent in conn.execute(
+                "SELECT external_id, last_seen_at, last_absent_at "
+                "  FROM dataset_sighting WHERE dataset_key = ?", (dataset_key,))
+        }
+
+    rows = []
+    for row in stored:
+        record = json.loads(row["data_json"])
+        external = record.get(identity_field) if identity_field else None
+        seen_at, absent_at = sighted.get(str(external), (None, None))
+        # BESIDE THE SITE'S FIELDS, NEVER MERGED INTO THEM. These are facts about our
+        # OBSERVATION, not facts the site published, and `data_json` is source truth —
+        # so they are added to the row the grid renders and never written back.
+        record[OBSERVED_FIRST_SEEN] = row["first_seen_at"]
+        record[OBSERVED_LAST_SEEN] = row["last_seen_at"]
+        record[OBSERVED_STATUS] = row["status"]
+        record[OBSERVED_CHANGED] = row["changed_at"]
+        # ONE COLUMN THAT SAYS THE STATE, decided in `sightings.row_state` and nowhere
+        # else. «لا تدع المستخدم يستنتج الحالة» — and two readers inferring from four
+        # dates will infer differently, with one of them wrong.
+        state = row_state(
+            status=row["status"], first_seen_at=row["first_seen_at"],
+            last_seen_at=row["last_seen_at"], newest=newest,
+            changed_at=row["changed_at"], sighted_at=seen_at,
+            last_absent_at=absent_at)
+        record[OBSERVED_STATE] = state
+        record[OBSERVED_STATE_MEANING] = STATE_MEANING.get(state, "")
+        rows.append(record)
 
     keys = {row["field_key"] for row in fields}
     return {
         "source_key": dataset_key,
         "columns": [{"key": row["field_key"],
                      "label": row["display_name"] or row["original_name"]}
-                    for row in fields],
+                    for row in fields]
+        + [{"key": key, "label": label} for key, label in OBSERVED_COLUMNS],
         "rows": rows,
         "total": total,
         "returned": len(rows),
