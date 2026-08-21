@@ -3560,13 +3560,89 @@ function updateEngineReleaseUI(latest) {
 
   if (installer) {
     $("engine-download-checksum").textContent = installer.sha256 ? installer.sha256 : "";
-    download.onclick = () => {
-      window.open(installer.url, "_blank");
-      steps.open = true;
-    };
+    download.onclick = () => startInstallerDownload(installer);
   } else {
     download.onclick = null;
   }
+}
+
+// THE FIRST INSTALL, AND ONLY THE FIRST. R-36: the panel can never be the
+// installer, so this is the most it can honestly do -- and it is a great deal
+// more than what it did, which was `window.open(url)`: hand a URL to the
+// browser and let go. No progress, no completion, no idea whether 71 MB ever
+// arrived. On a slow connection that is a button that appears to do nothing.
+//
+// WHAT `downloads` BUYS AND WHAT IT DOES NOT. It buys a real download the panel
+// can watch, and `show()` to reveal the file. It does NOT buy reading the file,
+// so the panel still cannot verify the SHA-256 -- that is why the engine now
+// does it for every update after this one, and why the number on screen is
+// labelled as yours to compare rather than as a guarantee.
+//
+// The fallback is not defensive padding: `chrome.downloads` is absent when the
+// panel is loaded in a plain page by the DOM tests, and a first install failing
+// because a permission was declined is exactly when the old behaviour is worth
+// having.
+async function startInstallerDownload(installer) {
+  const steps = $("engine-install-steps");
+  const label = $("engine-download-label");
+  const button = $("engine-download");
+  steps.open = true;
+  if (!chrome?.downloads?.download) {
+    window.open(installer.url, "_blank");
+    return;
+  }
+  const restore = label.textContent;
+  button.disabled = true;
+  label.textContent = "Starting download…";
+  let id = null;
+  try {
+    id = await chrome.downloads.download({
+      url: installer.url,
+      filename: installer.name || "scrapex-engine.exe",
+      // FALSE, so the file lands in Downloads without a dialogue. A Save-As on
+      // a 71 MB file the owner already pressed a button for is one more thing
+      // to get wrong, and `show()` below takes him to it anyway.
+      saveAs: false,
+    });
+  } catch (error) {
+    button.disabled = false;
+    label.textContent = restore;
+    window.open(installer.url, "_blank");
+    return;
+  }
+
+  // PROGRESS FROM THE ONLY SOURCE THAT HAS IT. `onChanged` fires on state
+  // transitions, not on every byte, so the percentage is polled from
+  // `search()` while it runs -- which is what gives a moving number rather
+  // than a spinner that means nothing.
+  const finish = (text) => {
+    label.textContent = text;
+    button.disabled = false;
+  };
+  const poll = setInterval(async () => {
+    let item;
+    try {
+      [item] = await chrome.downloads.search({ id });
+    } catch (_) { return; }
+    if (!item) return;
+    if (item.state === "in_progress") {
+      const total = item.totalBytes || installer.bytes || 0;
+      const percent = total > 0 ? Math.floor((item.bytesReceived / total) * 100) : 0;
+      label.textContent = total > 0 ? `Downloading ${percent}%` : "Downloading…";
+      return;
+    }
+    clearInterval(poll);
+    if (item.state === "complete") {
+      finish("Show in folder");
+      button.onclick = () => chrome.downloads.show(id);
+    } else {
+      // `interrupted`, and the reason is worth showing: "download failed" sends
+      // somebody to check their engine, and `SERVER_FORBIDDEN` sends them to
+      // the release page.
+      finish(item.error ? `Download failed — ${item.error}` : "Download failed");
+      button.onclick = () => startInstallerDownload(installer);
+    }
+  }, 400);
 }
 
 // WHICH ENGINE IS OPEN. In memory only, and never persisted: the catalogue is
