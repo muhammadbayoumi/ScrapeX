@@ -1,6 +1,6 @@
 # State — where the work stands
 
-**Last updated: 2026-08-21 (morning).** `main` is at `71d1d41` (#234).
+**Last updated: 2026-08-21 (morning).** `main` is at `9e0610a` (#236).
 
 This is the document that is **wrong the moment it is out of date**. Update it
 when a phase lands, a PR merges, or the owner rules — in the same pull request as
@@ -14,6 +14,17 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+**None.** Next up is `OP-28` on `claude/the-crawl-driver-gets-tests`: the crawl
+driver had 452 lines and no tests, 19 now, eleven mutations killed.
+
+### Merged 2026-08-21
+
+**[#236](https://github.com/muhammadbayoumi/ScrapeX/pull/236) — a subdivision is
+checked against its parent.** `REQ-21`: `crawl_partition` takes a `parent` cell and
+audits `Σ N_child` against **it**, `Cell.is_under` settles membership as a set
+question, and `NotASubdivision` refuses a child that dropped a parent filter before a
+request is spent. Eight mutations killed.
+
 **[#235](https://github.com/muhammadbayoumi/ScrapeX/pull/235) — a row says what
 state it is in.** The observation state as a column instead of something the reader
 infers from two dates: eight states, closed vocabulary, seven of them computed;
@@ -24,20 +35,16 @@ the profile-page candidate adapter; and a **~1,600×** fix to `coverage()` /
 `missing_ids()` (49.7s → 0.03s each). All five CI jobs green including
 `migration-authority`. Ten mutations killed.
 
-**Next, on `claude/muqawil-nested-audit`** — REQ-21's nested audit: `crawl_partition`
-takes a `parent` cell and audits `Σ N_child` against **it** rather than the whole
-listing. Eight mutations killed.
-
-**Merged 2026-08-21:** [#233](https://github.com/muhammadbayoumi/ScrapeX/pull/233),
-[#234](https://github.com/muhammadbayoumi/ScrapeX/pull/234) — a proof that demanded
-more than it needed, and 823 pages refused by one column.
+Also merged 2026-08-21: [#233](https://github.com/muhammadbayoumi/ScrapeX/pull/233)
+and [#234](https://github.com/muhammadbayoumi/ScrapeX/pull/234) — a proof that
+demanded more than it needed, and 823 pages refused by one column.
 
 ### The crawl that is still running
 
 The residual crawl of the nine heavy cells is **live** and resumable
 ([R-26](RULINGS.md#r-26)). As of 2026-08-21 08:06 it had stored **3,563 listing
-pages** across all 56 cells and the ledger held **15,273 distinct ids of the
-listing's 17,414 — 87.7%**. Stored *records* remain 1,172 because `OP-25`'s
+pages** across all 56 cells; by 06:13 it was **4,561**, and the ledger held
+**15,273 distinct ids of the listing's 17,414 — 87.7%**. Stored *records* remain 1,172 because `OP-25`'s
 extraction route is deferred by `R-25`; the gap between the two numbers, 14,101, is
 exactly the question the sightings ledger exists to answer.
 
