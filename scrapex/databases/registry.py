@@ -168,5 +168,6 @@ class DatabaseRegistry:
     def backup_bundle(self, folder: Path | str) -> dict[str, str]:
         return {self.engine.kind: str(self.engine.backup(Path(folder) / self.engine.kind))}
 
-    def health(self) -> dict[str, dict]:
-        return {self.engine.kind: self.engine.health().public()}
+    def health(self, *, integrity: bool = True) -> dict[str, dict]:
+        """`integrity=False` for a timed poll: see `EngineDatabase.health`."""
+        return {self.engine.kind: self.engine.health(integrity=integrity).public()}
