@@ -46,7 +46,12 @@ import pytest
 
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 
-pytestmark = pytest.mark.docs
+#: BOTH MARKS. `docs` because it guards a documented measurement, and
+#: `extension` because the number it is written against -- `engineHealth`
+#: at 2,500 ms in `extension/startup.js` -- lives on the extension side.
+#: Change that deadline and this file's premise changes, so it has to run
+#: on an extension-only change too.
+pytestmark = [pytest.mark.docs, pytest.mark.extension]
 
 #: The two statements whose cost scales with the file, named so the assertions read
 #: as the rule rather than as string matching.
