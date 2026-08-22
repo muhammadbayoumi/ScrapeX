@@ -199,7 +199,10 @@ PINNED = (
     ("docs/BACKLOG.md", "extension/app.js", 4549,
      'if (source.kind === "dataset") return "";'),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 639, '"kind": "dataset",'),
-    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2710, "if source_key not in known:"),
+    # 2710 -> 2725 on 2026-08-22: #252 measured this line on `main` at 4615a14 and
+    # #251 landed first, adding 15 lines to `app.py` above it. Two PRs, neither
+    # wrong on its own base, and `main` red between the second merge and this fix.
+    ("docs/BACKLOG.md", "scrapex/webui/app.py", 2725, "if source_key not in known:"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 986,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
 )

@@ -86,6 +86,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-28](#req-28--the-engine-would-not-install-and-showed-a-black-screen) | The Engine would not install — a black screen, and no way to install it | **In flight** — cause proven; the gate is fixed, cutting the release is his | 2026-08-21 |
 | [REQ-29](#req-29--an-install-surface-that-looks-like-a-professional-program-and-an-update-anyone-can-apply) | An install surface that looks like a professional program, and an update anyone can apply | **In flight** — the engine reads, fetches and verifies; the panel downloads with progress. The swap awaits a real frozen build | 2026-08-21 |
 | [REQ-30](#req-30--the-three-dots-button-appears-twice-on-a-source-card) | The three-dots button appears twice on a source card | **In flight** — cause proven, fixed and guarded; merging is his | 2026-08-22 |
+| [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
 
 ---
 
@@ -1405,3 +1406,48 @@ where it paints.
 
 When it advances, move the state, add the link the new state produces (a ruling,
 a plan, a PR), and say so in [STATE.md](STATE.md) if it is live work.
+
+---
+
+## REQ-31 · Start the profile parser — and the pages are not consistent
+**Captured 2026-08-22 · In flight — the cards are built, guarded and mutation-tested; two questions are his**
+
+> «ابدأ القارئ»
+
+and then, in the middle of the measurement, the sentence that changed the design:
+
+> «contractor-tabs — المعلومات غير ثابته ولا متفقثة بين الصفح يعنى ممكن تلاقى معلومات
+> تانية وطريقة عرض مختلفة»
+
+*The information is neither fixed nor consistent between pages — you may find other
+information and a different presentation.*
+
+**He was right, and four written premises in this repository were wrong.** Everything
+believed about the muqawil profile page came from **two committed fixtures**, which are
+one contractor. `R-19` had labelled that limit honestly; the conclusions outlived the
+label. Re-measured over **2,419 real profile pairs** read read-only out of the running
+crawl — the full account is in `OP-43` and [LESSONS.md](LESSONS.md) §11.
+
+**The page publishes seven cards. Three had no reader at all**, and one of the three is
+a **price**: the card titled `العقود سعر البناء (برنامج البناء الذاتي)` carries a
+self-build price per square metre in three award tiers, and no document here had named
+it. It was invisible because a regex that chunked "from `id=contractor-tab4` until the
+next tab id" ran past an empty pane and attributed the table to a tab that holds **zero
+tables on 2,360 of 2,360 pages**.
+
+**Built, in the same session he asked:** six new columns — `commercial_registration`
+(2,542 of 2,543 pages, ten digits, no two contractors sharing one), the three
+self-build price tiers, and the two contract counts — taking the profile row from 21
+fields to 27, which `R-31` makes an additive schema upgrade rather than a migration.
+And `licensed_activities` is wired as a **second taxonomy**, in its own scheme: 1,685
+rows over 228 pages from a closed vocabulary of 22 activities.
+
+**His warning is now mechanical rather than remembered.** `PROFILE_CARDS` declares all
+seven cards and `undeclared_cards()` reports any data-carrying card that is not among
+them, so the next section the site grows is something a test says out loud. Twenty-five
+guards, and **seven of seven mutations killed** — including the one that matters most,
+that reading the price rows by position instead of by label goes red.
+
+**What is left is his:** `Q-17` (the readiness level, empty on 1,490 of 1,500 rows, and
+the three activities whose English the site itself publishes wrongly) and `Q-18` (do the
+two contractor-relation groups still get tables at 2 rows in 2,419 pages).

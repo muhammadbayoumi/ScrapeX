@@ -737,33 +737,116 @@ def _contractor_of(key: str) -> str | None:
     return found.group(1) if found else None
 
 
+#: THE GROUPS THAT REACH THE WAREHOUSE, in the order they are written. Everything
+#: else `MULTI_VALUED_GROUPS` declares was measured and is not a taxonomy or is not
+#: there -- see `GROUPS_MEASURED_EMPTY` and `read_contract_counts`.
+_WIRED_GROUPS = ("interests", "licensed_activities")
+
+
+def _interest_paths(english: str, arabic: str) -> list[tuple[tuple[str, ...],
+                                                             tuple[str, ...]]]:
+    """`interests`, paired across the two pages. Raises when the counts differ.
+
+    PAIRED BY POSITION, LIKE `merge_locales`, AND REFUSED THE SAME WAY. Both locales
+    publish the nodes in the same order, so position names the same node in each. A
+    count that differs means it no longer does, and writing anyway would attach an
+    English name to a different Arabic one.
+
+    MEASURED 2026-08-22 over 2,252 real profile pairs: **2,252 of 2,252 paired**, so
+    this refusal is a guard rather than a common path. That number is worth having
+    before a 34,834-page approval: at a 1% mismatch rate this raise would have
+    stopped 348 pages.
+    """
+    from .extract.muqawil import read_interests
+
+    paths_en = read_interests(english)
+    paths_ar = read_interests(arabic) if arabic else paths_en
+    if len(paths_en) != len(paths_ar):
+        raise taxonomy.CannotPairLocales(
+            f"published {len(paths_en)} interests in English and "
+            f"{len(paths_ar)} in Arabic")
+    return list(zip(paths_en, paths_ar, strict=True))
+
+
+def _licence_paths(english: str, arabic: str) -> list[tuple[tuple[str, ...],
+                                                           tuple[str, ...]]]:
+    """`licensed_activities`, which needs ONE page rather than two.
+
+    THE CELL IS ALREADY BILINGUAL, and that is the whole difference from interests:
+    the licences table publishes `تشييد المباني - جميع الأنواع Construction of
+    Buildings - All Types` in one cell, identically on both locales. So there is
+    nothing to pair across pages and no `CannotPairLocales` to raise -- a profile
+    whose Arabic half failed to arrive still yields its licences in full.
+
+    WHERE THE SITE'S OWN ENGLISH IS UNUSABLE, THE ENGLISH NAME IS LEFT EMPTY rather
+    than filled with the Arabic. Measured over 1,685 rows, 100 of them publish an
+    English half that is truncated (`Civil Engineering -`, 30 rows) or names a
+    DIFFERENT ACTIVITY (70 rows) -- `read_licensed_activities` detects both by level
+    count and reports `paired=False`.
+
+    An empty English name is a state `taxonomy.ensure_path` already handles and
+    already documents: *"A node first seen on an Arabic page has no English name
+    yet; the next English page supplies it."* So the node exists under its Arabic
+    identity now, and the first page that publishes a usable English half fills it
+    in by UPDATE. Putting the Arabic string in the English column would have made
+    that repair impossible, because the column would no longer look empty.
+    """
+    from .extract.muqawil import read_licensed_activities
+
+    # THE ENGLISH PAGE, and either would do. Measured on both committed fixtures and
+    # across the corpus, the two locales publish byte-identical licence cells --
+    # which is the same property `MultiValuedGroup.published_as` records for the
+    # table headers, one level down.
+    activities = read_licensed_activities(english or arabic)
+    return [(one.english or ("",) * len(one.arabic), one.arabic)
+            for one in activities if one.arabic]
+
+
+#: `group_key -> reader`. A group is wired by appearing here and nowhere else.
+_GROUP_READERS = {
+    "interests": _interest_paths,
+    "licensed_activities": _licence_paths,
+}
+
+
 def write_groups(conn, directory: Directory, snapshot_id: int, *,
                  english: str, arabic: str, contractor_id: str) -> tuple[int, int]:
     """`R-38`'s memberships for one contractor. Returns `(written, already there)`.
 
-    ONLY `interests` IS WIRED, AND THE MEASUREMENT IS WHY. Read off the committed
-    profile on 2026-08-21, the five declared groups are not five of the same thing:
+    TWO OF THE FIVE ARE WIRED NOW, AND THE MEASUREMENT IS WHY -- the same reason the
+    other three are not. This function used to write `interests` alone, and it said
+    so in its own words about the licences: *"Six samples, one malformed, is not
+    enough to declare that rule on."* Correct then. Measured 2026-08-22 over 2,419
+    real profile pairs off the running crawl:
 
-        interests            a nested list, 25 nodes per locale, cleanly localised
-                             -> a taxonomy membership, which is what this writes
-        licensed_activities  6 rows whose activity cell carries BOTH languages in one
-                             string with no separator — `تشييد المباني … Construction of
-                             Buildings – All Types` — and whose readiness cell is
-                             `أساسي | Basic`. Splitting the first needs a script-boundary
-                             rule, and one of the six already has a TRUNCATED English half
-                             on the site's side (`Civil Engineering -`). Six samples, one
-                             malformed, is not enough to declare that rule on.
-        main_contractors     `# / name`, and EMPTY on every page measured. These are
-        sub_contractors      contractor-to-contractor RELATIONS, not classifications, so
-                             they do not belong in a taxonomy at all.
-        contract_counts      one row of two numbers, `455 / 64`. Two scalars — they belong
-                             in the flat row, and putting them in a link table would make
-                             a membership out of a count.
+        interests            2,419 of 2,419 pages, 211 English paths and 214 Arabic
+                             -> a taxonomy, and it was already built
+        licensed_activities  1,685 rows over 228 pages, a CLOSED vocabulary of 22
+                             activities, and the split rule is now PROVABLE: the
+                             script-run signature of all 1,500 activity cells is
+                             `AL`, Arabic then Latin, one transition
+        main_contractors     rows on 0 of 2,419 pages
+        sub_contractors      rows on 2 of 2,419 pages -- contractor-to-contractor
+                             RELATIONS rather than classifications, and two rows is
+                             not a shape to design on
+        contract_counts      92 pages, one row of two numbers -> two COLUMNS, which
+                             is what the earlier reading of it already argued, and
+                             `read_contract_counts` now puts them on the flat row
 
-    `R-19`'s own limit is the reason this stops here rather than guessing: the study says
-    it measured ONE profile, and three of these five are empty on every profile we hold.
-    The snapshots keep the evidence, so each of the four can be derived later with no
-    network the moment its shape is decided.
+    TWO SCHEMES, NOT ONE, AND A MEASUREMENT PREVENTED THE MERGE. Interests and
+    licences look like one vocabulary and are two: 211 English interest paths against
+    19 English licence paths, with **zero exact overlap** -- the site writes `Civil
+    engineering` in one and `Civil Engineering` in the other. Their ARABIC ROOTS DO
+    overlap, and `taxonomy.ensure_path` is idempotent on the Arabic name, so a single
+    scheme would have fused the two trees at the roots and let them diverge below,
+    producing a tree that is neither. Each group names its own scheme.
+
+    THE READINESS LEVEL IS READ AND NOT STORED, and the count is the argument:
+    `مستوى الجاهزية` is EMPTY on 1,490 of 1,500 rows, with five distinct values
+    across the other ten. `classification_membership` has no column for a per-
+    membership attribute, so storing it means a migration -- for a fact 0.7% of rows
+    carry. `read_licensed_activities` returns it either way, so the day it is worth a
+    column it is a re-parse of stored snapshots and not a re-crawl.
     """
     reader = directory.profiles
     if reader is None:
@@ -784,31 +867,32 @@ def write_groups(conn, directory: Directory, snapshot_id: int, *,
         # prevent, arriving from the other direction.
         return 0, 0
 
-    scheme = taxonomy.ensure_scheme(conn, int(site["site_profile_id"]),
-                                    name=reader.scheme_name,
-                                    name_ar=reader.scheme_name_ar)
-    from .extract.muqawil import read_interests
-
-    paths_en = read_interests(english)
-    paths_ar = read_interests(arabic) if arabic else paths_en
-    if len(paths_en) != len(paths_ar):
-        # PAIRED BY POSITION, LIKE `merge_locales`, AND REFUSED THE SAME WAY. Measured:
-        # both locales publish 25 nodes in the same order. A count that differs means
-        # position no longer describes the same node, and writing anyway would attach an
-        # English name to a different Arabic one.
-        raise taxonomy.CannotPairLocales(
-            f"contractor {contractor_id} published {len(paths_en)} interests in English "
-            f"and {len(paths_ar)} in Arabic")
-
     written = repeated = 0
-    for path, path_ar in zip(paths_en, paths_ar, strict=True):
-        node = taxonomy.ensure_path(conn, scheme, path=path, path_ar=path_ar)
-        if taxonomy.link(conn, generic_record_id=int(record["generic_record_id"]),
-                         node_id=node, group_key="interests",
-                         source_snapshot_id=snapshot_id):
-            written += 1
-        else:
-            repeated += 1
+    for group_key in _WIRED_GROUPS:
+        group = next((one for one in reader.groups if one.key == group_key), None)
+        if group is None or not group.scheme_name_ar:
+            # DECLARED WITHOUT A VOCABULARY IS NOT WIRED. Reaching here means the
+            # group's declaration lost its scheme name, and writing into a scheme
+            # named "" would silently collect two taxonomies into one row.
+            raise KeyError(
+                f"{group_key!r} is wired but declares no scheme name; "
+                f"see MULTI_VALUED_GROUPS")
+        scheme = taxonomy.ensure_scheme(conn, int(site["site_profile_id"]),
+                                        name=group.scheme_name,
+                                        name_ar=group.scheme_name_ar)
+        try:
+            pairs = _GROUP_READERS[group_key](english, arabic)
+        except taxonomy.CannotPairLocales as exc:
+            raise taxonomy.CannotPairLocales(
+                f"contractor {contractor_id}, group {group_key}: {exc}") from exc
+        for path, path_ar in pairs:
+            node = taxonomy.ensure_path(conn, scheme, path=path, path_ar=path_ar)
+            if taxonomy.link(conn, generic_record_id=int(record["generic_record_id"]),
+                             node_id=node, group_key=group_key,
+                             source_snapshot_id=snapshot_id):
+                written += 1
+            else:
+                repeated += 1
     return written, repeated
 
 
