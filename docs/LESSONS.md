@@ -1226,3 +1226,56 @@ Both of these are the same mistake with two faces: **an absence found by one ins
 was reported as an absence in the world.** Before recording that something cannot be
 done, name the instrument that failed to find it.
 
+---
+
+## 10 · Two features written two days apart, neither knowing the other exists
+
+### The merge moved the pages and left the key to reading them behind
+
+`snapshotbody.py` landed on 2026-08-20 and stores a page as a zstd frame compressed
+against a **dictionary row**, without which the body cannot be decoded and the plaintext
+exists nowhere else. `warehousemerge.py` landed on 2026-08-22 and moves "only the
+evidence" between two machines. Both are correct on their own. Together they were not:
+
+- `snapshot_dictionary` was **not merged at all**, and
+- `html_dict_id` was **copied verbatim** — a foreign machine's primary key, which the
+  merge's own docstring says never crosses.
+
+His real transfer hit it: 20,379 pages, every one `zstd-raw-dict`, arriving into a
+warehouse holding zero dictionaries → `FOREIGN KEY constraint failed`.
+
+**AND THE LOUD FAILURE WAS THE LUCKY ONE.** The foreign key only fired because the
+receiving side had *no* dictionaries, so the arriving ids pointed at nothing. Had the
+receiver held two dictionaries of its own — which it will, the moment it crawls anything —
+ids `1` and `2` would have been perfectly legal numbers naming **the wrong bodies**. No
+constraint fires on that. 20,379 pages would have been "merged" successfully and decoded
+to garbage, discovered whenever somebody next opened one.
+
+### What the seventeen passing tests could not see
+
+`test_two_warehouses_become_one.py` had seventeen tests, including a sharp one about
+`seen_count` being summed instead of maxed. **All seventeen passed before the fix and
+after it**, because not one of them stored a *compressed* page — every fixture wrote
+`html_content` as plain text through raw SQL.
+
+> **A test suite for feature B, written while feature A already existed, tests the
+> author's mental model of A rather than A.** The fixtures here were written by hand
+> against the columns the author was thinking about. The new tests go through
+> `save_snapshot` — the production writer — so the row is shaped by the code that really
+> writes it, and a future column arrives in the fixture without anyone remembering to add
+> it.
+
+### The generalisable rule
+
+**When a feature moves, copies, backs up or exports rows, list the table's foreign keys
+and ask what happens to each one.** Not "does it round-trip" — that passes — but *does
+the destination hold the thing this column points at, and is the value still true there?*
+An id is only meaningful inside the database that issued it, and the merge already knew
+that; it just did not notice that a column added two days earlier had made a second id
+travel.
+
+The matching key is worth stating too, because the obvious one was wrong: dictionaries
+match on **body**, never on `label`. Each machine seeds a dictionary from the first page
+of that kind *it* fetched, so `muqawil.org/listing` is a 298,954-byte page here and a
+different page there. Matching on the label would have merged two unrelated dictionaries
+into one and broken both sides' pages.
