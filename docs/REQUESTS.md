@@ -88,6 +88,7 @@ IDs are stable and never reused, matching the convention BACKLOG.md already uses
 | [REQ-30](#req-30--the-three-dots-button-appears-twice-on-a-source-card) | The three-dots button appears twice on a source card | **In flight** — cause proven, fixed and guarded; merging is his | 2026-08-22 |
 | [REQ-31](#req-31--start-the-profile-parser--and-the-pages-are-not-consistent) | Start the profile parser — and the pages are not consistent | **In flight** — the cards are built, guarded and mutation-tested; `Q-17` and `Q-18` are his | 2026-08-22 |
 | [REQ-32](#req-32--fixed-columns-and-everything-else-in-the-rows-own-card) | Fixed columns, and everything else in the row's own card | **Ruled** ([R-45](RULINGS.md#r-45--the-site-is-the-only-source-of-truth-and-a-field-the-table-does-not-need-goes-in-the-rows-card)) — not built; the card does not exist on either surface | 2026-08-22 |
+| [REQ-34](#req-34--open-a-session-that-starts-on-the-drive-plan) | Open a session that starts on the Drive plan | **Planned** — [the plan](plans/2026-08-22-drive-without-a-server.md) exists and Phase 0 is built; Phases 1–5 hold behind `Q-19`–`Q-23` | 2026-08-22 |
 
 ---
 
@@ -1395,21 +1396,6 @@ is now over-broad by one entry. Recorded as `OP-42` in
 [BACKLOG.md](BACKLOG.md#op-42--a-generic-dataset-card-offers-no-actions-at-all-and-one-of-the-six-would-work),
 not folded into this fix, because it changes what the panel offers rather than
 where it paints.
-
----
-
-## Adding a request
-
-1. Give it the next `REQ-nn`. Never reuse a number.
-2. Quote **his own words**, in the language he used them.
-3. Set the state to **Captured**, add a row to the board.
-4. Commit it in the session it was said — not later.
-
-When it advances, move the state, add the link the new state produces (a ruling,
-a plan, a PR), and say so in [STATE.md](STATE.md) if it is live work.
-
----
-
 ## REQ-31 · Start the profile parser — and the pages are not consistent
 **Captured 2026-08-22 · In flight — the cards are built, guarded and mutation-tested; two questions are his**
 
@@ -1503,3 +1489,57 @@ has neither half and its data is already on disk.
 
 **Not started.** `REQ-31` (the profile parser) is what is in flight, and this is the
 surface it feeds.
+## REQ-34 · Open a session that starts on the Drive plan
+**Captured 2026-08-22 · Ruled ([R-46](RULINGS.md#r-46--the-drive-track-starts-now-and-r-44s-blanket-deferral-is-amended-to-cover-only-what-costs-crawl-time)) · Planned — [plans/2026-08-22-drive-without-a-server.md](plans/2026-08-22-drive-without-a-server.md)**
+
+> «افتح جلسة session تبدا فى خطة drive»
+
+**IT CHANGED HIS OWN RULING OF THE SAME DAY, AND THAT IS WHY IT IS RECORDED RATHER
+THAN SIMPLY ACTED ON.** Hours earlier he had ruled «أرجئ كلّ شىء — أكمل مقاول» —
+[R-44](RULINGS.md#r-44--no-sync-server-and-no-backup-encryption-for-now-and-the-sync-work-is-deferred-behind-muqawil)
+decision 4, defer the whole of the sync work behind muqawil. Opening this track is
+the amendment, so under **C4** R-44 stays where it is, marked, pointing at
+[R-46](RULINGS.md#r-46--the-drive-track-starts-now-and-r-44s-blanket-deferral-is-amended-to-cover-only-what-costs-crawl-time),
+and saying what changed: the deferral now covers only work that costs crawl time,
+not the design and not the defects that are true regardless. His other three
+decisions — no server, no encryption yet, solo now — are untouched and are the
+frame the plan is written inside.
+
+**What the request is for, from the record and not invented.** `R-43` already ruled
+that Drive is the single source of truth for DATA and the repository for CODE, and
+`R-44` recorded the design answer he asked to be kept for when he returned: automatic
+sync **is** achievable with no server, as an append-only log of small immutable
+per-device files — never the SQLite file itself. This is the plan for that.
+
+**Delivered in the session he said it:** the plan, phased with a gate on every
+phase; Phase 0 built and mutation-proven; four audit claims corrected; the three
+populations re-measured against his live warehouse; and four questions that are his.
+
+**AND IT FOUND SOMETHING HE HAS TO SEE BEFORE ANY OF THE PLAN MATTERS.**
+`warehousemerge.merge` has **no INSERT for any price table**, so the command he was
+told to run **cannot carry price history at all** — and nothing has asked it to
+yet. This warehouse holds **92,740** observations, append-only by trigger, spanning
+2014-05-19 to 2026-08-16, with `raw_snapshot` holding 0 rows so nothing can
+recompute them. Nothing here was lost; what is missing is a route. Whether the
+OTHER machine holds history that never had one takes two commands to answer, and
+the plan opens with them. `OP-50`.
+
+**The measurement that reframed the rest.** 56 tables, 506,464 rows. The
+conflict-prone data — everything a person edits by hand and could edit twice — is
+**566 rows, 0.11%**, so the thing a no-server design has to arbitrate is one-tenth
+of one percent of the file.
+
+---
+
+## Adding a request
+
+1. Give it the next `REQ-nn`. Never reuse a number.
+2. Quote **his own words**, in the language he used them.
+3. Set the state to **Captured**, add a row to the board.
+4. Commit it in the session it was said — not later.
+
+When it advances, move the state, add the link the new state produces (a ruling,
+a plan, a PR), and say so in [STATE.md](STATE.md) if it is live work.
+
+---
+

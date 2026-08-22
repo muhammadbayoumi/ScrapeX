@@ -51,9 +51,80 @@ def _engine_path(args: argparse.Namespace) -> Path:
     return registry.engine.path
 
 
+def _back_up_before_init_db_advances_a_schema(registry) -> int:
+    """`init-db` on an EXISTING warehouse takes a backup first, or does nothing.
+
+    THIS CLOSED A HOLE THE PROJECT HAD ALREADY WRITTEN A GUARD FOR AND ROUTED
+    ITSELF AROUND. `_upgrade_what_is_only_behind` promises "A BACKUP FIRST,
+    ALWAYS", and `registry.ensure_ready` promises "Nothing else in the codebase
+    may migrate an existing file". Both sentences were false of `init-db`:
+    `registry.initialize()` calls `EngineDatabase.initialize()`, which migrates
+    whatever is already there (`databases/domain.py`, `initialize`) and takes no
+    copy of anything.
+
+    AND IT IS THE COMMAND THE PRODUCT ITSELF SENDS PEOPLE TO. A database that is
+    behind reports the action *"Run 'python -m scrapex.cli init-db'"*
+    (`databases/domain.py`, the `Needs upgrade` branch), and
+    `warehousemerge._same_shape` refuses a cross-version merge with *"Run
+    `scrapex init-db` on the older one first"*. So the documented route through a
+    schema change was the one route with no backup on it.
+
+    MEASURED ON HIS OWN WAREHOUSE, which is why this is a defect and not a
+    theory: engine migrations 0004…0009 are all stamped `2026-08-22T07:11:47Z` in
+    `database_migration` — a v3→v9 upgrade of a 1.1 GB file holding his only copy
+    — and `~/.scrapex/engine/` holds no `pre-upgrade` backup at all. Retention
+    cannot explain it either: the one backup that IS there is two days older, and
+    no prune keeps the older copy and drops the newer.
+
+    ONLY WHEN BEHIND, so the cost is paid exactly when it buys something. A
+    healthy database applies no migration, so there is nothing to protect; and a
+    DAMAGED or NEWER one is left alone rather than copied, which is the same
+    reading `_upgrade_what_is_only_behind` already takes — migrating damage is
+    how a small corruption becomes an unrecoverable one.
+
+    AND THE INTEGRITY SCAN IS DEMANDED RATHER THAN ASSUMED, which #251 made
+    necessary two days after this reasoning was written. `EngineDatabase.health`
+    now takes `integrity=False` for the panel's timed poll — measured, and for a
+    good reason: `quick_check(1)` and `pragma_foreign_key_check` are O(file size)
+    and cost 0.879 s and 0.398 s on his 1,067 MB warehouse, which pushed
+    `/api/health` past the panel's 2.5 s deadline. Its own docstring draws the
+    line this function has to stand on: *"'Healthy' without a scan is a narrower
+    claim than 'Healthy' with one, and a caller that needs the wider one must ask
+    for it."*
+
+    THIS CALLER NEEDS THE WIDER ONE, because "damaged files are left alone" is
+    only true if something looked. So the flag is passed explicitly and the
+    answer is checked: a report that did not scan is refused rather than trusted.
+    Without that, a later change to the default would silently turn this guard
+    into the thing it refuses — a backup taken of damage, and damage migrated.
+    """
+    from .archive import backup_database
+
+    state = registry.health(integrity=True).get(registry.engine.kind) or {}
+    if not state.get("integrity_checked", False):
+        print("error: the database reported its health without an integrity scan, "
+              "so 'damaged' and 'behind' cannot be told apart. Nothing was "
+              "upgraded.", file=sys.stderr)
+        return 1
+    if state.get("ok") or state.get("status") != BEHIND:
+        return 0
+    path = Path(state["path"])
+    try:
+        made = backup_database(path, tag="pre-upgrade")
+    except Exception as exc:
+        print(f"error: {path} is behind and could not be backed up, so its "
+              f"schema was NOT advanced ({exc})", file=sys.stderr)
+        return 1
+    print(f"backed up {path} to {made} before upgrading it")
+    return 0
+
+
 def _cmd_init_db(args: argparse.Namespace) -> int:
     if not args.db:
         registry = DatabaseRegistry.defaults()
+        refused = _back_up_before_init_db_advances_a_schema(registry)
+        if refused:
+            return refused
         applied = registry.initialize()
         print(f"Engine database at {registry.engine.path}: "
               f"applied {applied[registry.engine.kind] or 'none'}")
@@ -154,7 +225,44 @@ def _cmd_backup_databases(args: argparse.Namespace) -> int:
     return 0
 
 
+#: What has to be typed before the live warehouse stops being the live one.
+#: A PHRASE AND NOT A FLAG, following the precedent `/api/storage/start-fresh`
+#: already sets in `webui/app.py`: "a checkbox is one habitual click; typing is a
+#: decision". `--yes` is what `wipe-source` asks for and it is the weaker of the
+#: two, because `--yes` is what a person appends to a command that just refused.
+RESTORE_PHRASE = "replace my warehouse"
+
+
 def _cmd_restore_database(args: argparse.Namespace) -> int:
+    """Put a backup in place of the live warehouse — behind a typed phrase.
+
+    WHY THIS COMMAND AND NOT THE PANEL'S BUTTON. `docs/STATE.md` and
+    `warehousemerge`'s own docstring both warned "DO NOT PRESS `drive-restore` ON
+    THE OTHER MACHINE. Restore REPLACES the live warehouse". That is not what
+    that button does: `drive-restore` is wired to `fetchFromDrive`
+    (`extension/app.js`), which downloads the archive, checks its size and
+    reports — its own comment says *"DOWNLOADED, NOT RESTORED"* and the button
+    reads "Fetch the latest backup". The destructive control was somewhere else
+    all along, and it is this one: a shipped subcommand that took a path and
+    displaced his only copy with no question asked.
+
+    NOTHING IS ERASED, AND THAT IS NOT THE SAME AS SAFE. `EngineDatabase.restore`
+    moves the current file to `<stem>.replaced-<stamp>.db`, so the bytes survive.
+    What does not survive is the file being the LIVE one — the next crawl writes
+    into the restored copy, and on the other machine that is precisely `R-43`'s
+    harm: the muqawil and products work that machine has and Drive does not stops
+    being the warehouse, recoverably but invisibly.
+    """
+    if (getattr(args, "confirm", "") or "").strip() != RESTORE_PHRASE:
+        print(
+            f"restore-database would make {args.backup} the live warehouse and "
+            f"move the current one aside. Whatever this machine has crawled and "
+            f"not uploaded stops being the live data.\n"
+            f'To go ahead, add: --confirm "{RESTORE_PHRASE}"\n'
+            f"To bring another machine's work IN instead of over the top, use "
+            f"`scrapex merge-warehouse --machine <name> --from <downloaded.db>`.",
+            file=sys.stderr)
+        return 2
     registry = DatabaseRegistry.read(Path(args.registry) if args.registry else REGISTRY_FILE)
     displaced = registry.engine.restore(Path(args.backup))
     print(
@@ -1150,8 +1258,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--registry", help="database registry path")
     p.set_defaults(func=_cmd_backup_databases)
 
-    p = sub.add_parser("restore-database", help="restore the engine database from a backup")
+    p = sub.add_parser(
+        "restore-database",
+        help="replace the live engine database with a backup (destructive; "
+             "to bring another machine's work in, use merge-warehouse)")
     p.add_argument("backup", help="verified backup path")
+    p.add_argument("--confirm", default="",
+                   help=f'type "{RESTORE_PHRASE}" to go ahead')
     p.add_argument("--registry", help="database registry path")
     p.set_defaults(func=_cmd_restore_database)
 

@@ -173,7 +173,17 @@ PINNED = (
     # OP-34 · why a black window leaves no trace. The whole finding is that this
     # function DELIBERATELY does nothing when it has real streams, which is the
     # double-click case -- so the log is not evidence about a failed launch.
-    ("docs/BACKLOG.md", "scrapex/cli.py", 976, "def _bind_log_streams("),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 1084, "def _bind_log_streams("),
+    # AND THE FOUR THAT WERE NEVER PINNED HAD ALL DRIFTED, found 2026-08-22 when a
+    # change to cli.py moved the row above. Three of the four were wrong BEFORE
+    # that change -- `scrapex/cli.py:993` was `RUN_DUE_LOG.parent.mkdir(...)`,
+    # `:1127` a parser help string, `:761` a blank line -- and the fourth
+    # (`LESSONS.md`'s generator) has been wrong since the day it was written. Tier
+    # 1 passed all four, every time, which is the whole argument for this table.
+    ("docs/BACKLOG.md", "scrapex/cli.py", 152, "report = carry_over(plan"),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 1414, "except Exception as exc:"),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 975, "_upgrade_what_is_only_behind(registry, report)"),
+    ("docs/LESSONS.md", "scrapex/cli.py", 459, "export-version"),
     # OP-35 · the hand-maintained command set that drifted to half the CLI.
     # The entry says "do not extend the literal, derive it", which only makes
     # sense standing at the literal.
@@ -205,6 +215,62 @@ PINNED = (
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 2725, "if source_key not in known:"),
     ("docs/BACKLOG.md", "scrapex/webui/app.py", 986,
      "A GENERIC DATASET IS A TABLE LIKE ANY OTHER TABLE"),
+    # ---- the Drive track, 2026-08-22 (R-46, REQ-34) --------------------------
+    # THE CORRECTION OF A WARNING IS THE MOST FRAGILE KIND OF CITATION, and this
+    # is why: STATE.md and warehousemerge.py both said in capitals that
+    # `drive-restore` REPLACES the live warehouse. It does not. A reader landing
+    # one line off these two reads something else entirely and concludes the
+    # correction was wrong -- which would put the false warning straight back.
+    ("docs/STATE.md", "extension/app.js", 5881, "async function fetchFromDrive("),
+    ("docs/RULINGS.md", "extension/app.js", 5881, "async function fetchFromDrive("),
+    ("docs/STATE.md", "extension/app.html", 1892, 'id="drive-restore"'),
+    ("docs/RULINGS.md", "extension/app.html", 1892, 'id="drive-restore"'),
+    # The guard that replaced it. `restore-database` is the destructive control
+    # and this literal is the whole of the interlock.
+    ("docs/STATE.md", "scrapex/cli.py", 233, 'RESTORE_PHRASE = "replace my warehouse"'),
+    ("docs/RULINGS.md", "scrapex/cli.py", 233, 'RESTORE_PHRASE = "replace my warehouse"'),
+    # R-46's fourth item, and the only one of the four that was a live defect:
+    # init-db migrated an existing warehouse and copied nothing, while two other
+    # docstrings promised that could not happen. Three lines carry that argument
+    # -- the fix, the false promise, and the migration it was false about -- and
+    # the entry is unreadable standing at any other line.
+    ("docs/RULINGS.md", "scrapex/cli.py", 54,
+     "def _back_up_before_init_db_advances_a_schema("),
+    ("docs/RULINGS.md", "scrapex/databases/registry.py", 130,
+     "codebase may migrate an existing file."),
+    ("docs/RULINGS.md", "scrapex/databases/domain.py", 206, "applied = self._migrate(conn)"),
+    # ...and the two refusals that send him to that command in the first place.
+    ("docs/RULINGS.md", "scrapex/databases/domain.py", 329, "init-db"),
+    ("docs/RULINGS.md", "scrapex/warehousemerge.py", 229, "`scrapex init-db` on the older"),
+    # The other two Phase 0 guards, both of which close a gap that reported
+    # success: a checksum over a corrupt database, and a digest nobody compared.
+    ("docs/RULINGS.md", "scrapex/bundle.py", 122, "def refuse_a_damaged_warehouse("),
+    ("docs/RULINGS.md", "extension/drive.js", 346, "export async function verifyStored("),
+    # OP-45's ENTIRE EVIDENCE is this line: the refusal names `--force` and no
+    # such flag exists. A reader one line off sees an ordinary message and
+    # closes the entry.
+    ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 140, "--force"),
+    ("docs/BACKLOG.md", "scrapex/cli.py", 1248, '"--claim"'),
+    # Q-20 is a choice between three merge operators, and this is the operator.
+    ("docs/BACKLOG.md", "scrapex/warehousemerge.py", 329,
+     "seen_count    = MAX(seen_count, excluded.seen_count)"),
+    ("docs/STATE.md", "scrapex/warehousemerge.py", 329,
+     "seen_count    = MAX(seen_count, excluded.seen_count)"),
+    # ...and its consumer, which is why the choice matters rather than being taste.
+    ("docs/BACKLOG.md", "scrapex/sightings.py", 589, "SELECT seen_count, COUNT(*)"),
+    # "delete and rebuild everything derived" is impossible -- the delete is
+    # refused by a trigger and what runs is this upsert. Both documents said the
+    # opposite until 2026-08-22.
+    ("docs/STATE.md", "scrapex/extract/service.py", 576,
+     "ON CONFLICT(dataset_definition_id, record_key) DO UPDATE SET"),
+    ("docs/RULINGS.md", "scrapex/extract/service.py", 576,
+     "ON CONFLICT(dataset_definition_id, record_key) DO UPDATE SET"),
+    # Q-22 · REQ-26 is not built and he believes it is. All three lines are the
+    # evidence, and the third is a docstring saying so in its own words.
+    ("docs/BACKLOG.md", "extension/accounts.js", 1,
+     "The accounts this browser REMEMBERS"),
+    ("docs/BACKLOG.md", "scrapex/databases/registry.py", 23, "DATABASE_ROOT = Path("),
+    ("docs/BACKLOG.md", "scrapex/account.py", 9, "It does not yet put"),
 )
 
 # A guard that can be emptied without anyone noticing is the defect -- SR-23, and

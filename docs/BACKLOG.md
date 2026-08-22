@@ -623,7 +623,7 @@ this was found in one command rather than by counting rows afterwards.
 
 **The mechanism exists and the product does not reach it.** `carry_over` has exactly
 **one** production caller — the manual subcommand `scrapex carry-over`
-(`scrapex/cli.py:993`). Nothing automatic calls it: not `ui`, not autostart, not the
+(`scrapex/cli.py:152`). Nothing automatic calls it: not `ui`, not autostart, not the
 native host, not the panel.
 
 **What a split-era user actually gets**, simulated end to end against a fake split
@@ -631,7 +631,7 @@ installation:
 
 | path | result |
 |---|---|
-| any CLI command | clean message naming `scrapex carry-over` — `main()` catches everything (`scrapex/cli.py:1127`) |
+| any CLI command | clean message naming `scrapex carry-over` — `main()` catches everything (`scrapex/cli.py:1414`) |
 | `native.startup_check()` — how the PANEL starts the engine | `ok: false`, `action: "check_storage"`, detail = *"Run 'scrapex carry-over'"* |
 | `native.upgrade_database()` — **the panel's own repair action** | `ok: false`. **It cannot fix this**: `DatabaseRegistry.defaults()` refuses before `initialize()` is ever reached |
 
@@ -660,7 +660,7 @@ leaves an installation that refuses to start rather than one that starts on half
 data.
 
 **Shape of the fix**, for whoever picks it up: call `carry_over` from the same place
-`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:761`) when the pointer is
+`_upgrade_what_is_only_behind` is called (`scrapex/cli.py:975`) when the pointer is
 split, say so on stdout and in the log naming both source files, and give
 `native.upgrade_database()` the same path so the panel's button works. Then a test
 that a split installation **starts**, which is the test nobody has written — every
@@ -1215,7 +1215,7 @@ then the only engine that runs on this machine is that worktree's.
 **Status: OPEN, filed not fixed, per `R-01`.** Found while looking for the black
 window's trace and finding none.
 
-`_bind_log_streams` (`scrapex/cli.py:976`) says it plainly: *"run it from a terminal
+`_bind_log_streams` (`scrapex/cli.py:1084`) says it plainly: *"run it from a terminal
 and this does nothing at all."* It exists for the `pythonw` autostart path, which
 has no streams. A double-click **does** get a console, so the redirect no-ops and
 the failure goes to a window that is closing. `~/.scrapex/engine.log` is dated
@@ -1567,6 +1567,116 @@ exists for. Today the only route is a merge and a release.
 run an unmerged migration against the live warehouse at all? `SCRAPEX_DATA_ROOT`
 already makes a private one free, and `R-24`'s repair path (`carry_over`) exists.
 Recorded as `Q-15`.
+
+### OP-45 · The merge's own refusal sends the loser of a race to a flag that does not exist
+**Found 2026-08-22 while writing [the Drive plan](plans/2026-08-22-drive-without-a-server.md).
+Not fixed here — Phase 1 item 1.**
+
+`warehousemerge.claim` refuses a warehouse somebody else holds and ends the sentence
+*"or take it deliberately with `--force` if you know it is finished"*
+(`scrapex/warehousemerge.py:140`). **There is no `--force`.** `grep` for it across
+`scrapex/cli.py` returns nothing, so argparse answers *"unrecognized arguments:
+--force"* and the person is stuck with a warehouse they cannot claim and a remedy
+that is not a command.
+
+**Why this is worse than a typo.** The whole design of the lock is that the loser of
+a race *finds out from a refusal rather than from missing data a week later* —
+`R-43` says so in those words. The refusal is the one moment the mechanism has to
+be useful, and it is the moment it dead-ends. His only route today is to edit
+`scrapex_meta` by hand, which is exactly the "shipped command, not a script" failure
+`contractors.py` was written to end.
+
+**The fix and its gate.** Add `--force` to `merge-warehouse` and let `claim` take it.
+The guard should not be "a `--force` flag exists" but *the refusal's own remedy
+runs*: take the sentence `claim` raises, extract the flag it names, and assert
+`cli.build_parser()` accepts it. That shape is what stops the next message inventing
+another flag.
+
+### OP-49 · `merge-warehouse --claim` is declared and never read
+**Found 2026-08-22. Cosmetic, and named so it is not mistaken for working.**
+
+`scrapex/cli.py:1248` adds `--claim` with the help *"take the warehouse without
+merging anything"*. `_cmd_merge_warehouse` reads `args.status`, `args.release`,
+`args.machine` and `args.source`, and never `args.claim`. The behaviour it describes
+does exist — `--machine <name>` with no `--from` claims and returns — so nothing is
+broken; the flag is dead and the help text describes a switch with no effect. Delete
+it, or read it. Fix it in the same change as `OP-45`, since both are the same
+command's surface.
+
+### OP-50 · `merge-warehouse` cannot carry price history at all, and nothing has asked it to yet
+**Found 2026-08-22. THE LARGEST GAP IN THE MULTI-DEVICE STORY, and stated at the
+width the measurement supports: the route does not exist, and no loss has been
+demonstrated. Not fixed — carrying the rows needs `Q-23` answered; the ~15-line
+refusal that closes the exposure does not.**
+
+`warehousemerge.merge` inserts into exactly three tables: `snapshot_dictionary`,
+`generic_page_snapshot` and `dataset_sighting`. **There is no INSERT for any price
+table anywhere in the module.** It is not wrong about what it does — its docstring
+says *"only the evidence is merged"* and it means the contractor evidence — but
+`R-32` already ruled that price is one category and filing it as the whole thing was
+a mistake, and the tool built for `R-43` covers only the other category.
+
+**Measured on the live warehouse, 2026-08-22 (read-only):**
+
+    merge covers                                    44,525 rows
+    EVIDENCE rows no merge path covers             106,138
+      of which price_observation                    92,740   append-only by trigger
+    raw_snapshot, the page behind a price                 0   nothing can recompute them
+    business_date span                    2014-05-19 .. 2026-08-16   608 distinct dates
+
+**Twelve years of price history, and there is no page behind it.**
+`trg_price_obs_no_delete` / `trg_price_obs_no_update` make `price_observation`
+append-only, and `raw_snapshot` holds **0 rows** — a fact this repository already
+wrote down twice, at `scrapex/rowspec.py:219` and in migrations `0056`/`0057`. So
+these rows are not derived from anything on disk: they are the primary record.
+
+**HAS ANYTHING BEEN LOST? Not on this side — nothing here was deleted or
+overwritten, and what is missing is a route rather than rows. Whether the OTHER
+machine holds history that never had one is not knowable from here, and the
+reason is the finding.** `merge` writes **no ledger row anywhere** — no merge table, no
+`scrapex_meta` key — so nothing in the warehouse records that a merge ran, when, or
+from what. Two probes were built and both are structurally impossible here:
+`generic_page_snapshot.crawl_run_ref` is free text and **`crawl_run` has no
+`run_ref` column at all**, so there is no foreign key from a stored page to a run;
+and a time probe against `crawl_run` windows put **0 of 29,906** snapshots inside
+one, because `crawl_run` belongs to the price pipeline and the contractor crawls
+write no row there. What *can* be said: all 140 distinct `crawl_run_ref` labels
+follow this machine's own conventions on one continuous local timeline
+2026-08-17 → 2026-08-22, and the growth from 20,379 to 29,906 is fully accounted for
+by the running profile crawl. **Nothing here looks imported** — and it would not
+matter if it were, because no price row could have crossed either way.
+
+**What would settle it: two numbers from the other machine** — `scrapex
+merge-warehouse --status` and `SELECT COUNT(*) FROM price_observation`.
+
+**IS IT RECOVERABLE? Yes, and the trigger is why.** Append-only means nothing this
+side did could delete anything, so rows never read are still on the other machine. A
+second merge with a fixed path recovers them and is safe to repeat:
+`ux_price_obs_dedupe (offer_id, business_date, record_hash)` makes it
+insert-if-absent, and `record_hash` is content-derived, so it is stable across
+machines. Both destructive paths displace rather than erase
+(`<stem>.replaced-<stamp>.db`), and `drive-restore` — the button `STATE.md` warned
+about in capitals — turns out not to restore at all. **The one thing that would make
+recovery impossible is the defect Phase 0 just fixed:** `init-db` advancing that
+machine's schema with no backup.
+
+**THE SMALLEST FIX, and there are two of them.**
+
+| | cost | what it buys |
+|---|---|---|
+| **stop the harm** | ~15 lines in `merge` | count what no path carries and refuse, or report it. It would name **174,487 rows across 5 tables** today. Turns a silent 100% loss into a named refusal |
+| **carry the rows** | five `INSERT…SELECT`s | each keyed on its natural key with a subquery resolving the parent's local id — the pattern `merge` already uses for `html_dict_id`, so it builds ON the module rather than beside it |
+
+The chain resolves further than expected, measured rather than assumed:
+
+| obstacle | measured |
+|---|---|
+| `source_offer`'s `branch_id` leg | **0 rows non-null, and no `branch` table exists** — free |
+| `source_offer`'s `selling_unit_id` | 1,238 rows, and `selling_unit` has UNIQUE `unit_code` — resolves |
+| `source_product.external_product_id` | **0 NULLs of 9,270** — fully resolvable to `(source_key, external_product_id)` |
+| `source_variant` | **11 of 13,681** satisfy neither partial unique index — unresolvable, and must be NAMED in the refusal rather than dropped |
+| `price_observation.snapshot_id` | NULL on all rows — free |
+| `price_observation.run_id` | **NOT NULL on all 92,740**, pointing at a table with no natural key. The one real decision, and it is `Q-23` |
 
 
 ### OP-42 · A generic dataset card offers no actions at all, and one of the six would work
@@ -2366,6 +2476,76 @@ classifications, so `dataset_relationship` — which now has its first tenant �
 their home rather than the taxonomy. Options: build them now at 2 rows; wait until the
 34,834-page crawl finishes and re-measure, which costs nothing because the snapshots
 keep the evidence; or rule them out and record it.
+### The five the Drive plan needs — 2026-08-22
+
+All five come out of
+[plans/2026-08-22-drive-without-a-server.md](plans/2026-08-22-drive-without-a-server.md)
+and all five carry counts, because he answers a study with counts. Measured
+read-only against `~/.scrapex/engine/scrapex-engine.db` on 2026-08-22: **schema v9,
+56 tables, 506,464 rows**, of which the conflict-prone config population is **566
+rows — 0.11%**.
+
+**Q-19 · Does a client-generated key go in now, or never?**
+51 of 56 tables key on a single INTEGER primary key and **not one declares
+`AUTOINCREMENT`** — they are rowid aliases, reused after a delete. So two devices
+independently assign `1, 2, 3…` and **no row can be named across machines**, which
+is exactly why `R-43`'s merge carries no primary key and rebuilds everything
+downstream. That works for evidence with natural keys and cannot work for a row a
+person edited, because there is nothing to say *which* row.
+
+| option | measured consequence |
+|---|---|
+| **now** | `ALTER TABLE` adding `row_uuid TEXT UNIQUE` to the 14 config tables — **566 rows**, on one file, his. No other user data exists anywhere |
+| **later** | the same migration across every published user's warehouse, and `R-24` forbids replacing rather than upgrading — so it must be a real backfill on files this project never sees |
+| **never** | automatic sync of the config is impossible; the 566 rows can only be transferred by overwriting one machine's copy with the other's |
+
+**Q-20 · Is `dataset_sighting.seen_count` an observation count or a floor?**
+`scrapex/warehousemerge.py:329` merges it with `MAX`, which is commutative and
+idempotent. Measured: 17,417 sightings on this machine carry **157,622**
+observations (avg 9.05, max 21, 3,331 rows at exactly 1). A second machine's
+observations are discarded wholesale, and the consumer is `sighting_frequencies`
+(`scrapex/sightings.py:589`), which estimates coverage from the distribution — so
+after a merge it estimates from one machine's passes while reporting on both.
+
+| option | measured consequence |
+|---|---|
+| **keep `MAX`** | idempotent and wrong by up to the whole of the other machine's history for that row |
+| **sum** | two machines' observations, and **not idempotent** — measured taking one id from 4 → 8 → 12 → 16 over three merges of the same file |
+| **count per device** | correct and idempotent: one row per `(dataset_key, external_id, device)`, answered by `SUM`. Costs a column, a key change, and `Q-19` first. At today's size **17,417 rows becomes 17,417 × devices** |
+
+**Q-21 · May retention — which destroys data — be driven by an automatic rule?**
+A no-server design cannot reject an operation and cannot ask a human, so a synced
+retention policy means one machine's setting deleting the other's pages.
+`retention_policy` holds **1 row** and `retention_run` holds **0** — it has never
+run — so the question is free today and expensive after it has. Options: an
+automatic rule; per-device policy excluded from sync, which means two machines hold
+different amounts of history for ever; or a policy that only ever **widens** — the
+most permissive setting across devices wins — which converges with no server and can
+never delete more than the most cautious device intended.
+
+**Q-22 · Does per-account isolation come before automatic sync, or does sync assume one account per device?**
+`REQ-26` is **not built and he believes it is**: `extension/accounts.js:1` remembers
+several accounts and writes nothing to disk, `scrapex/databases/registry.py:23` has
+one `DATABASE_ROOT`, and `scrapex/account.py:9` says in its own docstring that it
+does not use per-account directories and does not refuse another owner's warehouse.
+**Two accounts on one machine open the same file today.** For him — two machines,
+one Google account — that costs exactly nothing, which is why it has never bitten.
+The moment a second person installs the tool their data lands in his layout.
+
+**Q-23 · When his price history crosses machines, does it keep the run that observed it?**
+This is the one genuine design choice inside the price-merge fix `OP-50` names, and
+it is his because it decides what a restored observation can still prove.
+`price_observation.run_id` is **NOT NULL on all 92,740 rows** and points at
+`crawl_run`, a table with **no natural key at all** — no `run_ref` column, nothing
+machine-independent. So carrying the rows across means one of:
+
+| option | measured consequence |
+|---|---|
+| **null the column on arrival** | 92,740 observations keep their price, date, currency and `record_hash` and lose which run saw them. Cheapest, and irreversible: `price_observation` is append-only, so the provenance cannot be filled in later |
+| **carry `crawl_run` too** | 155 rows here, and they have no natural key — so it is the autoincrement remap `R-43` was written to avoid, at 155 rows instead of 27,106. `run_id` becomes a lookup like `html_dict_id` already is |
+| **give `crawl_run` a client key first** | correct, and it is `Q-19` again: one `ALTER TABLE` on 155 rows today, a migration across every user's data after publication |
+
+---
 
 **Q-15 · May a session run an unmerged migration against his LIVE warehouse?**
 Three times on 2026-08-21 his engine database moved ahead of `main` — v8 against v6

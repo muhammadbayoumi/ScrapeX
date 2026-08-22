@@ -103,10 +103,21 @@ The merge is defined, and it is defined because the natural keys exist — measu
     generic_record          UNIQUE (dataset_definition_id, record_key) in the schema
 
 So: dedupe snapshots on their natural key; merge sightings taking min `first_seen_at`, max
-`last_seen_at`, **summed** `seen_count`, max `last_absent_at`; and **delete and rebuild
-everything derived** with `--approve` rather than merging it. That last clause is what
-makes the whole thing tractable — no primary key is ever remapped, and the operation is
-commutative and idempotent, so it does not matter which machine runs it or how often.
+`last_seen_at`, **max** `seen_count`, max `last_absent_at`; and **re-derive everything
+downstream** with `--approve` rather than merging it. No primary key is ever remapped, and
+the operation is commutative and idempotent, so it does not matter which machine runs it or
+how often.
+
+> **TWO CLAUSES OF THAT PARAGRAPH WERE WRONG AND ARE CORRECTED HERE — 2026-08-22, `C5`.**
+> It said **summed** `seen_count`: the code is `MAX`
+> ([scrapex/warehousemerge.py:329](../scrapex/warehousemerge.py)), and `R-43` records why
+> summing was wrong — three merges of one file took an id from 4 to 8 to 12 to 16. And it
+> said **delete and rebuild** the derived rows, which the schema forbids:
+> `trg_generic_record_revision_append_only_delete` aborts the delete, and what actually
+> runs is an upsert on the natural key
+> ([scrapex/extract/service.py:576](../scrapex/extract/service.py)). Re-approving is
+> idempotent, which is what makes the merge safe — but a derived row that is *wrong* is
+> never removed, only overwritten if the same natural key is derived again.
 
 **BUILT 2026-08-22 — `scrapex merge-warehouse`** ([R-43](RULINGS.md#r-43--drive-is-the-single-source-of-truth-for-data-the-repository-stays-it-for-code)).
 
@@ -131,15 +142,118 @@ builds a bundle containing `warehouse.db`, taken through sqlite3's own backup AP
 `extension/drive.js` uploads it resumably to a `ScrapeX backups` folder with a
 `latest.json` pointer and three kept. The panel button is **`drive-backup`**.
 
-> **DO NOT PRESS `drive-restore` ON THE OTHER MACHINE.** Restore REPLACES the live
-> warehouse — `registry.engine.restore` displaces it and says so — so it would lose the
-> muqawil and products work that machine has and this one does not. It sits beside
-> `drive-backup` in the same card. **Backup here, download there, MERGE.** That distinction
-> is the whole of `R-43`, and the destructive path is one button away from it.
+> ~~**DO NOT PRESS `drive-restore` ON THE OTHER MACHINE.** Restore REPLACES the live
+> warehouse — `registry.engine.restore` displaces it and says so.~~
+> **THIS WARNING WAS WRONG AND IS CORRECTED, NOT DELETED — 2026-08-22, `C5`.**
+> `drive-restore` is wired to `fetchFromDrive`
+> ([extension/app.js:5881](../extension/app.js)), whose own comment says *"DOWNLOADED,
+> NOT RESTORED"* and whose sentence ends *"It is not installed — this only checks it is
+> there"*; its label in [extension/app.html:1892](../extension/app.html) reads **"Fetch
+> the latest backup"**. Nothing on the panel's path reaches `registry.engine.restore`.
+>
+> **The destructive control is `scrapex restore-database`**, which took a path and
+> displaced his only copy with nothing asked while `start-fresh` beside it made him
+> type a phrase. It now requires `--confirm "replace my warehouse"`
+> ([scrapex/cli.py:233](../scrapex/cli.py)), and the refusal names `merge-warehouse`.
+> **Backup here, download there, MERGE.** That distinction is still the whole of
+> `R-43`; what was wrong was which control endangered it.
 
 **For what the owner has asked for and where each request stands, see
 [REQUESTS.md](REQUESTS.md).** This file tracks the *work in flight*; that one
 tracks *his requests* through Captured → Ruled → Planned → In flight → Done.
+
+---
+
+## Track 6 · Drive without a server — OPENED 2026-08-22 on his instruction
+
+**Plan:** [plans/2026-08-22-drive-without-a-server.md](plans/2026-08-22-drive-without-a-server.md)
+· **Request:** [REQ-34](REQUESTS.md#req-34--open-a-session-that-starts-on-the-drive-plan)
+· **Ruling:** [R-46](RULINGS.md#r-46--the-drive-track-starts-now-and-r-44s-blanket-deferral-is-amended-to-cover-only-what-costs-crawl-time),
+which **amends** [R-44](RULINGS.md#r-44--no-sync-server-and-no-backup-encryption-for-now-and-the-sync-work-is-deferred-behind-muqawil)
+rather than replacing it — «افتح جلسة session تبدا فى خطة drive», hours after «أرجئ كلّ
+شىء». His four decisions stand; only the *scope of the deferral* moved.
+
+**Phase 0 is BUILT, and one of its four items was a live defect:**
+
+| | |
+|---|---|
+| `PRAGMA quick_check` before a bundle is written | a corrupt database has a valid checksum for its corrupt self, so `verify` could never see it |
+| the sha256 checked **after** the upload | the digest in `latest.json` was never compared with anything by either side. Drive computes its own, so the check is end to end |
+| a typed phrase on `restore-database` | `--confirm "replace my warehouse"`; and the refusal names `merge-warehouse`, because restore replaces and merge adds |
+| `init-db` backs up before advancing a schema | **the defect.** Migrations 0004…0009 are stamped `2026-08-22T07:11:47Z` in his `database_migration` — v3 → v9 on a 1.1 GB file — and no `pre-upgrade` backup exists beside it |
+
+**Twelve mutations, twelve killed.** The fourth item is the one worth reading twice:
+`_upgrade_what_is_only_behind` promises *"A BACKUP FIRST, ALWAYS"* and
+`ensure_ready` promises *"Nothing else in the codebase may migrate an existing
+file"*, and both sentences were false of `init-db` — which is the command the
+product's own refusals send him to, from `databases/domain.py` and from
+`warehousemerge._same_shape`.
+
+**THE MEASUREMENT THAT SHOULD DECIDE THE DESIGN**, read-only against the live
+warehouse on 2026-08-22 with the profile crawl in flight — schema v9, 56 tables,
+506,464 rows, every table in exactly one population:
+
+    evidence   — cannot be recomputed        150,663   29.7%
+    derived    — recomputable, no network     355,235   70.1%
+    config     — the only conflict-prone        566    0.11%
+
+**The conflict surface is one-tenth of one percent of the file.**
+
+> ### ⚠ `merge-warehouse` CANNOT CARRY PRICE HISTORY, and nothing has asked it to yet — [`OP-50`](BACKLOG.md)
+>
+> **THE TWO COMMANDS THAT SETTLE IT, on the machine that is NOT this one:**
+> `scrapex merge-warehouse --status`, and `SELECT COUNT(*) FROM price_observation`.
+> Thirty seconds, and nothing on this machine can substitute for them.
+>
+> **The largest gap in the multi-device story, and stated at the width the
+> measurement supports.** `merge` inserts into exactly three tables and **has no
+> INSERT for any price table at all.** It covers 44,525 rows and leaves **106,138
+> evidence rows with no path** — **92,740 of them `price_observation`**, append-only
+> by trigger, spanning **2014-05-19 → 2026-08-16** over 608 distinct business dates,
+> with `raw_snapshot` holding **0 rows** so nothing can recompute them. `R-32`
+> already ruled that price is one category, not the whole thing; the tool built for
+> `R-43` covers only the other category.
+>
+> **Has anything been lost? Not on this side.** Nothing here was deleted or
+> overwritten — what is missing is a *route*, not rows. Whether the OTHER machine
+> holds history that never had one is not knowable from here: `merge` writes no
+> ledger row anywhere, and `crawl_run` has no `run_ref` column so a stored page
+> cannot be tied to a run. What is measurable: all 140 `crawl_run_ref` labels are
+> this machine's own on one continuous timeline, and the snapshot growth is entirely
+> the running profile crawl. **Nothing looks imported — and a merge that had run
+> would have carried 0% either way, which is a missing `INSERT` rather than a
+> deletion.**
+>
+> **Is it recoverable? Yes.** Append-only means nothing was deleted, a fixed merge is
+> insert-if-absent on a content-derived `record_hash`, and both restore paths displace
+> rather than erase. The only thing that could prevent it is the `init-db` defect
+> Phase 0 just fixed.
+>
+> **Smallest fix: ~15 lines** — count what no path carries and refuse, naming
+> **174,487 rows across 5 tables**. Then five `INSERT…SELECT`s once `Q-23` is
+> answered. Full working, with the obstacles measured one by one, in
+> [`OP-50`](BACKLOG.md) and at the top of the plan.
+
+**Not started, and gated on him:** `Q-19` (a client-generated key — 51 of 56 tables
+key on a rowid alias and **not one declares `AUTOINCREMENT`**; today it is an
+`ALTER TABLE` on 566 rows), `Q-20` (`seen_count`: `MAX` discards up to the whole of
+the other machine's 157,622 observations), `Q-21` (may retention destroy data by an
+automatic rule?), `Q-22` (`REQ-26` is not built and he believes it is), and `Q-23`
+(does a price observation keep the run that observed it when it crosses machines?
+`run_id` is NOT NULL on all 92,740 rows and `crawl_run` has no natural key).
+
+**Three defects found and filed, not fixed:** [`OP-50`](BACKLOG.md) above ·
+[`OP-45`](BACKLOG.md) — the merge's refusal tells the loser of a race to use
+`--force`, and **there is no `--force`** — and [`OP-49`](BACKLOG.md), `--claim`
+declared and never read.
+
+**And `scrapex/lease.py` has no production caller at all.** Its docstring opens
+*"DECISION 3: one device at a time, with restore"*; the only import in the
+repository is `tests/test_one_device_writes_at_a_time.py`. What is live is
+`scrapex_meta.checkout_holder` — set on this machine right now to `home-user01` at
+`2026-08-22T07:19:56Z` — and it has **no expiry**, so a machine that dies
+mid-session locks him out with no route back but editing a row by hand. The plan's
+Phase 1 moves `lease.py`'s expiry onto the live lock and deletes the file.
 
 ---
 

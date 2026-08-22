@@ -342,7 +342,7 @@ assert "export-docs" in text or "export-version" in text
 It was green for as long as it existed, and the document it guards said *"GENERATED
 — by `python -m scrapex.cli export-docs`"*. **There is no `export-docs`.** argparse
 answers `invalid choice: 'export-docs'` and lists the twenty-two real subcommands.
-The wrong name was in the generator itself, `scrapex/cli.py:302`, so the sentence
+The wrong name was in the generator itself, `scrapex/cli.py:459`, so the sentence
 was faithfully produced — and a reader following the repository's own instruction
 got an error.
 
@@ -1431,3 +1431,147 @@ stopped a 34,834-page approval dead, and both were measured before the parser wa
 wired rather than after: interests paired in **2,252 of 2,252** pairs, and the info
 box carried **11 distinct labels, all of them known** — no field was being silently
 dropped. Neither number was known when the profile parser was declared finished.
+## 12 · A checksum proves the bytes, never the thing
+
+Three findings from the Drive track, 2026-08-22, and they are one lesson: **every
+step on the backup path reported success by checking something adjacent to what
+mattered.**
+
+### `verify()` passed a warehouse SQLite could not read
+
+`bundle.verify` is thorough — every named file present, right size, right digest, no
+unnamed file, row counts re-counted from the files rather than trusted. And it could
+not have noticed a corrupt `warehouse.db`, because **a corrupt database has a
+perfectly valid checksum for its corrupt self.** A hash answers *"are these the bytes
+we wrote?"*, and the question a backup has to answer is *"can this be restored?"*
+
+The fix is one line — `PRAGMA quick_check(1)` — and the reason it was missing is
+worth more than the fix: the manifest looked like verification. Nothing in the
+codebase claimed the database was healthy; it was simply never asked.
+
+**Ask what the check would still pass with.** If the answer is "a file that cannot
+be opened", the check is about transport and something else has to be about content.
+
+### A digest computed before an upload and compared with nothing
+
+The engine hashes the archive on its own disk. `latest.json` carries that hex string.
+Until 2026-08-22 **no code on either side ever compared it with anything** —
+`fetchLatest` checked the byte count and never the digest. The one number in the
+pointer whose whole purpose was to prove the upload arrived intact was decoration for
+eleven days, and it *looked* like the strongest part of the design.
+
+Drive computes its own `sha256Checksum`, so the fix is one small request and the
+comparison is genuinely end to end rather than this module agreeing with itself.
+
+**A value written and never read is not a guard; it is a comment with a type.**
+`grep` for the consumer before believing a field protects anything.
+
+### The one documented route through a schema change was the route with no backup
+
+`cli._upgrade_what_is_only_behind` promises *"A BACKUP FIRST, ALWAYS"*.
+`registry.ensure_ready` promises *"Nothing else in the codebase may migrate an
+existing file"*. Both sentences were false of `scrapex init-db`, which migrates
+whatever is there and copies nothing — and `init-db` is **the command the product's
+own refusals name**, from `databases/domain.py`'s `Needs upgrade` action and from
+`warehousemerge._same_shape`.
+
+Measured on the owner's live warehouse: engine migrations `0004`…`0009` all stamped
+`2026-08-22T07:11:47Z`, a v3→v9 upgrade of a 1.1 GB file holding his only copy, and
+no `pre-upgrade` backup beside it. The guard existed, was well argued, and the
+product routed around it.
+
+**A guard on one path is a guard on one path.** When a protection is added to a
+caller, `grep` every other route to the thing being protected — and read the error
+messages, because a refusal that names a command has just made that command part of
+the procedure.
+
+### And four of five citations into one file were already wrong
+
+Changing `scrapex/cli.py` moved a `PINNED` citation and turned the guard red, which
+is what it is for. Checking the other four citations into that file found **three
+already wrong before this branch existed** — `:993` was `RUN_DUE_LOG.parent.mkdir`,
+`:1127` a parser help string, `:761` a blank line — and a fourth in `LESSONS.md`
+wrong since the day it was written. Tier 1 had passed all four, every time, because
+tier 1 only proves the line exists.
+
+**A citation that is not pinned is a citation nobody is checking.** §7 of this file
+says the same thing from the other direction; this is the measured recurrence.
+
+### And a PINNED citation can go red on `main` without either branch being wrong
+
+Found while rebasing this work on 2026-08-22, and the *correction* is the lesson
+rather than the drift.
+
+`#251` shifted `scrapex/webui/app.py` by fifteen lines. `#252` merged *after* it
+carrying a `PINNED` row written against the pre-`#251` file, so
+`scrapex/webui/app.py:2710` named `if source_key not in known:` when that line had
+moved to 2725 — and the guard's `WINDOW` is 3. **Both pull requests were green.
+Neither was wrong on its own base.** CI ran each against a tree that did not contain
+the other, which is exactly the blindness `test_the_registers_cannot_collide.py` was
+built for — except that guard watches register *numbers*, and this is the same
+failure in citation *line numbers*.
+
+**AND THE INTERESTING PART IS WHAT HAPPENED NEXT.** This branch measured that drift
+at `main = 5f63bb0`, wrote *"`main` is red on its own citation guard"*, and prepared
+a fix. By the time it was reported, **`#254` had merged and already fixed it** —
+`main` at `451468d` reads 2725. So a correction written from a one-hour-old reading
+of `main` was itself stale on arrival, in precisely the way the thing it was
+correcting had been. The claim was retracted rather than shipped, and #254's own
+note is the one that stands.
+
+The `scrapex/databases/domain.py` half of the same drift was real and stayed real:
+`:201` and `:297` had moved to `:206` and `:329`, no other branch was fixing them,
+and those corrections are this branch's.
+
+**So the rule is not "check the numbers". It is:**
+
+- **Re-derive after every rebase, computed from the file, never typed.** Find the
+  line the subject is actually on. It is a ten-line script and it removes the whole
+  class; typing them is how three citations in `BACKLOG.md` were already wrong
+  before any of this started.
+- **And re-derive against the base you are about to push onto, not the one you
+  rebased onto an hour ago.** A statement about `main` decays as fast as `main`
+  moves, which on 2026-08-22 was four merges in a day. `git fetch` first, then
+  measure, then claim.
+
+**Both halves are one rule: ask the base you are merging onto, at the moment you
+merge, and never carry an answer forward.** Whether the answer is a line number or
+a register number does not change the shape of the mistake.
+
+### The same day proved it a third time, in the register instead of the citation
+
+Four sessions renumbered past each other on 2026-08-22. The board was read
+correctly by everyone and was stale for everyone:
+
+| what was believed | what was true |
+|---|---|
+| `REQ-30` was reserved by an open branch | it was **already on `main`** (#252) |
+| `REQ-33` was held by the coordinator's branch | it was **#255's** |
+| `OP-47`/`OP-48` were free — in every pushed ref | **#256 had filed both**, unpushed at the time |
+
+**The third row is the one worth keeping.** They were free in all 164 refs a scan
+could see, and taking them would still have collided. **An unpushed claim is
+invisible and still real**, so the cheap move is to step over a number you have
+been *told* about rather than to win the argument with a grep. Two skipped numbers
+cost nothing; a collision costs somebody a merge.
+
+### And the guard against one failure is what exposes you to the other
+
+`R-22` says the suite finishes before the pull request opens, and this file's own
+habit is *do not touch the tree while the suite runs* — so the green describes the
+tree that gets committed. Both are right, and together they have a cost nobody had
+priced: **the work sits uncommitted for exactly as long as the suite takes.** On
+2026-08-22 that was 2,159 insertions across 16 files living only in the index for
+forty-five minutes, twice over, with the pushed branch still pointing at a
+pre-rebase commit. A worktree removal or one bad reset would have taken all of it.
+
+**So: commit first, run the suite against the commit, and amend if it fails.** A
+commit is recoverable — `git reflog`, `git stash create`, a safety ref — and a
+staged index is not. It costs nothing: an amended commit is the same commit, and
+the green still describes exactly the tree that gets pushed.
+
+**The shape is general and worth naming, because it will recur:** a practice
+adopted to prevent one failure can create a second one, and only stating both makes
+the practice safe. *"Never touch the tree while the suite runs"* is sound advice
+that quietly means *"hold everything you have done somewhere unrecoverable"* until
+you pair it with *"commit before you run"*.

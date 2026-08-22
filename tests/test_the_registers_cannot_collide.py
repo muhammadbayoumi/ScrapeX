@@ -93,12 +93,22 @@ def test_no_two_entries_share_a_number(document: str, prefix: str, what: str):
 #: and the next session reads WHOSE it is instead of reusing it. **Delete the row when that
 #: pull request merges** — a reservation left behind is a permanent hole nobody owns.
 RESERVED: dict[str, dict[int, str]] = {
+    # THE HOLES THIS BRANCH LEAVES, 2026-08-22, read from 164 refs rather than from
+    # a handover — which is the point, because the handover was wrong twice in one
+    # afternoon and in both directions: it missed that `REQ-30` was already ON main,
+    # and it claimed `REQ-33` for a branch that turned out not to hold it.
+    #
+    # `OP-47` AND `OP-48` ARE FREE IN EVERY PUSHED BRANCH and are stepped over anyway.
+    # A session was reported to hold them and has not pushed; the same kind of claim
+    # about `REQ-33` proved real, just attached to a different branch. An unpushed
+    # number is invisible and still taken, so two skipped numbers cost nothing and a
+    # collision costs a merge.
     "R": {},
-    "REQ": {},
-    # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
-    # gone with it — which is the rule the comment above states: a row left behind is a
-    # permanent hole nobody owns.
-    "OP": {},
+    "REQ": {33: "#255 fix/a-dataset-says-when-it-was-crawled"},
+    "OP": {44: "#255 fix/a-dataset-says-when-it-was-crawled",
+           46: "claude/dry-code-review-ed3756 — the duplicated custom <select>",
+           47: "a DRY-review session, reported but not pushed",
+           48: "a DRY-review session, reported but not pushed"},
     "DEC": {},
 }
 
