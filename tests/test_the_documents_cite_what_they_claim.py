@@ -379,9 +379,22 @@ def test_no_citation_lands_on_a_blank_line(index):
     by reading the target file, so this assertion goes green on a correct tree
     rather than arriving red and being negotiated with.
 
-    The end of a range is not checked: a citation may legitimately span a blank
-    line inside a block. Only the line the reader is actually sent to must say
-    something.
+    Three of 161 also settles a question nobody needed to argue: this was NOT
+    added on a hunch about what might drift one day. The class already had three
+    tenants, and the guard was written from a measurement rather than from a fear.
+
+    THE END OF A RANGE IS DELIBERATELY NOT CHECKED. A citation may legitimately
+    span a blank line inside a block, so only the line the reader is actually SENT
+    to has to say something. Checking both ends would look stricter and would be
+    right less often -- which is the worse trade in a guard, because a check that
+    fails on correct input is one people learn to route around.
+
+    AND THE MUTATION TEST FOR THIS ONE GOES ON THE DATA, NOT ON THE ASSERTION.
+    Reverting one of the three corrections above makes this fail and name that
+    citation; that is how it was proved non-vacuous. The shape is deliberate: here
+    the guard's possible defect and the data's actual defect are the same shape --
+    a line that resolves and says nothing -- so mutating a fix exercises the real
+    path, where mutating the assertion would only prove that an `assert` asserts.
     """
     empty = []
     for doc, where, raw, line, _end in _citations():
