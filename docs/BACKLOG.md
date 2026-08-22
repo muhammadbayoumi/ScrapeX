@@ -1718,10 +1718,51 @@ already makes a private one free, and `R-24`'s repair path (`carry_over`) exists
 Recorded as `Q-15`.
 
 
-### OP-42 · A generic dataset card offers no actions at all, and one of the six would work
+### OP-42 · ~~A generic dataset card offers no actions at all, and one of the six would work~~ — FIXED 2026-08-22, and he asked for it before the fix was scheduled
 
-**Status: OPEN. Found 2026-08-22, in the same screenshots as the double-⋮ defect,
-and it is a SEPARATE cause from it.**
+**Status: CLOSED. Fixed the same day it was recorded, because he read the same
+screenshot and asked for it in his own words: «ال 3 نقاط لا تظهر فى كارد مقاول» —
+`REQ-33` in [REQUESTS.md](REQUESTS.md#req-33--the-three-dots-do-not-appear-on-a-contractor-card).**
+
+**What shipped, and it is not the narrow fix this entry proposed.** The entry
+suggested "a per-entry predicate rather than gating the whole menu on `kind`". A
+per-entry predicate is still a hand-written claim about somebody else's routing,
+which is the exact thing that rotted here — the blanket hide was right when it was
+written and wrong ten days later, and nothing noticed. So each action now declares
+**the engine route it drives** and **a proof of what that route does with a dataset
+key**, and `tests/test_a_dataset_card_offers_what_works.py` CALLS every one of them
+against a real approved dataset. Both directions are asserted: an action that is
+offered must answer 2xx and carry rows, and an action that is withheld must be
+proven unable. The engine's behaviour decides; the panel's list is a mirror that
+cannot silently stop matching.
+
+**Measured, and this is the whole answer to "which of the six":**
+
+| action | route it drives | with a dataset key | offered? |
+|---|---|---|---|
+| `table` | `GET /api/table/{key}` | **200**, 4 rows, 25 columns | **yes** |
+| `sheet` | `GET /api/export/{key}` | 404 `no source called 'contractors'` | no |
+| `update` | `POST /api/jobs` | 404 `unknown source_key` | no |
+| `pause` | `POST /api/sources/{key}/active` | 404 `unknown source` | no |
+| `settings` | `GET /sources/{key}` | 404 — **and the route does not exist for anyone**, see `OP-44` | no |
+| `changes` | `GET /source/{key}` | 200, and **no changes section on the page** | no |
+
+One live row, no greyed rows — which is his other ruling of the same day, recorded
+under `REQ-34`: a menu of dead entries is the "button that cannot work" this menu's
+own comment already rejected.
+
+**And the hole this entry predicted was real.** It said the guard "currently points
+the other way" because the harness stub had no dataset-kind source. Adding one made
+`test_dataset_action_opens_the_workspace_directly` fail immediately — 2 triggers
+against 3 cards — so the false rule was executed for the first time on 2026-08-22.
+The stub carries a dataset permanently now, which is what stops it recurring, and
+it surfaced two more places the same way: `OP-44` and `OP-45`.
+
+**The original entry is kept below in full, because its diagnosis is what the fix
+was built on.**
+
+**Status when written: OPEN. Found 2026-08-22, in the same screenshots as the
+double-⋮ defect, and it is a SEPARATE cause from it.**
 
 **He asked about one thing in that screenshot; this is the other thing in it.** His
 question was «لماذا تظهر مرتين» — a `⋮` appearing twice, a stacking-context bug,
@@ -1731,8 +1772,9 @@ the two `muqawil.org` cards carry none. So it belongs here and not in
 [REQUESTS.md](REQUESTS.md) — we found it.
 
 **That absence is deliberate, and it is written down in both halves.**
-`sourceMenu` returns an empty string for a dataset
-([extension/app.js:4549](../extension/app.js#L4549)), and the engine stamps the
+`sourceMenu` returned an empty string for a dataset — the line is gone, and what
+stands where it stood is the filter that replaced it
+([extension/app.js:4595](../extension/app.js#L4595)) — and the engine stamps the
 marker it keys on precisely so the panel can do that — `"kind": "dataset"` in
 `_dataset_rows`, whose docstring says *"the row menu offers Update, Wipe and
 Rename, and every one of those is a price-path action that would answer 400 or
@@ -2121,6 +2163,71 @@ equality `.modal-veil` depends on is expressed instead of commented, and lowerin
 instruction. The change is three lines and behaviour-neutral; it should land as its own
 change once that file is quiet, together with the static guard above so the fix arrives
 with the thing that keeps it. It does **not** need to wait for `OP-47`.
+
+### OP-44 · Two of the six source-menu entries lead nowhere, and not only for datasets
+
+**Status: OPEN. Measured 2026-08-22 while proving which actions a dataset card may
+offer — these two are broken for PRICE sources too, which is why they are here and
+not folded into `OP-42`.**
+
+Every entry of `SOURCE_ACTIONS` was called against a running engine. Four behave.
+Two do not, and neither failure has anything to do with datasets:
+
+| entry | what it opens | what is there |
+|---|---|---|
+| **Source settings** | `/sources/{key}` | **no such route exists.** Measured: `[p for p in app.routes if p.startswith("/sources")]` is empty, and the request answers `404 Not Found` for a price key and a dataset key alike |
+| **Recent changes** | `/source/{key}#changes` | the page renders, and **`id="changes"` exists nowhere in the repository** — `grep -rn 'id="changes"' scrapex/ extension/` returns nothing. The fragment is ignored, so the entry lands at the top of the source page |
+
+**The changes page it should be opening already exists**: `GET /changes?source_key=`
+is a real route (`scrapex/webui/app.py:1223`) and answers 200. So this is a wrong
+URL rather than a missing feature — one line, but it changes what a card does on
+his screen, which is why it was recorded instead of fixed inside a PR about the
+three dots.
+
+**Source settings has no obvious right answer, which is the part for him.** There is
+no engine page for one source's settings; the panel has its own Source manager view
+(`data-view="sources"`) with an editor in it. Whether the entry should open that
+panel view, or the engine should grow the page, is a product decision.
+
+**Why the guard did not catch these.** `tests/test_a_dataset_card_offers_what_works.py`
+proves what each route does with a DATASET key, and both of these are correctly
+withheld from a dataset card — `settings` because it 404s, `changes` because the page
+carries no changes section. Withholding them for the right reason is exactly what
+that file asserts. Nothing yet asserts that an entry offered on a PRICE card reaches
+something, and that is the guard this entry is asking for.
+
+
+### OP-45 · A dataset appears on two more screens whose only controls cannot touch it
+
+**Status: OPEN. Measured 2026-08-22, and found by the stub rather than by reading —
+this is what the dataset-kind row in `tools/panel_harness.py` bought.**
+
+`OP-42` was about the Data screen's cards. The same `kind: "dataset"` row shows the
+same class of defect on two others, both driven from the same `/api/sources` listing:
+
+| screen | what it offers a dataset | what happens |
+|---|---|---|
+| **Run** (`#sites`) | an ENABLED checkbox, alongside the price sources | `POST /api/jobs` answers **404 `unknown source_key 'contractors'`**. The crawl a dataset needs is `scrapex contractors`, a CLI command with no panel path — `REQ-24` closed the command and says the panel path is still missing |
+| **Source manager** (`#source-manager-list`) | a card, counted in "4 of 4", whose only control is **Edit** | the editor posts to `/api/sources/{key}/edit`, a manifest route. A dataset is not in the manifest |
+
+Measured directly, with the panel driven against a stub carrying the dataset:
+
+    Run screen rows:  LONG_AR(enabled) SHORT(enabled) NOT_READY(disabled)
+                      contractors(ENABLED)
+    Source manager:   "4 of 4", four cards, every card's only button "Edit"
+
+**Note what the Run screen already knows how to do**: `NOT_READY` is rendered
+DISABLED with "Not supported yet" on it, because `implemented` is false. So the
+screen has a mechanism for "listed but not runnable" and a dataset is not using it —
+the engine reports `implemented: True` for a dataset (`_dataset_rows`), which is true
+of the DATASET and false of the crawl. That is the cheap fix if he wants one, and it
+is a decision about what `implemented` means rather than a bug in either screen.
+
+**Deliberately not fixed with `OP-42`.** That fix changed what one card's menu
+offers, on his direct request, and left every other screen's behaviour alone. These
+two change what two more screens offer, and the `test_panel_dom.py` line that counts
+"4 of 4" carries a comment saying so, so that nobody closes this by shrinking the
+stub back.
 
 ## 3. Decided, not yet built
 
