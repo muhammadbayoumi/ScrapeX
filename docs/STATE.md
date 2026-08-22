@@ -180,6 +180,17 @@ tracks *his requests* through Captured → Ruled → Planned → In flight → D
 
 ## Open pull requests
 
+**A DRY review of `#252` recorded `OP-46` — documentation only, no code touched.**
+The review of the double-`⋮` fix followed that PR's own comment to the three
+popovers it named as its layer precedent, and found that two of them are one
+component written twice: `setupFinanceConverterSelect` and `setupRunModeSelect`
+share a state machine whose `focusOption` is character-identical after normalising
+one identifier. Nothing is broken — it is filed as cost, with the narrow fix and the
+proof it must carry. **This branch is from a SECONDARY session and does not merge
+itself** (`R-42`); `OP-46` was assigned by the primary session, and `44`/`45` are
+declared in `RESERVED` in `tests/test_the_registers_cannot_collide.py` because
+another session holds them unpushed — **delete those two rows when it lands.**
+
 **The three-dots button appeared twice on a source card.** `REQ-30`, «لماذا تظهر
 مرتين», reported with screenshots on 2026-08-22 and fixed the same day. One CSS
 rule: `.dataset-card > .split-button` carried `z-index: 1`, which made every card's

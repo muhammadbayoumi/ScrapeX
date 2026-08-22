@@ -98,7 +98,16 @@ RESERVED: dict[str, dict[int, str]] = {
     # #246 merged on 2026-08-22 and brought its own 39 and 40, so the reservation is
     # gone with it — which is the rule the comment above states: a row left behind is a
     # permanent hole nobody owns.
-    "OP": {},
+    #
+    # 44 and 45 are held by the Drive/sync session, which had been assigned them and had
+    # not pushed when `OP-46` was written on 2026-08-22. The primary session assigned 46
+    # rather than 44 for exactly that reason, and a skipped number is only legitimate
+    # when it is declared — so it is declared here. DELETE BOTH ROWS the moment that
+    # pull request merges and brings its own headings.
+    "OP": {
+        44: "the Drive/sync session, rebasing 2026-08-22",
+        45: "the Drive/sync session, rebasing 2026-08-22",
+    },
     "DEC": {},
 }
 

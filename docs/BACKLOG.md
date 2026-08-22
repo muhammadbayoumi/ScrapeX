@@ -1773,6 +1773,128 @@ Deliberately not done inside the double-⋮ fix: that one is a CSS stacking bug
 with a hit test to prove it, and this one changes what the panel offers, which is
 the owner's call under `R-32`'s reading of what a dataset is.
 
+### OP-46 · The custom `<select>` is built twice, and `focusOption` is character-identical in both
+
+**Status: OPEN. Found 2026-08-22 by a DRY review of `#252`.** That PR's own comment
+names `.sx-select-list`, `.account-menu` and `.finance-converter-options` as the
+overlay-layer precedent it was following. Reading the three together to check the
+claim turned up something the PR did not raise: two of them are not dropdowns that
+merely look alike. They are **one component written twice**.
+
+**Nothing is broken today, and this entry says so before anything else.** Both
+dropdowns work, both are keyboard-operable, no screenshot produced this and no user
+saw it. What is duplicated is the *state machine*, and the cost is that every future
+fix to it has two homes.
+
+**The two implementations**, each mirroring a native `<select>` and replacing its
+popup:
+
+| | finance converter | run mode |
+|---|---|---|
+| entry point | `setupFinanceConverterSelect` ([extension/app.js:956](../extension/app.js#L956)) | `setupRunModeSelect` ([extension/app.js:2008](../extension/app.js#L2008)) |
+| `close({restoreFocus})` | adds `hidden`, `aria-expanded=false`, removes `is-open`, restores focus | same four steps, same order |
+| `open()` | removes `hidden`, `aria-expanded=true`, adds `is-open`, `requestAnimationFrame` then focuses selected-or-first with `preventScroll` | same five steps, same order |
+| `choose(value)` | validates against `select.options`, assigns, dispatches bubbling `change`, closes with `restoreFocus: true` | same four steps, same order |
+| `focusOption(direction)` | **identical** — see below | **identical** |
+
+**`focusOption` is the same function, measured rather than eyeballed.** Normalise
+the candidate-list identifier (`choices` / `enabled`) and the one expression that
+builds that list, and the two bodies are **character-identical** — the guard, the
+`indexOf(document.activeElement)`, the `aria-selected` lookup, the
+`current >= 0 ? current : Math.max(selected, 0)` fallback and the
+`(start + direction + n) % n` wrap:
+
+```
+function focusOption(direction = 1) {const OPTS = BUTTONS;if (!OPTS.length) return;
+const current = OPTS.indexOf(document.activeElement);const selected = OPTS.findIndex(
+(button) => button.getAttribute("aria-selected") === "true");const start =
+current >= 0 ? current : Math.max(selected, 0);OPTS[(start + direction + OPTS.length)
+% OPTS.length].focus({preventScroll: true});}
+```
+
+**And the CSS is the same surface twice**, counted by declaration after stripping
+comments:
+
+| pair | identical | differ |
+|---|---|---|
+| `.sx-select-list` (14) vs `.finance-converter-options` (15) | **10** | `max-height`, the `inset` shorthand vs `inset-block`/`inset-inline`, one animation, two scrollbar properties |
+| `.sx-select-option` (13) vs `.finance-converter-option` (16) | **10** | `gap`, `min-height`, `border-radius`, three font properties |
+
+Both popovers share `position`, `z-index: var(--z-overlay)`, `display: grid`,
+`gap: 2px`, `padding`, `overflow-y`, `border`, `border-radius`, `background` and
+`box-shadow` — the same ten. This is the shape `UI-2` already ruled on: `.icon-tile`
+was extracted at **six** identical declarations across three sheets, and this is ten
+across two blocks of one sheet.
+
+**What looks like drift and is NOT — the part that decides the severity.** A first
+reading of this made it look as though the two copies had already diverged in
+accessibility. They have not, and the difference is requirement-driven:
+
+* Run mode disables options **individually**, because which run modes are on offer
+  depends on the selection — `for (const option of select.options) option.disabled =
+  !allow[option.value]` ([extension/app.js:2173](../extension/app.js#L2173)). Its
+  `focusOption` filters disabled candidates because it genuinely has some.
+* The finance converter disables **the whole control** when there are no stored
+  rates — `select.disabled = !state.financeRates.length`
+  ([extension/app.js:1141](../extension/app.js#L1141)) — and mirrors that onto the
+  trigger inside `sync()`. It never has a disabled option, so it has nothing to
+  filter.
+* Type-ahead exists only on the finance side, and a currency list needs it where
+  four run modes do not.
+
+So this is **not** a case of one copy having been fixed and the other missed. It is
+a shared core with three honest local differences, which is why it is filed here as
+cost rather than as a defect.
+
+**One difference is accidental, and it is the whole argument in miniature.** Run
+mode's `close()` opens with an early return when the list is already hidden; the
+finance copy has no such guard. Nobody decided that. It is what a duplicated state
+machine does over time, and it is the second edit — not this one — that will hurt.
+
+**The narrow fix, and it is deliberately narrow.** Extract only the shared state
+machine — `open`, `close`, `focusOption`, `choose` — to `design/select.js`, on the
+exact precedent the repository already set for this class of problem:
+`design/split-button.js` exists because *"the dataset Export control and the
+Activity panel's log control cannot become two implementations"*
+([tools/sync_design_assets.py:26](../tools/sync_design_assets.py#L26)), it is
+distributed to both surfaces through `ASSETS`, and the copies are held byte-equal by
+`sync(check=True)` in
+[tests/test_design_system.py:16](../tests/test_design_system.py#L16). The
+candidate-set predicate and the optional type-ahead are passed in.
+
+**Do not merge `sync()`.** Rendering the options genuinely differs — one writes a
+`<span>` plus a check icon, the other a label and a tick with different tokens — and
+that is the part that should stay local. Nor should `.account-menu` or
+`.split-button-options` be folded into the CSS half: their surfaces really are
+different (`--line` / `--surface-raised` and `--line-strong` / `--surface` /
+`--radius` against the two dropdowns' `--outline-variant` /
+`--surface-container-high` / `--radius-lg`). Pulling all four together is the wrong
+abstraction that `UI-2`'s closing rule warns about.
+
+**Proof it must carry**: `tools/style_snapshot.py` across both surfaces, with no
+computed style changed anywhere — the same evidence `UI-2` used, and the same reason
+screenshots cannot supply it.
+
+**Why it is not done in this pull request.** Three sessions were open on 2026-08-22
+and one of them is editing `extension/app.js` and `extension/app.css`; a behaviour
+extraction across those two files from a secondary session is how the register
+collisions of 2026-08-21 happened. It also adds a **third** shared JS module to a
+surface the owner has opinions about, which is his call and not a reviewer's.
+
+**Its citations are deliberately NOT in `PINNED`.** Every line above points into
+`extension/app.js`, which this branch does not touch and another session was editing
+when this was written. `main` went red on 2026-08-22 from exactly that shape, and the
+account is recorded beside the row it broke
+([tests/test_the_documents_cite_what_they_claim.py:202](../tests/test_the_documents_cite_what_they_claim.py#L202)):
+`#252` measured a line in `app.py` correctly on its own base, `#251` landed first and
+added fifteen lines above it, and because **no file was changed by both**, git found
+nothing to conflict on and neither suite could see the other. "Check whether the
+files overlap" is the reflex that fails here.
+
+Tier 1 still guards these seven citations, and that was proved rather than assumed —
+the guard's own `CITATION` pattern extracts all seven from this entry and every one
+resolves to a real file and a real line. Pin them when `extension/app.js` is quiet,
+and pin `setupFinanceConverterSelect` and `setupRunModeSelect` first.
 
 ## 3. Decided, not yet built
 
