@@ -184,3 +184,61 @@ def list_relationships(
         ],
         "next_after_id": page[-1]["dataset_relationship_id"] if has_more else None,
     }
+
+
+def review_relationship(
+    conn: sqlite3.Connection, site_key: str, relationship_key: str, *,
+    status: RelationshipReviewStatus | str,
+) -> dict[str, Any]:
+    """The owner's verdict on a proposed relationship.
+
+    WHY THIS DID NOT EXIST, AND WHY THAT WAS A REAL GAP. `dataset_relationship`
+    declares three review states in its CHECK constraint — `suggested`, `confirmed`,
+    `rejected` — and `propose_relationship` writes `SUGGESTED` as a literal. Nothing in
+    the codebase ever wrote either of the other two, so **two thirds of a vocabulary the
+    schema enforces were unreachable**, and the owner's decision about a relationship
+    could not be recorded at all: he could say "link them" and there was nowhere for the
+    answer to go.
+
+    IT IS SEPARATE FROM `propose_relationship` ON PURPOSE, and that module's docstring
+    already said so — *"this path can never confirm it"*. An inference and a decision are
+    different facts with different authors, and a function that could do both would let a
+    guess arrive already blessed. `R-42`'s shape, one level down: whoever proposes is not
+    whoever decides.
+
+    A RETIRED RELATIONSHIP IS NOT REVIEWABLE. `valid_to` means the relationship is
+    history; confirming history would make it live again through a side door, and
+    `propose_relationship` already refuses to touch a retired key for the same reason.
+    """
+    verdict = RelationshipReviewStatus(status)
+    site = _site_row(conn, site_key)
+    row = conn.execute(
+        "SELECT * FROM dataset_relationship "
+        " WHERE site_profile_id = ? AND relationship_key = ?",
+        (site["site_profile_id"], relationship_key),
+    ).fetchone()
+    if row is None:
+        raise CatalogConflict(
+            f"no relationship {relationship_key!r} for site {site_key!r} to review; "
+            "propose it first")
+    if row["valid_to"] is not None:
+        raise CatalogConflict(
+            f"relationship_key {relationship_key!r} is retired; reactivate it "
+            "explicitly before reviewing it")
+    conn.execute(
+        "UPDATE dataset_relationship "
+        "   SET review_status = ?, "
+        # The timestamp moves because the VERDICT is what changed, and a reader asking
+        # "when was this decided" has nowhere else to look.
+        "       updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') "
+        " WHERE dataset_relationship_id = ?",
+        (verdict.value, int(row["dataset_relationship_id"])),
+    )
+    fresh = conn.execute(
+        "SELECT * FROM dataset_relationship WHERE dataset_relationship_id = ?",
+        (int(row["dataset_relationship_id"]),),
+    ).fetchone()
+    relationship_id = int(row["dataset_relationship_id"])
+    return _relationship_public(
+        fresh, _relationship_pairs(conn, [relationship_id])[relationship_id]
+    )

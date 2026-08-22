@@ -1413,7 +1413,22 @@ def create_app(
         databases = None
         if app.state.databases is not None:
             try:
-                states = app.state.databases.health()
+                # NO CORRUPTION SCAN ON A TIMED POLL. `quick_check(1)` and
+                # `foreign_key_check` are O(file size) — measured at 0.879 s and
+                # 0.398 s on a 1,067 MB warehouse — and the panel polls this
+                # endpoint on a timer with a 2.5 s deadline
+                # (`extension/startup.js`, `engineHealth`). At 796 MB the whole
+                # endpoint fitted inside it; after a merge took the file to
+                # 1,067 MB it answered in 3.8 s, the deadline expired, and the
+                # panel reported the engine as "Not detected" — while it was
+                # healthy and serving 0.3.0.
+                #
+                # The poll asks IDENTITY: readable, right version, right kind.
+                # Corruption is the Storage page's question, it does not develop
+                # between two polls seconds apart, and the result carries
+                # `integrity_checked=False` so the narrower claim is visible
+                # rather than implied.
+                states = app.state.databases.health(integrity=False)
                 databases = {
                     "ok": all(item["ok"] for item in states.values()),
                     "detail": ", ".join(

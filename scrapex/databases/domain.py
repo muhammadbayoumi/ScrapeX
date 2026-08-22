@@ -120,6 +120,11 @@ class DatabaseHealth:
     action: str
     schema_version: int | None
     application_id: int | None
+    #: Whether the CORRUPTION scan ran. False on the panel's timed poll, which
+    #: asks a different question and cannot afford this one — see `health`.
+    #: Reported rather than implied, because "Healthy" would otherwise mean two
+    #: different things depending on who asked.
+    integrity_checked: bool = True
 
     def public(self) -> dict[str, Any]:
         return asdict(self)
@@ -234,20 +239,46 @@ class DomainDatabase(Generic[T]):
             finally:
                 conn.close()
 
-    def health(self) -> DatabaseHealth:
+    def health(self, *, integrity: bool = True) -> DatabaseHealth:
+        """What is wrong with this database, if anything.
+
+        `integrity=False` SKIPS THE CORRUPTION SCAN, and the reason is measured.
+        `PRAGMA quick_check(1)` and `pragma_foreign_key_check` are O(FILE SIZE):
+        on the owner's warehouse at 1,067 MB they cost **0.879 s and 0.398 s**,
+        and `/api/health` calls this on every timed poll from the panel. At
+        796 MB the whole endpoint fitted inside the extension's 2.5 s deadline
+        (`extension/startup.js` `engineHealth`); after a merge took the file to
+        1,067 MB it answered in **3.8 s** and the panel reported the engine as
+        "Not detected" — while the engine was healthy and serving on 0.3.0.
+
+        THE SPLIT IS A RULE THIS CODEBASE ALREADY STATES, not a new one:
+        `storage.py:_warehouse_identity` says *"Integrity and identity are
+        deliberately separate checks."* A timed poll asks identity — is it
+        readable, at the version this build expects, and the right kind of file.
+        Corruption is a different question, it does not develop between two polls
+        seconds apart, and asking it on a timer costs a full file scan every few
+        seconds for an answer nobody changed.
+
+        `integrity_checked` rides on the result so the two answers are never
+        confused: "Healthy" without a scan is a narrower claim than "Healthy"
+        with one, and a caller that needs the wider one must ask for it.
+        """
         if not self.path.is_file():
             return DatabaseHealth(
                 self.kind, str(self.path), False, "Missing",
                 "Reconnect the storage containing this database, then retry.",
-                None, None,
+                None, None, integrity_checked=integrity,
             )
         try:
             conn = self.connect()
             try:
-                quick = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
-                fk_problem = conn.execute(
-                    "SELECT 1 FROM pragma_foreign_key_check LIMIT 1"
-                ).fetchone()
+                if integrity:
+                    quick = conn.execute("PRAGMA quick_check(1)").fetchone()[0]
+                    fk_problem = conn.execute(
+                        "SELECT 1 FROM pragma_foreign_key_check LIMIT 1"
+                    ).fetchone()
+                else:
+                    quick, fk_problem = "ok", None
                 version = int(conn.execute("PRAGMA user_version").fetchone()[0])
                 app_id = int(conn.execute("PRAGMA application_id").fetchone()[0])
             finally:
@@ -256,11 +287,12 @@ class DomainDatabase(Generic[T]):
                 return DatabaseHealth(
                     self.kind, str(self.path), False, "Failed",
                     "Restore this database from a verified backup, then retry.",
-                    version, app_id,
+                    version, app_id, integrity_checked=integrity,
                 )
             return DatabaseHealth(
                 self.kind, str(self.path), True, "Healthy",
                 "No action is required.", version, app_id,
+                integrity_checked=integrity,
             )
         except DatabaseMigrationError as exc:
             # A database whose schema does not match this build is unusable, but
